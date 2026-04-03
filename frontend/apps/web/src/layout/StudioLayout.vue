@@ -1,11 +1,14 @@
 <template>
   <StudioShell
     :menus="studioMenus"
-    :active-path="route.path"
+    :active-path="activeMenuPath"
     :title="pageTitle"
     :subtitle="pageSubtitle"
-    mode-label="Web Runtime"
+    :mode-label="t('shell.webRuntime')"
+    :locale="locale"
+    :locale-options="localeOptions"
     @navigate="router.push($event)"
+    @locale-change="handleLocaleChange"
     @logout="handleLogout"
   >
     <router-view />
@@ -16,18 +19,41 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { StudioShell } from "@studio/ui";
-import { studioMenus } from "@/router";
+import { persistStudioLocale, resolveStudioLocale } from "@studio/i18n";
+import { useI18n } from "vue-i18n";
+import { resolveStudioMenus } from "@/router";
 import { useAuthStore } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const { locale, t } = useI18n();
 
-const pageTitle = computed(() => String(route.meta.title ?? "Data Aggregation Studio"));
-const pageSubtitle = computed(() => {
-  const subtitle = String(route.meta.subtitle ?? "Web-first orchestration and metadata center");
-  return authStore.username ? `${subtitle} Logged in as ${authStore.username}.` : subtitle;
+const studioMenus = computed(() => resolveStudioMenus(t));
+const activeMenuPath = computed(() => {
+  const matched = studioMenus.value.find((item) => route.path === item.path || route.path.startsWith(`${item.path}/`));
+  return matched?.path ?? route.path;
 });
+const localeOptions = computed(() => [
+  { value: "en-US", label: t("common.locales.en") },
+  { value: "zh-CN", label: t("common.locales.zh") },
+]);
+
+const pageTitle = computed(() => {
+  const titleKey = typeof route.meta.titleKey === "string" ? route.meta.titleKey : "app.name";
+  return t(titleKey);
+});
+const pageSubtitle = computed(() => {
+  const subtitleKey = typeof route.meta.subtitleKey === "string" ? route.meta.subtitleKey : "shell.defaultSubtitle";
+  const subtitle = t(subtitleKey);
+  return authStore.username ? t("common.loggedInAs", { subtitle, username: authStore.username }) : subtitle;
+});
+
+function handleLocaleChange(nextLocale: string) {
+  const resolvedLocale = resolveStudioLocale(nextLocale);
+  locale.value = resolvedLocale;
+  persistStudioLocale(resolvedLocale);
+}
 
 function handleLogout() {
   authStore.logout();

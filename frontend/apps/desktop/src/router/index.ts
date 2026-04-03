@@ -3,51 +3,133 @@ import type { StudioNavItem } from "@studio/ui";
 import { useDesktopAuthStore } from "@/stores/auth";
 import DesktopLayout from "@/layout/DesktopLayout.vue";
 
-export const desktopMenus: StudioNavItem[] = [
-  { label: "Offline Home", path: "/home", caption: "Local runtime overview" },
-  { label: "Projects", path: "/projects", caption: "Import and export bundles" },
-  { label: "Runtime", path: "/runtime", caption: "Local execution and docs" },
+interface DesktopMenuDescriptor {
+  path: string;
+  labelKey: string;
+  captionKey: string;
+}
+
+export const desktopMenuDescriptors: DesktopMenuDescriptor[] = [
+  { path: "/dashboard", labelKey: "routes.web.dashboard.title", captionKey: "routes.web.dashboard.menuCaption" },
+  { path: "/catalog", labelKey: "routes.web.catalog.title", captionKey: "routes.web.catalog.menuCaption" },
+  { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
+  { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
+  { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
+  { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
+  { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
+  { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
 ];
+
+export function resolveDesktopMenus(t: (key: string) => string): StudioNavItem[] {
+  return desktopMenuDescriptors.map((item) => ({
+    path: item.path,
+    label: t(item.labelKey),
+    caption: t(item.captionKey),
+  }));
+}
 
 const routes: RouteRecordRaw[] = [
   {
     path: "/login",
+    name: "login",
     component: () => import("@/views/DesktopLoginView.vue"),
     meta: {
       public: true,
-      title: "Desktop Sign In",
+      titleKey: "routes.desktop.login.title",
+      subtitleKey: "routes.desktop.login.subtitle",
     },
   },
   {
     path: "/",
     component: DesktopLayout,
-    redirect: "/home",
+    redirect: "/dashboard",
     children: [
       {
-        path: "/home",
-        component: () => import("@/views/DesktopHomeView.vue"),
+        path: "/dashboard",
+        name: "dashboard",
+        component: () => import("@web/views/DashboardView.vue"),
         meta: {
-          title: "Offline Home",
-          subtitle: "The desktop runtime keeps execution local and synchronization explicit.",
+          titleKey: "routes.web.dashboard.title",
+          subtitleKey: "routes.web.dashboard.subtitle",
         },
       },
       {
-        path: "/projects",
-        component: () => import("@/views/DesktopProjectsView.vue"),
+        path: "/catalog",
+        name: "catalog",
+        component: () => import("@web/views/CatalogView.vue"),
         meta: {
-          title: "Projects",
-          subtitle: "Exchange definitions through import and export bundles instead of automatic sync.",
+          titleKey: "routes.web.catalog.title",
+          subtitleKey: "routes.web.catalog.subtitle",
         },
       },
       {
-        path: "/runtime",
-        component: () => import("@/views/DesktopRuntimeView.vue"),
+        path: "/metadata",
+        name: "metadata",
+        component: () => import("@web/views/MetadataSchemasView.vue"),
         meta: {
-          title: "Runtime",
-          subtitle: "Inspect local runtime mode, offline execution posture and API endpoints.",
+          titleKey: "routes.web.metadata.title",
+          subtitleKey: "routes.web.metadata.subtitle",
+        },
+      },
+      {
+        path: "/datasources",
+        name: "datasources",
+        component: () => import("@web/views/DatasourcesView.vue"),
+        meta: {
+          titleKey: "routes.web.datasources.title",
+          subtitleKey: "routes.web.datasources.subtitle",
+        },
+      },
+      {
+        path: "/models",
+        name: "models",
+        component: () => import("@web/views/ModelsView.vue"),
+        meta: {
+          titleKey: "routes.web.models.title",
+          subtitleKey: "routes.web.models.subtitle",
+        },
+      },
+      {
+        path: "/models/:modelId",
+        name: "model-detail",
+        component: () => import("@web/views/ModelsView.vue"),
+        meta: {
+          titleKey: "routes.web.models.detailTitle",
+          subtitleKey: "routes.web.models.detailSubtitle",
+        },
+      },
+      {
+        path: "/workflows",
+        name: "workflows",
+        component: () => import("@web/views/WorkflowsView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.title",
+          subtitleKey: "routes.web.workflows.subtitle",
+        },
+      },
+      {
+        path: "/runs",
+        name: "runs",
+        component: () => import("@web/views/RunsView.vue"),
+        meta: {
+          titleKey: "routes.web.runs.title",
+          subtitleKey: "routes.web.runs.subtitle",
+        },
+      },
+      {
+        path: "/system",
+        name: "system",
+        component: () => import("@web/views/SystemView.vue"),
+        meta: {
+          titleKey: "routes.web.system.title",
+          subtitleKey: "routes.web.system.subtitle",
         },
       },
     ],
+  },
+  {
+    path: "/:pathMatch(.*)*",
+    redirect: "/dashboard",
   },
 ];
 
@@ -63,13 +145,14 @@ router.beforeEach(async (to) => {
     return true;
   }
   if (!authStore.isAuthenticated) {
-    return "/login";
+    return {
+      path: "/login",
+      query: {
+        redirect: to.fullPath,
+      },
+    };
   }
   return true;
-});
-
-router.afterEach((to) => {
-  document.title = `${String(to.meta.title ?? "Desktop")} | Data Aggregation Studio`;
 });
 
 export default router;

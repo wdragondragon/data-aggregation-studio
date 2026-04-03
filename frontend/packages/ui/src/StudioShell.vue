@@ -6,8 +6,8 @@
           DA
         </button>
         <div>
-          <p class="shell__eyebrow">{{ modeLabel }}</p>
-          <h1>Aggregation Studio</h1>
+          <p class="shell__eyebrow">{{ resolvedModeLabel }}</p>
+          <h1>{{ t("app.shellName") }}</h1>
         </div>
       </div>
 
@@ -26,11 +26,26 @@
       </nav>
 
       <div class="shell__footer">
-        <div class="shell__footer-copy">
-          <strong>{{ title }}</strong>
-          <span>{{ subtitle }}</span>
+        <div class="shell__locale">
+          <span>{{ t("common.language") }}</span>
+          <div class="shell__locale-switch">
+            <button
+              v-for="option in localeOptions"
+              :key="option.value"
+              type="button"
+              class="shell__locale-btn"
+              :class="{ 'shell__locale-btn--active': option.value === locale }"
+              @click="emit('locale-change', option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
         </div>
-        <button class="shell__logout" type="button" @click="emit('logout')">Sign Out</button>
+        <div class="shell__footer-copy">
+          <strong>{{ resolvedTitle }}</strong>
+          <span>{{ resolvedSubtitle }}</span>
+        </div>
+        <button class="shell__logout" type="button" @click="emit('logout')">{{ t("common.signOut") }}</button>
       </div>
     </aside>
 
@@ -39,13 +54,13 @@
     <main class="shell__main">
       <header class="shell__header">
         <button class="shell__menu-btn" type="button" @click="mobileOpen = !mobileOpen">
-          Menu
+          {{ t("common.menu") }}
         </button>
         <div>
-          <p class="shell__header-eyebrow">{{ modeLabel }}</p>
-          <h2>{{ title }}</h2>
+          <p class="shell__header-eyebrow">{{ resolvedModeLabel }}</p>
+          <h2>{{ resolvedTitle }}</h2>
         </div>
-        <p class="shell__subtitle">{{ subtitle }}</p>
+        <p class="shell__subtitle">{{ resolvedSubtitle }}</p>
       </header>
 
       <div class="shell__content">
@@ -56,30 +71,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import type { StudioNavItem } from "./types";
+import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import type { StudioLocaleOption, StudioNavItem } from "./types";
 
-const props = withDefaults(
-  defineProps<{
-    menus: StudioNavItem[];
-    activePath: string;
-    title?: string;
-    subtitle?: string;
-    modeLabel?: string;
-  }>(),
-  {
-    title: "Data Aggregation Studio",
-    subtitle: "Web-first orchestration and metadata center",
-    modeLabel: "Web Runtime",
-  },
-);
+const props = defineProps<{
+  menus: StudioNavItem[];
+  activePath: string;
+  title?: string;
+  subtitle?: string;
+  modeLabel?: string;
+  locale: string;
+  localeOptions: StudioLocaleOption[];
+}>();
 
 const emit = defineEmits<{
   navigate: [path: string];
   logout: [];
+  "locale-change": [locale: string];
 }>();
 
+const { t } = useI18n();
 const mobileOpen = ref(false);
+
+const resolvedTitle = computed(() => props.title || t("app.name"));
+const resolvedSubtitle = computed(() => props.subtitle || t("shell.defaultSubtitle"));
+const resolvedModeLabel = computed(() => props.modeLabel || t("shell.webRuntime"));
 
 function handleNavigate(path: string) {
   mobileOpen.value = false;
@@ -103,11 +120,11 @@ function handleNavigate(path: string) {
   width: var(--studio-sidebar);
   min-height: 100vh;
   padding: 28px 22px;
-  color: #fff7ef;
+  color: #f3f8ff;
   background:
-    radial-gradient(circle at top right, rgba(215, 179, 108, 0.24), transparent 24%),
-    linear-gradient(180deg, #4c2e20 0%, #2c1b13 100%);
-  box-shadow: 14px 0 40px rgba(35, 20, 14, 0.22);
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.24), transparent 24%),
+    linear-gradient(180deg, #17376a 0%, #0d2344 100%);
+  box-shadow: 14px 0 40px rgba(13, 35, 68, 0.22);
 }
 
 .shell__brand {
@@ -126,10 +143,10 @@ function handleNavigate(path: string) {
   height: 56px;
   border: 0;
   border-radius: 18px;
-  color: #2c1b13;
+  color: #17376a;
   font-size: 16px;
   font-weight: 700;
-  background: linear-gradient(135deg, #f7d692, #fff8e3);
+  background: linear-gradient(135deg, #eff6ff, #ffffff);
   cursor: pointer;
 }
 
@@ -151,11 +168,11 @@ function handleNavigate(path: string) {
   display: grid;
   gap: 4px;
   padding: 14px 16px;
-  border: 1px solid rgba(255, 247, 239, 0.08);
+  border: 1px solid rgba(243, 248, 255, 0.08);
   border-radius: 18px;
   color: inherit;
   text-align: left;
-  background: rgba(255, 247, 239, 0.04);
+  background: rgba(243, 248, 255, 0.04);
   cursor: pointer;
   transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
@@ -168,14 +185,47 @@ function handleNavigate(path: string) {
 .shell__nav-item:hover,
 .shell__nav-item--active {
   transform: translateX(4px);
-  border-color: rgba(247, 214, 146, 0.38);
-  background: rgba(247, 214, 146, 0.12);
+  border-color: rgba(125, 179, 255, 0.4);
+  background: rgba(125, 179, 255, 0.14);
 }
 
 .shell__footer {
   margin-top: auto;
   display: grid;
   gap: 14px;
+}
+
+.shell__locale {
+  display: grid;
+  gap: 8px;
+}
+
+.shell__locale span {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.shell__locale-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.shell__locale-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid rgba(243, 248, 255, 0.12);
+  border-radius: 999px;
+  color: inherit;
+  background: rgba(243, 248, 255, 0.04);
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.shell__locale-btn--active {
+  border-color: rgba(125, 179, 255, 0.44);
+  background: rgba(125, 179, 255, 0.18);
 }
 
 .shell__footer-copy {
@@ -194,7 +244,7 @@ function handleNavigate(path: string) {
   border: 0;
   border-radius: 999px;
   color: inherit;
-  background: rgba(255, 247, 239, 0.1);
+  background: rgba(243, 248, 255, 0.1);
   cursor: pointer;
 }
 
@@ -253,7 +303,7 @@ function handleNavigate(path: string) {
     z-index: 10;
     display: block;
     pointer-events: none;
-    background: rgba(17, 10, 7, 0.32);
+    background: rgba(13, 35, 68, 0.28);
     opacity: 0;
     transition: opacity 0.24s ease;
   }

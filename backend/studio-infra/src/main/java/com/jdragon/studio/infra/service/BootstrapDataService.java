@@ -12,8 +12,6 @@ import com.jdragon.studio.infra.mapper.RoleMapper;
 import com.jdragon.studio.infra.mapper.RolePermissionMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.UserRoleMapper;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -38,7 +36,6 @@ public class BootstrapDataService {
         this.rolePermissionMapper = rolePermissionMapper;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
     public void bootstrap() {
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 

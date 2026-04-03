@@ -1,20 +1,20 @@
 <template>
   <div class="studio-page">
     <div class="metrics-grid">
-      <MetricCard label="Plugins" :value="plugins.length" hint="Catalog Assets" description="Scanned from plugin roots and templates." />
-      <MetricCard label="Datasources" :value="datasources.length" tone="accent" hint="Managed Connections" description="Schema-bound datasource instances." />
-      <MetricCard label="Workflows" :value="workflows.length" tone="success" hint="Graph Drafts" description="Saved orchestration definitions ready to publish." />
-      <MetricCard label="Queued Tasks" :value="runData.queuedTasks.length" tone="warning" hint="Dispatch Queue" description="Tasks waiting for worker leases." />
+      <MetricCard :label="t('web.dashboard.plugins')" :value="pluginCount" :hint="t('web.dashboard.pluginsHint')" :description="t('web.dashboard.pluginsDescription')" />
+      <MetricCard :label="t('web.dashboard.datasources')" :value="datasources.length" tone="accent" :hint="t('web.dashboard.datasourcesHint')" :description="t('web.dashboard.datasourcesDescription')" />
+      <MetricCard :label="t('web.dashboard.workflows')" :value="workflows.length" tone="success" :hint="t('web.dashboard.workflowsHint')" :description="t('web.dashboard.workflowsDescription')" />
+      <MetricCard :label="t('web.dashboard.queuedTasks')" :value="runData.queuedTasks.length" tone="warning" :hint="t('web.dashboard.queuedTasksHint')" :description="t('web.dashboard.queuedTasksDescription')" />
     </div>
 
     <div class="studio-grid columns-2">
-      <SectionCard title="Capability Snapshot" description="Use this to gauge what can be managed and what can be executed right now.">
+      <SectionCard :title="t('web.dashboard.capabilityTitle')" :description="t('web.dashboard.capabilityDescription')">
         <template #actions>
-          <el-button type="primary" plain @click="loadDashboard">Refresh</el-button>
+          <el-button type="primary" plain @click="loadDashboard">{{ t("common.refresh") }}</el-button>
         </template>
 
         <div class="soft-panel">
-          <p><strong>Executable source types</strong></p>
+          <p><strong>{{ t("web.dashboard.executableSourceTypes") }}</strong></p>
           <div class="tag-row">
             <StatusPill
               v-for="type in capabilityMatrix.executableSourceTypes"
@@ -22,23 +22,23 @@
               :label="type"
               tone="primary"
             />
-            <span v-if="capabilityMatrix.executableSourceTypes.length === 0">No executable source mapping found yet.</span>
+            <span v-if="capabilityMatrix.executableSourceTypes.length === 0">{{ t("web.dashboard.noExecutableSourceMapping") }}</span>
           </div>
         </div>
       </SectionCard>
 
-      <SectionCard title="Recent Workflows" description="Published state and schedule posture for the newest graph definitions.">
+      <SectionCard :title="t('web.dashboard.recentWorkflowsTitle')" :description="t('web.dashboard.recentWorkflowsDescription')">
         <el-table :data="workflows.slice(0, 6)" border>
-          <el-table-column prop="code" label="Code" min-width="120" />
-          <el-table-column prop="name" label="Workflow" min-width="180" />
-          <el-table-column label="Published" width="120">
+          <el-table-column prop="code" :label="t('web.workflows.code')" min-width="120" />
+          <el-table-column prop="name" :label="t('web.dashboard.workflowColumn')" min-width="180" />
+          <el-table-column :label="t('web.dashboard.publishedColumn')" width="120">
             <template #default="{ row }">
-              <StatusPill :label="row.published ? 'Published' : 'Draft'" :tone="row.published ? 'success' : 'warning'" />
+              <StatusPill :label="row.published ? t('common.published') : t('common.draft')" :tone="row.published ? 'success' : 'warning'" />
             </template>
           </el-table-column>
-          <el-table-column label="Schedule" min-width="160">
+          <el-table-column :label="t('web.dashboard.scheduleColumn')" min-width="160">
             <template #default="{ row }">
-              {{ row.schedule?.cronExpression ?? "Manual trigger" }}
+              {{ row.schedule?.cronExpression ?? t("common.manualTrigger") }}
             </template>
           </el-table-column>
         </el-table>
@@ -46,29 +46,29 @@
     </div>
 
     <div class="studio-grid columns-2">
-      <SectionCard title="Dispatch Queue" description="The server has already normalized run and queue data for the console.">
+      <SectionCard :title="t('web.dashboard.dispatchTitle')" :description="t('web.dashboard.dispatchDescription')">
         <el-table :data="runData.queuedTasks.slice(0, 8)" border>
-          <el-table-column prop="nodeCode" label="Node" min-width="140" />
-          <el-table-column prop="status" label="Status" width="120">
+          <el-table-column prop="nodeCode" :label="t('web.dashboard.nodeColumn')" min-width="140" />
+          <el-table-column prop="status" :label="t('web.dashboard.statusColumn')" width="120">
             <template #default="{ row }">
-              <StatusPill :label="row.status ?? 'UNKNOWN'" :tone="toneFromStatus(row.status)" />
+              <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
             </template>
           </el-table-column>
-          <el-table-column prop="attempts" label="Attempts" width="100" />
-          <el-table-column prop="createdAt" label="Created" min-width="170" />
+          <el-table-column prop="attempts" :label="t('web.dashboard.attemptsColumn')" width="100" />
+          <el-table-column prop="createdAt" :label="t('web.dashboard.createdColumn')" min-width="170" />
         </el-table>
       </SectionCard>
 
-      <SectionCard title="Run Records" description="Worker feedback lands here and becomes the basis for retries and recovery.">
+      <SectionCard :title="t('web.dashboard.runRecordsTitle')" :description="t('web.dashboard.runRecordsDescription')">
         <el-table :data="runData.runRecords.slice(0, 8)" border>
-          <el-table-column prop="nodeCode" label="Node" min-width="140" />
-          <el-table-column prop="workerCode" label="Worker" min-width="140" />
-          <el-table-column prop="status" label="Status" width="120">
+          <el-table-column prop="nodeCode" :label="t('web.dashboard.nodeColumn')" min-width="140" />
+          <el-table-column prop="workerCode" :label="t('web.dashboard.workerColumn')" min-width="140" />
+          <el-table-column prop="status" :label="t('web.dashboard.statusColumn')" width="120">
             <template #default="{ row }">
-              <StatusPill :label="row.status ?? 'UNKNOWN'" :tone="toneFromStatus(row.status)" />
+              <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
             </template>
           </el-table-column>
-          <el-table-column prop="message" label="Message" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="message" :label="t('web.dashboard.messageColumn')" min-width="220" show-overflow-tooltip />
         </el-table>
       </SectionCard>
     </div>
@@ -76,13 +76,15 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type { CapabilityMatrix, DataSourceDefinition, PluginCatalogEntry, RunListResponse, WorkflowDefinitionView } from "@studio/api-sdk";
 import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { toneFromStatus } from "@/utils/studio";
 
+const { t } = useI18n();
 const plugins = ref<PluginCatalogEntry[]>([]);
 const datasources = ref<DataSourceDefinition[]>([]);
 const workflows = ref<WorkflowDefinitionView[]>([]);
@@ -94,6 +96,7 @@ const runData = reactive<RunListResponse>({
   queuedTasks: [],
   runRecords: [],
 });
+const pluginCount = computed(() => new Set(plugins.value.map((item) => `${item.pluginCategory}::${item.pluginName}`)).size);
 
 async function loadDashboard() {
   try {
@@ -112,7 +115,7 @@ async function loadDashboard() {
     runData.queuedTasks = runsData.queuedTasks;
     runData.runRecords = runsData.runRecords;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load dashboard");
+    ElMessage.error(error instanceof Error ? error.message : t("web.dashboard.loadFailed"));
   }
 }
 

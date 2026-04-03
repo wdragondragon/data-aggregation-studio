@@ -5,7 +5,7 @@ spring:
   application:
     name: studio-desktop-runtime
   datasource:
-    url: jdbc:sqlite:./runtime/studio-desktop.db
+    url: jdbc:sqlite:${STUDIO_DESKTOP_DB_PATH:${studio.desktop.db.path:./runtime/studio-desktop.db}}
     driver-class-name: org.sqlite.JDBC
   sql:
     init:
@@ -35,7 +35,7 @@ management:
         include: health,info
 
 studio:
-  aggregation-home: ../../../package_all/aggregation
+  aggregation-home: ${STUDIO_AGGREGATION_HOME:C:/dev/ideaProject/DataAggregation/package_all/aggregation}
   encryption-secret: studio-secret-key
   worker-code: studio-desktop-worker
   desktop-runtime: true

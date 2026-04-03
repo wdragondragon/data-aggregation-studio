@@ -2,8 +2,8 @@
   <div class="workflow-canvas">
     <aside class="workflow-canvas__palette">
       <header>
-        <h4>Node Palette</h4>
-        <span>Drag onto the canvas</span>
+        <h4>{{ t("workflowCanvas.paletteTitle") }}</h4>
+        <span>{{ t("workflowCanvas.paletteHint") }}</span>
       </header>
 
       <button
@@ -31,7 +31,8 @@
 
 <script setup lang="ts">
 import { Graph, Shape } from "@antv/x6";
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import type { NodeType, WorkflowEdgeDefinition, WorkflowNodeDefinition } from "@studio/api-sdk";
 
 interface PaletteItem {
@@ -58,13 +59,15 @@ const emit = defineEmits<{
   "select-node": [nodeCode: string | null];
 }>();
 
-const palette: PaletteItem[] = [
-  { type: "ETL_SINGLE", label: "Single ETL", caption: "Reader -> Transformer -> Writer", color: "#b85c38" },
-  { type: "FUSION", label: "Fusion", caption: "Multi-model join and merge", color: "#ca8d2e" },
-  { type: "CONSISTENCY", label: "Consistency", caption: "Cross-source compare", color: "#2f7a53" },
-  { type: "HTTP", label: "HTTP", caption: "External callback or webhook", color: "#56697a" },
-  { type: "SHELL", label: "Shell", caption: "Local runtime command", color: "#6f4f8d" },
-];
+const { t } = useI18n();
+
+const palette = computed<PaletteItem[]>(() => [
+  { type: "ETL_SINGLE", label: t("workflowCanvas.nodeTypes.ETL_SINGLE.label"), caption: t("workflowCanvas.nodeTypes.ETL_SINGLE.caption"), color: "#b85c38" },
+  { type: "FUSION", label: t("workflowCanvas.nodeTypes.FUSION.label"), caption: t("workflowCanvas.nodeTypes.FUSION.caption"), color: "#ca8d2e" },
+  { type: "CONSISTENCY", label: t("workflowCanvas.nodeTypes.CONSISTENCY.label"), caption: t("workflowCanvas.nodeTypes.CONSISTENCY.caption"), color: "#2f7a53" },
+  { type: "HTTP", label: t("workflowCanvas.nodeTypes.HTTP.label"), caption: t("workflowCanvas.nodeTypes.HTTP.caption"), color: "#56697a" },
+  { type: "SHELL", label: t("workflowCanvas.nodeTypes.SHELL.label"), caption: t("workflowCanvas.nodeTypes.SHELL.caption"), color: "#6f4f8d" },
+]);
 
 const containerRef = ref<HTMLDivElement>();
 const draggingItem = ref<PaletteItem | null>(null);
@@ -72,7 +75,7 @@ let graph: Graph | null = null;
 let syncingFromProps = false;
 
 function createGraphNode(node: WorkflowNodeDefinition, x = 80, y = 80) {
-  const paletteItem = palette.find((item) => item.type === node.nodeType);
+  const paletteItem = palette.value.find((item) => item.type === node.nodeType);
   return graph?.createNode({
     id: node.nodeCode,
     x: Number(node.config?.canvasX ?? x),
@@ -271,6 +274,10 @@ watch(
   },
   { deep: true },
 );
+
+watch(palette, () => {
+  renderGraph();
+});
 
 onMounted(initGraph);
 onBeforeUnmount(() => {

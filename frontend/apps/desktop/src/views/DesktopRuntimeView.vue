@@ -1,18 +1,18 @@
 <template>
   <div class="studio-page">
-    <SectionCard title="Local Runtime Endpoints" description="Desktop keeps the runtime local and exposes the same API shape where possible.">
+    <SectionCard :title="t('desktop.runtime.title')" :description="t('desktop.runtime.description')">
       <div class="endpoint-list">
         <div class="soft-panel">
-          <strong>Renderer</strong>
-          <p class="studio-mono">http://127.0.0.1:5174</p>
+          <strong>{{ t("desktop.runtime.renderer") }}</strong>
+          <p class="studio-mono">http://localhost:5174</p>
         </div>
         <div class="soft-panel">
-          <strong>Desktop Runtime API</strong>
-          <p class="studio-mono">http://127.0.0.1:18180/api/v1</p>
+          <strong>{{ t("desktop.runtime.runtimeApi") }}</strong>
+          <p class="studio-mono">http://localhost:18180/api/v1</p>
         </div>
         <div class="soft-panel">
-          <strong>Knife4j</strong>
-          <p class="studio-mono">http://127.0.0.1:18180/doc.html</p>
+          <strong>{{ t("desktop.runtime.knife4j") }}</strong>
+          <p class="studio-mono">http://localhost:18180/doc.html</p>
         </div>
       </div>
     </SectionCard>
@@ -20,7 +20,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import { SectionCard } from "@studio/ui";
+
+const { t } = useI18n();
 </script>
 
 <style scoped>

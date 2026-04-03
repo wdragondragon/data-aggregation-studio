@@ -3,11 +3,14 @@ import type {
   CapabilityMatrix,
   ConnectionTestResult,
   DataModelDefinition,
+  DataModelSaveRequest,
   DataSourceDefinition,
+  EntityId,
   ExportProjectBundle,
   LoginRequest,
   LoginResponse,
   MetadataSchemaDefinition,
+  ModelSyncRequest,
   ModelDiscoveryResult,
   PermissionEntity,
   PluginCatalogEntry,
@@ -87,60 +90,90 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list() {
         return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas", method: "GET" });
       },
+      syncTechnical(typeCode: string) {
+        return request<MetadataSchemaDefinition[]>({ url: `/meta-schemas/technical/sync/${typeCode}`, method: "POST" });
+      },
+      syncAllTechnical() {
+        return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas/technical/sync-all", method: "POST" });
+      },
       saveDraft(payload: Record<string, unknown>) {
         return request<MetadataSchemaDefinition>({ url: "/meta-schemas/draft", method: "POST", data: payload });
       },
-      publish(schemaId: number) {
+      publish(schemaId: EntityId) {
         return request<MetadataSchemaDefinition>({ url: `/meta-schemas/${schemaId}/publish`, method: "POST" });
+      },
+      delete(schemaId: EntityId) {
+        return request<void>({ url: `/meta-schemas/${schemaId}`, method: "DELETE" });
       },
     },
     datasources: {
       list() {
         return request<DataSourceDefinition[]>({ url: "/datasources", method: "GET" });
       },
-      get(id: number) {
+      get(id: EntityId) {
         return request<DataSourceDefinition>({ url: `/datasources/${id}`, method: "GET" });
       },
       save(payload: Record<string, unknown>) {
         return request<DataSourceDefinition>({ url: "/datasources", method: "POST", data: payload });
       },
-      test(id: number) {
+      test(id: EntityId) {
         return request<ConnectionTestResult>({ url: `/datasources/${id}/test`, method: "POST" });
       },
-      discover(id: number) {
+      discover(id: EntityId) {
         return request<ModelDiscoveryResult>({ url: `/datasources/${id}/discover`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/datasources/${id}`, method: "DELETE" });
       },
     },
     models: {
-      listByDatasource(datasourceId: number) {
+      list() {
+        return request<DataModelDefinition[]>({ url: "/models", method: "GET" });
+      },
+      listByDatasource(datasourceId: EntityId) {
         return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}`, method: "GET" });
       },
-      sync(datasourceId: number) {
+      get(modelId: EntityId) {
+        return request<DataModelDefinition>({ url: `/models/${modelId}`, method: "GET" });
+      },
+      sync(datasourceId: EntityId) {
         return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}/sync`, method: "POST" });
       },
-      preview(modelId: number, limit = 20) {
+      syncSelected(datasourceId: EntityId, payload: ModelSyncRequest) {
+        return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}/sync-selected`, method: "POST", data: payload });
+      },
+      save(payload: DataModelSaveRequest) {
+        return request<DataModelDefinition>({ url: "/models", method: "POST", data: payload });
+      },
+      preview(modelId: EntityId, limit = 20) {
         return request<Record<string, unknown>[]>({
           url: `/models/${modelId}/preview`,
           method: "GET",
           params: { limit },
         });
       },
+      delete(modelId: EntityId) {
+        return request<void>({ url: `/models/${modelId}`, method: "DELETE" });
+      },
     },
     workflows: {
       list() {
         return request<WorkflowDefinitionView[]>({ url: "/workflows", method: "GET" });
       },
-      get(id: number) {
+      get(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}`, method: "GET" });
       },
       save(payload: WorkflowSaveRequest) {
         return request<WorkflowDefinitionView>({ url: "/workflows", method: "POST", data: payload });
       },
-      publish(id: number) {
+      publish(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}/publish`, method: "POST" });
       },
-      trigger(id: number) {
+      trigger(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}/trigger`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/workflows/${id}`, method: "DELETE" });
       },
     },
     schedules: {
@@ -160,6 +193,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       save(payload: Partial<StudioUser>) {
         return request<StudioUser>({ url: "/users", method: "POST", data: payload });
       },
+      delete(id: EntityId) {
+        return request<void>({ url: `/users/${id}`, method: "DELETE" });
+      },
     },
     roles: {
       list() {
@@ -168,6 +204,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       save(payload: Partial<RoleEntity>) {
         return request<RoleEntity>({ url: "/roles", method: "POST", data: payload });
       },
+      delete(id: EntityId) {
+        return request<void>({ url: `/roles/${id}`, method: "DELETE" });
+      },
     },
     permissions: {
       list() {
@@ -175,6 +214,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       save(payload: Partial<PermissionEntity>) {
         return request<PermissionEntity>({ url: "/permissions", method: "POST", data: payload });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/permissions/${id}`, method: "DELETE" });
       },
     },
     imports: {

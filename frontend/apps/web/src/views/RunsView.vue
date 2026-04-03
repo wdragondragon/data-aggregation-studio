@@ -2,46 +2,46 @@
   <div class="studio-page">
     <div class="studio-toolbar">
       <div>
-        <h3>Runtime center</h3>
-        <p>Queued tasks and run records are split so the dispatching lifecycle stays visible before and after execution.</p>
+        <h3>{{ t("web.runs.heading") }}</h3>
+        <p>{{ t("web.runs.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button type="primary" plain @click="loadRuns">Refresh</el-button>
+        <el-button type="primary" plain @click="loadRuns">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
 
     <div class="studio-grid columns-3">
-      <MetricCard label="Queued" :value="runData.queuedTasks.length" tone="warning" hint="Waiting for lease" />
-      <MetricCard label="Run Records" :value="runData.runRecords.length" tone="accent" hint="Completed or active runs" />
-      <MetricCard label="Failed" :value="failedCount" tone="primary" hint="Needs retry attention" />
+      <MetricCard :label="t('web.runs.queued')" :value="runData.queuedTasks.length" tone="warning" :hint="t('web.runs.queuedHint')" />
+      <MetricCard :label="t('web.runs.runRecords')" :value="runData.runRecords.length" tone="accent" :hint="t('web.runs.runRecordsHint')" />
+      <MetricCard :label="t('web.runs.failed')" :value="failedCount" tone="primary" :hint="t('web.runs.failedHint')" />
     </div>
 
     <div class="studio-grid columns-2">
-      <SectionCard title="Queued Tasks" description="These tasks are ready for workers to lease and execute.">
+      <SectionCard :title="t('web.runs.queuedTitle')" :description="t('web.runs.queuedDescription')">
         <el-table :data="runData.queuedTasks" border>
-          <el-table-column prop="workflowDefinitionId" label="Workflow" width="100" />
-          <el-table-column prop="nodeCode" label="Node" min-width="150" />
-          <el-table-column prop="status" label="Status" width="120">
+          <el-table-column prop="workflowDefinitionId" :label="t('web.runs.workflow')" width="100" />
+          <el-table-column prop="nodeCode" :label="t('web.runs.node')" min-width="150" />
+          <el-table-column prop="status" :label="t('web.runs.status')" width="120">
             <template #default="{ row }">
-              <StatusPill :label="row.status ?? 'UNKNOWN'" :tone="toneFromStatus(row.status)" />
+              <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
             </template>
           </el-table-column>
-          <el-table-column prop="attempts" label="Attempts" width="100" />
-          <el-table-column prop="maxRetries" label="Max Retries" width="110" />
+          <el-table-column prop="attempts" :label="t('web.runs.attempts')" width="100" />
+          <el-table-column prop="maxRetries" :label="t('web.runs.maxRetries')" width="110" />
         </el-table>
       </SectionCard>
 
-      <SectionCard title="Run Records" description="This is the worker-facing history surface for audit, retries and troubleshooting.">
+      <SectionCard :title="t('web.runs.runRecordsTitle')" :description="t('web.runs.runRecordsDescription')">
         <el-table :data="runData.runRecords" border>
-          <el-table-column prop="workflowDefinitionId" label="Workflow" width="100" />
-          <el-table-column prop="nodeCode" label="Node" min-width="150" />
-          <el-table-column prop="workerCode" label="Worker" min-width="150" />
-          <el-table-column prop="status" label="Status" width="120">
+          <el-table-column prop="workflowDefinitionId" :label="t('web.runs.workflow')" width="100" />
+          <el-table-column prop="nodeCode" :label="t('web.runs.node')" min-width="150" />
+          <el-table-column prop="workerCode" :label="t('web.runs.worker')" min-width="150" />
+          <el-table-column prop="status" :label="t('web.runs.status')" width="120">
             <template #default="{ row }">
-              <StatusPill :label="row.status ?? 'UNKNOWN'" :tone="toneFromStatus(row.status)" />
+              <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
             </template>
           </el-table-column>
-          <el-table-column prop="message" label="Message" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="message" :label="t('web.runs.message')" min-width="240" show-overflow-tooltip />
         </el-table>
       </SectionCard>
     </div>
@@ -51,11 +51,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive } from "vue";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type { RunListResponse } from "@studio/api-sdk";
 import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { toneFromStatus } from "@/utils/studio";
 
+const { t } = useI18n();
 const runData = reactive<RunListResponse>({
   queuedTasks: [],
   runRecords: [],
@@ -71,7 +73,7 @@ async function loadRuns() {
     runData.queuedTasks = result.queuedTasks;
     runData.runRecords = result.runRecords;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load runs");
+    ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
   }
 }
 

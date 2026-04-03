@@ -6,6 +6,9 @@
     "paths": {
       "@/*": [
         "src/*"
+      ],
+      "@web/*": [
+        "../web/src/*"
       ]
     },
     "types": [
@@ -16,6 +19,7 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "src/**/*.d.ts",
+    "../web/src/views/**/*.vue",
     "../../packages/**/*.ts",
     "../../packages/**/*.vue",
     "vite.config.ts"

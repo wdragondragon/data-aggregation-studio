@@ -6,6 +6,8 @@ export interface Result<T> {
   timestamp: string;
 }
 
+export type EntityId = string | number;
+
 export interface LoginRequest {
   username: string;
   password: string;
@@ -17,7 +19,7 @@ export interface LoginResponse {
 }
 
 export interface BaseRecord {
-  id?: number;
+  id?: EntityId;
   tenantId?: string;
   deleted?: boolean | number;
   createdAt?: string;
@@ -46,7 +48,7 @@ export type FieldComponentType =
   | "CODE_EDITOR"
   | "CRON";
 export type SchemaStatus = "DRAFT" | "PUBLISHED";
-export type ModelKind = "TABLE" | "FILE" | "TOPIC" | "MEASUREMENT" | "DATASET";
+export type ModelKind = "TABLE" | "VIEW" | "FILE" | "TOPIC" | "MEASUREMENT" | "DATASET";
 export type NodeType = "ETL_SINGLE" | "FUSION" | "CONSISTENCY" | "HTTP" | "SHELL";
 export type EdgeCondition = "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS";
 
@@ -71,7 +73,7 @@ export interface MetadataSchemaDefinition extends BaseRecord {
   schemaName: string;
   objectType: string;
   typeCode: string;
-  currentVersionId?: number;
+  currentVersionId?: EntityId;
   versionNumber?: number;
   status?: SchemaStatus;
   description?: string;
@@ -96,7 +98,7 @@ export interface CapabilityMatrix {
 export interface DataSourceDefinition extends BaseRecord {
   name: string;
   typeCode: string;
-  schemaVersionId?: number;
+  schemaVersionId?: EntityId;
   enabled?: boolean;
   executable?: boolean;
   technicalMetadata: Record<string, unknown>;
@@ -111,13 +113,28 @@ export interface ConnectionTestResult {
 }
 
 export interface DataModelDefinition extends BaseRecord {
-  datasourceId: number;
+  datasourceId: EntityId;
   name: string;
   modelKind?: ModelKind;
   physicalLocator: string;
-  schemaVersionId?: number;
+  schemaVersionId?: EntityId;
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
+}
+
+export interface DataModelSaveRequest {
+  id?: EntityId;
+  datasourceId: EntityId;
+  name: string;
+  physicalLocator: string;
+  modelKind?: ModelKind;
+  schemaVersionId?: EntityId;
+  technicalMetadata: Record<string, unknown>;
+  businessMetadata: Record<string, unknown>;
+}
+
+export interface ModelSyncRequest {
+  physicalLocators: string[];
 }
 
 export interface ModelDiscoveryResult {
@@ -161,7 +178,7 @@ export interface WorkflowScheduleDefinition {
 export interface WorkflowDefinitionView extends BaseRecord {
   code: string;
   name: string;
-  versionId?: number;
+  versionId?: EntityId;
   versionNumber?: number;
   published?: boolean;
   schedule?: WorkflowScheduleDefinition;
@@ -170,7 +187,7 @@ export interface WorkflowDefinitionView extends BaseRecord {
 }
 
 export interface WorkflowSaveRequest {
-  definitionId?: number;
+  definitionId?: EntityId;
   code: string;
   name: string;
   schedule?: WorkflowScheduleDefinition;
@@ -179,8 +196,8 @@ export interface WorkflowSaveRequest {
 }
 
 export interface QueuedTask extends BaseRecord {
-  workflowDefinitionId?: number;
-  workflowVersionId?: number;
+  workflowDefinitionId?: EntityId;
+  workflowVersionId?: EntityId;
   nodeCode?: string;
   status?: string;
   attempts?: number;
@@ -189,8 +206,8 @@ export interface QueuedTask extends BaseRecord {
 }
 
 export interface RunRecord extends BaseRecord {
-  workflowDefinitionId?: number;
-  workflowVersionId?: number;
+  workflowDefinitionId?: EntityId;
+  workflowVersionId?: EntityId;
   nodeCode?: string;
   workerCode?: string;
   status?: string;

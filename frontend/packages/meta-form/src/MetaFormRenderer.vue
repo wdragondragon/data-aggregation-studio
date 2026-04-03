@@ -7,7 +7,7 @@
     >
       <header class="meta-form__section-header">
         <h4>{{ section.title }}</h4>
-        <span>{{ section.fields.length }} fields</span>
+        <span>{{ t("common.fields", { count: section.fields.length }) }}</span>
       </header>
 
       <el-form label-position="top">
@@ -24,12 +24,14 @@
               :model-value="fieldValue(field.fieldKey)"
               @update:model-value="updateField(field.fieldKey, $event)"
             >
-              <el-option
-                v-for="option in field.options ?? []"
-                :key="option"
-                :label="option"
-                :value="option"
-              />
+              <template v-if="field.componentType === 'SELECT'">
+                <el-option
+                  v-for="option in field.options ?? []"
+                  :key="option"
+                  :label="option"
+                  :value="option"
+                />
+              </template>
             </component>
           </el-form-item>
         </div>
@@ -41,6 +43,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { ElInput, ElInputNumber, ElSelect, ElSwitch } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type { MetadataFieldDefinition } from "@studio/api-sdk";
 
 const props = withDefaults(
@@ -58,14 +61,15 @@ const emit = defineEmits<{
   "update:modelValue": [value: Record<string, unknown>];
 }>();
 
+const { t } = useI18n();
 const localValue = computed(() => props.modelValue ?? {});
 
 const scopedSections = computed(() => {
   const technical = props.fields.filter((field) => field.scope === "TECHNICAL" || !field.scope);
   const business = props.fields.filter((field) => field.scope === "BUSINESS");
   return [
-    { key: "technical", title: "Technical Metadata", fields: technical },
-    { key: "business", title: "Business Metadata", fields: business },
+    { key: "technical", title: t("metaForm.technicalTitle"), fields: technical },
+    { key: "business", title: t("metaForm.businessTitle"), fields: business },
   ].filter((section) => section.fields.length > 0);
 });
 
@@ -99,7 +103,7 @@ function resolveProps(field: MetadataFieldDefinition) {
       return {
         type: "password",
         showPassword: true,
-        placeholder: field.placeholder ?? `Enter ${field.fieldName}`,
+        placeholder: field.placeholder ?? t("metaForm.enterField", { fieldName: field.fieldName }),
       };
     case "TEXTAREA":
     case "JSON_EDITOR":
@@ -108,28 +112,28 @@ function resolveProps(field: MetadataFieldDefinition) {
       return {
         type: "textarea",
         rows: 5,
-        placeholder: field.placeholder ?? `Enter ${field.fieldName}`,
+        placeholder: field.placeholder ?? t("metaForm.enterField", { fieldName: field.fieldName }),
       };
     case "SELECT":
       return {
         clearable: true,
         filterable: true,
-        placeholder: field.placeholder ?? `Select ${field.fieldName}`,
+        placeholder: field.placeholder ?? t("metaForm.selectField", { fieldName: field.fieldName }),
       };
     case "SWITCH":
       return {
         inlinePrompt: true,
-        activeText: "On",
-        inactiveText: "Off",
+        activeText: t("common.on"),
+        inactiveText: t("common.off"),
       };
     case "NUMBER":
       return {
         controlsPosition: "right",
-        placeholder: field.placeholder ?? `Enter ${field.fieldName}`,
+        placeholder: field.placeholder ?? t("metaForm.enterField", { fieldName: field.fieldName }),
       };
     default:
       return {
-        placeholder: field.placeholder ?? `Enter ${field.fieldName}`,
+        placeholder: field.placeholder ?? t("metaForm.enterField", { fieldName: field.fieldName }),
       };
   }
 }

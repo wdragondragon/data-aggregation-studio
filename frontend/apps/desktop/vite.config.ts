@@ -3,17 +3,20 @@ import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
 export default defineConfig({
+  base: "./",
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src')
+      '@': path.resolve(__dirname, './src'),
+      '@web': path.resolve(__dirname, '../web/src')
     }
   },
   server: {
+    host: "localhost",
     port: 5174,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:18180',
+        target: 'http://localhost:18180',
         changeOrigin: true
       }
     }

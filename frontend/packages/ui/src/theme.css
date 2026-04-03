@@ -1,23 +1,30 @@
 :root {
   color-scheme: light;
-  --studio-bg: #f3efe6;
-  --studio-surface: rgba(255, 252, 245, 0.88);
-  --studio-surface-strong: #fffaf0;
-  --studio-border: rgba(84, 58, 31, 0.16);
-  --studio-text: #2c2118;
-  --studio-text-soft: #65503f;
-  --studio-primary: #b85c38;
-  --studio-primary-deep: #8e4021;
-  --studio-accent: #d7b36c;
-  --studio-success: #2f7a53;
-  --studio-warning: #b0721b;
-  --studio-danger: #ad4236;
-  --studio-shadow: 0 20px 60px rgba(86, 52, 18, 0.12);
+  --studio-bg: #eef5ff;
+  --studio-surface: rgba(255, 255, 255, 0.88);
+  --studio-surface-strong: #ffffff;
+  --studio-border: rgba(64, 113, 187, 0.16);
+  --studio-text: #0f2342;
+  --studio-text-soft: #5b7499;
+  --studio-primary: #2563eb;
+  --studio-primary-deep: #1d4ed8;
+  --studio-accent: #38bdf8;
+  --studio-success: #0f766e;
+  --studio-warning: #d97706;
+  --studio-danger: #dc2626;
+  --studio-shadow: 0 22px 60px rgba(37, 99, 235, 0.12);
   --studio-radius-xl: 28px;
   --studio-radius-lg: 20px;
   --studio-radius-md: 14px;
   --studio-sidebar: 270px;
   font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --el-color-primary: var(--studio-primary);
+  --el-color-primary-light-3: #5b8cff;
+  --el-color-primary-light-5: #8eb4ff;
+  --el-color-primary-light-7: #bdd3ff;
+  --el-color-primary-light-8: #d8e5ff;
+  --el-color-primary-light-9: #edf4ff;
+  --el-color-primary-dark-2: var(--studio-primary-deep);
 }
 
 * {
@@ -34,9 +41,9 @@ body,
 body {
   color: var(--studio-text);
   background:
-    radial-gradient(circle at top left, rgba(215, 179, 108, 0.38), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(184, 92, 56, 0.18), transparent 26%),
-    linear-gradient(180deg, #f8f3ea 0%, #efe5d5 100%);
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.22), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(37, 99, 235, 0.16), transparent 28%),
+    linear-gradient(180deg, #f7fbff 0%, #e9f2ff 100%);
 }
 
 a {

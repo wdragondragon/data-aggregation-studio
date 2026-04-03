@@ -30,26 +30,26 @@ withDefaults(
 
 .status-pill--primary {
   color: var(--studio-primary-deep);
-  background: rgba(184, 92, 56, 0.14);
+  background: rgba(37, 99, 235, 0.12);
 }
 
 .status-pill--success {
   color: var(--studio-success);
-  background: rgba(47, 122, 83, 0.14);
+  background: rgba(15, 118, 110, 0.12);
 }
 
 .status-pill--warning {
   color: var(--studio-warning);
-  background: rgba(176, 114, 27, 0.14);
+  background: rgba(217, 119, 6, 0.14);
 }
 
 .status-pill--danger {
   color: var(--studio-danger);
-  background: rgba(173, 66, 54, 0.14);
+  background: rgba(220, 38, 38, 0.12);
 }
 
 .status-pill--neutral {
   color: var(--studio-text-soft);
-  background: rgba(101, 80, 63, 0.12);
+  background: rgba(91, 116, 153, 0.12);
 }
 </style>

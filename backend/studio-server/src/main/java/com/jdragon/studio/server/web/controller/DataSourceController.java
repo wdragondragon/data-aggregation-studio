@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.service.DataSourceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -57,5 +58,12 @@ public class DataSourceController {
     @PostMapping("/{id}/discover")
     public Result<ModelDiscoveryResult> discover(@PathVariable("id") Long id) {
         return Result.success(dataSourceService.discoverModels(id));
+    }
+
+    @Operation(summary = "Delete datasource")
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable("id") Long id) {
+        dataSourceService.delete(id);
+        return Result.success(null);
     }
 }

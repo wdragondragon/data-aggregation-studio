@@ -1,21 +1,23 @@
 <template>
   <div class="login">
     <div class="login__panel">
-      <p class="login__eyebrow">Offline desktop console</p>
-      <h1>Run local metadata and ETL workflows without reaching the server side.</h1>
-      <p>The desktop shell talks to the local runtime and still keeps import/export as the exchange boundary.</p>
+      <p class="login__eyebrow">{{ t("desktop.login.eyebrow") }}</p>
+      <h1>{{ t("desktop.login.heroTitle") }}</h1>
+      <p>{{ t("desktop.login.heroDescription") }}</p>
     </div>
 
     <div class="login__card">
-      <h2>Desktop Sign In</h2>
+      <h2>{{ t("routes.desktop.login.title") }}</h2>
       <el-form label-position="top" @submit.prevent="submit">
-        <el-form-item label="Username">
+        <el-form-item :label="t('desktop.login.usernameLabel')">
           <el-input v-model="form.username" />
         </el-form-item>
-        <el-form-item label="Password">
+        <el-form-item :label="t('desktop.login.passwordLabel')">
           <el-input v-model="form.password" type="password" show-password />
         </el-form-item>
-        <el-button type="primary" class="login__submit" :loading="loading" @click="submit">Open Runtime</el-button>
+        <el-button type="primary" class="login__submit" :loading="loading" @click="submit">
+          {{ t("common.openRuntime") }}
+        </el-button>
       </el-form>
     </div>
   </div>
@@ -25,10 +27,12 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import { useDesktopAuthStore } from "@/stores/auth";
 
 const router = useRouter();
 const authStore = useDesktopAuthStore();
+const { t } = useI18n();
 const loading = ref(false);
 const form = reactive({
   username: "admin",
@@ -39,10 +43,10 @@ async function submit() {
   loading.value = true;
   try {
     await authStore.login(form);
-    ElMessage.success("Desktop runtime unlocked");
-    router.push("/home");
+    ElMessage.success(t("desktop.login.success"));
+    router.push("/dashboard");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Login failed");
+    ElMessage.error(error instanceof Error ? error.message : t("desktop.login.failed"));
   } finally {
     loading.value = false;
   }
@@ -67,10 +71,10 @@ async function submit() {
 
 .login__panel {
   padding: 36px;
-  color: #fff7ef;
+  color: #f3f8ff;
   background:
-    radial-gradient(circle at top left, rgba(247, 214, 146, 0.24), transparent 30%),
-    linear-gradient(180deg, #2e4f63 0%, #1d2530 100%);
+    radial-gradient(circle at top left, rgba(125, 179, 255, 0.28), transparent 30%),
+    linear-gradient(180deg, #18406f 0%, #0d2344 100%);
 }
 
 .login__eyebrow {
@@ -81,7 +85,7 @@ async function submit() {
 .login__card {
   align-self: center;
   padding: 28px;
-  background: rgba(255, 252, 245, 0.9);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .login__submit {

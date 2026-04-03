@@ -77,7 +77,33 @@ cd C:\dev\ideaProject\DataAggregation
 mvn -DskipTests install
 ```
 
-### 2. Start the online backend
+### 2. Initialize studio data once
+
+Runtime schema creation and bootstrap data are intentionally separated.
+Normal backend startup does not create default users, plugin catalog data or
+meta models automatically.
+
+Use the one-time initialization script when you need to initialize or rebuild
+studio data:
+
+```powershell
+cd C:\dev\ideaProject\DataAggregation\data-aggregation-studio\backend
+powershell -ExecutionPolicy Bypass -File .\scripts\init-studio-data.ps1
+```
+
+To clear the studio business tables and rebuild the current-version bootstrap
+data:
+
+```powershell
+cd C:\dev\ideaProject\DataAggregation\data-aggregation-studio\backend
+powershell -ExecutionPolicy Bypass -File .\scripts\init-studio-data.ps1 -ResetDatabase
+```
+
+The initializer runs the dedicated
+`com.jdragon.studio.server.bootstrap.StudioDataInitializerApplication`
+entrypoint and exits after completion.
+
+### 3. Start the online backend
 
 The server and worker are separate processes.
 
@@ -98,14 +124,14 @@ Default ports:
 
 Default online database:
 
-- MySQL: `jdbc:mysql://127.0.0.1:3306/data_aggregation_studio`
+- MySQL: `jdbc:mysql://192.168.188.128:3306/data_aggregation_studio`
 - username: `root`
-- password: `root`
+- password: `951753`
 
 The MySQL schema is initialized automatically from
 `backend/studio-server/src/main/resources/schema-mysql.sql`.
 
-### 3. Start the offline desktop runtime
+### 4. Start the offline desktop runtime
 
 ```powershell
 cd C:\dev\ideaProject\DataAggregation\data-aggregation-studio\backend
@@ -123,7 +149,7 @@ Default local database:
 The SQLite schema is initialized automatically from
 `backend/studio-desktop-runtime/src/main/resources/schema-sqlite.sql`.
 
-### 4. Start the frontend
+### 5. Start the frontend
 
 Install dependencies once:
 
@@ -159,7 +185,8 @@ Default frontend ports:
 
 ## Login And Docs
 
-Bootstrap data creates a default administrator account automatically.
+The default administrator account is created by the one-time initialization
+script.
 
 - username: `admin`
 - password: `admin123`

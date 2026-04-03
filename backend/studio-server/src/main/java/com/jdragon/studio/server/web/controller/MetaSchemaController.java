@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.request.MetadataSchemaSaveRequest;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,5 +44,24 @@ public class MetaSchemaController {
     @PostMapping("/{schemaId}/publish")
     public Result<MetadataSchemaDefinition> publish(@PathVariable("schemaId") Long schemaId) {
         return Result.success(metadataSchemaService.publish(schemaId));
+    }
+
+    @Operation(summary = "Sync technical meta models for datasource type")
+    @PostMapping("/technical/sync/{typeCode}")
+    public Result<List<MetadataSchemaDefinition>> syncTechnical(@PathVariable("typeCode") String typeCode) {
+        return Result.success(metadataSchemaService.syncTechnicalMetaModels(typeCode));
+    }
+
+    @Operation(summary = "Sync technical meta models for all supported datasource types")
+    @PostMapping("/technical/sync-all")
+    public Result<List<MetadataSchemaDefinition>> syncAllTechnical() {
+        return Result.success(metadataSchemaService.syncAllTechnicalMetaModels());
+    }
+
+    @Operation(summary = "Delete metadata schema")
+    @DeleteMapping("/{schemaId}")
+    public Result<Void> delete(@PathVariable("schemaId") Long schemaId) {
+        metadataSchemaService.delete(schemaId);
+        return Result.success(null);
     }
 }

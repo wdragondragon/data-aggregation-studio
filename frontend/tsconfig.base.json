@@ -17,6 +17,9 @@
       "@studio/api-sdk": [
         "packages/api-sdk/src"
       ],
+      "@studio/i18n": [
+        "packages/i18n/src"
+      ],
       "@studio/meta-form": [
         "packages/meta-form/src"
       ],

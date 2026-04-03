@@ -30,7 +30,7 @@ const toneClass = computed(() => `metric-card--${props.tone ?? "primary"}`);
   padding: 22px;
   border: 1px solid var(--studio-border);
   border-radius: var(--studio-radius-lg);
-  background: linear-gradient(180deg, rgba(255, 250, 240, 0.9), rgba(255, 255, 255, 0.88));
+  background: linear-gradient(180deg, rgba(247, 251, 255, 0.96), rgba(255, 255, 255, 0.9));
   box-shadow: var(--studio-shadow);
 }
 
@@ -41,7 +41,7 @@ const toneClass = computed(() => `metric-card--${props.tone ?? "primary"}`);
   width: 130px;
   height: 130px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.46);
 }
 
 .metric-card__meta {
@@ -76,18 +76,18 @@ const toneClass = computed(() => `metric-card--${props.tone ?? "primary"}`);
 }
 
 .metric-card--primary {
-  background: linear-gradient(180deg, rgba(255, 245, 236, 0.95), rgba(255, 255, 255, 0.88));
+  background: linear-gradient(180deg, rgba(232, 242, 255, 0.98), rgba(255, 255, 255, 0.92));
 }
 
 .metric-card--accent {
-  background: linear-gradient(180deg, rgba(251, 242, 214, 0.96), rgba(255, 255, 255, 0.88));
+  background: linear-gradient(180deg, rgba(229, 248, 255, 0.98), rgba(255, 255, 255, 0.92));
 }
 
 .metric-card--success {
-  background: linear-gradient(180deg, rgba(232, 246, 238, 0.96), rgba(255, 255, 255, 0.9));
+  background: linear-gradient(180deg, rgba(232, 247, 245, 0.98), rgba(255, 255, 255, 0.92));
 }
 
 .metric-card--warning {
-  background: linear-gradient(180deg, rgba(255, 244, 222, 0.96), rgba(255, 255, 255, 0.9));
+  background: linear-gradient(180deg, rgba(255, 246, 231, 0.98), rgba(255, 255, 255, 0.92));
 }
 </style>

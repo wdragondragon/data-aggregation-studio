@@ -3,16 +3,30 @@ import type { StudioNavItem } from "@studio/ui";
 import { useAuthStore } from "@/stores/auth";
 import StudioLayout from "@/layout/StudioLayout.vue";
 
-export const studioMenus: StudioNavItem[] = [
-  { label: "Dashboard", path: "/dashboard", caption: "Control tower and runtime summary" },
-  { label: "Catalog", path: "/catalog", caption: "Plugin inventory and execution matrix" },
-  { label: "Metadata", path: "/metadata", caption: "Dynamic schema and field definitions" },
-  { label: "Datasources", path: "/datasources", caption: "Connection registry and testing" },
-  { label: "Models", path: "/models", caption: "Model discovery and preview" },
-  { label: "Workflows", path: "/workflows", caption: "DAG designer and node orchestration" },
-  { label: "Runs", path: "/runs", caption: "Dispatch queue and run records" },
-  { label: "System", path: "/system", caption: "Users, roles and permissions" },
+interface StudioMenuDescriptor {
+  path: string;
+  labelKey: string;
+  captionKey: string;
+}
+
+export const studioMenuDescriptors: StudioMenuDescriptor[] = [
+  { path: "/dashboard", labelKey: "routes.web.dashboard.title", captionKey: "routes.web.dashboard.menuCaption" },
+  { path: "/catalog", labelKey: "routes.web.catalog.title", captionKey: "routes.web.catalog.menuCaption" },
+  { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
+  { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
+  { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
+  { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
+  { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
+  { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
 ];
+
+export function resolveStudioMenus(t: (key: string) => string): StudioNavItem[] {
+  return studioMenuDescriptors.map((item) => ({
+    path: item.path,
+    label: t(item.labelKey),
+    caption: t(item.captionKey),
+  }));
+}
 
 const routes: RouteRecordRaw[] = [
   {
@@ -21,8 +35,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/LoginView.vue"),
     meta: {
       public: true,
-      title: "Sign In",
-      subtitle: "Use the seeded admin account to enter the studio.",
+      titleKey: "routes.web.login.title",
+      subtitleKey: "routes.web.login.subtitle",
     },
   },
   {
@@ -35,8 +49,8 @@ const routes: RouteRecordRaw[] = [
         name: "dashboard",
         component: () => import("@/views/DashboardView.vue"),
         meta: {
-          title: "Dashboard",
-          subtitle: "Observe catalog breadth, workflow health and runtime activity at a glance.",
+          titleKey: "routes.web.dashboard.title",
+          subtitleKey: "routes.web.dashboard.subtitle",
         },
       },
       {
@@ -44,8 +58,8 @@ const routes: RouteRecordRaw[] = [
         name: "catalog",
         component: () => import("@/views/CatalogView.vue"),
         meta: {
-          title: "Plugin Catalog",
-          subtitle: "Track source, reader, writer and transformer coverage before you design jobs.",
+          titleKey: "routes.web.catalog.title",
+          subtitleKey: "routes.web.catalog.subtitle",
         },
       },
       {
@@ -53,8 +67,8 @@ const routes: RouteRecordRaw[] = [
         name: "metadata",
         component: () => import("@/views/MetadataSchemasView.vue"),
         meta: {
-          title: "Metadata Center",
-          subtitle: "Draft and publish technical and business schema definitions for dynamic forms.",
+          titleKey: "routes.web.metadata.title",
+          subtitleKey: "routes.web.metadata.subtitle",
         },
       },
       {
@@ -62,8 +76,8 @@ const routes: RouteRecordRaw[] = [
         name: "datasources",
         component: () => import("@/views/DatasourcesView.vue"),
         meta: {
-          title: "Datasource Center",
-          subtitle: "Manage connections with schema-driven metadata, testing and model discovery.",
+          titleKey: "routes.web.datasources.title",
+          subtitleKey: "routes.web.datasources.subtitle",
         },
       },
       {
@@ -71,8 +85,17 @@ const routes: RouteRecordRaw[] = [
         name: "models",
         component: () => import("@/views/ModelsView.vue"),
         meta: {
-          title: "Model Center",
-          subtitle: "Synchronize physical models into the platform abstraction and inspect samples.",
+          titleKey: "routes.web.models.title",
+          subtitleKey: "routes.web.models.subtitle",
+        },
+      },
+      {
+        path: "/models/:modelId",
+        name: "model-detail",
+        component: () => import("@/views/ModelsView.vue"),
+        meta: {
+          titleKey: "routes.web.models.detailTitle",
+          subtitleKey: "routes.web.models.detailSubtitle",
         },
       },
       {
@@ -80,8 +103,8 @@ const routes: RouteRecordRaw[] = [
         name: "workflows",
         component: () => import("@/views/WorkflowsView.vue"),
         meta: {
-          title: "Workflow Studio",
-          subtitle: "Compose ETL, fusion and operational steps in a drag-and-drop execution graph.",
+          titleKey: "routes.web.workflows.title",
+          subtitleKey: "routes.web.workflows.subtitle",
         },
       },
       {
@@ -89,8 +112,8 @@ const routes: RouteRecordRaw[] = [
         name: "runs",
         component: () => import("@/views/RunsView.vue"),
         meta: {
-          title: "Runtime Center",
-          subtitle: "Inspect queued tasks, worker activity and node-level execution results.",
+          titleKey: "routes.web.runs.title",
+          subtitleKey: "routes.web.runs.subtitle",
         },
       },
       {
@@ -98,8 +121,8 @@ const routes: RouteRecordRaw[] = [
         name: "system",
         component: () => import("@/views/SystemView.vue"),
         meta: {
-          title: "System Management",
-          subtitle: "Handle users, roles and permission surfaces for the web platform.",
+          titleKey: "routes.web.system.title",
+          subtitleKey: "routes.web.system.subtitle",
         },
       },
     ],
@@ -133,11 +156,6 @@ router.beforeEach(async (to) => {
   }
 
   return true;
-});
-
-router.afterEach((to) => {
-  const title = typeof to.meta.title === "string" ? to.meta.title : "Data Aggregation Studio";
-  document.title = `${title} | Data Aggregation Studio`;
 });
 
 export default router;

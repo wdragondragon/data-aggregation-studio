@@ -16,6 +16,10 @@ import com.jdragon.studio.infra.entity.WorkflowEdgeEntity;
 import com.jdragon.studio.infra.entity.WorkflowNodeEntity;
 import com.jdragon.studio.infra.entity.WorkflowScheduleEntity;
 import com.jdragon.studio.infra.entity.WorkflowVersionEntity;
+import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.mapper.WorkflowEdgeMapper;
 import com.jdragon.studio.infra.mapper.WorkflowNodeMapper;
@@ -38,17 +42,23 @@ public class WorkflowService {
     private final WorkflowNodeMapper nodeMapper;
     private final WorkflowEdgeMapper edgeMapper;
     private final WorkflowScheduleMapper scheduleMapper;
+    private final DispatchTaskMapper dispatchTaskMapper;
+    private final RunRecordMapper runRecordMapper;
 
     public WorkflowService(WorkflowDefinitionMapper definitionMapper,
                            WorkflowVersionMapper versionMapper,
                            WorkflowNodeMapper nodeMapper,
                            WorkflowEdgeMapper edgeMapper,
-                           WorkflowScheduleMapper scheduleMapper) {
+                           WorkflowScheduleMapper scheduleMapper,
+                           DispatchTaskMapper dispatchTaskMapper,
+                           RunRecordMapper runRecordMapper) {
         this.definitionMapper = definitionMapper;
         this.versionMapper = versionMapper;
         this.nodeMapper = nodeMapper;
         this.edgeMapper = edgeMapper;
         this.scheduleMapper = scheduleMapper;
+        this.dispatchTaskMapper = dispatchTaskMapper;
+        this.runRecordMapper = runRecordMapper;
     }
 
     public List<WorkflowDefinitionView> list() {
@@ -210,6 +220,31 @@ public class WorkflowService {
         definition.setPublished(1);
         definitionMapper.updateById(definition);
         return get(definitionId);
+    }
+
+    @Transactional
+    public void delete(Long definitionId) {
+        List<WorkflowVersionEntity> versions = versionMapper.selectList(new LambdaQueryWrapper<WorkflowVersionEntity>()
+                .eq(WorkflowVersionEntity::getDefinitionId, definitionId));
+        List<Long> versionIds = new ArrayList<Long>();
+        for (WorkflowVersionEntity version : versions) {
+            versionIds.add(version.getId());
+        }
+        if (!versionIds.isEmpty()) {
+            nodeMapper.delete(new LambdaQueryWrapper<WorkflowNodeEntity>()
+                    .in(WorkflowNodeEntity::getWorkflowVersionId, versionIds));
+            edgeMapper.delete(new LambdaQueryWrapper<WorkflowEdgeEntity>()
+                    .in(WorkflowEdgeEntity::getWorkflowVersionId, versionIds));
+        }
+        versionMapper.delete(new LambdaQueryWrapper<WorkflowVersionEntity>()
+                .eq(WorkflowVersionEntity::getDefinitionId, definitionId));
+        scheduleMapper.delete(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definitionId));
+        dispatchTaskMapper.delete(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getWorkflowDefinitionId, definitionId));
+        runRecordMapper.delete(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getWorkflowDefinitionId, definitionId));
+        definitionMapper.deleteById(definitionId);
     }
 
     private int nextVersion(Long definitionId) {

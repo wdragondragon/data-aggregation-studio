@@ -2,27 +2,27 @@
   <div class="studio-page">
     <div class="studio-toolbar">
       <div>
-        <h3>Plugin inventory</h3>
-        <p>Everything here is scanned from the independent studio runtime, not from the DataAggregation Maven reactor.</p>
+        <h3>{{ t("web.catalog.heading") }}</h3>
+        <p>{{ t("web.catalog.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-select v-model="categoryFilter" clearable placeholder="Filter by category" style="min-width: 180px">
-          <el-option label="Source" value="SOURCE" />
-          <el-option label="Reader" value="READER" />
-          <el-option label="Writer" value="WRITER" />
-          <el-option label="Transformer" value="TRANSFORMER" />
+        <el-select v-model="categoryFilter" clearable :placeholder="t('web.catalog.filterPlaceholder')" style="min-width: 180px">
+          <el-option :label="t('web.catalog.categorySource')" value="SOURCE" />
+          <el-option :label="t('web.catalog.categoryReader')" value="READER" />
+          <el-option :label="t('web.catalog.categoryWriter')" value="WRITER" />
+          <el-option :label="t('web.catalog.categoryTransformer')" value="TRANSFORMER" />
         </el-select>
-        <el-button type="primary" plain @click="loadCatalog">Refresh</el-button>
+        <el-button type="primary" plain @click="loadCatalog">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
 
     <div class="studio-grid columns-3">
-      <MetricCard label="Catalog Entries" :value="filteredPlugins.length" hint="Current Filter" />
-      <MetricCard label="Executable Sources" :value="capabilityMatrix.executableSourceTypes.length" tone="success" hint="Can enter workflow designer" />
-      <MetricCard label="Transformers" :value="transformerCount" tone="accent" hint="Available for field mapping" />
+      <MetricCard :label="t('web.catalog.entries')" :value="pluginCount" :hint="t('web.catalog.entriesHint')" />
+      <MetricCard :label="t('web.catalog.executableSources')" :value="capabilityMatrix.executableSourceTypes.length" tone="success" :hint="t('web.catalog.executableSourcesHint')" />
+      <MetricCard :label="t('web.catalog.transformers')" :value="transformerCount" tone="accent" :hint="t('web.catalog.transformersHint')" />
     </div>
 
-    <SectionCard title="Capability Matrix" description="This list defines which source families can flow from management into execution.">
+    <SectionCard :title="t('web.catalog.capabilityTitle')" :description="t('web.catalog.capabilityDescription')">
       <div class="soft-panel">
         <div class="tag-row">
           <StatusPill
@@ -35,17 +35,17 @@
       </div>
     </SectionCard>
 
-    <SectionCard title="Catalog Entries" description="Raw scanned plugin assets, templates and executable flags.">
+    <SectionCard :title="t('web.catalog.tableTitle')" :description="t('web.catalog.tableDescription')">
       <el-table :data="filteredPlugins" border>
-        <el-table-column prop="pluginCategory" label="Category" width="120" />
-        <el-table-column prop="pluginName" label="Plugin" min-width="160" />
-        <el-table-column prop="assetType" label="Asset Type" width="140" />
-        <el-table-column label="Executable" width="120">
+        <el-table-column prop="pluginCategory" :label="t('web.catalog.categoryColumn')" width="120" />
+        <el-table-column prop="pluginName" :label="t('web.catalog.pluginColumn')" min-width="160" />
+        <el-table-column prop="assetType" :label="t('web.catalog.assetTypeColumn')" width="140" />
+        <el-table-column :label="t('web.catalog.executableColumn')" width="120">
           <template #default="{ row }">
-            <StatusPill :label="row.executable ? 'Yes' : 'No'" :tone="row.executable ? 'success' : 'neutral'" />
+            <StatusPill :label="row.executable ? t('common.yes') : t('common.no')" :tone="row.executable ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
-        <el-table-column prop="assetPath" label="Asset Path" min-width="280" show-overflow-tooltip />
+        <el-table-column prop="assetPath" :label="t('web.catalog.assetPathColumn')" min-width="280" show-overflow-tooltip />
       </el-table>
     </SectionCard>
   </div>
@@ -54,10 +54,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type { CapabilityMatrix, PluginCatalogEntry } from "@studio/api-sdk";
 import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
+const { t } = useI18n();
 const categoryFilter = ref<string>();
 const plugins = ref<PluginCatalogEntry[]>([]);
 const capabilityMatrix = reactive<CapabilityMatrix>({
@@ -72,7 +74,8 @@ const filteredPlugins = computed(() => {
   return plugins.value.filter((item) => item.pluginCategory === categoryFilter.value);
 });
 
-const transformerCount = computed(() => plugins.value.filter((item) => item.pluginCategory === "TRANSFORMER").length);
+const pluginCount = computed(() => new Set(filteredPlugins.value.map((item) => `${item.pluginCategory}::${item.pluginName}`)).size);
+const transformerCount = computed(() => new Set(plugins.value.filter((item) => item.pluginCategory === "TRANSFORMER").map((item) => item.pluginName)).size);
 
 async function loadCatalog() {
   try {
@@ -84,7 +87,7 @@ async function loadCatalog() {
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
     capabilityMatrix.plugins = capabilityData.plugins;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load catalog");
+    ElMessage.error(error instanceof Error ? error.message : t("web.catalog.loadFailed"));
   }
 }
 

@@ -2,7 +2,7 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { clearStoredToken, DESKTOP_USERNAME_KEY, desktopApi, getStoredToken, setStoredToken } from "@/api/studio";
 
-export const useDesktopAuthStore = defineStore("studio-desktop-auth", () => {
+const useSharedAuthStore = defineStore("studio-desktop-auth", () => {
   const token = ref<string | null>(getStoredToken());
   const username = ref<string | null>(window.localStorage.getItem(DESKTOP_USERNAME_KEY));
   const ready = ref(false);
@@ -53,3 +53,6 @@ export const useDesktopAuthStore = defineStore("studio-desktop-auth", () => {
     logout,
   };
 });
+
+export const useDesktopAuthStore = useSharedAuthStore;
+export const useAuthStore = useSharedAuthStore;

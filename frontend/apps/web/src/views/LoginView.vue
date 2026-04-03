@@ -1,28 +1,27 @@
 <template>
   <div class="login">
     <div class="login__hero">
-      <p class="login__eyebrow">Web-first data orchestration</p>
-      <h1>Build metadata-driven collection jobs without binding the platform to the engine reactor.</h1>
-      <p>
-        This studio runs beside DataAggregation, not inside it. Sign in to manage datasource schemas,
-        physical models and DAG workflows from the browser.
-      </p>
+      <p class="login__eyebrow">{{ t("web.login.eyebrow") }}</p>
+      <h1>{{ t("web.login.heroTitle") }}</h1>
+      <p>{{ t("web.login.heroDescription") }}</p>
       <div class="login__tips">
-        <span>Default account: <strong class="studio-mono">admin</strong></span>
-        <span>Password: <strong class="studio-mono">admin123</strong></span>
+        <span>{{ t("web.login.defaultAccount") }} <strong class="studio-mono">admin</strong></span>
+        <span>{{ t("web.login.password") }} <strong class="studio-mono">admin123</strong></span>
       </div>
     </div>
 
     <div class="login__card">
-      <h2>Sign In</h2>
+      <h2>{{ t("common.signIn") }}</h2>
       <el-form label-position="top" @submit.prevent="submit">
-        <el-form-item label="Username">
+        <el-form-item :label="t('web.login.usernameLabel')">
           <el-input v-model="form.username" autocomplete="username" />
         </el-form-item>
-        <el-form-item label="Password">
+        <el-form-item :label="t('web.login.passwordLabel')">
           <el-input v-model="form.password" type="password" show-password autocomplete="current-password" />
         </el-form-item>
-        <el-button type="primary" :loading="loading" class="login__submit" @click="submit">Enter Studio</el-button>
+        <el-button type="primary" :loading="loading" class="login__submit" @click="submit">
+          {{ t("common.enterStudio") }}
+        </el-button>
       </el-form>
     </div>
   </div>
@@ -32,11 +31,13 @@
 import { reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import { useAuthStore } from "@/stores/auth";
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const { t } = useI18n();
 const loading = ref(false);
 const form = reactive({
   username: "admin",
@@ -47,11 +48,11 @@ async function submit() {
   loading.value = true;
   try {
     await authStore.login(form);
-    ElMessage.success("Login succeeded");
+    ElMessage.success(t("web.login.success"));
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard";
     router.push(redirect);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Login failed");
+    ElMessage.error(error instanceof Error ? error.message : t("web.login.failed"));
   } finally {
     loading.value = false;
   }
@@ -76,10 +77,10 @@ async function submit() {
 
 .login__hero {
   padding: 48px;
-  color: #fff5eb;
+  color: #f3f8ff;
   background:
-    radial-gradient(circle at top left, rgba(247, 214, 146, 0.24), transparent 30%),
-    linear-gradient(180deg, #6d3f2c 0%, #2d1c14 100%);
+    radial-gradient(circle at top left, rgba(125, 179, 255, 0.28), transparent 30%),
+    linear-gradient(180deg, #1d4f91 0%, #0e2c57 100%);
 }
 
 .login__hero h1 {
@@ -91,7 +92,7 @@ async function submit() {
 .login__hero p {
   max-width: 720px;
   font-size: 17px;
-  color: rgba(255, 245, 235, 0.8);
+  color: rgba(243, 248, 255, 0.82);
 }
 
 .login__eyebrow {
@@ -110,13 +111,13 @@ async function submit() {
 .login__tips span {
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .login__card {
   align-self: center;
   padding: 32px;
-  background: rgba(255, 252, 245, 0.9);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .login__card h2 {

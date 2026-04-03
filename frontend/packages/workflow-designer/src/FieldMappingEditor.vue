@@ -1,18 +1,18 @@
 <template>
   <div class="mapping-editor">
     <div class="mapping-editor__toolbar">
-      <span>Field mappings</span>
-      <el-button type="primary" plain @click="appendRow">Add Mapping</el-button>
+      <span>{{ t("fieldMapping.title") }}</span>
+      <el-button type="primary" plain @click="appendRow">{{ t("common.addMapping") }}</el-button>
     </div>
 
     <el-table :data="rows" border>
-      <el-table-column label="Source Field" min-width="180">
+      <el-table-column :label="t('fieldMapping.sourceField')" min-width="180">
         <template #default="{ row, $index }">
           <el-select
             :model-value="row.sourceField"
             clearable
             filterable
-            placeholder="Select source field"
+            :placeholder="t('fieldMapping.selectSourceField')"
             @update:model-value="updateRow($index, 'sourceField', $event)"
           >
             <el-option v-for="field in sourceFields" :key="field" :label="field" :value="field" />
@@ -20,13 +20,13 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Target Field" min-width="180">
+      <el-table-column :label="t('fieldMapping.targetField')" min-width="180">
         <template #default="{ row, $index }">
           <el-select
             :model-value="row.targetField"
             clearable
             filterable
-            placeholder="Select target field"
+            :placeholder="t('fieldMapping.selectTargetField')"
             @update:model-value="updateRow($index, 'targetField', $event)"
           >
             <el-option v-for="field in targetFields" :key="field" :label="field" :value="field" />
@@ -34,17 +34,17 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Expression" min-width="200">
+      <el-table-column :label="t('fieldMapping.expression')" min-width="200">
         <template #default="{ row, $index }">
           <el-input
             :model-value="row.expression"
-            placeholder="Optional expression"
+            :placeholder="t('fieldMapping.optionalExpression')"
             @update:model-value="updateRow($index, 'expression', $event)"
           />
         </template>
       </el-table-column>
 
-      <el-table-column label="Transformers" min-width="220">
+      <el-table-column :label="t('fieldMapping.transformers')" min-width="220">
         <template #default="{ row, $index }">
           <el-select
             :model-value="transformerCodes(row.transformers)"
@@ -52,7 +52,7 @@
             filterable
             allow-create
             default-first-option
-            placeholder="Choose transformers"
+            :placeholder="t('fieldMapping.chooseTransformers')"
             @update:model-value="updateTransformers($index, $event)"
           >
             <el-option
@@ -65,9 +65,9 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" width="110" fixed="right">
+      <el-table-column :label="t('fieldMapping.actions')" width="110" fixed="right">
         <template #default="{ $index }">
-          <el-button type="danger" link @click="removeRow($index)">Remove</el-button>
+          <el-button type="danger" link @click="removeRow($index)">{{ t("common.remove") }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -76,6 +76,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import type { FieldMappingDefinition, TransformerBinding } from "@studio/api-sdk";
 
 const props = withDefaults(
@@ -97,6 +98,7 @@ const emit = defineEmits<{
   "update:modelValue": [value: FieldMappingDefinition[]];
 }>();
 
+const { t } = useI18n();
 const rows = computed(() => props.modelValue ?? []);
 
 function appendRow() {

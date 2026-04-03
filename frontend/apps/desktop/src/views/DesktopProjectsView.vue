@@ -1,14 +1,14 @@
 <template>
   <div class="studio-page">
-    <SectionCard title="Import and Export Boundary" description="First-version desktop and web remain independent and exchange only explicit bundles.">
+    <SectionCard :title="t('desktop.projects.title')" :description="t('desktop.projects.description')">
       <div class="studio-toolbar">
         <div>
-          <strong>Project bundle export</strong>
-          <p>Use this preview to inspect what would be packaged for transfer.</p>
+          <strong>{{ t("desktop.projects.exportTitle") }}</strong>
+          <p>{{ t("desktop.projects.exportDescription") }}</p>
         </div>
         <div class="studio-toolbar-actions">
-          <el-button type="primary" plain @click="loadBundle">Refresh Bundle</el-button>
-          <el-button @click="loadTemplate">Import Template Info</el-button>
+          <el-button type="primary" plain @click="loadBundle">{{ t("desktop.projects.refreshBundle") }}</el-button>
+          <el-button @click="loadTemplate">{{ t("desktop.projects.importTemplateInfo") }}</el-button>
         </div>
       </div>
 
@@ -20,9 +20,11 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import { SectionCard } from "@studio/ui";
 import { desktopApi } from "@/api/studio";
 
+const { t } = useI18n();
 const bundle = ref<unknown>({});
 
 const bundleText = computed(() => JSON.stringify(bundle.value, null, 2));
@@ -31,7 +33,7 @@ async function loadBundle() {
   try {
     bundle.value = await desktopApi.exports.project();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load export bundle");
+    ElMessage.error(error instanceof Error ? error.message : t("desktop.projects.loadBundleFailed"));
   }
 }
 
@@ -39,7 +41,7 @@ async function loadTemplate() {
   try {
     bundle.value = await desktopApi.imports.template();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load import template");
+    ElMessage.error(error instanceof Error ? error.message : t("desktop.projects.loadTemplateFailed"));
   }
 }
 </script>

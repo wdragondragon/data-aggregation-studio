@@ -1,6 +1,8 @@
 import type { App, Plugin } from "vue";
 import {
   ElButton,
+  ElDescriptions,
+  ElDescriptionsItem,
   ElDialog,
   ElDrawer,
   ElForm,
@@ -12,9 +14,12 @@ import {
   ElTable,
   ElTableColumn,
   ElTabPane,
-  ElTabs
+  ElTabs,
+  ElTree
 } from "element-plus";
 import "element-plus/es/components/button/style/css";
+import "element-plus/es/components/descriptions/style/css";
+import "element-plus/es/components/descriptions-item/style/css";
 import "element-plus/es/components/dialog/style/css";
 import "element-plus/es/components/drawer/style/css";
 import "element-plus/es/components/form/style/css";
@@ -29,9 +34,12 @@ import "element-plus/es/components/table/style/css";
 import "element-plus/es/components/table-column/style/css";
 import "element-plus/es/components/tab-pane/style/css";
 import "element-plus/es/components/tabs/style/css";
+import "element-plus/es/components/tree/style/css";
 
 const components: Plugin[] = [
   ElButton,
+  ElDescriptions,
+  ElDescriptionsItem,
   ElDialog,
   ElDrawer,
   ElForm,
@@ -43,7 +51,8 @@ const components: Plugin[] = [
   ElTable,
   ElTableColumn,
   ElTabPane,
-  ElTabs
+  ElTabs,
+  ElTree
 ];
 
 export function installElementPlus(app: App) {

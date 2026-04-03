@@ -2,49 +2,50 @@
   <div class="studio-page">
     <div class="studio-toolbar">
       <div>
-        <h3>Datasource center</h3>
-        <p>Schema-driven forms let the connection surface change with plugin type instead of hard-coded screens.</p>
+        <h3>{{ t("web.datasources.heading") }}</h3>
+        <p>{{ t("web.datasources.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button type="primary" @click="openCreate">New Datasource</el-button>
-        <el-button plain @click="loadPage">Refresh</el-button>
+        <el-button type="primary" @click="openCreate">{{ t("common.newDatasource") }}</el-button>
+        <el-button plain @click="loadPage">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
 
-    <SectionCard title="Managed Datasources" description="These instances remain independent from DataAggregation Maven modules and only depend on published runtime artifacts.">
+    <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
       <el-table :data="datasources" border>
-        <el-table-column prop="name" label="Name" min-width="180" />
-        <el-table-column prop="typeCode" label="Type" width="120" />
-        <el-table-column label="Enabled" width="110">
+        <el-table-column prop="name" :label="t('web.datasources.nameColumn')" min-width="180" />
+        <el-table-column prop="typeCode" :label="t('web.datasources.typeColumn')" width="120" />
+        <el-table-column :label="t('web.datasources.enabledColumn')" width="110">
           <template #default="{ row }">
-            <StatusPill :label="row.enabled ? 'On' : 'Off'" :tone="row.enabled ? 'success' : 'neutral'" />
+            <StatusPill :label="row.enabled ? t('common.on') : t('common.off')" :tone="row.enabled ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
-        <el-table-column label="Executable" width="130">
+        <el-table-column :label="t('web.datasources.executableColumn')" width="130">
           <template #default="{ row }">
-            <StatusPill :label="row.executable ? 'Runnable' : 'Catalog Only'" :tone="row.executable ? 'success' : 'warning'" />
+            <StatusPill :label="row.executable ? t('common.runnable') : t('common.catalogOnly')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
         </el-table-column>
-        <el-table-column prop="updatedAt" label="Updated" min-width="170" />
-        <el-table-column label="Actions" width="240" fixed="right">
+        <el-table-column prop="updatedAt" :label="t('web.datasources.updatedColumn')" min-width="170" />
+        <el-table-column :label="t('web.datasources.actionsColumn')" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="editDatasource(row)">Edit</el-button>
-            <el-button link type="success" @click="testDatasource(row)">Test</el-button>
-            <el-button link type="warning" @click="discoverModels(row)">Discover</el-button>
+            <el-button link type="primary" @click="editDatasource(row)">{{ t("common.edit") }}</el-button>
+            <el-button link type="success" @click="testDatasource(row)">{{ t("common.test") }}</el-button>
+            <el-button link type="warning" @click="discoverModels(row)">{{ t("common.discover") }}</el-button>
+            <el-button link type="danger" @click="deleteDatasource(row)">{{ t("common.delete") }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </SectionCard>
 
-    <el-drawer v-model="drawerOpen" size="70%" :title="form.id ? 'Edit Datasource' : 'Create Datasource'">
+    <el-drawer v-model="drawerOpen" size="70%" :title="form.id ? t('web.datasources.drawerEditTitle') : t('web.datasources.drawerCreateTitle')">
       <div class="studio-grid columns-2">
-        <SectionCard title="Connection Identity" description="Choose the plugin type first, then the metadata form adapts to it.">
+        <SectionCard :title="t('web.datasources.identityTitle')" :description="t('web.datasources.identityDescription')">
           <div class="studio-form-grid">
-            <el-form-item label="Datasource Name">
-              <el-input v-model="form.name" placeholder="Orders MySQL" />
+            <el-form-item :label="t('web.datasources.datasourceName')">
+              <el-input v-model="form.name" :placeholder="t('web.datasources.datasourceNamePlaceholder')" />
             </el-form-item>
-            <el-form-item label="Plugin Type">
-              <el-select v-model="form.typeCode" placeholder="Select type" @change="handleTypeChange">
+            <el-form-item :label="t('web.datasources.pluginType')">
+              <el-select v-model="form.typeCode" :placeholder="t('web.datasources.pluginTypePlaceholder')" @change="handleTypeChange">
                 <el-option
                   v-for="pluginName in sourceTypeOptions"
                   :key="pluginName"
@@ -53,8 +54,8 @@
                 />
               </el-select>
             </el-form-item>
-            <el-form-item label="Schema Binding">
-              <el-select v-model="form.schemaVersionId" clearable placeholder="Optional schema binding">
+            <el-form-item :label="t('web.datasources.schemaBinding')">
+              <el-select v-model="form.schemaVersionId" clearable :placeholder="t('web.datasources.schemaBindingPlaceholder')">
                 <el-option
                   v-for="schema in datasourceSchemas"
                   :key="schema.id"
@@ -63,18 +64,18 @@
                 />
               </el-select>
             </el-form-item>
-            <el-form-item label="Execution Surface">
-              <el-switch v-model="form.executable" inline-prompt active-text="Run" inactive-text="Catalog" />
+            <el-form-item :label="t('web.datasources.executionSurface')">
+              <el-switch v-model="form.executable" inline-prompt :active-text="t('common.run')" :inactive-text="t('common.catalog')" />
             </el-form-item>
-            <el-form-item label="Enabled">
-              <el-switch v-model="form.enabled" inline-prompt active-text="On" inactive-text="Off" />
+            <el-form-item :label="t('web.datasources.enabled')">
+              <el-switch v-model="form.enabled" inline-prompt :active-text="t('common.on')" :inactive-text="t('common.off')" />
             </el-form-item>
           </div>
         </SectionCard>
 
-        <SectionCard title="Execution Support" description="The executable flag follows the capability matrix but can still be adjusted for governance.">
+        <SectionCard :title="t('web.datasources.executionSupportTitle')" :description="t('web.datasources.executionSupportDescription')">
           <div class="soft-panel">
-            <p><strong>Executable source families</strong></p>
+            <p><strong>{{ t("web.datasources.executableSourceFamilies") }}</strong></p>
             <div class="tag-row">
               <StatusPill
                 v-for="item in capabilityMatrix.executableSourceTypes"
@@ -84,18 +85,18 @@
               />
             </div>
             <p class="capability-note">
-              Current type <strong>{{ form.typeCode || "Not selected" }}</strong>
+              {{ t("web.datasources.currentTypeLabel") }} <strong>{{ form.typeCode || t("web.datasources.notSelected") }}</strong>
               {{
                 form.typeCode && capabilityMatrix.executableSourceTypes.includes(form.typeCode)
-                  ? "can enter workflow execution."
-                  : "is currently managed as catalog metadata only."
+                  ? t("web.datasources.currentTypeExecutable")
+                  : t("web.datasources.currentTypeCatalogOnly")
               }}
             </p>
           </div>
         </SectionCard>
       </div>
 
-      <SectionCard title="Technical Metadata" description="Connection and execution essentials are stored separately from business annotations.">
+      <SectionCard :title="t('web.datasources.technicalTitle')" :description="t('web.datasources.technicalDescription')">
         <MetaFormRenderer
           :fields="technicalFields"
           :model-value="form.technicalMetadata"
@@ -103,7 +104,19 @@
         />
       </SectionCard>
 
-      <SectionCard title="Business Metadata" description="Use this area for ownership, domain tags and governance notes.">
+      <SectionCard :title="t('web.datasources.businessTitle')" :description="t('web.datasources.businessDescription')">
+        <div class="studio-form-grid business-schema-selector">
+          <el-form-item :label="t('web.datasources.businessMetaModel')">
+            <el-select v-model="selectedBusinessSchemaVersionId" clearable :placeholder="t('web.datasources.businessMetaModelPlaceholder')">
+              <el-option
+                v-for="schema in businessSchemaOptions"
+                :key="schema.id"
+                :label="`${parseMetaModelSchema(schema).config.directoryName || parseMetaModelSchema(schema).config.directoryCode || 'business'} / ${schema.schemaName}`"
+                :value="schema.currentVersionId ?? schema.id"
+              />
+            </el-select>
+          </el-form-item>
+        </div>
         <MetaFormRenderer
           :fields="businessFields"
           :model-value="form.businessMetadata"
@@ -112,21 +125,21 @@
       </SectionCard>
 
       <div class="drawer-actions">
-        <el-button @click="drawerOpen = false">Cancel</el-button>
-        <el-button @click="testCurrent">Test Connection</el-button>
-        <el-button type="primary" :loading="saving" @click="saveDatasource">Save Datasource</el-button>
+        <el-button @click="drawerOpen = false">{{ t("common.cancel") }}</el-button>
+        <el-button @click="testCurrent">{{ t("web.datasources.testConnection") }}</el-button>
+        <el-button type="primary" :loading="saving" @click="saveDatasource">{{ t("common.save") }}</el-button>
       </div>
 
-      <SectionCard v-if="testResult" title="Last Test Result" description="The platform masks secrets on the way back to the browser.">
+      <SectionCard v-if="testResult" :title="t('web.datasources.testResultTitle')" :description="t('web.datasources.testResultDescription')">
         <pre class="json-block studio-mono">{{ prettyJson(testResult) }}</pre>
       </SectionCard>
     </el-drawer>
 
-    <el-dialog v-model="discoverDialogOpen" title="Discovered Models" width="62%">
+    <el-dialog v-model="discoverDialogOpen" :title="t('web.datasources.discoveredModelsTitle')" width="62%">
       <el-table :data="discoveredModels" border>
-        <el-table-column prop="name" label="Model Name" min-width="180" />
-        <el-table-column prop="modelKind" label="Kind" width="120" />
-        <el-table-column prop="physicalLocator" label="Physical Locator" min-width="220" />
+        <el-table-column prop="name" :label="t('web.datasources.modelNameColumn')" min-width="180" />
+        <el-table-column prop="modelKind" :label="t('web.datasources.modelKindColumn')" width="120" />
+        <el-table-column prop="physicalLocator" :label="t('web.datasources.physicalLocatorColumn')" min-width="220" />
       </el-table>
     </el-dialog>
   </div>
@@ -134,7 +147,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type {
   CapabilityMatrix,
   ConnectionTestResult,
@@ -147,6 +161,7 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { parseBusinessSchemaVersionId, parseMetaModelSchema, sameEntityId, withBusinessSchemaVersionId } from "@/utils/metaModel";
 import { cloneDeep, prettyJson } from "@/utils/studio";
 
 interface DataSourceForm extends DataSourceDefinition {
@@ -155,6 +170,8 @@ interface DataSourceForm extends DataSourceDefinition {
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
 }
+
+const { t } = useI18n();
 
 const datasources = ref<DataSourceDefinition[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
@@ -185,18 +202,19 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
   if (["mysql8", "postgres", "oracle", "dm"].includes(form.typeCode)) {
     return [
       { fieldKey: "host", fieldName: "Host", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
-      { fieldKey: "port", fieldName: "Port", scope: "TECHNICAL", componentType: "NUMBER", valueType: "INTEGER", required: true },
+      { fieldKey: "port", fieldName: "Port", scope: "TECHNICAL", componentType: "NUMBER", valueType: "INTEGER", required: true, defaultValue: "3306" },
       { fieldKey: "database", fieldName: "Database", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
-      { fieldKey: "username", fieldName: "Username", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
-      { fieldKey: "password", fieldName: "Password", scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", required: true },
+      { fieldKey: "userName", fieldName: t("web.login.usernameLabel"), scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
+      { fieldKey: "password", fieldName: t("web.login.passwordLabel"), scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", required: true },
+      { fieldKey: "usePool", fieldName: "Use Connection Pool", scope: "TECHNICAL", componentType: "SWITCH", valueType: "BOOLEAN", defaultValue: "true" },
       ...businessDefault,
     ];
   }
   if (["kafka", "rocketmq", "rabbitmq"].includes(form.typeCode)) {
     return [
       { fieldKey: "brokers", fieldName: "Brokers", scope: "TECHNICAL", componentType: "TEXTAREA", valueType: "STRING", required: true },
-      { fieldKey: "username", fieldName: "Username", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
-      { fieldKey: "password", fieldName: "Password", scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
+      { fieldKey: "username", fieldName: t("web.login.usernameLabel"), scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+      { fieldKey: "password", fieldName: t("web.login.passwordLabel"), scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
     ];
   }
   if (["minio", "ftp", "sftp"].includes(form.typeCode)) {
@@ -209,8 +227,8 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
   }
   return [
     { fieldKey: "endpoint", fieldName: "Endpoint", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
-    { fieldKey: "username", fieldName: "Username", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
-    { fieldKey: "password", fieldName: "Password", scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
+    { fieldKey: "username", fieldName: t("web.login.usernameLabel"), scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+    { fieldKey: "password", fieldName: t("web.login.passwordLabel"), scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
   ];
 });
 
@@ -221,15 +239,49 @@ const fallbackBusinessFields = computed<MetadataFieldDefinition[]>(() => [
 ]);
 
 const datasourceSchemas = computed(() =>
-  schemas.value.filter((schema) => schema.objectType === "datasource" && schema.typeCode === form.typeCode),
+  schemas.value.filter((schema) => {
+    if (schema.objectType !== "datasource" || schema.typeCode !== form.typeCode) {
+      return false;
+    }
+    const config = parseMetaModelSchema(schema).config;
+    return config.domain === "TECHNICAL" && config.metaModelCode === "source";
+  }),
 );
+const businessSchemaOptions = computed(() =>
+  schemas.value.filter((schema) => {
+    const config = parseMetaModelSchema(schema).config;
+    return config.domain === "BUSINESS" && config.displayMode !== "MULTIPLE";
+  }),
+);
+const selectedBusinessSchemaVersionId = computed({
+  get: () => parseBusinessSchemaVersionId(form.businessMetadata),
+  set: (value) => {
+    form.businessMetadata = withBusinessSchemaVersionId(form.businessMetadata ?? {}, value);
+    applyBusinessMetadataDefaults();
+  },
+});
 
-const matchedSchema = computed(() => datasourceSchemas.value.find((schema) => schema.id === form.schemaVersionId) ?? datasourceSchemas.value[0]);
+const matchedSchema = computed(
+  () =>
+    datasourceSchemas.value.find(
+      (schema) => sameEntityId(schema.id, form.schemaVersionId) || sameEntityId(schema.currentVersionId, form.schemaVersionId),
+    ) ?? datasourceSchemas.value[0],
+);
+const matchedBusinessSchema = computed(
+  () =>
+    businessSchemaOptions.value.find(
+      (schema) =>
+        sameEntityId(schema.id, selectedBusinessSchemaVersionId.value)
+        || sameEntityId(schema.currentVersionId, selectedBusinessSchemaVersionId.value),
+    ),
+);
 const technicalFields = computed(
   () => matchedSchema.value?.fields?.filter((field) => field.scope !== "BUSINESS") ?? fallbackTechnicalFields.value,
 );
 const businessFields = computed(
-  () => matchedSchema.value?.fields?.filter((field) => field.scope === "BUSINESS") ?? fallbackBusinessFields.value,
+  () => matchedBusinessSchema.value?.fields?.filter((field) => field.scope === "BUSINESS")
+    ?? matchedSchema.value?.fields?.filter((field) => field.scope === "BUSINESS")
+    ?? fallbackBusinessFields.value,
 );
 
 function resetForm() {
@@ -256,10 +308,54 @@ function editDatasource(item: DataSourceDefinition) {
 }
 
 function handleTypeChange() {
-  form.schemaVersionId = datasourceSchemas.value[0]?.currentVersionId ?? datasourceSchemas.value[0]?.id;
+  const schema = datasourceSchemas.value[0];
+  form.schemaVersionId = schema?.currentVersionId ?? schema?.id;
   form.executable = capabilityMatrix.executableSourceTypes.includes(form.typeCode);
-  form.technicalMetadata = {};
+  form.technicalMetadata = buildDefaultMetadata(
+    schema?.fields?.filter((field) => field.scope !== "BUSINESS") ?? fallbackTechnicalFields.value,
+  );
   form.businessMetadata = {};
+  applyBusinessMetadataDefaults();
+}
+
+function buildDefaultMetadata(fields: MetadataFieldDefinition[]) {
+  const defaults: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!field.fieldKey || field.defaultValue === undefined || field.defaultValue === null || field.defaultValue === "") {
+      continue;
+    }
+    defaults[field.fieldKey] = parseDefaultValue(field);
+  }
+  return defaults;
+}
+
+function parseDefaultValue(field: MetadataFieldDefinition) {
+  const rawValue = field.defaultValue;
+  if (rawValue === undefined || rawValue === null) {
+    return undefined;
+  }
+  if (field.valueType === "BOOLEAN") {
+    return rawValue === "true";
+  }
+  if (field.valueType === "INTEGER" || field.valueType === "LONG" || field.valueType === "DECIMAL") {
+    const numberValue = Number(rawValue);
+    return Number.isNaN(numberValue) ? rawValue : numberValue;
+  }
+  if (field.valueType === "JSON" || field.valueType === "OBJECT" || field.valueType === "ARRAY") {
+    try {
+      return JSON.parse(rawValue);
+    } catch (error) {
+      return rawValue;
+    }
+  }
+  return rawValue;
+}
+
+function applyBusinessMetadataDefaults() {
+  form.businessMetadata = {
+    ...buildDefaultMetadata(businessFields.value),
+    ...(form.businessMetadata ?? {}),
+  };
 }
 
 async function loadPage() {
@@ -276,7 +372,7 @@ async function loadPage() {
     capabilityMatrix.plugins = capabilityData.plugins;
     sourcePlugins.value = pluginData;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load datasource page");
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
   }
 }
 
@@ -285,14 +381,14 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
   try {
     const saved = await studioApi.datasources.save(cloneDeep(form));
     Object.assign(form, saved);
-    ElMessage.success("Datasource saved");
+    ElMessage.success(t("web.datasources.saveSuccess"));
     if (options.closeAfterSave !== false) {
       drawerOpen.value = false;
     }
     await loadPage();
     return saved;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to save datasource");
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.saveFailed"));
   } finally {
     saving.value = false;
   }
@@ -306,9 +402,9 @@ async function testDatasource(item: DataSourceDefinition) {
     editDatasource(item);
     drawerOpen.value = true;
     testResult.value = await studioApi.datasources.test(item.id);
-    ElMessage.success("Connection test finished");
+    ElMessage.success(t("web.datasources.testSuccess"));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Datasource test failed");
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
   }
 }
 
@@ -334,7 +430,31 @@ async function discoverModels(item: DataSourceDefinition) {
     discoveredModels.value = result.models;
     discoverDialogOpen.value = true;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Model discovery failed");
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.discoverFailed"));
+  }
+}
+
+async function deleteDatasource(item: DataSourceDefinition) {
+  if (!item.id) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      t("web.datasources.deleteConfirmMessage", { name: item.name }),
+      t("common.confirm"),
+      { type: "warning" },
+    );
+    await studioApi.datasources.delete(item.id);
+    if (form.id === item.id) {
+      drawerOpen.value = false;
+      resetForm();
+    }
+    ElMessage.success(t("web.datasources.deleteSuccess"));
+    await loadPage();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.deleteFailed"));
+    }
   }
 }
 
@@ -366,5 +486,9 @@ p {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 20px;
+}
+
+.business-schema-selector {
+  margin-bottom: 8px;
 }
 </style>

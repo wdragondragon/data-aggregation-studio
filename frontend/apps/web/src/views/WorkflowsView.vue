@@ -2,58 +2,59 @@
   <div class="studio-page">
     <div class="studio-toolbar">
       <div>
-        <h3>Workflow studio</h3>
-        <p>Use the canvas to compose execution graphs, then refine node config and field mappings in the side panels below.</p>
+        <h3>{{ t("web.workflows.heading") }}</h3>
+        <p>{{ t("web.workflows.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button @click="resetWorkflow">New Workflow</el-button>
-        <el-button plain @click="loadPage">Refresh</el-button>
-        <el-button type="primary" :loading="saving" @click="saveWorkflow">Save Draft</el-button>
+        <el-button @click="resetWorkflow">{{ t("common.newWorkflow") }}</el-button>
+        <el-button plain @click="loadPage">{{ t("common.refresh") }}</el-button>
+        <el-button type="primary" :loading="saving" @click="saveWorkflow">{{ t("common.saveDraft") }}</el-button>
       </div>
     </div>
 
     <div class="studio-grid columns-2">
-      <SectionCard title="Workflow Registry" description="Select a saved workflow or start fresh on the right-hand designer.">
+      <SectionCard :title="t('web.workflows.registryTitle')" :description="t('web.workflows.registryDescription')">
         <el-table :data="workflows" border>
-          <el-table-column prop="code" label="Code" min-width="130" />
-          <el-table-column prop="name" label="Name" min-width="180" />
-          <el-table-column label="Status" width="120">
+          <el-table-column prop="code" :label="t('web.workflows.code')" min-width="130" />
+          <el-table-column prop="name" :label="t('web.workflows.name')" min-width="180" />
+          <el-table-column :label="t('web.workflows.status')" width="120">
             <template #default="{ row }">
-              <StatusPill :label="row.published ? 'Published' : 'Draft'" :tone="row.published ? 'success' : 'warning'" />
+              <StatusPill :label="row.published ? t('common.published') : t('common.draft')" :tone="row.published ? 'success' : 'warning'" />
             </template>
           </el-table-column>
-          <el-table-column label="Actions" width="220">
+          <el-table-column :label="t('web.metadata.actions')" width="300">
             <template #default="{ row }">
-              <el-button link type="primary" @click="editWorkflow(row)">Edit</el-button>
-              <el-button link type="success" :disabled="!row.id" @click="publishWorkflow(row)">Publish</el-button>
-              <el-button link type="warning" :disabled="!row.id" @click="triggerWorkflow(row)">Trigger</el-button>
+              <el-button link type="primary" @click="editWorkflow(row)">{{ t("common.edit") }}</el-button>
+              <el-button link type="success" :disabled="!row.id" @click="publishWorkflow(row)">{{ t("common.publish") }}</el-button>
+              <el-button link type="warning" :disabled="!row.id" @click="triggerWorkflow(row)">{{ t("common.trigger") }}</el-button>
+              <el-button link type="danger" :disabled="!row.id" @click="deleteWorkflow(row)">{{ t("common.delete") }}</el-button>
             </template>
           </el-table-column>
         </el-table>
       </SectionCard>
 
-      <SectionCard title="Workflow Basics" description="Versioned graph metadata and schedule controls.">
+      <SectionCard :title="t('web.workflows.basicsTitle')" :description="t('web.workflows.basicsDescription')">
         <div class="studio-form-grid">
-          <el-form-item label="Workflow Code">
-            <el-input v-model="form.code" placeholder="orders_sync" />
+          <el-form-item :label="t('web.workflows.workflowCode')">
+            <el-input v-model="form.code" :placeholder="t('web.workflows.placeholderWorkflowCode')" />
           </el-form-item>
-          <el-form-item label="Workflow Name">
-            <el-input v-model="form.name" placeholder="Orders Sync" />
+          <el-form-item :label="t('web.workflows.workflowName')">
+            <el-input v-model="form.name" :placeholder="t('web.workflows.placeholderWorkflowName')" />
           </el-form-item>
-          <el-form-item label="Cron Expression">
-            <el-input v-model="form.schedule.cronExpression" placeholder="0 */30 * * * ?" />
+          <el-form-item :label="t('web.workflows.cronExpression')">
+            <el-input v-model="form.schedule.cronExpression" :placeholder="t('web.workflows.placeholderCron')" />
           </el-form-item>
-          <el-form-item label="Timezone">
+          <el-form-item :label="t('web.workflows.timezone')">
             <el-input v-model="form.schedule.timezone" placeholder="Asia/Shanghai" />
           </el-form-item>
-          <el-form-item label="Schedule Enabled">
-            <el-switch v-model="form.schedule.enabled" inline-prompt active-text="On" inactive-text="Off" />
+          <el-form-item :label="t('web.workflows.scheduleEnabled')">
+            <el-switch v-model="form.schedule.enabled" inline-prompt :active-text="t('common.on')" :inactive-text="t('common.off')" />
           </el-form-item>
         </div>
       </SectionCard>
     </div>
 
-    <SectionCard title="Workflow Canvas" description="Drag nodes from the palette, connect them, then select a node to edit its runtime metadata.">
+    <SectionCard :title="t('web.workflows.canvasTitle')" :description="t('web.workflows.canvasDescription')">
       <WorkflowCanvas
         :nodes="form.nodes"
         :edges="form.edges"
@@ -64,17 +65,17 @@
     </SectionCard>
 
     <div class="studio-grid columns-2">
-      <SectionCard title="Selected Node" description="Node forms are kept generic so the platform stays loosely coupled to the execution engine.">
+      <SectionCard :title="t('web.workflows.selectedNodeTitle')" :description="t('web.workflows.selectedNodeDescription')">
         <template v-if="selectedNode">
           <div class="soft-panel node-header">
             <div>
               <strong>{{ selectedNode.nodeName }}</strong>
               <p>{{ selectedNode.nodeType }}</p>
             </div>
-            <el-button type="danger" plain @click="removeSelectedNode">Remove Node</el-button>
+            <el-button type="danger" plain @click="removeSelectedNode">{{ t("web.workflows.removeNode") }}</el-button>
           </div>
 
-          <el-form-item label="Node Name">
+          <el-form-item :label="t('web.workflows.nodeName')">
             <el-input :model-value="selectedNode.nodeName" @update:model-value="updateSelectedNode('nodeName', $event)" />
           </el-form-item>
 
@@ -94,15 +95,15 @@
         </template>
 
         <div v-else class="soft-panel">
-          Select a node on the canvas to edit runtime configuration and field mapping behavior.
+          {{ t("web.workflows.emptySelectedNode") }}
         </div>
       </SectionCard>
 
-      <SectionCard title="Edge Routing" description="Every edge keeps a simple condition for first-version graph routing.">
+      <SectionCard :title="t('web.workflows.edgeTitle')" :description="t('web.workflows.edgeDescription')">
         <el-table :data="form.edges" border>
-          <el-table-column prop="fromNodeCode" label="From" min-width="120" />
-          <el-table-column prop="toNodeCode" label="To" min-width="120" />
-          <el-table-column label="Condition" min-width="160">
+          <el-table-column prop="fromNodeCode" :label="t('web.workflows.from')" min-width="120" />
+          <el-table-column prop="toNodeCode" :label="t('web.workflows.to')" min-width="120" />
+          <el-table-column :label="t('web.workflows.condition')" min-width="160">
             <template #default="{ row, $index }">
               <el-select :model-value="row.condition" @update:model-value="updateEdgeCondition($index, $event)">
                 <el-option label="ON_SUCCESS" value="ON_SUCCESS" />
@@ -119,7 +120,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type {
   DataSourceDefinition,
   MetadataFieldDefinition,
@@ -135,13 +137,15 @@ import { studioApi } from "@/api/studio";
 import { cloneDeep, parseCommaSeparated } from "@/utils/studio";
 
 interface WorkflowEditor extends WorkflowSaveRequest {
-  definitionId?: number;
+  definitionId?: string | number;
   schedule: {
     cronExpression?: string;
     enabled?: boolean;
     timezone?: string;
   };
 }
+
+const { t } = useI18n();
 
 const workflows = ref<WorkflowDefinitionView[]>([]);
 const datasources = ref<DataSourceDefinition[]>([]);
@@ -233,7 +237,7 @@ async function loadPage() {
     datasources.value = datasourceData;
     transformers.value = transformerData;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to load workflow studio");
+    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
   }
 }
 
@@ -288,11 +292,11 @@ async function saveWorkflow() {
   saving.value = true;
   try {
     const saved = await studioApi.workflows.save(cloneDeep(form));
-    ElMessage.success("Workflow draft saved");
+    ElMessage.success(t("web.workflows.saveSuccess"));
     editWorkflow(saved);
     await loadPage();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to save workflow");
+    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.saveFailed"));
   } finally {
     saving.value = false;
   }
@@ -304,10 +308,10 @@ async function publishWorkflow(workflow: WorkflowDefinitionView) {
   }
   try {
     await studioApi.workflows.publish(workflow.id);
-    ElMessage.success("Workflow published");
+    ElMessage.success(t("web.workflows.publishSuccess"));
     await loadPage();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to publish workflow");
+    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.publishFailed"));
   }
 }
 
@@ -317,9 +321,32 @@ async function triggerWorkflow(workflow: WorkflowDefinitionView) {
   }
   try {
     await studioApi.workflows.trigger(workflow.id);
-    ElMessage.success("Workflow trigger submitted");
+    ElMessage.success(t("web.workflows.triggerSuccess"));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "Failed to trigger workflow");
+    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.triggerFailed"));
+  }
+}
+
+async function deleteWorkflow(workflow: WorkflowDefinitionView) {
+  if (!workflow.id) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      t("web.workflows.deleteConfirmMessage", { name: workflow.name }),
+      t("common.confirm"),
+      { type: "warning" },
+    );
+    await studioApi.workflows.delete(workflow.id);
+    if (form.definitionId === workflow.id) {
+      resetWorkflow();
+    }
+    ElMessage.success(t("web.workflows.deleteSuccess"));
+    await loadPage();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : t("web.workflows.deleteFailed"));
+    }
   }
 }
 

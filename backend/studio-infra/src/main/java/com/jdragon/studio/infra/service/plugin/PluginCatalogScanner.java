@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 @Component
 public class PluginCatalogScanner {
@@ -35,10 +37,8 @@ public class PluginCatalogScanner {
     }
 
     public List<PluginAssetDescriptor> scan() {
-        List<PluginAssetDescriptor> assets = new ArrayList<PluginAssetDescriptor>();
-        List<Path> roots = new ArrayList<Path>();
-        roots.add(Paths.get(properties.getAggregationHome()));
-        roots.add(Paths.get("."));
+        final Map<String, PluginAssetDescriptor> assets = new LinkedHashMap<String, PluginAssetDescriptor>();
+        List<Path> roots = resolveScanRoots();
 
         for (Path root : roots) {
             if (!Files.exists(root)) {
@@ -56,7 +56,8 @@ public class PluginCatalogScanner {
                         String fileName = file.getFileName().toString();
                         for (String candidate : TARGET_FILES) {
                             if (candidate.equals(fileName)) {
-                                assets.add(readDescriptor(file));
+                                PluginAssetDescriptor descriptor = readDescriptor(file);
+                                assets.put(descriptor.getAssetPath(), descriptor);
                                 break;
                             }
                         }
@@ -76,7 +77,25 @@ public class PluginCatalogScanner {
             } catch (IOException ignored) {
             }
         }
-        return assets;
+        return new ArrayList<PluginAssetDescriptor>(assets.values());
+    }
+
+    private List<Path> resolveScanRoots() {
+        List<Path> roots = new ArrayList<Path>();
+        Set<String> normalizedRoots = new LinkedHashSet<String>();
+
+        Path aggregationHome = Paths.get(properties.getAggregationHome()).toAbsolutePath().normalize();
+        if (Files.exists(aggregationHome) && normalizedRoots.add(aggregationHome.toString())) {
+            roots.add(aggregationHome);
+        }
+
+        if (roots.isEmpty()) {
+            Path current = Paths.get(".").toAbsolutePath().normalize();
+            if (Files.exists(current) && normalizedRoots.add(current.toString())) {
+                roots.add(current);
+            }
+        }
+        return roots;
     }
 
     private PluginAssetDescriptor readDescriptor(Path file) throws IOException {
