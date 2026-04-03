@@ -1,0 +1,10 @@
+{
+  "name": "@studio/ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1"
+  }
+}

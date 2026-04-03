@@ -1,0 +1,34 @@
+.el-card,
+.el-dialog,
+.el-drawer,
+.el-table,
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: 18px;
+}
+
+.el-button {
+  border-radius: 999px;
+}
+
+.el-table {
+  --el-table-header-bg-color: rgba(255, 249, 241, 0.92);
+  --el-table-row-hover-bg-color: rgba(247, 214, 146, 0.08);
+}
+
+.soft-panel {
+  padding: 18px;
+  border: 1px solid var(--studio-border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.json-block {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 18px;
+  color: #fbeedc;
+  background: #2c2118;
+}

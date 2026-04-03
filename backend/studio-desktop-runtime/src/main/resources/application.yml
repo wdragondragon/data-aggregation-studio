@@ -1,0 +1,41 @@
+server:
+  port: 18180
+
+spring:
+  application:
+    name: studio-desktop-runtime
+  datasource:
+    url: jdbc:sqlite:./runtime/studio-desktop.db
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-sqlite.sql
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+studio:
+  aggregation-home: ../../../package_all/aggregation
+  encryption-secret: studio-secret-key
+  worker-code: studio-desktop-worker
+  desktop-runtime: true

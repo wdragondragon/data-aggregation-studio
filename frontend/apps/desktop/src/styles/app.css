@@ -1,0 +1,8 @@
+.el-button {
+  border-radius: 999px;
+}
+
+.el-table {
+  --el-table-header-bg-color: rgba(255, 249, 241, 0.92);
+  --el-table-row-hover-bg-color: rgba(247, 214, 146, 0.08);
+}

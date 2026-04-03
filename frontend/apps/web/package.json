@@ -1,0 +1,16 @@
+{
+  "name": "@studio/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@studio/api-sdk": "0.1.0",
+    "@studio/meta-form": "0.1.0",
+    "@studio/ui": "0.1.0",
+    "@studio/workflow-designer": "0.1.0"
+  }
+}

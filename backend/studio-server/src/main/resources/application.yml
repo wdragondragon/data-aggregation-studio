@@ -1,0 +1,42 @@
+server:
+  port: 18080
+
+spring:
+  application:
+    name: studio-server
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-mysql.sql
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+studio:
+  aggregation-home: ../../package_all/aggregation
+  encryption-secret: studio-secret-key
+  worker-code: studio-server-worker

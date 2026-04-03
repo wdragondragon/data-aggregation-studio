@@ -1,0 +1,18 @@
+{
+  "name": "@studio/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src-electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite --port 5174\" \"wait-on tcp:5174 && electron .\"",
+    "build": "vue-tsc --noEmit && vite build",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@studio/api-sdk": "0.1.0",
+    "@studio/meta-form": "0.1.0",
+    "@studio/ui": "0.1.0",
+    "@studio/workflow-designer": "0.1.0"
+  }
+}
