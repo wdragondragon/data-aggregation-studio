@@ -33,17 +33,20 @@ public class DataSourceService {
     private final EncryptionService encryptionService;
     private final AggregationSourceCapabilityProvider capabilityProvider;
     private final MetadataSchemaService metadataSchemaService;
+    private final DataModelSearchIndexService dataModelSearchIndexService;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
                              EncryptionService encryptionService,
                              AggregationSourceCapabilityProvider capabilityProvider,
-                             MetadataSchemaService metadataSchemaService) {
+                             MetadataSchemaService metadataSchemaService,
+                             DataModelSearchIndexService dataModelSearchIndexService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.encryptionService = encryptionService;
         this.capabilityProvider = capabilityProvider;
         this.metadataSchemaService = metadataSchemaService;
+        this.dataModelSearchIndexService = dataModelSearchIndexService;
     }
 
     public List<DataSourceDefinition> list() {
@@ -107,6 +110,7 @@ public class DataSourceService {
 
     @Transactional
     public void delete(Long id) {
+        dataModelSearchIndexService.deleteByDatasourceId(id);
         dataModelMapper.delete(new LambdaQueryWrapper<DataModelEntity>()
                 .eq(DataModelEntity::getDatasourceId, id));
         datasourceMapper.deleteById(id);

@@ -26,6 +26,13 @@ public class MetaFieldDefinitionEntity extends BaseTenantEntity {
     private String validationRule;
     private String placeholder;
     private String defaultValue;
+    private Integer searchableFlag;
+    private Integer sortableFlag;
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> queryOperators = new ArrayList<String>();
+
+    private String queryDefaultOperator;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private List<String> options = new ArrayList<String>();

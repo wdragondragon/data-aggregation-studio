@@ -20,6 +20,7 @@
     "src/**/*.vue",
     "src/**/*.d.ts",
     "../web/src/views/**/*.vue",
+    "../web/src/components/**/*.vue",
     "../../packages/**/*.ts",
     "../../packages/**/*.vue",
     "vite.config.ts"

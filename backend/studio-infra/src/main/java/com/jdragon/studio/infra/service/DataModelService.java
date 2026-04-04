@@ -10,6 +10,9 @@ import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
+import com.jdragon.studio.dto.model.request.DataModelQueryCondition;
+import com.jdragon.studio.dto.model.request.DataModelQueryGroup;
+import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
@@ -34,15 +37,18 @@ public class DataModelService {
     private final DataSourceService dataSourceService;
     private final AggregationSourceCapabilityProvider modelDiscoveryProvider;
     private final MetadataSchemaService metadataSchemaService;
+    private final DataModelSearchIndexService dataModelSearchIndexService;
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
                             AggregationSourceCapabilityProvider modelDiscoveryProvider,
-                            MetadataSchemaService metadataSchemaService) {
+                            MetadataSchemaService metadataSchemaService,
+                            DataModelSearchIndexService dataModelSearchIndexService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
         this.modelDiscoveryProvider = modelDiscoveryProvider;
         this.metadataSchemaService = metadataSchemaService;
+        this.dataModelSearchIndexService = dataModelSearchIndexService;
     }
 
     public List<DataModelDefinition> list() {
@@ -72,6 +78,42 @@ public class DataModelService {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Model not found: " + modelId);
         }
         return toDefinition(entity);
+    }
+
+    public List<DataModelDefinition> query(DataModelQueryRequest request) {
+        if (request == null) {
+            return list();
+        }
+        List<DataModelQueryGroup> groups = normalizeQueryGroups(request.getGroups());
+        if (groups.isEmpty()) {
+            LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+                    .orderByAsc(DataModelEntity::getName);
+            if (request.getDatasourceId() != null) {
+                queryWrapper.eq(DataModelEntity::getDatasourceId, request.getDatasourceId());
+            }
+            if (request.getModelKind() != null && !request.getModelKind().trim().isEmpty()) {
+                queryWrapper.eq(DataModelEntity::getModelKind, request.getModelKind().trim().toUpperCase());
+            }
+            return toDefinitions(dataModelMapper.selectList(queryWrapper));
+        }
+        DataModelQueryRequest normalizedRequest = new DataModelQueryRequest();
+        normalizedRequest.setDatasourceId(request.getDatasourceId());
+        normalizedRequest.setModelKind(request.getModelKind());
+        normalizedRequest.setGroups(groups);
+        Set<Long> matchedIds = dataModelSearchIndexService.queryModelIds(normalizedRequest);
+        if (matchedIds.isEmpty()) {
+            return new ArrayList<DataModelDefinition>();
+        }
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+                .in(DataModelEntity::getId, matchedIds)
+                .orderByAsc(DataModelEntity::getName);
+        if (request.getDatasourceId() != null) {
+            queryWrapper.eq(DataModelEntity::getDatasourceId, request.getDatasourceId());
+        }
+        if (request.getModelKind() != null && !request.getModelKind().trim().isEmpty()) {
+            queryWrapper.eq(DataModelEntity::getModelKind, request.getModelKind().trim().toUpperCase());
+        }
+        return toDefinitions(dataModelMapper.selectList(queryWrapper));
     }
 
     @Transactional
@@ -116,6 +158,7 @@ public class DataModelService {
             } else {
                 dataModelMapper.updateById(entity);
             }
+            dataModelSearchIndexService.rebuildModelIndex(entity, datasource);
         }
         return listByDatasource(datasourceId);
     }
@@ -149,6 +192,7 @@ public class DataModelService {
         } else {
             dataModelMapper.updateById(entity);
         }
+        dataModelSearchIndexService.rebuildModelIndex(entity, datasource);
         return toDefinition(entity);
     }
 
@@ -163,7 +207,31 @@ public class DataModelService {
 
     @Transactional
     public void delete(Long modelId) {
+        dataModelSearchIndexService.deleteByModelId(modelId);
         dataModelMapper.deleteById(modelId);
+    }
+
+    @Transactional
+    public int rebuildSearchIndex(Long datasourceId) {
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+                .orderByAsc(DataModelEntity::getId);
+        if (datasourceId != null) {
+            queryWrapper.eq(DataModelEntity::getDatasourceId, datasourceId);
+        }
+        List<DataModelEntity> entities = dataModelMapper.selectList(queryWrapper);
+        Map<Long, DataSourceDefinition> datasourceCache = new LinkedHashMap<Long, DataSourceDefinition>();
+        for (DataModelEntity entity : entities) {
+            if (entity.getDatasourceId() == null) {
+                continue;
+            }
+            DataSourceDefinition datasource = datasourceCache.get(entity.getDatasourceId());
+            if (datasource == null) {
+                datasource = dataSourceService.getInternal(entity.getDatasourceId());
+                datasourceCache.put(entity.getDatasourceId(), datasource);
+            }
+            dataModelSearchIndexService.rebuildModelIndex(entity, datasource);
+        }
+        return entities.size();
     }
 
     private DataModelDefinition toDefinition(DataModelEntity entity) {
@@ -179,6 +247,53 @@ public class DataModelService {
             definition.setModelKind(ModelKind.valueOf(entity.getModelKind()));
         }
         return definition;
+    }
+
+    private List<DataModelDefinition> toDefinitions(List<DataModelEntity> entities) {
+        List<DataModelDefinition> result = new ArrayList<DataModelDefinition>();
+        for (DataModelEntity entity : entities) {
+            result.add(toDefinition(entity));
+        }
+        return result;
+    }
+
+    private List<DataModelQueryGroup> normalizeQueryGroups(List<DataModelQueryGroup> groups) {
+        List<DataModelQueryGroup> normalized = new ArrayList<DataModelQueryGroup>();
+        if (groups == null) {
+            return normalized;
+        }
+        for (DataModelQueryGroup group : groups) {
+            if (group == null || group.getMetaSchemaCode() == null || group.getMetaSchemaCode().trim().isEmpty()) {
+                continue;
+            }
+            DataModelQueryGroup copied = new DataModelQueryGroup();
+            copied.setScope(group.getScope());
+            copied.setMetaSchemaCode(group.getMetaSchemaCode().trim());
+            copied.setRowMatchMode(group.getRowMatchMode());
+            List<DataModelQueryCondition> conditions = new ArrayList<DataModelQueryCondition>();
+            if (group.getConditions() != null) {
+                for (DataModelQueryCondition condition : group.getConditions()) {
+                    if (condition == null || condition.getFieldKey() == null || condition.getFieldKey().trim().isEmpty()) {
+                        continue;
+                    }
+                    if ((condition.getValue() == null || String.valueOf(condition.getValue()).trim().isEmpty())
+                            && (condition.getValues() == null || condition.getValues().isEmpty())) {
+                        continue;
+                    }
+                    DataModelQueryCondition copiedCondition = new DataModelQueryCondition();
+                    copiedCondition.setFieldKey(condition.getFieldKey().trim());
+                    copiedCondition.setOperator(condition.getOperator());
+                    copiedCondition.setValue(condition.getValue());
+                    copiedCondition.setValues(condition.getValues());
+                    conditions.add(copiedCondition);
+                }
+            }
+            if (!conditions.isEmpty()) {
+                copied.setConditions(conditions);
+                normalized.add(copied);
+            }
+        }
+        return normalized;
     }
 
     private Map<String, Object> mergeTechnicalMetadata(Map<String, Object> existing, Map<String, Object> discovered) {

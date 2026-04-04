@@ -114,6 +114,10 @@ create table if not exists meta_field_definition (
     validation_rule text,
     placeholder text,
     default_value text,
+    searchable_flag integer default 0,
+    sortable_flag integer default 0,
+    query_operators text,
+    query_default_operator text,
     options text
 );
 
@@ -146,6 +150,33 @@ create table if not exists data_model (
     technical_metadata text,
     business_metadata text
 );
+
+create table if not exists data_model_attr_index (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    model_id integer,
+    datasource_id integer,
+    meta_schema_version_id integer,
+    meta_schema_code text,
+    scope text,
+    meta_model_code text,
+    item_key text,
+    field_key text,
+    value_type text,
+    keyword_value text,
+    text_value text,
+    number_value numeric,
+    bool_value integer,
+    raw_value text
+);
+
+create index if not exists idx_model_attr_index_model on data_model_attr_index(model_id);
+create index if not exists idx_model_attr_index_datasource on data_model_attr_index(datasource_id);
+create index if not exists idx_model_attr_index_lookup on data_model_attr_index(meta_schema_code, scope, field_key, keyword_value);
+create index if not exists idx_model_attr_index_number on data_model_attr_index(meta_schema_code, scope, field_key, number_value);
 
 create table if not exists workflow_definition (
     id integer primary key,
@@ -210,14 +241,77 @@ create table if not exists workflow_schedule (
     timezone text
 );
 
+create table if not exists collection_task_definition (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    name text,
+    task_type text,
+    status text,
+    source_count integer default 1,
+    source_bindings_json text,
+    target_binding_json text,
+    field_mappings_json text,
+    execution_options_json text
+);
+
+create table if not exists collection_task_schedule (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer,
+    cron_expression text,
+    enabled integer default 0,
+    timezone text,
+    last_triggered_at text
+);
+
+create table if not exists data_dev_directory (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    parent_id integer,
+    name text,
+    permission_code text,
+    description text
+);
+
+create table if not exists data_dev_script (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    directory_id integer,
+    file_name text,
+    script_type text,
+    datasource_id integer,
+    description text,
+    content text
+);
+
+create index if not exists idx_data_dev_directory_parent on data_dev_directory(parent_id);
+create index if not exists idx_data_dev_script_directory on data_dev_script(directory_id);
+create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id);
+
 create table if not exists dispatch_task (
     id integer primary key,
     tenant_id text default 'default',
     deleted integer default 0,
     created_at text,
     updated_at text,
+    execution_type text,
+    workflow_run_id integer,
     workflow_definition_id integer,
     workflow_version_id integer,
+    collection_task_id integer,
+    run_record_id integer,
     node_code text,
     status text,
     lease_owner text,
@@ -233,14 +327,20 @@ create table if not exists run_record (
     deleted integer default 0,
     created_at text,
     updated_at text,
+    execution_type text,
+    workflow_run_id integer,
     workflow_definition_id integer,
     workflow_version_id integer,
+    collection_task_id integer,
     node_code text,
     status text,
     worker_code text,
     message text,
     started_at text,
     ended_at text,
+    log_file_path text,
+    log_size_bytes integer,
+    log_charset text,
     payload_json text,
     result_json text
 );

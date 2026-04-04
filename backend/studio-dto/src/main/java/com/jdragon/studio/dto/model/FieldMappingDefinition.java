@@ -7,6 +7,7 @@ import java.util.List;
 
 @Data
 public class FieldMappingDefinition {
+    private String sourceAlias;
     private String sourceField;
     private String targetField;
     private String expression;

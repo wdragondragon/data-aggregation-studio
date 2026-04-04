@@ -78,7 +78,7 @@
             <p><strong>{{ t("web.datasources.executableSourceFamilies") }}</strong></p>
             <div class="tag-row">
               <StatusPill
-                v-for="item in capabilityMatrix.executableSourceTypes"
+                v-for="item in executableDatasourceTypes"
                 :key="item"
                 :label="item"
                 tone="success"
@@ -87,7 +87,7 @@
             <p class="capability-note">
               {{ t("web.datasources.currentTypeLabel") }} <strong>{{ form.typeCode || t("web.datasources.notSelected") }}</strong>
               {{
-                form.typeCode && capabilityMatrix.executableSourceTypes.includes(form.typeCode)
+                form.typeCode && executableDatasourceTypes.includes(form.typeCode)
                   ? t("web.datasources.currentTypeExecutable")
                   : t("web.datasources.currentTypeCatalogOnly")
               }}
@@ -180,6 +180,7 @@ const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
   plugins: [],
 });
+const executableDatasourceTypes = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes);
 const drawerOpen = ref(false);
 const saving = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
@@ -310,7 +311,7 @@ function editDatasource(item: DataSourceDefinition) {
 function handleTypeChange() {
   const schema = datasourceSchemas.value[0];
   form.schemaVersionId = schema?.currentVersionId ?? schema?.id;
-  form.executable = capabilityMatrix.executableSourceTypes.includes(form.typeCode);
+  form.executable = executableDatasourceTypes.value.includes(form.typeCode);
   form.technicalMetadata = buildDefaultMetadata(
     schema?.fields?.filter((field) => field.scope !== "BUSINESS") ?? fallbackTechnicalFields.value,
   );
@@ -369,6 +370,9 @@ async function loadPage() {
     datasources.value = datasourceData;
     schemas.value = schemaData;
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
+    capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
+    capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
+    capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
     capabilityMatrix.plugins = capabilityData.plugins;
     sourcePlugins.value = pluginData;
   } catch (error) {

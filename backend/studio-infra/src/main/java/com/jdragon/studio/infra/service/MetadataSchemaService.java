@@ -107,7 +107,11 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             entity.setValidationRule(field.getValidationRule());
             entity.setPlaceholder(field.getPlaceholder());
             entity.setDefaultValue(field.getDefaultValue());
-            entity.setOptions(field.getOptions());
+            entity.setSearchableFlag(Boolean.TRUE.equals(field.getSearchable()) ? 1 : 0);
+            entity.setSortableFlag(Boolean.TRUE.equals(field.getSortable()) ? 1 : 0);
+            entity.setQueryOperators(field.getQueryOperators() == null ? new ArrayList<String>() : field.getQueryOperators());
+            entity.setQueryDefaultOperator(field.getQueryDefaultOperator());
+            entity.setOptions(field.getOptions() == null ? new ArrayList<String>() : field.getOptions());
             fieldDefinitionMapper.insert(entity);
         }
 
@@ -188,6 +192,13 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         if (schemaVersionId == null) {
             return null;
         }
+        MetaSchemaVersionEntity version = versionMapper.selectById(schemaVersionId);
+        if (version != null && version.getSchemaId() != null) {
+            MetaSchemaEntity schema = schemaMapper.selectById(version.getSchemaId());
+            if (schema != null) {
+                return toDefinition(schema);
+            }
+        }
         for (MetadataSchemaDefinition schema : listSchemas()) {
             if (schemaVersionId.equals(schema.getCurrentVersionId()) || schemaVersionId.equals(schema.getId())) {
                 return schema;
@@ -252,10 +263,34 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     private MetadataSchemaDefinition ensureTechnicalMetaModel(String datasourceType, String metaModelCode) {
         MetadataSchemaDefinition existing = findTechnicalMetaModel(datasourceType, metaModelCode);
-        if (existing != null) {
+        if (existing != null && !needsTechnicalMetaModelRefresh(existing, metaModelCode)) {
             return existing;
         }
         return saveDraft(buildTechnicalMetaModelDraft(datasourceType, metaModelCode));
+    }
+
+    private boolean needsTechnicalMetaModelRefresh(MetadataSchemaDefinition existing, String metaModelCode) {
+        if (existing == null || existing.getFields() == null || existing.getFields().isEmpty()) {
+            return true;
+        }
+        boolean hasSearchableField = false;
+        for (MetadataFieldDefinition field : existing.getFields()) {
+            if (Boolean.TRUE.equals(field.getSearchable())) {
+                hasSearchableField = true;
+                break;
+            }
+        }
+        if (!hasSearchableField) {
+            return true;
+        }
+        if ("field".equalsIgnoreCase(metaModelCode)) {
+            for (MetadataFieldDefinition field : existing.getFields()) {
+                if ("name".equals(field.getFieldKey()) && !Boolean.TRUE.equals(field.getSearchable())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private MetadataSchemaSaveRequest buildTechnicalMetaModelDraft(String datasourceType, String metaModelCode) {
@@ -467,7 +502,74 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         field.setSortOrder(sortOrder);
         field.setDescription(fieldName);
         field.setDefaultValue(defaultValue);
+        applyQueryCapabilities(field);
         return field;
+    }
+
+    private void applyQueryCapabilities(MetadataFieldDefinition field) {
+        if (field == null) {
+            return;
+        }
+        if (Boolean.TRUE.equals(field.getSensitive())) {
+            field.setSearchable(false);
+            field.setSortable(false);
+            field.setQueryOperators(new ArrayList<String>());
+            field.setQueryDefaultOperator(null);
+            return;
+        }
+        List<String> operators = defaultQueryOperators(field.getValueType());
+        field.setSearchable(!operators.isEmpty());
+        field.setSortable(isSortableValueType(field.getValueType()));
+        field.setQueryOperators(operators);
+        field.setQueryDefaultOperator(operators.isEmpty() ? null : defaultQueryOperator(field.getValueType()));
+    }
+
+    private List<String> defaultQueryOperators(FieldValueType valueType) {
+        List<String> operators = new ArrayList<String>();
+        if (valueType == null) {
+            return operators;
+        }
+        switch (valueType) {
+            case STRING:
+                operators.add("EQ");
+                operators.add("LIKE");
+                operators.add("IN");
+                return operators;
+            case BOOLEAN:
+                operators.add("EQ");
+                return operators;
+            case INTEGER:
+            case LONG:
+            case DECIMAL:
+                operators.add("EQ");
+                operators.add("GT");
+                operators.add("GE");
+                operators.add("LT");
+                operators.add("LE");
+                operators.add("BETWEEN");
+                operators.add("IN");
+                return operators;
+            default:
+                return operators;
+        }
+    }
+
+    private String defaultQueryOperator(FieldValueType valueType) {
+        if (valueType == null) {
+            return null;
+        }
+        if (FieldValueType.STRING == valueType) {
+            return "LIKE";
+        }
+        return "EQ";
+    }
+
+    private boolean isSortableValueType(FieldValueType valueType) {
+        return FieldValueType.STRING == valueType
+                || FieldValueType.BOOLEAN == valueType
+                || FieldValueType.INTEGER == valueType
+                || FieldValueType.LONG == valueType
+                || FieldValueType.DECIMAL == valueType;
     }
 
     private boolean isDatabaseType(String typeCode) {
@@ -560,6 +662,37 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         return null;
     }
 
+    public String getSchemaDomain(MetadataSchemaDefinition schema) {
+        return resolveSchemaDomain(schema);
+    }
+
+    public String getSchemaDatasourceType(MetadataSchemaDefinition schema) {
+        return resolveSchemaDatasourceType(schema);
+    }
+
+    public String getSchemaMetaModelCode(MetadataSchemaDefinition schema) {
+        return resolveSchemaMetaModelCode(schema);
+    }
+
+    public String getSchemaDisplayMode(MetadataSchemaDefinition schema) {
+        JSONObject config = extractMetaModelConfig(schema);
+        if (config != null && config.getString("displayMode") != null) {
+            return config.getString("displayMode");
+        }
+        return "field".equalsIgnoreCase(resolveSchemaMetaModelCode(schema)) ? "MULTIPLE" : "SINGLE";
+    }
+
+    public String getSchemaCollectionKey(MetadataSchemaDefinition schema) {
+        String metaModelCode = resolveSchemaMetaModelCode(schema);
+        if ("field".equalsIgnoreCase(metaModelCode)) {
+            return "columns";
+        }
+        if (metaModelCode == null || metaModelCode.trim().isEmpty()) {
+            return "items";
+        }
+        return metaModelCode.endsWith("s") ? metaModelCode : metaModelCode + "s";
+    }
+
     private JSONObject extractMetaModelConfig(MetadataSchemaDefinition schema) {
         if (schema == null || schema.getDescription() == null) {
             return null;
@@ -603,7 +736,11 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                 fieldDefinition.setValidationRule(field.getValidationRule());
                 fieldDefinition.setPlaceholder(field.getPlaceholder());
                 fieldDefinition.setDefaultValue(field.getDefaultValue());
-                fieldDefinition.setOptions(field.getOptions());
+                fieldDefinition.setSearchable(field.getSearchableFlag() != null && field.getSearchableFlag() == 1);
+                fieldDefinition.setSortable(field.getSortableFlag() != null && field.getSortableFlag() == 1);
+                fieldDefinition.setQueryOperators(field.getQueryOperators() == null ? new ArrayList<String>() : field.getQueryOperators());
+                fieldDefinition.setQueryDefaultOperator(field.getQueryDefaultOperator());
+                fieldDefinition.setOptions(field.getOptions() == null ? new ArrayList<String>() : field.getOptions());
                 if (field.getScope() != null) {
                     fieldDefinition.setScope(com.jdragon.studio.dto.enums.MetadataScope.valueOf(field.getScope()));
                 }

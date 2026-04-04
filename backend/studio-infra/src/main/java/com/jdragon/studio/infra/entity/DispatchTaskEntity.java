@@ -14,8 +14,12 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "dispatch_task", autoResultMap = true)
 public class DispatchTaskEntity extends BaseTenantEntity {
+    private String executionType;
+    private Long workflowRunId;
     private Long workflowDefinitionId;
     private Long workflowVersionId;
+    private Long collectionTaskId;
+    private Long runRecordId;
     private String nodeCode;
     private String status;
     private String leaseOwner;

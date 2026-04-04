@@ -12,4 +12,7 @@ public class StudioPlatformProperties {
     private boolean scanPluginsOnStartup = true;
     private String workerCode = "worker-local";
     private boolean desktopRuntime = false;
+    private String runtimeLogDir = "./runtime/run-logs";
+    private String workerApiBaseUrl;
+    private String internalApiToken = "studio-internal-token";
 }

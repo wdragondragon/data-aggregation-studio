@@ -36,6 +36,9 @@ public class CatalogController {
     public Result<Map<String, Object>> capabilityMatrix() {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("executableSourceTypes", pluginCatalogService.executableSourceTypes());
+        payload.put("executableTargetTypes", pluginCatalogService.executableTargetTypes());
+        payload.put("executableDatasourceTypes", pluginCatalogService.executableDatasourceTypes());
+        payload.put("sourceCapabilities", pluginCatalogService.sourceCapabilities());
         payload.put("plugins", pluginCatalogService.list());
         return Result.success(payload);
     }

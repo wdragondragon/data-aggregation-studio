@@ -1,0 +1,424 @@
+package com.jdragon.studio.infra.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jdragon.studio.commons.exception.StudioErrorCode;
+import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.ScriptType;
+import com.jdragon.studio.dto.model.DataDevelopmentDirectoryView;
+import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
+import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
+import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.SqlExecutionResultView;
+import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
+import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
+import com.jdragon.studio.dto.model.request.DataDevelopmentScriptSaveRequest;
+import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
+import com.jdragon.studio.infra.entity.DataDevelopmentDirectoryEntity;
+import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
+import com.jdragon.studio.infra.mapper.DataDevelopmentDirectoryMapper;
+import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+@Service
+public class DataDevelopmentService {
+
+    private final DataDevelopmentDirectoryMapper directoryMapper;
+    private final DataDevelopmentScriptMapper scriptMapper;
+    private final DataSourceService dataSourceService;
+    private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final StudioSecurityService securityService;
+
+    public DataDevelopmentService(DataDevelopmentDirectoryMapper directoryMapper,
+                                  DataDevelopmentScriptMapper scriptMapper,
+                                  DataSourceService dataSourceService,
+                                  DataDevelopmentSqlExecutor sqlExecutor,
+                                  StudioSecurityService securityService) {
+        this.directoryMapper = directoryMapper;
+        this.scriptMapper = scriptMapper;
+        this.dataSourceService = dataSourceService;
+        this.sqlExecutor = sqlExecutor;
+        this.securityService = securityService;
+    }
+
+    public List<DataDevelopmentTreeNode> tree() {
+        String tenantId = securityService.currentTenantId();
+        return buildTree(listDirectoryEntities(tenantId), listScriptEntities(tenantId, null));
+    }
+
+    public List<DataDevelopmentDirectoryView> listDirectories() {
+        List<DataDevelopmentDirectoryView> result = new ArrayList<DataDevelopmentDirectoryView>();
+        for (DataDevelopmentDirectoryEntity entity : listDirectoryEntities(securityService.currentTenantId())) {
+            result.add(toDirectoryView(entity));
+        }
+        return result;
+    }
+
+    public List<DataDevelopmentScriptView> listScripts(ScriptType scriptType) {
+        List<DataDevelopmentScriptView> result = new ArrayList<DataDevelopmentScriptView>();
+        for (DataDevelopmentScriptEntity entity : listScriptEntities(securityService.currentTenantId(), scriptType)) {
+            result.add(toScriptView(entity));
+        }
+        return result;
+    }
+
+    public List<DataSourceDefinition> listSqlCapableDatasources() {
+        List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
+        for (DataSourceDefinition datasource : dataSourceService.list()) {
+            if (sqlExecutor.supports(datasource)) {
+                result.add(datasource);
+            }
+        }
+        return result;
+    }
+
+    public DataDevelopmentScriptView getScript(Long scriptId) {
+        return toScriptView(requireScript(scriptId));
+    }
+
+    @Transactional
+    public DataDevelopmentDirectoryView saveDirectory(DataDevelopmentDirectorySaveRequest request) {
+        String tenantId = securityService.currentTenantId();
+        DataDevelopmentDirectoryEntity entity = request.getId() == null
+                ? new DataDevelopmentDirectoryEntity()
+                : requireDirectory(request.getId());
+        if (request.getParentId() != null) {
+            requireDirectory(request.getParentId());
+        }
+        validateDirectoryName(tenantId, request.getParentId(), request.getName(), entity.getId());
+        entity.setParentId(request.getParentId());
+        entity.setName(request.getName().trim());
+        entity.setPermissionCode(blankToNull(request.getPermissionCode()));
+        entity.setDescription(blankToNull(request.getDescription()));
+        if (entity.getId() == null) {
+            directoryMapper.insert(entity);
+        } else {
+            directoryMapper.updateById(entity);
+        }
+        return toDirectoryView(entity);
+    }
+
+    @Transactional
+    public void moveDirectory(Long directoryId, DataDevelopmentMoveRequest request) {
+        DataDevelopmentDirectoryEntity entity = requireDirectory(directoryId);
+        Long targetDirectoryId = request == null ? null : request.getTargetDirectoryId();
+        if (targetDirectoryId != null) {
+            requireDirectory(targetDirectoryId);
+            if (directoryId.equals(targetDirectoryId)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Directory cannot be moved into itself");
+            }
+            ensureNotDescendant(directoryId, targetDirectoryId);
+        }
+        validateDirectoryName(entity.getTenantId(), targetDirectoryId, entity.getName(), entity.getId());
+        entity.setParentId(targetDirectoryId);
+        directoryMapper.updateById(entity);
+    }
+
+    @Transactional
+    public void deleteDirectory(Long directoryId) {
+        DataDevelopmentDirectoryEntity entity = requireDirectory(directoryId);
+        List<DataDevelopmentDirectoryEntity> directories = listDirectoryEntities(entity.getTenantId());
+        Set<Long> directoryIds = collectDescendantIds(directoryId, directories);
+        directoryIds.add(directoryId);
+        scriptMapper.delete(new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+                .eq(DataDevelopmentScriptEntity::getTenantId, entity.getTenantId())
+                .in(DataDevelopmentScriptEntity::getDirectoryId, directoryIds));
+        directoryMapper.delete(new LambdaQueryWrapper<DataDevelopmentDirectoryEntity>()
+                .eq(DataDevelopmentDirectoryEntity::getTenantId, entity.getTenantId())
+                .in(DataDevelopmentDirectoryEntity::getId, directoryIds));
+    }
+
+    @Transactional
+    public DataDevelopmentScriptView saveScript(DataDevelopmentScriptSaveRequest request) {
+        String tenantId = securityService.currentTenantId();
+        validateScriptType(request.getScriptType());
+        if (request.getDirectoryId() != null) {
+            requireDirectory(request.getDirectoryId());
+        }
+        DataDevelopmentScriptEntity entity = request.getId() == null
+                ? new DataDevelopmentScriptEntity()
+                : requireScript(request.getId());
+        DataSourceDefinition datasource = requireSqlDatasource(request.getDatasourceId());
+        validateScriptFileName(tenantId, request.getDirectoryId(), request.getFileName(), entity.getId());
+        entity.setDirectoryId(request.getDirectoryId());
+        entity.setFileName(request.getFileName().trim());
+        entity.setScriptType(request.getScriptType().name());
+        entity.setDatasourceId(datasource.getId());
+        entity.setDescription(blankToNull(request.getDescription()));
+        entity.setContent(request.getContent());
+        if (entity.getId() == null) {
+            scriptMapper.insert(entity);
+        } else {
+            scriptMapper.updateById(entity);
+        }
+        return getScript(entity.getId());
+    }
+
+    @Transactional
+    public void moveScript(Long scriptId, DataDevelopmentMoveRequest request) {
+        DataDevelopmentScriptEntity entity = requireScript(scriptId);
+        Long targetDirectoryId = request == null ? null : request.getTargetDirectoryId();
+        if (targetDirectoryId != null) {
+            requireDirectory(targetDirectoryId);
+        }
+        validateScriptFileName(entity.getTenantId(), targetDirectoryId, entity.getFileName(), entity.getId());
+        entity.setDirectoryId(targetDirectoryId);
+        scriptMapper.updateById(entity);
+    }
+
+    @Transactional
+    public void deleteScript(Long scriptId) {
+        requireScript(scriptId);
+        scriptMapper.deleteById(scriptId);
+    }
+
+    public SqlExecutionResultView execute(SqlExecutionRequest request) {
+        validateScriptType(request.getScriptType());
+        return sqlExecutor.execute(requireSqlDatasource(request.getDatasourceId()), request.getContent(), request.getMaxRows());
+    }
+
+    public SqlExecutionResultView executeScript(Long scriptId, Integer maxRows) {
+        DataDevelopmentScriptView script = getScript(scriptId);
+        return sqlExecutor.execute(requireSqlDatasource(script.getDatasourceId()), script.getContent(), maxRows);
+    }
+
+    private DataDevelopmentDirectoryEntity requireDirectory(Long directoryId) {
+        DataDevelopmentDirectoryEntity entity = directoryMapper.selectById(directoryId);
+        if (entity == null || !matchesTenant(entity.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Directory not found: " + directoryId);
+        }
+        return entity;
+    }
+
+    private DataDevelopmentScriptEntity requireScript(Long scriptId) {
+        DataDevelopmentScriptEntity entity = scriptMapper.selectById(scriptId);
+        if (entity == null || !matchesTenant(entity.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Script not found: " + scriptId);
+        }
+        return entity;
+    }
+
+    private DataSourceDefinition requireSqlDatasource(Long datasourceId) {
+        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        if (datasource == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
+        }
+        if (!sqlExecutor.supports(datasource)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only database datasources can execute SQL scripts");
+        }
+        return datasource;
+    }
+
+    private List<DataDevelopmentDirectoryEntity> listDirectoryEntities(String tenantId) {
+        return directoryMapper.selectList(new LambdaQueryWrapper<DataDevelopmentDirectoryEntity>()
+                .eq(DataDevelopmentDirectoryEntity::getTenantId, tenantId)
+                .orderByAsc(DataDevelopmentDirectoryEntity::getParentId)
+                .orderByAsc(DataDevelopmentDirectoryEntity::getName));
+    }
+
+    private List<DataDevelopmentScriptEntity> listScriptEntities(String tenantId, ScriptType scriptType) {
+        LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+                .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
+                .orderByAsc(DataDevelopmentScriptEntity::getDirectoryId)
+                .orderByAsc(DataDevelopmentScriptEntity::getFileName);
+        if (scriptType != null) {
+            wrapper.eq(DataDevelopmentScriptEntity::getScriptType, scriptType.name());
+        }
+        return scriptMapper.selectList(wrapper);
+    }
+
+    private List<DataDevelopmentTreeNode> buildTree(List<DataDevelopmentDirectoryEntity> directories,
+                                                    List<DataDevelopmentScriptEntity> scripts) {
+        Map<Long, DataDevelopmentTreeNode> directoryNodes = new LinkedHashMap<Long, DataDevelopmentTreeNode>();
+        List<DataDevelopmentTreeNode> roots = new ArrayList<DataDevelopmentTreeNode>();
+        for (DataDevelopmentDirectoryEntity entity : directories) {
+            DataDevelopmentTreeNode node = new DataDevelopmentTreeNode();
+            node.setNodeKey("dir-" + entity.getId());
+            node.setNodeType("DIRECTORY");
+            node.setDirectoryId(entity.getId());
+            node.setParentId(entity.getParentId());
+            node.setName(entity.getName());
+            node.setPermissionCode(entity.getPermissionCode());
+            directoryNodes.put(entity.getId(), node);
+        }
+        for (DataDevelopmentDirectoryEntity entity : directories) {
+            DataDevelopmentTreeNode node = directoryNodes.get(entity.getId());
+            if (entity.getParentId() == null) {
+                roots.add(node);
+            } else if (directoryNodes.containsKey(entity.getParentId())) {
+                directoryNodes.get(entity.getParentId()).getChildren().add(node);
+            } else {
+                roots.add(node);
+            }
+        }
+        for (DataDevelopmentScriptEntity entity : scripts) {
+            DataDevelopmentTreeNode node = new DataDevelopmentTreeNode();
+            node.setNodeKey("script-" + entity.getId());
+            node.setNodeType("SCRIPT");
+            node.setScriptId(entity.getId());
+            node.setDirectoryId(entity.getDirectoryId());
+            node.setName(entity.getFileName());
+            node.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
+            DataSourceDefinition datasource = dataSourceService.get(entity.getDatasourceId());
+            node.setDatasourceName(datasource == null ? null : datasource.getName());
+            if (entity.getDirectoryId() != null && directoryNodes.containsKey(entity.getDirectoryId())) {
+                directoryNodes.get(entity.getDirectoryId()).getChildren().add(node);
+            } else {
+                roots.add(node);
+            }
+        }
+        sortTree(roots);
+        return roots;
+    }
+
+    private void sortTree(List<DataDevelopmentTreeNode> nodes) {
+        Collections.sort(nodes, new Comparator<DataDevelopmentTreeNode>() {
+            @Override
+            public int compare(DataDevelopmentTreeNode left, DataDevelopmentTreeNode right) {
+                int leftRank = "DIRECTORY".equalsIgnoreCase(left.getNodeType()) ? 0 : 1;
+                int rightRank = "DIRECTORY".equalsIgnoreCase(right.getNodeType()) ? 0 : 1;
+                if (leftRank != rightRank) {
+                    return Integer.compare(leftRank, rightRank);
+                }
+                return String.valueOf(left.getName()).compareToIgnoreCase(String.valueOf(right.getName()));
+            }
+        });
+        for (DataDevelopmentTreeNode node : nodes) {
+            sortTree(node.getChildren());
+        }
+    }
+
+    private void validateDirectoryName(String tenantId, Long parentId, String name, Long selfId) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Directory name is required");
+        }
+        List<DataDevelopmentDirectoryEntity> siblings = directoryMapper.selectList(new LambdaQueryWrapper<DataDevelopmentDirectoryEntity>()
+                .eq(DataDevelopmentDirectoryEntity::getTenantId, tenantId)
+                .eq(parentId != null, DataDevelopmentDirectoryEntity::getParentId, parentId)
+                .isNull(parentId == null, DataDevelopmentDirectoryEntity::getParentId));
+        for (DataDevelopmentDirectoryEntity sibling : siblings) {
+            if (selfId != null && selfId.equals(sibling.getId())) {
+                continue;
+            }
+            if (name.trim().equalsIgnoreCase(sibling.getName())) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "A directory with the same name already exists");
+            }
+        }
+    }
+
+    private void validateScriptFileName(String tenantId, Long directoryId, String fileName, Long selfId) {
+        if (fileName == null || fileName.trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "File name is required");
+        }
+        List<DataDevelopmentScriptEntity> siblings = scriptMapper.selectList(new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+                .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
+                .eq(directoryId != null, DataDevelopmentScriptEntity::getDirectoryId, directoryId)
+                .isNull(directoryId == null, DataDevelopmentScriptEntity::getDirectoryId));
+        for (DataDevelopmentScriptEntity sibling : siblings) {
+            if (selfId != null && selfId.equals(sibling.getId())) {
+                continue;
+            }
+            if (fileName.trim().equalsIgnoreCase(sibling.getFileName())) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "A script with the same file name already exists");
+            }
+        }
+    }
+
+    private void validateScriptType(ScriptType scriptType) {
+        if (scriptType == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Script type is required");
+        }
+        if (scriptType != ScriptType.SQL) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL scripts are currently supported");
+        }
+    }
+
+    private void ensureNotDescendant(Long directoryId, Long targetDirectoryId) {
+        Map<Long, DataDevelopmentDirectoryEntity> directoryMap = new LinkedHashMap<Long, DataDevelopmentDirectoryEntity>();
+        for (DataDevelopmentDirectoryEntity entity : listDirectoryEntities(securityService.currentTenantId())) {
+            directoryMap.put(entity.getId(), entity);
+        }
+        Long cursor = targetDirectoryId;
+        while (cursor != null) {
+            if (directoryId.equals(cursor)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Directory cannot be moved into its descendant");
+            }
+            DataDevelopmentDirectoryEntity current = directoryMap.get(cursor);
+            cursor = current == null ? null : current.getParentId();
+        }
+    }
+
+    private Set<Long> collectDescendantIds(Long directoryId, List<DataDevelopmentDirectoryEntity> directories) {
+        Set<Long> result = new LinkedHashSet<Long>();
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (DataDevelopmentDirectoryEntity entity : directories) {
+                if (entity.getParentId() == null) {
+                    continue;
+                }
+                if (directoryId.equals(entity.getParentId()) || result.contains(entity.getParentId())) {
+                    if (result.add(entity.getId())) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private DataDevelopmentDirectoryView toDirectoryView(DataDevelopmentDirectoryEntity entity) {
+        DataDevelopmentDirectoryView view = new DataDevelopmentDirectoryView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setParentId(entity.getParentId());
+        view.setName(entity.getName());
+        view.setPermissionCode(entity.getPermissionCode());
+        view.setDescription(entity.getDescription());
+        return view;
+    }
+
+    private DataDevelopmentScriptView toScriptView(DataDevelopmentScriptEntity entity) {
+        DataDevelopmentScriptView view = new DataDevelopmentScriptView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setDirectoryId(entity.getDirectoryId());
+        view.setFileName(entity.getFileName());
+        view.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
+        view.setDatasourceId(entity.getDatasourceId());
+        DataSourceDefinition datasource = entity.getDatasourceId() == null ? null : dataSourceService.get(entity.getDatasourceId());
+        if (datasource != null) {
+            view.setDatasourceName(datasource.getName());
+            view.setDatasourceTypeCode(datasource.getTypeCode());
+        }
+        view.setDescription(entity.getDescription());
+        view.setContent(entity.getContent());
+        return view;
+    }
+
+    private boolean matchesTenant(String tenantId) {
+        return securityService.currentTenantId().equals(tenantId);
+    }
+
+    private String blankToNull(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
+    }
+}

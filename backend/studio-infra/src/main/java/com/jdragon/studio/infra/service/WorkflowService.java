@@ -6,6 +6,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.EdgeCondition;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
+import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
@@ -102,9 +103,11 @@ public class WorkflowService {
                 if (nodeEntity.getFieldMappingsJson() != null) {
                     for (Map<String, Object> item : nodeEntity.getFieldMappingsJson()) {
                         FieldMappingDefinition mapping = new FieldMappingDefinition();
-                        mapping.setSourceField(String.valueOf(item.get("sourceField")));
-                        mapping.setTargetField(String.valueOf(item.get("targetField")));
+                        mapping.setSourceAlias(asString(item.get("sourceAlias")));
+                        mapping.setSourceField(asString(item.get("sourceField")));
+                        mapping.setTargetField(asString(item.get("targetField")));
                         mapping.setExpression(item.get("expression") == null ? null : String.valueOf(item.get("expression")));
+                        mapping.setTransformers(toTransformers(item.get("transformers")));
                         mappings.add(mapping);
                     }
                 }
@@ -277,12 +280,58 @@ public class WorkflowService {
         }
         for (FieldMappingDefinition mapping : mappings) {
             Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("sourceAlias", mapping.getSourceAlias());
             item.put("sourceField", mapping.getSourceField());
             item.put("targetField", mapping.getTargetField());
             item.put("expression", mapping.getExpression());
+            item.put("transformers", toTransformerMaps(mapping.getTransformers()));
             items.add(item);
         }
         return items;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<TransformerBinding> toTransformers(Object candidate) {
+        List<TransformerBinding> result = new ArrayList<TransformerBinding>();
+        if (!(candidate instanceof List)) {
+            return result;
+        }
+        for (Object item : (List<Object>) candidate) {
+            if (!(item instanceof Map)) {
+                continue;
+            }
+            Map<String, Object> map = (Map<String, Object>) item;
+            TransformerBinding binding = new TransformerBinding();
+            binding.setTransformerCode(asString(map.get("transformerCode")));
+            Object parameters = map.get("parameters");
+            if (parameters instanceof Map) {
+                binding.setParameters(new LinkedHashMap<String, Object>((Map<String, Object>) parameters));
+            }
+            result.add(binding);
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> toTransformerMaps(List<TransformerBinding> bindings) {
+        List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
+        if (bindings == null) {
+            return items;
+        }
+        for (TransformerBinding binding : bindings) {
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("transformerCode", binding.getTransformerCode());
+            item.put("parameters", binding.getParameters());
+            items.add(item);
+        }
+        return items;
+    }
+
+    private String asString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value);
+        return "null".equalsIgnoreCase(text) ? null : text;
     }
 
     private void validateGraph(WorkflowSaveRequest request) {

@@ -26,7 +26,144 @@
           </el-select>
           <el-button type="primary" @click="openCreateDialog">{{ t("common.newModel") }}</el-button>
           <el-button plain @click="openSyncDialog">{{ t("common.sync") }}</el-button>
+          <el-button plain @click="rebuildQueryIndex">{{ t("common.rebuild") }}</el-button>
           <el-button plain @click="refreshModels">{{ t("common.refresh") }}</el-button>
+        </div>
+
+        <div class="soft-panel model-query-panel">
+          <div class="model-query-panel__header">
+            <div>
+              <strong>{{ t("web.models.dynamicFiltersTitle") }}</strong>
+              <p>{{ t("web.models.dynamicFiltersDescription") }}</p>
+            </div>
+            <div class="model-query-panel__actions">
+              <el-button plain @click="appendQueryGroup">{{ t("common.addFilter") }}</el-button>
+              <el-button type="primary" @click="searchModels">{{ t("common.search") }}</el-button>
+              <el-button plain @click="resetQueryFilters">{{ t("common.reset") }}</el-button>
+            </div>
+          </div>
+
+          <div v-if="queryGroups.length === 0" class="soft-panel empty-hint section-empty">
+            {{ t("web.models.dynamicFiltersEmpty") }}
+          </div>
+
+          <div
+            v-for="group in queryGroups"
+            :key="group.key"
+            class="soft-panel model-query-group"
+          >
+            <div class="studio-form-grid">
+              <el-form-item :label="t('web.models.filterMetaModel')">
+                <el-select
+                  v-model="group.metaSchemaCode"
+                  clearable
+                  :placeholder="t('web.models.filterMetaModelPlaceholder')"
+                  @change="handleQuerySchemaChange(group)"
+                >
+                  <el-option
+                    v-for="schema in querySchemaOptions"
+                    :key="schema.id ?? schema.schemaCode"
+                    :label="querySchemaLabel(schema)"
+                    :value="schema.schemaCode"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="isMultipleQuerySchema(group)" :label="t('web.models.filterRowMatchMode')">
+                <el-select v-model="group.rowMatchMode">
+                  <el-option :label="t('web.models.filterRowMatchSameItem')" value="SAME_ITEM" />
+                  <el-option :label="t('web.models.filterRowMatchAnyItem')" value="ANY_ITEM" />
+                </el-select>
+              </el-form-item>
+            </div>
+
+            <div class="multiple-section-actions">
+              <el-button type="primary" plain @click="appendQueryCondition(group)">{{ t("common.addCondition") }}</el-button>
+              <el-button link type="danger" @click="removeQueryGroup(group.key)">{{ t("common.remove") }}</el-button>
+            </div>
+
+            <el-table :data="group.conditions" border>
+              <el-table-column :label="t('web.models.filterField')" min-width="160">
+                <template #default="{ row }">
+                  <el-select
+                    v-model="row.fieldKey"
+                    clearable
+                    :placeholder="t('web.models.filterFieldPlaceholder')"
+                    @change="handleQueryFieldChange(group, row)"
+                  >
+                    <el-option
+                      v-for="field in querySchemaFields(group)"
+                      :key="field.fieldKey"
+                      :label="field.fieldName"
+                      :value="field.fieldKey"
+                    />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('web.models.filterOperator')" width="140">
+                <template #default="{ row }">
+                  <el-select
+                    v-model="row.operator"
+                    clearable
+                    :placeholder="t('web.models.filterOperatorPlaceholder')"
+                  >
+                    <el-option
+                      v-for="operator in queryConditionOperators(group, row)"
+                      :key="operator"
+                      :label="operator"
+                      :value="operator"
+                    />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('web.models.filterValue')" min-width="260">
+                <template #default="{ row }">
+                  <div class="query-condition-value">
+                    <el-input
+                      v-if="row.operator === 'IN'"
+                      v-model="row.multiValueText"
+                      :placeholder="t('web.models.filterValuesPlaceholder')"
+                    />
+                    <template v-else-if="row.operator === 'BETWEEN'">
+                      <component
+                        :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
+                        v-model="row.value"
+                        class="query-condition-value__input"
+                        :placeholder="t('web.models.filterValuePlaceholder')"
+                      />
+                      <span class="query-condition-value__divider">-</span>
+                      <component
+                        :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
+                        v-model="row.valueTo"
+                        class="query-condition-value__input"
+                        :placeholder="t('web.models.filterValueToPlaceholder')"
+                      />
+                    </template>
+                    <el-select
+                      v-else-if="queryConditionField(group, row)?.valueType === 'BOOLEAN'"
+                      v-model="row.value"
+                      clearable
+                      :placeholder="t('web.models.filterValuePlaceholder')"
+                    >
+                      <el-option :label="t('common.yes')" :value="true" />
+                      <el-option :label="t('common.no')" :value="false" />
+                    </el-select>
+                    <component
+                      :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
+                      v-else
+                      v-model="row.value"
+                      class="query-condition-value__input"
+                      :placeholder="t('web.models.filterValuePlaceholder')"
+                    />
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
+                <template #default="{ $index }">
+                  <el-button link type="danger" @click="removeQueryCondition(group, $index)">{{ t("common.remove") }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </div>
 
         <el-table :data="models" border :empty-text="modelTableEmptyText">
@@ -371,6 +508,9 @@ import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import type {
   DataModelDefinition,
+  DataModelQueryCondition,
+  DataModelQueryGroup,
+  DataModelQueryRequest,
   DataModelSaveRequest,
   DataSourceDefinition,
   EntityId,
@@ -414,6 +554,21 @@ interface ModelMetaSection {
   collectionKey?: string;
 }
 
+interface ModelQueryConditionState {
+  fieldKey: string;
+  operator: string;
+  value?: unknown;
+  valueTo?: unknown;
+  multiValueText: string;
+}
+
+interface ModelQueryGroupState {
+  key: string;
+  metaSchemaCode: string;
+  rowMatchMode: "SAME_ITEM" | "ANY_ITEM";
+  conditions: ModelQueryConditionState[];
+}
+
 const DATABASE_TYPE_HINTS = [
   "mysql",
   "oracle",
@@ -441,6 +596,7 @@ const datasources = ref<DataSourceDefinition[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const models = ref<DataModelDefinition[]>([]);
 const previewRows = ref<Record<string, unknown>[]>([]);
+const queryGroups = ref<ModelQueryGroupState[]>([]);
 const selectedDatasourceId = ref<EntityId>();
 const selectedModel = ref<DataModelDefinition>();
 const editorOpen = ref(false);
@@ -502,6 +658,20 @@ const availableModelSchemas = computed(() =>
 );
 const businessSchemaOptions = computed(() =>
   schemas.value.filter((schema) => parseMetaModelSchema(schema).config.domain === "BUSINESS"),
+);
+const querySchemaOptions = computed(() =>
+  schemas.value
+    .filter((schema) => normalizeTypeCode(schema.objectType) === "model" || parseMetaModelSchema(schema).config.domain === "BUSINESS")
+    .filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "source")
+    .filter((schema) => searchableFields(schema).length > 0)
+    .filter((schema) => {
+      const parsed = parseMetaModelSchema(schema);
+      if (parsed.config.domain !== "TECHNICAL" || !selectedDatasource.value?.typeCode) {
+        return true;
+      }
+      return normalizeTypeCode(parsed.config.datasourceType) === normalizeTypeCode(selectedDatasource.value.typeCode);
+    })
+    .sort((left, right) => querySchemaLabel(left).localeCompare(querySchemaLabel(right))),
 );
 const selectedBusinessSchemaVersionId = computed({
   get: () => parseBusinessSchemaVersionId(modelForm.businessMetadata),
@@ -732,6 +902,74 @@ function buildDefaultMetadata(fields: MetadataFieldDefinition[]) {
   return defaults;
 }
 
+function searchableFields(schema?: MetadataSchemaDefinition) {
+  return (schema?.fields ?? []).filter((field) => field.searchable);
+}
+
+function querySchemaLabel(schema: MetadataSchemaDefinition) {
+  const parsed = parseMetaModelSchema(schema);
+  if (parsed.config.domain === "BUSINESS") {
+    return `${parsed.config.directoryName || parsed.config.directoryCode || "business"} / ${schema.schemaName}`;
+  }
+  return `${parsed.config.datasourceType || schema.typeCode} / ${schema.schemaName}`;
+}
+
+function findQuerySchema(metaSchemaCode?: string) {
+  if (!metaSchemaCode) {
+    return undefined;
+  }
+  return querySchemaOptions.value.find((schema) => schema.schemaCode === metaSchemaCode);
+}
+
+function querySchemaFields(group: ModelQueryGroupState) {
+  return searchableFields(findQuerySchema(group.metaSchemaCode));
+}
+
+function queryConditionField(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
+  return querySchemaFields(group).find((field) => field.fieldKey === condition.fieldKey);
+}
+
+function queryConditionOperators(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
+  return queryConditionField(group, condition)?.queryOperators ?? [];
+}
+
+function isMultipleQuerySchema(group: ModelQueryGroupState) {
+  const schema = findQuerySchema(group.metaSchemaCode);
+  return schema ? parseMetaModelSchema(schema).config.displayMode === "MULTIPLE" : false;
+}
+
+function isNumericQueryField(field?: MetadataFieldDefinition) {
+  return field?.valueType === "INTEGER" || field?.valueType === "LONG" || field?.valueType === "DECIMAL";
+}
+
+let queryGroupSeed = 0;
+
+function nextQueryGroupKey() {
+  queryGroupSeed += 1;
+  return `query-group-${queryGroupSeed}`;
+}
+
+function createDefaultQueryCondition(schema?: MetadataSchemaDefinition): ModelQueryConditionState {
+  const field = searchableFields(schema)[0];
+  return {
+    fieldKey: field?.fieldKey ?? "",
+    operator: String(field?.queryDefaultOperator ?? field?.queryOperators?.[0] ?? "EQ"),
+    value: undefined,
+    valueTo: undefined,
+    multiValueText: "",
+  };
+}
+
+function createQueryGroup(schemaCode?: string): ModelQueryGroupState {
+  const schema = schemaCode ? findQuerySchema(schemaCode) : querySchemaOptions.value[0];
+  return {
+    key: nextQueryGroupKey(),
+    metaSchemaCode: schema?.schemaCode ?? schemaCode ?? "",
+    rowMatchMode: schema && parseMetaModelSchema(schema).config.displayMode === "MULTIPLE" ? "SAME_ITEM" : "ANY_ITEM",
+    conditions: [createDefaultQueryCondition(schema)],
+  };
+}
+
 function parseDefaultValue(field: MetadataFieldDefinition) {
   const rawValue = field.defaultValue;
   if (rawValue === undefined || rawValue === null) {
@@ -950,6 +1188,137 @@ function resetModelForm(prefillDatasourceId?: EntityId) {
   }
 }
 
+function normalizeQueryGroupsForDatasource() {
+  const availableCodes = new Set(querySchemaOptions.value.map((schema) => schema.schemaCode));
+  queryGroups.value = queryGroups.value.filter((group) => !group.metaSchemaCode || availableCodes.has(group.metaSchemaCode));
+}
+
+function appendQueryGroup() {
+  queryGroups.value.push(createQueryGroup());
+}
+
+function removeQueryGroup(groupKey: string) {
+  queryGroups.value = queryGroups.value.filter((group) => group.key !== groupKey);
+}
+
+function handleQuerySchemaChange(group: ModelQueryGroupState) {
+  const schema = findQuerySchema(group.metaSchemaCode);
+  group.rowMatchMode = schema && parseMetaModelSchema(schema).config.displayMode === "MULTIPLE" ? "SAME_ITEM" : "ANY_ITEM";
+  group.conditions = [createDefaultQueryCondition(schema)];
+}
+
+function appendQueryCondition(group: ModelQueryGroupState) {
+  group.conditions.push(createDefaultQueryCondition(findQuerySchema(group.metaSchemaCode)));
+}
+
+function removeQueryCondition(group: ModelQueryGroupState, index: number) {
+  group.conditions.splice(index, 1);
+  if (group.conditions.length === 0) {
+    group.conditions.push(createDefaultQueryCondition(findQuerySchema(group.metaSchemaCode)));
+  }
+}
+
+function handleQueryFieldChange(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
+  const field = queryConditionField(group, condition);
+  condition.operator = String(field?.queryDefaultOperator ?? field?.queryOperators?.[0] ?? "EQ");
+  condition.value = undefined;
+  condition.valueTo = undefined;
+  condition.multiValueText = "";
+}
+
+function parseQueryValue(value: unknown, field?: MetadataFieldDefinition) {
+  if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
+    return undefined;
+  }
+  if (field?.valueType === "BOOLEAN") {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    return String(value).trim().toLowerCase() === "true";
+  }
+  if (isNumericQueryField(field)) {
+    const numberValue = Number(value);
+    return Number.isNaN(numberValue) ? undefined : numberValue;
+  }
+  return value;
+}
+
+function buildModelQueryRequest(): DataModelQueryRequest {
+  const groups: DataModelQueryGroup[] = [];
+  for (const group of queryGroups.value) {
+    const schema = findQuerySchema(group.metaSchemaCode);
+    if (!schema) {
+      continue;
+    }
+    const conditions: DataModelQueryCondition[] = [];
+    for (const condition of group.conditions) {
+      const field = queryConditionField(group, condition);
+      if (!field || !condition.fieldKey || !condition.operator) {
+        continue;
+      }
+      if (condition.operator === "IN") {
+        const values = condition.multiValueText
+          .split(",")
+          .map((item) => parseQueryValue(item.trim(), field))
+          .filter((item) => item !== undefined);
+        if (values.length === 0) {
+          continue;
+        }
+        conditions.push({
+          fieldKey: condition.fieldKey,
+          operator: condition.operator,
+          values,
+        });
+        continue;
+      }
+      if (condition.operator === "BETWEEN") {
+        const lower = parseQueryValue(condition.value, field);
+        const upper = parseQueryValue(condition.valueTo, field);
+        if (lower === undefined || upper === undefined) {
+          continue;
+        }
+        conditions.push({
+          fieldKey: condition.fieldKey,
+          operator: condition.operator,
+          values: [lower, upper],
+        });
+        continue;
+      }
+      const value = parseQueryValue(condition.value, field);
+      if (value === undefined) {
+        continue;
+      }
+      conditions.push({
+        fieldKey: condition.fieldKey,
+        operator: condition.operator,
+        value,
+      });
+    }
+    if (conditions.length === 0) {
+      continue;
+    }
+    groups.push({
+      scope: parseMetaModelSchema(schema).config.domain as DataModelQueryGroup["scope"],
+      metaSchemaCode: schema.schemaCode,
+      rowMatchMode: group.rowMatchMode,
+      conditions,
+    });
+  }
+  return {
+    datasourceId: selectedDatasourceId.value,
+    groups,
+  };
+}
+
+async function searchModels() {
+  await handleDatasourceChange();
+}
+
+async function resetQueryFilters() {
+  queryGroups.value = [];
+  await handleDatasourceChange();
+}
+
 function openCreateDialog() {
   const prefillDatasourceId =
     selectedDatasource.value && !isDatabaseDatasourceType(selectedDatasource.value.typeCode) ? selectedDatasource.value.id : undefined;
@@ -1040,13 +1409,17 @@ async function loadPage() {
 async function loadModelsForSelectedDatasource() {
   selectedModel.value = undefined;
   previewRows.value = [];
-  models.value = selectedDatasourceId.value
-    ? await studioApi.models.listByDatasource(selectedDatasourceId.value)
-    : await studioApi.models.list();
+  const queryRequest = buildModelQueryRequest();
+  models.value = queryRequest.groups.length > 0
+    ? await studioApi.models.query(queryRequest)
+    : (selectedDatasourceId.value
+      ? await studioApi.models.listByDatasource(selectedDatasourceId.value)
+      : await studioApi.models.list());
 }
 
 async function handleDatasourceChange() {
   try {
+    normalizeQueryGroupsForDatasource();
     await loadModelsForSelectedDatasource();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.loadModelsFailed"));
@@ -1056,6 +1429,16 @@ async function handleDatasourceChange() {
 async function refreshModels() {
   await loadPage();
   await handleDatasourceChange();
+}
+
+async function rebuildQueryIndex() {
+  try {
+    await studioApi.models.rebuildIndex(selectedDatasourceId.value);
+    ElMessage.success(t("web.models.rebuildIndexSuccess"));
+    await handleDatasourceChange();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.models.rebuildIndexFailed"));
+  }
 }
 
 function resolveDatasourceLabel(datasourceId?: EntityId) {
@@ -1265,6 +1648,44 @@ p {
   min-width: 280px;
 }
 
+.model-query-panel {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.model-query-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.model-query-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.model-query-group {
+  display: grid;
+  gap: 12px;
+}
+
+.query-condition-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.query-condition-value__input {
+  width: 100%;
+}
+
+.query-condition-value__divider {
+  color: var(--studio-text-soft);
+}
+
 .detail-toolbar {
   display: flex;
   align-items: center;
@@ -1389,6 +1810,10 @@ p {
 
   .models-toolbar__filter {
     min-width: 100%;
+  }
+
+  .model-query-panel__header {
+    flex-direction: column;
   }
 
   .detail-toolbar {

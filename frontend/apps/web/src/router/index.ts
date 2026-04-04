@@ -15,6 +15,8 @@ export const studioMenuDescriptors: StudioMenuDescriptor[] = [
   { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
   { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
   { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
+  { path: "/data-development", labelKey: "routes.web.dataDevelopment.title", captionKey: "routes.web.dataDevelopment.menuCaption" },
+  { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption" },
   { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
   { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
   { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
@@ -99,6 +101,42 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/data-development",
+        name: "data-development",
+        component: () => import("@/views/DataDevelopmentView.vue"),
+        meta: {
+          titleKey: "routes.web.dataDevelopment.title",
+          subtitleKey: "routes.web.dataDevelopment.subtitle",
+        },
+      },
+      {
+        path: "/collection-tasks",
+        name: "collection-tasks",
+        component: () => import("@/views/CollectionTasksView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTasks.title",
+          subtitleKey: "routes.web.collectionTasks.subtitle",
+        },
+      },
+      {
+        path: "/collection-tasks/new",
+        name: "collection-task-create",
+        component: () => import("@/views/CollectionTaskEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTasks.createTitle",
+          subtitleKey: "routes.web.collectionTasks.createSubtitle",
+        },
+      },
+      {
+        path: "/collection-tasks/:taskId/edit",
+        name: "collection-task-edit",
+        component: () => import("@/views/CollectionTaskEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTasks.editTitle",
+          subtitleKey: "routes.web.collectionTasks.editSubtitle",
+        },
+      },
+      {
         path: "/workflows",
         name: "workflows",
         component: () => import("@/views/WorkflowsView.vue"),
@@ -108,12 +146,48 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/workflows/:workflowId",
+        name: "workflow-detail",
+        component: () => import("@/views/WorkflowDetailView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.detailTitle",
+          subtitleKey: "routes.web.workflows.detailSubtitle",
+        },
+      },
+      {
+        path: "/workflows/new",
+        name: "workflow-create",
+        component: () => import("@/views/WorkflowEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.createTitle",
+          subtitleKey: "routes.web.workflows.createSubtitle",
+        },
+      },
+      {
+        path: "/workflows/:workflowId/edit",
+        name: "workflow-edit",
+        component: () => import("@/views/WorkflowEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.editorTitle",
+          subtitleKey: "routes.web.workflows.editorSubtitle",
+        },
+      },
+      {
         path: "/runs",
         name: "runs",
         component: () => import("@/views/RunsView.vue"),
         meta: {
           titleKey: "routes.web.runs.title",
           subtitleKey: "routes.web.runs.subtitle",
+        },
+      },
+      {
+        path: "/runs/:workflowRunId",
+        name: "workflow-run-detail",
+        component: () => import("@/views/WorkflowRunDetailView.vue"),
+        meta: {
+          titleKey: "routes.web.runs.detailTitle",
+          subtitleKey: "routes.web.runs.detailSubtitle",
         },
       },
       {

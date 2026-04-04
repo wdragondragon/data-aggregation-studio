@@ -40,3 +40,4 @@ studio:
   aggregation-home: ${STUDIO_AGGREGATION_HOME:C:/dev/ideaProject/DataAggregation/package_all/aggregation}
   encryption-secret: studio-secret-key
   worker-code: studio-server-worker
+  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}

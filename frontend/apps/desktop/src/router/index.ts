@@ -15,6 +15,7 @@ export const desktopMenuDescriptors: DesktopMenuDescriptor[] = [
   { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
   { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
   { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
+  { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption" },
   { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
   { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
   { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
@@ -99,12 +100,57 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/collection-tasks",
+        name: "collection-tasks",
+        component: () => import("@web/views/CollectionTasksView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTasks.title",
+          subtitleKey: "routes.web.collectionTasks.subtitle",
+        },
+      },
+      {
+        path: "/collection-tasks/new",
+        name: "collection-task-create",
+        component: () => import("@web/views/CollectionTaskEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTasks.createTitle",
+          subtitleKey: "routes.web.collectionTasks.createSubtitle",
+        },
+      },
+      {
+        path: "/collection-tasks/:taskId/edit",
+        name: "collection-task-edit",
+        component: () => import("@web/views/CollectionTaskEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTasks.editTitle",
+          subtitleKey: "routes.web.collectionTasks.editSubtitle",
+        },
+      },
+      {
         path: "/workflows",
         name: "workflows",
         component: () => import("@web/views/WorkflowsView.vue"),
         meta: {
           titleKey: "routes.web.workflows.title",
           subtitleKey: "routes.web.workflows.subtitle",
+        },
+      },
+      {
+        path: "/workflows/new",
+        name: "workflow-create",
+        component: () => import("@web/views/WorkflowEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.createTitle",
+          subtitleKey: "routes.web.workflows.createSubtitle",
+        },
+      },
+      {
+        path: "/workflows/:workflowId/edit",
+        name: "workflow-edit",
+        component: () => import("@web/views/WorkflowEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.editorTitle",
+          subtitleKey: "routes.web.workflows.editorSubtitle",
         },
       },
       {

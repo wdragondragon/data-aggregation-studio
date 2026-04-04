@@ -23,5 +23,9 @@ public class MetadataFieldDefinition {
     private String placeholder;
     private String defaultValue;
     private List<String> options = new ArrayList<String>();
+    private Boolean searchable;
+    private Boolean sortable;
+    private List<String> queryOperators = new ArrayList<String>();
+    private String queryDefaultOperator;
 }
 

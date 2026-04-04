@@ -74,6 +74,7 @@ public class StudioUserDetailsService implements UserDetailsService {
 
         return new StudioUserPrincipal(
                 user.getId(),
+                user.getTenantId(),
                 user.getUsername(),
                 user.getPasswordHash(),
                 user.getEnabled() != null && user.getEnabled() == 1,

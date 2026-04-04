@@ -252,6 +252,54 @@
               <el-switch v-model="row.sensitive" />
             </template>
           </el-table-column>
+          <el-table-column :label="t('web.metadata.searchable')" width="110">
+            <template #default="{ row }">
+              <el-switch v-model="row.searchable" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.metadata.sortable')" width="110">
+            <template #default="{ row }">
+              <el-switch v-model="row.sortable" :disabled="!row.searchable" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.metadata.queryOperators')" min-width="200">
+            <template #default="{ row }">
+              <el-select
+                v-model="row.queryOperators"
+                multiple
+                clearable
+                filterable
+                allow-create
+                default-first-option
+                :placeholder="t('web.metadata.queryOperatorsPlaceholder')"
+                :disabled="!row.searchable"
+              >
+                <el-option
+                  v-for="operator in queryOperatorOptions"
+                  :key="operator"
+                  :label="operator"
+                  :value="operator"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.metadata.queryDefaultOperator')" width="160">
+            <template #default="{ row }">
+              <el-select
+                v-model="row.queryDefaultOperator"
+                clearable
+                :placeholder="t('web.metadata.queryDefaultOperatorPlaceholder')"
+                :disabled="!row.searchable || !(row.queryOperators?.length)"
+              >
+                <el-option
+                  v-for="operator in row.queryOperators ?? []"
+                  :key="operator"
+                  :label="operator"
+                  :value="operator"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
           <el-table-column :label="t('web.metadata.options')" min-width="180">
             <template #default="{ row }">
               <el-select
@@ -333,6 +381,7 @@ interface SchemaDraftForm {
 
 const componentTypes = ["INPUT", "PASSWORD", "NUMBER", "TEXTAREA", "SELECT", "SWITCH", "JSON_EDITOR", "SQL_EDITOR", "CODE_EDITOR", "CRON"];
 const valueTypes = ["STRING", "BOOLEAN", "INTEGER", "LONG", "DECIMAL", "ARRAY", "OBJECT", "JSON"];
+const queryOperatorOptions = ["EQ", "LIKE", "IN", "GT", "GE", "LT", "LE", "BETWEEN"];
 const requiredTechnicalMetaModels = [
   { code: "source", nameKey: "web.metadata.sourceMetaModel", displayMode: "SINGLE" as MetaModelDisplayMode, syncStrategy: "DATASOURCE_CONNECTION" },
   { code: "table", nameKey: "web.metadata.tableMetaModel", displayMode: "SINGLE" as MetaModelDisplayMode, syncStrategy: "OBJECT_DISCOVERY" },
@@ -646,13 +695,13 @@ function editSchema(schema: MetadataSchemaDefinition) {
   form.displayMode = parsed.config.displayMode ?? "SINGLE";
   form.required = Boolean(parsed.config.required);
   form.syncStrategy = parsed.config.syncStrategy ?? "";
-  form.fields = cloneDeep(copied.fields ?? []);
+  form.fields = (cloneDeep(copied.fields ?? []) as MetadataFieldDefinition[]).map(normalizeFieldDraft);
   previewModel.value = {};
   drawerOpen.value = true;
 }
 
 function appendField() {
-  form.fields.push({
+  form.fields.push(normalizeFieldDraft({
     fieldKey: "",
     fieldName: "",
     scope: form.domain === "BUSINESS" ? "BUSINESS" : "TECHNICAL",
@@ -660,12 +709,24 @@ function appendField() {
     valueType: "STRING",
     required: false,
     sensitive: false,
+    searchable: false,
+    sortable: false,
+    queryOperators: [],
+    queryDefaultOperator: undefined,
     options: [],
-  });
+  }));
 }
 
 function removeField(index: number) {
   form.fields.splice(index, 1);
+}
+
+function normalizeFieldDraft(field: MetadataFieldDefinition) {
+  return {
+    ...field,
+    options: field.options ?? [],
+    queryOperators: field.queryOperators ?? [],
+  };
 }
 
 async function loadPage() {

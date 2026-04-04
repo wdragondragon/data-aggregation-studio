@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = {
         "com.jdragon.studio.infra",
-        "com.jdragon.studio.worker.runtime"
+        "com.jdragon.studio.worker"
 })
 @MapperScan("com.jdragon.studio.infra.mapper")
 @EnableConfigurationProperties(StudioPlatformProperties.class)

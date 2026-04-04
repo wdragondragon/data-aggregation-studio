@@ -1,8 +1,19 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import type {
   CapabilityMatrix,
+  CollectionTaskDefinitionView,
+  CollectionTaskListQuery,
+  CollectionTaskSaveRequest,
+  CollectionTaskScheduleDefinition,
   ConnectionTestResult,
+  DataDevelopmentDirectory,
+  DataDevelopmentDirectorySaveRequest,
+  DataDevelopmentMoveRequest,
+  DataDevelopmentScript,
+  DataDevelopmentScriptSaveRequest,
+  DataDevelopmentTreeNode,
   DataModelDefinition,
+  DataModelQueryRequest,
   DataModelSaveRequest,
   DataSourceDefinition,
   EntityId,
@@ -15,8 +26,17 @@ import type {
   PermissionEntity,
   PluginCatalogEntry,
   Result,
+  RunListQuery,
   RoleEntity,
   RunListResponse,
+  RunLogView,
+  RunRecord,
+  ScriptType,
+  SqlExecutionRequest,
+  SqlExecutionResult,
+  WorkflowRunDetail,
+  WorkflowRunListQuery,
+  WorkflowRunSummary,
   RuntimeModeResponse,
   StudioUser,
   WorkflowDefinitionView,
@@ -136,6 +156,16 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       get(modelId: EntityId) {
         return request<DataModelDefinition>({ url: `/models/${modelId}`, method: "GET" });
       },
+      query(payload: DataModelQueryRequest) {
+        return request<DataModelDefinition[]>({ url: "/models/query", method: "POST", data: payload });
+      },
+      rebuildIndex(datasourceId?: EntityId) {
+        return request<number>({
+          url: "/models/index/rebuild",
+          method: "POST",
+          params: datasourceId == null ? undefined : { datasourceId },
+        });
+      },
       sync(datasourceId: EntityId) {
         return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}/sync`, method: "POST" });
       },
@@ -176,14 +206,107 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<void>({ url: `/workflows/${id}`, method: "DELETE" });
       },
     },
+    collectionTasks: {
+      list(params?: CollectionTaskListQuery) {
+        return request<CollectionTaskDefinitionView[]>({ url: "/collection-tasks", method: "GET", params });
+      },
+      listOnline() {
+        return request<CollectionTaskDefinitionView[]>({ url: "/collection-tasks/online", method: "GET" });
+      },
+      get(id: EntityId) {
+        return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}`, method: "GET" });
+      },
+      save(payload: CollectionTaskSaveRequest) {
+        return request<CollectionTaskDefinitionView>({ url: "/collection-tasks", method: "POST", data: payload });
+      },
+      publish(id: EntityId) {
+        return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/online`, method: "POST" });
+      },
+      saveSchedule(id: EntityId, payload: CollectionTaskScheduleDefinition) {
+        return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/schedule`, method: "POST", data: payload });
+      },
+      trigger(id: EntityId) {
+        return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/trigger`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/collection-tasks/${id}`, method: "DELETE" });
+      },
+    },
+    dataDevelopment: {
+      tree() {
+        return request<DataDevelopmentTreeNode[]>({ url: "/data-development/tree", method: "GET" });
+      },
+      listDirectories() {
+        return request<DataDevelopmentDirectory[]>({ url: "/data-development/directories", method: "GET" });
+      },
+      saveDirectory(payload: DataDevelopmentDirectorySaveRequest) {
+        return request<DataDevelopmentDirectory>({ url: "/data-development/directories", method: "POST", data: payload });
+      },
+      moveDirectory(id: EntityId, payload: DataDevelopmentMoveRequest) {
+        return request<void>({ url: `/data-development/directories/${id}/move`, method: "POST", data: payload });
+      },
+      deleteDirectory(id: EntityId) {
+        return request<void>({ url: `/data-development/directories/${id}`, method: "DELETE" });
+      },
+      listScripts(scriptType?: ScriptType) {
+        return request<DataDevelopmentScript[]>({
+          url: "/data-development/scripts",
+          method: "GET",
+          params: scriptType ? { scriptType } : undefined,
+        });
+      },
+      getScript(id: EntityId) {
+        return request<DataDevelopmentScript>({ url: `/data-development/scripts/${id}`, method: "GET" });
+      },
+      saveScript(payload: DataDevelopmentScriptSaveRequest) {
+        return request<DataDevelopmentScript>({ url: "/data-development/scripts", method: "POST", data: payload });
+      },
+      moveScript(id: EntityId, payload: DataDevelopmentMoveRequest) {
+        return request<void>({ url: `/data-development/scripts/${id}/move`, method: "POST", data: payload });
+      },
+      deleteScript(id: EntityId) {
+        return request<void>({ url: `/data-development/scripts/${id}`, method: "DELETE" });
+      },
+      listSqlDatasources() {
+        return request<DataSourceDefinition[]>({ url: "/data-development/datasources", method: "GET" });
+      },
+      executeSql(payload: SqlExecutionRequest) {
+        return request<SqlExecutionResult>({ url: "/data-development/sql/execute", method: "POST", data: payload });
+      },
+    },
     schedules: {
       list() {
         return request<WorkflowDefinitionView[]>({ url: "/schedules", method: "GET" });
       },
     },
     runs: {
-      list() {
-        return request<RunListResponse>({ url: "/runs", method: "GET" });
+      list(params?: RunListQuery) {
+        return request<RunListResponse>({
+          url: "/runs",
+          method: "GET",
+          params,
+        });
+      },
+      get(id: EntityId) {
+        return request<RunRecord>({ url: `/runs/${id}`, method: "GET" });
+      },
+      getLog(id: EntityId) {
+        return request<RunLogView>({ url: `/runs/${id}/log`, method: "GET" });
+      },
+      downloadLog(id: EntityId) {
+        return request<RunLogView>({ url: `/runs/${id}/log/download`, method: "GET" });
+      },
+    },
+    workflowRuns: {
+      list(params?: WorkflowRunListQuery) {
+        return request<WorkflowRunSummary[]>({
+          url: "/workflow-runs",
+          method: "GET",
+          params,
+        });
+      },
+      get(workflowRunId: EntityId) {
+        return request<WorkflowRunDetail>({ url: `/workflow-runs/${workflowRunId}`, method: "GET" });
       },
     },
     users: {

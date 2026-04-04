@@ -27,3 +27,6 @@ studio:
   aggregation-home: ${STUDIO_AGGREGATION_HOME:C:/dev/ideaProject/DataAggregation/package_all/aggregation}
   encryption-secret: studio-secret-key
   worker-code: studio-online-worker-01
+  runtime-log-dir: ${STUDIO_RUNTIME_LOG_DIR:./runtime/run-logs}
+  worker-api-base-url: ${STUDIO_WORKER_API_BASE_URL:http://127.0.0.1:${server.port}}
+  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}

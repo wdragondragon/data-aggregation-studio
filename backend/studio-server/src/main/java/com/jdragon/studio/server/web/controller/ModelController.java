@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.dto.model.request.ModelSyncRequest;
 import com.jdragon.studio.infra.service.DataModelService;
@@ -49,6 +50,12 @@ public class ModelController {
         return Result.success(dataModelService.get(modelId));
     }
 
+    @Operation(summary = "Query models by dynamic metadata conditions")
+    @PostMapping("/query")
+    public Result<List<DataModelDefinition>> query(@RequestBody(required = false) DataModelQueryRequest request) {
+        return Result.success(dataModelService.query(request));
+    }
+
     @Operation(summary = "Sync models from datasource")
     @PostMapping("/datasource/{datasourceId}/sync")
     public Result<List<DataModelDefinition>> sync(@PathVariable("datasourceId") Long datasourceId) {
@@ -80,5 +87,11 @@ public class ModelController {
     public Result<Void> delete(@PathVariable("modelId") Long modelId) {
         dataModelService.delete(modelId);
         return Result.success(null);
+    }
+
+    @Operation(summary = "Rebuild model dynamic query index")
+    @PostMapping("/index/rebuild")
+    public Result<Integer> rebuildIndex(@RequestParam(value = "datasourceId", required = false) Long datasourceId) {
+        return Result.success(dataModelService.rebuildSearchIndex(datasourceId));
     }
 }

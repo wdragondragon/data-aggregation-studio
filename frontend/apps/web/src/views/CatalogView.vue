@@ -26,13 +26,47 @@
       <div class="soft-panel">
         <div class="tag-row">
           <StatusPill
-            v-for="type in capabilityMatrix.executableSourceTypes"
+            v-for="type in executableTypeBadges"
             :key="type"
             :label="type"
             tone="success"
           />
         </div>
       </div>
+      <el-table :data="capabilityRows" border style="margin-top: 16px">
+        <el-table-column prop="typeCode" :label="t('web.catalog.sourceTypeColumn')" min-width="140" />
+        <el-table-column :label="t('web.catalog.readableColumn')" width="110">
+          <template #default="{ row }">
+            <StatusPill :label="row.readable ? t('common.yes') : t('common.no')" :tone="row.readable ? 'success' : 'neutral'" />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.catalog.writableColumn')" width="110">
+          <template #default="{ row }">
+            <StatusPill :label="row.writable ? t('common.yes') : t('common.no')" :tone="row.writable ? 'primary' : 'neutral'" />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.catalog.executionColumn')" width="120">
+          <template #default="{ row }">
+            <StatusPill :label="row.executable ? t('common.runnable') : t('common.catalogOnly')" :tone="row.executable ? 'success' : 'warning'" />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.catalog.readerPluginsColumn')" min-width="180">
+          <template #default="{ row }">
+            <div class="tag-row compact">
+              <StatusPill v-for="plugin in row.readerPlugins" :key="`${row.typeCode}-reader-${plugin}`" :label="plugin" tone="primary" />
+              <span v-if="!row.readerPlugins?.length">{{ t("common.none") }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.catalog.writerPluginsColumn')" min-width="180">
+          <template #default="{ row }">
+            <div class="tag-row compact">
+              <StatusPill v-for="plugin in row.writerPlugins" :key="`${row.typeCode}-writer-${plugin}`" :label="plugin" tone="warning" />
+              <span v-if="!row.writerPlugins?.length">{{ t("common.none") }}</span>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
     </SectionCard>
 
     <SectionCard :title="t('web.catalog.tableTitle')" :description="t('web.catalog.tableDescription')">
@@ -55,7 +89,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CapabilityMatrix, PluginCatalogEntry } from "@studio/api-sdk";
+import type { CapabilityMatrix, PluginCatalogEntry, SourceCapabilityEntry } from "@studio/api-sdk";
 import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
@@ -76,6 +110,8 @@ const filteredPlugins = computed(() => {
 
 const pluginCount = computed(() => new Set(filteredPlugins.value.map((item) => `${item.pluginCategory}::${item.pluginName}`)).size);
 const transformerCount = computed(() => new Set(plugins.value.filter((item) => item.pluginCategory === "TRANSFORMER").map((item) => item.pluginName)).size);
+const capabilityRows = computed<SourceCapabilityEntry[]>(() => capabilityMatrix.sourceCapabilities ?? []);
+const executableTypeBadges = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes);
 
 async function loadCatalog() {
   try {
@@ -85,6 +121,9 @@ async function loadCatalog() {
     ]);
     plugins.value = catalogData;
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
+    capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
+    capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
+    capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
     capabilityMatrix.plugins = capabilityData.plugins;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.catalog.loadFailed"));
@@ -108,5 +147,9 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.tag-row.compact {
+  gap: 6px;
 }
 </style>

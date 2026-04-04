@@ -17,12 +17,12 @@
           <p><strong>{{ t("web.dashboard.executableSourceTypes") }}</strong></p>
           <div class="tag-row">
             <StatusPill
-              v-for="type in capabilityMatrix.executableSourceTypes"
+              v-for="type in executableDatasourceTypes"
               :key="type"
               :label="type"
               tone="primary"
             />
-            <span v-if="capabilityMatrix.executableSourceTypes.length === 0">{{ t("web.dashboard.noExecutableSourceMapping") }}</span>
+            <span v-if="executableDatasourceTypes.length === 0">{{ t("web.dashboard.noExecutableSourceMapping") }}</span>
           </div>
         </div>
       </SectionCard>
@@ -97,6 +97,7 @@ const runData = reactive<RunListResponse>({
   runRecords: [],
 });
 const pluginCount = computed(() => new Set(plugins.value.map((item) => `${item.pluginCategory}::${item.pluginName}`)).size);
+const executableDatasourceTypes = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes);
 
 async function loadDashboard() {
   try {
@@ -111,6 +112,9 @@ async function loadDashboard() {
     datasources.value = datasourceData;
     workflows.value = workflowData;
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
+    capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
+    capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
+    capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
     capabilityMatrix.plugins = capabilityData.plugins;
     runData.queuedTasks = runsData.queuedTasks;
     runData.runRecords = runsData.runRecords;
