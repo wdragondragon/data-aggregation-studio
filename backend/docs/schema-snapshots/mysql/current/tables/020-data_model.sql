@@ -11,5 +11,8 @@ CREATE TABLE `data_model` (
   `schema_version_id` bigint DEFAULT NULL,
   `technical_metadata` json DEFAULT NULL,
   `business_metadata` json DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `project_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_data_model_project_name` (`project_id`,`name`),
+  KEY `idx_data_model_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

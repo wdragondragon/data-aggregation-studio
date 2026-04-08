@@ -4,13 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.core.spi.WorkflowDispatcher;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.enums.EdgeCondition;
+import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
-import com.jdragon.studio.core.spi.WorkflowDispatcher;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
@@ -20,7 +21,6 @@ import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -36,17 +36,20 @@ public class DispatchService implements WorkflowDispatcher {
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final WorkflowService workflowService;
     private final CollectionTaskService collectionTaskService;
+    private final StudioSecurityService securityService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
                            WorkflowDefinitionMapper workflowDefinitionMapper,
                            WorkflowService workflowService,
-                           CollectionTaskService collectionTaskService) {
+                           CollectionTaskService collectionTaskService,
+                           StudioSecurityService securityService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowService = workflowService;
         this.collectionTaskService = collectionTaskService;
+        this.securityService = securityService;
     }
 
     @Override
@@ -54,26 +57,32 @@ public class DispatchService implements WorkflowDispatcher {
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
                 .eq(WorkflowDefinitionEntity::getPublished, 1));
         for (WorkflowDefinitionEntity definition : definitions) {
-            triggerWorkflowIfIdle(definition.getId());
+            triggerWorkflowIfIdle(definition.getId(), definition.getProjectId());
         }
     }
 
     @Override
     @Transactional
     public void triggerManualRun(Long workflowDefinitionId) {
-        if (!triggerWorkflowIfIdle(workflowDefinitionId)) {
+        if (!triggerWorkflowIfIdle(workflowDefinitionId, securityService.currentProjectId())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
         }
     }
 
     @Transactional
     public boolean triggerWorkflowIfIdle(Long workflowDefinitionId) {
-        if (hasActiveWorkflowRun(workflowDefinitionId)) {
-            return false;
-        }
+        return triggerWorkflowIfIdle(workflowDefinitionId, null);
+    }
+
+    @Transactional
+    public boolean triggerWorkflowIfIdle(Long workflowDefinitionId, Long runtimeProjectId) {
         WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
         if (workflow == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
+        }
+        Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, workflow.getProjectId());
+        if (hasActiveWorkflowRun(workflowDefinitionId, resolvedProjectId)) {
+            return false;
         }
         Long workflowRunId = IdWorker.getId();
         Set<String> inbound = new HashSet<String>();
@@ -82,7 +91,7 @@ public class DispatchService implements WorkflowDispatcher {
         }
         for (WorkflowNodeDefinition node : workflow.getNodes()) {
             if (!inbound.contains(node.getNodeCode())) {
-                dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, workflowRunId, node));
+                dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, workflowRunId, node, resolvedProjectId));
             }
         }
         return true;
@@ -103,6 +112,7 @@ public class DispatchService implements WorkflowDispatcher {
         if (workflow == null) {
             return;
         }
+        Long runtimeProjectId = event.getProjectId();
 
         for (WorkflowNodeDefinition candidate : collectDownstreamNodes(workflow, event.getNodeCode(), event.getEventType())) {
             if (alreadyDispatched(event.getWorkflowRunId(), candidate.getNodeCode())) {
@@ -111,24 +121,32 @@ public class DispatchService implements WorkflowDispatcher {
             if (!isNodeReady(workflow, event.getWorkflowRunId(), candidate.getNodeCode())) {
                 continue;
             }
-            dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, event.getWorkflowRunId(), candidate));
+            dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, event.getWorkflowRunId(), candidate, runtimeProjectId));
         }
     }
 
     @Transactional
     public void triggerCollectionTask(Long collectionTaskId) {
-        if (!triggerCollectionTaskIfIdle(collectionTaskId)) {
+        if (!triggerCollectionTaskIfIdle(collectionTaskId, securityService.currentProjectId())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
         }
     }
 
     @Transactional
     public boolean triggerCollectionTaskIfIdle(Long collectionTaskId) {
-        if (hasActiveCollectionTaskRun(collectionTaskId)) {
+        return triggerCollectionTaskIfIdle(collectionTaskId, null);
+    }
+
+    @Transactional
+    public boolean triggerCollectionTaskIfIdle(Long collectionTaskId, Long runtimeProjectId) {
+        CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
+        Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
+        if (hasActiveCollectionTaskRun(collectionTaskId, resolvedProjectId)) {
             return false;
         }
-        collectionTaskService.requireOnline(collectionTaskId);
         DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setTenantId(definition.getTenantId());
+        task.setProjectId(resolvedProjectId);
         task.setExecutionType(DispatchExecutionType.COLLECTION_TASK.name());
         task.setCollectionTaskId(collectionTaskId);
         task.setNodeCode("collection_task_" + collectionTaskId);
@@ -139,20 +157,28 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("executionType", DispatchExecutionType.COLLECTION_TASK.name());
         payload.put("nodeType", "COLLECTION_TASK");
         payload.put("collectionTaskId", collectionTaskId);
+        payload.put("projectId", resolvedProjectId);
         task.setPayloadJson(payload);
         dispatchTaskMapper.insert(task);
         return true;
     }
 
     public List<DispatchTaskEntity> queuedTasks() {
-        return dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getStatus, "QUEUED"));
+        LambdaQueryWrapper<DispatchTaskEntity> queryWrapper = new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getStatus, "QUEUED");
+        if (securityService.currentProjectId() != null) {
+            queryWrapper.eq(DispatchTaskEntity::getProjectId, securityService.currentProjectId());
+        }
+        return dispatchTaskMapper.selectList(queryWrapper);
     }
 
     private DispatchTaskEntity buildWorkflowNodeTask(WorkflowDefinitionView workflow,
                                                      Long workflowRunId,
-                                                     WorkflowNodeDefinition node) {
+                                                     WorkflowNodeDefinition node,
+                                                     Long runtimeProjectId) {
         DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setTenantId(workflow.getTenantId());
+        task.setProjectId(runtimeProjectId);
         task.setExecutionType(DispatchExecutionType.WORKFLOW_NODE.name());
         task.setWorkflowRunId(workflowRunId);
         task.setWorkflowDefinitionId(workflow.getId());
@@ -168,6 +194,7 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("nodeType", node.getNodeType() == null ? null : node.getNodeType().name());
         payload.put("config", node.getConfig());
         payload.put("fieldMappings", node.getFieldMappings());
+        payload.put("projectId", runtimeProjectId);
         task.setPayloadJson(payload);
         return task;
     }
@@ -291,36 +318,44 @@ public class DispatchService implements WorkflowDispatcher {
         return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
     }
 
-    private boolean hasActiveWorkflowRun(Long workflowDefinitionId) {
+    private boolean hasActiveWorkflowRun(Long workflowDefinitionId, Long projectId) {
         if (workflowDefinitionId == null) {
             return false;
         }
         Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
         if (activeTasks != null && activeTasks > 0) {
             return true;
         }
         Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
                 .eq(RunRecordEntity::getStatus, "RUNNING"));
         return activeRecords != null && activeRecords > 0;
     }
 
-    private boolean hasActiveCollectionTaskRun(Long collectionTaskId) {
+    private boolean hasActiveCollectionTaskRun(Long collectionTaskId, Long projectId) {
         if (collectionTaskId == null) {
             return false;
         }
         Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
+                .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
         if (activeTasks != null && activeTasks > 0) {
             return true;
         }
         Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getCollectionTaskId, collectionTaskId)
+                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
                 .eq(RunRecordEntity::getStatus, "RUNNING"));
         return activeRecords != null && activeRecords > 0;
+    }
+
+    private Long resolveRuntimeProjectId(Long runtimeProjectId, Long ownerProjectId) {
+        return runtimeProjectId != null ? runtimeProjectId : ownerProjectId;
     }
 
     private Long resolveCollectionTaskId(WorkflowNodeDefinition node) {
@@ -328,13 +363,16 @@ public class DispatchService implements WorkflowDispatcher {
             return null;
         }
         Object collectionTaskId = node.getConfig().get("collectionTaskId");
-        if (collectionTaskId instanceof Number) {
-            return ((Number) collectionTaskId).longValue();
+        return parseLong(collectionTaskId);
+    }
+
+    private Long parseLong(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
         }
-        if (collectionTaskId instanceof String && !((String) collectionTaskId).trim().isEmpty()) {
-            return Long.parseLong(((String) collectionTaskId).trim());
+        if (value instanceof String && !((String) value).trim().isEmpty()) {
+            return Long.parseLong(((String) value).trim());
         }
         return null;
     }
 }
-

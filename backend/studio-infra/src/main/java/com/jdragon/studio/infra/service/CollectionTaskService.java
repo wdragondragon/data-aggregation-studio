@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
@@ -45,6 +46,8 @@ public class CollectionTaskService {
     private final DataModelService dataModelService;
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
     private final ObjectMapper objectMapper;
+    private final StudioSecurityService securityService;
+    private final ProjectResourceAccessService projectResourceAccessService;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
                                  CollectionTaskScheduleMapper scheduleMapper,
@@ -53,7 +56,9 @@ public class CollectionTaskService {
                                  DataSourceService dataSourceService,
                                  DataModelService dataModelService,
                                  CollectionTaskAssemblerService collectionTaskAssemblerService,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 StudioSecurityService securityService,
+                                 ProjectResourceAccessService projectResourceAccessService) {
         this.definitionMapper = definitionMapper;
         this.scheduleMapper = scheduleMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
@@ -62,10 +67,12 @@ public class CollectionTaskService {
         this.dataModelService = dataModelService;
         this.collectionTaskAssemblerService = collectionTaskAssemblerService;
         this.objectMapper = objectMapper;
+        this.securityService = securityService;
+        this.projectResourceAccessService = projectResourceAccessService;
     }
 
     public List<CollectionTaskDefinitionView> list(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
-        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
                 .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt));
         List<CollectionTaskDefinitionView> result = new ArrayList<CollectionTaskDefinitionView>();
         for (CollectionTaskDefinitionEntity entity : entities) {
@@ -78,7 +85,7 @@ public class CollectionTaskService {
     }
 
     public List<CollectionTaskDefinitionView> listOnline() {
-        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
                 .orderByAsc(CollectionTaskDefinitionEntity::getName));
         List<CollectionTaskDefinitionView> result = new ArrayList<CollectionTaskDefinitionView>();
@@ -89,7 +96,7 @@ public class CollectionTaskService {
     }
 
     public CollectionTaskDefinitionView get(Long id) {
-        CollectionTaskDefinitionEntity entity = definitionMapper.selectById(id);
+        CollectionTaskDefinitionEntity entity = findAccessibleEntity(id);
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
         }
@@ -111,9 +118,10 @@ public class CollectionTaskService {
     @Transactional
     public CollectionTaskDefinitionView save(CollectionTaskSaveRequest request) {
         validateRequest(request);
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         CollectionTaskDefinitionEntity entity = request.getId() == null
                 ? new CollectionTaskDefinitionEntity()
-                : definitionMapper.selectById(request.getId());
+                : requireWritableEntity(request.getId());
         if (entity == null) {
             entity = new CollectionTaskDefinitionEntity();
         }
@@ -123,6 +131,9 @@ public class CollectionTaskService {
                 ? new ArrayList<FieldMappingDefinition>()
                 : request.getFieldMappings();
 
+        ensureUniqueName(currentProjectId, request.getName(), entity.getId());
+        entity.setTenantId(securityService.currentTenantId());
+        entity.setProjectId(currentProjectId);
         entity.setName(request.getName());
         entity.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION.name() : CollectionTaskType.SINGLE_TABLE.name());
         entity.setSourceCount(sourceBindings.size());
@@ -141,16 +152,13 @@ public class CollectionTaskService {
         } else {
             definitionMapper.updateById(entity);
         }
-        saveSchedule(entity.getId(), request.getSchedule());
+        saveSchedule(entity.getId(), entity.getProjectId(), request.getSchedule());
         return get(entity.getId());
     }
 
     @Transactional
     public CollectionTaskDefinitionView publish(Long id) {
-        CollectionTaskDefinitionEntity entity = definitionMapper.selectById(id);
-        if (entity == null) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
-        }
+        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
         entity.setStatus(CollectionTaskStatus.ONLINE.name());
         definitionMapper.updateById(entity);
         return get(id);
@@ -158,15 +166,14 @@ public class CollectionTaskService {
 
     @Transactional
     public CollectionTaskDefinitionView updateSchedule(Long id, CollectionTaskScheduleDefinition schedule) {
-        if (definitionMapper.selectById(id) == null) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
-        }
-        saveSchedule(id, schedule);
+        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        saveSchedule(id, entity.getProjectId(), schedule);
         return get(id);
     }
 
     @Transactional
     public void delete(Long id) {
+        requireWritableEntity(id);
         scheduleMapper.delete(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
                 .eq(CollectionTaskScheduleEntity::getCollectionTaskId, id));
         dispatchTaskMapper.delete(new LambdaQueryWrapper<DispatchTaskEntity>()
@@ -193,7 +200,7 @@ public class CollectionTaskService {
         scheduleMapper.updateById(scheduleEntity);
     }
 
-    private void saveSchedule(Long collectionTaskId, CollectionTaskScheduleDefinition schedule) {
+    private void saveSchedule(Long collectionTaskId, Long projectId, CollectionTaskScheduleDefinition schedule) {
         CollectionTaskScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
                 .eq(CollectionTaskScheduleEntity::getCollectionTaskId, collectionTaskId)
                 .last("limit 1"));
@@ -201,6 +208,8 @@ public class CollectionTaskService {
             scheduleEntity = new CollectionTaskScheduleEntity();
             scheduleEntity.setCollectionTaskId(collectionTaskId);
         }
+        scheduleEntity.setTenantId(securityService.currentTenantId());
+        scheduleEntity.setProjectId(projectId);
         if (schedule == null) {
             scheduleEntity.setCronExpression(null);
             scheduleEntity.setEnabled(0);
@@ -221,6 +230,7 @@ public class CollectionTaskService {
         CollectionTaskDefinitionView view = new CollectionTaskDefinitionView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
@@ -245,6 +255,58 @@ public class CollectionTaskService {
             view.setSchedule(schedule);
         }
         return view;
+    }
+
+    private LambdaQueryWrapper<CollectionTaskDefinitionEntity> buildAccessibleQuery() {
+        LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper = new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+                .eq(CollectionTaskDefinitionEntity::getTenantId, securityService.currentTenantId());
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return queryWrapper;
+        }
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(CollectionTaskDefinitionEntity::getProjectId, currentProjectId);
+            return queryWrapper;
+        }
+        queryWrapper.and(wrapper -> wrapper.eq(CollectionTaskDefinitionEntity::getProjectId, currentProjectId)
+                .or()
+                .in(CollectionTaskDefinitionEntity::getId, sharedIds));
+        return queryWrapper;
+    }
+
+    private CollectionTaskDefinitionEntity findAccessibleEntity(Long id) {
+        CollectionTaskDefinitionEntity entity = definitionMapper.selectById(id);
+        if (entity == null) {
+            return null;
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK,
+                entity.getProjectId(), entity.getId(), "Collection task not found: " + id);
+        return entity;
+    }
+
+    private CollectionTaskDefinitionEntity requireWritableEntity(Long id) {
+        CollectionTaskDefinitionEntity entity = definitionMapper.selectById(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
+        }
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private void ensureUniqueName(Long projectId, String name, Long selfId) {
+        if (projectId == null || name == null || name.trim().isEmpty()) {
+            return;
+        }
+        List<CollectionTaskDefinitionEntity> duplicates = definitionMapper.selectList(new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+                .eq(CollectionTaskDefinitionEntity::getProjectId, projectId)
+                .eq(CollectionTaskDefinitionEntity::getName, name.trim()));
+        for (CollectionTaskDefinitionEntity duplicate : duplicates) {
+            if (selfId != null && selfId.equals(duplicate.getId())) {
+                continue;
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task name already exists in the current project");
+        }
     }
 
     private void validateRequest(CollectionTaskSaveRequest request) {

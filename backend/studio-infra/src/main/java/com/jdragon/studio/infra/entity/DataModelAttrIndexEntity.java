@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("data_model_attr_index")
-public class DataModelAttrIndexEntity extends BaseTenantEntity {
+public class DataModelAttrIndexEntity extends BaseProjectTenantEntity {
     private Long modelId;
     private Long datasourceId;
     private Long metaSchemaVersionId;

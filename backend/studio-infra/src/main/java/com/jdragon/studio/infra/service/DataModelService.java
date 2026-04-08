@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.FieldValueType;
@@ -37,23 +38,30 @@ public class DataModelService {
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelSearchIndexService dataModelSearchIndexService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
+    private final StudioSecurityService securityService;
+    private final ProjectResourceAccessService projectResourceAccessService;
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
                             AggregationSourceCapabilityProvider modelDiscoveryProvider,
                             MetadataSchemaService metadataSchemaService,
                             DataModelSearchIndexService dataModelSearchIndexService,
-                            BusinessMetaModelMetadataService businessMetaModelMetadataService) {
+                            BusinessMetaModelMetadataService businessMetaModelMetadataService,
+                            StudioSecurityService securityService,
+                            ProjectResourceAccessService projectResourceAccessService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
         this.modelDiscoveryProvider = modelDiscoveryProvider;
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
+        this.securityService = securityService;
+        this.projectResourceAccessService = projectResourceAccessService;
     }
 
     public List<DataModelDefinition> list() {
-        List<DataModelEntity> entities = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
+        List<DataModelEntity> entities = dataModelMapper.selectList(buildAccessibleQuery()
+                .orderByAsc(DataModelEntity::getProjectId)
                 .orderByAsc(DataModelEntity::getName));
         List<DataModelDefinition> result = new ArrayList<DataModelDefinition>();
         for (DataModelEntity entity : entities) {
@@ -63,7 +71,8 @@ public class DataModelService {
     }
 
     public List<DataModelDefinition> listByDatasource(Long datasourceId) {
-        List<DataModelEntity> entities = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
+        dataSourceService.get(datasourceId);
+        List<DataModelEntity> entities = dataModelMapper.selectList(buildAccessibleQuery()
                 .eq(DataModelEntity::getDatasourceId, datasourceId)
                 .orderByAsc(DataModelEntity::getName));
         List<DataModelDefinition> result = new ArrayList<DataModelDefinition>();
@@ -74,7 +83,7 @@ public class DataModelService {
     }
 
     public DataModelDefinition get(Long modelId) {
-        DataModelEntity entity = dataModelMapper.selectById(modelId);
+        DataModelEntity entity = findAccessibleEntity(modelId);
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Model not found: " + modelId);
         }
@@ -87,7 +96,7 @@ public class DataModelService {
         }
         List<DataModelQueryGroup> groups = normalizeQueryGroups(request.getGroups());
         if (groups.isEmpty()) {
-            LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+            LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
                     .orderByAsc(DataModelEntity::getName);
             if (request.getDatasourceId() != null) {
                 queryWrapper.eq(DataModelEntity::getDatasourceId, request.getDatasourceId());
@@ -105,7 +114,7 @@ public class DataModelService {
         if (matchedIds.isEmpty()) {
             return new ArrayList<DataModelDefinition>();
         }
-        LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
                 .in(DataModelEntity::getId, matchedIds)
                 .orderByAsc(DataModelEntity::getName);
         if (request.getDatasourceId() != null) {
@@ -125,6 +134,10 @@ public class DataModelService {
     @Transactional
     public List<DataModelDefinition> syncFromDatasource(Long datasourceId, List<String> physicalLocators) {
         DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        if (datasource == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
+        }
+        projectResourceAccessService.assertWritable(datasource.getProjectId());
         List<DataModelDefinition> discovered = modelDiscoveryProvider.discoverModels(datasource).getModels();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
         for (DataModelDefinition definition : discovered) {
@@ -138,6 +151,8 @@ public class DataModelService {
                     .eq(DataModelEntity::getPhysicalLocator, definition.getPhysicalLocator())
                     .last("limit 1"));
             DataModelEntity entity = existing == null ? new DataModelEntity() : existing;
+            entity.setTenantId(datasource.getTenantId());
+            entity.setProjectId(datasource.getProjectId());
             entity.setDatasourceId(datasourceId);
             entity.setName(definition.getName());
             entity.setModelKind(definition.getModelKind() == null ? ModelKind.DATASET.name() : definition.getModelKind().name());
@@ -162,11 +177,18 @@ public class DataModelService {
 
     @Transactional
     public DataModelDefinition save(DataModelSaveRequest request) {
-        DataModelEntity entity = request.getId() == null ? new DataModelEntity() : dataModelMapper.selectById(request.getId());
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        DataModelEntity entity = request.getId() == null ? new DataModelEntity() : requireWritableEntity(request.getId());
         if (entity == null) {
             entity = new DataModelEntity();
         }
         DataSourceDefinition datasource = dataSourceService.getInternal(request.getDatasourceId());
+        if (datasource == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
+        }
+        ensureUniqueName(currentProjectId, request.getName(), entity.getId());
+        entity.setTenantId(securityService.currentTenantId());
+        entity.setProjectId(currentProjectId);
         entity.setDatasourceId(request.getDatasourceId());
         entity.setName(request.getName());
         entity.setPhysicalLocator(request.getPhysicalLocator());
@@ -195,7 +217,7 @@ public class DataModelService {
     }
 
     public List<Map<String, Object>> preview(Long modelId, int limit) {
-        DataModelEntity model = dataModelMapper.selectById(modelId);
+        DataModelEntity model = findAccessibleEntity(modelId);
         if (model == null) {
             return new ArrayList<Map<String, Object>>();
         }
@@ -205,13 +227,14 @@ public class DataModelService {
 
     @Transactional
     public void delete(Long modelId) {
+        requireWritableEntity(modelId);
         dataModelSearchIndexService.deleteByModelId(modelId);
         dataModelMapper.deleteById(modelId);
     }
 
     @Transactional
     public int rebuildSearchIndex(Long datasourceId) {
-        LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
                 .orderByAsc(DataModelEntity::getId);
         if (datasourceId != null) {
             queryWrapper.eq(DataModelEntity::getDatasourceId, datasourceId);
@@ -235,6 +258,11 @@ public class DataModelService {
     private DataModelDefinition toDefinition(DataModelEntity entity) {
         DataModelDefinition definition = new DataModelDefinition();
         definition.setId(entity.getId());
+        definition.setTenantId(entity.getTenantId());
+        definition.setProjectId(entity.getProjectId());
+        definition.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        definition.setCreatedAt(entity.getCreatedAt());
+        definition.setUpdatedAt(entity.getUpdatedAt());
         definition.setDatasourceId(entity.getDatasourceId());
         definition.setName(entity.getName());
         definition.setPhysicalLocator(entity.getPhysicalLocator());
@@ -245,6 +273,58 @@ public class DataModelService {
             definition.setModelKind(ModelKind.valueOf(entity.getModelKind()));
         }
         return definition;
+    }
+
+    private LambdaQueryWrapper<DataModelEntity> buildAccessibleQuery() {
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
+                .eq(DataModelEntity::getTenantId, securityService.currentTenantId());
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return queryWrapper;
+        }
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_MODEL);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(DataModelEntity::getProjectId, currentProjectId);
+            return queryWrapper;
+        }
+        queryWrapper.and(wrapper -> wrapper.eq(DataModelEntity::getProjectId, currentProjectId)
+                .or()
+                .in(DataModelEntity::getId, sharedIds));
+        return queryWrapper;
+    }
+
+    private DataModelEntity findAccessibleEntity(Long modelId) {
+        DataModelEntity entity = dataModelMapper.selectById(modelId);
+        if (entity == null) {
+            return null;
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_MODEL,
+                entity.getProjectId(), entity.getId(), "Model not found: " + modelId);
+        return entity;
+    }
+
+    private DataModelEntity requireWritableEntity(Long modelId) {
+        DataModelEntity entity = dataModelMapper.selectById(modelId);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Model not found: " + modelId);
+        }
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private void ensureUniqueName(Long projectId, String name, Long selfId) {
+        if (projectId == null || name == null || name.trim().isEmpty()) {
+            return;
+        }
+        List<DataModelEntity> duplicates = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
+                .eq(DataModelEntity::getProjectId, projectId)
+                .eq(DataModelEntity::getName, name.trim()));
+        for (DataModelEntity duplicate : duplicates) {
+            if (selfId != null && selfId.equals(duplicate.getId())) {
+                continue;
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model name already exists in the current project");
+        }
     }
 
     private List<DataModelDefinition> toDefinitions(List<DataModelEntity> entities) {

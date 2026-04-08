@@ -18,9 +18,11 @@ CREATE TABLE `data_model_attr_index` (
   `number_value` decimal(38,10) DEFAULT NULL,
   `bool_value` int DEFAULT NULL,
   `raw_value` text COLLATE utf8mb4_general_ci,
+  `project_id` bigint DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_model_attr_index_model` (`model_id`),
   KEY `idx_model_attr_index_datasource` (`datasource_id`),
   KEY `idx_model_attr_index_lookup` (`meta_schema_code`(128),`scope`,`field_key`(128),`keyword_value`(128)),
-  KEY `idx_model_attr_index_number` (`meta_schema_code`,`scope`,`field_key`,`number_value`)
+  KEY `idx_model_attr_index_number` (`meta_schema_code`,`scope`,`field_key`,`number_value`),
+  KEY `idx_model_attr_index_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

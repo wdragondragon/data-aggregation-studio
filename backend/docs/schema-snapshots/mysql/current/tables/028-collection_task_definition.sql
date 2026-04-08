@@ -12,5 +12,8 @@ CREATE TABLE `collection_task_definition` (
   `target_binding_json` json DEFAULT NULL,
   `field_mappings_json` json DEFAULT NULL,
   `execution_options_json` json DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `project_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_collection_task_definition_project_name` (`project_id`,`name`),
+  KEY `idx_collection_task_definition_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

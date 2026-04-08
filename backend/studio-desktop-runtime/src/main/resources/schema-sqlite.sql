@@ -229,6 +229,7 @@ create table if not exists meta_field_definition (
 create table if not exists datasource_definition (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -240,10 +241,13 @@ create table if not exists datasource_definition (
     technical_metadata text,
     business_metadata text
 );
+create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name);
+create index if not exists idx_datasource_definition_project on datasource_definition(project_id);
 
 create table if not exists data_model (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -255,10 +259,13 @@ create table if not exists data_model (
     technical_metadata text,
     business_metadata text
 );
+create unique index if not exists uk_data_model_project_name on data_model(project_id, name);
+create index if not exists idx_data_model_project on data_model(project_id);
 
 create table if not exists data_model_attr_index (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -278,6 +285,7 @@ create table if not exists data_model_attr_index (
     raw_value text
 );
 
+create index if not exists idx_model_attr_index_project on data_model_attr_index(project_id);
 create index if not exists idx_model_attr_index_model on data_model_attr_index(model_id);
 create index if not exists idx_model_attr_index_datasource on data_model_attr_index(datasource_id);
 create index if not exists idx_model_attr_index_lookup on data_model_attr_index(meta_schema_code, scope, field_key, keyword_value);
@@ -286,6 +294,7 @@ create index if not exists idx_model_attr_index_number on data_model_attr_index(
 create table if not exists workflow_definition (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -294,10 +303,14 @@ create table if not exists workflow_definition (
     current_version_id integer,
     published integer default 0
 );
+create unique index if not exists uk_workflow_definition_project_code on workflow_definition(project_id, code);
+create unique index if not exists uk_workflow_definition_project_name on workflow_definition(project_id, name);
+create index if not exists idx_workflow_definition_project on workflow_definition(project_id);
 
 create table if not exists workflow_definition_version (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -307,10 +320,12 @@ create table if not exists workflow_definition_version (
     graph_json text,
     schedule_json text
 );
+create index if not exists idx_workflow_definition_version_project on workflow_definition_version(project_id);
 
 create table if not exists workflow_node (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -321,10 +336,12 @@ create table if not exists workflow_node (
     config_json text,
     field_mappings_json text
 );
+create index if not exists idx_workflow_node_project on workflow_node(project_id);
 
 create table if not exists workflow_edge (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -333,10 +350,12 @@ create table if not exists workflow_edge (
     to_node_code text,
     condition_type text
 );
+create index if not exists idx_workflow_edge_project on workflow_edge(project_id);
 
 create table if not exists workflow_schedule (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -346,10 +365,12 @@ create table if not exists workflow_schedule (
     timezone text,
     last_triggered_at text
 );
+create index if not exists idx_workflow_schedule_project on workflow_schedule(project_id);
 
 create table if not exists collection_task_definition (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -362,10 +383,13 @@ create table if not exists collection_task_definition (
     field_mappings_json text,
     execution_options_json text
 );
+create unique index if not exists uk_collection_task_definition_project_name on collection_task_definition(project_id, name);
+create index if not exists idx_collection_task_definition_project on collection_task_definition(project_id);
 
 create table if not exists collection_task_schedule (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -375,6 +399,7 @@ create table if not exists collection_task_schedule (
     timezone text,
     last_triggered_at text
 );
+create index if not exists idx_collection_task_schedule_project on collection_task_schedule(project_id);
 
 create table if not exists data_dev_directory (
     id integer primary key,
@@ -409,6 +434,7 @@ create index if not exists idx_data_dev_script_datasource on data_dev_script(dat
 create table if not exists dispatch_task (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -426,10 +452,13 @@ create table if not exists dispatch_task (
     max_retries integer default 3,
     payload_json text
 );
+create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status);
+create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id);
 
 create table if not exists run_record (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -450,6 +479,8 @@ create table if not exists run_record (
     payload_json text,
     result_json text
 );
+create index if not exists idx_run_record_project_created on run_record(project_id, created_at);
+create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id);
 
 create table if not exists worker_lease (
     id integer primary key,

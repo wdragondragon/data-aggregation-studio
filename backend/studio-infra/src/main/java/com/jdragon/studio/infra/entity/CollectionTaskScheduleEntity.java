@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("collection_task_schedule")
-public class CollectionTaskScheduleEntity extends BaseTenantEntity {
+public class CollectionTaskScheduleEntity extends BaseProjectTenantEntity {
     private Long collectionTaskId;
     private String cronExpression;
     private Integer enabled;

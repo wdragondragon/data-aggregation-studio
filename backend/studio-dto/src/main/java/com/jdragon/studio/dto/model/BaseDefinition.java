@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class BaseDefinition {
     private Long id;
     private String tenantId;
+    private Long projectId;
     private Boolean deleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

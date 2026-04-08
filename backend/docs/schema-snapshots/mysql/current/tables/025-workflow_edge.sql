@@ -8,5 +8,7 @@ CREATE TABLE `workflow_edge` (
   `from_node_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `to_node_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `condition_type` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `project_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_workflow_edge_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

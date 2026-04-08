@@ -1,6 +1,9 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.commons.exception.StudioErrorCode;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -33,6 +36,8 @@ public class DataSourceService {
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelSearchIndexService dataModelSearchIndexService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
+    private final StudioSecurityService securityService;
+    private final ProjectResourceAccessService projectResourceAccessService;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
@@ -40,7 +45,9 @@ public class DataSourceService {
                              AggregationSourceCapabilityProvider capabilityProvider,
                              MetadataSchemaService metadataSchemaService,
                              DataModelSearchIndexService dataModelSearchIndexService,
-                             BusinessMetaModelMetadataService businessMetaModelMetadataService) {
+                             BusinessMetaModelMetadataService businessMetaModelMetadataService,
+                             StudioSecurityService securityService,
+                             ProjectResourceAccessService projectResourceAccessService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.encryptionService = encryptionService;
@@ -48,10 +55,13 @@ public class DataSourceService {
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
+        this.securityService = securityService;
+        this.projectResourceAccessService = projectResourceAccessService;
     }
 
     public List<DataSourceDefinition> list() {
-        List<DatasourceEntity> entities = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
+        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
+                .orderByAsc(DatasourceEntity::getProjectId)
                 .orderByAsc(DatasourceEntity::getName));
         List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
         for (DatasourceEntity entity : entities) {
@@ -61,24 +71,29 @@ public class DataSourceService {
     }
 
     public DataSourceDefinition get(Long id) {
-        DatasourceEntity entity = datasourceMapper.selectById(id);
+        DatasourceEntity entity = findAccessibleEntity(id);
         return entity == null ? null : toDefinition(entity, true);
     }
 
     public DataSourceDefinition getInternal(Long id) {
-        DatasourceEntity entity = datasourceMapper.selectById(id);
+        DatasourceEntity entity = findAccessibleEntity(id);
         return entity == null ? null : toDefinition(entity, false);
     }
 
     @Transactional
     public DataSourceDefinition save(DataSourceSaveRequest request) {
-        DatasourceEntity entity = request.getId() == null ? new DatasourceEntity() : datasourceMapper.selectById(request.getId());
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        String currentTenantId = securityService.currentTenantId();
+        DatasourceEntity entity = request.getId() == null ? new DatasourceEntity() : requireWritableEntity(request.getId());
         if (entity == null) {
             entity = new DatasourceEntity();
         }
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity.getTechnicalMetadata(), technicalMetadata);
+        ensureUniqueName(currentProjectId, request.getName(), entity.getId());
+        entity.setTenantId(currentTenantId);
+        entity.setProjectId(currentProjectId);
         entity.setName(request.getName());
         entity.setTypeCode(request.getTypeCode());
         entity.setSchemaVersionId(resolveSchemaVersionId(request, schema));
@@ -110,6 +125,7 @@ public class DataSourceService {
 
     @Transactional
     public void delete(Long id) {
+        requireWritableEntity(id);
         dataModelSearchIndexService.deleteByDatasourceId(id);
         dataModelMapper.delete(new LambdaQueryWrapper<DataModelEntity>()
                 .eq(DataModelEntity::getDatasourceId, id));
@@ -120,6 +136,7 @@ public class DataSourceService {
         DataSourceDefinition definition = new DataSourceDefinition();
         definition.setId(entity.getId());
         definition.setTenantId(entity.getTenantId());
+        definition.setProjectId(entity.getProjectId());
         definition.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         definition.setCreatedAt(entity.getCreatedAt());
         definition.setUpdatedAt(entity.getUpdatedAt());
@@ -149,6 +166,58 @@ public class DataSourceService {
         definition.setTechnicalMetadata(technicalMetadata);
         definition.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         return definition;
+    }
+
+    private LambdaQueryWrapper<DatasourceEntity> buildAccessibleQuery() {
+        LambdaQueryWrapper<DatasourceEntity> queryWrapper = new LambdaQueryWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getTenantId, securityService.currentTenantId());
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return queryWrapper;
+        }
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATASOURCE);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(DatasourceEntity::getProjectId, currentProjectId);
+            return queryWrapper;
+        }
+        queryWrapper.and(wrapper -> wrapper.eq(DatasourceEntity::getProjectId, currentProjectId)
+                .or()
+                .in(DatasourceEntity::getId, sharedIds));
+        return queryWrapper;
+    }
+
+    private DatasourceEntity findAccessibleEntity(Long id) {
+        DatasourceEntity entity = datasourceMapper.selectById(id);
+        if (entity == null) {
+            return null;
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATASOURCE,
+                entity.getProjectId(), entity.getId(), "Datasource not found: " + id);
+        return entity;
+    }
+
+    private DatasourceEntity requireWritableEntity(Long id) {
+        DatasourceEntity entity = datasourceMapper.selectById(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
+        }
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private void ensureUniqueName(Long projectId, String name, Long selfId) {
+        if (projectId == null || name == null || name.trim().isEmpty()) {
+            return;
+        }
+        List<DatasourceEntity> duplicates = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getProjectId, projectId)
+                .eq(DatasourceEntity::getName, name.trim()));
+        for (DatasourceEntity duplicate : duplicates) {
+            if (selfId != null && selfId.equals(duplicate.getId())) {
+                continue;
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource name already exists in the current project");
+        }
     }
 
     private Map<String, Object> encryptSensitive(Map<String, Object> input) {

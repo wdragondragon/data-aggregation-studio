@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("workflow_schedule")
-public class WorkflowScheduleEntity extends BaseTenantEntity {
+public class WorkflowScheduleEntity extends BaseProjectTenantEntity {
     private Long workflowDefinitionId;
     private String cronExpression;
     private Integer enabled;

@@ -225,6 +225,7 @@ create table if not exists meta_field_definition (
 create table if not exists datasource_definition (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -234,12 +235,15 @@ create table if not exists datasource_definition (
     enabled int default 1,
     executable int default 0,
     technical_metadata json,
-    business_metadata json
+    business_metadata json,
+    unique key uk_datasource_definition_project_name (project_id, name),
+    key idx_datasource_definition_project (project_id)
 );
 
 create table if not exists data_model (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -249,12 +253,15 @@ create table if not exists data_model (
     physical_locator varchar(1000),
     schema_version_id bigint,
     technical_metadata json,
-    business_metadata json
+    business_metadata json,
+    unique key uk_data_model_project_name (project_id, name),
+    key idx_data_model_project (project_id)
 );
 
 create table if not exists data_model_attr_index (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -272,6 +279,7 @@ create table if not exists data_model_attr_index (
     number_value decimal(38, 10),
     bool_value int,
     raw_value text,
+    key idx_model_attr_index_project (project_id),
     key idx_model_attr_index_model (model_id),
     key idx_model_attr_index_datasource (datasource_id),
     key idx_model_attr_index_lookup (meta_schema_code(128), scope, field_key(128), keyword_value(128)),
@@ -281,18 +289,23 @@ create table if not exists data_model_attr_index (
 create table if not exists workflow_definition (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     code varchar(255),
     name varchar(255),
     current_version_id bigint,
-    published int default 0
+    published int default 0,
+    unique key uk_workflow_definition_project_code (project_id, code),
+    unique key uk_workflow_definition_project_name (project_id, name),
+    key idx_workflow_definition_project (project_id)
 );
 
 create table if not exists workflow_definition_version (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -300,12 +313,14 @@ create table if not exists workflow_definition_version (
     version_number int,
     published int default 0,
     graph_json json,
-    schedule_json json
+    schedule_json json,
+    key idx_workflow_definition_version_project (project_id)
 );
 
 create table if not exists workflow_node (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -314,24 +329,28 @@ create table if not exists workflow_node (
     node_name varchar(255),
     node_type varchar(128),
     config_json json,
-    field_mappings_json json
+    field_mappings_json json,
+    key idx_workflow_node_project (project_id)
 );
 
 create table if not exists workflow_edge (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     workflow_version_id bigint,
     from_node_code varchar(255),
     to_node_code varchar(255),
-    condition_type varchar(64)
+    condition_type varchar(64),
+    key idx_workflow_edge_project (project_id)
 );
 
 create table if not exists workflow_schedule (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -339,12 +358,14 @@ create table if not exists workflow_schedule (
     cron_expression varchar(255),
     enabled int default 0,
     timezone varchar(64),
-    last_triggered_at datetime
+    last_triggered_at datetime,
+    key idx_workflow_schedule_project (project_id)
 );
 
 create table if not exists collection_task_definition (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -355,12 +376,15 @@ create table if not exists collection_task_definition (
     source_bindings_json json,
     target_binding_json json,
     field_mappings_json json,
-    execution_options_json json
+    execution_options_json json,
+    unique key uk_collection_task_definition_project_name (project_id, name),
+    key idx_collection_task_definition_project (project_id)
 );
 
 create table if not exists collection_task_schedule (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -368,7 +392,8 @@ create table if not exists collection_task_schedule (
     cron_expression varchar(255),
     enabled int default 0,
     timezone varchar(64),
-    last_triggered_at datetime
+    last_triggered_at datetime,
+    key idx_collection_task_schedule_project (project_id)
 );
 
 create table if not exists data_dev_directory (
@@ -403,6 +428,7 @@ create table if not exists data_dev_script (
 create table if not exists dispatch_task (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -418,12 +444,15 @@ create table if not exists dispatch_task (
     lease_expires_at datetime,
     attempts int default 0,
     max_retries int default 3,
-    payload_json json
+    payload_json json,
+    key idx_dispatch_task_project_status (project_id, status),
+    key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id)
 );
 
 create table if not exists run_record (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -442,7 +471,9 @@ create table if not exists run_record (
     log_size_bytes bigint,
     log_charset varchar(64),
     payload_json json,
-    result_json json
+    result_json json,
+    key idx_run_record_project_created (project_id, created_at),
+    key idx_run_record_project_workflow_run (project_id, workflow_run_id)
 );
 
 create table if not exists worker_lease (

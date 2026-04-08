@@ -38,17 +38,20 @@ public class WorkflowRunService {
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final WorkflowService workflowService;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+    private final StudioSecurityService securityService;
 
     public WorkflowRunService(RunRecordMapper runRecordMapper,
                               DispatchTaskMapper dispatchTaskMapper,
                               WorkflowDefinitionMapper workflowDefinitionMapper,
                               WorkflowService workflowService,
-                              NamedParameterJdbcTemplate namedParameterJdbcTemplate) {
+                              NamedParameterJdbcTemplate namedParameterJdbcTemplate,
+                              StudioSecurityService securityService) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowService = workflowService;
         this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
+        this.securityService = securityService;
     }
 
     public PageView<WorkflowRunSummaryView> list(Long workflowDefinitionId,
@@ -82,9 +85,11 @@ public class WorkflowRunService {
 
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
                 .in(RunRecordEntity::getWorkflowRunId, workflowRunIds)
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .in(DispatchTaskEntity::getWorkflowRunId, workflowRunIds)
+                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
 
         Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
@@ -124,9 +129,11 @@ public class WorkflowRunService {
             List<Long> batchIds = workflowRunIds.subList(index, Math.min(index + 200, workflowRunIds.size()));
             List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
                     .in(RunRecordEntity::getWorkflowRunId, batchIds)
+                    .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                     .orderByDesc(RunRecordEntity::getCreatedAt));
             List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                     .in(DispatchTaskEntity::getWorkflowRunId, batchIds)
+                    .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                     .orderByDesc(DispatchTaskEntity::getCreatedAt));
 
             Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
@@ -154,9 +161,11 @@ public class WorkflowRunService {
     public WorkflowRunDetailView get(Long workflowRunId) {
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getWorkflowRunId, workflowRunId)
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getWorkflowRunId, workflowRunId)
+                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
         if (records.isEmpty() && tasks.isEmpty()) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow run not found: " + workflowRunId);
@@ -414,6 +423,9 @@ public class WorkflowRunService {
                                                               LocalDateTime startTime,
                                                               LocalDateTime endTime) {
         MapSqlParameterSource params = new MapSqlParameterSource();
+        if (securityService.currentProjectId() != null) {
+            params.addValue("projectId", securityService.currentProjectId());
+        }
         if (workflowDefinitionId != null) {
             params.addValue("workflowDefinitionId", workflowDefinitionId);
         }
@@ -429,14 +441,17 @@ public class WorkflowRunService {
     private String buildWorkflowRunEventsSql(Long workflowDefinitionId,
                                              LocalDateTime startTime,
                                              LocalDateTime endTime) {
+        Long projectId = securityService.currentProjectId();
         StringBuilder sql = new StringBuilder();
         sql.append("select workflow_run_id, workflow_definition_id, coalesce(started_at, created_at) as occurred_at ");
         sql.append("from run_record where workflow_run_id is not null");
-        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime, "workflow_definition_id", "coalesce(started_at, created_at)");
+        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
+                projectId, "project_id", "workflow_definition_id", "coalesce(started_at, created_at)");
         sql.append(" union all ");
         sql.append("select workflow_run_id, workflow_definition_id, created_at as occurred_at ");
         sql.append("from dispatch_task where workflow_run_id is not null");
-        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime, "workflow_definition_id", "created_at");
+        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
+                projectId, "project_id", "workflow_definition_id", "created_at");
         return sql.toString();
     }
 
@@ -444,8 +459,13 @@ public class WorkflowRunService {
                                           Long workflowDefinitionId,
                                           LocalDateTime startTime,
                                           LocalDateTime endTime,
+                                          Long projectId,
+                                          String projectColumn,
                                           String workflowDefinitionColumn,
                                           String occurredAtExpression) {
+        if (projectId != null) {
+            sql.append(" and ").append(projectColumn).append(" = :projectId");
+        }
         if (workflowDefinitionId != null) {
             sql.append(" and ").append(workflowDefinitionColumn).append(" = :workflowDefinitionId");
         }

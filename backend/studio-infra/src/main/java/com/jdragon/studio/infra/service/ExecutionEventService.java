@@ -34,6 +34,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setWorkflowDefinitionId(event.getWorkflowDefinitionId());
         entity.setWorkflowVersionId(event.getWorkflowVersionId());
         entity.setCollectionTaskId(event.getCollectionTaskId());
+        entity.setProjectId(event.getProjectId());
         entity.setNodeCode(event.getNodeCode());
         entity.setWorkerCode(event.getWorkerCode());
         entity.setStatus(event.getEventType());

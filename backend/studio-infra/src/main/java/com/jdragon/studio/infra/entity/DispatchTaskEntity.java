@@ -13,7 +13,7 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "dispatch_task", autoResultMap = true)
-public class DispatchTaskEntity extends BaseTenantEntity {
+public class DispatchTaskEntity extends BaseProjectTenantEntity {
     private String executionType;
     private Long workflowRunId;
     private Long workflowDefinitionId;

@@ -13,7 +13,7 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "run_record", autoResultMap = true)
-public class RunRecordEntity extends BaseTenantEntity {
+public class RunRecordEntity extends BaseProjectTenantEntity {
     private String executionType;
     private Long workflowRunId;
     private Long workflowDefinitionId;

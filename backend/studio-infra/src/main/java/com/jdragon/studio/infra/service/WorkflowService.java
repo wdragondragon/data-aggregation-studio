@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.EdgeCondition;
@@ -46,6 +47,8 @@ public class WorkflowService {
     private final WorkflowScheduleMapper scheduleMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
     private final RunRecordMapper runRecordMapper;
+    private final StudioSecurityService securityService;
+    private final ProjectResourceAccessService projectResourceAccessService;
 
     public WorkflowService(WorkflowDefinitionMapper definitionMapper,
                            WorkflowVersionMapper versionMapper,
@@ -53,7 +56,9 @@ public class WorkflowService {
                            WorkflowEdgeMapper edgeMapper,
                            WorkflowScheduleMapper scheduleMapper,
                            DispatchTaskMapper dispatchTaskMapper,
-                           RunRecordMapper runRecordMapper) {
+                           RunRecordMapper runRecordMapper,
+                           StudioSecurityService securityService,
+                           ProjectResourceAccessService projectResourceAccessService) {
         this.definitionMapper = definitionMapper;
         this.versionMapper = versionMapper;
         this.nodeMapper = nodeMapper;
@@ -61,10 +66,12 @@ public class WorkflowService {
         this.scheduleMapper = scheduleMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
+        this.securityService = securityService;
+        this.projectResourceAccessService = projectResourceAccessService;
     }
 
     public List<WorkflowDefinitionView> list() {
-        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
         List<WorkflowDefinitionView> result = new ArrayList<WorkflowDefinitionView>();
         for (WorkflowDefinitionEntity definition : definitions) {
@@ -74,12 +81,17 @@ public class WorkflowService {
     }
 
     public WorkflowDefinitionView get(Long definitionId) {
-        WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
+        WorkflowDefinitionEntity definition = findAccessibleEntity(definitionId);
         if (definition == null) {
             return null;
         }
         WorkflowDefinitionView view = new WorkflowDefinitionView();
         view.setId(definition.getId());
+        view.setTenantId(definition.getTenantId());
+        view.setProjectId(definition.getProjectId());
+        view.setDeleted(definition.getDeleted() != null && definition.getDeleted() == 1);
+        view.setCreatedAt(definition.getCreatedAt());
+        view.setUpdatedAt(definition.getUpdatedAt());
         view.setCode(definition.getCode());
         view.setName(definition.getName());
         view.setPublished(definition.getPublished() != null && definition.getPublished() == 1);
@@ -144,12 +156,17 @@ public class WorkflowService {
     @Transactional
     public WorkflowDefinitionView save(WorkflowSaveRequest request) {
         validateGraph(request);
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         WorkflowDefinitionEntity definition = request.getDefinitionId() == null
                 ? new WorkflowDefinitionEntity()
-                : definitionMapper.selectById(request.getDefinitionId());
+                : requireWritableEntity(request.getDefinitionId());
         if (definition == null) {
             definition = new WorkflowDefinitionEntity();
         }
+        ensureUniqueCode(currentProjectId, request.getCode(), definition.getId());
+        ensureUniqueName(currentProjectId, request.getName(), definition.getId());
+        definition.setTenantId(securityService.currentTenantId());
+        definition.setProjectId(currentProjectId);
         definition.setCode(request.getCode());
         definition.setName(request.getName());
         if (definition.getId() == null) {
@@ -159,6 +176,8 @@ public class WorkflowService {
         }
 
         WorkflowVersionEntity version = new WorkflowVersionEntity();
+        version.setTenantId(definition.getTenantId());
+        version.setProjectId(definition.getProjectId());
         version.setDefinitionId(definition.getId());
         version.setVersionNumber(nextVersion(definition.getId()));
         version.setPublished(0);
@@ -168,6 +187,8 @@ public class WorkflowService {
 
         for (WorkflowNodeDefinition node : request.getNodes()) {
             WorkflowNodeEntity entity = new WorkflowNodeEntity();
+            entity.setTenantId(definition.getTenantId());
+            entity.setProjectId(definition.getProjectId());
             entity.setWorkflowVersionId(version.getId());
             entity.setNodeCode(node.getNodeCode());
             entity.setNodeName(node.getNodeName());
@@ -179,6 +200,8 @@ public class WorkflowService {
 
         for (WorkflowEdgeDefinition edge : request.getEdges()) {
             WorkflowEdgeEntity entity = new WorkflowEdgeEntity();
+            entity.setTenantId(definition.getTenantId());
+            entity.setProjectId(definition.getProjectId());
             entity.setWorkflowVersionId(version.getId());
             entity.setFromNodeCode(edge.getFromNodeCode());
             entity.setToNodeCode(edge.getToNodeCode());
@@ -193,6 +216,8 @@ public class WorkflowService {
             scheduleEntity = new WorkflowScheduleEntity();
             scheduleEntity.setWorkflowDefinitionId(definition.getId());
         }
+        scheduleEntity.setTenantId(definition.getTenantId());
+        scheduleEntity.setProjectId(definition.getProjectId());
         if (request.getSchedule() != null) {
             scheduleEntity.setCronExpression(request.getSchedule().getCronExpression());
             scheduleEntity.setEnabled(Boolean.TRUE.equals(request.getSchedule().getEnabled()) ? 1 : 0);
@@ -211,10 +236,7 @@ public class WorkflowService {
 
     @Transactional
     public WorkflowDefinitionView publish(Long definitionId) {
-        WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
-        if (definition == null) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
-        }
+        WorkflowDefinitionEntity definition = requireWritableEntity(definitionId);
         WorkflowVersionEntity version = versionMapper.selectById(definition.getCurrentVersionId());
         if (version == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow version not found");
@@ -245,6 +267,7 @@ public class WorkflowService {
 
     @Transactional
     public void delete(Long definitionId) {
+        requireWritableEntity(definitionId);
         List<WorkflowVersionEntity> versions = versionMapper.selectList(new LambdaQueryWrapper<WorkflowVersionEntity>()
                 .eq(WorkflowVersionEntity::getDefinitionId, definitionId));
         List<Long> versionIds = new ArrayList<Long>();
@@ -266,6 +289,73 @@ public class WorkflowService {
         runRecordMapper.delete(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getWorkflowDefinitionId, definitionId));
         definitionMapper.deleteById(definitionId);
+    }
+
+    private LambdaQueryWrapper<WorkflowDefinitionEntity> buildAccessibleQuery() {
+        LambdaQueryWrapper<WorkflowDefinitionEntity> queryWrapper = new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId());
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return queryWrapper;
+        }
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_WORKFLOW);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(WorkflowDefinitionEntity::getProjectId, currentProjectId);
+            return queryWrapper;
+        }
+        queryWrapper.and(wrapper -> wrapper.eq(WorkflowDefinitionEntity::getProjectId, currentProjectId)
+                .or()
+                .in(WorkflowDefinitionEntity::getId, sharedIds));
+        return queryWrapper;
+    }
+
+    private WorkflowDefinitionEntity findAccessibleEntity(Long definitionId) {
+        WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
+        if (definition == null) {
+            return null;
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_WORKFLOW,
+                definition.getProjectId(), definition.getId(), "Workflow not found");
+        return definition;
+    }
+
+    private WorkflowDefinitionEntity requireWritableEntity(Long definitionId) {
+        WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
+        if (definition == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
+        }
+        projectResourceAccessService.assertWritable(definition.getProjectId());
+        return definition;
+    }
+
+    private void ensureUniqueCode(Long projectId, String code, Long selfId) {
+        if (projectId == null || code == null || code.trim().isEmpty()) {
+            return;
+        }
+        List<WorkflowDefinitionEntity> duplicates = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getProjectId, projectId)
+                .eq(WorkflowDefinitionEntity::getCode, code.trim()));
+        for (WorkflowDefinitionEntity duplicate : duplicates) {
+            if (selfId != null && selfId.equals(duplicate.getId())) {
+                continue;
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow code already exists in the current project");
+        }
+    }
+
+    private void ensureUniqueName(Long projectId, String name, Long selfId) {
+        if (projectId == null || name == null || name.trim().isEmpty()) {
+            return;
+        }
+        List<WorkflowDefinitionEntity> duplicates = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getProjectId, projectId)
+                .eq(WorkflowDefinitionEntity::getName, name.trim()));
+        for (WorkflowDefinitionEntity duplicate : duplicates) {
+            if (selfId != null && selfId.equals(duplicate.getId())) {
+                continue;
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow name already exists in the current project");
+        }
     }
 
     private int nextVersion(Long definitionId) {

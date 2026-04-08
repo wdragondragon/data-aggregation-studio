@@ -15,6 +15,7 @@ public class ExecutionEvent {
     private Long workflowVersionId;
     private Long workflowRunId;
     private Long collectionTaskId;
+    private Long projectId;
     private DispatchExecutionType executionType;
     private String nodeCode;
     private String workerCode;

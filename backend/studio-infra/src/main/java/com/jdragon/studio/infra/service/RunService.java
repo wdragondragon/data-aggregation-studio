@@ -29,15 +29,18 @@ public class RunService {
     private final RunRecordMapper runRecordMapper;
     private final CollectionTaskService collectionTaskService;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
+    private final StudioSecurityService securityService;
 
     public RunService(DispatchTaskMapper dispatchTaskMapper,
                       RunRecordMapper runRecordMapper,
                       CollectionTaskService collectionTaskService,
-                      WorkflowDefinitionMapper workflowDefinitionMapper) {
+                      WorkflowDefinitionMapper workflowDefinitionMapper,
+                      StudioSecurityService securityService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.collectionTaskService = collectionTaskService;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
+        this.securityService = securityService;
     }
 
     public RunListView list(Long collectionTaskId,
@@ -47,9 +50,11 @@ public class RunService {
         RunListView view = new RunListView();
         Map<Long, String> collectionTaskNames = collectionTaskNames();
         Map<Long, String> workflowNames = workflowNames();
+        Long currentProjectId = securityService.currentProjectId();
         List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(collectionTaskId != null, DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
                 .eq(workflowDefinitionId != null, DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(currentProjectId != null, DispatchTaskEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, DispatchTaskEntity::getCreatedAt, startTime)
                 .le(endTime != null, DispatchTaskEntity::getCreatedAt, endTime)
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING")
@@ -60,6 +65,7 @@ public class RunService {
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(collectionTaskId != null, RunRecordEntity::getCollectionTaskId, collectionTaskId)
                 .eq(workflowDefinitionId != null, RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(currentProjectId != null, RunRecordEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, RunRecordEntity::getCreatedAt, startTime)
                 .le(endTime != null, RunRecordEntity::getCreatedAt, endTime)
                 .orderByDesc(RunRecordEntity::getCreatedAt));
@@ -76,7 +82,8 @@ public class RunService {
 
     public RunRecordEntity getEntity(Long runRecordId) {
         RunRecordEntity entity = runRecordMapper.selectById(runRecordId);
-        if (entity == null) {
+        if (entity == null || (securityService.currentProjectId() != null
+                && !securityService.currentProjectId().equals(entity.getProjectId()))) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Run record not found: " + runRecordId);
         }
         return entity;
@@ -125,6 +132,7 @@ public class RunService {
         QueuedTaskView view = new QueuedTaskView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
@@ -152,6 +160,7 @@ public class RunService {
         RunRecordView view = new RunRecordView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());

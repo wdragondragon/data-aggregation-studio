@@ -10,5 +10,7 @@ CREATE TABLE `workflow_node` (
   `node_type` varchar(128) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `config_json` json DEFAULT NULL,
   `field_mappings_json` json DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `project_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_workflow_node_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

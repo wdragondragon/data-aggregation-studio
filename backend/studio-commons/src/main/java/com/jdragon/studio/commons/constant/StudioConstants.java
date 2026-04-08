@@ -13,6 +13,10 @@ public final class StudioConstants {
     public static final String ROLE_TENANT_ADMIN = "TENANT_ADMIN";
     public static final String ROLE_PROJECT_ADMIN = "PROJECT_ADMIN";
     public static final String ROLE_PROJECT_MEMBER = "PROJECT_MEMBER";
+    public static final String RESOURCE_TYPE_DATASOURCE = "DATASOURCE";
+    public static final String RESOURCE_TYPE_DATA_MODEL = "DATA_MODEL";
+    public static final String RESOURCE_TYPE_COLLECTION_TASK = "COLLECTION_TASK";
+    public static final String RESOURCE_TYPE_WORKFLOW = "WORKFLOW";
     public static final String MEMBER_STATUS_ACTIVE = "ACTIVE";
     public static final String MEMBER_REQUEST_APPLY = "APPLY";
     public static final String MEMBER_REQUEST_INVITE = "INVITE";

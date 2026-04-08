@@ -14,7 +14,7 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "workflow_node", autoResultMap = true)
-public class WorkflowNodeEntity extends BaseTenantEntity {
+public class WorkflowNodeEntity extends BaseProjectTenantEntity {
     private Long workflowVersionId;
     private String nodeCode;
     private String nodeName;

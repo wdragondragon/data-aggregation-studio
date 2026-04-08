@@ -12,7 +12,7 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "data_model", autoResultMap = true)
-public class DataModelEntity extends BaseTenantEntity {
+public class DataModelEntity extends BaseProjectTenantEntity {
     private Long datasourceId;
     private String name;
     private String modelKind;

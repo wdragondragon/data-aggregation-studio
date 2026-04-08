@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.infra.security.StudioRequestContext;
+import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,7 +27,14 @@ public class MybatisPlusConfig {
         return new MetaObjectHandler() {
             @Override
             public void insertFill(MetaObject metaObject) {
-                strictInsertFill(metaObject, "tenantId", String.class, StudioConstants.DEFAULT_TENANT_ID);
+                StudioRequestContext requestContext = StudioRequestContextHolder.getContext();
+                String tenantId = requestContext == null || requestContext.getTenantId() == null
+                        ? StudioConstants.DEFAULT_TENANT_ID
+                        : requestContext.getTenantId();
+                strictInsertFill(metaObject, "tenantId", String.class, tenantId);
+                if (metaObject.hasSetter("projectId") && requestContext != null && requestContext.getProjectId() != null) {
+                    strictInsertFill(metaObject, "projectId", Long.class, requestContext.getProjectId());
+                }
                 strictInsertFill(metaObject, "deleted", Integer.class, 0);
                 strictInsertFill(metaObject, "createdAt", LocalDateTime.class, LocalDateTime.now());
                 strictInsertFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());

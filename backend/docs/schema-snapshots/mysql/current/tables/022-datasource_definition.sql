@@ -11,5 +11,8 @@ CREATE TABLE `datasource_definition` (
   `executable` int DEFAULT '0',
   `technical_metadata` json DEFAULT NULL,
   `business_metadata` json DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `project_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_datasource_definition_project_name` (`project_id`,`name`),
+  KEY `idx_datasource_definition_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

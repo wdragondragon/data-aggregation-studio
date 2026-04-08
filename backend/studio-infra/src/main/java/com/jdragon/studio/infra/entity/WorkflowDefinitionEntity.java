@@ -7,7 +7,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("workflow_definition")
-public class WorkflowDefinitionEntity extends BaseTenantEntity {
+public class WorkflowDefinitionEntity extends BaseProjectTenantEntity {
     private String code;
     private String name;
     private Long currentVersionId;

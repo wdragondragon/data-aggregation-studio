@@ -9,5 +9,7 @@ CREATE TABLE `workflow_definition_version` (
   `published` int DEFAULT '0',
   `graph_json` json DEFAULT NULL,
   `schedule_json` json DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `project_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_workflow_definition_version_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

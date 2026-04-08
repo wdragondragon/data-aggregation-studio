@@ -57,6 +57,7 @@ export interface LoginResponse extends AuthProfile {
 export interface BaseRecord {
   id?: EntityId;
   tenantId?: string;
+  projectId?: EntityId;
   deleted?: boolean | number;
   createdAt?: string;
   updatedAt?: string;

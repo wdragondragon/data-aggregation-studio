@@ -449,6 +449,8 @@ public class DataModelSearchIndexService {
         }
         DataModelAttrIndexEntity entry = new DataModelAttrIndexEntity();
         Boolean booleanValue = toBoolean(value);
+        entry.setTenantId(model.getTenantId());
+        entry.setProjectId(model.getProjectId());
         entry.setModelId(model.getId());
         entry.setDatasourceId(model.getDatasourceId());
         entry.setMetaSchemaVersionId(schema.getCurrentVersionId());
