@@ -1,0 +1,21 @@
+CREATE TABLE `dispatch_task` (
+  `id` bigint NOT NULL,
+  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',
+  `deleted` int DEFAULT '0',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `workflow_definition_id` bigint DEFAULT NULL,
+  `workflow_version_id` bigint DEFAULT NULL,
+  `node_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `status` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `lease_owner` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `lease_expires_at` datetime DEFAULT NULL,
+  `attempts` int DEFAULT '0',
+  `max_retries` int DEFAULT '3',
+  `payload_json` json DEFAULT NULL,
+  `execution_type` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `collection_task_id` bigint DEFAULT NULL,
+  `run_record_id` bigint DEFAULT NULL,
+  `workflow_run_id` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
