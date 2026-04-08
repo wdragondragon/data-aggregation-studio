@@ -95,13 +95,8 @@ export const sharedMessages = {
         },
         dashboard: {
           title: "Dashboard",
-          subtitle: "Observe catalog breadth, workflow health and runtime activity at a glance.",
+          subtitle: "Observe workflow health, execution readiness and runtime activity at a glance.",
           menuCaption: "Control tower and runtime summary",
-        },
-        catalog: {
-          title: "Plugin Catalog",
-          subtitle: "Track source, reader, writer and transformer coverage before you design jobs.",
-          menuCaption: "Plugin inventory and execution matrix",
         },
         metadata: {
           title: "Meta Model Center",
@@ -276,13 +271,8 @@ export const sharedMessages = {
         },
         dashboard: {
           title: "总览",
-          subtitle: "快速查看目录覆盖、工作流健康度与运行态活动。",
+          subtitle: "快速查看工作流健康度、执行就绪度与运行态活动。",
           menuCaption: "控制塔与运行概览",
-        },
-        catalog: {
-          title: "插件目录",
-          subtitle: "在设计作业前先确认 source、reader、writer 与 transformer 的覆盖情况。",
-          menuCaption: "插件清单与执行矩阵",
         },
         metadata: {
           title: "元模型中心",

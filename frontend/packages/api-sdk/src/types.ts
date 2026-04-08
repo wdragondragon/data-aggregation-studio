@@ -151,7 +151,6 @@ export interface CapabilityMatrix {
   executableTargetTypes?: string[];
   executableDatasourceTypes?: string[];
   sourceCapabilities?: SourceCapabilityEntry[];
-  plugins: PluginCatalogEntry[];
 }
 
 export interface DataSourceDefinition extends BaseRecord {
@@ -640,7 +639,6 @@ export interface RuntimeModeResponse {
 }
 
 export interface ExportProjectBundle {
-  catalog: PluginCatalogEntry[];
   metaSchemas: MetadataSchemaDefinition[];
   workflows: WorkflowDefinitionView[];
 }

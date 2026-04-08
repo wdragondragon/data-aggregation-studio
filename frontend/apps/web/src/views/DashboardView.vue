@@ -36,7 +36,6 @@
     </section>
 
     <div class="metrics-grid">
-      <MetricCard :label="t('web.dashboard.plugins')" :value="pluginCount" :hint="t('web.dashboard.pluginsHint')" :description="t('web.dashboard.pluginsDescription')" />
       <MetricCard :label="t('web.dashboard.datasources')" :value="datasources.length" tone="accent" :hint="t('web.dashboard.datasourcesHint')" :description="t('web.dashboard.datasourcesDescription')" />
       <MetricCard :label="t('web.dashboard.publishedWorkflows')" :value="publishedWorkflowCount" tone="success" :hint="t('web.dashboard.publishedWorkflowsHint')" :description="t('web.dashboard.publishedWorkflowsDescription')" />
       <MetricCard :label="t('web.dashboard.onlineTasks')" :value="onlineCollectionTaskCount" tone="warning" :hint="t('web.dashboard.onlineTasksHint')" :description="t('web.dashboard.onlineTasksDescription')" />
@@ -221,7 +220,6 @@ import type {
   CollectionTaskDefinitionView,
   DataDevelopmentScript,
   DataSourceDefinition,
-  PluginCatalogEntry,
   RunListResponse,
   WorkflowDefinitionView,
   WorkflowRunSummary,
@@ -235,7 +233,6 @@ const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const plugins = ref<PluginCatalogEntry[]>([]);
 const datasources = ref<DataSourceDefinition[]>([]);
 const workflows = ref<WorkflowDefinitionView[]>([]);
 const collectionTasks = ref<CollectionTaskDefinitionView[]>([]);
@@ -244,7 +241,6 @@ const workflowRuns = ref<WorkflowRunSummary[]>([]);
 
 const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
-  plugins: [],
 });
 
 const runData = reactive<RunListResponse>({
@@ -252,7 +248,6 @@ const runData = reactive<RunListResponse>({
   runRecords: [],
 });
 
-const pluginCount = computed(() => new Set(plugins.value.map((item) => `${item.pluginCategory}::${item.pluginName}`)).size);
 const executableDatasourceTypes = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes ?? []);
 const publishedWorkflowCount = computed(() => workflows.value.filter((item) => Boolean(item.published)).length);
 const scheduledWorkflowCount = computed(() => workflows.value.filter((item) => Boolean(item.schedule?.enabled)).length);
@@ -298,8 +293,7 @@ const workspaceLinks = computed(() => [
 
 async function loadDashboard() {
   try {
-    const [pluginsData, datasourceData, workflowData, capabilityData, runsData, collectionTaskData, scriptsData, workflowRunData] = await Promise.all([
-      studioApi.catalog.plugins(),
+    const [datasourceData, workflowData, capabilityData, runsData, collectionTaskData, scriptsData, workflowRunData] = await Promise.all([
       studioApi.datasources.list(),
       studioApi.workflows.list(),
       studioApi.catalog.capabilities(),
@@ -308,7 +302,6 @@ async function loadDashboard() {
       studioApi.dataDevelopment.listScripts(),
       studioApi.workflowRuns.list({ pageNo: 1, pageSize: 6 }),
     ]);
-    plugins.value = pluginsData;
     datasources.value = datasourceData;
     workflows.value = workflowData;
     collectionTasks.value = collectionTaskData;
@@ -318,7 +311,6 @@ async function loadDashboard() {
     capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
     capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
     capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
-    capabilityMatrix.plugins = capabilityData.plugins;
     runData.queuedTasks = runsData.queuedTasks;
     runData.runRecords = runsData.runRecords;
   } catch (error) {
@@ -511,7 +503,7 @@ onMounted(loadDashboard);
 .metrics-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .dashboard-pulse,

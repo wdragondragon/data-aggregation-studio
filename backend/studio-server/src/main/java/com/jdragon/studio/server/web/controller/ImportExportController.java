@@ -2,7 +2,6 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
-import com.jdragon.studio.infra.service.PluginCatalogService;
 import com.jdragon.studio.infra.service.WorkflowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,14 +17,11 @@ import java.util.Map;
 @RequestMapping("/api/v1")
 public class ImportExportController {
 
-    private final PluginCatalogService pluginCatalogService;
     private final MetadataSchemaService metadataSchemaService;
     private final WorkflowService workflowService;
 
-    public ImportExportController(PluginCatalogService pluginCatalogService,
-                                  MetadataSchemaService metadataSchemaService,
+    public ImportExportController(MetadataSchemaService metadataSchemaService,
                                   WorkflowService workflowService) {
-        this.pluginCatalogService = pluginCatalogService;
         this.metadataSchemaService = metadataSchemaService;
         this.workflowService = workflowService;
     }
@@ -34,7 +30,6 @@ public class ImportExportController {
     @GetMapping("/exports/project")
     public Result<Map<String, Object>> exportProject() {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("catalog", pluginCatalogService.list());
         payload.put("metaSchemas", metadataSchemaService.listSchemas());
         payload.put("workflows", workflowService.list());
         return Result.success(payload);

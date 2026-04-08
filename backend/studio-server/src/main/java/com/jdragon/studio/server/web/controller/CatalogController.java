@@ -39,7 +39,6 @@ public class CatalogController {
         payload.put("executableTargetTypes", pluginCatalogService.executableTargetTypes());
         payload.put("executableDatasourceTypes", pluginCatalogService.executableDatasourceTypes());
         payload.put("sourceCapabilities", pluginCatalogService.sourceCapabilities());
-        payload.put("plugins", pluginCatalogService.list());
         return Result.success(payload);
     }
 }

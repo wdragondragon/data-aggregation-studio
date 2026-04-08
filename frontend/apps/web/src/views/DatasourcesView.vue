@@ -272,7 +272,6 @@ const schemas = ref<MetadataSchemaDefinition[]>([]);
 const sourcePlugins = ref<PluginCatalogEntry[]>([]);
 const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
-  plugins: [],
 });
 const executableDatasourceTypes = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes);
 const drawerOpen = ref(false);
@@ -570,7 +569,6 @@ async function loadPage() {
     capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
     capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
     capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
-    capabilityMatrix.plugins = capabilityData.plugins;
     sourcePlugins.value = pluginData;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
