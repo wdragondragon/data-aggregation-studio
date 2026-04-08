@@ -72,54 +72,56 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.runtimeTitle')" :description="t('web.runs.runtimeDescription')">
-      <el-table :data="workflowRuns" border size="small" table-layout="auto" class="workflow-run-table">
-        <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
-          <template #default="{ $index }">
-            {{ getPaginatedRowNumber(pagination, $index) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.workflow')" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-button link type="primary" class="run-link" @click="openRunDetail(row)">
-              {{ row.workflowName || "--" }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="所属项目" min-width="170">
-          <template #default="{ row }">
-            <div class="stack-cell">
-              <span>{{ resolveProjectLabel(row.projectId) }}</span>
-              <span class="cell-subtle">{{ isSharedRun(row) ? "共享来源" : "当前项目" }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
-          <template #default="{ row }">
-            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
-          </template>
-        </el-table-column>
-        <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
-          <template #default="{ row }">
-            <div class="stack-cell">
-              <span>{{ row.startedAt || t("common.none") }}</span>
-              <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="`${t('web.runs.detailNodeStats')} / ${t('web.runs.summaryMessage')}`" min-width="320">
-          <template #default="{ row }">
-            <div class="stats-cell">
-              <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
-              <span class="cell-subtle">{{ row.summaryMessage || t("common.none") }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="140" align="center" header-align="center">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openRunDetail(row)">{{ t("web.runs.viewRunDetail") }}</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="table-scroll-shell">
+        <el-table :data="workflowRuns" border size="small" table-layout="auto" class="workflow-run-table">
+          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+            <template #default="{ $index }">
+              {{ getPaginatedRowNumber(pagination, $index) }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.workflow')" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">
+              <el-button link type="primary" class="run-link" @click="openRunDetail(row)">
+                {{ row.workflowName || "--" }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column label="所属项目" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ resolveProjectLabel(row.projectId) }}</span>
+                <span class="cell-subtle">{{ isSharedRun(row) ? "共享来源" : "当前项目" }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.status')" width="108" align="center" header-align="center">
+            <template #default="{ row }">
+              <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="190">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ row.startedAt || t("common.none") }}</span>
+                <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="`${t('web.runs.detailNodeStats')} / ${t('web.runs.summaryMessage')}`" min-width="260">
+            <template #default="{ row }">
+              <div class="stats-cell">
+                <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
+                <span class="cell-subtle">{{ row.summaryMessage || t("common.none") }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.actions')" width="112" align="center" header-align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openRunDetail(row)">{{ t("web.runs.viewRunDetail") }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="pagination.page"
@@ -337,13 +339,26 @@ p {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
 .runs-query-grid {
   display: grid;
-  grid-template-columns: 220px 160px minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 2fr) auto;
   gap: 8px;
   align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.runs-query-grid > * {
+  min-width: 0;
+}
+
+.runs-query-grid :deep(.el-select),
+.runs-query-grid :deep(.el-date-editor) {
+  width: 100%;
 }
 
 .runs-query-actions {
@@ -356,6 +371,8 @@ p {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+  width: 100%;
+  min-width: 0;
 }
 
 .status-metric {
@@ -366,6 +383,7 @@ p {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .status-metric span {
@@ -396,6 +414,17 @@ p {
   font-weight: 600;
 }
 
+.table-scroll-shell {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.workflow-run-table {
+  width: 100%;
+  min-width: 1072px;
+}
+
 .workflow-run-table :deep(.cell) {
   white-space: normal;
 }
@@ -422,6 +451,17 @@ p {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+@media (max-width: 1480px) {
+  .runs-query-grid,
+  .status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .runs-query-actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 1100px) {
