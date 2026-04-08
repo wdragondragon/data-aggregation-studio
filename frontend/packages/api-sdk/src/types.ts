@@ -608,7 +608,7 @@ export interface SystemProjectWorker extends BaseRecord {
   status?: string;
   lastHeartbeatAt?: string;
   boundToProject?: boolean;
-  enabled?: boolean;
+  enabled?: boolean | number;
 }
 
 export interface ResourceShare extends BaseRecord {

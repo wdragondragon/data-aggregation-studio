@@ -10,13 +10,9 @@
       </div>
     </div>
 
-    <el-alert
-      v-if="!authStore.currentProjectId"
-      class="context-alert"
-      type="warning"
-      :closable="false"
-      title="请先选择当前项目后，再管理项目成员、申请邀请、Worker 下发和资源共享。"
-    />
+    <div v-if="!authStore.currentProjectId" class="context-alert" role="alert">
+      请先选择当前项目后，再管理项目成员、申请邀请、Worker 下发和资源共享。
+    </div>
 
     <SectionCard title="组织管理" description="统一管理租户、项目、成员、申请邀请和 Worker 下发关系。">
       <el-tabs v-model="activeTab">
@@ -475,6 +471,21 @@ function normalizeResourceType(value?: string) {
   return String(value ?? "").trim().toUpperCase();
 }
 
+function toBooleanFlag(value: boolean | number | null | undefined) {
+  return value === true || value === 1;
+}
+
+function toIntegerFlag(value: boolean | number | null | undefined) {
+  return toBooleanFlag(value) ? 1 : 0;
+}
+
+function normalizeDeletedFlag<T extends { deleted?: boolean | number }>(payload: T): T {
+  if (payload.deleted == null) {
+    return { ...payload };
+  }
+  return { ...payload, deleted: toIntegerFlag(payload.deleted) } as T;
+}
+
 function shareOptionList(resourceType: string) {
   const currentProjectId = authStore.currentProjectId;
   switch (resourceType) {
@@ -508,12 +519,15 @@ function resourceLabel(share: ResourceShare) {
 function openTenantDialog(row?: SystemTenant) {
   resetForm(tenantForm as Record<string, unknown>, { enabled: true });
   Object.assign(tenantForm, row ?? {});
+  tenantForm.enabled = toBooleanFlag(tenantForm.enabled);
   tenantDialogOpen.value = true;
 }
 
 function openProjectDialog(row?: SystemProject) {
   resetForm(projectForm as Record<string, unknown>, { enabled: true, defaultProject: false });
   Object.assign(projectForm, row ?? {});
+  projectForm.enabled = toBooleanFlag(projectForm.enabled);
+  projectForm.defaultProject = toBooleanFlag(projectForm.defaultProject);
   projectDialogOpen.value = true;
 }
 
@@ -538,48 +552,71 @@ function openRequestDialog(row?: SystemProjectMemberRequest) {
 function openWorkerDialog(row?: SystemProjectWorker) {
   resetForm(workerForm as Record<string, unknown>, { enabled: true });
   Object.assign(workerForm, row ?? {});
+  workerForm.enabled = toBooleanFlag(workerForm.enabled);
   workerDialogOpen.value = true;
 }
 
 function openShareDialog(row?: ResourceShare) {
   resetForm(shareForm as Record<string, unknown>, { enabled: true, sourceProjectId: authStore.currentProjectId ?? undefined });
   Object.assign(shareForm, row ?? {});
+  shareForm.enabled = toBooleanFlag(shareForm.enabled);
   shareDialogOpen.value = true;
 }
 
 async function saveTenant() {
-  await wrapSave(() => studioApi.system.tenants.save(tenantForm), tenantDialogOpen, "租户保存成功");
+  const payload = normalizeDeletedFlag<Partial<SystemTenant>>({
+    ...tenantForm,
+    enabled: toIntegerFlag(tenantForm.enabled),
+  });
+  await wrapSave(() => studioApi.system.tenants.save(payload), tenantDialogOpen, "租户保存成功");
 }
 
 async function saveProject() {
-  await wrapSave(() => studioApi.system.projects.save(projectForm), projectDialogOpen, "项目保存成功");
+  const payload = normalizeDeletedFlag<Partial<SystemProject>>({
+    ...projectForm,
+    enabled: toIntegerFlag(projectForm.enabled),
+    defaultProject: toIntegerFlag(projectForm.defaultProject),
+  });
+  await wrapSave(() => studioApi.system.projects.save(payload), projectDialogOpen, "项目保存成功");
 }
 
 async function saveTenantMember() {
-  await wrapSave(() => studioApi.system.tenantMembers.save(tenantMemberForm), tenantMemberDialogOpen, "租户成员保存成功");
+  const payload = normalizeDeletedFlag<Partial<SystemTenantMember>>({ ...tenantMemberForm });
+  await wrapSave(() => studioApi.system.tenantMembers.save(payload), tenantMemberDialogOpen, "租户成员保存成功");
 }
 
 async function saveProjectMember() {
-  const payload: Partial<SystemProjectMember> = { ...projectMemberForm, projectId: requireCurrentProjectId() };
+  const payload = normalizeDeletedFlag<Partial<SystemProjectMember>>({
+    ...projectMemberForm,
+    projectId: requireCurrentProjectId(),
+  });
   await wrapSave(() => studioApi.system.projectMembers.save(payload), projectMemberDialogOpen, "项目成员保存成功");
 }
 
 async function saveProjectRequest() {
-  const payload: Partial<SystemProjectMemberRequest> = { ...requestForm, projectId: requireCurrentProjectId() };
+  const payload = normalizeDeletedFlag<Partial<SystemProjectMemberRequest>>({
+    ...requestForm,
+    projectId: requireCurrentProjectId(),
+  });
   await wrapSave(() => studioApi.system.projectMemberRequests.save(payload), requestDialogOpen, "申请 / 邀请保存成功");
 }
 
 async function saveProjectWorker() {
-  const payload: Partial<SystemProjectWorker> = { ...workerForm, projectId: requireCurrentProjectId() };
+  const payload = normalizeDeletedFlag<Partial<SystemProjectWorker>>({
+    ...workerForm,
+    projectId: requireCurrentProjectId(),
+    enabled: toIntegerFlag(workerForm.enabled),
+  });
   await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 绑定已保存");
 }
 
 async function saveResourceShare() {
-  const payload: Partial<ResourceShare> = {
+  const payload = normalizeDeletedFlag<Partial<ResourceShare>>({
     ...shareForm,
     sourceProjectId: requireCurrentProjectId(),
     resourceType: normalizeResourceType(shareForm.resourceType),
-  };
+    enabled: toIntegerFlag(shareForm.enabled),
+  });
   await wrapSave(() => studioApi.system.resourceShares.save(payload), shareDialogOpen, "资源共享已保存");
 }
 
@@ -615,6 +652,7 @@ async function wrapSave(action: () => Promise<unknown>, dialogFlag: { value: boo
   try {
     await action();
     dialogFlag.value = false;
+    await authStore.refreshProfile();
     ElMessage.success(successMessage);
     await loadPage();
   } catch (error) {
@@ -626,6 +664,7 @@ async function confirmDelete(message: string, action: () => Promise<unknown>) {
   try {
     await ElMessageBox.confirm(message, t("common.confirm"), { type: "warning" });
     await action();
+    await authStore.refreshProfile();
     ElMessage.success("删除成功");
     await loadPage();
   } catch (error) {
@@ -660,6 +699,11 @@ p {
 
 .context-alert {
   margin-bottom: 14px;
+  border: 1px solid rgba(198, 107, 0, 0.28);
+  background: rgba(255, 243, 224, 0.88);
+  color: #8a5200;
+  border-radius: 14px;
+  padding: 12px 14px;
 }
 
 .tab-toolbar {
