@@ -11,6 +11,7 @@ interface DesktopMenuDescriptor {
 
 export const desktopMenuDescriptors: DesktopMenuDescriptor[] = [
   { path: "/dashboard", labelKey: "routes.web.dashboard.title", captionKey: "routes.web.dashboard.menuCaption" },
+  { path: "/catalog", labelKey: "routes.web.catalog.title", captionKey: "routes.web.catalog.menuCaption" },
   { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
   { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
   { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
@@ -51,6 +52,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.dashboard.title",
           subtitleKey: "routes.web.dashboard.subtitle",
+        },
+      },
+      {
+        path: "/catalog",
+        name: "catalog",
+        component: () => import("@web/views/CatalogView.vue"),
+        meta: {
+          titleKey: "routes.web.catalog.title",
+          subtitleKey: "routes.web.catalog.subtitle",
         },
       },
       {

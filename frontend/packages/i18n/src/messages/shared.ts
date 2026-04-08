@@ -98,6 +98,11 @@ export const sharedMessages = {
           subtitle: "Observe workflow health, execution readiness and runtime activity at a glance.",
           menuCaption: "Control tower and runtime summary",
         },
+        catalog: {
+          title: "Capability Matrix",
+          subtitle: "Review datasource types and reader or writer support before binding runtime features.",
+          menuCaption: "Datasource type and reader or writer support",
+        },
         metadata: {
           title: "Meta Model Center",
           subtitle: "Organize technical and business meta models, then feed schema-driven forms from grouped definitions.",
@@ -273,6 +278,11 @@ export const sharedMessages = {
           title: "总览",
           subtitle: "快速查看工作流健康度、执行就绪度与运行态活动。",
           menuCaption: "控制塔与运行概览",
+        },
+        catalog: {
+          title: "能力矩阵",
+          subtitle: "查看数据源类型以及 reader、writer 的支持关系。",
+          menuCaption: "数据源类型与 reader、writer 支持",
         },
         metadata: {
           title: "元模型中心",
