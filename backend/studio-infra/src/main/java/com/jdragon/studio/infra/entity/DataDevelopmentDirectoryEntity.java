@@ -7,7 +7,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("data_dev_directory")
-public class DataDevelopmentDirectoryEntity extends BaseTenantEntity {
+public class DataDevelopmentDirectoryEntity extends BaseProjectTenantEntity {
     private Long parentId;
     private String name;
     private String permissionCode;

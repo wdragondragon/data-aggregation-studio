@@ -7,7 +7,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("data_dev_script")
-public class DataDevelopmentScriptEntity extends BaseTenantEntity {
+public class DataDevelopmentScriptEntity extends BaseProjectTenantEntity {
     private Long directoryId;
     private String fileName;
     private String scriptType;

@@ -7,18 +7,22 @@
       </div>
       <div class="studio-toolbar-actions">
         <el-button plain @click="refreshAll">{{ t("common.refresh") }}</el-button>
-        <el-button plain @click="openDirectoryDialog()">{{ t("web.dataDevelopment.newDirectory") }}</el-button>
-        <el-button type="primary" @click="createNewScript">{{ t("web.dataDevelopment.newScript") }}</el-button>
+        <el-button plain :disabled="!hasCurrentProject" @click="openDirectoryDialog()">{{ t("web.dataDevelopment.newDirectory") }}</el-button>
+        <el-button type="primary" :disabled="!hasCurrentProject" @click="createNewScript">{{ t("web.dataDevelopment.newScript") }}</el-button>
         <el-button type="success" :disabled="!canExecuteCurrentScript" @click="executeCurrentScript">{{ executeButtonLabel }}</el-button>
         <el-button type="primary" :disabled="!canSaveCurrentScript" @click="saveScript">{{ t("web.dataDevelopment.saveScript") }}</el-button>
-        <el-button plain :disabled="!selectedTreeNode" @click="openMoveDialog">{{ t("web.dataDevelopment.moveNode") }}</el-button>
-        <el-button type="danger" plain :disabled="!selectedTreeNode" @click="deleteSelectedNode">{{ t("common.delete") }}</el-button>
+        <el-button plain :disabled="!hasCurrentProject || !selectedTreeNode" @click="openMoveDialog">{{ t("web.dataDevelopment.moveNode") }}</el-button>
+        <el-button type="danger" plain :disabled="!hasCurrentProject || !selectedTreeNode" @click="deleteSelectedNode">{{ t("common.delete") }}</el-button>
       </div>
     </div>
 
     <div class="data-development-layout">
       <SectionCard :title="t('web.dataDevelopment.treeTitle')" :description="t('web.dataDevelopment.treeDescription')">
         <div class="tree-toolbar">
+          <div class="soft-panel tree-context">
+            <strong>当前项目</strong>
+            <p>{{ currentProjectLabel }}</p>
+          </div>
           <div class="soft-panel tree-context">
             <strong>{{ t("web.dataDevelopment.currentDirectory") }}</strong>
             <p>{{ currentDirectoryLabel }}</p>
@@ -245,12 +249,14 @@ import type {
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { formatScriptType, formatStatusLabel, prettyJson } from "@/utils/studio";
 import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.vue";
 import type { SqlEditorHintSource } from "../components/data-development/editorTypes";
 import { resolveScriptEditorEntry } from "../components/data-development/scriptEditorRegistry";
 
 const { t } = useI18n();
+const authStore = useAuthStore();
 
 const treeData = ref<DataDevelopmentTreeNode[]>([]);
 const directories = ref<DataDevelopmentDirectory[]>([]);
@@ -265,6 +271,7 @@ const moveDialogVisible = ref(false);
 const moveTargetDirectoryId = ref<string>("");
 const sqlHintCache = ref<Record<string, SqlEditorHintSource>>({});
 const scriptExecutionArgumentsText = ref("{\n  \n}");
+const refreshToken = ref(0);
 
 const directoryForm = reactive<DataDevelopmentDirectorySaveRequest>({
   id: undefined,
@@ -291,6 +298,8 @@ const currentDirectoryLabel = computed(() => {
   const directory = directories.value.find((item) => String(item.id) === String(scriptForm.directoryId));
   return directory?.name || t("web.dataDevelopment.rootDirectory");
 });
+const currentProjectLabel = computed(() => authStore.currentProjectName || t("common.none"));
+const hasCurrentProject = computed(() => Boolean(authStore.currentProjectId));
 const currentScriptRegistryEntry = computed(() => resolveScriptEditorEntry(scriptForm.scriptType));
 const isJavaScriptType = computed(() => scriptForm.scriptType === "JAVA");
 const isPythonScriptType = computed(() => scriptForm.scriptType === "PYTHON");
@@ -301,8 +310,10 @@ const scriptTypeOptions = computed(() => [
   { value: "JAVA", label: t("web.dataDevelopment.scriptTypeJava"), disabled: false },
   { value: "PYTHON", label: t("web.dataDevelopment.scriptTypePython"), disabled: false },
 ]);
-const canExecuteCurrentScript = computed(() => scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsExecution);
-const canSaveCurrentScript = computed(() => scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave);
+const canExecuteCurrentScript = computed(() =>
+  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsExecution);
+const canSaveCurrentScript = computed(() =>
+  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave);
 const executeButtonLabel = computed(() => isStructuredScriptType.value
   ? t("web.dataDevelopment.executeScript")
   : t("web.dataDevelopment.executeSql"));
@@ -358,12 +369,20 @@ const moveDirectoryOptions = computed(() => {
 });
 
 async function refreshAll() {
+  const currentRefreshToken = ++refreshToken.value;
+  if (!hasCurrentProject.value) {
+    resetProjectScopedState();
+    return;
+  }
   try {
     const [tree, directoryList, datasourceList] = await Promise.all([
       studioApi.dataDevelopment.tree(),
       studioApi.dataDevelopment.listDirectories(),
       studioApi.dataDevelopment.listSqlDatasources(),
     ]);
+    if (currentRefreshToken !== refreshToken.value) {
+      return;
+    }
     treeData.value = tree;
     directories.value = directoryList;
     sqlDatasources.value = datasourceList;
@@ -373,6 +392,31 @@ async function refreshAll() {
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.loadFailed"));
   }
+}
+
+function resetProjectScopedState() {
+  treeData.value = [];
+  directories.value = [];
+  sqlDatasources.value = [];
+  sqlHintCache.value = {};
+  selectedTreeNode.value = null;
+  selectedDirectory.value = null;
+  executionResult.value = null;
+  scriptEditorVisible.value = false;
+  directoryDialogVisible.value = false;
+  moveDialogVisible.value = false;
+  activeExecutionTab.value = "1";
+  scriptForm.id = undefined;
+  scriptForm.directoryId = undefined;
+  scriptForm.fileName = "";
+  scriptForm.scriptType = "SQL";
+  scriptForm.datasourceId = "";
+  scriptForm.datasourceName = undefined;
+  scriptForm.datasourceTypeCode = undefined;
+  scriptForm.description = "";
+  scriptForm.content = "";
+  scriptExecutionArgumentsText.value = "{\n  \n}";
+  moveTargetDirectoryId.value = "";
 }
 
 function synchronizeSelection() {
@@ -706,6 +750,14 @@ onMounted(async () => {
   await refreshAll();
 });
 
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (!authStore.isAuthenticated) {
+    return;
+  }
+  resetProjectScopedState();
+  refreshAll();
+});
+
 watch(
   () => scriptForm.scriptType,
   (scriptType, previousType) => {
@@ -786,6 +838,8 @@ p {
 }
 
 .tree-toolbar {
+  display: grid;
+  gap: 10px;
   margin-bottom: 10px;
 }
 

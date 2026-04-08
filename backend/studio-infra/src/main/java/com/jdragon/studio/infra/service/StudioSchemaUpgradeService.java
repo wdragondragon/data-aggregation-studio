@@ -52,6 +52,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("workflow_schedule", "project_id", "alter table workflow_schedule add column project_id bigint");
         ensureColumn("collection_task_definition", "project_id", "alter table collection_task_definition add column project_id bigint");
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id bigint");
+        ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id bigint");
+        ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id bigint");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type varchar(64)");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id bigint");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
@@ -130,6 +132,7 @@ public class StudioSchemaUpgradeService {
             jdbcTemplate.execute("create table data_dev_directory (" +
                     "id bigint primary key," +
                     "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
                     "deleted int default 0," +
                     "created_at datetime default current_timestamp," +
                     "updated_at datetime default current_timestamp," +
@@ -144,6 +147,7 @@ public class StudioSchemaUpgradeService {
             jdbcTemplate.execute("create table data_dev_script (" +
                     "id bigint primary key," +
                     "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
                     "deleted int default 0," +
                     "created_at datetime default current_timestamp," +
                     "updated_at datetime default current_timestamp," +
@@ -297,8 +301,12 @@ public class StudioSchemaUpgradeService {
                 "alter table collection_task_definition add key idx_collection_task_definition_project (project_id)");
         ensureIndex("collection_task_schedule", "idx_collection_task_schedule_project",
                 "alter table collection_task_schedule add key idx_collection_task_schedule_project (project_id)");
+        ensureIndex("data_dev_directory", "idx_data_dev_directory_project_parent",
+                "alter table data_dev_directory add key idx_data_dev_directory_project_parent (project_id, parent_id)");
         ensureIndex("data_dev_directory", "idx_data_dev_directory_parent",
                 "alter table data_dev_directory add key idx_data_dev_directory_parent (parent_id)");
+        ensureIndex("data_dev_script", "idx_data_dev_script_project_directory",
+                "alter table data_dev_script add key idx_data_dev_script_project_directory (project_id, directory_id)");
         ensureIndex("data_dev_script", "idx_data_dev_script_directory",
                 "alter table data_dev_script add key idx_data_dev_script_directory (directory_id)");
         ensureIndex("data_dev_script", "idx_data_dev_script_datasource",
@@ -348,6 +356,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("workflow_schedule", "project_id", "alter table workflow_schedule add column project_id integer");
         ensureColumn("collection_task_definition", "project_id", "alter table collection_task_definition add column project_id integer");
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id integer");
+        ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id integer");
+        ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id integer");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type text");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id integer");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
@@ -426,6 +436,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create table if not exists data_dev_directory (" +
                 "id integer primary key," +
                 "tenant_id text default 'default'," +
+                "project_id integer," +
                 "deleted integer default 0," +
                 "created_at text," +
                 "updated_at text," +
@@ -437,6 +448,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create table if not exists data_dev_script (" +
                 "id integer primary key," +
                 "tenant_id text default 'default'," +
+                "project_id integer," +
                 "deleted integer default 0," +
                 "created_at text," +
                 "updated_at text," +
@@ -447,7 +459,9 @@ public class StudioSchemaUpgradeService {
                 "description text," +
                 "content text" +
                 ")");
+        jdbcTemplate.execute("create index if not exists idx_data_dev_directory_project_parent on data_dev_directory(project_id, parent_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_directory_parent on data_dev_directory(parent_id)");
+        jdbcTemplate.execute("create index if not exists idx_data_dev_script_project_directory on data_dev_script(project_id, directory_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_directory on data_dev_script(directory_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id)");
         jdbcTemplate.execute("create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name)");
@@ -589,6 +603,8 @@ public class StudioSchemaUpgradeService {
         backfillProjectIdMysql("data_model_attr_index");
         backfillProjectIdMysql("collection_task_definition");
         backfillProjectIdMysql("collection_task_schedule");
+        backfillProjectIdMysql("data_dev_directory");
+        backfillProjectIdMysql("data_dev_script");
         backfillProjectIdMysql("workflow_definition");
         backfillProjectIdMysql("workflow_definition_version");
         backfillProjectIdMysql("workflow_node");
@@ -613,6 +629,8 @@ public class StudioSchemaUpgradeService {
         backfillProjectIdSqlite("data_model_attr_index");
         backfillProjectIdSqlite("collection_task_definition");
         backfillProjectIdSqlite("collection_task_schedule");
+        backfillProjectIdSqlite("data_dev_directory");
+        backfillProjectIdSqlite("data_dev_script");
         backfillProjectIdSqlite("workflow_definition");
         backfillProjectIdSqlite("workflow_definition_version");
         backfillProjectIdSqlite("workflow_node");

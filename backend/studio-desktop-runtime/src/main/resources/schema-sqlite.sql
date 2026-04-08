@@ -404,6 +404,7 @@ create index if not exists idx_collection_task_schedule_project on collection_ta
 create table if not exists data_dev_directory (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -416,6 +417,7 @@ create table if not exists data_dev_directory (
 create table if not exists data_dev_script (
     id integer primary key,
     tenant_id text default 'default',
+    project_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -427,7 +429,9 @@ create table if not exists data_dev_script (
     content text
 );
 
+create index if not exists idx_data_dev_directory_project_parent on data_dev_directory(project_id, parent_id);
 create index if not exists idx_data_dev_directory_parent on data_dev_directory(parent_id);
+create index if not exists idx_data_dev_script_project_directory on data_dev_script(project_id, directory_id);
 create index if not exists idx_data_dev_script_directory on data_dev_script(directory_id);
 create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id);
 

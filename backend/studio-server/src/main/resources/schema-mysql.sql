@@ -399,6 +399,7 @@ create table if not exists collection_task_schedule (
 create table if not exists data_dev_directory (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -406,12 +407,14 @@ create table if not exists data_dev_directory (
     name varchar(255),
     permission_code varchar(255),
     description varchar(1000),
+    key idx_data_dev_directory_project_parent (project_id, parent_id),
     key idx_data_dev_directory_parent (parent_id)
 );
 
 create table if not exists data_dev_script (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -421,6 +424,7 @@ create table if not exists data_dev_script (
     datasource_id bigint,
     description varchar(1000),
     content longtext,
+    key idx_data_dev_script_project_directory (project_id, directory_id),
     key idx_data_dev_script_directory (directory_id),
     key idx_data_dev_script_datasource (datasource_id)
 );

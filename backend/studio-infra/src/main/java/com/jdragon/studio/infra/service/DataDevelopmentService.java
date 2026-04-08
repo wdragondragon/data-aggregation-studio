@@ -42,6 +42,7 @@ public class DataDevelopmentService {
     private final DataSourceService dataSourceService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
     private final StudioSecurityService securityService;
+    private final ProjectResourceAccessService projectResourceAccessService;
     private final Map<ScriptType, DataDevelopmentScriptExecutor> scriptExecutors;
 
     public DataDevelopmentService(DataDevelopmentDirectoryMapper directoryMapper,
@@ -49,12 +50,14 @@ public class DataDevelopmentService {
                                   DataSourceService dataSourceService,
                                   DataDevelopmentSqlExecutor sqlExecutor,
                                   StudioSecurityService securityService,
+                                  ProjectResourceAccessService projectResourceAccessService,
                                   List<DataDevelopmentScriptExecutor> scriptExecutors) {
         this.directoryMapper = directoryMapper;
         this.scriptMapper = scriptMapper;
         this.dataSourceService = dataSourceService;
         this.sqlExecutor = sqlExecutor;
         this.securityService = securityService;
+        this.projectResourceAccessService = projectResourceAccessService;
         this.scriptExecutors = new HashMap<ScriptType, DataDevelopmentScriptExecutor>();
         if (scriptExecutors != null) {
             for (DataDevelopmentScriptExecutor executor : scriptExecutors) {
@@ -65,26 +68,32 @@ public class DataDevelopmentService {
 
     public List<DataDevelopmentTreeNode> tree() {
         String tenantId = securityService.currentTenantId();
-        return buildTree(listDirectoryEntities(tenantId), listScriptEntities(tenantId, null));
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
+        return buildTree(listDirectoryEntities(tenantId, projectId), listScriptEntities(tenantId, projectId, null));
     }
 
     public List<DataDevelopmentDirectoryView> listDirectories() {
+        String tenantId = securityService.currentTenantId();
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
         List<DataDevelopmentDirectoryView> result = new ArrayList<DataDevelopmentDirectoryView>();
-        for (DataDevelopmentDirectoryEntity entity : listDirectoryEntities(securityService.currentTenantId())) {
+        for (DataDevelopmentDirectoryEntity entity : listDirectoryEntities(tenantId, projectId)) {
             result.add(toDirectoryView(entity));
         }
         return result;
     }
 
     public List<DataDevelopmentScriptView> listScripts(ScriptType scriptType) {
+        String tenantId = securityService.currentTenantId();
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
         List<DataDevelopmentScriptView> result = new ArrayList<DataDevelopmentScriptView>();
-        for (DataDevelopmentScriptEntity entity : listScriptEntities(securityService.currentTenantId(), scriptType)) {
+        for (DataDevelopmentScriptEntity entity : listScriptEntities(tenantId, projectId, scriptType)) {
             result.add(toScriptView(entity));
         }
         return result;
     }
 
     public List<DataSourceDefinition> listSqlCapableDatasources() {
+        projectResourceAccessService.requireCurrentProjectId();
         List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
         for (DataSourceDefinition datasource : dataSourceService.list()) {
             if (sqlExecutor.supports(datasource)) {
@@ -101,13 +110,16 @@ public class DataDevelopmentService {
     @Transactional
     public DataDevelopmentDirectoryView saveDirectory(DataDevelopmentDirectorySaveRequest request) {
         String tenantId = securityService.currentTenantId();
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
         DataDevelopmentDirectoryEntity entity = request.getId() == null
                 ? new DataDevelopmentDirectoryEntity()
                 : requireDirectory(request.getId());
         if (request.getParentId() != null) {
             requireDirectory(request.getParentId());
         }
-        validateDirectoryName(tenantId, request.getParentId(), request.getName(), entity.getId());
+        validateDirectoryName(tenantId, projectId, request.getParentId(), request.getName(), entity.getId());
+        entity.setTenantId(tenantId);
+        entity.setProjectId(projectId);
         entity.setParentId(request.getParentId());
         entity.setName(request.getName().trim());
         entity.setPermissionCode(blankToNull(request.getPermissionCode()));
@@ -131,7 +143,7 @@ public class DataDevelopmentService {
             }
             ensureNotDescendant(directoryId, targetDirectoryId);
         }
-        validateDirectoryName(entity.getTenantId(), targetDirectoryId, entity.getName(), entity.getId());
+        validateDirectoryName(entity.getTenantId(), entity.getProjectId(), targetDirectoryId, entity.getName(), entity.getId());
         entity.setParentId(targetDirectoryId);
         directoryMapper.updateById(entity);
     }
@@ -139,20 +151,23 @@ public class DataDevelopmentService {
     @Transactional
     public void deleteDirectory(Long directoryId) {
         DataDevelopmentDirectoryEntity entity = requireDirectory(directoryId);
-        List<DataDevelopmentDirectoryEntity> directories = listDirectoryEntities(entity.getTenantId());
+        List<DataDevelopmentDirectoryEntity> directories = listDirectoryEntities(entity.getTenantId(), entity.getProjectId());
         Set<Long> directoryIds = collectDescendantIds(directoryId, directories);
         directoryIds.add(directoryId);
         scriptMapper.delete(new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
                 .eq(DataDevelopmentScriptEntity::getTenantId, entity.getTenantId())
+                .eq(DataDevelopmentScriptEntity::getProjectId, entity.getProjectId())
                 .in(DataDevelopmentScriptEntity::getDirectoryId, directoryIds));
         directoryMapper.delete(new LambdaQueryWrapper<DataDevelopmentDirectoryEntity>()
                 .eq(DataDevelopmentDirectoryEntity::getTenantId, entity.getTenantId())
+                .eq(DataDevelopmentDirectoryEntity::getProjectId, entity.getProjectId())
                 .in(DataDevelopmentDirectoryEntity::getId, directoryIds));
     }
 
     @Transactional
     public DataDevelopmentScriptView saveScript(DataDevelopmentScriptSaveRequest request) {
         String tenantId = securityService.currentTenantId();
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
         validateScriptType(request.getScriptType());
         DataDevelopmentScriptEntity entity = request.getId() == null
                 ? new DataDevelopmentScriptEntity()
@@ -161,7 +176,9 @@ public class DataDevelopmentService {
             requireDirectory(request.getDirectoryId());
         }
         DataSourceDefinition datasource = resolveScriptDatasource(request.getScriptType(), request.getDatasourceId());
-        validateScriptFileName(tenantId, request.getDirectoryId(), request.getFileName(), entity.getId());
+        validateScriptFileName(tenantId, projectId, request.getDirectoryId(), request.getFileName(), entity.getId());
+        entity.setTenantId(tenantId);
+        entity.setProjectId(projectId);
         entity.setDirectoryId(request.getDirectoryId());
         entity.setFileName(request.getFileName().trim());
         entity.setScriptType(request.getScriptType().name());
@@ -183,7 +200,7 @@ public class DataDevelopmentService {
         if (targetDirectoryId != null) {
             requireDirectory(targetDirectoryId);
         }
-        validateScriptFileName(entity.getTenantId(), targetDirectoryId, entity.getFileName(), entity.getId());
+        validateScriptFileName(entity.getTenantId(), entity.getProjectId(), targetDirectoryId, entity.getFileName(), entity.getId());
         entity.setDirectoryId(targetDirectoryId);
         scriptMapper.updateById(entity);
     }
@@ -195,6 +212,7 @@ public class DataDevelopmentService {
     }
 
     public SqlExecutionResultView execute(SqlExecutionRequest request) {
+        projectResourceAccessService.requireCurrentProjectId();
         if (request.getScriptType() != ScriptType.SQL) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL scripts can use the SQL execution endpoint");
         }
@@ -202,6 +220,7 @@ public class DataDevelopmentService {
     }
 
     public DataScriptExecutionResultView execute(DataScriptExecutionRequest request) {
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
         validateScriptType(request.getScriptType());
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
         context.setScriptType(request.getScriptType());
@@ -212,6 +231,11 @@ public class DataDevelopmentService {
         context.setTenantId(securityService.currentTenantId());
         context.setUsername(securityService.currentUsername());
         context.setArguments(request.getArguments());
+        Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
+        runtimeContext.put("tenantId", context.getTenantId());
+        runtimeContext.put("projectId", projectId);
+        runtimeContext.put("username", context.getUsername());
+        context.setRuntimeContext(runtimeContext);
         return requireExecutor(request.getScriptType()).execute(context);
     }
 
@@ -226,24 +250,26 @@ public class DataDevelopmentService {
         context.setDatasourceId(script.getDatasourceId());
         context.setDatasource(resolveScriptDatasource(scriptType, script.getDatasourceId()));
         context.setMaxRows(maxRows);
-        context.setTenantId(securityService.currentTenantId());
-        context.setUsername(securityService.currentUsername());
+        context.setTenantId(script.getTenantId());
+        context.setUsername(resolveExecutionUsername(runtimeContext));
         context.setArguments(arguments);
-        context.setRuntimeContext(runtimeContext);
+        context.setRuntimeContext(buildRuntimeContext(script, runtimeContext));
         return requireExecutor(scriptType).execute(context);
     }
 
     private DataDevelopmentDirectoryEntity requireDirectory(Long directoryId) {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         DataDevelopmentDirectoryEntity entity = directoryMapper.selectById(directoryId);
-        if (entity == null || !matchesTenant(entity.getTenantId())) {
+        if (entity == null || !matchesTenant(entity.getTenantId()) || !matchesProject(entity.getProjectId(), currentProjectId)) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Directory not found: " + directoryId);
         }
         return entity;
     }
 
     private DataDevelopmentScriptEntity requireScript(Long scriptId) {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         DataDevelopmentScriptEntity entity = scriptMapper.selectById(scriptId);
-        if (entity == null || !matchesTenant(entity.getTenantId())) {
+        if (entity == null || !matchesTenant(entity.getTenantId()) || !matchesProject(entity.getProjectId(), currentProjectId)) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Script not found: " + scriptId);
         }
         return entity;
@@ -270,16 +296,18 @@ public class DataDevelopmentService {
         return dataSourceService.getInternal(datasourceId);
     }
 
-    private List<DataDevelopmentDirectoryEntity> listDirectoryEntities(String tenantId) {
+    private List<DataDevelopmentDirectoryEntity> listDirectoryEntities(String tenantId, Long projectId) {
         return directoryMapper.selectList(new LambdaQueryWrapper<DataDevelopmentDirectoryEntity>()
                 .eq(DataDevelopmentDirectoryEntity::getTenantId, tenantId)
+                .eq(DataDevelopmentDirectoryEntity::getProjectId, projectId)
                 .orderByAsc(DataDevelopmentDirectoryEntity::getParentId)
                 .orderByAsc(DataDevelopmentDirectoryEntity::getName));
     }
 
-    private List<DataDevelopmentScriptEntity> listScriptEntities(String tenantId, ScriptType scriptType) {
+    private List<DataDevelopmentScriptEntity> listScriptEntities(String tenantId, Long projectId, ScriptType scriptType) {
         LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
                 .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
+                .eq(DataDevelopmentScriptEntity::getProjectId, projectId)
                 .orderByAsc(DataDevelopmentScriptEntity::getDirectoryId)
                 .orderByAsc(DataDevelopmentScriptEntity::getFileName);
         if (scriptType != null) {
@@ -349,12 +377,13 @@ public class DataDevelopmentService {
         }
     }
 
-    private void validateDirectoryName(String tenantId, Long parentId, String name, Long selfId) {
+    private void validateDirectoryName(String tenantId, Long projectId, Long parentId, String name, Long selfId) {
         if (name == null || name.trim().isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Directory name is required");
         }
         List<DataDevelopmentDirectoryEntity> siblings = directoryMapper.selectList(new LambdaQueryWrapper<DataDevelopmentDirectoryEntity>()
                 .eq(DataDevelopmentDirectoryEntity::getTenantId, tenantId)
+                .eq(DataDevelopmentDirectoryEntity::getProjectId, projectId)
                 .eq(parentId != null, DataDevelopmentDirectoryEntity::getParentId, parentId)
                 .isNull(parentId == null, DataDevelopmentDirectoryEntity::getParentId));
         for (DataDevelopmentDirectoryEntity sibling : siblings) {
@@ -367,12 +396,13 @@ public class DataDevelopmentService {
         }
     }
 
-    private void validateScriptFileName(String tenantId, Long directoryId, String fileName, Long selfId) {
+    private void validateScriptFileName(String tenantId, Long projectId, Long directoryId, String fileName, Long selfId) {
         if (fileName == null || fileName.trim().isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "File name is required");
         }
         List<DataDevelopmentScriptEntity> siblings = scriptMapper.selectList(new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
                 .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
+                .eq(DataDevelopmentScriptEntity::getProjectId, projectId)
                 .eq(directoryId != null, DataDevelopmentScriptEntity::getDirectoryId, directoryId)
                 .isNull(directoryId == null, DataDevelopmentScriptEntity::getDirectoryId));
         for (DataDevelopmentScriptEntity sibling : siblings) {
@@ -404,7 +434,8 @@ public class DataDevelopmentService {
 
     private void ensureNotDescendant(Long directoryId, Long targetDirectoryId) {
         Map<Long, DataDevelopmentDirectoryEntity> directoryMap = new LinkedHashMap<Long, DataDevelopmentDirectoryEntity>();
-        for (DataDevelopmentDirectoryEntity entity : listDirectoryEntities(securityService.currentTenantId())) {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        for (DataDevelopmentDirectoryEntity entity : listDirectoryEntities(securityService.currentTenantId(), currentProjectId)) {
             directoryMap.put(entity.getId(), entity);
         }
         Long cursor = targetDirectoryId;
@@ -440,6 +471,7 @@ public class DataDevelopmentService {
         DataDevelopmentDirectoryView view = new DataDevelopmentDirectoryView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
@@ -454,6 +486,7 @@ public class DataDevelopmentService {
         DataDevelopmentScriptView view = new DataDevelopmentScriptView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
@@ -473,6 +506,40 @@ public class DataDevelopmentService {
 
     private boolean matchesTenant(String tenantId) {
         return securityService.currentTenantId().equals(tenantId);
+    }
+
+    private boolean matchesProject(Long projectId, Long expectedProjectId) {
+        if (projectId == null || expectedProjectId == null) {
+            return projectId == null && expectedProjectId == null;
+        }
+        return projectId.longValue() == expectedProjectId.longValue();
+    }
+
+    private String resolveExecutionUsername(Map<String, Object> runtimeContext) {
+        String username = securityService.currentUsername();
+        if (username != null && !username.trim().isEmpty()) {
+            return username;
+        }
+        Object runtimeUsername = runtimeContext == null ? null : runtimeContext.get("username");
+        if (runtimeUsername == null) {
+            runtimeUsername = runtimeContext == null ? null : runtimeContext.get("workerCode");
+        }
+        return runtimeUsername == null ? null : String.valueOf(runtimeUsername);
+    }
+
+    private Map<String, Object> buildRuntimeContext(DataDevelopmentScriptEntity script, Map<String, Object> runtimeContext) {
+        Map<String, Object> context = runtimeContext == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(runtimeContext);
+        context.put("tenantId", script.getTenantId());
+        context.put("projectId", script.getProjectId());
+        context.put("scriptId", script.getId());
+        context.put("scriptName", script.getFileName());
+        String username = resolveExecutionUsername(runtimeContext);
+        if (username != null && !username.trim().isEmpty()) {
+            context.put("username", username);
+        }
+        return context;
     }
 
     private String blankToNull(String value) {

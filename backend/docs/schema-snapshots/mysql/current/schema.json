@@ -2,7 +2,7 @@
   "databaseName" : "data_aggregation_studio",
   "databaseProductName" : "MySQL",
   "databaseProductVersion" : "8.0.21",
-  "generatedAt" : "2026-04-08 18:14:21",
+  "generatedAt" : "2026-04-08 23:21:17",
   "tables" : [ {
     "ordinal" : 1,
     "tableName" : "catalog_plugin",
@@ -1243,254 +1243,6 @@
     } ]
   }, {
     "ordinal" : 11,
-    "tableName" : "data_dev_directory",
-    "engine" : "InnoDB",
-    "tableCollation" : "utf8mb4_general_ci",
-    "tableComment" : "",
-    "createSql" : "CREATE TABLE `data_dev_directory` (\n  `id` bigint NOT NULL,\n  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',\n  `deleted` int DEFAULT '0',\n  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `parent_id` bigint DEFAULT NULL,\n  `name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `permission_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `description` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_data_dev_directory_parent` (`parent_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
-    "columns" : [ {
-      "ordinalPosition" : 1,
-      "columnName" : "id",
-      "columnType" : "bigint",
-      "nullable" : false,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "PRI",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 2,
-      "columnName" : "tenant_id",
-      "columnType" : "varchar(64)",
-      "nullable" : true,
-      "defaultValue" : "default",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 3,
-      "columnName" : "deleted",
-      "columnType" : "int",
-      "nullable" : true,
-      "defaultValue" : "0",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 4,
-      "columnName" : "created_at",
-      "columnType" : "datetime",
-      "nullable" : true,
-      "defaultValue" : "CURRENT_TIMESTAMP",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "DEFAULT_GENERATED",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 5,
-      "columnName" : "updated_at",
-      "columnType" : "datetime",
-      "nullable" : true,
-      "defaultValue" : "CURRENT_TIMESTAMP",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "DEFAULT_GENERATED",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 6,
-      "columnName" : "parent_id",
-      "columnType" : "bigint",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "MUL",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 7,
-      "columnName" : "name",
-      "columnType" : "varchar(255)",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 8,
-      "columnName" : "permission_code",
-      "columnType" : "varchar(255)",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 9,
-      "columnName" : "description",
-      "columnType" : "varchar(1000)",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    } ],
-    "indexes" : [ {
-      "indexName" : "PRIMARY",
-      "primary" : true,
-      "unique" : true,
-      "indexType" : "BTREE",
-      "columns" : [ "id" ]
-    }, {
-      "indexName" : "idx_data_dev_directory_parent",
-      "primary" : false,
-      "unique" : false,
-      "indexType" : "BTREE",
-      "columns" : [ "parent_id" ]
-    } ]
-  }, {
-    "ordinal" : 12,
-    "tableName" : "data_dev_script",
-    "engine" : "InnoDB",
-    "tableCollation" : "utf8mb4_general_ci",
-    "tableComment" : "",
-    "createSql" : "CREATE TABLE `data_dev_script` (\n  `id` bigint NOT NULL,\n  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',\n  `deleted` int DEFAULT '0',\n  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `directory_id` bigint DEFAULT NULL,\n  `file_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `script_type` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `datasource_id` bigint DEFAULT NULL,\n  `description` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `content` longtext COLLATE utf8mb4_general_ci,\n  PRIMARY KEY (`id`),\n  KEY `idx_data_dev_script_directory` (`directory_id`),\n  KEY `idx_data_dev_script_datasource` (`datasource_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
-    "columns" : [ {
-      "ordinalPosition" : 1,
-      "columnName" : "id",
-      "columnType" : "bigint",
-      "nullable" : false,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "PRI",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 2,
-      "columnName" : "tenant_id",
-      "columnType" : "varchar(64)",
-      "nullable" : true,
-      "defaultValue" : "default",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 3,
-      "columnName" : "deleted",
-      "columnType" : "int",
-      "nullable" : true,
-      "defaultValue" : "0",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 4,
-      "columnName" : "created_at",
-      "columnType" : "datetime",
-      "nullable" : true,
-      "defaultValue" : "CURRENT_TIMESTAMP",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "DEFAULT_GENERATED",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 5,
-      "columnName" : "updated_at",
-      "columnType" : "datetime",
-      "nullable" : true,
-      "defaultValue" : "CURRENT_TIMESTAMP",
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "DEFAULT_GENERATED",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 6,
-      "columnName" : "directory_id",
-      "columnType" : "bigint",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "MUL",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 7,
-      "columnName" : "file_name",
-      "columnType" : "varchar(255)",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 8,
-      "columnName" : "script_type",
-      "columnType" : "varchar(64)",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 9,
-      "columnName" : "datasource_id",
-      "columnType" : "bigint",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "MUL",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 10,
-      "columnName" : "description",
-      "columnType" : "varchar(1000)",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    }, {
-      "ordinalPosition" : 11,
-      "columnName" : "content",
-      "columnType" : "longtext",
-      "nullable" : true,
-      "defaultValue" : null,
-      "autoIncrement" : false,
-      "columnKey" : "",
-      "extra" : "",
-      "columnComment" : ""
-    } ],
-    "indexes" : [ {
-      "indexName" : "PRIMARY",
-      "primary" : true,
-      "unique" : true,
-      "indexType" : "BTREE",
-      "columns" : [ "id" ]
-    }, {
-      "indexName" : "idx_data_dev_script_datasource",
-      "primary" : false,
-      "unique" : false,
-      "indexType" : "BTREE",
-      "columns" : [ "datasource_id" ]
-    }, {
-      "indexName" : "idx_data_dev_script_directory",
-      "primary" : false,
-      "unique" : false,
-      "indexType" : "BTREE",
-      "columns" : [ "directory_id" ]
-    } ]
-  }, {
-    "ordinal" : 13,
     "tableName" : "studio_project",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -1617,7 +1369,7 @@
       "columns" : [ "tenant_id", "project_name" ]
     } ]
   }, {
-    "ordinal" : 14,
+    "ordinal" : 12,
     "tableName" : "studio_project_member",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -1728,7 +1480,7 @@
       "columns" : [ "project_id", "user_id" ]
     } ]
   }, {
-    "ordinal" : 15,
+    "ordinal" : 13,
     "tableName" : "studio_project_member_request",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -1879,7 +1631,7 @@
       "columns" : [ "project_id", "user_id", "status" ]
     } ]
   }, {
-    "ordinal" : 16,
+    "ordinal" : 14,
     "tableName" : "studio_project_worker_binding",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -1980,7 +1732,7 @@
       "columns" : [ "project_id", "worker_code" ]
     } ]
   }, {
-    "ordinal" : 17,
+    "ordinal" : 15,
     "tableName" : "studio_resource_share",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -2117,7 +1869,7 @@
       "columns" : [ "resource_type", "resource_id", "target_project_id" ]
     } ]
   }, {
-    "ordinal" : 18,
+    "ordinal" : 16,
     "tableName" : "studio_tenant",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -2228,7 +1980,7 @@
       "columns" : [ "tenant_code" ]
     } ]
   }, {
-    "ordinal" : 19,
+    "ordinal" : 17,
     "tableName" : "studio_tenant_member",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -2329,7 +2081,7 @@
       "columns" : [ "tenant_id", "user_id" ]
     } ]
   }, {
-    "ordinal" : 20,
+    "ordinal" : 18,
     "tableName" : "data_model",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -2486,7 +2238,7 @@
       "columns" : [ "project_id", "name" ]
     } ]
   }, {
-    "ordinal" : 21,
+    "ordinal" : 19,
     "tableName" : "data_model_attr_index",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -2731,7 +2483,7 @@
       "columns" : [ "project_id" ]
     } ]
   }, {
-    "ordinal" : 22,
+    "ordinal" : 20,
     "tableName" : "datasource_definition",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -2888,7 +2640,7 @@
       "columns" : [ "project_id", "name" ]
     } ]
   }, {
-    "ordinal" : 23,
+    "ordinal" : 21,
     "tableName" : "workflow_definition",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3021,7 +2773,7 @@
       "columns" : [ "project_id", "name" ]
     } ]
   }, {
-    "ordinal" : 24,
+    "ordinal" : 22,
     "tableName" : "workflow_definition_version",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3152,7 +2904,7 @@
       "columns" : [ "project_id" ]
     } ]
   }, {
-    "ordinal" : 25,
+    "ordinal" : 23,
     "tableName" : "workflow_edge",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3273,7 +3025,7 @@
       "columns" : [ "project_id" ]
     } ]
   }, {
-    "ordinal" : 26,
+    "ordinal" : 24,
     "tableName" : "workflow_node",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3414,7 +3166,7 @@
       "columns" : [ "project_id" ]
     } ]
   }, {
-    "ordinal" : 27,
+    "ordinal" : 25,
     "tableName" : "workflow_schedule",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3545,7 +3297,7 @@
       "columns" : [ "project_id" ]
     } ]
   }, {
-    "ordinal" : 28,
+    "ordinal" : 26,
     "tableName" : "collection_task_definition",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3712,7 +3464,7 @@
       "columns" : [ "project_id", "name" ]
     } ]
   }, {
-    "ordinal" : 29,
+    "ordinal" : 27,
     "tableName" : "collection_task_schedule",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -3843,7 +3595,7 @@
       "columns" : [ "project_id" ]
     } ]
   }, {
-    "ordinal" : 30,
+    "ordinal" : 28,
     "tableName" : "dispatch_task",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -4060,7 +3812,7 @@
       "columns" : [ "project_id", "workflow_run_id" ]
     } ]
   }, {
-    "ordinal" : 31,
+    "ordinal" : 29,
     "tableName" : "run_record",
     "engine" : "InnoDB",
     "tableCollation" : "utf8mb4_general_ci",
@@ -4305,6 +4057,286 @@
       "unique" : false,
       "indexType" : "BTREE",
       "columns" : [ "project_id", "workflow_run_id" ]
+    } ]
+  }, {
+    "ordinal" : 30,
+    "tableName" : "data_dev_directory",
+    "engine" : "InnoDB",
+    "tableCollation" : "utf8mb4_general_ci",
+    "tableComment" : "",
+    "createSql" : "CREATE TABLE `data_dev_directory` (\n  `id` bigint NOT NULL,\n  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',\n  `deleted` int DEFAULT '0',\n  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `parent_id` bigint DEFAULT NULL,\n  `name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `permission_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `description` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `project_id` bigint DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_data_dev_directory_parent` (`parent_id`),\n  KEY `idx_data_dev_directory_project_parent` (`project_id`,`parent_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    "columns" : [ {
+      "ordinalPosition" : 1,
+      "columnName" : "id",
+      "columnType" : "bigint",
+      "nullable" : false,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "PRI",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 2,
+      "columnName" : "tenant_id",
+      "columnType" : "varchar(64)",
+      "nullable" : true,
+      "defaultValue" : "default",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 3,
+      "columnName" : "deleted",
+      "columnType" : "int",
+      "nullable" : true,
+      "defaultValue" : "0",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 4,
+      "columnName" : "created_at",
+      "columnType" : "datetime",
+      "nullable" : true,
+      "defaultValue" : "CURRENT_TIMESTAMP",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "DEFAULT_GENERATED",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 5,
+      "columnName" : "updated_at",
+      "columnType" : "datetime",
+      "nullable" : true,
+      "defaultValue" : "CURRENT_TIMESTAMP",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "DEFAULT_GENERATED",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 6,
+      "columnName" : "parent_id",
+      "columnType" : "bigint",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "MUL",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 7,
+      "columnName" : "name",
+      "columnType" : "varchar(255)",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 8,
+      "columnName" : "permission_code",
+      "columnType" : "varchar(255)",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 9,
+      "columnName" : "description",
+      "columnType" : "varchar(1000)",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 10,
+      "columnName" : "project_id",
+      "columnType" : "bigint",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "MUL",
+      "extra" : "",
+      "columnComment" : ""
+    } ],
+    "indexes" : [ {
+      "indexName" : "PRIMARY",
+      "primary" : true,
+      "unique" : true,
+      "indexType" : "BTREE",
+      "columns" : [ "id" ]
+    }, {
+      "indexName" : "idx_data_dev_directory_parent",
+      "primary" : false,
+      "unique" : false,
+      "indexType" : "BTREE",
+      "columns" : [ "parent_id" ]
+    }, {
+      "indexName" : "idx_data_dev_directory_project_parent",
+      "primary" : false,
+      "unique" : false,
+      "indexType" : "BTREE",
+      "columns" : [ "project_id", "parent_id" ]
+    } ]
+  }, {
+    "ordinal" : 31,
+    "tableName" : "data_dev_script",
+    "engine" : "InnoDB",
+    "tableCollation" : "utf8mb4_general_ci",
+    "tableComment" : "",
+    "createSql" : "CREATE TABLE `data_dev_script` (\n  `id` bigint NOT NULL,\n  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',\n  `deleted` int DEFAULT '0',\n  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,\n  `directory_id` bigint DEFAULT NULL,\n  `file_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `script_type` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `datasource_id` bigint DEFAULT NULL,\n  `description` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  `content` longtext COLLATE utf8mb4_general_ci,\n  `project_id` bigint DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_data_dev_script_directory` (`directory_id`),\n  KEY `idx_data_dev_script_datasource` (`datasource_id`),\n  KEY `idx_data_dev_script_project_directory` (`project_id`,`directory_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    "columns" : [ {
+      "ordinalPosition" : 1,
+      "columnName" : "id",
+      "columnType" : "bigint",
+      "nullable" : false,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "PRI",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 2,
+      "columnName" : "tenant_id",
+      "columnType" : "varchar(64)",
+      "nullable" : true,
+      "defaultValue" : "default",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 3,
+      "columnName" : "deleted",
+      "columnType" : "int",
+      "nullable" : true,
+      "defaultValue" : "0",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 4,
+      "columnName" : "created_at",
+      "columnType" : "datetime",
+      "nullable" : true,
+      "defaultValue" : "CURRENT_TIMESTAMP",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "DEFAULT_GENERATED",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 5,
+      "columnName" : "updated_at",
+      "columnType" : "datetime",
+      "nullable" : true,
+      "defaultValue" : "CURRENT_TIMESTAMP",
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "DEFAULT_GENERATED",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 6,
+      "columnName" : "directory_id",
+      "columnType" : "bigint",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "MUL",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 7,
+      "columnName" : "file_name",
+      "columnType" : "varchar(255)",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 8,
+      "columnName" : "script_type",
+      "columnType" : "varchar(64)",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 9,
+      "columnName" : "datasource_id",
+      "columnType" : "bigint",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "MUL",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 10,
+      "columnName" : "description",
+      "columnType" : "varchar(1000)",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 11,
+      "columnName" : "content",
+      "columnType" : "longtext",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "",
+      "extra" : "",
+      "columnComment" : ""
+    }, {
+      "ordinalPosition" : 12,
+      "columnName" : "project_id",
+      "columnType" : "bigint",
+      "nullable" : true,
+      "defaultValue" : null,
+      "autoIncrement" : false,
+      "columnKey" : "MUL",
+      "extra" : "",
+      "columnComment" : ""
+    } ],
+    "indexes" : [ {
+      "indexName" : "PRIMARY",
+      "primary" : true,
+      "unique" : true,
+      "indexType" : "BTREE",
+      "columns" : [ "id" ]
+    }, {
+      "indexName" : "idx_data_dev_script_datasource",
+      "primary" : false,
+      "unique" : false,
+      "indexType" : "BTREE",
+      "columns" : [ "datasource_id" ]
+    }, {
+      "indexName" : "idx_data_dev_script_directory",
+      "primary" : false,
+      "unique" : false,
+      "indexType" : "BTREE",
+      "columns" : [ "directory_id" ]
+    }, {
+      "indexName" : "idx_data_dev_script_project_directory",
+      "primary" : false,
+      "unique" : false,
+      "indexType" : "BTREE",
+      "columns" : [ "project_id", "directory_id" ]
     } ]
   } ]
 }
