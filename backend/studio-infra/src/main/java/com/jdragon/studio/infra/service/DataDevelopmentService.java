@@ -368,7 +368,7 @@ public class DataDevelopmentService {
             node.setProjectId(entity.getProjectId());
             node.setName(entity.getFileName());
             node.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
-            DataSourceDefinition datasource = dataSourceService.get(entity.getDatasourceId());
+            DataSourceDefinition datasource = safeResolveScriptDatasource(entity.getDatasourceId());
             node.setDatasourceName(datasource == null ? null : datasource.getName());
             if (entity.getDirectoryId() != null && directoryNodes.containsKey(entity.getDirectoryId())) {
                 directoryNodes.get(entity.getDirectoryId()).getChildren().add(node);
@@ -514,7 +514,7 @@ public class DataDevelopmentService {
         view.setFileName(entity.getFileName());
         view.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
         view.setDatasourceId(entity.getDatasourceId());
-        DataSourceDefinition datasource = entity.getDatasourceId() == null ? null : dataSourceService.get(entity.getDatasourceId());
+        DataSourceDefinition datasource = safeResolveScriptDatasource(entity.getDatasourceId());
         if (datasource != null) {
             view.setDatasourceName(datasource.getName());
             view.setDatasourceTypeCode(datasource.getTypeCode());
@@ -522,6 +522,20 @@ public class DataDevelopmentService {
         view.setDescription(entity.getDescription());
         view.setContent(entity.getContent());
         return view;
+    }
+
+    private DataSourceDefinition safeResolveScriptDatasource(Long datasourceId) {
+        if (datasourceId == null) {
+            return null;
+        }
+        try {
+            return dataSourceService.get(datasourceId);
+        } catch (StudioException exception) {
+            if (StudioErrorCode.NOT_FOUND.equals(exception.getCode())) {
+                return null;
+            }
+            throw exception;
+        }
     }
 
     private boolean matchesTenant(String tenantId) {

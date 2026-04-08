@@ -464,12 +464,7 @@ public class SystemManagementService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Source and target project cannot be the same");
         }
         ResourceShareEntity target = entity.getId() == null
-                ? resourceShareMapper.selectOne(new LambdaQueryWrapper<ResourceShareEntity>()
-                .eq(ResourceShareEntity::getTenantId, project.getTenantId())
-                .eq(ResourceShareEntity::getResourceType, normalizedResourceType)
-                .eq(ResourceShareEntity::getResourceId, entity.getResourceId())
-                .eq(ResourceShareEntity::getTargetProjectId, targetProject.getId())
-                .last("limit 1"))
+                ? resourceShareMapper.selectIncludingDeleted(project.getTenantId(), normalizedResourceType, entity.getResourceId(), targetProject.getId())
                 : requireResourceShare(entity.getId(), project.getTenantId(), project.getId());
         if (target == null) {
             target = new ResourceShareEntity();
@@ -483,6 +478,9 @@ public class SystemManagementService {
         target.setEnabled(entity.getEnabled() == null ? 1 : entity.getEnabled());
         if (target.getId() == null) {
             resourceShareMapper.insert(target);
+        } else if (target.getDeleted() != null && target.getDeleted() == 1) {
+            resourceShareMapper.reviveDeletedById(target.getId(), target.getEnabled(), target.getSharedByUserId(), target.getSourceProjectId());
+            target.setDeleted(0);
         } else {
             resourceShareMapper.updateById(target);
         }
