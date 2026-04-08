@@ -6,7 +6,7 @@
         <p>{{ t("web.datasources.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button type="primary" @click="openCreate">{{ t("common.newDatasource") }}</el-button>
+        <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openCreate">{{ t("common.newDatasource") }}</el-button>
         <el-button plain @click="loadPage">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
@@ -20,6 +20,14 @@
           </el-table-column>
           <el-table-column prop="name" :label="t('web.datasources.nameColumn')" min-width="180" />
         <el-table-column prop="typeCode" :label="t('web.datasources.typeColumn')" width="120" />
+        <el-table-column label="所属项目" min-width="170">
+          <template #default="{ row }">
+            <div class="stack-cell">
+              <span>{{ resolveProjectLabel(row.projectId) }}</span>
+              <span class="cell-subtle">{{ isSharedDatasource(row) ? "共享来源" : "当前项目" }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('web.datasources.enabledColumn')" width="110" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.enabled ? t('common.on') : t('common.off')" :tone="row.enabled ? 'success' : 'neutral'" />
@@ -211,7 +219,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElInput, ElInputNumber, ElMessage, ElMessageBox, ElSelect, ElSwitch } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
@@ -226,6 +234,7 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
@@ -236,7 +245,7 @@ import {
   setBusinessMetaModelRows,
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
-import { cloneDeep, formatModelKind, prettyJson } from "@/utils/studio";
+import { cloneDeep, formatModelKind, isSharedFromAnotherProject, prettyJson, resolveProjectName } from "@/utils/studio";
 
 interface DataSourceForm extends DataSourceDefinition {
   name: string;
@@ -255,6 +264,7 @@ interface DatasourceBusinessSection {
 }
 
 const { t } = useI18n();
+const authStore = useAuthStore();
 
 const datasources = ref<DataSourceDefinition[]>([]);
 const { pagination: datasourcePagination, pagedItems: pagedDatasources, resetPagination: resetDatasourcePagination } = useClientPagination(datasources);
@@ -335,12 +345,21 @@ const businessSchemas = computed(() =>
 const businessSections = computed(() => businessSchemas.value.map(buildBusinessSection));
 
 function buildDatasourceActions(datasource: DataSourceDefinition) {
+  const shared = isSharedDatasource(datasource);
   return [
-    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => editDatasource(datasource) },
+    { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editDatasource(datasource) },
     { key: "test", label: t("common.test"), type: "success", onClick: () => testDatasource(datasource) },
     { key: "discover", label: t("common.discover"), type: "warning", onClick: () => discoverModels(datasource) },
-    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteDatasource(datasource) },
+    { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteDatasource(datasource) },
   ];
+}
+
+function resolveProjectLabel(projectId?: string | number) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedDatasource(datasource: DataSourceDefinition) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, datasource.projectId);
 }
 
 const matchedSchema = computed(
@@ -637,6 +656,12 @@ async function deleteDatasource(item: DataSourceDefinition) {
 }
 
 onMounted(loadPage);
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (authStore.isAuthenticated) {
+    loadPage();
+  }
+});
 </script>
 
 <style scoped>
@@ -647,6 +672,17 @@ h3 {
 p {
   margin: 0;
   color: var(--studio-text-soft);
+}
+
+.stack-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cell-subtle {
+  color: var(--studio-text-soft);
+  font-size: 12px;
 }
 
 .tag-row {

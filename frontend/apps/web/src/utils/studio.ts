@@ -1,3 +1,5 @@
+import type { EntityId } from "@studio/api-sdk";
+
 export function toneFromStatus(status?: string | number | boolean) {
   const value = String(status ?? "").toUpperCase();
   if (value === "SUCCESS" || value === "PUBLISHED" || value === "TRUE" || value === "1") {
@@ -34,6 +36,32 @@ export function parseCommaSeparated(value: unknown) {
 
 export function cloneDeep<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function sameEntityId(left: EntityId | null | undefined, right: EntityId | null | undefined) {
+  if (left == null || right == null) {
+    return false;
+  }
+  return String(left) === String(right);
+}
+
+export function resolveProjectName(
+  projects: Array<{ projectId?: EntityId; id?: EntityId; projectName?: string }>,
+  projectId: EntityId | null | undefined,
+  fallback = "-",
+) {
+  if (projectId == null) {
+    return fallback;
+  }
+  const matched = projects.find((item) => sameEntityId(item.projectId ?? item.id, projectId));
+  return matched?.projectName ?? String(projectId);
+}
+
+export function isSharedFromAnotherProject(
+  currentProjectId: EntityId | null | undefined,
+  ownerProjectId: EntityId | null | undefined,
+) {
+  return currentProjectId != null && ownerProjectId != null && !sameEntityId(currentProjectId, ownerProjectId);
 }
 
 type TranslateFn = (key: string, ...args: unknown[]) => string;

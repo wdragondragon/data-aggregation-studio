@@ -24,8 +24,8 @@
               :value="item.id"
             />
           </el-select>
-          <el-button type="primary" @click="openCreateDialog">{{ t("common.newModel") }}</el-button>
-          <el-button plain @click="openSyncDialog">{{ t("common.sync") }}</el-button>
+          <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openCreateDialog">{{ t("common.newModel") }}</el-button>
+          <el-button plain :disabled="!authStore.currentProjectId" @click="openSyncDialog">{{ t("common.sync") }}</el-button>
           <el-button plain @click="rebuildQueryIndex">{{ t("common.rebuild") }}</el-button>
           <el-button plain @click="refreshModels">{{ t("common.refresh") }}</el-button>
         </div>
@@ -182,6 +182,14 @@
               {{ resolveDatasourceLabel(row.datasourceId) }}
             </template>
           </el-table-column>
+          <el-table-column label="所属项目" min-width="170">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ resolveProjectLabel(row.projectId) }}</span>
+                <span class="cell-subtle">{{ isSharedModel(row) ? "共享来源" : "当前项目" }}</span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column :label="t('web.models.kind')" width="120" align="center" header-align="center">
             <template #default="{ row }">
               {{ formatModelKind(t, row.modelKind) }}
@@ -212,7 +220,7 @@
         <el-button plain @click="goBackToList">{{ t("common.backToList") }}</el-button>
         <div class="detail-toolbar__actions">
           <el-button plain @click="refreshDetail">{{ t("common.refresh") }}</el-button>
-          <el-button type="primary" :disabled="!selectedModel" @click="openDetailEdit">{{ t("common.edit") }}</el-button>
+          <el-button type="primary" :disabled="!selectedModel || isSharedSelectedModel" @click="openDetailEdit">{{ t("common.edit") }}</el-button>
         </div>
       </div>
 
@@ -221,14 +229,24 @@
           <div>
             <strong>{{ selectedModel.name }}</strong>
             <p>{{ selectedModel.physicalLocator }}</p>
+            <p>所属项目：{{ resolveProjectLabel(selectedModel.projectId) }}</p>
           </div>
-          <StatusPill :label="formatModelKind(t, selectedModel.modelKind)" tone="primary" />
+          <div class="preview-head__tags">
+            <StatusPill :label="formatModelKind(t, selectedModel.modelKind)" tone="primary" />
+            <StatusPill
+              :label="isSharedSelectedModel ? '共享来源' : '当前项目'"
+              :tone="isSharedSelectedModel ? 'warning' : 'success'"
+            />
+          </div>
         </div>
         <div v-else class="soft-panel empty-hint">
           {{ t("web.models.previewEmpty") }}
         </div>
 
         <template v-if="selectedModel">
+          <div v-if="isSharedSelectedModel" class="soft-panel warning-hint">
+            当前模型来自其他项目共享，支持查看与引用，但不能在此项目中编辑或删除。
+          </div>
           <div class="model-section-stack">
             <div
               v-for="section in previewSections"
@@ -521,6 +539,7 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
@@ -530,7 +549,7 @@ import {
   setBusinessMetaModelRows,
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
-import { cloneDeep, formatModelKind } from "@/utils/studio";
+import { cloneDeep, formatModelKind, isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 type MetaSectionBinding = "TECHNICAL" | "BUSINESS";
 
@@ -600,6 +619,7 @@ const DATABASE_TYPE_HINTS = [
 const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
+const authStore = useAuthStore();
 const datasources = ref<DataSourceDefinition[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const models = ref<DataModelDefinition[]>([]);
@@ -693,6 +713,9 @@ const previewSections = computed(() => buildOrderedSections(previewTechnicalSect
 const showManualDatasourceHint = computed(
   () => Boolean(editorDatasource.value && isDatabaseDatasourceType(editorDatasource.value.typeCode) && !isEditingModel.value),
 );
+const isSharedSelectedModel = computed(() =>
+  isSharedFromAnotherProject(authStore.currentProjectId, selectedModel.value?.projectId),
+);
 
 function sameId(left?: EntityId, right?: EntityId) {
   if (left == null || right == null) {
@@ -718,6 +741,14 @@ function isDatabaseDatasourceType(typeCode?: string) {
 
 function findDatasourceById(datasourceId?: EntityId) {
   return datasources.value.find((item) => sameId(item.id, datasourceId));
+}
+
+function resolveProjectLabel(projectId?: EntityId | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedModel(model: DataModelDefinition) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, model.projectId);
 }
 
 function filterModelSchemas(datasourceTypeCode?: string) {
@@ -1657,24 +1688,27 @@ async function deleteModel(model: DataModelDefinition) {
 }
 
 function buildModelActions(model: DataModelDefinition) {
+  const shared = isSharedModel(model);
   return [
     {
       key: "edit",
       label: t("common.edit"),
       type: "primary",
+      disabled: shared,
       onClick: () => openModelDetail(model, true),
     },
     {
       key: "delete",
       label: t("common.delete"),
       type: "danger",
+      disabled: shared,
       onClick: () => deleteModel(model),
     },
   ];
 }
 
 watch(
-  () => [route.params.modelId, route.fullPath],
+  () => [route.params.modelId, route.fullPath, authStore.currentTenantId, authStore.currentProjectId],
   async () => {
     await loadPage();
     if (isDetailPage.value) {
@@ -1723,8 +1757,7 @@ p {
 }
 
 .model-query-panel__header p,
-.model-meta-section__header p,
-.preview-head p {
+.model-meta-section__header p {
   display: none;
 }
 
@@ -1773,6 +1806,29 @@ p {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.preview-head p {
+  margin: 4px 0 0;
+  display: block;
+}
+
+.preview-head__tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.stack-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cell-subtle {
+  color: var(--studio-text-soft);
+  font-size: 12px;
 }
 
 .model-section-stack {

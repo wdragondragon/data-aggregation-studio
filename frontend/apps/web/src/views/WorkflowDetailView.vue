@@ -9,7 +9,7 @@
         <el-button @click="router.push('/workflows')">{{ t("common.backToList") }}</el-button>
         <el-button plain @click="loadWorkflow">{{ t("common.refresh") }}</el-button>
         <el-button type="primary" plain :disabled="!workflow?.id" @click="openLogs">{{ t("web.workflows.logsEntry") }}</el-button>
-        <el-button type="primary" :disabled="!workflow?.id" @click="openEditor">{{ t("common.edit") }}</el-button>
+        <el-button type="primary" :disabled="!workflow?.id || isSharedWorkflow" @click="openEditor">{{ t("common.edit") }}</el-button>
       </div>
     </div>
 
@@ -25,6 +25,10 @@
             <strong>{{ workflow?.name || t("common.none") }}</strong>
           </div>
           <div class="detail-item">
+            <span class="detail-label">所属项目</span>
+            <strong>{{ resolveProjectLabel(workflow?.projectId) }}</strong>
+          </div>
+          <div class="detail-item">
             <span class="detail-label">{{ t("web.workflows.cronExpression") }}</span>
             <strong>{{ workflow?.schedule?.cronExpression || t("common.none") }}</strong>
           </div>
@@ -32,6 +36,9 @@
             <span class="detail-label">{{ t("web.workflows.timezone") }}</span>
             <strong>{{ workflow?.schedule?.timezone || t("common.none") }}</strong>
           </div>
+        </div>
+        <div v-if="isSharedWorkflow" class="soft-panel workflow-readonly-hint">
+          当前工作流来自其他项目共享，支持查看与运行，但不能在此项目中编辑、发布或删除。
         </div>
         <div class="workflow-stats">
           <div class="workflow-stat">
@@ -116,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -124,16 +131,21 @@ import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk
 import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
-import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
+import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const workflow = ref<WorkflowDefinitionView | null>(null);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 const workflowRunTotal = ref(0);
 const { pagination: workflowRunPagination } = useClientPagination(workflowRuns);
+const isSharedWorkflow = computed(() =>
+  isSharedFromAnotherProject(authStore.currentProjectId, workflow.value?.projectId),
+);
 
 async function loadWorkflow() {
   try {
@@ -204,6 +216,10 @@ function openRunDetail(item: WorkflowRunSummary) {
   });
 }
 
+function resolveProjectLabel(projectId?: string | number | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
 function formatDurationMs(durationMs?: number) {
   if (durationMs == null || Number.isNaN(Number(durationMs))) {
     return t("common.none");
@@ -231,6 +247,12 @@ function formatNodeStats(item: WorkflowRunSummary) {
 
 onMounted(async () => {
   await Promise.all([loadWorkflow(), loadWorkflowRuns()]);
+});
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
+  if (authStore.isAuthenticated) {
+    await Promise.all([loadWorkflow(), loadWorkflowRuns()]);
+  }
 });
 </script>
 
@@ -292,6 +314,10 @@ p {
 .workflow-stat strong,
 .detail-item strong {
   color: var(--studio-text);
+}
+
+.workflow-readonly-hint {
+  margin-top: 12px;
 }
 
 .workflow-run-table :deep(.cell) {

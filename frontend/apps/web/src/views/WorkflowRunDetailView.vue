@@ -15,6 +15,7 @@
       <div class="summary-panel">
         <div class="summary-grid">
           <div><strong>{{ t("web.runs.workflow") }}:</strong> {{ runDetail?.workflowName || "--" }}</div>
+          <div><strong>所属项目:</strong> {{ resolveProjectLabel(runDetail?.projectId) }}</div>
           <div class="summary-status-row">
             <strong>{{ t("web.runs.status") }}:</strong>
             <StatusPill :label="formatStatusLabel(t, runDetail?.status)" :tone="toneFromStatus(runDetail?.status)" />
@@ -23,6 +24,9 @@
           <div><strong>{{ t("web.runs.endedAt") }}:</strong> {{ runDetail?.endedAt || t("common.none") }}</div>
           <div><strong>{{ t("web.runs.duration") }}:</strong> {{ formatDurationMs(runDetail?.durationMs) }}</div>
           <div class="summary-message"><strong>{{ t("web.runs.summaryMessage") }}:</strong> {{ runDetail?.summaryMessage || t("common.none") }}</div>
+        </div>
+        <div v-if="isSharedRunDetail" class="soft-panel summary-shared-hint">
+          本次运行来源于其他项目共享的工作流定义，当前页面展示的是该次执行在所属项目下的运行结果。
         </div>
         <div class="status-strip">
           <div class="status-metric">
@@ -111,14 +115,19 @@ import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
-import { formatNodeType, formatStatusLabel, toneFromStatus } from "@/utils/studio";
+import { useAuthStore } from "@/stores/auth";
+import { formatNodeType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const runDetail = ref<WorkflowRunDetail | null>(null);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logVisible = ref(false);
+const isSharedRunDetail = computed(() =>
+  isSharedFromAnotherProject(authStore.currentProjectId, runDetail.value?.projectId),
+);
 
 const nodeStatuses = computed<Record<string, string>>(() => {
   const result: Record<string, string> = {};
@@ -168,6 +177,10 @@ function goBack() {
   router.push("/runs");
 }
 
+function resolveProjectLabel(projectId?: string | number | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
 watch(activeRunRecordId, (value) => {
   logVisible.value = value != null;
 });
@@ -179,6 +192,12 @@ watch(logVisible, (value) => {
 });
 
 onMounted(loadDetail);
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (authStore.isAuthenticated) {
+    loadDetail();
+  }
+});
 </script>
 
 <style scoped>
@@ -213,6 +232,10 @@ p {
 
 .summary-message {
   grid-column: 1 / -1;
+}
+
+.summary-shared-hint {
+  margin-top: 12px;
 }
 
 .status-strip {

@@ -6,7 +6,7 @@
         <p>{{ t("web.collectionTasks.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button type="primary" @click="router.push('/collection-tasks/new')">{{ t("web.collectionTasks.newTask") }}</el-button>
+        <el-button type="primary" :disabled="!authStore.currentProjectId" @click="router.push('/collection-tasks/new')">{{ t("web.collectionTasks.newTask") }}</el-button>
         <el-button plain @click="loadTasks">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
@@ -33,9 +33,11 @@
           <el-table-column :label="t('web.collectionTasks.name')" min-width="180">
           <template #default="{ row }">
             <div class="task-primary-cell">
-              <el-button link type="primary" class="task-name-link" @click="viewTask(row)">
+              <el-button v-if="!isSharedTask(row)" link type="primary" class="task-name-link" @click="viewTask(row)">
                 {{ row.name }}
               </el-button>
+              <strong v-else>{{ row.name }}</strong>
+              <span v-if="isSharedTask(row)" class="cell-subtle">共享任务只读</span>
             </div>
           </template>
         </el-table-column>
@@ -52,6 +54,14 @@
             <div class="stack-cell">
               <span>{{ formatCollectionTaskType(t, row.taskType) }}</span>
               <span class="cell-subtle">{{ row.sourceCount || 0 }} {{ t("web.collectionTasks.sourceCountUnit") }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="所属项目" min-width="170">
+          <template #default="{ row }">
+            <div class="stack-cell">
+              <span>{{ resolveProjectLabel(row.projectId) }}</span>
+              <span class="cell-subtle">{{ isSharedTask(row) ? "共享来源" : "当前项目" }}</span>
             </div>
           </template>
         </el-table-column>
@@ -155,12 +165,14 @@ import { useI18n } from "vue-i18n";
 import type { CollectionTaskDefinitionView, CollectionTaskListQuery, RunRecord } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
-import { formatCollectionTaskType, formatStatusLabel, toneFromStatus } from "@/utils/studio";
+import { formatCollectionTaskType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const router = useRouter();
+const authStore = useAuthStore();
 const tasks = ref<CollectionTaskDefinitionView[]>([]);
 const activeTask = ref<CollectionTaskDefinitionView | null>(null);
 const taskRunRecords = ref<RunRecord[]>([]);
@@ -210,14 +222,23 @@ function manageSchedule(task: CollectionTaskDefinitionView) {
 }
 
 function buildTaskActions(task: CollectionTaskDefinitionView) {
+  const shared = isSharedTask(task);
   return [
-    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => editTask(task) },
-    { key: "schedule", label: t("web.collectionTasks.scheduleManage"), onClick: () => manageSchedule(task) },
+    { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editTask(task) },
+    { key: "schedule", label: t("web.collectionTasks.scheduleManage"), disabled: shared, onClick: () => manageSchedule(task) },
     { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => openLogs(task) },
-    { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: task.status === "ONLINE", onClick: () => publishTask(task) },
+    { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || task.status === "ONLINE", onClick: () => publishTask(task) },
     { key: "trigger", label: t("common.trigger"), type: "warning", onClick: () => triggerTask(task) },
-    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteTask(task) },
+    { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteTask(task) },
   ];
+}
+
+function resolveProjectLabel(projectId?: string | number) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedTask(task: CollectionTaskDefinitionView) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, task.projectId);
 }
 
 async function openLogs(task: CollectionTaskDefinitionView) {
@@ -323,6 +344,12 @@ watch(logDrawerVisible, (value) => {
 });
 
 onMounted(loadTasks);
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (authStore.isAuthenticated) {
+    loadTasks();
+  }
+});
 </script>
 
 <style scoped>

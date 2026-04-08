@@ -360,6 +360,8 @@ public class WorkflowRunService {
         }
 
         WorkflowRunSummaryView summary = new WorkflowRunSummaryView();
+        summary.setTenantId(firstNonNullTenantId(safeRecords, safeTasks, workflow));
+        summary.setProjectId(firstNonNullProjectId(safeRecords, safeTasks, workflow));
         summary.setWorkflowRunId(workflowRunId);
         summary.setWorkflowDefinitionId(workflowDefinitionId);
         summary.setWorkflowVersionId(firstNonNullWorkflowVersionId(safeRecords, safeTasks));
@@ -376,6 +378,38 @@ public class WorkflowRunService {
         summary.setDurationMs(resolveDuration(summary.getStartedAt(), summary.getEndedAt()));
         summary.setSummaryMessage(resolveSummaryMessage(summary));
         return summary;
+    }
+
+    private String firstNonNullTenantId(List<RunRecordEntity> records,
+                                        List<DispatchTaskEntity> tasks,
+                                        WorkflowDefinitionView workflow) {
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getTenantId() != null) {
+                return record.getTenantId();
+            }
+        }
+        for (DispatchTaskEntity task : tasks) {
+            if (task != null && task.getTenantId() != null) {
+                return task.getTenantId();
+            }
+        }
+        return workflow == null ? null : workflow.getTenantId();
+    }
+
+    private Long firstNonNullProjectId(List<RunRecordEntity> records,
+                                       List<DispatchTaskEntity> tasks,
+                                       WorkflowDefinitionView workflow) {
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getProjectId() != null) {
+                return record.getProjectId();
+            }
+        }
+        for (DispatchTaskEntity task : tasks) {
+            if (task != null && task.getProjectId() != null) {
+                return task.getProjectId();
+            }
+        }
+        return workflow == null ? null : workflow.getProjectId();
     }
 
     private WorkflowDefinitionView resolveWorkflowDefinition(Long workflowDefinitionId,
@@ -495,6 +529,8 @@ public class WorkflowRunService {
     }
 
     private void copySummary(WorkflowRunSummaryView source, WorkflowRunDetailView target) {
+        target.setTenantId(source.getTenantId());
+        target.setProjectId(source.getProjectId());
         target.setWorkflowRunId(source.getWorkflowRunId());
         target.setWorkflowDefinitionId(source.getWorkflowDefinitionId());
         target.setWorkflowVersionId(source.getWorkflowVersionId());

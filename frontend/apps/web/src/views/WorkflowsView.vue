@@ -6,7 +6,7 @@
         <p>{{ t("web.workflows.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button type="primary" @click="router.push('/workflows/new')">{{ t("common.newWorkflow") }}</el-button>
+        <el-button type="primary" :disabled="!authStore.currentProjectId" @click="router.push('/workflows/new')">{{ t("common.newWorkflow") }}</el-button>
         <el-button plain @click="loadWorkflows">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
@@ -22,9 +22,20 @@
           <el-table-column prop="code" :label="t('web.workflows.code')" min-width="150" />
           <el-table-column :label="t('web.workflows.name')" min-width="220">
             <template #default="{ row }">
-              <el-button link type="primary" class="workflow-name-link" @click="viewWorkflow(row)">
-                {{ row.name }}
-              </el-button>
+              <div class="stack-cell">
+                <el-button link type="primary" class="workflow-name-link" @click="viewWorkflow(row)">
+                  {{ row.name }}
+                </el-button>
+                <span v-if="isSharedWorkflow(row)" class="cell-subtle">共享工作流只读</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="所属项目" min-width="170">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ resolveProjectLabel(row.projectId) }}</span>
+                <span class="cell-subtle">{{ isSharedWorkflow(row) ? "共享来源" : "当前项目" }}</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column :label="t('web.workflows.status')" width="120" align="center" header-align="center">
@@ -66,17 +77,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const { t } = useI18n();
 const router = useRouter();
+const authStore = useAuthStore();
 const workflows = ref<WorkflowDefinitionView[]>([]);
 const { pagination: workflowPagination, pagedItems: pagedWorkflows, resetPagination: resetWorkflowPagination } = useClientPagination(workflows);
 
@@ -107,13 +121,22 @@ function viewWorkflowLogs(workflow: WorkflowDefinitionView) {
 }
 
 function buildWorkflowActions(workflow: WorkflowDefinitionView) {
+  const shared = isSharedWorkflow(workflow);
   return [
-    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => editWorkflow(workflow) },
+    { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editWorkflow(workflow) },
     { key: "logs", label: t("web.workflows.logsEntry"), onClick: () => viewWorkflowLogs(workflow) },
-    { key: "publish", label: t("common.publish"), type: "success", disabled: !workflow.id, onClick: () => publishWorkflow(workflow) },
+    { key: "publish", label: t("common.publish"), type: "success", disabled: shared || !workflow.id, onClick: () => publishWorkflow(workflow) },
     { key: "trigger", label: t("common.trigger"), type: "warning", disabled: !workflow.id, onClick: () => triggerWorkflow(workflow) },
-    { key: "delete", label: t("common.delete"), type: "danger", disabled: !workflow.id, onClick: () => deleteWorkflow(workflow) },
+    { key: "delete", label: t("common.delete"), type: "danger", disabled: shared || !workflow.id, onClick: () => deleteWorkflow(workflow) },
   ];
+}
+
+function resolveProjectLabel(projectId?: string | number) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedWorkflow(workflow: WorkflowDefinitionView) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, workflow.projectId);
 }
 
 async function publishWorkflow(workflow: WorkflowDefinitionView) {
@@ -162,6 +185,12 @@ async function deleteWorkflow(workflow: WorkflowDefinitionView) {
 }
 
 onMounted(loadWorkflows);
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (authStore.isAuthenticated) {
+    loadWorkflows();
+  }
+});
 </script>
 
 <style scoped>
@@ -186,6 +215,16 @@ p {
 .workflow-name-link {
   padding: 0;
   font-weight: 600;
+}
+
+.stack-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.cell-subtle {
+  color: var(--studio-text-soft);
+  font-size: 12px;
 }
 
 .table-pagination {

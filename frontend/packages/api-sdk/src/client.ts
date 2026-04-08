@@ -40,10 +40,17 @@ import type {
   ScriptType,
   SqlExecutionRequest,
   SqlExecutionResult,
+  SystemProject,
+  SystemProjectMember,
+  SystemProjectMemberRequest,
+  SystemProjectWorker,
+  SystemTenant,
+  SystemTenantMember,
   WorkflowRunDetail,
   WorkflowRunListQuery,
   WorkflowRunSummary,
   RuntimeModeResponse,
+  ResourceShare,
   StudioUser,
   WorkflowDefinitionView,
   WorkflowSaveRequest,
@@ -375,6 +382,97 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       delete(id: EntityId) {
         return request<void>({ url: `/permissions/${id}`, method: "DELETE" });
+      },
+    },
+    system: {
+      tenants: {
+        list() {
+          return request<SystemTenant[]>({ url: "/system/tenants", method: "GET" });
+        },
+        save(payload: Partial<SystemTenant>) {
+          return request<SystemTenant>({ url: "/system/tenants", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/tenants/${id}`, method: "DELETE" });
+        },
+      },
+      projects: {
+        list() {
+          return request<SystemProject[]>({ url: "/system/projects", method: "GET" });
+        },
+        save(payload: Partial<SystemProject>) {
+          return request<SystemProject>({ url: "/system/projects", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/projects/${id}`, method: "DELETE" });
+        },
+      },
+      tenantMembers: {
+        list() {
+          return request<SystemTenantMember[]>({ url: "/system/tenant-members", method: "GET" });
+        },
+        save(payload: Partial<SystemTenantMember>) {
+          return request<SystemTenantMember>({ url: "/system/tenant-members", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/tenant-members/${id}`, method: "DELETE" });
+        },
+      },
+      projectMembers: {
+        list(projectId?: EntityId) {
+          return request<SystemProjectMember[]>({
+            url: "/system/project-members",
+            method: "GET",
+            params: projectId == null ? undefined : { projectId },
+          });
+        },
+        save(payload: Partial<SystemProjectMember>) {
+          return request<SystemProjectMember>({ url: "/system/project-members", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/project-members/${id}`, method: "DELETE" });
+        },
+      },
+      projectMemberRequests: {
+        list(projectId?: EntityId) {
+          return request<SystemProjectMemberRequest[]>({
+            url: "/system/project-member-requests",
+            method: "GET",
+            params: projectId == null ? undefined : { projectId },
+          });
+        },
+        save(payload: Partial<SystemProjectMemberRequest>) {
+          return request<SystemProjectMemberRequest>({ url: "/system/project-member-requests", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/project-member-requests/${id}`, method: "DELETE" });
+        },
+      },
+      projectWorkers: {
+        list(projectId?: EntityId) {
+          return request<SystemProjectWorker[]>({
+            url: "/system/project-workers",
+            method: "GET",
+            params: projectId == null ? undefined : { projectId },
+          });
+        },
+        save(payload: Partial<SystemProjectWorker>) {
+          return request<SystemProjectWorker>({ url: "/system/project-workers", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/project-workers/${id}`, method: "DELETE" });
+        },
+      },
+      resourceShares: {
+        list(params?: { resourceType?: string; projectId?: EntityId }) {
+          return request<ResourceShare[]>({ url: "/system/resource-shares", method: "GET", params });
+        },
+        save(payload: Partial<ResourceShare>) {
+          return request<ResourceShare>({ url: "/system/resource-shares", method: "POST", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/resource-shares/${id}`, method: "DELETE" });
+        },
       },
     },
     imports: {

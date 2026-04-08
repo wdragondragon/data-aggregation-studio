@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 
 @Data
 public class WorkflowRunSummaryView {
+    private String tenantId;
+    private Long projectId;
     private Long workflowRunId;
     private Long workflowDefinitionId;
     private Long workflowVersionId;

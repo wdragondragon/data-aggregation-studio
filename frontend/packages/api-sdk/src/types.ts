@@ -497,6 +497,8 @@ export interface RunListQuery {
 }
 
 export interface WorkflowRunSummary {
+  tenantId?: string;
+  projectId?: EntityId;
   workflowRunId?: EntityId;
   workflowDefinitionId?: EntityId;
   workflowVersionId?: EntityId;
@@ -550,6 +552,72 @@ export interface StudioUser extends BaseRecord {
   displayName?: string;
   passwordHash?: string;
   enabled?: number | boolean;
+}
+
+export interface SystemTenant extends BaseRecord {
+  tenantCode: string;
+  tenantName: string;
+  description?: string;
+  enabled?: boolean | number;
+}
+
+export interface SystemProject extends BaseRecord {
+  projectCode: string;
+  projectName: string;
+  description?: string;
+  enabled?: boolean | number;
+  defaultProject?: boolean | number;
+}
+
+export interface SystemTenantMember extends BaseRecord {
+  userId: EntityId;
+  username?: string;
+  displayName?: string;
+  roleCode?: string;
+  status?: string;
+}
+
+export interface SystemProjectMember extends BaseRecord {
+  userId: EntityId;
+  username?: string;
+  displayName?: string;
+  projectName?: string;
+  roleCode?: string;
+  status?: string;
+}
+
+export interface SystemProjectMemberRequest extends BaseRecord {
+  userId: EntityId;
+  username?: string;
+  displayName?: string;
+  projectName?: string;
+  requestType?: string;
+  status?: string;
+  inviterUserId?: EntityId;
+  inviterUsername?: string;
+  reviewerUserId?: EntityId;
+  reviewerUsername?: string;
+  reason?: string;
+  reviewComment?: string;
+}
+
+export interface SystemProjectWorker extends BaseRecord {
+  workerCode: string;
+  workerKind?: string;
+  hostName?: string;
+  status?: string;
+  lastHeartbeatAt?: string;
+  boundToProject?: boolean;
+  enabled?: boolean;
+}
+
+export interface ResourceShare extends BaseRecord {
+  sourceProjectId?: EntityId;
+  targetProjectId?: EntityId;
+  resourceType?: string;
+  resourceId?: EntityId;
+  sharedByUserId?: EntityId;
+  enabled?: boolean | number;
 }
 
 export interface RoleEntity extends BaseRecord {

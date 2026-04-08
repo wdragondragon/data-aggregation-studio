@@ -22,7 +22,7 @@
             <el-option
               v-for="item in workflows"
               :key="String(item.id)"
-              :label="item.name"
+              :label="`${item.name} / ${resolveProjectLabel(item.projectId)}`"
               :value="String(item.id)"
             />
           </el-select>
@@ -85,6 +85,14 @@
             </el-button>
           </template>
         </el-table-column>
+        <el-table-column label="所属项目" min-width="170">
+          <template #default="{ row }">
+            <div class="stack-cell">
+              <span>{{ resolveProjectLabel(row.projectId) }}</span>
+              <span class="cell-subtle">{{ isSharedRun(row) ? "共享来源" : "当前项目" }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
@@ -136,12 +144,14 @@ import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
-import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
+import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const workflows = ref<WorkflowDefinitionView[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 const workflowRunTotal = ref(0);
@@ -258,6 +268,14 @@ function openRunDetail(item: WorkflowRunSummary) {
   });
 }
 
+function resolveProjectLabel(projectId?: string | number | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedRun(item: WorkflowRunSummary) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, item.projectId);
+}
+
 function formatDurationMs(durationMs?: number) {
   if (durationMs == null || Number.isNaN(Number(durationMs))) {
     return t("common.none");
@@ -296,6 +314,13 @@ watch(
     void loadWorkflowRuns();
   },
 );
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
+  if (authStore.isAuthenticated) {
+    pagination.page = 1;
+    await Promise.all([loadWorkflows(), loadWorkflowRuns()]);
+  }
+});
 </script>
 
 <style scoped>
