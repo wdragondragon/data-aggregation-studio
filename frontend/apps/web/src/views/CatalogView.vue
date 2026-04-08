@@ -19,14 +19,17 @@
 
     <SectionCard :title="t('web.catalog.capabilityTitle')" :description="t('web.catalog.capabilityDescription')">
       <div class="soft-panel">
-        <div class="tag-row">
-          <StatusPill
-            v-for="type in executableTypeBadges"
-            :key="type"
-            :label="type"
-            tone="success"
-          />
-          <span v-if="executableTypeBadges.length === 0">{{ t("common.none") }}</span>
+        <div class="capability-summary">
+          <span class="capability-summary__label">{{ t("web.catalog.executableTypes") }}</span>
+          <div class="capability-summary__badges">
+            <StatusPill
+              v-for="type in executableTypeBadges"
+              :key="type"
+              :label="type"
+              tone="success"
+            />
+            <span v-if="executableTypeBadges.length === 0">{{ t("common.none") }}</span>
+          </div>
         </div>
       </div>
 
@@ -110,6 +113,35 @@ h3 {
 p {
   margin: 0;
   color: var(--studio-text-soft);
+}
+
+.capability-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.capability-summary__label {
+  flex: 0 0 auto;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.capability-summary__badges {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.capability-summary__badges :deep(.status-pill) {
+  padding: 3px 8px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
 }
 
 .tag-row {
