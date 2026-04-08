@@ -26,27 +26,28 @@ import java.util.Map;
 @Service
 public class DataSourceService {
 
-    private static final String BUSINESS_SCHEMA_VERSION_KEY = "__businessSchemaVersionId";
-
     private final DatasourceMapper datasourceMapper;
     private final DataModelMapper dataModelMapper;
     private final EncryptionService encryptionService;
     private final AggregationSourceCapabilityProvider capabilityProvider;
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelSearchIndexService dataModelSearchIndexService;
+    private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
                              EncryptionService encryptionService,
                              AggregationSourceCapabilityProvider capabilityProvider,
                              MetadataSchemaService metadataSchemaService,
-                             DataModelSearchIndexService dataModelSearchIndexService) {
+                             DataModelSearchIndexService dataModelSearchIndexService,
+                             BusinessMetaModelMetadataService businessMetaModelMetadataService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.encryptionService = encryptionService;
         this.capabilityProvider = capabilityProvider;
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
+        this.businessMetaModelMetadataService = businessMetaModelMetadataService;
     }
 
     public List<DataSourceDefinition> list() {
@@ -78,18 +79,13 @@ public class DataSourceService {
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity.getTechnicalMetadata(), technicalMetadata);
-        Map<String, Object> businessMetadata = new LinkedHashMap<String, Object>();
-        if (request.getBusinessMetadata() != null) {
-            businessMetadata.putAll(request.getBusinessMetadata());
-        }
-        MetadataSchemaDefinition businessSchema = resolveBusinessSchema(businessMetadata);
         entity.setName(request.getName());
         entity.setTypeCode(request.getTypeCode());
         entity.setSchemaVersionId(resolveSchemaVersionId(request, schema));
         entity.setEnabled(Boolean.TRUE.equals(request.getEnabled()) ? 1 : 0);
         entity.setExecutable(Boolean.TRUE.equals(request.getExecutable()) ? 1 : 0);
         entity.setTechnicalMetadata(encryptSensitive(technicalMetadata));
-        entity.setBusinessMetadata(applyDefaults(businessMetadata, businessSchema == null ? schema : businessSchema, MetadataScope.BUSINESS));
+        entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         if (entity.getId() == null) {
             datasourceMapper.insert(entity);
         } else {
@@ -101,6 +97,10 @@ public class DataSourceService {
     public ConnectionTestResult testConnection(Long id) {
         DataSourceDefinition definition = getInternal(id);
         return capabilityProvider.testConnection(definition);
+    }
+
+    public ConnectionTestResult testConnection(DataSourceSaveRequest request) {
+        return capabilityProvider.testConnection(buildDefinitionForTest(request));
     }
 
     public ModelDiscoveryResult discoverModels(Long id) {
@@ -130,6 +130,24 @@ public class DataSourceService {
         definition.setExecutable(entity.getExecutable() != null && entity.getExecutable() == 1);
         definition.setTechnicalMetadata(maskSensitive ? maskSensitive(entity.getTechnicalMetadata()) : entity.getTechnicalMetadata());
         definition.setBusinessMetadata(entity.getBusinessMetadata());
+        return definition;
+    }
+
+    private DataSourceDefinition buildDefinitionForTest(DataSourceSaveRequest request) {
+        DatasourceEntity entity = request.getId() == null ? null : datasourceMapper.selectById(request.getId());
+        MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
+        Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
+        technicalMetadata = preserveSensitiveValues(entity == null ? null : entity.getTechnicalMetadata(), technicalMetadata);
+
+        DataSourceDefinition definition = new DataSourceDefinition();
+        definition.setId(request.getId());
+        definition.setName(request.getName());
+        definition.setTypeCode(request.getTypeCode());
+        definition.setSchemaVersionId(resolveSchemaVersionId(request, schema));
+        definition.setEnabled(Boolean.TRUE.equals(request.getEnabled()));
+        definition.setExecutable(Boolean.TRUE.equals(request.getExecutable()));
+        definition.setTechnicalMetadata(technicalMetadata);
+        definition.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         return definition;
     }
 
@@ -237,36 +255,6 @@ public class DataSourceService {
                     && typeCode.equalsIgnoreCase(schema.getTypeCode())
                     && schema.getCurrentVersionId() != null) {
                 return schema;
-            }
-        }
-        return null;
-    }
-
-    private MetadataSchemaDefinition resolveBusinessSchema(Map<String, Object> businessMetadata) {
-        Long schemaVersionId = parseSchemaVersionId(businessMetadata == null ? null : businessMetadata.get(BUSINESS_SCHEMA_VERSION_KEY));
-        if (schemaVersionId == null) {
-            return null;
-        }
-        MetadataSchemaDefinition schema = metadataSchemaService.findSchemaByVersionId(schemaVersionId);
-        if (schema == null || !"business".equalsIgnoreCase(schema.getObjectType())) {
-            return null;
-        }
-        return schema;
-    }
-
-    private Long parseSchemaVersionId(Object value) {
-        if (value instanceof Number) {
-            return ((Number) value).longValue();
-        }
-        if (value instanceof String) {
-            String text = ((String) value).trim();
-            if (text.isEmpty()) {
-                return null;
-            }
-            try {
-                return Long.parseLong(text);
-            } catch (NumberFormatException ignored) {
-                return null;
             }
         }
         return null;

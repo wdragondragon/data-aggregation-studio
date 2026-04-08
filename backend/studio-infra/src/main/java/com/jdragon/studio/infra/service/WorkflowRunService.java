@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeRunView;
@@ -14,6 +15,8 @@ import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -25,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 
 @Service
 public class WorkflowRunService {
@@ -33,58 +37,118 @@ public class WorkflowRunService {
     private final DispatchTaskMapper dispatchTaskMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final WorkflowService workflowService;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     public WorkflowRunService(RunRecordMapper runRecordMapper,
                               DispatchTaskMapper dispatchTaskMapper,
                               WorkflowDefinitionMapper workflowDefinitionMapper,
-                              WorkflowService workflowService) {
+                              WorkflowService workflowService,
+                              NamedParameterJdbcTemplate namedParameterJdbcTemplate) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowService = workflowService;
+        this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
     }
 
-    public List<WorkflowRunSummaryView> list(Long workflowDefinitionId,
-                                             LocalDateTime startTime,
-                                             LocalDateTime endTime) {
+    public PageView<WorkflowRunSummaryView> list(Long workflowDefinitionId,
+                                                 String status,
+                                                 LocalDateTime startTime,
+                                                 LocalDateTime endTime,
+                                                 Integer pageNo,
+                                                 Integer pageSize) {
+        int safePageNo = pageNo == null || pageNo.intValue() < 1 ? 1 : pageNo.intValue();
+        int safePageSize = pageSize == null ? 20 : pageSize.intValue();
+        if (safePageSize < 1) {
+            safePageSize = 20;
+        }
+        if (safePageSize > 200) {
+            safePageSize = 200;
+        }
+        String normalizedStatus = normalizeSummaryStatus(status);
+        if (normalizedStatus != null) {
+            return listBySummaryStatus(workflowDefinitionId, normalizedStatus, startTime, endTime, safePageNo, safePageSize);
+        }
+
+        long total = countWorkflowRuns(workflowDefinitionId, startTime, endTime);
+        if (total <= 0) {
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<WorkflowRunSummaryView>());
+        }
+
+        List<Long> workflowRunIds = queryWorkflowRunIds(workflowDefinitionId, startTime, endTime, safePageNo, safePageSize);
+        if (workflowRunIds.isEmpty()) {
+            return PageView.of(safePageNo, safePageSize, total, new ArrayList<WorkflowRunSummaryView>());
+        }
+
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
-                .isNotNull(RunRecordEntity::getWorkflowRunId)
-                .eq(workflowDefinitionId != null, RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .in(RunRecordEntity::getWorkflowRunId, workflowRunIds)
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .isNotNull(DispatchTaskEntity::getWorkflowRunId)
-                .eq(workflowDefinitionId != null, DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .in(DispatchTaskEntity::getWorkflowRunId, workflowRunIds)
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
 
-        Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, startTime, endTime);
-        Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, startTime, endTime);
-        Set<Long> workflowRunIds = new LinkedHashSet<Long>();
-        workflowRunIds.addAll(recordsByRun.keySet());
-        workflowRunIds.addAll(tasksByRun.keySet());
+        Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
+        Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
+        Map<Long, String> workflowNames = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
+        Map<Long, WorkflowDefinitionView> workflowCache = new HashMap<Long, WorkflowDefinitionView>();
 
-        Map<Long, String> workflowNames = workflowNames();
-        List<WorkflowRunSummaryView> result = new ArrayList<WorkflowRunSummaryView>();
+        List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
         for (Long workflowRunId : workflowRunIds) {
-            result.add(buildSummary(workflowRunId, recordsByRun.get(workflowRunId), tasksByRun.get(workflowRunId), workflowNames));
+            items.add(buildSummary(workflowRunId,
+                    recordsByRun.get(workflowRunId),
+                    tasksByRun.get(workflowRunId),
+                    workflowNames,
+                    workflowCache));
         }
-        result.sort(new Comparator<WorkflowRunSummaryView>() {
-            @Override
-            public int compare(WorkflowRunSummaryView left, WorkflowRunSummaryView right) {
-                LocalDateTime leftTime = left.getStartedAt() != null ? left.getStartedAt() : left.getEndedAt();
-                LocalDateTime rightTime = right.getStartedAt() != null ? right.getStartedAt() : right.getEndedAt();
-                if (leftTime == null && rightTime == null) {
-                    return String.valueOf(right.getWorkflowRunId()).compareTo(String.valueOf(left.getWorkflowRunId()));
+        return PageView.of(safePageNo, safePageSize, total, items);
+    }
+
+    private PageView<WorkflowRunSummaryView> listBySummaryStatus(Long workflowDefinitionId,
+                                                                 String summaryStatus,
+                                                                 LocalDateTime startTime,
+                                                                 LocalDateTime endTime,
+                                                                 int pageNo,
+                                                                 int pageSize) {
+        List<Long> workflowRunIds = queryAllWorkflowRunIds(workflowDefinitionId, startTime, endTime);
+        if (workflowRunIds.isEmpty()) {
+            return PageView.of(pageNo, pageSize, 0L, new ArrayList<WorkflowRunSummaryView>());
+        }
+
+        int offset = (pageNo - 1) * pageSize;
+        long matched = 0L;
+        List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
+        Map<Long, WorkflowDefinitionView> workflowCache = new HashMap<Long, WorkflowDefinitionView>();
+        Map<Long, String> workflowNamesCache = new LinkedHashMap<Long, String>();
+
+        for (int index = 0; index < workflowRunIds.size(); index += 200) {
+            List<Long> batchIds = workflowRunIds.subList(index, Math.min(index + 200, workflowRunIds.size()));
+            List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                    .in(RunRecordEntity::getWorkflowRunId, batchIds)
+                    .orderByDesc(RunRecordEntity::getCreatedAt));
+            List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                    .in(DispatchTaskEntity::getWorkflowRunId, batchIds)
+                    .orderByDesc(DispatchTaskEntity::getCreatedAt));
+
+            Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
+            Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
+            workflowNamesCache.putAll(workflowNames(resolveWorkflowDefinitionIds(records, tasks)));
+
+            for (Long workflowRunId : batchIds) {
+                WorkflowRunSummaryView summary = buildSummary(workflowRunId,
+                        recordsByRun.get(workflowRunId),
+                        tasksByRun.get(workflowRunId),
+                        workflowNamesCache,
+                        workflowCache);
+                if (!summaryStatus.equalsIgnoreCase(String.valueOf(summary.getStatus()))) {
+                    continue;
                 }
-                if (leftTime == null) {
-                    return 1;
+                if (matched >= offset && items.size() < pageSize) {
+                    items.add(summary);
                 }
-                if (rightTime == null) {
-                    return -1;
-                }
-                return rightTime.compareTo(leftTime);
+                matched++;
             }
-        });
-        return result;
+        }
+        return PageView.of(pageNo, pageSize, matched, items);
     }
 
     public WorkflowRunDetailView get(Long workflowRunId) {
@@ -98,9 +162,10 @@ public class WorkflowRunService {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow run not found: " + workflowRunId);
         }
 
-        Map<Long, String> workflowNames = workflowNames();
+        Map<Long, String> workflowNames = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
+        Map<Long, WorkflowDefinitionView> workflowCache = new HashMap<Long, WorkflowDefinitionView>();
         WorkflowRunDetailView detail = new WorkflowRunDetailView();
-        WorkflowRunSummaryView summary = buildSummary(workflowRunId, records, tasks, workflowNames);
+        WorkflowRunSummaryView summary = buildSummary(workflowRunId, records, tasks, workflowNames, workflowCache);
         copySummary(summary, detail);
 
         Long workflowDefinitionId = summary.getWorkflowDefinitionId();
@@ -160,9 +225,13 @@ public class WorkflowRunService {
         return detail;
     }
 
-    private Map<Long, String> workflowNames() {
+    private Map<Long, String> workflowNames(Set<Long> workflowDefinitionIds) {
         Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (workflowDefinitionIds == null || workflowDefinitionIds.isEmpty()) {
+            return result;
+        }
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .in(WorkflowDefinitionEntity::getId, workflowDefinitionIds)
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
         for (WorkflowDefinitionEntity definition : definitions) {
             if (definition.getId() != null) {
@@ -170,6 +239,21 @@ public class WorkflowRunService {
             }
         }
         return result;
+    }
+
+    private Set<Long> resolveWorkflowDefinitionIds(List<RunRecordEntity> records, List<DispatchTaskEntity> tasks) {
+        Set<Long> workflowDefinitionIds = new LinkedHashSet<Long>();
+        for (RunRecordEntity record : records) {
+            if (record.getWorkflowDefinitionId() != null) {
+                workflowDefinitionIds.add(record.getWorkflowDefinitionId());
+            }
+        }
+        for (DispatchTaskEntity task : tasks) {
+            if (task.getWorkflowDefinitionId() != null) {
+                workflowDefinitionIds.add(task.getWorkflowDefinitionId());
+            }
+        }
+        return workflowDefinitionIds;
     }
 
     private Map<Long, List<RunRecordEntity>> groupRunRecords(List<RunRecordEntity> records,
@@ -218,12 +302,13 @@ public class WorkflowRunService {
     private WorkflowRunSummaryView buildSummary(Long workflowRunId,
                                                 List<RunRecordEntity> records,
                                                 List<DispatchTaskEntity> tasks,
-                                                Map<Long, String> workflowNames) {
+                                                Map<Long, String> workflowNames,
+                                                Map<Long, WorkflowDefinitionView> workflowCache) {
         List<RunRecordEntity> safeRecords = records == null ? new ArrayList<RunRecordEntity>() : records;
         List<DispatchTaskEntity> safeTasks = tasks == null ? new ArrayList<DispatchTaskEntity>() : tasks;
 
         Long workflowDefinitionId = firstNonNullWorkflowDefinitionId(safeRecords, safeTasks);
-        WorkflowDefinitionView workflow = workflowDefinitionId == null ? null : workflowService.get(workflowDefinitionId);
+        WorkflowDefinitionView workflow = resolveWorkflowDefinition(workflowDefinitionId, workflowCache);
         Map<String, RunRecordEntity> latestRecordByNode = latestRecordByNode(safeRecords);
         Map<String, DispatchTaskEntity> latestTaskByNode = latestTaskByNode(safeTasks);
         List<WorkflowNodeRunView> nodeRuns = new ArrayList<WorkflowNodeRunView>();
@@ -272,6 +357,104 @@ public class WorkflowRunService {
         summary.setDurationMs(resolveDuration(summary.getStartedAt(), summary.getEndedAt()));
         summary.setSummaryMessage(resolveSummaryMessage(summary));
         return summary;
+    }
+
+    private WorkflowDefinitionView resolveWorkflowDefinition(Long workflowDefinitionId,
+                                                             Map<Long, WorkflowDefinitionView> workflowCache) {
+        if (workflowDefinitionId == null) {
+            return null;
+        }
+        if (workflowCache.containsKey(workflowDefinitionId)) {
+            return workflowCache.get(workflowDefinitionId);
+        }
+        WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
+        workflowCache.put(workflowDefinitionId, workflow);
+        return workflow;
+    }
+
+    private long countWorkflowRuns(Long workflowDefinitionId,
+                                   LocalDateTime startTime,
+                                   LocalDateTime endTime) {
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime);
+        String countSql = "select count(*) from (" +
+                "select workflow_run_id from (" + workflowRunEventsSql + ") workflow_events group by workflow_run_id" +
+                ") grouped_runs";
+        Long total = namedParameterJdbcTemplate.queryForObject(countSql, params, Long.class);
+        return total == null ? 0L : total.longValue();
+    }
+
+    private List<Long> queryWorkflowRunIds(Long workflowDefinitionId,
+                                           LocalDateTime startTime,
+                                           LocalDateTime endTime,
+                                           int pageNo,
+                                           int pageSize) {
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        params.addValue("limit", Integer.valueOf(pageSize));
+        params.addValue("offset", Integer.valueOf((pageNo - 1) * pageSize));
+        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime);
+        String idSql = "select workflow_run_id from (" +
+                workflowRunEventsSql +
+                ") workflow_events group by workflow_run_id order by max(occurred_at) desc, workflow_run_id desc limit :limit offset :offset";
+        return namedParameterJdbcTemplate.queryForList(idSql, params, Long.class);
+    }
+
+    private List<Long> queryAllWorkflowRunIds(Long workflowDefinitionId,
+                                              LocalDateTime startTime,
+                                              LocalDateTime endTime) {
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime);
+        String idSql = "select workflow_run_id from (" +
+                workflowRunEventsSql +
+                ") workflow_events group by workflow_run_id order by max(occurred_at) desc, workflow_run_id desc";
+        return namedParameterJdbcTemplate.queryForList(idSql, params, Long.class);
+    }
+
+    private MapSqlParameterSource buildWorkflowRunEventParams(Long workflowDefinitionId,
+                                                              LocalDateTime startTime,
+                                                              LocalDateTime endTime) {
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (workflowDefinitionId != null) {
+            params.addValue("workflowDefinitionId", workflowDefinitionId);
+        }
+        if (startTime != null) {
+            params.addValue("startTime", startTime);
+        }
+        if (endTime != null) {
+            params.addValue("endTime", endTime);
+        }
+        return params;
+    }
+
+    private String buildWorkflowRunEventsSql(Long workflowDefinitionId,
+                                             LocalDateTime startTime,
+                                             LocalDateTime endTime) {
+        StringBuilder sql = new StringBuilder();
+        sql.append("select workflow_run_id, workflow_definition_id, coalesce(started_at, created_at) as occurred_at ");
+        sql.append("from run_record where workflow_run_id is not null");
+        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime, "workflow_definition_id", "coalesce(started_at, created_at)");
+        sql.append(" union all ");
+        sql.append("select workflow_run_id, workflow_definition_id, created_at as occurred_at ");
+        sql.append("from dispatch_task where workflow_run_id is not null");
+        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime, "workflow_definition_id", "created_at");
+        return sql.toString();
+    }
+
+    private void appendWorkflowRunFilters(StringBuilder sql,
+                                          Long workflowDefinitionId,
+                                          LocalDateTime startTime,
+                                          LocalDateTime endTime,
+                                          String workflowDefinitionColumn,
+                                          String occurredAtExpression) {
+        if (workflowDefinitionId != null) {
+            sql.append(" and ").append(workflowDefinitionColumn).append(" = :workflowDefinitionId");
+        }
+        if (startTime != null) {
+            sql.append(" and ").append(occurredAtExpression).append(" >= :startTime");
+        }
+        if (endTime != null) {
+            sql.append(" and ").append(occurredAtExpression).append(" <= :endTime");
+        }
     }
 
     private void copySummary(WorkflowRunSummaryView source, WorkflowRunDetailView target) {
@@ -504,6 +687,17 @@ public class WorkflowRunService {
             return summary.getSuccessNodes() + "/" + summary.getTotalNodes() + " node(s) completed";
         }
         return "No node execution records";
+    }
+
+    private String normalizeSummaryStatus(String status) {
+        if (!hasText(status)) {
+            return null;
+        }
+        return status.trim().toUpperCase();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && value.trim().length() > 0;
     }
 
     private String extractNodeType(RunRecordEntity record) {

@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src')
+      '@': path.resolve(__dirname, './src'),
+      '@web': path.resolve(__dirname, './src')
     }
   },
   build: {
@@ -14,6 +15,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.includes('monaco-editor')) {
+              return 'vendor-monaco';
+            }
             if (id.includes('@antv/x6')) {
               return 'vendor-x6';
             }

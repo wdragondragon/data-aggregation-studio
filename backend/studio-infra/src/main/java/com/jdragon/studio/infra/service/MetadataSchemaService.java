@@ -27,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class MetadataSchemaService implements MetadataSchemaRegistry {
@@ -263,31 +265,25 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     private MetadataSchemaDefinition ensureTechnicalMetaModel(String datasourceType, String metaModelCode) {
         MetadataSchemaDefinition existing = findTechnicalMetaModel(datasourceType, metaModelCode);
-        if (existing != null && !needsTechnicalMetaModelRefresh(existing, metaModelCode)) {
+        if (existing != null && !needsTechnicalMetaModelRefresh(existing, datasourceType, metaModelCode)) {
             return existing;
         }
         return saveDraft(buildTechnicalMetaModelDraft(datasourceType, metaModelCode));
     }
 
-    private boolean needsTechnicalMetaModelRefresh(MetadataSchemaDefinition existing, String metaModelCode) {
+    private boolean needsTechnicalMetaModelRefresh(MetadataSchemaDefinition existing,
+                                                   String datasourceType,
+                                                   String metaModelCode) {
         if (existing == null || existing.getFields() == null || existing.getFields().isEmpty()) {
             return true;
         }
-        boolean hasSearchableField = false;
-        for (MetadataFieldDefinition field : existing.getFields()) {
-            if (Boolean.TRUE.equals(field.getSearchable())) {
-                hasSearchableField = true;
-                break;
-            }
-        }
-        if (!hasSearchableField) {
+        List<MetadataFieldDefinition> expectedFields = buildTechnicalFields(datasourceType, metaModelCode);
+        if (existing.getFields().size() != expectedFields.size()) {
             return true;
         }
-        if ("field".equalsIgnoreCase(metaModelCode)) {
-            for (MetadataFieldDefinition field : existing.getFields()) {
-                if ("name".equals(field.getFieldKey()) && !Boolean.TRUE.equals(field.getSearchable())) {
-                    return true;
-                }
+        for (int index = 0; index < expectedFields.size(); index++) {
+            if (!sameFieldDefinition(existing.getFields().get(index), expectedFields.get(index))) {
+                return true;
             }
         }
         return false;
@@ -389,8 +385,113 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     }
 
     private List<MetadataFieldDefinition> buildSourceFields(String datasourceType) {
+        String normalized = normalize(datasourceType);
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
-        if (isDatabaseType(datasourceType)) {
+        if ("ftp".equals(normalized)) {
+            fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "21"));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("ftpTLS", "TLS 模式", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, "none"));
+            fields.add(field("connectMode", "连接模式", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, "PASV"));
+            fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 70, "60000"));
+            appendFileDiscoveryFields(fields, 80);
+            return fields;
+        }
+        if ("sftp".equals(normalized)) {
+            fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "22"));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 50, "60000"));
+            appendFileDiscoveryFields(fields, 60);
+            return fields;
+        }
+        if ("minio".equals(normalized) || "oss".equals(normalized)) {
+            fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("accessKey", "访问密钥", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("secretKey", "密钥", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 30, null));
+            fields.add(field("bucket", "存储桶", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 40, null));
+            return fields;
+        }
+        if ("tbds-hdfs".equals(normalized) || "tbds-hdfs3".equals(normalized)) {
+            fields.add(field("hdfsSiteFilePath", "hdfs-site.xml 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10, null));
+            fields.add(field("coreSiteFilePath", "core-site.xml 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+            fields.add(field("hadoopConfig", "Hadoop 配置", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 30, "{}"));
+            fields.add(field("kerberosPrincipal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
+            fields.add(field("kerberosKeytabFilePath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            fields.add(field("krb5Conf", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            appendFileDiscoveryFields(fields, 70);
+            return fields;
+        }
+        if ("kafka".equals(normalized)) {
+            fields.add(field("bootstrap.servers", "Bootstrap Servers", FieldValueType.STRING, FieldComponentType.TEXTAREA, true, false, 10, null));
+            fields.add(field("topic", "主题", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+            fields.add(field("group.id", "消费组 ID", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 50, null));
+            fields.add(field("kerberos", "启用 Kerberos", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "false"));
+            fields.add(field("principal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            fields.add(field("kerberosKeytabFilePath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
+            fields.add(field("krb5Conf", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
+            fields.add(field("kerberosDomain", "Kerberos 域", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, null));
+            return fields;
+        }
+        if ("rabbitmq".equals(normalized)) {
+            fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "5672"));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, "guest"));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 40, "guest"));
+            fields.add(field("queueName", "队列名称", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            return fields;
+        }
+        if ("rocketmq".equals(normalized)) {
+            fields.add(field("namesrvAddr", "NameServer 地址", FieldValueType.STRING, FieldComponentType.TEXTAREA, true, false, 10, null));
+            fields.add(field("producerGroup", "生产者组", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("topic", "主题", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("tag", "标签", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
+            fields.add(field("consumerGroup", "消费组", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            fields.add(field("accessKey", "访问密钥", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            fields.add(field("secretKey", "密钥", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 70, null));
+            fields.add(field("pullBatchSize", "拉取批次大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 80, "100"));
+            fields.add(field("pullInterval", "拉取间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 90, "-1"));
+            return fields;
+        }
+        if ("influxdb".equals(normalized)) {
+            fields.add(field("host", "服务地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("database", "组织名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("bucket", "存储桶", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("password", "访问令牌", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            return fields;
+        }
+        if ("influxdbv1".equals(normalized)) {
+            fields.add(field("host", "服务地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("database", "数据库名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("userName", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 40, null));
+            return fields;
+        }
+        if ("odps".equals(normalized)) {
+            fields.add(field("host", "MaxCompute Endpoint", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("database", "Project 名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("userName", "AccessKey ID", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("password", "AccessKey Secret", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("extraParams", "全局参数", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 50, "{}"));
+            return fields;
+        }
+        if ("tbds-hive3".equals(normalized)) {
+            fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, true, false, 20, null));
+            fields.add(field("database", "数据库名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
+            fields.add(field("principal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 40, null));
+            fields.add(field("keytabPath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 50, null));
+            fields.add(field("krb5File", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 60, null));
+            fields.add(field("other", "附加连接参数", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 70, "{}"));
+            fields.add(field("jdbcUrl", "JDBC 地址", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
+            fields.add(field("driverClassName", "驱动类名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
+            return fields;
+        }
+        if (isDatabaseType(normalized)) {
             fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
             fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, true, false, 20, "3306"));
             fields.add(field("database", "数据库名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
@@ -401,7 +502,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             fields.add(field("usePool", "启用连接池", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 80, "true"));
             return fields;
         }
-        if (isQueueType(datasourceType)) {
+        if (isQueueType(normalized)) {
             fields.add(field("brokers", "Broker 地址", FieldValueType.STRING, FieldComponentType.TEXTAREA, true, false, 10, null));
             fields.add(field("topic", "主题", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
             fields.add(field("queue", "队列", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
@@ -411,7 +512,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             fields.add(field("tag", "标签", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
             return fields;
         }
-        if (isFileType(datasourceType)) {
+        if (isFileType(normalized)) {
             fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
             fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, "/"));
             fields.add(field("pattern", "匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, ".*"));
@@ -427,6 +528,14 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
         fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 30, null));
         return fields;
+    }
+
+    private void appendFileDiscoveryFields(List<MetadataFieldDefinition> fields, int startOrder) {
+        fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder, "/"));
+        fields.add(field("pattern", "匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 10, ".*"));
+        fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 20, null));
+        fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 30, null));
+        fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 40, null));
     }
 
     private List<MetadataFieldDefinition> buildTableFields(String datasourceType) {
@@ -572,6 +681,47 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                 || FieldValueType.DECIMAL == valueType;
     }
 
+    private boolean sameFieldDefinition(MetadataFieldDefinition actual, MetadataFieldDefinition expected) {
+        if (actual == null || expected == null) {
+            return actual == expected;
+        }
+        return Objects.equals(actual.getFieldKey(), expected.getFieldKey())
+                && Objects.equals(actual.getFieldName(), expected.getFieldName())
+                && Objects.equals(actual.getDescription(), expected.getDescription())
+                && Objects.equals(actual.getScope(), expected.getScope())
+                && Objects.equals(actual.getValueType(), expected.getValueType())
+                && Objects.equals(actual.getComponentType(), expected.getComponentType())
+                && Objects.equals(actual.getRequired(), expected.getRequired())
+                && Objects.equals(actual.getSensitive(), expected.getSensitive())
+                && Objects.equals(actual.getSortOrder(), expected.getSortOrder())
+                && Objects.equals(actual.getValidationRule(), expected.getValidationRule())
+                && Objects.equals(actual.getPlaceholder(), expected.getPlaceholder())
+                && Objects.equals(actual.getDefaultValue(), expected.getDefaultValue())
+                && Objects.equals(actual.getSearchable(), expected.getSearchable())
+                && Objects.equals(actual.getSortable(), expected.getSortable())
+                && sameList(actual.getQueryOperators(), expected.getQueryOperators())
+                && Objects.equals(actual.getQueryDefaultOperator(), expected.getQueryDefaultOperator())
+                && sameList(actual.getOptions(), expected.getOptions());
+    }
+
+    private boolean sameList(List<String> left, List<String> right) {
+        if (left == null || left.isEmpty()) {
+            return right == null || right.isEmpty();
+        }
+        if (right == null || right.isEmpty()) {
+            return false;
+        }
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int index = 0; index < left.size(); index++) {
+            if (!Objects.equals(left.get(index), right.get(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private boolean isDatabaseType(String typeCode) {
         String normalized = normalize(typeCode);
         return containsAny(normalized, "mysql", "oracle", "postgres", "postgresql", "sqlserver",
@@ -672,6 +822,28 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     public String getSchemaMetaModelCode(MetadataSchemaDefinition schema) {
         return resolveSchemaMetaModelCode(schema);
+    }
+
+    public String getSchemaDirectoryCode(MetadataSchemaDefinition schema) {
+        JSONObject config = extractMetaModelConfig(schema);
+        if (config != null && config.getString("directoryCode") != null) {
+            return config.getString("directoryCode");
+        }
+        if (schema != null && schema.getSchemaCode() != null && schema.getSchemaCode().toLowerCase().startsWith("business:")) {
+            String[] parts = schema.getSchemaCode().split(":");
+            if (parts.length > 1) {
+                return parts[1];
+            }
+        }
+        return null;
+    }
+
+    public String getSchemaDirectoryName(MetadataSchemaDefinition schema) {
+        JSONObject config = extractMetaModelConfig(schema);
+        if (config != null && config.getString("directoryName") != null) {
+            return config.getString("directoryName");
+        }
+        return getSchemaDirectoryCode(schema);
     }
 
     public String getSchemaDisplayMode(MetadataSchemaDefinition schema) {

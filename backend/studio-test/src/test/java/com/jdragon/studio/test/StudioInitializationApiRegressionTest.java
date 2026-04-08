@@ -85,6 +85,46 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
     }
 
     @Test
+    void metadataSchemasShouldAlignNonDatabaseSourceMetaModelsWithPluginConnectionParameters() throws Exception {
+        String authorization = adminAuthorizationHeader();
+
+        MvcResult result = mockMvc.perform(get("/api/v1/meta-schemas")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+
+        JsonNode schemas = readBody(result).path("data");
+
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:ftp:source")))
+                .contains("host", "port", "username", "password", "ftpTLS", "connectMode", "timeout")
+                .doesNotContain("endpoint");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:minio:source")))
+                .contains("endpoint", "accessKey", "secretKey", "bucket");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:minio:source")))
+                .doesNotContain("rootPath", "pattern", "fileType", "encoding", "delimiter");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:tbds-hdfs:source")))
+                .contains("hdfsSiteFilePath", "coreSiteFilePath", "hadoopConfig", "kerberosPrincipal", "kerberosKeytabFilePath", "krb5Conf")
+                .doesNotContain("endpoint");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:kafka:source")))
+                .contains("bootstrap.servers", "topic", "group.id", "username", "password")
+                .doesNotContain("brokers");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:rabbitmq:source")))
+                .contains("host", "port", "username", "password", "queueName");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:rocketmq:source")))
+                .contains("namesrvAddr", "producerGroup", "topic", "consumerGroup", "accessKey", "secretKey");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:influxdb:source")))
+                .contains("host", "database", "bucket", "password");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:influxdbv1:source")))
+                .contains("host", "database", "userName", "password");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:odps:source")))
+                .contains("host", "database", "userName", "password", "extraParams");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:tbds-hive3:source")))
+                .contains("host", "port", "database", "principal", "keytabPath", "krb5File", "other");
+    }
+
+    @Test
     void bootstrapSecurityDataShouldBeVisibleThroughManagementApis() throws Exception {
         String authorization = adminAuthorizationHeader();
 

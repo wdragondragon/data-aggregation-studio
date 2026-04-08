@@ -31,24 +31,25 @@ import java.util.Set;
 @Service
 public class DataModelService {
 
-    private static final String BUSINESS_SCHEMA_VERSION_KEY = "__businessSchemaVersionId";
-
     private final DataModelMapper dataModelMapper;
     private final DataSourceService dataSourceService;
     private final AggregationSourceCapabilityProvider modelDiscoveryProvider;
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelSearchIndexService dataModelSearchIndexService;
+    private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
                             AggregationSourceCapabilityProvider modelDiscoveryProvider,
                             MetadataSchemaService metadataSchemaService,
-                            DataModelSearchIndexService dataModelSearchIndexService) {
+                            DataModelSearchIndexService dataModelSearchIndexService,
+                            BusinessMetaModelMetadataService businessMetaModelMetadataService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
         this.modelDiscoveryProvider = modelDiscoveryProvider;
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
+        this.businessMetaModelMetadataService = businessMetaModelMetadataService;
     }
 
     public List<DataModelDefinition> list() {
@@ -143,16 +144,12 @@ public class DataModelService {
             entity.setPhysicalLocator(definition.getPhysicalLocator());
             Long schemaVersionId = resolveSchemaVersionId(definition, datasource.getTypeCode(), existing);
             entity.setSchemaVersionId(schemaVersionId);
-            MetadataSchemaDefinition technicalSchema = metadataSchemaService.findSchemaByVersionId(schemaVersionId);
             Map<String, Object> technicalMetadata = mergeTechnicalMetadata(existing == null ? null : existing.getTechnicalMetadata(),
                     definition.getTechnicalMetadata());
             entity.setTechnicalMetadata(normalizeTechnicalMetadata(technicalMetadata, datasource.getTypeCode(), schemaVersionId));
-            Map<String, Object> businessMetadata = mergeBusinessMetadata(existing == null ? null : existing.getBusinessMetadata(),
-                    definition.getBusinessMetadata());
-            MetadataSchemaDefinition businessSchema = resolveBusinessSchema(businessMetadata);
-            entity.setBusinessMetadata(applyDefaults(businessMetadata,
-                    businessSchema == null ? technicalSchema : businessSchema,
-                    MetadataScope.BUSINESS));
+            entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForModel(
+                    existing == null ? null : existing.getBusinessMetadata(),
+                    resolveAllowedBusinessMetaModelCodes(datasource.getTypeCode(), schemaVersionId)));
             if (entity.getId() == null) {
                 dataModelMapper.insert(entity);
             } else {
@@ -182,11 +179,12 @@ public class DataModelService {
                 applyDefaults(technicalMetadata, technicalSchema, MetadataScope.TECHNICAL),
                 datasource == null ? null : datasource.getTypeCode(),
                 schemaVersionId));
-        Map<String, Object> businessMetadata = enrichBusinessMetadata(entity.getBusinessMetadata(), request.getBusinessMetadata(), datasource);
-        MetadataSchemaDefinition businessSchema = resolveBusinessSchema(businessMetadata);
-        entity.setBusinessMetadata(applyDefaults(businessMetadata,
-                businessSchema == null ? technicalSchema : businessSchema,
-                MetadataScope.BUSINESS));
+        Map<String, Object> businessMetadata = request.getBusinessMetadata() == null
+                ? entity.getBusinessMetadata()
+                : request.getBusinessMetadata();
+        entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForModel(
+                businessMetadata,
+                resolveAllowedBusinessMetaModelCodes(datasource == null ? null : datasource.getTypeCode(), schemaVersionId)));
         if (entity.getId() == null) {
             dataModelMapper.insert(entity);
         } else {
@@ -307,17 +305,6 @@ public class DataModelService {
         return merged;
     }
 
-    private Map<String, Object> mergeBusinessMetadata(Map<String, Object> existing, Map<String, Object> discovered) {
-        Map<String, Object> merged = new LinkedHashMap<String, Object>();
-        if (discovered != null) {
-            merged.putAll(discovered);
-        }
-        if (existing != null) {
-            merged.putAll(existing);
-        }
-        return merged;
-    }
-
     private Set<String> normalizeLocators(List<String> physicalLocators) {
         Set<String> selected = new HashSet<String>();
         if (physicalLocators == null) {
@@ -371,23 +358,6 @@ public class DataModelService {
         putIfAbsent(metadata, "physicalName", request.getPhysicalLocator());
         if (request.getModelKind() != null) {
             putIfAbsent(metadata, "tableType", request.getModelKind().name());
-        }
-        return metadata;
-    }
-
-    private Map<String, Object> enrichBusinessMetadata(Map<String, Object> existing,
-                                                       Map<String, Object> incoming,
-                                                       DataSourceDefinition datasource) {
-        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        if (existing != null) {
-            metadata.putAll(existing);
-        }
-        if (incoming != null) {
-            metadata.putAll(incoming);
-        }
-        if (datasource != null) {
-            putIfAbsent(metadata, "sourceDatasourceName", datasource.getName());
-            putIfAbsent(metadata, "sourceDatasourceType", datasource.getTypeCode());
         }
         return metadata;
     }
@@ -477,34 +447,46 @@ public class DataModelService {
         return normalized;
     }
 
-    private MetadataSchemaDefinition resolveBusinessSchema(Map<String, Object> businessMetadata) {
-        Long schemaVersionId = parseSchemaVersionId(businessMetadata == null ? null : businessMetadata.get(BUSINESS_SCHEMA_VERSION_KEY));
-        if (schemaVersionId == null) {
-            return null;
+    private Set<String> resolveAllowedBusinessMetaModelCodes(String datasourceTypeCode,
+                                                             Long activeSchemaVersionId) {
+        Set<String> allowedCodes = new HashSet<String>();
+        String normalizedDatasourceType = datasourceTypeCode == null ? "" : datasourceTypeCode.trim().toLowerCase();
+        if (normalizedDatasourceType.isEmpty()) {
+            return allowedCodes;
         }
-        MetadataSchemaDefinition schema = metadataSchemaService.findSchemaByVersionId(schemaVersionId);
-        if (schema == null || !"business".equalsIgnoreCase(schema.getObjectType())) {
-            return null;
+        for (MetadataSchemaDefinition schema : metadataSchemaService.listSchemas()) {
+            if (!"model".equalsIgnoreCase(schema.getObjectType())) {
+                continue;
+            }
+            if (!"TECHNICAL".equalsIgnoreCase(metadataSchemaService.getSchemaDomain(schema))) {
+                continue;
+            }
+            if (!normalizedDatasourceType.equals(normalize(metadataSchemaService.getSchemaDatasourceType(schema)))) {
+                continue;
+            }
+            String metaModelCode = metadataSchemaService.getSchemaMetaModelCode(schema);
+            if ("source".equalsIgnoreCase(metaModelCode)) {
+                continue;
+            }
+            boolean activeSchema = sameId(schema.getId(), activeSchemaVersionId)
+                    || sameId(schema.getCurrentVersionId(), activeSchemaVersionId);
+            boolean multipleSchema = "MULTIPLE".equalsIgnoreCase(metadataSchemaService.getSchemaDisplayMode(schema));
+            if (activeSchema || multipleSchema || (activeSchemaVersionId == null && "table".equalsIgnoreCase(metaModelCode))) {
+                allowedCodes.add(metaModelCode);
+            }
         }
-        return schema;
+        return allowedCodes;
     }
 
-    private Long parseSchemaVersionId(Object value) {
-        if (value instanceof Number) {
-            return ((Number) value).longValue();
+    private boolean sameId(Long left, Long right) {
+        if (left == null || right == null) {
+            return false;
         }
-        if (value instanceof String) {
-            String text = ((String) value).trim();
-            if (text.isEmpty()) {
-                return null;
-            }
-            try {
-                return Long.parseLong(text);
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
+        return left.longValue() == right.longValue();
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase();
     }
 
     private Map<String, Object> applyDefaults(Map<String, Object> input,

@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "Collection Tasks", description = "Collection task management APIs")
 @RestController
@@ -58,6 +59,12 @@ public class CollectionTaskController {
     @PostMapping
     public Result<CollectionTaskDefinitionView> save(@Valid @RequestBody CollectionTaskSaveRequest request) {
         return Result.success(collectionTaskService.save(request));
+    }
+
+    @Operation(summary = "Preview collection task JobContainer config")
+    @PostMapping("/preview")
+    public Result<Map<String, Object>> preview(@RequestBody CollectionTaskSaveRequest request) {
+        return Result.success(collectionTaskService.preview(request));
     }
 
     @Operation(summary = "Publish collection task")

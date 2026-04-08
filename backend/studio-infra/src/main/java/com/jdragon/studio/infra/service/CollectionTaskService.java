@@ -43,6 +43,7 @@ public class CollectionTaskService {
     private final RunRecordMapper runRecordMapper;
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
+    private final CollectionTaskAssemblerService collectionTaskAssemblerService;
     private final ObjectMapper objectMapper;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
@@ -51,6 +52,7 @@ public class CollectionTaskService {
                                  RunRecordMapper runRecordMapper,
                                  DataSourceService dataSourceService,
                                  DataModelService dataModelService,
+                                 CollectionTaskAssemblerService collectionTaskAssemblerService,
                                  ObjectMapper objectMapper) {
         this.definitionMapper = definitionMapper;
         this.scheduleMapper = scheduleMapper;
@@ -58,6 +60,7 @@ public class CollectionTaskService {
         this.runRecordMapper = runRecordMapper;
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
+        this.collectionTaskAssemblerService = collectionTaskAssemblerService;
         this.objectMapper = objectMapper;
     }
 
@@ -99,6 +102,10 @@ public class CollectionTaskService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task is not online");
         }
         return view;
+    }
+
+    public Map<String, Object> preview(CollectionTaskSaveRequest request) {
+        return collectionTaskAssemblerService.assemble(toDefinitionView(request));
     }
 
     @Transactional
@@ -241,6 +248,9 @@ public class CollectionTaskService {
     }
 
     private void validateRequest(CollectionTaskSaveRequest request) {
+        if (request == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task request is required");
+        }
         if (request.getSourceBindings() == null || request.getSourceBindings().isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one source binding is required");
         }
@@ -259,6 +269,27 @@ public class CollectionTaskService {
                 throw new StudioException(StudioErrorCode.BAD_REQUEST, "Source alias must be unique");
             }
         }
+    }
+
+    private CollectionTaskDefinitionView toDefinitionView(CollectionTaskSaveRequest request) {
+        validateRequest(request);
+        List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(request.getSourceBindings());
+        CollectionTaskTargetBinding targetBinding = enrichTargetBinding(request.getTargetBinding());
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setId(request.getId());
+        definition.setName(request.getName());
+        definition.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION : CollectionTaskType.SINGLE_TABLE);
+        definition.setSourceCount(sourceBindings.size());
+        definition.setSourceBindings(sourceBindings);
+        definition.setTargetBinding(targetBinding);
+        definition.setFieldMappings(request.getFieldMappings() == null
+                ? new ArrayList<FieldMappingDefinition>()
+                : new ArrayList<FieldMappingDefinition>(request.getFieldMappings()));
+        definition.setExecutionOptions(request.getExecutionOptions() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(request.getExecutionOptions()));
+        definition.setSchedule(request.getSchedule());
+        return definition;
     }
 
     private boolean matchesKeywords(CollectionTaskDefinitionView view,

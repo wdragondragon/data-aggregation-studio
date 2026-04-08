@@ -26,7 +26,7 @@
               <span>{{ slotProps?.data?.label ?? "" }}</span>
               <StatusPill
                 v-if="slotProps?.data?.kind === 'leaf'"
-                :label="slotProps?.data?.schema?.status ?? (slotProps?.data?.required ? t('common.draft') : t('common.unknown'))"
+                :label="formatStatusLabel(t, slotProps?.data?.schema?.status ?? (slotProps?.data?.required ? 'DRAFT' : 'UNKNOWN'))"
                 :tone="slotProps?.data?.schema ? toneFromStatus(slotProps.data.schema.status) : 'warning'"
               />
             </div>
@@ -107,7 +107,7 @@
               {{ selectedNode.metaModelCode || "-" }}
             </el-descriptions-item>
             <el-descriptions-item :label="t('web.metadata.displayMode')">
-              {{ selectedNode.displayMode || "-" }}
+              {{ formatDisplayMode(selectedNode.displayMode) }}
             </el-descriptions-item>
             <el-descriptions-item :label="t('web.metadata.syncStrategy')">
               {{ selectedNode.syncStrategy || "-" }}
@@ -344,7 +344,7 @@ import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { encodeMetaModelDescription, hasExplicitMetaModelConfig, parseMetaModelSchema, sameEntityId, type MetaModelConfig, type MetaModelDisplayMode, type MetaModelDomain } from "@/utils/metaModel";
-import { cloneDeep, toneFromStatus } from "@/utils/studio";
+import { cloneDeep, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 type TreeNodeKind = "technical-root" | "technical-type" | "business-root" | "business-directory" | "leaf";
 
@@ -494,10 +494,10 @@ const detailStatusLabel = computed(() => {
     return t("common.unknown");
   }
   if (selectedNode.value.schema?.status) {
-    return selectedNode.value.schema.status;
+    return formatStatusLabel(t, selectedNode.value.schema.status);
   }
   if (selectedNode.value.required) {
-    return t("common.draft");
+    return formatStatusLabel(t, "DRAFT");
   }
   return t("common.unknown");
 });
@@ -511,6 +511,16 @@ const detailStatusTone = computed(() => {
   }
   return selectedNode.value.required ? "warning" : "primary";
 });
+
+function formatDisplayMode(value?: MetaModelDisplayMode) {
+  if (value === "SINGLE") {
+    return t("web.metadata.displaySingle");
+  }
+  if (value === "MULTIPLE") {
+    return t("web.metadata.displayMultiple");
+  }
+  return "-";
+}
 
 function buildTechnicalTypeNode(datasourceType: string): MetaModelTreeNode {
   const relevant = schemas.value.filter((schema) => {
@@ -876,6 +886,14 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
+}
+
+.tree-node > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-head {
@@ -883,23 +901,23 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .meta-descriptions {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .warning-hint,
 .empty-hint {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .drawer-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 20px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 @media (max-width: 1080px) {

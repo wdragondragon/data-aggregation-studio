@@ -240,7 +240,8 @@ create table if not exists workflow_schedule (
     workflow_definition_id bigint,
     cron_expression varchar(255),
     enabled int default 0,
-    timezone varchar(64)
+    timezone varchar(64),
+    last_triggered_at datetime
 );
 
 create table if not exists collection_task_definition (

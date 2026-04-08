@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataDevelopmentDirectoryView;
+import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -10,6 +11,7 @@ import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentScriptSaveRequest;
+import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.infra.service.DataDevelopmentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -107,6 +109,12 @@ public class DataDevelopmentController {
     @GetMapping("/datasources")
     public Result<List<DataSourceDefinition>> datasources() {
         return Result.success(dataDevelopmentService.listSqlCapableDatasources());
+    }
+
+    @Operation(summary = "Execute script in editor")
+    @PostMapping("/scripts/execute")
+    public Result<DataScriptExecutionResultView> executeScript(@Valid @RequestBody DataScriptExecutionRequest request) {
+        return Result.success(dataDevelopmentService.execute(request));
     }
 
     @Operation(summary = "Execute SQL in editor")

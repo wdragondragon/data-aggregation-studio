@@ -16,56 +16,98 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openUserDialog()">{{ t("common.newUser") }}</el-button>
           </div>
-          <el-table :data="users" border>
+          <el-table :data="pagedUsers" border size="small">
+            <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+              <template #default="{ $index }">
+                {{ getPaginatedRowNumber(userPagination, $index) }}
+              </template>
+            </el-table-column>
             <el-table-column prop="username" :label="t('web.system.username')" min-width="160" />
             <el-table-column prop="displayName" :label="t('web.system.displayName')" min-width="180" />
-            <el-table-column :label="t('web.system.enabled')" width="120">
+            <el-table-column :label="t('web.system.enabled')" width="120" align="center" header-align="center">
               <template #default="{ row }">
                 <StatusPill :label="row.enabled ? t('common.on') : t('common.off')" :tone="row.enabled ? 'success' : 'neutral'" />
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.metadata.actions')" width="200">
+            <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openUserDialog(row)">{{ t("common.edit") }}</el-button>
-                <el-button link type="danger" @click="deleteUser(row)">{{ t("common.delete") }}</el-button>
+                <OverflowActionGroup :items="buildUserActions(row)" />
               </template>
             </el-table-column>
           </el-table>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="userPagination.page"
+              v-model:page-size="userPagination.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="users.length"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane :label="t('web.system.rolesTab')" name="roles">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openRoleDialog()">{{ t("common.newRole") }}</el-button>
           </div>
-          <el-table :data="roles" border>
+          <el-table :data="pagedRoles" border size="small">
+            <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+              <template #default="{ $index }">
+                {{ getPaginatedRowNumber(rolePagination, $index) }}
+              </template>
+            </el-table-column>
             <el-table-column prop="code" :label="t('web.system.code')" min-width="160" />
             <el-table-column prop="name" :label="t('web.system.name')" min-width="180" />
             <el-table-column prop="description" :label="t('web.system.descriptionColumn')" min-width="220" />
-            <el-table-column :label="t('web.metadata.actions')" width="200">
+            <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openRoleDialog(row)">{{ t("common.edit") }}</el-button>
-                <el-button link type="danger" @click="deleteRole(row)">{{ t("common.delete") }}</el-button>
+                <OverflowActionGroup :items="buildRoleActions(row)" />
               </template>
             </el-table-column>
           </el-table>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="rolePagination.page"
+              v-model:page-size="rolePagination.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="roles.length"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane :label="t('web.system.permissionsTab')" name="permissions">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openPermissionDialog()">{{ t("common.newPermission") }}</el-button>
           </div>
-          <el-table :data="permissions" border>
+          <el-table :data="pagedPermissions" border size="small">
+            <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+              <template #default="{ $index }">
+                {{ getPaginatedRowNumber(permissionPagination, $index) }}
+              </template>
+            </el-table-column>
             <el-table-column prop="code" :label="t('web.system.code')" min-width="160" />
             <el-table-column prop="name" :label="t('web.system.name')" min-width="180" />
-            <el-table-column prop="httpMethod" :label="t('web.system.method')" width="120" />
+            <el-table-column prop="httpMethod" :label="t('web.system.method')" width="120" align="center" header-align="center" />
             <el-table-column prop="pathPattern" :label="t('web.system.pathPattern')" min-width="220" />
-            <el-table-column :label="t('web.metadata.actions')" width="200">
+            <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openPermissionDialog(row)">{{ t("common.edit") }}</el-button>
-                <el-button link type="danger" @click="deletePermission(row)">{{ t("common.delete") }}</el-button>
+                <OverflowActionGroup :items="buildPermissionActions(row)" />
               </template>
             </el-table-column>
           </el-table>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="permissionPagination.page"
+              v-model:page-size="permissionPagination.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="permissions.length"
+            />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </SectionCard>
@@ -137,8 +179,9 @@ import { onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { PermissionEntity, RoleEntity, StudioUser } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { cloneDeep } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -146,6 +189,13 @@ const activeTab = ref("users");
 const users = ref<StudioUser[]>([]);
 const roles = ref<RoleEntity[]>([]);
 const permissions = ref<PermissionEntity[]>([]);
+const { pagination: userPagination, pagedItems: pagedUsers, resetPagination: resetUserPagination } = useClientPagination(users);
+const { pagination: rolePagination, pagedItems: pagedRoles, resetPagination: resetRolePagination } = useClientPagination(roles);
+const {
+  pagination: permissionPagination,
+  pagedItems: pagedPermissions,
+  resetPagination: resetPermissionPagination,
+} = useClientPagination(permissions);
 
 const userDialogOpen = ref(false);
 const roleDialogOpen = ref(false);
@@ -178,6 +228,9 @@ async function loadPage() {
     users.value = userData;
     roles.value = roleData;
     permissions.value = permissionData;
+    resetUserPagination();
+    resetRolePagination();
+    resetPermissionPagination();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.system.loadFailed"));
   }
@@ -199,6 +252,27 @@ function openPermissionDialog(permission?: PermissionEntity) {
   resetPermissionForm();
   Object.assign(permissionForm, permission ? cloneDeep(permission) : {});
   permissionDialogOpen.value = true;
+}
+
+function buildUserActions(user: StudioUser) {
+  return [
+    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => openUserDialog(user) },
+    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteUser(user) },
+  ];
+}
+
+function buildRoleActions(role: RoleEntity) {
+  return [
+    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => openRoleDialog(role) },
+    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteRole(role) },
+  ];
+}
+
+function buildPermissionActions(permission: PermissionEntity) {
+  return [
+    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => openPermissionDialog(permission) },
+    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deletePermission(permission) },
+  ];
 }
 
 async function saveUser() {
@@ -328,5 +402,17 @@ p {
 .dialog-grid {
   display: grid;
   gap: 6px;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+@media (max-width: 960px) {
+  .table-pagination {
+    justify-content: flex-start;
+  }
 }
 </style>

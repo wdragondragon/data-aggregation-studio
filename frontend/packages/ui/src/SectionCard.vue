@@ -3,7 +3,7 @@
     <header class="section-card__header">
       <div>
         <h3 class="section-card__title">{{ title }}</h3>
-        <p v-if="description" class="section-card__description">{{ description }}</p>
+        <p v-if="showDescription && description" class="section-card__description">{{ description }}</p>
       </div>
       <div v-if="$slots.actions" class="section-card__actions">
         <slot name="actions" />
@@ -16,10 +16,13 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+withDefaults(defineProps<{
   title: string;
   description?: string;
-}>();
+  showDescription?: boolean;
+}>(), {
+  showDescription: false,
+});
 </script>
 
 <style scoped>
@@ -33,29 +36,37 @@ defineProps<{
 
 .section-card__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 22px 24px 0;
+  gap: 12px;
+  padding: 16px 18px 0;
+  min-width: 0;
 }
 
 .section-card__title {
   margin: 0;
-  font-size: 20px;
+  font-size: 17px;
+  line-height: 1.25;
 }
 
 .section-card__description {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
+  font-size: 12px;
   color: var(--studio-text-soft);
 }
 
 .section-card__actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .section-card__body {
-  padding: 20px 24px 24px;
+  padding: 14px 18px 18px;
+  min-width: 0;
+  max-width: 100%;
 }
 </style>

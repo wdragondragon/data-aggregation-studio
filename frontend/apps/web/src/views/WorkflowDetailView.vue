@@ -64,34 +64,34 @@
     </SectionCard>
 
     <SectionCard :title="t('web.workflows.detailLogsTitle')" :description="t('web.workflows.detailLogsDescription')">
-      <el-table :data="workflowRuns" border>
-        <el-table-column :label="t('web.runs.status')" width="120">
-          <template #default="{ row }">
-            <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
+      <el-table :data="workflowRuns" border size="small" table-layout="auto" class="workflow-run-table">
+        <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+          <template #default="{ $index }">
+            {{ getPaginatedRowNumber(workflowRunPagination, $index) }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.startedAt')" min-width="180">
+        <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
           <template #default="{ row }">
-            <span>{{ row.startedAt || t("common.none") }}</span>
+            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.endedAt')" min-width="180">
+        <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
           <template #default="{ row }">
-            <span>{{ row.endedAt || t("common.none") }}</span>
+            <div class="stack-cell">
+              <span>{{ row.startedAt || t("common.none") }}</span>
+              <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.duration')" width="140">
+        <el-table-column :label="`${t('web.runs.detailNodeStats')} / ${t('web.runs.summaryMessage')}`" min-width="320">
           <template #default="{ row }">
-            <span>{{ formatDurationMs(row.durationMs) }}</span>
+            <div class="stats-cell">
+              <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
+              <span class="cell-subtle">{{ row.summaryMessage || t("common.none") }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.detailNodeStats')" min-width="220">
-          <template #default="{ row }">
-            <span>{{ formatNodeStats(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="summaryMessage" :label="t('web.runs.summaryMessage')" min-width="260" show-overflow-tooltip />
-        <el-table-column :label="t('web.runs.actions')" width="120" fixed="right">
+        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openRunDetail(row)">
               {{ t("web.runs.viewRunDetail") }}
@@ -99,6 +99,18 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="workflowRunPagination.page"
+          v-model:page-size="workflowRunPagination.pageSize"
+          background
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="workflowRunTotal"
+          @current-change="handleWorkflowRunPageChange"
+          @size-change="handleWorkflowRunPageSizeChange"
+        />
+      </div>
     </SectionCard>
   </div>
 </template>
@@ -112,13 +124,16 @@ import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk
 import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import { studioApi } from "@/api/studio";
-import { toneFromStatus } from "@/utils/studio";
+import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const workflow = ref<WorkflowDefinitionView | null>(null);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
+const workflowRunTotal = ref(0);
+const { pagination: workflowRunPagination } = useClientPagination(workflowRuns);
 
 async function loadWorkflow() {
   try {
@@ -130,12 +145,32 @@ async function loadWorkflow() {
 
 async function loadWorkflowRuns() {
   try {
-    workflowRuns.value = await studioApi.workflowRuns.list({
+    const response = await studioApi.workflowRuns.list({
       workflowDefinitionId: String(route.params.workflowId),
+      pageNo: workflowRunPagination.page,
+      pageSize: workflowRunPagination.pageSize,
     });
+    workflowRuns.value = response.items;
+    workflowRunTotal.value = response.total;
+    const maxPage = Math.max(1, Math.ceil(workflowRunTotal.value / workflowRunPagination.pageSize));
+    if (workflowRunPagination.page > maxPage) {
+      workflowRunPagination.page = maxPage;
+      return void loadWorkflowRuns();
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
   }
+}
+
+function handleWorkflowRunPageChange(page: number) {
+  workflowRunPagination.page = page;
+  void loadWorkflowRuns();
+}
+
+function handleWorkflowRunPageSizeChange(pageSize: number) {
+  workflowRunPagination.pageSize = pageSize;
+  workflowRunPagination.page = 1;
+  void loadWorkflowRuns();
 }
 
 function openEditor() {
@@ -191,7 +226,7 @@ function formatNodeStats(item: WorkflowRunSummary) {
     `${t("web.runs.failedNodes")}: ${item.failedNodes || 0}`,
     `${t("web.runs.runningNodes")}: ${item.runningNodes || 0}`,
     `${t("web.runs.notRunNodes")}: ${item.notRunNodes || 0}`,
-  ].join(" / ");
+  ];
 }
 
 onMounted(async () => {
@@ -212,21 +247,21 @@ p {
 .workflow-summary {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
-  gap: 14px;
+  gap: 10px;
   align-items: start;
 }
 
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 14px;
+  gap: 10px 12px;
 }
 
 .detail-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   background: rgba(16, 78, 139, 0.05);
   border: 1px solid rgba(16, 78, 139, 0.1);
@@ -241,11 +276,11 @@ p {
 .workflow-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .workflow-stat {
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(16, 78, 139, 0.1), rgba(255, 255, 255, 0.92));
   border: 1px solid rgba(16, 78, 139, 0.12);
@@ -259,6 +294,34 @@ p {
   color: var(--studio-text);
 }
 
+.workflow-run-table :deep(.cell) {
+  white-space: normal;
+}
+
+.stats-cell,
+.stack-cell,
+.wrap-cell {
+  display: grid;
+  gap: 4px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.stack-cell--center {
+  justify-items: center;
+}
+
+.cell-subtle {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 @media (max-width: 960px) {
   .workflow-summary,
   .detail-grid {
@@ -267,6 +330,10 @@ p {
 
   .workflow-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-pagination {
+    justify-content: flex-start;
   }
 }
 </style>

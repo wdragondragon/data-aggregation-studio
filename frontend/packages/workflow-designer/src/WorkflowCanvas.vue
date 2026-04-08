@@ -117,23 +117,33 @@ let syncingFromProps = false;
 let syncingFromGraph = false;
 const draggingItem = ref<PaletteItem | null>(null);
 
+function cloneNodeData(node: WorkflowNodeDefinition): WorkflowNodeDefinition {
+  return {
+    ...node,
+    config: { ...(node.config ?? {}) },
+    fieldMappings: Array.isArray(node.fieldMappings)
+      ? node.fieldMappings.map((item) => ({ ...item }))
+      : [],
+  };
+}
+
 function resolveNodeTone(status?: string, fallbackColor = "#175cd3") {
   const normalized = String(status ?? "NOT_RUN").toUpperCase();
-  if (normalized.includes("FAIL")) {
+  if (normalized === "FAILED" || normalized === "FAIL") {
     return {
       fill: "rgba(220, 38, 38, 0.14)",
       stroke: "#dc2626",
       labelFill: "#7f1d1d",
     };
   }
-  if (normalized.includes("RUN")) {
+  if (normalized === "RUNNING") {
     return {
       fill: "rgba(22, 163, 74, 0.14)",
       stroke: "#16a34a",
       labelFill: "#14532d",
     };
   }
-  if (normalized.includes("SUCCESS")) {
+  if (normalized === "SUCCESS" || normalized === "SUCCEEDED") {
     return {
       fill: "rgba(23, 92, 211, 0.14)",
       stroke: "#175cd3",
@@ -158,7 +168,7 @@ function createGraphNode(node: WorkflowNodeDefinition, x = 80, y = 80) {
     width: 220,
     height: 88,
     shape: "rect",
-    data: node,
+    data: cloneNodeData(node),
     attrs: {
       body: {
         fill: nodeTone.fill,
@@ -264,17 +274,17 @@ function renderGraph() {
     return;
   }
   syncingFromProps = true;
-  graph.clearCells();
+  const cells: Array<ReturnType<Graph["createNode"]> | ReturnType<Graph["createEdge"]>> = [];
   props.nodes.forEach((node, index) => {
     const x = 80 + (index % 3) * 260;
     const y = 70 + Math.floor(index / 3) * 150;
     const created = createGraphNode(node, x, y);
     if (created) {
-      graph?.addNode(created);
+      cells.push(created);
     }
   });
   props.edges.forEach((edge) => {
-    graph?.addEdge({
+    const created = graph?.createEdge({
       source: { cell: edge.fromNodeCode, port: "out" },
       target: { cell: edge.toNodeCode, port: "in" },
       attrs: {
@@ -291,7 +301,11 @@ function renderGraph() {
         condition: edge.condition ?? "ON_SUCCESS",
       },
     });
+    if (created) {
+      cells.push(created);
+    }
   });
+  graph.resetCells(cells);
   nextTick(() => {
     syncingFromProps = false;
   });
@@ -462,6 +476,8 @@ onMounted(() => {
   grid-template-columns: 260px minmax(0, 1fr);
   gap: 18px;
   min-height: 620px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .workflow-canvas--readonly {
@@ -506,11 +522,20 @@ onMounted(() => {
 }
 
 .workflow-canvas__board {
+  width: 100%;
   min-height: 620px;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--studio-border);
   border-radius: 28px;
   overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.workflow-canvas__board :deep(.x6-graph),
+.workflow-canvas__board :deep(.x6-graph-svg),
+.workflow-canvas__board :deep(.x6-graph-scroller) {
+  max-width: 100%;
 }
 
 @media (max-width: 1080px) {

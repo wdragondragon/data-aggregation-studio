@@ -33,19 +33,19 @@
           />
         </div>
       </div>
-      <el-table :data="capabilityRows" border style="margin-top: 16px">
+      <el-table :data="capabilityRows" border size="small" style="margin-top: 12px">
         <el-table-column prop="typeCode" :label="t('web.catalog.sourceTypeColumn')" min-width="140" />
-        <el-table-column :label="t('web.catalog.readableColumn')" width="110">
+        <el-table-column :label="t('web.catalog.readableColumn')" width="110" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.readable ? t('common.yes') : t('common.no')" :tone="row.readable ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.catalog.writableColumn')" width="110">
+        <el-table-column :label="t('web.catalog.writableColumn')" width="110" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.writable ? t('common.yes') : t('common.no')" :tone="row.writable ? 'primary' : 'neutral'" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.catalog.executionColumn')" width="120">
+        <el-table-column :label="t('web.catalog.executionColumn')" width="120" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.executable ? t('common.runnable') : t('common.catalogOnly')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
@@ -70,11 +70,11 @@
     </SectionCard>
 
     <SectionCard :title="t('web.catalog.tableTitle')" :description="t('web.catalog.tableDescription')">
-      <el-table :data="filteredPlugins" border>
-        <el-table-column prop="pluginCategory" :label="t('web.catalog.categoryColumn')" width="120" />
+      <el-table :data="filteredPlugins" border size="small">
+        <el-table-column prop="pluginCategory" :label="t('web.catalog.categoryColumn')" width="120" align="center" header-align="center" />
         <el-table-column prop="pluginName" :label="t('web.catalog.pluginColumn')" min-width="160" />
-        <el-table-column prop="assetType" :label="t('web.catalog.assetTypeColumn')" width="140" />
-        <el-table-column :label="t('web.catalog.executableColumn')" width="120">
+        <el-table-column prop="assetType" :label="t('web.catalog.assetTypeColumn')" width="140" align="center" header-align="center" />
+        <el-table-column :label="t('web.catalog.executableColumn')" width="120" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.executable ? t('common.yes') : t('common.no')" :tone="row.executable ? 'success' : 'neutral'" />
           </template>

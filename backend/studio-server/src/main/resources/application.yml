@@ -5,7 +5,7 @@ spring:
   application:
     name: studio-server
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://192.168.188.128:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://192.168.188.129:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:951753}
     driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:com.mysql.cj.jdbc.Driver}
@@ -41,3 +41,7 @@ studio:
   encryption-secret: studio-secret-key
   worker-code: studio-server-worker
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
+  python:
+    executable: ${STUDIO_PYTHON_EXECUTABLE:}
+    execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}
+    temp-dir: ${STUDIO_PYTHON_TEMP_DIR:}

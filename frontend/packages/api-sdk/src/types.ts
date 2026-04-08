@@ -6,6 +6,13 @@ export interface Result<T> {
   timestamp: string;
 }
 
+export interface PageResult<T> {
+  pageNo: number;
+  pageSize: number;
+  total: number;
+  items: T[];
+}
+
 export type EntityId = string | number;
 
 export interface LoginRequest {
@@ -251,6 +258,8 @@ export interface CollectionTaskSaveRequest {
   schedule?: CollectionTaskScheduleDefinition;
 }
 
+export type JobContainerConfig = Record<string, unknown>;
+
 export interface DataDevelopmentDirectory extends BaseRecord {
   parentId?: EntityId;
   name: string;
@@ -262,7 +271,7 @@ export interface DataDevelopmentScript extends BaseRecord {
   directoryId?: EntityId;
   fileName: string;
   scriptType: ScriptType;
-  datasourceId: EntityId;
+  datasourceId?: EntityId;
   datasourceName?: string;
   datasourceTypeCode?: string;
   description?: string;
@@ -295,7 +304,7 @@ export interface DataDevelopmentScriptSaveRequest {
   directoryId?: EntityId;
   fileName: string;
   scriptType: ScriptType;
-  datasourceId: EntityId;
+  datasourceId?: EntityId;
   description?: string;
   content: string;
 }
@@ -308,6 +317,14 @@ export interface SqlExecutionRequest {
   datasourceId: EntityId;
   scriptType: ScriptType;
   content: string;
+  maxRows?: number;
+}
+
+export interface DataScriptExecutionRequest {
+  scriptType: ScriptType;
+  datasourceId?: EntityId;
+  content: string;
+  arguments?: Record<string, unknown>;
   maxRows?: number;
 }
 
@@ -334,6 +351,18 @@ export interface SqlExecutionResult {
   rows: Record<string, unknown>[];
   summary: Record<string, unknown>;
   results: SqlStatementExecutionResult[];
+}
+
+export interface DataScriptExecutionResult {
+  scriptType?: ScriptType;
+  success?: boolean;
+  status?: string;
+  message?: string;
+  executionMs?: number;
+  datasourceName?: string;
+  logs?: string;
+  resultJson: Record<string, unknown>;
+  sqlResult?: SqlExecutionResult;
 }
 
 export interface WorkflowNodeDefinition {
@@ -479,8 +508,11 @@ export interface WorkflowRunDetail extends WorkflowRunSummary {
 
 export interface WorkflowRunListQuery {
   workflowDefinitionId?: EntityId;
+  status?: string;
   startTime?: string;
   endTime?: string;
+  pageNo?: number;
+  pageSize?: number;
 }
 
 export interface StudioUser extends BaseRecord {

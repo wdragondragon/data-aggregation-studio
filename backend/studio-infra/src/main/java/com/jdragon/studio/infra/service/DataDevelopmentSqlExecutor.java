@@ -6,9 +6,13 @@ import com.jdragon.aggregation.datasource.SourcePluginType;
 import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.ScriptType;
+import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.SqlStatementExecutionResultView;
+import com.jdragon.studio.infra.service.script.DataDevelopmentExecutionContext;
+import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
@@ -26,7 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
-public class DataDevelopmentSqlExecutor {
+public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor {
 
     private static final Set<String> SQL_DATASOURCE_TYPES = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(
             "mysql5",
@@ -71,7 +75,28 @@ public class DataDevelopmentSqlExecutor {
         return SQL_DATASOURCE_TYPES.contains(datasource.getTypeCode().trim().toLowerCase(Locale.ENGLISH));
     }
 
-    public SqlExecutionResultView execute(DataSourceDefinition datasource, String scriptContent, Integer maxRows) {
+    @Override
+    public ScriptType getScriptType() {
+        return ScriptType.SQL;
+    }
+
+    @Override
+    public DataScriptExecutionResultView execute(DataDevelopmentExecutionContext context) {
+        SqlExecutionResultView sqlResult = executeSql(context.getDatasource(), context.getContent(), context.getMaxRows());
+        DataScriptExecutionResultView result = new DataScriptExecutionResultView();
+        result.setScriptType(ScriptType.SQL);
+        result.setSuccess(Boolean.TRUE);
+        result.setStatus("SUCCESS");
+        result.setMessage(sqlResult.getMessage());
+        result.setExecutionMs(sqlResult.getExecutionMs());
+        result.setDatasourceName(sqlResult.getDatasourceName());
+        result.setLogs(sqlResult.getMessage());
+        result.setResultJson(new LinkedHashMap<String, Object>(sqlResult.getSummary()));
+        result.setSqlResult(sqlResult);
+        return result;
+    }
+
+    public SqlExecutionResultView executeSql(DataSourceDefinition datasource, String scriptContent, Integer maxRows) {
         if (!supports(datasource)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only database datasources can execute SQL scripts");
         }

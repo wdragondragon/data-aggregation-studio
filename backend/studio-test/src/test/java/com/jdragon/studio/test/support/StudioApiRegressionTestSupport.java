@@ -49,6 +49,8 @@ public abstract class StudioApiRegressionTestSupport {
             .resolve("resources")
             .resolve("schema-sqlite.sql");
     private static final Path AGGREGATION_HOME = WORKSPACE_ROOT.resolve("package_all").resolve("aggregation");
+    private static final String JAVA_EXECUTABLE = locateJavaExecutable();
+    private static final String TEST_CLASSPATH = System.getProperty("java.class.path");
 
     @Autowired
     protected MockMvc mockMvc;
@@ -75,6 +77,12 @@ public abstract class StudioApiRegressionTestSupport {
         registry.add("spring.sql.init.schema-locations", () -> SQLITE_SCHEMA.toUri().toString());
         registry.add("studio.aggregation-home", () -> AGGREGATION_HOME.toAbsolutePath().normalize().toString());
         registry.add("studio.scan-plugins-on-startup", () -> "false");
+        registry.add("studio.python.executable", () -> JAVA_EXECUTABLE);
+        registry.add("studio.python.executable-args[0]", () -> "-cp");
+        registry.add("studio.python.executable-args[1]", () -> TEST_CLASSPATH);
+        registry.add("studio.python.executable-args[2]", () -> FakePythonInterpreter.class.getName());
+        registry.add("studio.python.execution-timeout-seconds", () -> "30");
+        registry.add("studio.python.temp-dir", () -> TEST_RUNTIME_DIR.resolve("python").toAbsolutePath().normalize().toString());
     }
 
     @BeforeEach
@@ -140,5 +148,18 @@ public abstract class StudioApiRegressionTestSupport {
             current = current.getParent();
         }
         throw new IllegalStateException("Unable to locate DataAggregation workspace root for regression tests");
+    }
+
+    private static String locateJavaExecutable() {
+        Path javaHome = Paths.get(System.getProperty("java.home"));
+        Path windows = javaHome.resolve("bin").resolve("java.exe");
+        if (Files.exists(windows)) {
+            return windows.toAbsolutePath().normalize().toString();
+        }
+        Path unix = javaHome.resolve("bin").resolve("java");
+        if (Files.exists(unix)) {
+            return unix.toAbsolutePath().normalize().toString();
+        }
+        throw new IllegalStateException("Unable to locate java executable for regression tests");
     }
 }

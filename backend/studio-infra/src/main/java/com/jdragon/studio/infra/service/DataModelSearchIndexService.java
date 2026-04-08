@@ -24,16 +24,18 @@ import java.util.Set;
 @Service
 public class DataModelSearchIndexService {
 
-    private static final String BUSINESS_SCHEMA_VERSION_KEY = "__businessSchemaVersionId";
     private static final String SINGLE_ITEM_KEY = "__single__";
 
     private final DataModelAttrIndexMapper indexMapper;
     private final MetadataSchemaService metadataSchemaService;
+    private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
 
     public DataModelSearchIndexService(DataModelAttrIndexMapper indexMapper,
-                                       MetadataSchemaService metadataSchemaService) {
+                                       MetadataSchemaService metadataSchemaService,
+                                       BusinessMetaModelMetadataService businessMetaModelMetadataService) {
         this.indexMapper = indexMapper;
         this.metadataSchemaService = metadataSchemaService;
+        this.businessMetaModelMetadataService = businessMetaModelMetadataService;
     }
 
     @Transactional
@@ -338,9 +340,16 @@ public class DataModelSearchIndexService {
         for (MetadataSchemaDefinition schema : resolveTechnicalSchemas(model, datasource)) {
             indexMetadata(entries, model, schema, model.getTechnicalMetadata());
         }
-        MetadataSchemaDefinition businessSchema = resolveBusinessSchema(model.getBusinessMetadata());
-        if (businessSchema != null) {
-            indexMetadata(entries, model, businessSchema, model.getBusinessMetadata());
+        for (BusinessMetaModelMetadataService.ResolvedBusinessMetaModelEntry entry
+                : businessMetaModelMetadataService.resolveEntries(model.getBusinessMetadata())) {
+            MetadataSchemaDefinition schema = entry.getSchema();
+            if (entry.isMultiple()) {
+                Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+                metadata.put(metadataSchemaService.getSchemaCollectionKey(schema), entry.getRows());
+                indexMetadata(entries, model, schema, metadata);
+            } else {
+                indexMetadata(entries, model, schema, entry.getValues());
+            }
         }
         return entries;
     }
@@ -390,18 +399,6 @@ public class DataModelSearchIndexService {
             }
         }
         return false;
-    }
-
-    private MetadataSchemaDefinition resolveBusinessSchema(Map<String, Object> businessMetadata) {
-        Long schemaVersionId = parseLong(businessMetadata == null ? null : businessMetadata.get(BUSINESS_SCHEMA_VERSION_KEY));
-        if (schemaVersionId == null) {
-            return null;
-        }
-        MetadataSchemaDefinition schema = metadataSchemaService.findSchemaByVersionId(schemaVersionId);
-        if (schema == null || !"BUSINESS".equalsIgnoreCase(metadataSchemaService.getSchemaDomain(schema))) {
-            return null;
-        }
-        return schema;
     }
 
     private void indexMetadata(List<DataModelAttrIndexEntity> entries,

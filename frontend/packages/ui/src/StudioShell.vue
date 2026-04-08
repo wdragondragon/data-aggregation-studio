@@ -63,7 +63,12 @@
         <p class="shell__subtitle">{{ resolvedSubtitle }}</p>
       </header>
 
-      <div class="shell__content">
+      <div
+        v-loading="loading"
+        class="shell__content"
+        :element-loading-text="t('common.loading')"
+        element-loading-background="rgba(248, 250, 252, 0.52)"
+      >
         <slot />
       </div>
     </main>
@@ -78,6 +83,7 @@ import type { StudioLocaleOption, StudioNavItem } from "./types";
 const props = defineProps<{
   menus: StudioNavItem[];
   activePath: string;
+  loading?: boolean;
   title?: string;
   subtitle?: string;
   modeLabel?: string;
@@ -116,10 +122,10 @@ function handleNavigate(path: string) {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 18px;
   width: var(--studio-sidebar);
   min-height: 100vh;
-  padding: 28px 22px;
+  padding: 20px 16px;
   color: #f3f8ff;
   background:
     radial-gradient(circle at top right, rgba(56, 189, 248, 0.24), transparent 24%),
@@ -129,7 +135,7 @@ function handleNavigate(path: string) {
 
 .shell__brand {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -139,12 +145,12 @@ function handleNavigate(path: string) {
 }
 
 .shell__brand-mark {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border: 0;
-  border-radius: 18px;
+  border-radius: 14px;
   color: #17376a;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   background: linear-gradient(135deg, #eff6ff, #ffffff);
   cursor: pointer;
@@ -161,15 +167,15 @@ function handleNavigate(path: string) {
 
 .shell__nav {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .shell__nav-item {
   display: grid;
   gap: 4px;
-  padding: 14px 16px;
+  padding: 11px 13px;
   border: 1px solid rgba(243, 248, 255, 0.08);
-  border-radius: 18px;
+  border-radius: 14px;
   color: inherit;
   text-align: left;
   background: rgba(243, 248, 255, 0.04);
@@ -178,7 +184,7 @@ function handleNavigate(path: string) {
 }
 
 .shell__nav-item span {
-  font-size: 13px;
+  font-size: 12px;
   opacity: 0.74;
 }
 
@@ -192,7 +198,7 @@ function handleNavigate(path: string) {
 .shell__footer {
   margin-top: auto;
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .shell__locale {
@@ -234,13 +240,13 @@ function handleNavigate(path: string) {
 }
 
 .shell__footer-copy span {
-  font-size: 13px;
+  font-size: 12px;
   opacity: 0.72;
 }
 
 .shell__logout,
 .shell__menu-btn {
-  padding: 10px 14px;
+  padding: 9px 12px;
   border: 0;
   border-radius: 999px;
   color: inherit;
@@ -251,15 +257,16 @@ function handleNavigate(path: string) {
 .shell__main {
   flex: 1;
   min-width: 0;
-  padding: 28px;
+  padding: 20px;
+  overflow-x: hidden;
 }
 
 .shell__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 22px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .shell__menu-btn {
@@ -270,15 +277,15 @@ function handleNavigate(path: string) {
 }
 
 .shell__subtitle {
-  max-width: 320px;
-  margin: 0;
-  color: var(--studio-text-soft);
-  text-align: right;
+  display: none;
 }
 
 .shell__content {
   display: grid;
   gap: 20px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .shell__backdrop {
@@ -314,7 +321,7 @@ function handleNavigate(path: string) {
   }
 
   .shell__main {
-    padding: 18px;
+    padding: 14px;
   }
 
   .shell__header {

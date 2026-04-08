@@ -26,6 +26,15 @@
               :value="String(item.id)"
             />
           </el-select>
+          <el-select
+            v-model="filters.status"
+            clearable
+            :placeholder="t('web.runs.statusFilterPlaceholder')"
+          >
+            <el-option :label="t('web.runs.statusFilterAll')" value="" />
+            <el-option :label="formatStatusLabel(t, 'SUCCESS')" value="SUCCESS" />
+            <el-option :label="formatStatusLabel(t, 'FAILED')" value="FAILED" />
+          </el-select>
           <el-date-picker
             v-model="filters.timeRange"
             type="datetimerange"
@@ -44,7 +53,7 @@
         <div class="status-strip">
           <div class="status-metric">
             <span>{{ t('web.runs.workflowRuns') }}</span>
-            <strong>{{ workflowRuns.length }}</strong>
+            <strong>{{ workflowRunTotal }}</strong>
           </div>
           <div class="status-metric danger">
             <span>{{ t('web.runs.failed') }}</span>
@@ -63,7 +72,12 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.runtimeTitle')" :description="t('web.runs.runtimeDescription')">
-      <el-table :data="workflowRuns" border size="small">
+      <el-table :data="workflowRuns" border size="small" table-layout="auto" class="workflow-run-table">
+        <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+          <template #default="{ $index }">
+            {{ getPaginatedRowNumber(pagination, $index) }}
+          </template>
+        </el-table-column>
         <el-table-column :label="t('web.runs.workflow')" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <el-button link type="primary" class="run-link" @click="openRunDetail(row)">
@@ -71,62 +85,77 @@
             </el-button>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.status')" width="120">
+        <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
+            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.startedAt')" min-width="180">
+        <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
           <template #default="{ row }">
-            <span>{{ row.startedAt || t("common.none") }}</span>
+            <div class="stack-cell">
+              <span>{{ row.startedAt || t("common.none") }}</span>
+              <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.endedAt')" min-width="180">
+        <el-table-column :label="`${t('web.runs.detailNodeStats')} / ${t('web.runs.summaryMessage')}`" min-width="320">
           <template #default="{ row }">
-            <span>{{ row.endedAt || t("common.none") }}</span>
+            <div class="stats-cell">
+              <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
+              <span class="cell-subtle">{{ row.summaryMessage || t("common.none") }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.duration')" width="140">
-          <template #default="{ row }">
-            <span>{{ formatDurationMs(row.durationMs) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.detailNodeStats')" min-width="220">
-          <template #default="{ row }">
-            <span>{{ formatNodeStats(row) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="summaryMessage" :label="t('web.runs.summaryMessage')" min-width="260" show-overflow-tooltip />
-        <el-table-column :label="t('web.runs.actions')" width="140" fixed="right">
+        <el-table-column :label="t('web.runs.actions')" width="140" align="center" header-align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openRunDetail(row)">{{ t("web.runs.viewRunDetail") }}</el-button>
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          background
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="workflowRunTotal"
+          @current-change="handleCurrentPageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </SectionCard>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { toneFromStatus } from "@/utils/studio";
+import { getPaginatedRowNumber } from "@/composables/useClientPagination";
+import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const workflows = ref<WorkflowDefinitionView[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
+const workflowRunTotal = ref(0);
+const pagination = reactive({
+  page: 1,
+  pageSize: 10,
+});
 const filters = ref<{
   workflowDefinitionId: string;
+  status: string;
   timeRange: [string, string] | [];
 }>({
   workflowDefinitionId: "",
+  status: "",
   timeRange: [],
 });
 
@@ -142,9 +171,11 @@ const successCount = computed(() =>
 
 function syncFiltersFromRoute() {
   const workflowDefinitionId = route.query.workflowDefinitionId;
+  const status = route.query.status;
   const startTime = route.query.startTime;
   const endTime = route.query.endTime;
   filters.value.workflowDefinitionId = Array.isArray(workflowDefinitionId) ? workflowDefinitionId[0] || "" : String(workflowDefinitionId || "");
+  filters.value.status = Array.isArray(status) ? status[0] || "" : String(status || "");
   const startValue = Array.isArray(startTime) ? startTime[0] || "" : String(startTime || "");
   const endValue = Array.isArray(endTime) ? endTime[0] || "" : String(endTime || "");
   filters.value.timeRange = startValue && endValue ? [startValue, endValue] : [];
@@ -160,11 +191,21 @@ async function loadWorkflows() {
 
 async function loadWorkflowRuns() {
   try {
-    workflowRuns.value = await studioApi.workflowRuns.list({
+    const response = await studioApi.workflowRuns.list({
       workflowDefinitionId: filters.value.workflowDefinitionId || undefined,
+      status: filters.value.status || undefined,
       startTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[0] : undefined,
       endTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[1] : undefined,
+      pageNo: pagination.page,
+      pageSize: pagination.pageSize,
     });
+    workflowRuns.value = response.items;
+    workflowRunTotal.value = Number(response.total ?? 0);
+    const maxPage = Math.max(1, Math.ceil(workflowRunTotal.value / pagination.pageSize));
+    if (pagination.page > maxPage) {
+      pagination.page = maxPage;
+      return void loadWorkflowRuns();
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
   }
@@ -175,17 +216,34 @@ function applyFilters() {
   if (filters.value.workflowDefinitionId) {
     query.workflowDefinitionId = filters.value.workflowDefinitionId;
   }
+  if (filters.value.status) {
+    query.status = filters.value.status;
+  }
   if (filters.value.timeRange.length === 2) {
     query.startTime = filters.value.timeRange[0];
     query.endTime = filters.value.timeRange[1];
   }
+  pagination.page = 1;
   router.push({ path: "/runs", query });
 }
 
 function resetFilters() {
   filters.value.workflowDefinitionId = "";
+  filters.value.status = "";
   filters.value.timeRange = [];
+  pagination.page = 1;
   router.push({ path: "/runs" });
+}
+
+function handleCurrentPageChange(page: number) {
+  pagination.page = page;
+  void loadWorkflowRuns();
+}
+
+function handlePageSizeChange(pageSize: number) {
+  pagination.pageSize = pageSize;
+  pagination.page = 1;
+  void loadWorkflowRuns();
 }
 
 function openRunDetail(item: WorkflowRunSummary) {
@@ -222,7 +280,7 @@ function formatNodeStats(item: WorkflowRunSummary) {
     `${t("web.runs.failedNodes")}: ${item.failedNodes || 0}`,
     `${t("web.runs.runningNodes")}: ${item.runningNodes || 0}`,
     `${t("web.runs.notRunNodes")}: ${item.notRunNodes || 0}`,
-  ].join(" / ");
+  ];
 }
 
 onMounted(async () => {
@@ -234,6 +292,7 @@ watch(
   () => route.fullPath,
   () => {
     syncFiltersFromRoute();
+    pagination.page = 1;
     void loadWorkflowRuns();
   },
 );
@@ -252,30 +311,30 @@ p {
 .runs-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .runs-query-grid {
   display: grid;
-  grid-template-columns: 220px minmax(260px, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 220px 160px minmax(260px, 1fr) auto;
+  gap: 8px;
   align-items: center;
 }
 
 .runs-query-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .status-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .status-metric {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid rgba(16, 78, 139, 0.12);
   border-radius: 12px;
   background: rgba(16, 78, 139, 0.05);
@@ -291,7 +350,7 @@ p {
 
 .status-metric strong {
   color: var(--studio-text);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
 }
 
@@ -312,6 +371,34 @@ p {
   font-weight: 600;
 }
 
+.workflow-run-table :deep(.cell) {
+  white-space: normal;
+}
+
+.stats-cell,
+.stack-cell,
+.wrap-cell {
+  display: grid;
+  gap: 4px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.stack-cell--center {
+  justify-items: center;
+}
+
+.cell-subtle {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 @media (max-width: 1100px) {
   .runs-query-grid,
   .status-strip {
@@ -319,6 +406,10 @@ p {
   }
 
   .runs-query-actions {
+    justify-content: flex-start;
+  }
+
+  .table-pagination {
     justify-content: flex-start;
   }
 }

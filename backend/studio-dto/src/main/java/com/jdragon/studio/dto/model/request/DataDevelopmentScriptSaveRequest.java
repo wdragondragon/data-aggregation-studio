@@ -24,8 +24,7 @@ public class DataDevelopmentScriptSaveRequest {
     @Schema(description = "Script type", required = true)
     private ScriptType scriptType;
 
-    @NotNull(message = "Datasource is required")
-    @Schema(description = "Datasource id", required = true)
+    @Schema(description = "Datasource id, required for SQL script")
     private Long datasourceId;
 
     @Schema(description = "Description")

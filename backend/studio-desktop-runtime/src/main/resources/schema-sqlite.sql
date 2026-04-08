@@ -238,7 +238,8 @@ create table if not exists workflow_schedule (
     workflow_definition_id integer,
     cron_expression text,
     enabled integer default 0,
-    timezone text
+    timezone text,
+    last_triggered_at text
 );
 
 create table if not exists collection_task_definition (

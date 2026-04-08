@@ -15,6 +15,8 @@
 .el-table {
   --el-table-header-bg-color: rgba(235, 244, 255, 0.96);
   --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.05);
+  width: 100%;
+  max-width: 100%;
 }
 
 .soft-panel {
@@ -22,6 +24,8 @@
   border: 1px solid var(--studio-border);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .json-block {
@@ -31,4 +35,5 @@
   border-radius: 18px;
   color: #eaf3ff;
   background: linear-gradient(180deg, #17376a 0%, #0d2344 100%);
+  max-width: 100%;
 }

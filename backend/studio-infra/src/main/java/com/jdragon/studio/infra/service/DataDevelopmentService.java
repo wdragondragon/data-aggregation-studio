@@ -5,6 +5,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataDevelopmentDirectoryView;
+import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -12,11 +13,14 @@ import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentScriptSaveRequest;
+import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.infra.entity.DataDevelopmentDirectoryEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
 import com.jdragon.studio.infra.mapper.DataDevelopmentDirectoryMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.service.script.DataDevelopmentExecutionContext;
+import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +32,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 
 @Service
 public class DataDevelopmentService {
@@ -37,17 +42,25 @@ public class DataDevelopmentService {
     private final DataSourceService dataSourceService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
     private final StudioSecurityService securityService;
+    private final Map<ScriptType, DataDevelopmentScriptExecutor> scriptExecutors;
 
     public DataDevelopmentService(DataDevelopmentDirectoryMapper directoryMapper,
                                   DataDevelopmentScriptMapper scriptMapper,
                                   DataSourceService dataSourceService,
                                   DataDevelopmentSqlExecutor sqlExecutor,
-                                  StudioSecurityService securityService) {
+                                  StudioSecurityService securityService,
+                                  List<DataDevelopmentScriptExecutor> scriptExecutors) {
         this.directoryMapper = directoryMapper;
         this.scriptMapper = scriptMapper;
         this.dataSourceService = dataSourceService;
         this.sqlExecutor = sqlExecutor;
         this.securityService = securityService;
+        this.scriptExecutors = new HashMap<ScriptType, DataDevelopmentScriptExecutor>();
+        if (scriptExecutors != null) {
+            for (DataDevelopmentScriptExecutor executor : scriptExecutors) {
+                this.scriptExecutors.put(executor.getScriptType(), executor);
+            }
+        }
     }
 
     public List<DataDevelopmentTreeNode> tree() {
@@ -141,18 +154,18 @@ public class DataDevelopmentService {
     public DataDevelopmentScriptView saveScript(DataDevelopmentScriptSaveRequest request) {
         String tenantId = securityService.currentTenantId();
         validateScriptType(request.getScriptType());
-        if (request.getDirectoryId() != null) {
-            requireDirectory(request.getDirectoryId());
-        }
         DataDevelopmentScriptEntity entity = request.getId() == null
                 ? new DataDevelopmentScriptEntity()
                 : requireScript(request.getId());
-        DataSourceDefinition datasource = requireSqlDatasource(request.getDatasourceId());
+        if (request.getDirectoryId() != null) {
+            requireDirectory(request.getDirectoryId());
+        }
+        DataSourceDefinition datasource = resolveScriptDatasource(request.getScriptType(), request.getDatasourceId());
         validateScriptFileName(tenantId, request.getDirectoryId(), request.getFileName(), entity.getId());
         entity.setDirectoryId(request.getDirectoryId());
         entity.setFileName(request.getFileName().trim());
         entity.setScriptType(request.getScriptType().name());
-        entity.setDatasourceId(datasource.getId());
+        entity.setDatasourceId(datasource == null ? null : datasource.getId());
         entity.setDescription(blankToNull(request.getDescription()));
         entity.setContent(request.getContent());
         if (entity.getId() == null) {
@@ -182,13 +195,42 @@ public class DataDevelopmentService {
     }
 
     public SqlExecutionResultView execute(SqlExecutionRequest request) {
-        validateScriptType(request.getScriptType());
-        return sqlExecutor.execute(requireSqlDatasource(request.getDatasourceId()), request.getContent(), request.getMaxRows());
+        if (request.getScriptType() != ScriptType.SQL) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL scripts can use the SQL execution endpoint");
+        }
+        return sqlExecutor.executeSql(requireSqlDatasource(request.getDatasourceId()), request.getContent(), request.getMaxRows());
     }
 
-    public SqlExecutionResultView executeScript(Long scriptId, Integer maxRows) {
-        DataDevelopmentScriptView script = getScript(scriptId);
-        return sqlExecutor.execute(requireSqlDatasource(script.getDatasourceId()), script.getContent(), maxRows);
+    public DataScriptExecutionResultView execute(DataScriptExecutionRequest request) {
+        validateScriptType(request.getScriptType());
+        DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
+        context.setScriptType(request.getScriptType());
+        context.setContent(request.getContent());
+        context.setDatasourceId(request.getDatasourceId());
+        context.setDatasource(resolveScriptDatasource(request.getScriptType(), request.getDatasourceId()));
+        context.setMaxRows(request.getMaxRows());
+        context.setTenantId(securityService.currentTenantId());
+        context.setUsername(securityService.currentUsername());
+        context.setArguments(request.getArguments());
+        return requireExecutor(request.getScriptType()).execute(context);
+    }
+
+    public DataScriptExecutionResultView executeScript(Long scriptId, Integer maxRows, Map<String, Object> arguments, Map<String, Object> runtimeContext) {
+        DataDevelopmentScriptEntity script = requireScript(scriptId);
+        ScriptType scriptType = ScriptType.valueOf(script.getScriptType());
+        DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
+        context.setScriptId(script.getId());
+        context.setScriptName(script.getFileName());
+        context.setScriptType(scriptType);
+        context.setContent(script.getContent());
+        context.setDatasourceId(script.getDatasourceId());
+        context.setDatasource(resolveScriptDatasource(scriptType, script.getDatasourceId()));
+        context.setMaxRows(maxRows);
+        context.setTenantId(securityService.currentTenantId());
+        context.setUsername(securityService.currentUsername());
+        context.setArguments(arguments);
+        context.setRuntimeContext(runtimeContext);
+        return requireExecutor(scriptType).execute(context);
     }
 
     private DataDevelopmentDirectoryEntity requireDirectory(Long directoryId) {
@@ -216,6 +258,16 @@ public class DataDevelopmentService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only database datasources can execute SQL scripts");
         }
         return datasource;
+    }
+
+    private DataSourceDefinition resolveScriptDatasource(ScriptType scriptType, Long datasourceId) {
+        if (scriptType == ScriptType.SQL) {
+            return requireSqlDatasource(datasourceId);
+        }
+        if (datasourceId == null) {
+            return null;
+        }
+        return dataSourceService.getInternal(datasourceId);
     }
 
     private List<DataDevelopmentDirectoryEntity> listDirectoryEntities(String tenantId) {
@@ -337,9 +389,17 @@ public class DataDevelopmentService {
         if (scriptType == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Script type is required");
         }
-        if (scriptType != ScriptType.SQL) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL scripts are currently supported");
+        if (scriptType != ScriptType.SQL && scriptType != ScriptType.JAVA && scriptType != ScriptType.PYTHON) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL, Java and Python scripts are currently supported");
         }
+    }
+
+    private DataDevelopmentScriptExecutor requireExecutor(ScriptType scriptType) {
+        DataDevelopmentScriptExecutor executor = scriptExecutors.get(scriptType);
+        if (executor == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported script type: " + scriptType);
+        }
+        return executor;
     }
 
     private void ensureNotDescendant(Long directoryId, Long targetDirectoryId) {

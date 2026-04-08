@@ -97,6 +97,131 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
         assertThat(directoryNode.path("children").get(0).path("name").asText()).isEqualTo("orders_profile.sql");
     }
 
+    @Test
+    void shouldSaveAndExecuteJavaScriptWithoutDatasource() throws Exception {
+        String authorization = adminAuthorizationHeader();
+
+        Map<String, Object> scriptPayload = new LinkedHashMap<String, Object>();
+        scriptPayload.put("fileName", "demo_job.java");
+        scriptPayload.put("scriptType", "JAVA");
+        scriptPayload.put("description", "Demo Java script");
+        scriptPayload.put("content", ""
+                + "import com.jdragon.studio.infra.script.java.JavaDataScript;\n"
+                + "import com.jdragon.studio.infra.script.java.JavaDataScriptContext;\n"
+                + "import com.jdragon.studio.infra.script.java.JavaDataScriptResult;\n"
+                + "\n"
+                + "public class DemoJavaDataScript implements JavaDataScript {\n"
+                + "    @Override\n"
+                + "    public JavaDataScriptResult execute(JavaDataScriptContext context) throws Exception {\n"
+                + "        context.getLogger().info(\"Java script started\");\n"
+                + "        JavaDataScriptResult result = new JavaDataScriptResult();\n"
+                + "        result.setMessage(\"Java script executed successfully\");\n"
+                + "        result.getResultJson().put(\"tenantId\", context.getTenantId());\n"
+                + "        result.getResultJson().put(\"arguments\", context.getArguments());\n"
+                + "        return result;\n"
+                + "    }\n"
+                + "}\n");
+
+        mockMvc.perform(post("/api/v1/data-development/scripts")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(scriptPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.fileName").value("demo_job.java"))
+                .andExpect(jsonPath("$.data.scriptType").value("JAVA"));
+
+        Map<String, Object> executionPayload = new LinkedHashMap<String, Object>();
+        executionPayload.put("scriptType", "JAVA");
+        executionPayload.put("content", scriptPayload.get("content"));
+        Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+        arguments.put("batchSize", 100);
+        executionPayload.put("arguments", arguments);
+
+        mockMvc.perform(post("/api/v1/data-development/scripts/execute")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(executionPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.scriptType").value("JAVA"))
+                .andExpect(jsonPath("$.data.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.message").value("Java script executed successfully"))
+                .andExpect(jsonPath("$.data.logs").isNotEmpty())
+                .andExpect(jsonPath("$.data.resultJson.tenantId").value("default"))
+                .andExpect(jsonPath("$.data.resultJson.arguments.batchSize").value(100));
+    }
+
+    @Test
+    void shouldSaveAndExecutePythonScriptWithoutDatasource() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        createSqlDatasource(authorization, "Python Bridge Datasource");
+
+        Map<String, Object> scriptPayload = new LinkedHashMap<String, Object>();
+        scriptPayload.put("fileName", "demo_job.py");
+        scriptPayload.put("scriptType", "PYTHON");
+        scriptPayload.put("description", "Demo Python script");
+        scriptPayload.put("content", ""
+                + "def execute(context):\n"
+                + "    context.logger.info(\"Python script started by %s\" % context.username)\n"
+                + "    datasources = context.services.list_datasources()\n"
+                + "    return {\n"
+                + "        \"tenantId\": context.tenant_id,\n"
+                + "        \"arguments\": context.arguments,\n"
+                + "        \"datasourceCount\": len(datasources),\n"
+                + "    }\n");
+
+        mockMvc.perform(post("/api/v1/data-development/scripts")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(scriptPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.fileName").value("demo_job.py"))
+                .andExpect(jsonPath("$.data.scriptType").value("PYTHON"));
+
+        Map<String, Object> executionPayload = new LinkedHashMap<String, Object>();
+        executionPayload.put("scriptType", "PYTHON");
+        executionPayload.put("content", scriptPayload.get("content"));
+        Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+        arguments.put("batchSize", 64);
+        executionPayload.put("arguments", arguments);
+
+        mockMvc.perform(post("/api/v1/data-development/scripts/execute")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(executionPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.scriptType").value("PYTHON"))
+                .andExpect(jsonPath("$.data.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.logs").isNotEmpty())
+                .andExpect(jsonPath("$.data.resultJson.tenantId").value("default"))
+                .andExpect(jsonPath("$.data.resultJson.arguments.batchSize").value(64))
+                .andExpect(jsonPath("$.data.resultJson.datasourceCount").value(1));
+    }
+
+    private String createSqlDatasource(String authorization, String name) throws Exception {
+        Map<String, Object> datasourcePayload = new LinkedHashMap<String, Object>();
+        datasourcePayload.put("name", name);
+        datasourcePayload.put("typeCode", "mysql8");
+        datasourcePayload.put("enabled", true);
+        datasourcePayload.put("executable", false);
+        datasourcePayload.put("technicalMetadata", minimalSqlMetadata());
+        datasourcePayload.put("businessMetadata", new LinkedHashMap<String, Object>());
+
+        MvcResult datasourceResult = mockMvc.perform(post("/api/v1/datasources")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(datasourcePayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        return readBody(datasourceResult).path("data").path("id").asText();
+    }
+
     private Map<String, Object> minimalSqlMetadata() {
         Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
         technicalMetadata.put("host", "127.0.0.1");

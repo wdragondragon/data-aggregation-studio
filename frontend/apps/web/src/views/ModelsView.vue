@@ -157,7 +157,7 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
+              <el-table-column :label="t('web.metadata.actions')" width="100">
                 <template #default="{ $index }">
                   <el-button link type="danger" @click="removeQueryCondition(group, $index)">{{ t("common.remove") }}</el-button>
                 </template>
@@ -166,7 +166,12 @@
           </div>
         </div>
 
-        <el-table :data="models" border :empty-text="modelTableEmptyText">
+        <el-table :data="pagedModels" border :empty-text="modelTableEmptyText">
+          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+            <template #default="{ $index }">
+              {{ getPaginatedRowNumber(modelPagination, $index) }}
+            </template>
+          </el-table-column>
           <el-table-column :label="t('web.models.modelName')" min-width="180">
             <template #default="{ row }">
               <el-button link type="primary" @click.stop="openModelDetail(row)">{{ row.name }}</el-button>
@@ -177,15 +182,28 @@
               {{ resolveDatasourceLabel(row.datasourceId) }}
             </template>
           </el-table-column>
-          <el-table-column prop="modelKind" :label="t('web.models.kind')" width="120" />
-          <el-table-column prop="physicalLocator" :label="t('web.models.physicalLocator')" min-width="220" show-overflow-tooltip />
-          <el-table-column :label="t('web.metadata.actions')" width="150" fixed="right">
+          <el-table-column :label="t('web.models.kind')" width="120" align="center" header-align="center">
             <template #default="{ row }">
-              <el-button link type="primary" @click.stop="openModelDetail(row, true)">{{ t("common.edit") }}</el-button>
-              <el-button link type="danger" @click.stop="deleteModel(row)">{{ t("common.delete") }}</el-button>
+              {{ formatModelKind(t, row.modelKind) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="physicalLocator" :label="t('web.models.physicalLocator')" min-width="220" show-overflow-tooltip />
+          <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
+            <template #default="{ row }">
+              <OverflowActionGroup :items="buildModelActions(row)" />
             </template>
           </el-table-column>
         </el-table>
+        <div class="table-pagination">
+          <el-pagination
+            v-model:current-page="modelPagination.page"
+            v-model:page-size="modelPagination.pageSize"
+            background
+            layout="total, sizes, prev, pager, next"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="models.length"
+          />
+        </div>
       </SectionCard>
     </template>
 
@@ -204,7 +222,7 @@
             <strong>{{ selectedModel.name }}</strong>
             <p>{{ selectedModel.physicalLocator }}</p>
           </div>
-          <StatusPill :label="selectedModel.modelKind ?? t('common.unknown')" tone="primary" />
+          <StatusPill :label="formatModelKind(t, selectedModel.modelKind)" tone="primary" />
         </div>
         <div v-else class="soft-panel empty-hint">
           {{ t("web.models.previewEmpty") }}
@@ -420,24 +438,6 @@
         </div>
       </SectionCard>
 
-      <SectionCard
-        :title="t('web.models.businessMetaModelTitle')"
-        :description="t('web.models.businessMetaModelDescription')"
-      >
-        <div class="studio-form-grid business-schema-selector">
-          <el-form-item :label="t('web.datasources.businessMetaModel')">
-            <el-select v-model="selectedBusinessSchemaVersionId" clearable :placeholder="t('web.datasources.businessMetaModelPlaceholder')">
-              <el-option
-                v-for="schema in businessSchemaOptions"
-                :key="schema.id"
-                :label="`${parseMetaModelSchema(schema).config.directoryName || parseMetaModelSchema(schema).config.directoryCode || 'business'} / ${schema.schemaName}`"
-                :value="schema.currentVersionId ?? schema.id"
-              />
-            </el-select>
-          </el-form-item>
-        </div>
-      </SectionCard>
-
       <template v-for="section in editorSections" :key="section.key">
         <SectionCard :title="section.title" :description="section.description">
           <template #actions>
@@ -476,7 +476,7 @@
                   </component>
                 </template>
               </el-table-column>
-              <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
+              <el-table-column :label="t('web.metadata.actions')" width="100">
                 <template #default="{ $index }">
                   <el-button link type="danger" @click="removeSectionRow(section, $index)">{{ t("common.remove") }}</el-button>
                 </template>
@@ -487,7 +487,7 @@
           <MetaFormRenderer
             v-else
             :fields="section.fields"
-            :model-value="section.binding === 'TECHNICAL' ? modelForm.technicalMetadata : modelForm.businessMetadata"
+            :model-value="sectionModelValue(section, true)"
             @update:model-value="updateSectionModelValue(section, $event)"
           />
         </SectionCard>
@@ -519,10 +519,18 @@ import type {
   ModelKind,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { parseBusinessSchemaVersionId, parseMetaModelSchema, withBusinessSchemaVersionId } from "@/utils/metaModel";
-import { cloneDeep } from "@/utils/studio";
+import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import {
+  ensureBusinessMetaModelEntries,
+  getBusinessMetaModelRows,
+  getBusinessMetaModelValues,
+  parseMetaModelSchema,
+  setBusinessMetaModelRows,
+  setBusinessMetaModelValues,
+} from "@/utils/metaModel";
+import { cloneDeep, formatModelKind } from "@/utils/studio";
 
 type MetaSectionBinding = "TECHNICAL" | "BUSINESS";
 
@@ -595,6 +603,11 @@ const { t } = useI18n();
 const datasources = ref<DataSourceDefinition[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const models = ref<DataModelDefinition[]>([]);
+const {
+  pagination: modelPagination,
+  pagedItems: pagedModels,
+  resetPagination: resetModelPagination,
+} = useClientPagination(models);
 const previewRows = ref<Record<string, unknown>[]>([]);
 const queryGroups = ref<ModelQueryGroupState[]>([]);
 const selectedDatasourceId = ref<EntityId>();
@@ -656,9 +669,6 @@ const manualDatasourceOptions = computed(() =>
 const availableModelSchemas = computed(() =>
   filterModelSchemas(editorDatasource.value?.typeCode).filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "field"),
 );
-const businessSchemaOptions = computed(() =>
-  schemas.value.filter((schema) => parseMetaModelSchema(schema).config.domain === "BUSINESS"),
-);
 const querySchemaOptions = computed(() =>
   schemas.value
     .filter((schema) => normalizeTypeCode(schema.objectType) === "model" || parseMetaModelSchema(schema).config.domain === "BUSINESS")
@@ -673,29 +683,13 @@ const querySchemaOptions = computed(() =>
     })
     .sort((left, right) => querySchemaLabel(left).localeCompare(querySchemaLabel(right))),
 );
-const selectedBusinessSchemaVersionId = computed({
-  get: () => parseBusinessSchemaVersionId(modelForm.businessMetadata),
-  set: (value) => {
-    modelForm.businessMetadata = withBusinessSchemaVersionId(modelForm.businessMetadata ?? {}, value);
-    applyBusinessMetadataDefaults();
-  },
-});
 const selectedModelSchema = computed(() => findSelectedModelSchema(availableModelSchemas.value, modelForm.schemaVersionId));
-const selectedBusinessSchema = computed(
-  () =>
-    businessSchemaOptions.value.find(
-      (schema) => sameId(schema.id, selectedBusinessSchemaVersionId.value) || sameId(schema.currentVersionId, selectedBusinessSchemaVersionId.value),
-    ),
-);
-const previewBusinessSchema = computed(() => findBusinessSchema(parseBusinessSchemaVersionId(selectedModel.value?.businessMetadata)));
-const editorSections = computed(() => [
-  ...buildTechnicalSections(editorDatasource.value?.typeCode, modelForm.schemaVersionId),
-  ...buildBusinessSections(selectedBusinessSchema.value),
-]);
-const previewSections = computed(() => [
-  ...buildTechnicalSections(selectedDatasource.value?.typeCode, selectedModel.value?.schemaVersionId),
-  ...buildBusinessSections(previewBusinessSchema.value),
-]);
+const editorTechnicalSections = computed(() => buildTechnicalSections(editorDatasource.value?.typeCode, modelForm.schemaVersionId));
+const previewTechnicalSections = computed(() => buildTechnicalSections(selectedDatasource.value?.typeCode, selectedModel.value?.schemaVersionId));
+const editorBusinessSections = computed(() => buildBusinessSections(resolveBusinessSchemas(editorTechnicalSections.value.map((section) => section.metaModelCode))));
+const previewBusinessSections = computed(() => buildBusinessSections(resolveBusinessSchemas(previewTechnicalSections.value.map((section) => section.metaModelCode))));
+const editorSections = computed(() => buildOrderedSections(editorTechnicalSections.value, editorBusinessSections.value));
+const previewSections = computed(() => buildOrderedSections(previewTechnicalSections.value, previewBusinessSections.value));
 const showManualDatasourceHint = computed(
   () => Boolean(editorDatasource.value && isDatabaseDatasourceType(editorDatasource.value.typeCode) && !isEditingModel.value),
 );
@@ -750,13 +744,23 @@ function findSelectedModelSchema(options: MetadataSchemaDefinition[], schemaVers
   return options[0];
 }
 
-function findBusinessSchema(schemaVersionId?: EntityId) {
-  if (schemaVersionId == null) {
-    return undefined;
-  }
-  return businessSchemaOptions.value.find(
-    (schema) => sameId(schema.id, schemaVersionId) || sameId(schema.currentVersionId, schemaVersionId),
-  );
+function resolveBusinessSchemas(metaModelCodes: string[]) {
+  const allowedCodes = new Set(metaModelCodes.map((code) => normalizeTypeCode(code)).filter(Boolean));
+  return schemas.value
+    .filter((schema) => {
+      const parsed = parseMetaModelSchema(schema).config;
+      return parsed.domain === "BUSINESS" && allowedCodes.has(normalizeTypeCode(parsed.metaModelCode));
+    })
+    .sort((left, right) => {
+      const leftConfig = parseMetaModelSchema(left).config;
+      const rightConfig = parseMetaModelSchema(right).config;
+      const directoryCompare = `${leftConfig.directoryName || leftConfig.directoryCode || ""}`
+        .localeCompare(`${rightConfig.directoryName || rightConfig.directoryCode || ""}`);
+      if (directoryCompare !== 0) {
+        return directoryCompare;
+      }
+      return left.schemaName.localeCompare(right.schemaName);
+    });
 }
 
 function resolveSectionCollectionKey(metaModelCode?: string) {
@@ -835,23 +839,47 @@ function buildTechnicalSections(datasourceTypeCode?: string, activeSchemaVersion
   });
 }
 
-function buildBusinessSections(schema?: MetadataSchemaDefinition) {
-  if (!schema) {
+function buildBusinessSections(schemasForRender: MetadataSchemaDefinition[]) {
+  if (!schemasForRender.length) {
     return [] as ModelMetaSection[];
   }
-  const parsed = parseMetaModelSchema(schema);
-  const displayMode = parsed.config.displayMode ?? "SINGLE";
-  return [{
-    key: `business:${schema.id ?? schema.schemaCode}`,
-    schema,
-    title: parsed.config.metaModelName || schema.schemaName,
-    description: parsed.plainDescription || schema.schemaCode,
-    binding: "BUSINESS" as MetaSectionBinding,
-    displayMode,
-    metaModelCode: parsed.config.metaModelCode,
-    fields: (schema.fields ?? []).filter((field) => field.scope === "BUSINESS"),
-    collectionKey: displayMode === "MULTIPLE" ? resolveSectionCollectionKey(parsed.config.metaModelCode) : undefined,
-  }];
+  return schemasForRender.map((schema) => {
+    const parsed = parseMetaModelSchema(schema);
+    const displayMode = parsed.config.displayMode ?? "SINGLE";
+    return {
+      key: `business:${schema.id ?? schema.schemaCode}`,
+      schema,
+      title: `${parsed.config.directoryName || parsed.config.directoryCode || t("web.models.businessMetaModelTitle")} / ${schema.schemaName}`,
+      description: parsed.plainDescription || schema.schemaCode,
+      binding: "BUSINESS" as MetaSectionBinding,
+      displayMode,
+      metaModelCode: parsed.config.metaModelCode,
+      fields: (schema.fields ?? []).filter((field) => field.scope === "BUSINESS"),
+      collectionKey: displayMode === "MULTIPLE" ? resolveSectionCollectionKey(parsed.config.metaModelCode) : undefined,
+    };
+  });
+}
+
+function buildOrderedSections(technicalSections: ModelMetaSection[], businessSections: ModelMetaSection[]) {
+  const ordered = [] as ModelMetaSection[];
+  const businessByCode = new Map<string, ModelMetaSection[]>();
+  for (const section of businessSections) {
+    const code = normalizeTypeCode(section.metaModelCode);
+    const items = businessByCode.get(code) ?? [];
+    items.push(section);
+    businessByCode.set(code, items);
+  }
+  for (const technicalSection of technicalSections) {
+    ordered.push(technicalSection);
+    const code = normalizeTypeCode(technicalSection.metaModelCode);
+    const matchedBusinessSections = businessByCode.get(code) ?? [];
+    ordered.push(...matchedBusinessSections);
+    businessByCode.delete(code);
+  }
+  for (const sectionsForCode of businessByCode.values()) {
+    ordered.push(...sectionsForCode);
+  }
+  return ordered;
 }
 
 function deriveModelKindFromDatasource(datasource?: DataSourceDefinition): ModelKind | undefined {
@@ -1012,17 +1040,32 @@ function sectionValue(section: ModelMetaSection, fieldKey?: string, editor = fal
   if (!fieldKey) {
     return undefined;
   }
-  const metadata = section.binding === "TECHNICAL"
-    ? (editor ? modelForm.technicalMetadata : selectedModel.value?.technicalMetadata)
-    : (editor ? modelForm.businessMetadata : selectedModel.value?.businessMetadata);
-  return metadata?.[fieldKey];
+  if (section.binding === "TECHNICAL") {
+    const metadata = editor ? modelForm.technicalMetadata : selectedModel.value?.technicalMetadata;
+    return metadata?.[fieldKey];
+  }
+  return sectionModelValue(section, editor)?.[fieldKey];
+}
+
+function sectionModelValue(section: ModelMetaSection, editor = false) {
+  if (section.binding === "TECHNICAL") {
+    return (editor ? modelForm.technicalMetadata : selectedModel.value?.technicalMetadata) ?? {};
+  }
+  const metadata = editor ? modelForm.businessMetadata : selectedModel.value?.businessMetadata;
+  return getBusinessMetaModelValues(metadata, section.schema);
 }
 
 function previewSectionRows(section: ModelMetaSection) {
+  if (section.binding === "BUSINESS") {
+    return getBusinessMetaModelRows(selectedModel.value?.businessMetadata, section.schema);
+  }
   return parseFieldRows(sectionValue(section, section.collectionKey, false));
 }
 
 function editorSectionRows(section: ModelMetaSection) {
+  if (section.binding === "BUSINESS") {
+    return getBusinessMetaModelRows(modelForm.businessMetadata, section.schema);
+  }
   return parseFieldRows(sectionValue(section, section.collectionKey, true));
 }
 
@@ -1031,22 +1074,20 @@ function updateSectionModelValue(section: ModelMetaSection, value: Record<string
     modelForm.technicalMetadata = value;
     return;
   }
-  modelForm.businessMetadata = value;
+  modelForm.businessMetadata = setBusinessMetaModelValues(modelForm.businessMetadata, section.schema, value);
 }
 
 function setSectionRows(section: ModelMetaSection, rows: Record<string, unknown>[]) {
   if (!section.collectionKey) {
     return;
   }
-  const container = section.binding === "TECHNICAL"
-    ? { ...(modelForm.technicalMetadata ?? {}) }
-    : { ...(modelForm.businessMetadata ?? {}) };
-  container[section.collectionKey] = rows;
   if (section.binding === "TECHNICAL") {
+    const container = { ...(modelForm.technicalMetadata ?? {}) };
+    container[section.collectionKey] = rows;
     modelForm.technicalMetadata = container;
     return;
   }
-  modelForm.businessMetadata = container;
+  modelForm.businessMetadata = setBusinessMetaModelRows(modelForm.businessMetadata, section.schema, rows);
 }
 
 function appendSectionRow(section: ModelMetaSection) {
@@ -1160,18 +1201,20 @@ function applyModelSchemaContext(options: { resetMetadata?: boolean; forceKind?:
 }
 
 function applyBusinessMetadataDefaults() {
-  if (!selectedBusinessSchema.value) {
-    return;
+  modelForm.businessMetadata = ensureBusinessMetaModelEntries(
+    modelForm.businessMetadata,
+    editorBusinessSections.value.map((section) => section.schema),
+  );
+  for (const section of editorBusinessSections.value) {
+    if (section.displayMode === "MULTIPLE") {
+      setSectionRows(section, editorSectionRows(section));
+      continue;
+    }
+    updateSectionModelValue(section, {
+      ...buildDefaultMetadata(section.fields),
+      ...sectionModelValue(section, true),
+    });
   }
-  const section = buildBusinessSections(selectedBusinessSchema.value)[0];
-  if (!section) {
-    return;
-  }
-  if (section.displayMode === "MULTIPLE") {
-    setSectionRows(section, editorSectionRows(section));
-    return;
-  }
-  modelForm.businessMetadata = mergeMetadataDefaults(modelForm.businessMetadata, section.fields);
 }
 
 function resetModelForm(prefillDatasourceId?: EntityId) {
@@ -1415,6 +1458,7 @@ async function loadModelsForSelectedDatasource() {
     : (selectedDatasourceId.value
       ? await studioApi.models.listByDatasource(selectedDatasourceId.value)
       : await studioApi.models.list());
+  resetModelPagination();
 }
 
 async function handleDatasourceChange() {
@@ -1543,7 +1587,7 @@ async function saveModel() {
     selectedDatasourceId.value = saved.datasourceId;
     ElMessage.success(t("web.models.saveSuccess"));
     if (isDetailPage.value) {
-      await loadModelDetail();
+      goBackToList();
     } else {
       await handleDatasourceChange();
       const current = models.value.find((item) => sameId(item.id, saved.id));
@@ -1612,6 +1656,23 @@ async function deleteModel(model: DataModelDefinition) {
   }
 }
 
+function buildModelActions(model: DataModelDefinition) {
+  return [
+    {
+      key: "edit",
+      label: t("common.edit"),
+      type: "primary",
+      onClick: () => openModelDetail(model, true),
+    },
+    {
+      key: "delete",
+      label: t("common.delete"),
+      type: "danger",
+      onClick: () => deleteModel(model),
+    },
+  ];
+}
+
 watch(
   () => [route.params.modelId, route.fullPath],
   async () => {
@@ -1640,8 +1701,8 @@ p {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .models-toolbar__filter {
@@ -1650,15 +1711,21 @@ p {
 
 .model-query-panel {
   display: grid;
-  gap: 14px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .model-query-panel__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+}
+
+.model-query-panel__header p,
+.model-meta-section__header p,
+.preview-head p {
+  display: none;
 }
 
 .model-query-panel__actions {
@@ -1669,7 +1736,7 @@ p {
 
 .model-query-group {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .query-condition-value {
@@ -1690,33 +1757,33 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .detail-toolbar__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .preview-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .model-section-stack {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .model-meta-section,
 .sample-panel {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .model-meta-section__header {
@@ -1736,13 +1803,13 @@ p {
 .model-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .model-field-grid__item {
   border: 1px solid var(--studio-border);
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.8);
 }
 
@@ -1765,7 +1832,7 @@ p {
 .warning-hint,
 .editor-description,
 .dialog-description {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .section-empty {
@@ -1779,7 +1846,7 @@ p {
 
 .sync-table-panel {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .sync-table-panel__title {
@@ -1789,18 +1856,24 @@ p {
 .multiple-section-actions {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .drawer-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 20px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .business-schema-selector {
   margin-bottom: 0;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 @media (max-width: 980px) {
@@ -1830,6 +1903,10 @@ p {
   }
 
   .model-meta-section__tags {
+    justify-content: flex-start;
+  }
+
+  .table-pagination {
     justify-content: flex-start;
   }
 }

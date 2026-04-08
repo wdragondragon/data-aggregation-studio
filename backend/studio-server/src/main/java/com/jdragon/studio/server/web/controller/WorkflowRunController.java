@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.WorkflowRunDetailView;
 import com.jdragon.studio.dto.model.WorkflowRunSummaryView;
 import com.jdragon.studio.infra.service.WorkflowRunService;
@@ -14,8 +15,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.List;
-
 @Tag(name = "Workflow Runs", description = "Workflow run log and detail APIs")
 @RestController
 @RequestMapping("/api/v1/workflow-runs")
@@ -29,12 +28,15 @@ public class WorkflowRunController {
 
     @Operation(summary = "List workflow runs")
     @GetMapping
-    public Result<List<WorkflowRunSummaryView>> list(@RequestParam(value = "workflowDefinitionId", required = false) Long workflowDefinitionId,
-                                                     @RequestParam(value = "startTime", required = false)
-                                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
-                                                     @RequestParam(value = "endTime", required = false)
-                                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime) {
-        return Result.success(workflowRunService.list(workflowDefinitionId, startTime, endTime));
+    public Result<PageView<WorkflowRunSummaryView>> list(@RequestParam(value = "workflowDefinitionId", required = false) Long workflowDefinitionId,
+                                                         @RequestParam(value = "status", required = false) String status,
+                                                         @RequestParam(value = "startTime", required = false)
+                                                         @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
+                                                         @RequestParam(value = "endTime", required = false)
+                                                         @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime,
+                                                         @RequestParam(value = "pageNo", defaultValue = "1") Integer pageNo,
+                                                         @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize) {
+        return Result.success(workflowRunService.list(workflowDefinitionId, status, startTime, endTime, pageNo, pageSize));
     }
 
     @Operation(summary = "Get workflow run detail")

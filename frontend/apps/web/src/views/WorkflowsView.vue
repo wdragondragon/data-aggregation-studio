@@ -13,7 +13,12 @@
 
     <SectionCard :title="t('web.workflows.registryTitle')" :description="t('web.workflows.registryDescription')">
       <template v-if="workflows.length">
-        <el-table :data="workflows" border>
+        <el-table :data="pagedWorkflows" border>
+          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+            <template #default="{ $index }">
+              {{ getPaginatedRowNumber(workflowPagination, $index) }}
+            </template>
+          </el-table-column>
           <el-table-column prop="code" :label="t('web.workflows.code')" min-width="150" />
           <el-table-column :label="t('web.workflows.name')" min-width="220">
             <template #default="{ row }">
@@ -22,12 +27,12 @@
               </el-button>
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.workflows.status')" width="120">
+          <el-table-column :label="t('web.workflows.status')" width="120" align="center" header-align="center">
             <template #default="{ row }">
               <StatusPill :label="row.published ? t('common.published') : t('common.draft')" :tone="row.published ? 'success' : 'warning'" />
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.workflows.scheduleEnabled')" width="120">
+          <el-table-column :label="t('web.workflows.scheduleEnabled')" width="120" align="center" header-align="center">
             <template #default="{ row }">
               <StatusPill
                 :label="row.schedule?.enabled ? t('common.on') : t('common.off')"
@@ -35,16 +40,22 @@
               />
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.metadata.actions')" width="380">
+          <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
             <template #default="{ row }">
-              <el-button link type="primary" @click="editWorkflow(row)">{{ t("common.edit") }}</el-button>
-              <el-button link @click="viewWorkflowLogs(row)">{{ t("web.workflows.logsEntry") }}</el-button>
-              <el-button link type="success" :disabled="!row.id" @click="publishWorkflow(row)">{{ t("common.publish") }}</el-button>
-              <el-button link type="warning" :disabled="!row.id" @click="triggerWorkflow(row)">{{ t("common.trigger") }}</el-button>
-              <el-button link type="danger" :disabled="!row.id" @click="deleteWorkflow(row)">{{ t("common.delete") }}</el-button>
+              <OverflowActionGroup :items="buildWorkflowActions(row)" />
             </template>
           </el-table-column>
         </el-table>
+        <div class="table-pagination">
+          <el-pagination
+            v-model:current-page="workflowPagination.page"
+            v-model:page-size="workflowPagination.pageSize"
+            background
+            layout="total, sizes, prev, pager, next"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="workflows.length"
+          />
+        </div>
       </template>
       <div v-else class="workflow-empty-state">
         <el-empty :description="t('web.workflows.emptyDescription')" />
@@ -60,16 +71,19 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 
 const { t } = useI18n();
 const router = useRouter();
 const workflows = ref<WorkflowDefinitionView[]>([]);
+const { pagination: workflowPagination, pagedItems: pagedWorkflows, resetPagination: resetWorkflowPagination } = useClientPagination(workflows);
 
 async function loadWorkflows() {
   try {
     workflows.value = await studioApi.workflows.list();
+    resetWorkflowPagination();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
   }
@@ -90,6 +104,16 @@ function viewWorkflowLogs(workflow: WorkflowDefinitionView) {
       workflowDefinitionId: String(workflow.id ?? ""),
     },
   });
+}
+
+function buildWorkflowActions(workflow: WorkflowDefinitionView) {
+  return [
+    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => editWorkflow(workflow) },
+    { key: "logs", label: t("web.workflows.logsEntry"), onClick: () => viewWorkflowLogs(workflow) },
+    { key: "publish", label: t("common.publish"), type: "success", disabled: !workflow.id, onClick: () => publishWorkflow(workflow) },
+    { key: "trigger", label: t("common.trigger"), type: "warning", disabled: !workflow.id, onClick: () => triggerWorkflow(workflow) },
+    { key: "delete", label: t("common.delete"), type: "danger", disabled: !workflow.id, onClick: () => deleteWorkflow(workflow) },
+  ];
 }
 
 async function publishWorkflow(workflow: WorkflowDefinitionView) {
@@ -162,5 +186,17 @@ p {
 .workflow-name-link {
   padding: 0;
   font-weight: 600;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+@media (max-width: 960px) {
+  .table-pagination {
+    justify-content: flex-start;
+  }
 }
 </style>

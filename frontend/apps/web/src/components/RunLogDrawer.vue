@@ -7,7 +7,7 @@
           <div><strong>{{ t("web.runs.node") }}:</strong> {{ activeRunRecord.nodeCode ?? t("common.none") }}</div>
           <div class="log-status-row">
             <strong>{{ t("web.runs.status") }}:</strong>
-            <span class="log-status-chip">{{ activeRunRecord.status ?? t("common.unknown") }}</span>
+            <span class="log-status-chip">{{ formatStatusLabel(t, activeRunRecord.status) }}</span>
           </div>
           <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerCode ?? t("common.none") }}</div>
         </div>
@@ -62,6 +62,7 @@ import { useI18n } from "vue-i18n";
 import type { EntityId, RunLogView, RunRecord } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { formatStatusLabel } from "@/utils/studio";
 
 const props = defineProps<{
   modelValue: boolean;

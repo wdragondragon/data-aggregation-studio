@@ -9,8 +9,8 @@
         <el-button plain @click="refreshAll">{{ t("common.refresh") }}</el-button>
         <el-button plain @click="openDirectoryDialog()">{{ t("web.dataDevelopment.newDirectory") }}</el-button>
         <el-button type="primary" @click="createNewScript">{{ t("web.dataDevelopment.newScript") }}</el-button>
-        <el-button type="success" :disabled="!scriptEditorVisible" @click="executeSql">{{ t("web.dataDevelopment.executeSql") }}</el-button>
-        <el-button type="primary" :disabled="!scriptEditorVisible" @click="saveScript">{{ t("web.dataDevelopment.saveScript") }}</el-button>
+        <el-button type="success" :disabled="!canExecuteCurrentScript" @click="executeCurrentScript">{{ executeButtonLabel }}</el-button>
+        <el-button type="primary" :disabled="!canSaveCurrentScript" @click="saveScript">{{ t("web.dataDevelopment.saveScript") }}</el-button>
         <el-button plain :disabled="!selectedTreeNode" @click="openMoveDialog">{{ t("web.dataDevelopment.moveNode") }}</el-button>
         <el-button type="danger" plain :disabled="!selectedTreeNode" @click="deleteSelectedNode">{{ t("common.delete") }}</el-button>
       </div>
@@ -42,7 +42,7 @@
                   {{ slotProps?.data?.permissionCode || t("common.none") }}
                 </span>
                 <span v-else>
-                  {{ slotProps?.data?.scriptType }} · {{ slotProps?.data?.datasourceName || t("common.none") }}
+                  {{ formatScriptType(t, slotProps?.data?.scriptType) }} · {{ slotProps?.data?.datasourceName || t("common.none") }}
                 </span>
               </div>
             </div>
@@ -62,10 +62,16 @@
             </el-form-item>
             <el-form-item :label="t('web.dataDevelopment.scriptType')">
               <el-select v-model="scriptForm.scriptType">
-                <el-option label="SQL" value="SQL" />
+                <el-option
+                  v-for="option in scriptTypeOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                  :disabled="option.disabled"
+                />
               </el-select>
             </el-form-item>
-            <el-form-item :label="t('web.dataDevelopment.datasource')">
+            <el-form-item v-if="currentScriptRegistryEntry.requiresDatasource" :label="t('web.dataDevelopment.datasource')">
               <el-select v-model="scriptForm.datasourceId" filterable :placeholder="t('web.dataDevelopment.datasourcePlaceholder')">
                 <el-option
                   v-for="datasource in sqlDatasources"
@@ -80,12 +86,26 @@
             </el-form-item>
           </div>
 
-          <el-form-item :label="t('web.dataDevelopment.content')">
-            <el-input
+          <div v-if="isStructuredScriptType" class="soft-panel java-script-hint">
+            <strong>{{ scriptTemplateTitle }}</strong>
+            <p>{{ scriptTemplateDescription }}</p>
+          </div>
+
+          <el-form-item :label="t('web.dataDevelopment.content')" class="editor-form-item">
+            <ScriptEditorPanel
               v-model="scriptForm.content"
-              type="textarea"
-              :rows="18"
+              :script-type="scriptForm.scriptType"
               :placeholder="t('web.dataDevelopment.contentPlaceholder')"
+              :sql-hints="currentSqlHints"
+            />
+          </el-form-item>
+
+          <el-form-item v-if="supportsExecutionArguments" :label="t('web.dataDevelopment.scriptArguments')" class="editor-form-item">
+            <el-input
+              v-model="scriptExecutionArgumentsText"
+              type="textarea"
+              :rows="6"
+              :placeholder="t('web.dataDevelopment.scriptArgumentsPlaceholder')"
             />
           </el-form-item>
 
@@ -93,24 +113,28 @@
             <template v-if="executionResult">
               <div class="execution-summary">
                 <div class="soft-panel">
-                  <strong>{{ t("web.dataDevelopment.statementCount") }}</strong>
-                  <p>{{ executionResult.statementCount ?? executionResults.length }}</p>
-                </div>
-                <div class="soft-panel">
-                  <strong>{{ t("web.dataDevelopment.resultRows") }}</strong>
-                  <p>{{ currentExecutionResult?.rows?.length ?? 0 }}</p>
-                </div>
-                <div class="soft-panel">
-                  <strong>{{ t("web.dataDevelopment.resultColumns") }}</strong>
-                  <p>{{ currentExecutionResult?.columns?.length ?? 0 }}</p>
-                </div>
-                <div class="soft-panel">
-                  <strong>{{ t("web.dataDevelopment.affectedRows") }}</strong>
-                  <p>{{ currentExecutionResult?.affectedRows ?? executionResult.affectedRows ?? 0 }}</p>
+                  <strong>{{ t("web.dataDevelopment.executionStatus") }}</strong>
+                  <p>{{ formatStatusLabel(t, executionResult.status) }}</p>
                 </div>
                 <div class="soft-panel">
                   <strong>{{ t("web.dataDevelopment.executionMs") }}</strong>
-                  <p>{{ currentExecutionResult?.executionMs ?? executionResult.executionMs ?? 0 }} ms</p>
+                  <p>{{ executionResult.executionMs ?? 0 }} ms</p>
+                </div>
+                <div v-if="sqlExecutionResult" class="soft-panel">
+                  <strong>{{ t("web.dataDevelopment.statementCount") }}</strong>
+                  <p>{{ sqlExecutionResult.statementCount ?? executionResults.length }}</p>
+                </div>
+                <div v-if="sqlExecutionResult" class="soft-panel">
+                  <strong>{{ t("web.dataDevelopment.resultRows") }}</strong>
+                  <p>{{ currentExecutionResult?.rows?.length ?? 0 }}</p>
+                </div>
+                <div v-if="sqlExecutionResult" class="soft-panel">
+                  <strong>{{ t("web.dataDevelopment.resultColumns") }}</strong>
+                  <p>{{ currentExecutionResult?.columns?.length ?? 0 }}</p>
+                </div>
+                <div v-if="sqlExecutionResult" class="soft-panel">
+                  <strong>{{ t("web.dataDevelopment.affectedRows") }}</strong>
+                  <p>{{ currentExecutionResult?.affectedRows ?? sqlExecutionResult.affectedRows ?? 0 }}</p>
                 </div>
               </div>
 
@@ -138,6 +162,15 @@
                   show-overflow-tooltip
                 />
               </el-table>
+
+              <template v-else>
+                <el-form-item :label="t('web.dataDevelopment.executionLogs')" class="execution-output-item">
+                  <el-input :model-value="executionResult.logs || ''" type="textarea" :rows="8" readonly />
+                </el-form-item>
+                <el-form-item :label="t('web.dataDevelopment.executionResultJson')" class="execution-output-item">
+                  <el-input :model-value="prettyJson(executionResult.resultJson)" type="textarea" :rows="10" readonly />
+                </el-form-item>
+              </template>
             </template>
             <div v-else class="soft-panel">{{ t("web.dataDevelopment.resultsEmpty") }}</div>
           </SectionCard>
@@ -195,13 +228,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
   DataDevelopmentDirectory,
   DataDevelopmentDirectorySaveRequest,
+  DataScriptExecutionResult,
   DataDevelopmentScript,
+  DataModelDefinition,
   SqlStatementExecutionResult,
   DataDevelopmentTreeNode,
   DataSourceDefinition,
@@ -210,6 +245,10 @@ import type {
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { formatScriptType, formatStatusLabel, prettyJson } from "@/utils/studio";
+import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.vue";
+import type { SqlEditorHintSource } from "../components/data-development/editorTypes";
+import { resolveScriptEditorEntry } from "../components/data-development/scriptEditorRegistry";
 
 const { t } = useI18n();
 
@@ -218,12 +257,14 @@ const directories = ref<DataDevelopmentDirectory[]>([]);
 const sqlDatasources = ref<DataSourceDefinition[]>([]);
 const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
-const executionResult = ref<SqlExecutionResult | null>(null);
+const executionResult = ref<DataScriptExecutionResult | null>(null);
 const activeExecutionTab = ref("1");
 const scriptEditorVisible = ref(false);
 const directoryDialogVisible = ref(false);
 const moveDialogVisible = ref(false);
 const moveTargetDirectoryId = ref<string>("");
+const sqlHintCache = ref<Record<string, SqlEditorHintSource>>({});
+const scriptExecutionArgumentsText = ref("{\n  \n}");
 
 const directoryForm = reactive<DataDevelopmentDirectorySaveRequest>({
   id: undefined,
@@ -250,19 +291,47 @@ const currentDirectoryLabel = computed(() => {
   const directory = directories.value.find((item) => String(item.id) === String(scriptForm.directoryId));
   return directory?.name || t("web.dataDevelopment.rootDirectory");
 });
+const currentScriptRegistryEntry = computed(() => resolveScriptEditorEntry(scriptForm.scriptType));
+const isJavaScriptType = computed(() => scriptForm.scriptType === "JAVA");
+const isPythonScriptType = computed(() => scriptForm.scriptType === "PYTHON");
+const isStructuredScriptType = computed(() => isJavaScriptType.value || isPythonScriptType.value);
+const supportsExecutionArguments = computed(() => isStructuredScriptType.value);
+const scriptTypeOptions = computed(() => [
+  { value: "SQL", label: t("web.dataDevelopment.scriptTypeSql"), disabled: false },
+  { value: "JAVA", label: t("web.dataDevelopment.scriptTypeJava"), disabled: false },
+  { value: "PYTHON", label: t("web.dataDevelopment.scriptTypePython"), disabled: false },
+]);
+const canExecuteCurrentScript = computed(() => scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsExecution);
+const canSaveCurrentScript = computed(() => scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave);
+const executeButtonLabel = computed(() => isStructuredScriptType.value
+  ? t("web.dataDevelopment.executeScript")
+  : t("web.dataDevelopment.executeSql"));
+const scriptTemplateTitle = computed(() => isPythonScriptType.value
+  ? t("web.dataDevelopment.pythonTemplateTitle")
+  : t("web.dataDevelopment.javaTemplateTitle"));
+const scriptTemplateDescription = computed(() => isPythonScriptType.value
+  ? t("web.dataDevelopment.pythonTemplateDescription")
+  : t("web.dataDevelopment.javaTemplateDescription"));
+const currentSqlHints = computed<SqlEditorHintSource | undefined>(() => {
+  if (!scriptForm.datasourceId) {
+    return undefined;
+  }
+  return sqlHintCache.value[String(scriptForm.datasourceId)];
+});
+const sqlExecutionResult = computed<SqlExecutionResult | null>(() => executionResult.value?.sqlResult ?? null);
 const executionResults = computed<SqlStatementExecutionResult[]>(() => {
-  return executionResult.value?.results?.length
-    ? executionResult.value.results
-    : executionResult.value
+  return sqlExecutionResult.value?.results?.length
+    ? sqlExecutionResult.value.results
+    : sqlExecutionResult.value
       ? [{
           statementIndex: 1,
-          query: executionResult.value.query,
-          affectedRows: executionResult.value.affectedRows,
-          executionMs: executionResult.value.executionMs,
-          message: executionResult.value.message,
-          columns: executionResult.value.columns ?? [],
-          rows: executionResult.value.rows ?? [],
-          summary: executionResult.value.summary ?? {},
+          query: sqlExecutionResult.value.query,
+          affectedRows: sqlExecutionResult.value.affectedRows,
+          executionMs: sqlExecutionResult.value.executionMs,
+          message: sqlExecutionResult.value.message,
+          columns: sqlExecutionResult.value.columns ?? [],
+          rows: sqlExecutionResult.value.rows ?? [],
+          summary: sqlExecutionResult.value.summary ?? {},
         }]
       : [];
 });
@@ -272,7 +341,12 @@ const currentExecutionResult = computed<SqlStatementExecutionResult | null>(() =
   }
   return executionResults.value.find((item) => String(item.statementIndex) === activeExecutionTab.value) ?? executionResults.value[0];
 });
-const executionSummaryText = computed(() => JSON.stringify(currentExecutionResult.value?.summary ?? executionResult.value?.summary ?? {}, null, 2));
+const executionSummaryText = computed(() => prettyJson(
+  currentExecutionResult.value?.summary
+  ?? sqlExecutionResult.value?.summary
+  ?? executionResult.value?.resultJson
+  ?? {},
+));
 const moveDirectoryOptions = computed(() => {
   if (!selectedTreeNode.value) {
     return directories.value;
@@ -359,6 +433,8 @@ async function loadScript(scriptId: string | number | undefined) {
   scriptForm.datasourceTypeCode = script.datasourceTypeCode;
   scriptForm.description = script.description;
   scriptForm.content = script.content;
+  scriptExecutionArgumentsText.value = "{\n  \n}";
+  await ensureSqlHintsLoaded(script.datasourceId);
 }
 
 function createNewScript() {
@@ -375,6 +451,7 @@ function createNewScript() {
   scriptForm.datasourceTypeCode = undefined;
   scriptForm.description = "";
   scriptForm.content = "";
+  scriptExecutionArgumentsText.value = "{\n  \n}";
   executionResult.value = null;
   activeExecutionTab.value = "1";
 }
@@ -405,13 +482,19 @@ async function saveDirectory() {
 }
 
 async function saveScript() {
+  if (!currentScriptRegistryEntry.value.supportsSave) {
+    ElMessage.warning(t("web.dataDevelopment.unsupportedScriptType"));
+    return;
+  }
   try {
     const saved = await studioApi.dataDevelopment.saveScript({
       id: scriptForm.id,
       directoryId: normalizeEntityId(scriptForm.directoryId),
       fileName: scriptForm.fileName,
       scriptType: scriptForm.scriptType,
-      datasourceId: requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource")),
+      datasourceId: currentScriptRegistryEntry.value.requiresDatasource
+        ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
+        : undefined,
       description: scriptForm.description,
       content: scriptForm.content,
     });
@@ -426,19 +509,112 @@ async function saveScript() {
   }
 }
 
-async function executeSql() {
+async function executeCurrentScript() {
+  if (!currentScriptRegistryEntry.value.supportsExecution) {
+    ElMessage.warning(t("web.dataDevelopment.unsupportedScriptType"));
+    return;
+  }
   try {
-    executionResult.value = await studioApi.dataDevelopment.executeSql({
-      datasourceId: requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource")),
+    executionResult.value = await studioApi.dataDevelopment.executeScript({
       scriptType: scriptForm.scriptType,
+      datasourceId: currentScriptRegistryEntry.value.requiresDatasource
+        ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
+        : undefined,
       content: scriptForm.content,
+      arguments: supportsExecutionArguments.value ? parseScriptExecutionArguments() : undefined,
       maxRows: 100,
     });
-    activeExecutionTab.value = String(executionResult.value.results?.[0]?.statementIndex ?? 1);
-    ElMessage.success(t("web.dataDevelopment.executeSuccess"));
+    activeExecutionTab.value = String(executionResult.value.sqlResult?.results?.[0]?.statementIndex ?? 1);
+    if (executionResult.value.success === false) {
+      ElMessage.error(executionResult.value.message || t("web.dataDevelopment.executeFailed"));
+    } else {
+      ElMessage.success(t("web.dataDevelopment.executeSuccess"));
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.executeFailed"));
   }
+}
+
+function parseScriptExecutionArguments() {
+  if (!scriptExecutionArgumentsText.value.trim()) {
+    return {};
+  }
+  const parsed = JSON.parse(scriptExecutionArgumentsText.value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(t("web.dataDevelopment.scriptArgumentsInvalid"));
+  }
+  return parsed as Record<string, unknown>;
+}
+
+async function ensureSqlHintsLoaded(datasourceId: EntityId | undefined) {
+  if (!datasourceId) {
+    return;
+  }
+  const cacheKey = String(datasourceId);
+  if (sqlHintCache.value[cacheKey]) {
+    return;
+  }
+  try {
+    const models = await studioApi.models.listByDatasource(datasourceId);
+    const datasource = sqlDatasources.value.find((item) => String(item.id) === cacheKey);
+    sqlHintCache.value = {
+      ...sqlHintCache.value,
+      [cacheKey]: buildSqlHintSource(models, datasource),
+    };
+  } catch (error) {
+    sqlHintCache.value = {
+      ...sqlHintCache.value,
+      [cacheKey]: buildSqlHintSource([], sqlDatasources.value.find((item) => String(item.id) === cacheKey)),
+    };
+  }
+}
+
+function buildSqlHintSource(models: DataModelDefinition[], datasource?: DataSourceDefinition): SqlEditorHintSource {
+  const tableMap = new Map<string, { name: string; modelName?: string; columns: Set<string> }>();
+  for (const model of models) {
+    const tableName = String(model.physicalLocator || model.name || "").trim();
+    if (!tableName) {
+      continue;
+    }
+    const current = tableMap.get(tableName) ?? {
+      name: tableName,
+      modelName: model.name,
+      columns: new Set<string>(),
+    };
+    for (const column of extractModelColumns(model)) {
+      current.columns.add(column);
+    }
+    tableMap.set(tableName, current);
+  }
+  return {
+    datasourceName: datasource?.name,
+    datasourceTypeCode: datasource?.typeCode,
+    tables: Array.from(tableMap.values()).map((item) => ({
+      name: item.name,
+      modelName: item.modelName,
+      columns: Array.from(item.columns.values()).sort((left, right) => left.localeCompare(right)),
+    })),
+  };
+}
+
+function extractModelColumns(model: DataModelDefinition): string[] {
+  const columns = model.technicalMetadata?.columns;
+  if (!Array.isArray(columns)) {
+    return [];
+  }
+  const result = new Set<string>();
+  for (const column of columns) {
+    if (!column || typeof column !== "object") {
+      continue;
+    }
+    const fieldName = typeof (column as Record<string, unknown>).name === "string"
+      ? String((column as Record<string, unknown>).name).trim()
+      : "";
+    if (fieldName) {
+      result.add(fieldName);
+    }
+  }
+  return Array.from(result.values());
 }
 
 function openMoveDialog() {
@@ -529,6 +705,68 @@ onMounted(async () => {
   scriptForm.scriptType = "SQL";
   await refreshAll();
 });
+
+watch(
+  () => scriptForm.scriptType,
+  (scriptType, previousType) => {
+    executionResult.value = null;
+    activeExecutionTab.value = "1";
+    if (resolveScriptEditorEntry(scriptType).requiresDatasource === false) {
+      scriptForm.datasourceId = undefined;
+      scriptForm.datasourceName = undefined;
+      scriptForm.datasourceTypeCode = undefined;
+    }
+    if (scriptType === "JAVA" && (!scriptForm.content || scriptForm.content.trim().length === 0 || previousType === "SQL")) {
+      scriptForm.content = defaultJavaTemplate();
+    }
+    if (scriptType === "PYTHON" && (!scriptForm.content || scriptForm.content.trim().length === 0 || previousType === "SQL")) {
+      scriptForm.content = defaultPythonTemplate();
+    }
+  },
+);
+
+watch(
+  () => [scriptForm.datasourceId, scriptForm.scriptType] as const,
+  async ([datasourceId, scriptType]) => {
+    if (scriptType === "SQL" && datasourceId) {
+      await ensureSqlHintsLoaded(datasourceId);
+    }
+  },
+  { immediate: true },
+);
+
+function defaultJavaTemplate() {
+  return [
+    "import com.jdragon.studio.infra.script.java.JavaDataScript;",
+    "import com.jdragon.studio.infra.script.java.JavaDataScriptContext;",
+    "import com.jdragon.studio.infra.script.java.JavaDataScriptResult;",
+    "",
+    "public class DemoJavaDataScript implements JavaDataScript {",
+    "    @Override",
+    "    public JavaDataScriptResult execute(JavaDataScriptContext context) throws Exception {",
+    "        context.getLogger().info(\"Java script started by \" + context.getUsername());",
+    "        JavaDataScriptResult result = new JavaDataScriptResult();",
+    "        result.setMessage(\"Java script executed successfully\");",
+    "        result.getResultJson().put(\"tenantId\", context.getTenantId());",
+    "        result.getResultJson().put(\"arguments\", context.getArguments());",
+    "        return result;",
+    "    }",
+    "}",
+  ].join("\n");
+}
+
+function defaultPythonTemplate() {
+  return [
+    "def execute(context):",
+    "    context.logger.info(\"Python script started by %s\" % context.username)",
+    "    datasources = context.services.list_datasources()",
+    "    return {",
+    "        \"tenantId\": context.tenant_id,",
+    "        \"arguments\": context.arguments,",
+    "        \"datasourceCount\": len(datasources),",
+    "    }",
+  ].join("\n");
+}
 </script>
 
 <style scoped>
@@ -543,12 +781,12 @@ p {
 
 .data-development-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 14px;
 }
 
 .tree-toolbar {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .tree-context p {
@@ -557,41 +795,86 @@ p {
 
 .tree-node {
   width: 100%;
+  min-width: 0;
 }
 
 .tree-node__content {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 0;
+  min-width: 0;
+  padding: 2px 0;
+  overflow: hidden;
 }
 
 .tree-node__content strong {
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tree-node__content span {
   font-size: 12px;
   color: var(--studio-text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.java-script-hint {
+  margin-bottom: 12px;
+}
+
+.java-script-hint p {
+  margin-top: 6px;
+}
+
+.execution-output-item :deep(.el-textarea__inner) {
+  font-family: "Cascadia Code", "Consolas", monospace;
 }
 
 .span-2 {
   grid-column: span 2;
 }
 
+.editor-form-item {
+  display: block;
+}
+
+:deep(.editor-form-item.el-form-item) {
+  display: block;
+  width: 100%;
+}
+
+:deep(.editor-form-item .el-form-item__label) {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  line-height: 1.4;
+}
+
+:deep(.editor-form-item .el-form-item__content) {
+  display: block;
+  width: 100%;
+  line-height: normal;
+}
+
 .execution-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .execution-tabs {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .execution-message {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .execution-message p {
@@ -602,10 +885,19 @@ p {
 }
 
 .empty-editor {
-  min-height: 220px;
+  min-height: 160px;
   display: grid;
   align-content: center;
   gap: 8px;
+}
+
+:deep(.el-tree) {
+  background: transparent;
+}
+
+:deep(.el-tree-node__content) {
+  border-radius: 10px;
+  padding-right: 6px;
 }
 
 @media (max-width: 1180px) {

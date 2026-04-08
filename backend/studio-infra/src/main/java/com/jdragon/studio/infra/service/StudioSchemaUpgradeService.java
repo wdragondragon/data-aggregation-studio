@@ -46,6 +46,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id bigint");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id bigint");
+        ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at datetime");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type varchar(64)");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id bigint");
         ensureColumn("run_record", "collection_task_id", "alter table run_record add column collection_task_id bigint");
@@ -165,6 +166,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id integer");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id integer");
+        ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at text");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type text");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id integer");
         ensureColumn("run_record", "collection_task_id", "alter table run_record add column collection_task_id integer");

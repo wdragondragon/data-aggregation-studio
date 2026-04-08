@@ -168,8 +168,11 @@
         <el-form-item :label="t('web.collectionTasks.scheduleEnabled')">
           <el-switch v-model="form.schedule.enabled" inline-prompt :active-text="t('common.on')" :inactive-text="t('common.off')" />
         </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.cronExpression')">
-          <el-input v-model="form.schedule.cronExpression" :placeholder="t('web.collectionTasks.cronPlaceholder')" />
+        <el-form-item :label="t('web.collectionTasks.cronExpression')" class="cron-form-item">
+          <CronExpressionPicker
+            v-model="form.schedule.cronExpression"
+            :label="t('web.collectionTasks.cronExpression')"
+          />
         </el-form-item>
         <el-form-item :label="t('web.collectionTasks.timezone')">
           <el-input v-model="form.schedule.timezone" placeholder="Asia/Shanghai" />
@@ -190,6 +193,23 @@
           <p>{{ form.schedule.enabled ? form.schedule.cronExpression || t("common.on") : t("common.off") }}</p>
         </div>
       </div>
+
+      <div class="soft-panel preview-panel">
+        <div class="section-toolbar">
+          <div>
+            <strong>{{ t("web.collectionTasks.previewTitle") }}</strong>
+            <p>{{ t("web.collectionTasks.previewDescription") }}</p>
+          </div>
+          <el-button plain :loading="previewLoading" :disabled="!canPreviewConfig" @click="loadPreviewConfig">
+            {{ t("web.collectionTasks.refreshPreview") }}
+          </el-button>
+        </div>
+
+        <pre v-if="previewConfig" class="json-block studio-mono preview-json">{{ prettyJson(previewConfig) }}</pre>
+        <div v-else class="soft-panel">
+          {{ t("web.collectionTasks.previewEmpty") }}
+        </div>
+      </div>
     </SectionCard>
 
     <div class="editor-footer">
@@ -207,6 +227,7 @@ import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskDefinitionView,
+  JobContainerConfig,
   CollectionTaskSaveRequest,
   CollectionTaskSourceBinding,
   DataModelDefinition,
@@ -216,7 +237,8 @@ import type {
 import { FieldMappingEditor } from "@studio/workflow-designer";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { cloneDeep } from "@/utils/studio";
+import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
+import { cloneDeep, prettyJson } from "@/utils/studio";
 
 interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
   schedule: NonNullable<CollectionTaskSaveRequest["schedule"]>;
@@ -232,6 +254,9 @@ const datasources = ref<DataSourceDefinition[]>([]);
 const transformers = ref<PluginCatalogEntry[]>([]);
 const modelCache = ref<Record<string, DataModelDefinition[]>>({});
 const saving = ref(false);
+const previewLoading = ref(false);
+const previewDirty = ref(true);
+const previewConfig = ref<JobContainerConfig | null>(null);
 
 const form = reactive<CollectionTaskEditorForm>({
   name: "",
@@ -264,6 +289,12 @@ const taskTypeLabel = computed(() => (isFusionTask.value ? t("web.collectionTask
 const transformerOptions = computed(() => Array.from(new Set(transformers.value.map((item) => item.pluginName))));
 const sourceAliasOptions = computed(() => form.sourceBindings.map((item) => item.sourceAlias).filter(Boolean));
 const targetFieldOptions = computed(() => resolveFieldsByModelId(form.targetBinding.modelId));
+const canPreviewConfig = computed(() =>
+  form.sourceBindings.length > 0
+  && form.sourceBindings.every((item) => Boolean(item.datasourceId) && Boolean(item.modelId) && Boolean(item.sourceAlias?.trim()))
+  && Boolean(form.targetBinding.datasourceId)
+  && Boolean(form.targetBinding.modelId),
+);
 const sourceFieldOptionsByAlias = computed<Record<string, string[]>>(() => {
   const options: Record<string, string[]> = {};
   for (const source of form.sourceBindings) {
@@ -435,15 +466,29 @@ function initializeMappings() {
   }));
 }
 
+async function loadPreviewConfig() {
+  if (!canPreviewConfig.value) {
+    previewConfig.value = null;
+    return;
+  }
+  previewLoading.value = true;
+  try {
+    previewConfig.value = await studioApi.collectionTasks.preview(cloneDeep(form));
+    previewDirty.value = false;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.previewFailed"));
+  } finally {
+    previewLoading.value = false;
+  }
+}
+
 async function saveTask() {
   saving.value = true;
   try {
     const saved = await studioApi.collectionTasks.save(cloneDeep(form));
     ElMessage.success(t("web.collectionTasks.saveSuccess"));
     applyTask(saved);
-    if (!taskId.value && saved.id) {
-      await router.replace(`/collection-tasks/${saved.id}/edit`);
-    }
+    await router.push("/collection-tasks");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.saveFailed"));
   } finally {
@@ -464,8 +509,33 @@ watch(taskId, async () => {
   await loadTask();
 }, { immediate: true });
 
+watch(
+  () => [
+    form.sourceBindings,
+    form.targetBinding,
+    form.fieldMappings,
+    form.executionOptions,
+  ],
+  () => {
+    previewDirty.value = true;
+  },
+  { deep: true },
+);
+
+watch(activeStep, async (value) => {
+  if (value === 4 && previewDirty.value) {
+    await loadPreviewConfig();
+  }
+}, { immediate: true });
+
 onMounted(loadReferenceData);
 </script>
+
+<style scoped>
+.cron-form-item {
+  grid-column: 1 / -1;
+}
+</style>
 
 <style scoped>
 h3 {
@@ -495,9 +565,25 @@ p {
   gap: 16px;
 }
 
+.preview-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.preview-json {
+  max-height: 420px;
+}
+
 .editor-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .review-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

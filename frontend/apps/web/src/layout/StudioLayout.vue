@@ -2,6 +2,7 @@
   <StudioShell
     :menus="studioMenus"
     :active-path="activeMenuPath"
+    :loading="appLoading"
     :title="pageTitle"
     :subtitle="pageSubtitle"
     :mode-label="t('shell.webRuntime')"
@@ -16,8 +17,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { subscribeStudioApiLoading } from "@studio/api-sdk";
 import { StudioShell } from "@studio/ui";
 import { persistStudioLocale, resolveStudioLocale } from "@studio/i18n";
 import { useI18n } from "vue-i18n";
@@ -28,6 +30,10 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const { locale, t } = useI18n();
+const appLoading = ref(false);
+const unsubscribe = subscribeStudioApiLoading((loading) => {
+  appLoading.value = loading;
+});
 
 const studioMenus = computed(() => resolveStudioMenus(t));
 const activeMenuPath = computed(() => {
@@ -59,4 +65,8 @@ function handleLogout() {
   authStore.logout();
   router.push("/login");
 }
+
+onBeforeUnmount(() => {
+  unsubscribe();
+});
 </script>

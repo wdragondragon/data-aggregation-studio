@@ -54,6 +54,12 @@ public class DataSourceController {
         return Result.success(dataSourceService.testConnection(id));
     }
 
+    @Operation(summary = "Test datasource connection with current form payload")
+    @PostMapping("/test")
+    public Result<ConnectionTestResult> testCurrent(@Valid @RequestBody DataSourceSaveRequest request) {
+        return Result.success(dataSourceService.testConnection(request));
+    }
+
     @Operation(summary = "Discover models from datasource")
     @PostMapping("/{id}/discover")
     public Result<ModelDiscoveryResult> discover(@PathVariable("id") Long id) {

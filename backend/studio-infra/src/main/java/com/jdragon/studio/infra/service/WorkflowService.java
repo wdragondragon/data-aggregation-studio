@@ -29,6 +29,7 @@ import com.jdragon.studio.infra.mapper.WorkflowVersionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -223,6 +224,23 @@ public class WorkflowService {
         definition.setPublished(1);
         definitionMapper.updateById(definition);
         return get(definitionId);
+    }
+
+    public List<WorkflowScheduleEntity> findEnabledSchedules() {
+        return scheduleMapper.selectList(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .eq(WorkflowScheduleEntity::getEnabled, 1));
+    }
+
+    @Transactional
+    public void markScheduleTriggered(Long workflowDefinitionId, LocalDateTime triggeredAt) {
+        WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .last("limit 1"));
+        if (scheduleEntity == null) {
+            return;
+        }
+        scheduleEntity.setLastTriggeredAt(triggeredAt);
+        scheduleMapper.updateById(scheduleEntity);
     }
 
     @Transactional

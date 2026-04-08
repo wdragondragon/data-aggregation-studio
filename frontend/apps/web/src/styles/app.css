@@ -5,30 +5,92 @@
 .el-input__wrapper,
 .el-textarea__inner,
 .el-select__wrapper {
-  border-radius: 18px;
+  border-radius: 14px;
 }
 
 .el-button {
   border-radius: 999px;
 }
 
+.el-form-item {
+  margin-bottom: 12px;
+}
+
 .el-table {
   --el-table-header-bg-color: rgba(235, 244, 255, 0.96);
   --el-table-row-hover-bg-color: rgba(37, 99, 235, 0.05);
+  font-size: 13px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.el-table .cell {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.el-table .el-table__cell {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.el-dialog__header,
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 16px 18px 0;
+}
+
+.el-dialog__body,
+.el-drawer__body {
+  padding: 14px 18px 18px;
+}
+
+.el-tabs__header {
+  margin-bottom: 10px;
+}
+
+.el-tree,
+.el-tree-node,
+.el-tree-node__content,
+.el-tree-node__label {
+  min-width: 0;
+}
+
+.el-tree-node__content {
+  height: auto;
+  min-height: 34px;
+  align-items: flex-start;
+  padding: 4px 0;
+}
+
+.el-tree-node__content > * {
+  min-width: 0;
+}
+
+.el-tree-node__expand-icon {
+  margin-top: 3px;
 }
 
 .soft-panel {
-  padding: 18px;
+  padding: 12px;
   border: 1px solid var(--studio-border);
-  border-radius: 18px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dialog-description,
+.editor-description {
+  display: none;
 }
 
 .json-block {
   margin: 0;
-  padding: 14px;
+  padding: 12px;
   overflow: auto;
-  border-radius: 18px;
+  border-radius: 14px;
   color: #eaf3ff;
   background: linear-gradient(180deg, #17376a 0%, #0d2344 100%);
+  max-width: 100%;
 }

@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
+import { beginStudioApiRequest, endStudioApiRequest } from "./loading";
 import type {
   CapabilityMatrix,
   CollectionTaskDefinitionView,
@@ -8,6 +9,8 @@ import type {
   ConnectionTestResult,
   DataDevelopmentDirectory,
   DataDevelopmentDirectorySaveRequest,
+  DataScriptExecutionRequest,
+  DataScriptExecutionResult,
   DataDevelopmentMoveRequest,
   DataDevelopmentScript,
   DataDevelopmentScriptSaveRequest,
@@ -18,12 +21,14 @@ import type {
   DataSourceDefinition,
   EntityId,
   ExportProjectBundle,
+  JobContainerConfig,
   LoginRequest,
   LoginResponse,
   MetadataSchemaDefinition,
   ModelSyncRequest,
   ModelDiscoveryResult,
   PermissionEntity,
+  PageResult,
   PluginCatalogEntry,
   Result,
   RunListQuery,
@@ -65,17 +70,25 @@ export function createStudioApi(options: StudioApiOptions = {}) {
   });
 
   instance.interceptors.request.use((config) => {
+    beginStudioApiRequest();
     const token = options.getToken?.();
     if (token) {
       config.headers = config.headers ?? {};
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
+  }, (error) => {
+    endStudioApiRequest();
+    return Promise.reject(error);
   });
 
   instance.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      endStudioApiRequest();
+      return response;
+    },
     (error) => {
+      endStudioApiRequest();
       if (error.response?.status === 401) {
         options.onUnauthorized?.();
       }
@@ -138,6 +151,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       test(id: EntityId) {
         return request<ConnectionTestResult>({ url: `/datasources/${id}/test`, method: "POST" });
+      },
+      testCurrent(payload: Record<string, unknown>) {
+        return request<ConnectionTestResult>({ url: "/datasources/test", method: "POST", data: payload });
       },
       discover(id: EntityId) {
         return request<ModelDiscoveryResult>({ url: `/datasources/${id}/discover`, method: "POST" });
@@ -219,6 +235,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       save(payload: CollectionTaskSaveRequest) {
         return request<CollectionTaskDefinitionView>({ url: "/collection-tasks", method: "POST", data: payload });
       },
+      preview(payload: CollectionTaskSaveRequest) {
+        return request<JobContainerConfig>({ url: "/collection-tasks/preview", method: "POST", data: payload });
+      },
       publish(id: EntityId) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/online`, method: "POST" });
       },
@@ -273,6 +292,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       executeSql(payload: SqlExecutionRequest) {
         return request<SqlExecutionResult>({ url: "/data-development/sql/execute", method: "POST", data: payload });
       },
+      executeScript(payload: DataScriptExecutionRequest) {
+        return request<DataScriptExecutionResult>({ url: "/data-development/scripts/execute", method: "POST", data: payload });
+      },
     },
     schedules: {
       list() {
@@ -299,7 +321,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     workflowRuns: {
       list(params?: WorkflowRunListQuery) {
-        return request<WorkflowRunSummary[]>({
+        return request<PageResult<WorkflowRunSummary>>({
           url: "/workflow-runs",
           method: "GET",
           params,

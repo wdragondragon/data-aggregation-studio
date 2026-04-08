@@ -24,81 +24,104 @@
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTasks.listTitle')" :description="t('web.collectionTasks.listDescription')">
-      <el-table :data="tasks" border>
-        <el-table-column :label="t('web.collectionTasks.name')" min-width="220">
+        <el-table :data="pagedTasks" border size="small" table-layout="fixed" class="task-table">
+          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+            <template #default="{ $index }">
+              {{ getPaginatedRowNumber(taskPagination, $index) }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.collectionTasks.name')" min-width="180">
           <template #default="{ row }">
-            <el-button link type="primary" class="task-name-link" @click="viewTask(row)">
-              {{ row.name }}
-            </el-button>
+            <div class="task-primary-cell">
+              <el-button link type="primary" class="task-name-link" @click="viewTask(row)">
+                {{ row.name }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.collectionTasks.targetDatasource')" min-width="180">
+        <el-table-column :label="`${t('web.collectionTasks.targetDatasource')} / ${t('web.collectionTasks.targetModel')}`" min-width="200">
           <template #default="{ row }">
-            <span>{{ row.targetBinding?.datasourceName ?? t('common.none') }}</span>
+            <div class="stack-cell">
+              <span>{{ row.targetBinding?.datasourceName ?? t('common.none') }}</span>
+              <span class="cell-subtle">{{ row.targetBinding?.modelPhysicalLocator ?? row.targetBinding?.modelName ?? t('common.none') }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.collectionTasks.targetModel')" min-width="180">
+        <el-table-column :label="`${t('web.collectionTasks.type')} / ${t('web.collectionTasks.sourceCount')}`" min-width="150">
           <template #default="{ row }">
-            <span>{{ row.targetBinding?.modelPhysicalLocator ?? row.targetBinding?.modelName ?? t('common.none') }}</span>
+            <div class="stack-cell">
+              <span>{{ formatCollectionTaskType(t, row.taskType) }}</span>
+              <span class="cell-subtle">{{ row.sourceCount || 0 }} {{ t("web.collectionTasks.sourceCountUnit") }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="taskType" :label="t('web.collectionTasks.type')" width="140" />
-        <el-table-column prop="sourceCount" :label="t('web.collectionTasks.sourceCount')" width="120" />
         <el-table-column :label="t('web.collectionTasks.schedule')" min-width="180">
           <template #default="{ row }">
-            <span>{{ row.schedule?.enabled ? row.schedule?.cronExpression || t('common.on') : t('common.off') }}</span>
+            <div class="stack-cell">
+              <span>{{ row.schedule?.enabled ? t("common.on") : t("common.off") }}</span>
+              <span class="cell-subtle">{{ row.schedule?.enabled ? row.schedule?.cronExpression || t('common.none') : t('common.none') }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.collectionTasks.status')" width="120">
+        <el-table-column :label="t('web.collectionTasks.status')" width="100" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="row.status ?? t('common.unknown')" :tone="row.status === 'ONLINE' ? 'success' : 'warning'" />
+            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="row.status === 'ONLINE' ? 'success' : 'warning'" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.metadata.actions')" width="430">
+        <el-table-column :label="t('web.metadata.actions')" width="120" align="center" header-align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="editTask(row)">{{ t("common.edit") }}</el-button>
-            <el-button link @click="manageSchedule(row)">{{ t("web.collectionTasks.scheduleManage") }}</el-button>
-            <el-button link @click="openLogs(row)">{{ t("web.collectionTasks.runRecords") }}</el-button>
-            <el-button link type="success" :disabled="row.status === 'ONLINE'" @click="publishTask(row)">{{ t("web.collectionTasks.online") }}</el-button>
-            <el-button link type="warning" @click="triggerTask(row)">{{ t("common.trigger") }}</el-button>
-            <el-button link type="danger" @click="deleteTask(row)">{{ t("common.delete") }}</el-button>
+            <OverflowActionGroup :items="buildTaskActions(row)" />
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="taskPagination.page"
+          v-model:page-size="taskPagination.pageSize"
+          background
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="tasks.length"
+        />
+      </div>
     </SectionCard>
 
     <el-drawer v-model="logsVisible" :title="t('web.collectionTasks.logsTitle', { name: activeTask?.name || '' })" size="68%">
       <template v-if="activeTask">
         <SectionCard :title="t('web.collectionTasks.logsListTitle')" :description="t('web.collectionTasks.logsListDescription')">
-          <el-table :data="taskRunRecords" border>
-            <el-table-column :label="t('web.runs.workflow')" min-width="180" show-overflow-tooltip>
-              <template #default="{ row }">
-                <span>{{ row.workflowName || "--" }}</span>
+          <el-table :data="pagedTaskRunRecords" border size="small" table-layout="fixed" class="task-run-table">
+            <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+              <template #default="{ $index }">
+                {{ getPaginatedRowNumber(taskRunPagination, $index) }}
               </template>
             </el-table-column>
-            <el-table-column prop="nodeCode" :label="t('web.runs.node')" min-width="160" show-overflow-tooltip />
-            <el-table-column :label="t('web.runs.startedAt')" min-width="180">
+            <el-table-column :label="`${t('web.runs.workflow')} / ${t('web.runs.node')}`" min-width="180">
               <template #default="{ row }">
-                <span>{{ row.startedAt || t("common.none") }}</span>
+                <div class="stack-cell">
+                  <span>{{ row.workflowName || "--" }}</span>
+                  <span class="cell-subtle">{{ row.nodeCode || t("common.none") }}</span>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runs.endedAt')" min-width="180">
+            <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="180">
               <template #default="{ row }">
-                <span>{{ row.endedAt || t("common.none") }}</span>
+                <div class="stack-cell">
+                  <span>{{ row.startedAt || t("common.none") }}</span>
+                  <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDuration(row) }}</span>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runs.duration')" width="140">
+            <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
               <template #default="{ row }">
-                <span>{{ formatDuration(row) }}</span>
+                <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runs.status')" width="120">
+            <el-table-column :label="t('web.runs.message')" min-width="220">
               <template #default="{ row }">
-                <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
+                <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
               </template>
             </el-table-column>
-            <el-table-column prop="message" :label="t('web.runs.message')" min-width="320" show-overflow-tooltip />
-            <el-table-column :label="t('web.runs.actions')" width="120" fixed="right">
+            <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center">
               <template #default="{ row }">
                 <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                   {{ t("web.runs.viewLog") }}
@@ -106,6 +129,16 @@
               </template>
             </el-table-column>
           </el-table>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="taskRunPagination.page"
+              v-model:page-size="taskRunPagination.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="taskRunRecords.length"
+            />
+          </div>
         </SectionCard>
       </template>
     </el-drawer>
@@ -120,16 +153,19 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { CollectionTaskDefinitionView, CollectionTaskListQuery, RunRecord } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
-import { toneFromStatus } from "@/utils/studio";
+import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { formatCollectionTaskType, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const router = useRouter();
 const tasks = ref<CollectionTaskDefinitionView[]>([]);
 const activeTask = ref<CollectionTaskDefinitionView | null>(null);
 const taskRunRecords = ref<RunRecord[]>([]);
+const { pagination: taskPagination, pagedItems: pagedTasks, resetPagination: resetTaskPagination } = useClientPagination(tasks);
+const { pagination: taskRunPagination, pagedItems: pagedTaskRunRecords, resetPagination: resetTaskRunPagination } = useClientPagination(taskRunRecords);
 const logsVisible = ref(false);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
@@ -146,6 +182,7 @@ async function loadTasks() {
       targetDatasource: filters.value.targetDatasource?.trim() || undefined,
       targetModel: filters.value.targetModel?.trim() || undefined,
     });
+    resetTaskPagination();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }
@@ -172,6 +209,17 @@ function manageSchedule(task: CollectionTaskDefinitionView) {
   router.push(`/collection-tasks/${task.id}/edit?step=3`);
 }
 
+function buildTaskActions(task: CollectionTaskDefinitionView) {
+  return [
+    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => editTask(task) },
+    { key: "schedule", label: t("web.collectionTasks.scheduleManage"), onClick: () => manageSchedule(task) },
+    { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => openLogs(task) },
+    { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: task.status === "ONLINE", onClick: () => publishTask(task) },
+    { key: "trigger", label: t("common.trigger"), type: "warning", onClick: () => triggerTask(task) },
+    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteTask(task) },
+  ];
+}
+
 async function openLogs(task: CollectionTaskDefinitionView) {
   activeTask.value = task;
   logsVisible.value = true;
@@ -184,6 +232,7 @@ async function openLogs(task: CollectionTaskDefinitionView) {
       const rightTime = right.startedAt || right.createdAt || "";
       return rightTime.localeCompare(leftTime);
     });
+    resetTaskRunPagination();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
   }
@@ -289,19 +338,60 @@ p {
 .task-filter-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   align-items: center;
 }
 
 .task-filter-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
 }
 
 .task-name-link {
   padding: 0;
   font-weight: 600;
+}
+
+.task-table :deep(.cell),
+.task-run-table :deep(.cell) {
+  white-space: normal;
+}
+
+.task-table,
+.task-run-table {
+  width: 100%;
+}
+
+.task-primary-cell,
+.stack-cell,
+.wrap-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.stack-cell--center {
+  justify-items: center;
+}
+
+.cell-subtle {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.table-pagination :deep(.el-pagination) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 1200px) {
@@ -310,6 +400,14 @@ p {
   }
 
   .task-filter-actions {
+    justify-content: flex-start;
+  }
+
+  .table-pagination {
+    justify-content: flex-start;
+  }
+
+  .table-pagination :deep(.el-pagination) {
     justify-content: flex-start;
   }
 }

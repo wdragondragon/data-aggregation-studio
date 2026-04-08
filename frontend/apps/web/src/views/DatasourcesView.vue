@@ -12,29 +12,41 @@
     </div>
 
     <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
-      <el-table :data="datasources" border>
-        <el-table-column prop="name" :label="t('web.datasources.nameColumn')" min-width="180" />
+        <el-table :data="pagedDatasources" border>
+          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+            <template #default="{ $index }">
+              {{ getPaginatedRowNumber(datasourcePagination, $index) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="name" :label="t('web.datasources.nameColumn')" min-width="180" />
         <el-table-column prop="typeCode" :label="t('web.datasources.typeColumn')" width="120" />
-        <el-table-column :label="t('web.datasources.enabledColumn')" width="110">
+        <el-table-column :label="t('web.datasources.enabledColumn')" width="110" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.enabled ? t('common.on') : t('common.off')" :tone="row.enabled ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.datasources.executableColumn')" width="130">
+        <el-table-column :label="t('web.datasources.executableColumn')" width="130" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.executable ? t('common.runnable') : t('common.catalogOnly')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
         </el-table-column>
-        <el-table-column prop="updatedAt" :label="t('web.datasources.updatedColumn')" min-width="170" />
-        <el-table-column :label="t('web.datasources.actionsColumn')" width="300" fixed="right">
+        <el-table-column prop="updatedAt" :label="t('web.datasources.updatedColumn')" min-width="170" align="center" header-align="center" />
+        <el-table-column :label="t('web.datasources.actionsColumn')" width="140" align="center" header-align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="editDatasource(row)">{{ t("common.edit") }}</el-button>
-            <el-button link type="success" @click="testDatasource(row)">{{ t("common.test") }}</el-button>
-            <el-button link type="warning" @click="discoverModels(row)">{{ t("common.discover") }}</el-button>
-            <el-button link type="danger" @click="deleteDatasource(row)">{{ t("common.delete") }}</el-button>
+            <OverflowActionGroup :items="buildDatasourceActions(row)" />
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="datasourcePagination.page"
+          v-model:page-size="datasourcePagination.pageSize"
+          background
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="datasources.length"
+        />
+      </div>
     </SectionCard>
 
     <el-drawer v-model="drawerOpen" size="70%" :title="form.id ? t('web.datasources.drawerEditTitle') : t('web.datasources.drawerCreateTitle')">
@@ -105,23 +117,72 @@
       </SectionCard>
 
       <SectionCard :title="t('web.datasources.businessTitle')" :description="t('web.datasources.businessDescription')">
-        <div class="studio-form-grid business-schema-selector">
-          <el-form-item :label="t('web.datasources.businessMetaModel')">
-            <el-select v-model="selectedBusinessSchemaVersionId" clearable :placeholder="t('web.datasources.businessMetaModelPlaceholder')">
-              <el-option
-                v-for="schema in businessSchemaOptions"
-                :key="schema.id"
-                :label="`${parseMetaModelSchema(schema).config.directoryName || parseMetaModelSchema(schema).config.directoryCode || 'business'} / ${schema.schemaName}`"
-                :value="schema.currentVersionId ?? schema.id"
+        <div class="meta-section-stack">
+          <div v-if="businessSections.length === 0" class="soft-panel empty-hint section-empty">
+            {{ t("web.models.metaSectionEmpty") }}
+          </div>
+
+          <div
+            v-for="section in businessSections"
+            :key="section.key"
+            class="soft-panel datasource-meta-section"
+          >
+            <div class="datasource-meta-section__header">
+              <div>
+                <strong>{{ section.title }}</strong>
+                <p>{{ section.description }}</p>
+              </div>
+              <StatusPill
+                :label="section.displayMode === 'MULTIPLE' ? t('web.metadata.displayMultiple') : t('web.metadata.displaySingle')"
+                tone="success"
               />
-            </el-select>
-          </el-form-item>
+            </div>
+
+            <template v-if="section.displayMode === 'MULTIPLE'">
+              <div class="multiple-section-actions">
+                <el-button type="primary" plain @click="appendSectionRow(section)">{{ t("common.addRow") }}</el-button>
+              </div>
+              <el-table :data="sectionRows(section)" border>
+                <el-table-column
+                  v-for="field in section.fields"
+                  :key="field.fieldKey"
+                  :label="field.fieldName"
+                  min-width="150"
+                >
+                  <template #default="{ row, $index }">
+                    <component
+                      :is="resolveRowEditorComponent(field)"
+                      v-bind="resolveRowEditorProps(field)"
+                      :model-value="row[field.fieldKey]"
+                      @update:model-value="updateSectionRowField(section, $index, field.fieldKey, $event)"
+                    >
+                      <template v-if="field.componentType === 'SELECT'">
+                        <el-option
+                          v-for="option in field.options ?? []"
+                          :key="option"
+                          :label="option"
+                          :value="option"
+                        />
+                      </template>
+                    </component>
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('web.metadata.actions')" width="100">
+                  <template #default="{ $index }">
+                    <el-button link type="danger" @click="removeSectionRow(section, $index)">{{ t("common.remove") }}</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </template>
+
+            <MetaFormRenderer
+              v-else
+              :fields="section.fields"
+              :model-value="sectionModelValue(section)"
+              @update:model-value="updateSectionModelValue(section, $event)"
+            />
+          </div>
         </div>
-        <MetaFormRenderer
-          :fields="businessFields"
-          :model-value="form.businessMetadata"
-          @update:model-value="form.businessMetadata = $event"
-        />
       </SectionCard>
 
       <div class="drawer-actions">
@@ -138,7 +199,11 @@
     <el-dialog v-model="discoverDialogOpen" :title="t('web.datasources.discoveredModelsTitle')" width="62%">
       <el-table :data="discoveredModels" border>
         <el-table-column prop="name" :label="t('web.datasources.modelNameColumn')" min-width="180" />
-        <el-table-column prop="modelKind" :label="t('web.datasources.modelKindColumn')" width="120" />
+        <el-table-column :label="t('web.datasources.modelKindColumn')" width="120" align="center" header-align="center">
+          <template #default="{ row }">
+            {{ formatModelKind(t, row.modelKind) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="physicalLocator" :label="t('web.datasources.physicalLocatorColumn')" min-width="220" />
       </el-table>
     </el-dialog>
@@ -147,7 +212,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElInput, ElInputNumber, ElMessage, ElMessageBox, ElSelect, ElSwitch } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
   CapabilityMatrix,
@@ -159,10 +224,19 @@ import type {
   PluginCatalogEntry,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { parseBusinessSchemaVersionId, parseMetaModelSchema, sameEntityId, withBusinessSchemaVersionId } from "@/utils/metaModel";
-import { cloneDeep, prettyJson } from "@/utils/studio";
+import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import {
+  ensureBusinessMetaModelEntries,
+  getBusinessMetaModelRows,
+  getBusinessMetaModelValues,
+  parseMetaModelSchema,
+  sameEntityId,
+  setBusinessMetaModelRows,
+  setBusinessMetaModelValues,
+} from "@/utils/metaModel";
+import { cloneDeep, formatModelKind, prettyJson } from "@/utils/studio";
 
 interface DataSourceForm extends DataSourceDefinition {
   name: string;
@@ -171,9 +245,19 @@ interface DataSourceForm extends DataSourceDefinition {
   businessMetadata: Record<string, unknown>;
 }
 
+interface DatasourceBusinessSection {
+  key: string;
+  schema: MetadataSchemaDefinition;
+  title: string;
+  description: string;
+  displayMode: "SINGLE" | "MULTIPLE";
+  fields: MetadataFieldDefinition[];
+}
+
 const { t } = useI18n();
 
 const datasources = ref<DataSourceDefinition[]>([]);
+const { pagination: datasourcePagination, pagedItems: pagedDatasources, resetPagination: resetDatasourcePagination } = useClientPagination(datasources);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const sourcePlugins = ref<PluginCatalogEntry[]>([]);
 const capabilityMatrix = reactive<CapabilityMatrix>({
@@ -233,12 +317,6 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
   ];
 });
 
-const fallbackBusinessFields = computed<MetadataFieldDefinition[]>(() => [
-  { fieldKey: "owner", fieldName: "Owner", scope: "BUSINESS", componentType: "INPUT", valueType: "STRING" },
-  { fieldKey: "domain", fieldName: "Business Domain", scope: "BUSINESS", componentType: "INPUT", valueType: "STRING" },
-  { fieldKey: "remark", fieldName: "Remark", scope: "BUSINESS", componentType: "TEXTAREA", valueType: "STRING" },
-]);
-
 const datasourceSchemas = computed(() =>
   schemas.value.filter((schema) => {
     if (schema.objectType !== "datasource" || schema.typeCode !== form.typeCode) {
@@ -248,19 +326,22 @@ const datasourceSchemas = computed(() =>
     return config.domain === "TECHNICAL" && config.metaModelCode === "source";
   }),
 );
-const businessSchemaOptions = computed(() =>
+const businessSchemas = computed(() =>
   schemas.value.filter((schema) => {
     const config = parseMetaModelSchema(schema).config;
-    return config.domain === "BUSINESS" && config.displayMode !== "MULTIPLE";
-  }),
+    return form.typeCode && config.domain === "BUSINESS" && config.metaModelCode === "source";
+  }).sort((left, right) => businessSchemaLabel(left).localeCompare(businessSchemaLabel(right))),
 );
-const selectedBusinessSchemaVersionId = computed({
-  get: () => parseBusinessSchemaVersionId(form.businessMetadata),
-  set: (value) => {
-    form.businessMetadata = withBusinessSchemaVersionId(form.businessMetadata ?? {}, value);
-    applyBusinessMetadataDefaults();
-  },
-});
+const businessSections = computed(() => businessSchemas.value.map(buildBusinessSection));
+
+function buildDatasourceActions(datasource: DataSourceDefinition) {
+  return [
+    { key: "edit", label: t("common.edit"), type: "primary", onClick: () => editDatasource(datasource) },
+    { key: "test", label: t("common.test"), type: "success", onClick: () => testDatasource(datasource) },
+    { key: "discover", label: t("common.discover"), type: "warning", onClick: () => discoverModels(datasource) },
+    { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteDatasource(datasource) },
+  ];
+}
 
 const matchedSchema = computed(
   () =>
@@ -268,21 +349,8 @@ const matchedSchema = computed(
       (schema) => sameEntityId(schema.id, form.schemaVersionId) || sameEntityId(schema.currentVersionId, form.schemaVersionId),
     ) ?? datasourceSchemas.value[0],
 );
-const matchedBusinessSchema = computed(
-  () =>
-    businessSchemaOptions.value.find(
-      (schema) =>
-        sameEntityId(schema.id, selectedBusinessSchemaVersionId.value)
-        || sameEntityId(schema.currentVersionId, selectedBusinessSchemaVersionId.value),
-    ),
-);
 const technicalFields = computed(
   () => matchedSchema.value?.fields?.filter((field) => field.scope !== "BUSINESS") ?? fallbackTechnicalFields.value,
-);
-const businessFields = computed(
-  () => matchedBusinessSchema.value?.fields?.filter((field) => field.scope === "BUSINESS")
-    ?? matchedSchema.value?.fields?.filter((field) => field.scope === "BUSINESS")
-    ?? fallbackBusinessFields.value,
 );
 
 function resetForm() {
@@ -304,6 +372,7 @@ function openCreate() {
 
 function editDatasource(item: DataSourceDefinition) {
   Object.assign(form, cloneDeep(item));
+  applyBusinessMetadataDefaults();
   testResult.value = null;
   drawerOpen.value = true;
 }
@@ -352,11 +421,119 @@ function parseDefaultValue(field: MetadataFieldDefinition) {
   return rawValue;
 }
 
-function applyBusinessMetadataDefaults() {
-  form.businessMetadata = {
-    ...buildDefaultMetadata(businessFields.value),
-    ...(form.businessMetadata ?? {}),
+function buildBusinessSection(schema: MetadataSchemaDefinition): DatasourceBusinessSection {
+  const parsed = parseMetaModelSchema(schema);
+  return {
+    key: `business:${schema.id ?? schema.schemaCode}`,
+    schema,
+    title: `${parsed.config.directoryName || parsed.config.directoryCode || t("web.datasources.businessTitle")} / ${schema.schemaName}`,
+    description: parsed.plainDescription || schema.schemaCode,
+    displayMode: (parsed.config.displayMode ?? "SINGLE") as "SINGLE" | "MULTIPLE",
+    fields: (schema.fields ?? []).filter((field) => field.scope === "BUSINESS"),
   };
+}
+
+function businessSchemaLabel(schema: MetadataSchemaDefinition) {
+  const config = parseMetaModelSchema(schema).config;
+  return `${config.directoryName || config.directoryCode || "business"} / ${schema.schemaName}`;
+}
+
+function sectionModelValue(section: DatasourceBusinessSection) {
+  return getBusinessMetaModelValues(form.businessMetadata, section.schema);
+}
+
+function updateSectionModelValue(section: DatasourceBusinessSection, value: Record<string, unknown>) {
+  form.businessMetadata = setBusinessMetaModelValues(form.businessMetadata, section.schema, value);
+}
+
+function sectionRows(section: DatasourceBusinessSection) {
+  return getBusinessMetaModelRows(form.businessMetadata, section.schema);
+}
+
+function setSectionRows(section: DatasourceBusinessSection, rows: Record<string, unknown>[]) {
+  form.businessMetadata = setBusinessMetaModelRows(form.businessMetadata, section.schema, rows);
+}
+
+function appendSectionRow(section: DatasourceBusinessSection) {
+  const rows = sectionRows(section);
+  rows.push(buildDefaultMetadata(section.fields));
+  setSectionRows(section, rows);
+}
+
+function removeSectionRow(section: DatasourceBusinessSection, index: number) {
+  const rows = sectionRows(section);
+  rows.splice(index, 1);
+  setSectionRows(section, rows);
+}
+
+function updateSectionRowField(section: DatasourceBusinessSection, index: number, fieldKey: string, value: unknown) {
+  const rows = sectionRows(section);
+  rows[index] = {
+    ...(rows[index] ?? {}),
+    [fieldKey]: value,
+  };
+  setSectionRows(section, rows);
+}
+
+function resolveRowEditorComponent(field: MetadataFieldDefinition) {
+  switch (field.componentType) {
+    case "SWITCH":
+      return ElSwitch;
+    case "SELECT":
+      return ElSelect;
+    case "NUMBER":
+      return ElInputNumber;
+    default:
+      return ElInput;
+  }
+}
+
+function resolveRowEditorProps(field: MetadataFieldDefinition) {
+  switch (field.componentType) {
+    case "SWITCH":
+      return {
+        inlinePrompt: true,
+        activeText: t("common.on"),
+        inactiveText: t("common.off"),
+      };
+    case "SELECT":
+      return {
+        clearable: true,
+        filterable: true,
+        placeholder: field.placeholder ?? field.fieldName,
+      };
+    case "NUMBER":
+      return {
+        controlsPosition: "right",
+      };
+    case "TEXTAREA":
+    case "JSON_EDITOR":
+    case "SQL_EDITOR":
+    case "CODE_EDITOR":
+      return {
+        type: "textarea",
+        rows: 2,
+        placeholder: field.placeholder ?? field.fieldName,
+      };
+    default:
+      return {
+        placeholder: field.placeholder ?? field.fieldName,
+      };
+  }
+}
+
+function applyBusinessMetadataDefaults() {
+  form.businessMetadata = ensureBusinessMetaModelEntries(form.businessMetadata, businessSchemas.value);
+  for (const section of businessSections.value) {
+    if (section.displayMode === "MULTIPLE") {
+      setSectionRows(section, sectionRows(section));
+      continue;
+    }
+    updateSectionModelValue(section, {
+      ...buildDefaultMetadata(section.fields),
+      ...sectionModelValue(section),
+    });
+  }
 }
 
 async function loadPage() {
@@ -368,6 +545,7 @@ async function loadPage() {
       studioApi.catalog.plugins("SOURCE"),
     ]);
     datasources.value = datasourceData;
+    resetDatasourcePagination();
     schemas.value = schemaData;
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
     capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
@@ -413,16 +591,12 @@ async function testDatasource(item: DataSourceDefinition) {
 }
 
 async function testCurrent() {
-  if (!form.id) {
-    const saved = await saveDatasource({ closeAfterSave: false });
-    if (saved) {
-      Object.assign(form, saved);
-    }
+  try {
+    testResult.value = await studioApi.datasources.testCurrent(cloneDeep(form));
+    ElMessage.success(t("web.datasources.testSuccess"));
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
   }
-  if (!form.id) {
-    return;
-  }
-  await testDatasource(cloneDeep(form));
 }
 
 async function discoverModels(item: DataSourceDefinition) {
@@ -492,7 +666,35 @@ p {
   margin-top: 20px;
 }
 
-.business-schema-selector {
-  margin-bottom: 8px;
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.meta-section-stack,
+.datasource-meta-section {
+  display: grid;
+  gap: 10px;
+}
+
+.datasource-meta-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.datasource-meta-section__header p {
+  display: none;
+}
+
+.multiple-section-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.section-empty {
+  margin-bottom: 0;
 }
 </style>

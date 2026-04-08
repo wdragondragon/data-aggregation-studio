@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.core.spi.ModelDiscoveryProvider;
 import com.jdragon.studio.core.spi.SourceCapabilityProvider;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.aggregation.commons.pagination.Table;
 import com.jdragon.aggregation.commons.util.Configuration;
@@ -35,9 +36,13 @@ import java.util.Set;
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
 
     private final EncryptionService encryptionService;
+    private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
 
-    public AggregationSourceCapabilityProvider(StudioPlatformProperties properties, EncryptionService encryptionService) {
+    public AggregationSourceCapabilityProvider(StudioPlatformProperties properties,
+                                               EncryptionService encryptionService,
+                                               BusinessMetaModelMetadataService businessMetaModelMetadataService) {
         this.encryptionService = encryptionService;
+        this.businessMetaModelMetadataService = businessMetaModelMetadataService;
         System.setProperty("aggregation.home", properties.getAggregationHome());
         SystemConstants.HOME = properties.getAggregationHome();
     }
@@ -59,14 +64,14 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 return result;
             }
             if (plugin instanceof FileHelper) {
-                boolean success = ((FileHelper) plugin).connect(Configuration.from(decryptMetadata(definition.getTechnicalMetadata())));
+                boolean success = ((FileHelper) plugin).connect(Configuration.from(normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()))));
                 result.setSuccess(success);
                 result.setMessage(success ? "Connection success" : "Connection failed");
                 return result;
             }
             if (plugin instanceof QueueAbstract) {
                 QueueAbstract queue = (QueueAbstract) plugin;
-                queue.setPluginQueueConf(Configuration.from(decryptMetadata(definition.getTechnicalMetadata())));
+                queue.setPluginQueueConf(Configuration.from(normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()))));
                 queue.init();
                 result.setSuccess(true);
                 result.setMessage("Queue plugin initialized");
@@ -100,7 +105,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                     model.setModelKind(resolveModelKind(tableInfo));
                     model.setPhysicalLocator(tableName);
                     model.setTechnicalMetadata(buildRelationalMetadata(definition, tableName, tableInfo, columns));
-                    model.setBusinessMetadata(buildInheritedBusinessMetadata(definition, tableInfo == null ? null : tableInfo.getRemarks()));
+                    model.setBusinessMetadata(buildEmptyBusinessMetadata());
                     result.getModels().add(model);
                 }
                 result.setMessage("Discovered RDBMS objects");
@@ -108,7 +113,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             }
             if (plugin instanceof FileHelper) {
                 FileHelper fileHelper = (FileHelper) plugin;
-                Map<String, Object> metadata = decryptMetadata(definition.getTechnicalMetadata());
+                Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
                 String rootPath = String.valueOf(metadata.getOrDefault("rootPath", "/"));
                 String regex = String.valueOf(metadata.getOrDefault("pattern", ".*"));
                 fileHelper.connect(Configuration.from(metadata));
@@ -119,21 +124,21 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                     model.setModelKind(ModelKind.FILE);
                     model.setPhysicalLocator(fileName);
                     model.setTechnicalMetadata(buildFileMetadata(definition, metadata, rootPath, regex, fileName));
-                    model.setBusinessMetadata(buildInheritedBusinessMetadata(definition, null));
+                    model.setBusinessMetadata(buildEmptyBusinessMetadata());
                     result.getModels().add(model);
                 }
                 result.setMessage("Discovered file models");
                 return result;
             }
             if (plugin instanceof QueueAbstract) {
-                Map<String, Object> metadata = decryptMetadata(definition.getTechnicalMetadata());
+                Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
                 DataModelDefinition model = new DataModelDefinition();
                 model.setDatasourceId(definition.getId());
                 model.setName(String.valueOf(metadata.getOrDefault("topic", metadata.getOrDefault("queue", definition.getName()))));
                 model.setModelKind(ModelKind.TOPIC);
                 model.setPhysicalLocator(model.getName());
                 model.setTechnicalMetadata(buildQueueMetadata(definition, metadata, model.getName()));
-                model.setBusinessMetadata(buildInheritedBusinessMetadata(definition, null));
+                model.setBusinessMetadata(buildEmptyBusinessMetadata());
                 result.getModels().add(model);
                 result.setMessage("Queue model synthesized from datasource metadata");
                 return result;
@@ -158,7 +163,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 }
             } else if (plugin instanceof FileHelper) {
                 FileHelper fileHelper = (FileHelper) plugin;
-                Map<String, Object> metadata = decryptMetadata(datasource.getTechnicalMetadata());
+                Map<String, Object> metadata = normalizePluginMetadata(datasource.getTypeCode(), decryptMetadata(datasource.getTechnicalMetadata()));
                 fileHelper.connect(Configuration.from(metadata));
                 fileHelper.readFile(model.getPhysicalLocator(),
                         String.valueOf(metadata.getOrDefault("fileType", "csv")),
@@ -281,17 +286,8 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         return metadata;
     }
 
-    private Map<String, Object> buildInheritedBusinessMetadata(DataSourceDefinition definition, String remarks) {
-        Map<String, Object> business = new LinkedHashMap<String, Object>();
-        if (definition.getBusinessMetadata() != null) {
-            business.putAll(definition.getBusinessMetadata());
-        }
-        putIfPresent(business, "sourceDatasourceName", definition.getName());
-        putIfPresent(business, "sourceDatasourceType", definition.getTypeCode());
-        if (!business.containsKey("description")) {
-            putIfPresent(business, "description", remarks);
-        }
-        return business;
+    private Map<String, Object> buildEmptyBusinessMetadata() {
+        return businessMetaModelMetadataService.emptyMetadata();
     }
 
     private void putIfPresent(Map<String, Object> target, String key, Object value) {
@@ -311,23 +307,69 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
     }
 
     private BaseDataSourceDTO toBaseDataSource(DataSourceDefinition definition) {
-        Map<String, Object> metadata = decryptMetadata(definition.getTechnicalMetadata());
+        Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
         BaseDataSourceDTO dto = new BaseDataSourceDTO();
         dto.setName(definition.getTypeCode());
         dto.setType(definition.getTypeCode());
-        dto.setHost(asString(metadata.get("host")));
+        dto.setHost(firstNonBlank(asString(metadata.get("host")), asString(metadata.get("endpoint"))));
         dto.setPort(asString(metadata.get("port")));
-        dto.setDatabase(asString(metadata.get("database")));
-        dto.setUserName(firstNonBlank(asString(metadata.get("userName")), asString(metadata.get("username"))));
-        dto.setPassword(asString(metadata.get("password")));
+        dto.setDatabase(firstNonBlank(asString(metadata.get("database")), firstNonBlank(asString(metadata.get("projectName")), asString(metadata.get("org")))));
+        dto.setUserName(firstNonBlank(asString(metadata.get("userName")),
+                firstNonBlank(asString(metadata.get("username")),
+                        firstNonBlank(asString(metadata.get("accessId")), asString(metadata.get("aliyunAccessId"))))));
+        dto.setPassword(firstNonBlank(asString(metadata.get("password")),
+                firstNonBlank(asString(metadata.get("token")),
+                        firstNonBlank(asString(metadata.get("accessKeySecret")), asString(metadata.get("aliyunAccessKey"))))));
         dto.setOther(asJsonString(metadata.get("other")));
-        dto.setBucket(asString(metadata.get("bucket")));
+        dto.setBucket(firstNonBlank(asString(metadata.get("bucket")), asString(metadata.get("bucketName"))));
+        dto.setPrincipal(firstNonBlank(asString(metadata.get("principal")), asString(metadata.get("kerberosPrincipal"))));
+        dto.setKeytabPath(firstNonBlank(asString(metadata.get("keytabPath")), asString(metadata.get("kerberosKeytabFilePath"))));
+        dto.setKrb5File(firstNonBlank(asString(metadata.get("krb5File")), asString(metadata.get("krb5Conf"))));
         dto.setJdbcUrl(asString(metadata.get("jdbcUrl")));
         dto.setDriverClassName(asString(metadata.get("driverClassName")));
         Object usePool = metadata.get("usePool");
         dto.setUsePool(usePool instanceof Boolean ? (Boolean) usePool : Boolean.parseBoolean(asString(usePool)));
         dto.setExtraParams(asStringMap(metadata.get("extraParams")));
         return dto;
+    }
+
+    private Map<String, Object> normalizePluginMetadata(String typeCode, Map<String, Object> metadata) {
+        Map<String, Object> normalized = new LinkedHashMap<String, Object>();
+        if (metadata != null) {
+            normalized.putAll(metadata);
+        }
+        String type = typeCode == null ? "" : typeCode.trim().toLowerCase();
+        if ("ftp".equals(type) || "sftp".equals(type)) {
+            copyIfMissing(normalized, "host", "endpoint");
+            copyIfMissing(normalized, "username", "userName");
+            return normalized;
+        }
+        if ("kafka".equals(type)) {
+            copyIfMissing(normalized, "bootstrap.servers", "brokers");
+            copyIfMissing(normalized, "group.id", "consumerGroup");
+            copyIfMissing(normalized, "username", "userName");
+            return normalized;
+        }
+        if ("rabbitmq".equals(type)) {
+            copyIfMissing(normalized, "username", "userName");
+            copyIfMissing(normalized, "queueName", "queue");
+            return normalized;
+        }
+        if ("rocketmq".equals(type)) {
+            copyIfMissing(normalized, "namesrvAddr", "brokers");
+            copyIfMissing(normalized, "topic", "queue");
+            return normalized;
+        }
+        if ("influxdb".equals(type) || "influxdbv1".equals(type) || "odps".equals(type)) {
+            copyIfMissing(normalized, "host", "endpoint");
+            return normalized;
+        }
+        if ("tbds-hive3".equals(type)) {
+            copyIfMissing(normalized, "principal", "kerberosPrincipal");
+            copyIfMissing(normalized, "keytabPath", "kerberosKeytabFilePath");
+            copyIfMissing(normalized, "krb5File", "krb5Conf");
+        }
+        return normalized;
     }
 
     private Map<String, Object> decryptMetadata(Map<String, Object> metadata) {
@@ -360,6 +402,21 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             return first;
         }
         return second;
+    }
+
+    private void copyIfMissing(Map<String, Object> target, String key, String alias) {
+        if (target == null || key == null || alias == null) {
+            return;
+        }
+        Object current = target.get(key);
+        if (current != null && !String.valueOf(current).trim().isEmpty()) {
+            return;
+        }
+        Object aliasValue = target.get(alias);
+        if (aliasValue == null || String.valueOf(aliasValue).trim().isEmpty()) {
+            return;
+        }
+        target.put(key, aliasValue);
     }
 
     private String asJsonString(Object candidate) {

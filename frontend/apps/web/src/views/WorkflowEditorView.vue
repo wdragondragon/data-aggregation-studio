@@ -21,8 +21,11 @@
           <el-form-item :label="t('web.workflows.workflowName')">
             <el-input v-model="form.name" :placeholder="t('web.workflows.placeholderWorkflowName')" />
           </el-form-item>
-          <el-form-item :label="t('web.workflows.cronExpression')">
-            <el-input v-model="form.schedule.cronExpression" :placeholder="t('web.workflows.placeholderCron')" />
+          <el-form-item :label="t('web.workflows.cronExpression')" class="cron-form-item">
+            <CronExpressionPicker
+              v-model="form.schedule.cronExpression"
+              :label="t('web.workflows.cronExpression')"
+            />
           </el-form-item>
           <el-form-item :label="t('web.workflows.timezone')">
             <el-input v-model="form.schedule.timezone" placeholder="Asia/Shanghai" />
@@ -36,11 +39,15 @@
       <SectionCard :title="t('web.workflows.availableTasksTitle')" :description="t('web.workflows.availableTasksDescription')">
         <el-table :data="onlineCollectionTasks" border height="240">
           <el-table-column prop="name" :label="t('web.collectionTasks.name')" min-width="180" />
-          <el-table-column prop="taskType" :label="t('web.collectionTasks.type')" width="140" />
-          <el-table-column prop="sourceCount" :label="t('web.collectionTasks.sourceCount')" width="120" />
-          <el-table-column :label="t('web.collectionTasks.status')" width="120">
+          <el-table-column :label="t('web.collectionTasks.type')" width="140" align="center" header-align="center">
             <template #default="{ row }">
-              <StatusPill :label="row.status ?? t('common.unknown')" tone="success" />
+              {{ formatCollectionTaskType(t, row.taskType) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="sourceCount" :label="t('web.collectionTasks.sourceCount')" width="120" align="center" header-align="center" />
+          <el-table-column :label="t('web.collectionTasks.status')" width="120" align="center" header-align="center">
+            <template #default="{ row }">
+              <StatusPill :label="formatStatusLabel(t, row.status)" tone="success" />
             </template>
           </el-table-column>
         </el-table>
@@ -48,10 +55,14 @@
     </div>
 
     <SectionCard :title="t('web.workflows.availableScriptsTitle')" :description="t('web.workflows.availableScriptsDescription')">
-      <el-table :data="sqlScripts" border size="small" max-height="220">
+      <el-table :data="scripts" border size="small" max-height="220">
         <el-table-column prop="fileName" :label="t('web.dataDevelopment.scriptName')" min-width="220" />
         <el-table-column prop="datasourceName" :label="t('web.dataDevelopment.datasource')" min-width="180" />
-        <el-table-column prop="scriptType" :label="t('web.dataDevelopment.scriptType')" width="120" />
+        <el-table-column :label="t('web.dataDevelopment.scriptType')" width="120" align="center" header-align="center">
+          <template #default="{ row }">
+            {{ formatScriptType(t, row.scriptType) }}
+          </template>
+        </el-table-column>
       </el-table>
     </SectionCard>
 
@@ -72,7 +83,7 @@
           <div class="soft-panel node-header">
             <div>
               <strong>{{ selectedNode.nodeName }}</strong>
-              <p>{{ selectedNode.nodeType }}</p>
+              <p>{{ formatNodeType(t, selectedNode.nodeType) }}</p>
             </div>
             <el-button type="danger" plain @click="removeSelectedNode">{{ t("web.workflows.removeNode") }}</el-button>
           </div>
@@ -87,33 +98,51 @@
                 <el-option
                   v-for="task in onlineCollectionTasks"
                   :key="task.id"
-                  :label="`${task.name} (${task.taskType})`"
+                  :label="`${task.name} (${formatCollectionTaskType(t, task.taskType)})`"
                   :value="String(task.id)"
                 />
               </el-select>
             </el-form-item>
             <div class="soft-panel" v-if="selectedBoundTask">
               <strong>{{ selectedBoundTask.name }}</strong>
-              <p>{{ selectedBoundTask.taskType }} · {{ selectedBoundTask.sourceCount }} {{ t("web.collectionTasks.sourceCountUnit") }}</p>
+              <p>{{ formatCollectionTaskType(t, selectedBoundTask.taskType) }} · {{ selectedBoundTask.sourceCount }} {{ t("web.collectionTasks.sourceCountUnit") }}</p>
             </div>
           </template>
 
-          <template v-else-if="selectedNode.nodeType === 'DATA_SCRIPT'">
-            <el-form-item :label="t('web.workflows.dataScriptBinding')">
-              <el-select :model-value="selectedScriptId" filterable @update:model-value="bindScript">
-                <el-option
-                  v-for="script in sqlScripts"
-                  :key="script.id"
-                  :label="`${script.fileName} (${script.datasourceName || t('common.none')})`"
-                  :value="String(script.id)"
-                />
-              </el-select>
-            </el-form-item>
+            <template v-else-if="selectedNode.nodeType === 'DATA_SCRIPT'">
+              <el-form-item :label="t('web.workflows.dataScriptBinding')">
+                <el-select :model-value="selectedScriptId" filterable @update:model-value="bindScript">
+                  <el-option
+                    v-for="script in scripts"
+                    :key="script.id"
+                    :label="`${script.fileName} (${formatScriptType(t, script.scriptType)})`"
+                    :value="String(script.id)"
+                  />
+                </el-select>
+              </el-form-item>
             <div class="soft-panel" v-if="selectedBoundScript">
               <strong>{{ selectedBoundScript.fileName }}</strong>
-              <p>{{ selectedBoundScript.datasourceName || t("common.none") }} · {{ selectedBoundScript.scriptType }}</p>
+              <p>{{ selectedBoundScript.datasourceName || t("common.none") }} · {{ formatScriptType(t, selectedBoundScript.scriptType) }}</p>
               <p>{{ t("web.workflows.dataScriptSummary") }}</p>
             </div>
+            <el-form-item v-if="selectedBoundScript && selectedBoundScript.scriptType !== 'SQL'" :label="t('web.workflows.dataScriptArguments')">
+              <el-input
+                v-model="dataScriptArgumentsText"
+                type="textarea"
+                :rows="6"
+                :placeholder="t('web.workflows.dataScriptArgumentsPlaceholder')"
+                @blur="applySelectedDataScriptArguments"
+              />
+            </el-form-item>
+            <el-form-item v-else-if="selectedBoundScript" :label="t('web.workflows.dataScriptMaxRows')">
+              <el-input-number
+                :model-value="selectedScriptMaxRows"
+                :min="1"
+                controls-position="right"
+                :placeholder="t('web.workflows.dataScriptMaxRowsPlaceholder')"
+                @update:model-value="updateSelectedDataScriptMaxRows"
+              />
+            </el-form-item>
           </template>
 
           <template v-else>
@@ -176,7 +205,16 @@ import { FieldMappingEditor, WorkflowCanvas } from "@studio/workflow-designer";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { cloneDeep, parseCommaSeparated } from "@/utils/studio";
+import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
+import {
+  cloneDeep,
+  formatCollectionTaskType,
+  formatNodeType,
+  formatScriptType,
+  formatStatusLabel,
+  parseCommaSeparated,
+  prettyJson,
+} from "@/utils/studio";
 
 interface WorkflowEditor extends WorkflowSaveRequest {
   definitionId?: string | number;
@@ -195,9 +233,10 @@ const workflowId = computed(() => route.params.workflowId as string | undefined)
 const datasources = ref<DataSourceDefinition[]>([]);
 const transformers = ref<PluginCatalogEntry[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskDefinitionView[]>([]);
-const sqlScripts = ref<DataDevelopmentScript[]>([]);
+const scripts = ref<DataDevelopmentScript[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
+const dataScriptArgumentsText = ref("{}");
 const form = reactive<WorkflowEditor>({
   code: "",
   name: "",
@@ -229,7 +268,7 @@ const selectedScriptId = computed(() => {
   return String(selectedNode.value.config.scriptId);
 });
 const selectedBoundScript = computed(() =>
-  sqlScripts.value.find((item) => String(item.id) === selectedScriptId.value),
+  scripts.value.find((item) => String(item.id) === selectedScriptId.value),
 );
 
 const selectedNodeConfig = computed<Record<string, unknown>>({
@@ -243,6 +282,16 @@ const selectedNodeConfig = computed<Record<string, unknown>>({
 
 const sourceFieldOptions = computed(() => parseCommaSeparated(selectedNodeConfig.value.sourceFields));
 const targetFieldOptions = computed(() => parseCommaSeparated(selectedNodeConfig.value.targetFields));
+const selectedScriptMaxRows = computed(() => {
+  const rawValue = selectedNode.value?.config?.maxRows;
+  if (typeof rawValue === "number") {
+    return rawValue;
+  }
+  if (typeof rawValue === "string" && rawValue.trim()) {
+    return Number(rawValue);
+  }
+  return 100;
+});
 
 const selectedNodeFields = computed<MetadataFieldDefinition[]>(() => {
   if (!selectedNode.value?.nodeType) {
@@ -294,12 +343,12 @@ async function loadReferenceData() {
       studioApi.datasources.list(),
       studioApi.catalog.plugins("TRANSFORMER"),
       studioApi.collectionTasks.listOnline(),
-      studioApi.dataDevelopment.listScripts("SQL"),
+      studioApi.dataDevelopment.listScripts(),
     ]);
     datasources.value = datasourceData;
     transformers.value = transformerData;
     onlineCollectionTasks.value = taskData;
-    sqlScripts.value = scriptData;
+    scripts.value = scriptData;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
   }
@@ -366,26 +415,59 @@ function bindCollectionTask(value: string) {
 }
 
 function bindScript(value: string) {
-  const script = sqlScripts.value.find((item) => String(item.id) === String(value));
+  const script = scripts.value.find((item) => String(item.id) === String(value));
   if (!selectedNode.value || !script) {
     return;
+  }
+  const nextConfig: Record<string, unknown> = {
+    ...(selectedNode.value.config ?? {}),
+    scriptId: script.id,
+    scriptName: script.fileName,
+    scriptType: script.scriptType,
+    datasourceId: script.datasourceId,
+    datasourceName: script.datasourceName,
+  };
+  if (script.scriptType !== "SQL") {
+    delete nextConfig.maxRows;
+    if (nextConfig.arguments == null) {
+      nextConfig.arguments = {};
+    }
+  } else {
+    delete nextConfig.arguments;
+    if (nextConfig.maxRows == null) {
+      nextConfig.maxRows = 100;
+    }
   }
   form.nodes = form.nodes.map((node) =>
     node.nodeCode === selectedNodeCode.value
       ? {
           ...node,
           nodeName: script.fileName,
-          config: {
-            ...(node.config ?? {}),
-            scriptId: script.id,
-            scriptName: script.fileName,
-            scriptType: script.scriptType,
-            datasourceId: script.datasourceId,
-            datasourceName: script.datasourceName,
-          },
+          config: nextConfig,
         }
       : node,
   );
+}
+
+function updateSelectedDataScriptMaxRows(value: number | undefined) {
+  updateSelectedNode("config", {
+    ...(selectedNode.value?.config ?? {}),
+    maxRows: value == null ? 100 : value,
+  });
+}
+
+function applySelectedDataScriptArguments() {
+  if (!selectedBoundScript.value || selectedBoundScript.value.scriptType === "SQL") {
+    return;
+  }
+  try {
+    updateSelectedNode("config", {
+      ...(selectedNode.value?.config ?? {}),
+      arguments: parseDataScriptArguments(dataScriptArgumentsText.value),
+    });
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.dataScriptArgumentsInvalid"));
+  }
 }
 
 function removeSelectedNode() {
@@ -412,12 +494,10 @@ function updateEdgeCondition(index: number, condition: string) {
 async function saveWorkflow() {
   saving.value = true;
   try {
-    const saved = await studioApi.workflows.save(cloneDeep(form));
+    const saved = await studioApi.workflows.save(buildWorkflowPayload());
     ElMessage.success(t("web.workflows.saveSuccess"));
     applyWorkflow(saved);
-    if (!workflowId.value && saved.id) {
-      await router.replace(`/workflows/${saved.id}/edit`);
-    }
+    await router.push("/workflows");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.saveFailed"));
   } finally {
@@ -429,8 +509,81 @@ watch(workflowId, async () => {
   await loadWorkflow();
 }, { immediate: true });
 
+watch(
+  () => [selectedNodeCode.value, selectedBoundScript.value?.id, selectedNode.value?.config?.arguments] as const,
+  () => {
+    if (selectedBoundScript.value && selectedBoundScript.value.scriptType !== "SQL") {
+      dataScriptArgumentsText.value = prettyJson(selectedNode.value?.config?.arguments ?? {});
+      return;
+    }
+    dataScriptArgumentsText.value = "{}";
+  },
+  { immediate: true },
+);
+
 onMounted(loadReferenceData);
+
+function buildWorkflowPayload() {
+  const payload = cloneDeep(form);
+  payload.nodes = payload.nodes.map((node) => {
+    if (node.nodeType !== "DATA_SCRIPT") {
+      return node;
+    }
+    const scriptType = String(node.config?.scriptType ?? "").toUpperCase();
+    if (scriptType !== "SQL") {
+      return {
+        ...node,
+        config: {
+          ...(node.config ?? {}),
+          arguments: parseDataScriptArguments(node.config?.arguments),
+        },
+      };
+    }
+    return {
+      ...node,
+      config: {
+        ...(node.config ?? {}),
+        maxRows: normalizeMaxRows(node.config?.maxRows),
+      },
+    };
+  });
+  return payload;
+}
+
+function parseDataScriptArguments(value: unknown) {
+  if (value == null) {
+    return {};
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return {};
+  }
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(t("web.workflows.dataScriptArgumentsInvalid"));
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function normalizeMaxRows(value: unknown) {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return Number(value);
+  }
+  return 100;
+}
 </script>
+
+<style scoped>
+.cron-form-item {
+  grid-column: 1 / -1;
+}
+</style>
 
 <style scoped>
 h3 {

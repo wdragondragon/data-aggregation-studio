@@ -17,7 +17,7 @@
           <div><strong>{{ t("web.runs.workflow") }}:</strong> {{ runDetail?.workflowName || "--" }}</div>
           <div class="summary-status-row">
             <strong>{{ t("web.runs.status") }}:</strong>
-            <StatusPill :label="runDetail?.status || t('common.unknown')" :tone="toneFromStatus(runDetail?.status)" />
+            <StatusPill :label="formatStatusLabel(t, runDetail?.status)" :tone="toneFromStatus(runDetail?.status)" />
           </div>
           <div><strong>{{ t("web.runs.startedAt") }}:</strong> {{ runDetail?.startedAt || t("common.none") }}</div>
           <div><strong>{{ t("web.runs.endedAt") }}:</strong> {{ runDetail?.endedAt || t("common.none") }}</div>
@@ -60,31 +60,34 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.detailNodesTitle')" :description="t('web.runs.detailNodesDescription')">
-      <el-table :data="runDetail?.nodeRuns || []" border>
-        <el-table-column prop="nodeName" :label="t('web.runs.node')" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="nodeType" :label="t('web.runs.nodeType')" min-width="140" show-overflow-tooltip />
-        <el-table-column :label="t('web.runs.status')" width="120">
+      <el-table :data="runDetail?.nodeRuns || []" border table-layout="fixed" class="workflow-node-run-table">
+        <el-table-column :label="t('web.runs.node')" min-width="220">
           <template #default="{ row }">
-            <StatusPill :label="row.status ?? t('common.unknown')" :tone="toneFromStatus(row.status)" />
+            <div class="stack-cell">
+              <strong>{{ row.nodeName || t("common.none") }}</strong>
+              <span class="cell-subtle">{{ formatNodeType(t, row.nodeType) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.startedAt')" min-width="180">
+        <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
           <template #default="{ row }">
-            <span>{{ row.startedAt || t("common.none") }}</span>
+            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.endedAt')" min-width="180">
+        <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
           <template #default="{ row }">
-            <span>{{ row.endedAt || t("common.none") }}</span>
+            <div class="stack-cell">
+              <span>{{ row.startedAt || t("common.none") }}</span>
+              <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.duration')" width="140">
+        <el-table-column :label="t('web.runs.message')" min-width="280">
           <template #default="{ row }">
-            <span>{{ formatDurationMs(row.durationMs) }}</span>
+            <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
           </template>
         </el-table-column>
-        <el-table-column prop="message" :label="t('web.runs.message')" min-width="320" show-overflow-tooltip />
-        <el-table-column :label="t('web.runs.actions')" width="120" fixed="right">
+        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center">
           <template #default="{ row }">
             <el-button link type="primary" :disabled="!row.runRecordId" @click="activeRunRecordId = row.runRecordId">
               {{ t("web.runs.viewLog") }}
@@ -108,7 +111,7 @@ import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
-import { toneFromStatus } from "@/utils/studio";
+import { formatNodeType, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -192,12 +195,14 @@ p {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 16px;
+  min-width: 0;
 }
 
 .summary-status-row {
@@ -251,6 +256,27 @@ p {
 
 .status-metric.muted {
   background: rgba(148, 163, 184, 0.12);
+}
+
+.workflow-node-run-table :deep(.cell) {
+  white-space: normal;
+}
+
+.workflow-node-run-table {
+  width: 100%;
+  max-width: 100%;
+}
+
+.stack-cell,
+.wrap-cell {
+  line-height: 1.45;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.stack-cell {
+  display: grid;
+  gap: 4px;
 }
 
 @media (max-width: 960px) {

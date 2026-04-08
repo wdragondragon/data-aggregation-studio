@@ -21,6 +21,8 @@
     "src/**/*.d.ts",
     "../web/src/views/**/*.vue",
     "../web/src/components/**/*.vue",
+    "../web/src/components/**/*.ts",
+    "../web/src/composables/**/*.ts",
     "../../packages/**/*.ts",
     "../../packages/**/*.vue",
     "vite.config.ts"

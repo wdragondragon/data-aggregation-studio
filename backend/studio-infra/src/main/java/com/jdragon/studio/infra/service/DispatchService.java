@@ -54,13 +54,23 @@ public class DispatchService implements WorkflowDispatcher {
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
                 .eq(WorkflowDefinitionEntity::getPublished, 1));
         for (WorkflowDefinitionEntity definition : definitions) {
-            triggerManualRun(definition.getId());
+            triggerWorkflowIfIdle(definition.getId());
         }
     }
 
     @Override
     @Transactional
     public void triggerManualRun(Long workflowDefinitionId) {
+        if (!triggerWorkflowIfIdle(workflowDefinitionId)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
+        }
+    }
+
+    @Transactional
+    public boolean triggerWorkflowIfIdle(Long workflowDefinitionId) {
+        if (hasActiveWorkflowRun(workflowDefinitionId)) {
+            return false;
+        }
         WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
         if (workflow == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
@@ -75,6 +85,7 @@ public class DispatchService implements WorkflowDispatcher {
                 dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, workflowRunId, node));
             }
         }
+        return true;
     }
 
     @Transactional
@@ -106,6 +117,16 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public void triggerCollectionTask(Long collectionTaskId) {
+        if (!triggerCollectionTaskIfIdle(collectionTaskId)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
+        }
+    }
+
+    @Transactional
+    public boolean triggerCollectionTaskIfIdle(Long collectionTaskId) {
+        if (hasActiveCollectionTaskRun(collectionTaskId)) {
+            return false;
+        }
         collectionTaskService.requireOnline(collectionTaskId);
         DispatchTaskEntity task = new DispatchTaskEntity();
         task.setExecutionType(DispatchExecutionType.COLLECTION_TASK.name());
@@ -120,6 +141,7 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("collectionTaskId", collectionTaskId);
         task.setPayloadJson(payload);
         dispatchTaskMapper.insert(task);
+        return true;
     }
 
     public List<DispatchTaskEntity> queuedTasks() {
@@ -267,6 +289,38 @@ public class DispatchService implements WorkflowDispatcher {
 
     private boolean isTerminalStatus(String status) {
         return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
+    }
+
+    private boolean hasActiveWorkflowRun(Long workflowDefinitionId) {
+        if (workflowDefinitionId == null) {
+            return false;
+        }
+        Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
+        if (activeTasks != null && activeTasks > 0) {
+            return true;
+        }
+        Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(RunRecordEntity::getStatus, "RUNNING"));
+        return activeRecords != null && activeRecords > 0;
+    }
+
+    private boolean hasActiveCollectionTaskRun(Long collectionTaskId) {
+        if (collectionTaskId == null) {
+            return false;
+        }
+        Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
+        if (activeTasks != null && activeTasks > 0) {
+            return true;
+        }
+        Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getCollectionTaskId, collectionTaskId)
+                .eq(RunRecordEntity::getStatus, "RUNNING"));
+        return activeRecords != null && activeRecords > 0;
     }
 
     private Long resolveCollectionTaskId(WorkflowNodeDefinition node) {
