@@ -53,6 +53,111 @@ create table if not exists sys_role_permission (
     permission_id integer
 );
 
+create table if not exists studio_tenant (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    tenant_code text not null,
+    tenant_name text not null,
+    description text,
+    enabled integer default 1
+);
+
+create unique index if not exists uk_studio_tenant_code on studio_tenant(tenant_code);
+
+create table if not exists studio_project (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    project_code text not null,
+    project_name text not null,
+    description text,
+    enabled integer default 1,
+    default_project integer default 0
+);
+
+create unique index if not exists uk_studio_project_code on studio_project(tenant_id, project_code);
+create unique index if not exists uk_studio_project_name on studio_project(tenant_id, project_name);
+
+create table if not exists studio_tenant_member (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    user_id integer not null,
+    role_code text not null,
+    status text not null
+);
+
+create unique index if not exists uk_studio_tenant_member_user on studio_tenant_member(tenant_id, user_id);
+
+create table if not exists studio_project_member (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    project_id integer not null,
+    user_id integer not null,
+    role_code text not null,
+    status text not null
+);
+
+create unique index if not exists uk_studio_project_member_user on studio_project_member(project_id, user_id);
+
+create table if not exists studio_project_member_request (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    project_id integer not null,
+    user_id integer not null,
+    request_type text not null,
+    status text not null,
+    inviter_user_id integer,
+    reviewer_user_id integer,
+    reason text,
+    review_comment text
+);
+
+create index if not exists idx_studio_project_member_request_lookup on studio_project_member_request(project_id, user_id, status);
+
+create table if not exists studio_project_worker_binding (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    project_id integer not null,
+    worker_code text not null,
+    enabled integer default 1
+);
+
+create unique index if not exists uk_studio_project_worker_binding on studio_project_worker_binding(project_id, worker_code);
+
+create table if not exists studio_resource_share (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    source_project_id integer not null,
+    target_project_id integer not null,
+    resource_type text not null,
+    resource_id integer not null,
+    shared_by_user_id integer,
+    enabled integer default 1
+);
+
+create unique index if not exists uk_studio_resource_share_target on studio_resource_share(resource_type, resource_id, target_project_id);
+create index if not exists idx_studio_resource_share_project on studio_resource_share(target_project_id);
+
 create table if not exists catalog_plugin (
     id integer primary key,
     tenant_id text default 'default',

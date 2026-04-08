@@ -141,6 +141,109 @@ public class StudioSchemaUpgradeService {
                     ")");
         }
 
+        if (!tableExists("studio_tenant")) {
+            jdbcTemplate.execute("create table studio_tenant (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "tenant_code varchar(64) not null," +
+                    "tenant_name varchar(255) not null," +
+                    "description varchar(1000)," +
+                    "enabled int default 1" +
+                    ")");
+        }
+
+        if (!tableExists("studio_project")) {
+            jdbcTemplate.execute("create table studio_project (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "project_code varchar(128) not null," +
+                    "project_name varchar(255) not null," +
+                    "description varchar(1000)," +
+                    "enabled int default 1," +
+                    "default_project int default 0" +
+                    ")");
+        }
+
+        if (!tableExists("studio_tenant_member")) {
+            jdbcTemplate.execute("create table studio_tenant_member (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "user_id bigint not null," +
+                    "role_code varchar(128) not null," +
+                    "status varchar(64) not null" +
+                    ")");
+        }
+
+        if (!tableExists("studio_project_member")) {
+            jdbcTemplate.execute("create table studio_project_member (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "project_id bigint not null," +
+                    "user_id bigint not null," +
+                    "role_code varchar(128) not null," +
+                    "status varchar(64) not null" +
+                    ")");
+        }
+
+        if (!tableExists("studio_project_member_request")) {
+            jdbcTemplate.execute("create table studio_project_member_request (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "project_id bigint not null," +
+                    "user_id bigint not null," +
+                    "request_type varchar(64) not null," +
+                    "status varchar(64) not null," +
+                    "inviter_user_id bigint," +
+                    "reviewer_user_id bigint," +
+                    "reason varchar(1000)," +
+                    "review_comment varchar(1000)" +
+                    ")");
+        }
+
+        if (!tableExists("studio_project_worker_binding")) {
+            jdbcTemplate.execute("create table studio_project_worker_binding (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "project_id bigint not null," +
+                    "worker_code varchar(255) not null," +
+                    "enabled int default 1" +
+                    ")");
+        }
+
+        if (!tableExists("studio_resource_share")) {
+            jdbcTemplate.execute("create table studio_resource_share (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "source_project_id bigint not null," +
+                    "target_project_id bigint not null," +
+                    "resource_type varchar(128) not null," +
+                    "resource_id bigint not null," +
+                    "shared_by_user_id bigint," +
+                    "enabled int default 1" +
+                    ")");
+        }
+
         ensureIndex("data_model_attr_index", "idx_model_attr_index_model",
                 "alter table data_model_attr_index add key idx_model_attr_index_model (model_id)");
         ensureIndex("data_model_attr_index", "idx_model_attr_index_datasource",
@@ -155,6 +258,24 @@ public class StudioSchemaUpgradeService {
                 "alter table data_dev_script add key idx_data_dev_script_directory (directory_id)");
         ensureIndex("data_dev_script", "idx_data_dev_script_datasource",
                 "alter table data_dev_script add key idx_data_dev_script_datasource (datasource_id)");
+        ensureIndex("studio_tenant", "uk_studio_tenant_code",
+                "alter table studio_tenant add unique key uk_studio_tenant_code (tenant_code)");
+        ensureIndex("studio_project", "uk_studio_project_code",
+                "alter table studio_project add unique key uk_studio_project_code (tenant_id, project_code)");
+        ensureIndex("studio_project", "uk_studio_project_name",
+                "alter table studio_project add unique key uk_studio_project_name (tenant_id, project_name)");
+        ensureIndex("studio_tenant_member", "uk_studio_tenant_member_user",
+                "alter table studio_tenant_member add unique key uk_studio_tenant_member_user (tenant_id, user_id)");
+        ensureIndex("studio_project_member", "uk_studio_project_member_user",
+                "alter table studio_project_member add unique key uk_studio_project_member_user (project_id, user_id)");
+        ensureIndex("studio_project_member_request", "idx_studio_project_member_request_lookup",
+                "alter table studio_project_member_request add key idx_studio_project_member_request_lookup (project_id, user_id, status)");
+        ensureIndex("studio_project_worker_binding", "uk_studio_project_worker_binding",
+                "alter table studio_project_worker_binding add unique key uk_studio_project_worker_binding (project_id, worker_code)");
+        ensureIndex("studio_resource_share", "uk_studio_resource_share_target",
+                "alter table studio_resource_share add unique key uk_studio_resource_share_target (resource_type, resource_id, target_project_id)");
+        ensureIndex("studio_resource_share", "idx_studio_resource_share_project",
+                "alter table studio_resource_share add key idx_studio_resource_share_project (target_project_id)");
     }
 
     private void upgradeSqlite() {
@@ -255,6 +376,104 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_data_dev_directory_parent on data_dev_directory(parent_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_directory on data_dev_script(directory_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id)");
+
+        jdbcTemplate.execute("create table if not exists studio_tenant (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "tenant_code text not null," +
+                "tenant_name text not null," +
+                "description text," +
+                "enabled integer default 1" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_tenant_code on studio_tenant(tenant_code)");
+
+        jdbcTemplate.execute("create table if not exists studio_project (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "project_code text not null," +
+                "project_name text not null," +
+                "description text," +
+                "enabled integer default 1," +
+                "default_project integer default 0" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_project_code on studio_project(tenant_id, project_code)");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_project_name on studio_project(tenant_id, project_name)");
+
+        jdbcTemplate.execute("create table if not exists studio_tenant_member (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "user_id integer not null," +
+                "role_code text not null," +
+                "status text not null" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_tenant_member_user on studio_tenant_member(tenant_id, user_id)");
+
+        jdbcTemplate.execute("create table if not exists studio_project_member (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "project_id integer not null," +
+                "user_id integer not null," +
+                "role_code text not null," +
+                "status text not null" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_project_member_user on studio_project_member(project_id, user_id)");
+
+        jdbcTemplate.execute("create table if not exists studio_project_member_request (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "project_id integer not null," +
+                "user_id integer not null," +
+                "request_type text not null," +
+                "status text not null," +
+                "inviter_user_id integer," +
+                "reviewer_user_id integer," +
+                "reason text," +
+                "review_comment text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_studio_project_member_request_lookup on studio_project_member_request(project_id, user_id, status)");
+
+        jdbcTemplate.execute("create table if not exists studio_project_worker_binding (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "project_id integer not null," +
+                "worker_code text not null," +
+                "enabled integer default 1" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_project_worker_binding on studio_project_worker_binding(project_id, worker_code)");
+
+        jdbcTemplate.execute("create table if not exists studio_resource_share (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "source_project_id integer not null," +
+                "target_project_id integer not null," +
+                "resource_type text not null," +
+                "resource_id integer not null," +
+                "shared_by_user_id integer," +
+                "enabled integer default 1" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_resource_share_target on studio_resource_share(resource_type, resource_id, target_project_id)");
+        jdbcTemplate.execute("create index if not exists idx_studio_resource_share_project on studio_resource_share(target_project_id)");
     }
 
     private void ensureColumn(String tableName, String columnName, String ddl) {

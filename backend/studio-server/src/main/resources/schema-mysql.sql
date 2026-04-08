@@ -56,6 +56,104 @@ create table if not exists sys_role_permission (
     permission_id bigint not null
 );
 
+create table if not exists studio_tenant (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    tenant_code varchar(64) not null,
+    tenant_name varchar(255) not null,
+    description varchar(1000),
+    enabled int default 1,
+    unique key uk_studio_tenant_code (tenant_code)
+);
+
+create table if not exists studio_project (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    project_code varchar(128) not null,
+    project_name varchar(255) not null,
+    description varchar(1000),
+    enabled int default 1,
+    default_project int default 0,
+    unique key uk_studio_project_code (tenant_id, project_code),
+    unique key uk_studio_project_name (tenant_id, project_name)
+);
+
+create table if not exists studio_tenant_member (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    user_id bigint not null,
+    role_code varchar(128) not null,
+    status varchar(64) not null,
+    unique key uk_studio_tenant_member_user (tenant_id, user_id)
+);
+
+create table if not exists studio_project_member (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    project_id bigint not null,
+    user_id bigint not null,
+    role_code varchar(128) not null,
+    status varchar(64) not null,
+    unique key uk_studio_project_member_user (project_id, user_id)
+);
+
+create table if not exists studio_project_member_request (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    project_id bigint not null,
+    user_id bigint not null,
+    request_type varchar(64) not null,
+    status varchar(64) not null,
+    inviter_user_id bigint,
+    reviewer_user_id bigint,
+    reason varchar(1000),
+    review_comment varchar(1000),
+    key idx_studio_project_member_request_lookup (project_id, user_id, status)
+);
+
+create table if not exists studio_project_worker_binding (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    project_id bigint not null,
+    worker_code varchar(255) not null,
+    enabled int default 1,
+    unique key uk_studio_project_worker_binding (project_id, worker_code)
+);
+
+create table if not exists studio_resource_share (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    source_project_id bigint not null,
+    target_project_id bigint not null,
+    resource_type varchar(128) not null,
+    resource_id bigint not null,
+    shared_by_user_id bigint,
+    enabled int default 1,
+    unique key uk_studio_resource_share_target (resource_type, resource_id, target_project_id),
+    key idx_studio_resource_share_project (target_project_id)
+);
+
 create table if not exists catalog_plugin (
     id bigint primary key,
     tenant_id varchar(64) default 'default',

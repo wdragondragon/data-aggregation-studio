@@ -11,14 +11,24 @@ if ($ResetDatabase) {
     $arguments += "--studio.init.reset=true"
 }
 
-$runArguments = [string]::Join(" ", $arguments)
+$execArguments = @(
+    "-q",
+    "-DskipTests",
+    "org.codehaus.mojo:exec-maven-plugin:3.1.0:java",
+    "-Dexec.mainClass=com.jdragon.studio.server.bootstrap.StudioDataInitializerApplication",
+    "-Dexec.cleanupDaemonThreads=false"
+)
+if ($arguments.Count -gt 0) {
+    $runArguments = [string]::Join(" ", $arguments)
+    $execArguments += "-Dexec.args=$runArguments"
+}
 
 Push-Location $backendRoot
 try {
     mvn -pl studio-server -am -DskipTests install
     Push-Location $serverModule
     try {
-        mvn -DskipTests "-Dspring-boot.run.main-class=com.jdragon.studio.server.bootstrap.StudioDataInitializerApplication" "-Dspring-boot.run.arguments=$runArguments" spring-boot:run
+        & mvn @execArguments
     } finally {
         Pop-Location
     }

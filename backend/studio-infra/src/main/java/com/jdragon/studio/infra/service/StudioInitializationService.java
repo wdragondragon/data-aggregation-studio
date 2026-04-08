@@ -8,6 +8,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class StudioInitializationService {
 
     private static final String[] RESET_TABLES = new String[]{
+            "studio_resource_share",
+            "studio_project_worker_binding",
+            "studio_project_member_request",
+            "studio_project_member",
+            "studio_tenant_member",
+            "studio_project",
+            "studio_tenant",
             "worker_lease",
             "run_record",
             "dispatch_task",
