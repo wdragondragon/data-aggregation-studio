@@ -211,7 +211,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
@@ -238,6 +238,7 @@ const workflows = ref<WorkflowDefinitionView[]>([]);
 const collectionTasks = ref<CollectionTaskDefinitionView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
+let dashboardLoadToken = 0;
 
 const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
@@ -292,6 +293,7 @@ const workspaceLinks = computed(() => [
 ]);
 
 async function loadDashboard() {
+  const loadToken = ++dashboardLoadToken;
   try {
     const [datasourceData, workflowData, capabilityData, runsData, collectionTaskData, scriptsData, workflowRunData] = await Promise.all([
       studioApi.datasources.list(),
@@ -302,6 +304,9 @@ async function loadDashboard() {
       studioApi.dataDevelopment.listScripts(),
       studioApi.workflowRuns.list({ pageNo: 1, pageSize: 6 }),
     ]);
+    if (loadToken !== dashboardLoadToken) {
+      return;
+    }
     datasources.value = datasourceData;
     workflows.value = workflowData;
     collectionTasks.value = collectionTaskData;
@@ -376,6 +381,12 @@ function scriptTone(scriptType?: string) {
 }
 
 onMounted(loadDashboard);
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (authStore.isAuthenticated) {
+    loadDashboard();
+  }
+});
 </script>
 
 <style scoped>
