@@ -17,6 +17,7 @@ public final class StudioConstants {
     public static final String RESOURCE_TYPE_DATA_MODEL = "DATA_MODEL";
     public static final String RESOURCE_TYPE_COLLECTION_TASK = "COLLECTION_TASK";
     public static final String RESOURCE_TYPE_WORKFLOW = "WORKFLOW";
+    public static final String RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT = "DATA_DEVELOPMENT_SCRIPT";
     public static final String MEMBER_STATUS_ACTIVE = "ACTIVE";
     public static final String MEMBER_REQUEST_APPLY = "APPLY";
     public static final String MEMBER_REQUEST_INVITE = "INVITE";

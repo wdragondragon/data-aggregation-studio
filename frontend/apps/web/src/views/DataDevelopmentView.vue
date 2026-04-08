@@ -11,8 +11,8 @@
         <el-button type="primary" :disabled="!hasCurrentProject" @click="createNewScript">{{ t("web.dataDevelopment.newScript") }}</el-button>
         <el-button type="success" :disabled="!canExecuteCurrentScript" @click="executeCurrentScript">{{ executeButtonLabel }}</el-button>
         <el-button type="primary" :disabled="!canSaveCurrentScript" @click="saveScript">{{ t("web.dataDevelopment.saveScript") }}</el-button>
-        <el-button plain :disabled="!hasCurrentProject || !selectedTreeNode" @click="openMoveDialog">{{ t("web.dataDevelopment.moveNode") }}</el-button>
-        <el-button type="danger" plain :disabled="!hasCurrentProject || !selectedTreeNode" @click="deleteSelectedNode">{{ t("common.delete") }}</el-button>
+        <el-button plain :disabled="!canMoveSelectedNode" @click="openMoveDialog">{{ t("web.dataDevelopment.moveNode") }}</el-button>
+        <el-button type="danger" plain :disabled="!canDeleteSelectedNode" @click="deleteSelectedNode">{{ t("common.delete") }}</el-button>
       </div>
     </div>
 
@@ -49,6 +49,14 @@
                   {{ formatScriptType(t, slotProps?.data?.scriptType) }} · {{ slotProps?.data?.datasourceName || t("common.none") }}
                 </span>
               </div>
+              <el-tag
+                v-if="slotProps?.data?.nodeType === 'SCRIPT' && isSharedScriptNode(slotProps?.data)"
+                type="warning"
+                size="small"
+                effect="plain"
+              >
+                共享 · {{ resolveProjectLabel(slotProps?.data?.projectId) }}
+              </el-tag>
             </div>
           </template>
         </el-tree>
@@ -88,6 +96,10 @@
             <el-form-item :label="t('web.dataDevelopment.scriptDescription')" class="span-2">
               <el-input v-model="scriptForm.description" />
             </el-form-item>
+          </div>
+
+          <div v-if="isCurrentScriptShared" class="soft-panel shared-script-note">
+            共享脚本来自项目 {{ resolveProjectLabel(scriptForm.projectId) }}，当前项目仅支持查看和执行，不能直接保存、移动或删除。
           </div>
 
           <div v-if="isStructuredScriptType" class="soft-panel java-script-hint">
@@ -250,7 +262,7 @@ import type {
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
-import { formatScriptType, formatStatusLabel, prettyJson } from "@/utils/studio";
+import { formatScriptType, formatStatusLabel, isSharedFromAnotherProject, prettyJson, resolveProjectName, sameEntityId } from "@/utils/studio";
 import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.vue";
 import type { SqlEditorHintSource } from "../components/data-development/editorTypes";
 import { resolveScriptEditorEntry } from "../components/data-development/scriptEditorRegistry";
@@ -284,6 +296,7 @@ const directoryForm = reactive<DataDevelopmentDirectorySaveRequest>({
 const scriptForm = reactive<DataDevelopmentScript>({
   id: undefined,
   directoryId: undefined,
+  projectId: undefined,
   fileName: "",
   scriptType: "SQL",
   datasourceId: "",
@@ -301,6 +314,9 @@ const currentDirectoryLabel = computed(() => {
 const currentProjectLabel = computed(() => authStore.currentProjectName || t("common.none"));
 const hasCurrentProject = computed(() => Boolean(authStore.currentProjectId));
 const currentScriptRegistryEntry = computed(() => resolveScriptEditorEntry(scriptForm.scriptType));
+const isCurrentScriptShared = computed(() => Boolean(
+  scriptForm.id && isSharedFromAnotherProject(authStore.currentProjectId, scriptForm.projectId),
+));
 const isJavaScriptType = computed(() => scriptForm.scriptType === "JAVA");
 const isPythonScriptType = computed(() => scriptForm.scriptType === "PYTHON");
 const isStructuredScriptType = computed(() => isJavaScriptType.value || isPythonScriptType.value);
@@ -313,7 +329,7 @@ const scriptTypeOptions = computed(() => [
 const canExecuteCurrentScript = computed(() =>
   hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsExecution);
 const canSaveCurrentScript = computed(() =>
-  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave);
+  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave && !isCurrentScriptShared.value);
 const executeButtonLabel = computed(() => isStructuredScriptType.value
   ? t("web.dataDevelopment.executeScript")
   : t("web.dataDevelopment.executeSql"));
@@ -367,6 +383,18 @@ const moveDirectoryOptions = computed(() => {
   }
   return directories.value;
 });
+const isSelectedNodeShared = computed(() => {
+  if (!selectedTreeNode.value || selectedTreeNode.value.nodeType !== "SCRIPT") {
+    return false;
+  }
+  const ownerProjectId = selectedTreeNode.value.projectId
+    ?? (scriptForm.id != null && sameEntityId(scriptForm.id, selectedTreeNode.value.scriptId) ? scriptForm.projectId : undefined);
+  return isSharedFromAnotherProject(authStore.currentProjectId, ownerProjectId);
+});
+const canMoveSelectedNode = computed(() =>
+  Boolean(hasCurrentProject.value && selectedTreeNode.value && !isSelectedNodeShared.value));
+const canDeleteSelectedNode = computed(() =>
+  Boolean(hasCurrentProject.value && selectedTreeNode.value && !isSelectedNodeShared.value));
 
 async function refreshAll() {
   const currentRefreshToken = ++refreshToken.value;
@@ -408,6 +436,7 @@ function resetProjectScopedState() {
   activeExecutionTab.value = "1";
   scriptForm.id = undefined;
   scriptForm.directoryId = undefined;
+  scriptForm.projectId = undefined;
   scriptForm.fileName = "";
   scriptForm.scriptType = "SQL";
   scriptForm.datasourceId = "";
@@ -470,6 +499,7 @@ async function loadScript(scriptId: string | number | undefined) {
   activeExecutionTab.value = "1";
   scriptForm.id = script.id;
   scriptForm.directoryId = script.directoryId;
+  scriptForm.projectId = script.projectId;
   scriptForm.fileName = script.fileName;
   scriptForm.scriptType = script.scriptType;
   scriptForm.datasourceId = script.datasourceId;
@@ -482,12 +512,11 @@ async function loadScript(scriptId: string | number | undefined) {
 }
 
 function createNewScript() {
-  const directoryId = selectedTreeNode.value?.nodeType === "DIRECTORY"
-    ? selectedTreeNode.value.directoryId
-    : selectedTreeNode.value?.directoryId;
+  const directoryId = resolveSelectedWritableDirectoryId();
   scriptEditorVisible.value = true;
   scriptForm.id = undefined;
   scriptForm.directoryId = directoryId;
+  scriptForm.projectId = authStore.currentProjectId ?? undefined;
   scriptForm.fileName = "";
   scriptForm.scriptType = "SQL";
   scriptForm.datasourceId = "";
@@ -502,9 +531,7 @@ function createNewScript() {
 
 function openDirectoryDialog() {
   directoryForm.id = undefined;
-  directoryForm.parentId = selectedTreeNode.value?.nodeType === "DIRECTORY"
-    ? selectedTreeNode.value.directoryId
-    : selectedTreeNode.value?.directoryId;
+  directoryForm.parentId = resolveSelectedWritableDirectoryId();
   directoryForm.name = "";
   directoryForm.permissionCode = "";
   directoryForm.description = "";
@@ -543,8 +570,17 @@ async function saveScript() {
       content: scriptForm.content,
     });
     scriptForm.id = saved.id;
+    scriptForm.projectId = saved.projectId;
     selectedTreeNode.value = saved.id
-      ? { nodeKey: `script-${saved.id}`, nodeType: "SCRIPT", scriptId: saved.id, directoryId: saved.directoryId, name: saved.fileName, children: [] }
+      ? {
+          nodeKey: `script-${saved.id}`,
+          nodeType: "SCRIPT",
+          scriptId: saved.id,
+          directoryId: saved.directoryId,
+          projectId: saved.projectId,
+          name: saved.fileName,
+          children: [],
+        }
       : selectedTreeNode.value;
     ElMessage.success(t("web.dataDevelopment.saveScriptSuccess"));
     await refreshAll();
@@ -662,6 +698,9 @@ function extractModelColumns(model: DataModelDefinition): string[] {
 }
 
 function openMoveDialog() {
+  if (!canMoveSelectedNode.value) {
+    return;
+  }
   moveTargetDirectoryId.value = "";
   moveDialogVisible.value = true;
 }
@@ -743,6 +782,27 @@ function requireEntityId(value: unknown, fieldName: string): EntityId {
     throw new Error(`${fieldName} is required`);
   }
   return normalized;
+}
+
+function resolveProjectLabel(projectId?: EntityId | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedScriptNode(node?: DataDevelopmentTreeNode | null) {
+  if (!node || node.nodeType !== "SCRIPT") {
+    return false;
+  }
+  return isSharedFromAnotherProject(authStore.currentProjectId, node.projectId);
+}
+
+function resolveSelectedWritableDirectoryId() {
+  const directoryId = selectedTreeNode.value?.nodeType === "DIRECTORY"
+    ? selectedTreeNode.value.directoryId
+    : selectedTreeNode.value?.directoryId;
+  if (!directoryId) {
+    return undefined;
+  }
+  return directories.value.some((item) => sameEntityId(item.id, directoryId)) ? directoryId : undefined;
 }
 
 onMounted(async () => {
@@ -850,6 +910,10 @@ p {
 .tree-node {
   width: 100%;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .tree-node__content {
@@ -882,6 +946,13 @@ p {
 
 .java-script-hint p {
   margin-top: 6px;
+}
+
+.shared-script-note {
+  margin-bottom: 12px;
+  border: 1px solid rgba(198, 107, 0, 0.24);
+  background: rgba(255, 248, 233, 0.9);
+  color: #8a5200;
 }
 
 .execution-output-item :deep(.el-textarea__inner) {

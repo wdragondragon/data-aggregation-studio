@@ -11,6 +11,7 @@ import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
@@ -24,6 +25,7 @@ import com.jdragon.studio.infra.entity.TenantMemberEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.mapper.ProjectMapper;
@@ -63,6 +65,7 @@ public class SystemManagementService {
     private final DataModelMapper dataModelMapper;
     private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
+    private final DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
     private final StudioSecurityService securityService;
 
     public SystemManagementService(TenantMapper tenantMapper,
@@ -78,6 +81,7 @@ public class SystemManagementService {
                                    DataModelMapper dataModelMapper,
                                    CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                                    WorkflowDefinitionMapper workflowDefinitionMapper,
+                                   DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
                                    StudioSecurityService securityService) {
         this.tenantMapper = tenantMapper;
         this.projectMapper = projectMapper;
@@ -92,6 +96,7 @@ public class SystemManagementService {
         this.dataModelMapper = dataModelMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
+        this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
         this.securityService = securityService;
     }
 
@@ -452,6 +457,8 @@ public class SystemManagementService {
         if (entity == null || entity.getTargetProjectId() == null || !hasText(entity.getResourceType()) || entity.getResourceId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Resource share target, type and resource id are required");
         }
+        String normalizedResourceType = entity.getResourceType().trim().toUpperCase();
+        validateShareableResource(project.getTenantId(), project.getId(), normalizedResourceType, entity.getResourceId());
         ProjectEntity targetProject = requireProject(entity.getTargetProjectId(), project.getTenantId());
         if (project.getId().equals(targetProject.getId())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Source and target project cannot be the same");
@@ -459,7 +466,7 @@ public class SystemManagementService {
         ResourceShareEntity target = entity.getId() == null
                 ? resourceShareMapper.selectOne(new LambdaQueryWrapper<ResourceShareEntity>()
                 .eq(ResourceShareEntity::getTenantId, project.getTenantId())
-                .eq(ResourceShareEntity::getResourceType, entity.getResourceType().trim().toUpperCase())
+                .eq(ResourceShareEntity::getResourceType, normalizedResourceType)
                 .eq(ResourceShareEntity::getResourceId, entity.getResourceId())
                 .eq(ResourceShareEntity::getTargetProjectId, targetProject.getId())
                 .last("limit 1"))
@@ -470,7 +477,7 @@ public class SystemManagementService {
         target.setTenantId(project.getTenantId());
         target.setSourceProjectId(project.getId());
         target.setTargetProjectId(targetProject.getId());
-        target.setResourceType(entity.getResourceType().trim().toUpperCase());
+        target.setResourceType(normalizedResourceType);
         target.setResourceId(entity.getResourceId());
         target.setSharedByUserId(securityService.currentUserId());
         target.setEnabled(entity.getEnabled() == null ? 1 : entity.getEnabled());
@@ -776,6 +783,51 @@ public class SystemManagementService {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Resource share not found");
         }
         return share;
+    }
+
+    private void validateShareableResource(String tenantId, Long sourceProjectId, String resourceType, Long resourceId) {
+        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
+            DatasourceEntity entity = datasourceMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Datasource");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
+            DataModelEntity entity = dataModelMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Model");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
+            CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Collection task");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
+            WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Workflow");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
+            DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data development script");
+            return;
+        }
+        throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
+    }
+
+    private void ensureShareableResource(String resourceTenantId,
+                                         Long resourceProjectId,
+                                         Long resourceId,
+                                         Long sourceProjectId,
+                                         String tenantId,
+                                         String resourceName) {
+        if (!tenantId.equals(resourceTenantId) || resourceProjectId == null || !resourceProjectId.equals(sourceProjectId)) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, resourceName + " not found: " + resourceId);
+        }
     }
 
     private String requireCurrentTenantId() {

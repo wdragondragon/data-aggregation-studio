@@ -13,6 +13,7 @@ public class DataDevelopmentTreeNode {
     private Long directoryId;
     private Long scriptId;
     private Long parentId;
+    private Long projectId;
     private String name;
     private String permissionCode;
     private ScriptType scriptType;

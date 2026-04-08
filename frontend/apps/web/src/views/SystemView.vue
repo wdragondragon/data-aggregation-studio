@@ -152,7 +152,11 @@
             <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openShareDialog()">共享资源</el-button>
           </div>
           <el-table :data="resourceShares" border size="small">
-            <el-table-column prop="resourceType" label="资源类型" width="150" align="center" />
+            <el-table-column label="资源类型" width="150" align="center">
+              <template #default="{ row }">
+                {{ resourceTypeLabel(row.resourceType) }}
+              </template>
+            </el-table-column>
             <el-table-column label="资源" min-width="220">
               <template #default="{ row }">
                 <div class="stack-cell">
@@ -351,6 +355,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskDefinitionView,
+  DataDevelopmentScript,
   DataModelDefinition,
   DataSourceDefinition,
   EntityId,
@@ -384,6 +389,7 @@ const datasourceResources = ref<DataSourceDefinition[]>([]);
 const modelResources = ref<DataModelDefinition[]>([]);
 const taskResources = ref<CollectionTaskDefinitionView[]>([]);
 const workflowResources = ref<WorkflowDefinitionView[]>([]);
+const dataDevelopmentScriptResources = ref<DataDevelopmentScript[]>([]);
 
 const tenantDialogOpen = ref(false);
 const projectDialogOpen = ref(false);
@@ -407,6 +413,7 @@ const resourceTypeOptions = [
   { label: "模型", value: "DATA_MODEL" },
   { label: "采集任务", value: "COLLECTION_TASK" },
   { label: "工作流", value: "WORKFLOW" },
+  { label: "数据开发脚本", value: "DATA_DEVELOPMENT_SCRIPT" },
 ] as const;
 const shareTargetProjects = computed(() =>
   projects.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
@@ -421,7 +428,7 @@ function resetForm(target: Record<string, unknown>, defaults: Record<string, unk
 async function loadPage() {
   try {
     const currentProjectId = authStore.currentProjectId ?? undefined;
-    const [tenantData, projectData, userData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData] = await Promise.all([
+    const [tenantData, projectData, userData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData, dataDevelopmentScriptData] = await Promise.all([
       studioApi.system.tenants.list(),
       studioApi.system.projects.list(),
       studioApi.users.list(),
@@ -434,6 +441,7 @@ async function loadPage() {
       currentProjectId == null ? Promise.resolve([] as DataModelDefinition[]) : studioApi.models.list(),
       currentProjectId == null ? Promise.resolve([] as CollectionTaskDefinitionView[]) : studioApi.collectionTasks.list(),
       currentProjectId == null ? Promise.resolve([] as WorkflowDefinitionView[]) : studioApi.workflows.list(),
+      currentProjectId == null ? Promise.resolve([] as DataDevelopmentScript[]) : studioApi.dataDevelopment.listScripts(),
     ]);
     tenants.value = tenantData;
     projects.value = projectData;
@@ -447,6 +455,7 @@ async function loadPage() {
     modelResources.value = modelData;
     taskResources.value = taskData;
     workflowResources.value = workflowData;
+    dataDevelopmentScriptResources.value = dataDevelopmentScriptData;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载系统管理数据失败");
   }
@@ -505,9 +514,19 @@ function shareOptionList(resourceType: string) {
       return workflowResources.value
         .filter((item) => sameEntityId(item.projectId, currentProjectId))
         .map((item) => ({ id: item.id!, label: `${item.name} (${item.code})` }));
+    case "DATA_DEVELOPMENT_SCRIPT":
+      return dataDevelopmentScriptResources.value
+        .filter((item) => sameEntityId(item.projectId, currentProjectId))
+        .map((item) => ({ id: item.id!, label: `${item.fileName} (${item.scriptType})` }));
     default:
       return [];
   }
+}
+
+function resourceTypeLabel(resourceType?: string | null) {
+  const normalizedType = normalizeResourceType(resourceType ?? undefined);
+  const matched = resourceTypeOptions.find((item) => item.value === normalizedType);
+  return matched?.label ?? (normalizedType || "-");
 }
 
 function resourceLabel(share: ResourceShare) {

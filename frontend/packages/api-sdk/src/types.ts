@@ -313,6 +313,7 @@ export interface DataDevelopmentTreeNode {
   directoryId?: EntityId;
   scriptId?: EntityId;
   parentId?: EntityId;
+  projectId?: EntityId;
   name: string;
   permissionCode?: string;
   scriptType?: ScriptType;

@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ScriptType;
@@ -104,7 +105,7 @@ public class DataDevelopmentService {
     }
 
     public DataDevelopmentScriptView getScript(Long scriptId) {
-        return toScriptView(requireScript(scriptId));
+        return toScriptView(requireReadableScript(scriptId));
     }
 
     @Transactional
@@ -171,7 +172,7 @@ public class DataDevelopmentService {
         validateScriptType(request.getScriptType());
         DataDevelopmentScriptEntity entity = request.getId() == null
                 ? new DataDevelopmentScriptEntity()
-                : requireScript(request.getId());
+                : requireWritableScript(request.getId());
         if (request.getDirectoryId() != null) {
             requireDirectory(request.getDirectoryId());
         }
@@ -195,7 +196,7 @@ public class DataDevelopmentService {
 
     @Transactional
     public void moveScript(Long scriptId, DataDevelopmentMoveRequest request) {
-        DataDevelopmentScriptEntity entity = requireScript(scriptId);
+        DataDevelopmentScriptEntity entity = requireWritableScript(scriptId);
         Long targetDirectoryId = request == null ? null : request.getTargetDirectoryId();
         if (targetDirectoryId != null) {
             requireDirectory(targetDirectoryId);
@@ -207,7 +208,7 @@ public class DataDevelopmentService {
 
     @Transactional
     public void deleteScript(Long scriptId) {
-        requireScript(scriptId);
+        requireWritableScript(scriptId);
         scriptMapper.deleteById(scriptId);
     }
 
@@ -240,7 +241,7 @@ public class DataDevelopmentService {
     }
 
     public DataScriptExecutionResultView executeScript(Long scriptId, Integer maxRows, Map<String, Object> arguments, Map<String, Object> runtimeContext) {
-        DataDevelopmentScriptEntity script = requireScript(scriptId);
+        DataDevelopmentScriptEntity script = requireReadableScript(scriptId);
         ScriptType scriptType = ScriptType.valueOf(script.getScriptType());
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
         context.setScriptId(script.getId());
@@ -266,12 +267,20 @@ public class DataDevelopmentService {
         return entity;
     }
 
-    private DataDevelopmentScriptEntity requireScript(Long scriptId) {
-        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+    private DataDevelopmentScriptEntity requireReadableScript(Long scriptId) {
+        projectResourceAccessService.requireCurrentProjectId();
         DataDevelopmentScriptEntity entity = scriptMapper.selectById(scriptId);
-        if (entity == null || !matchesTenant(entity.getTenantId()) || !matchesProject(entity.getProjectId(), currentProjectId)) {
+        if (entity == null || !matchesTenant(entity.getTenantId())) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Script not found: " + scriptId);
         }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT,
+                entity.getProjectId(), entity.getId(), "Script not found: " + scriptId);
+        return entity;
+    }
+
+    private DataDevelopmentScriptEntity requireWritableScript(Long scriptId) {
+        DataDevelopmentScriptEntity entity = requireReadableScript(scriptId);
+        projectResourceAccessService.assertWritable(entity.getProjectId());
         return entity;
     }
 
@@ -307,9 +316,19 @@ public class DataDevelopmentService {
     private List<DataDevelopmentScriptEntity> listScriptEntities(String tenantId, Long projectId, ScriptType scriptType) {
         LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
                 .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
-                .eq(DataDevelopmentScriptEntity::getProjectId, projectId)
                 .orderByAsc(DataDevelopmentScriptEntity::getDirectoryId)
+                .orderByAsc(DataDevelopmentScriptEntity::getProjectId)
                 .orderByAsc(DataDevelopmentScriptEntity::getFileName);
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT);
+        if (projectId != null) {
+            if (sharedIds.isEmpty()) {
+                wrapper.eq(DataDevelopmentScriptEntity::getProjectId, projectId);
+            } else {
+                wrapper.and(query -> query.eq(DataDevelopmentScriptEntity::getProjectId, projectId)
+                        .or()
+                        .in(DataDevelopmentScriptEntity::getId, sharedIds));
+            }
+        }
         if (scriptType != null) {
             wrapper.eq(DataDevelopmentScriptEntity::getScriptType, scriptType.name());
         }
@@ -346,6 +365,7 @@ public class DataDevelopmentService {
             node.setNodeType("SCRIPT");
             node.setScriptId(entity.getId());
             node.setDirectoryId(entity.getDirectoryId());
+            node.setProjectId(entity.getProjectId());
             node.setName(entity.getFileName());
             node.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
             DataSourceDefinition datasource = dataSourceService.get(entity.getDatasourceId());
@@ -532,7 +552,20 @@ public class DataDevelopmentService {
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(runtimeContext);
         context.put("tenantId", script.getTenantId());
-        context.put("projectId", script.getProjectId());
+        Long executionProjectId = projectResourceAccessService.currentProjectId();
+        if (runtimeContext != null && runtimeContext.get("projectId") != null) {
+            Object runtimeProjectId = runtimeContext.get("projectId");
+            if (runtimeProjectId instanceof Number) {
+                executionProjectId = ((Number) runtimeProjectId).longValue();
+            } else {
+                try {
+                    executionProjectId = Long.valueOf(String.valueOf(runtimeProjectId));
+                } catch (NumberFormatException ignored) {
+                    executionProjectId = script.getProjectId();
+                }
+            }
+        }
+        context.put("projectId", executionProjectId == null ? script.getProjectId() : executionProjectId);
         context.put("scriptId", script.getId());
         context.put("scriptName", script.getFileName());
         String username = resolveExecutionUsername(runtimeContext);
