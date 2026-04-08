@@ -83,11 +83,14 @@ public class WorkflowRunService {
             return PageView.of(safePageNo, safePageSize, total, new ArrayList<WorkflowRunSummaryView>());
         }
 
+        String currentTenantId = securityService.currentTenantId();
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, currentTenantId)
                 .in(RunRecordEntity::getWorkflowRunId, workflowRunIds)
                 .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                 .in(DispatchTaskEntity::getWorkflowRunId, workflowRunIds)
                 .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
@@ -127,11 +130,14 @@ public class WorkflowRunService {
 
         for (int index = 0; index < workflowRunIds.size(); index += 200) {
             List<Long> batchIds = workflowRunIds.subList(index, Math.min(index + 200, workflowRunIds.size()));
+            String currentTenantId = securityService.currentTenantId();
             List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                    .eq(RunRecordEntity::getTenantId, currentTenantId)
                     .in(RunRecordEntity::getWorkflowRunId, batchIds)
                     .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                     .orderByDesc(RunRecordEntity::getCreatedAt));
             List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                    .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                     .in(DispatchTaskEntity::getWorkflowRunId, batchIds)
                     .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                     .orderByDesc(DispatchTaskEntity::getCreatedAt));
@@ -159,11 +165,14 @@ public class WorkflowRunService {
     }
 
     public WorkflowRunDetailView get(Long workflowRunId) {
+        String currentTenantId = securityService.currentTenantId();
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, currentTenantId)
                 .eq(RunRecordEntity::getWorkflowRunId, workflowRunId)
                 .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                 .eq(DispatchTaskEntity::getWorkflowRunId, workflowRunId)
                 .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
@@ -240,6 +249,7 @@ public class WorkflowRunService {
             return result;
         }
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .in(WorkflowDefinitionEntity::getId, workflowDefinitionIds)
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
         for (WorkflowDefinitionEntity definition : definitions) {
@@ -423,6 +433,7 @@ public class WorkflowRunService {
                                                               LocalDateTime startTime,
                                                               LocalDateTime endTime) {
         MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("tenantId", securityService.currentTenantId());
         if (securityService.currentProjectId() != null) {
             params.addValue("projectId", securityService.currentProjectId());
         }
@@ -441,17 +452,18 @@ public class WorkflowRunService {
     private String buildWorkflowRunEventsSql(Long workflowDefinitionId,
                                              LocalDateTime startTime,
                                              LocalDateTime endTime) {
+        String tenantId = securityService.currentTenantId();
         Long projectId = securityService.currentProjectId();
         StringBuilder sql = new StringBuilder();
         sql.append("select workflow_run_id, workflow_definition_id, coalesce(started_at, created_at) as occurred_at ");
         sql.append("from run_record where workflow_run_id is not null");
         appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
-                projectId, "project_id", "workflow_definition_id", "coalesce(started_at, created_at)");
+                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "coalesce(started_at, created_at)");
         sql.append(" union all ");
         sql.append("select workflow_run_id, workflow_definition_id, created_at as occurred_at ");
         sql.append("from dispatch_task where workflow_run_id is not null");
         appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
-                projectId, "project_id", "workflow_definition_id", "created_at");
+                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "created_at");
         return sql.toString();
     }
 
@@ -459,10 +471,15 @@ public class WorkflowRunService {
                                           Long workflowDefinitionId,
                                           LocalDateTime startTime,
                                           LocalDateTime endTime,
+                                          String tenantId,
                                           Long projectId,
+                                          String tenantColumn,
                                           String projectColumn,
                                           String workflowDefinitionColumn,
                                           String occurredAtExpression) {
+        if (tenantId != null) {
+            sql.append(" and ").append(tenantColumn).append(" = :tenantId");
+        }
         if (projectId != null) {
             sql.append(" and ").append(projectColumn).append(" = :projectId");
         }

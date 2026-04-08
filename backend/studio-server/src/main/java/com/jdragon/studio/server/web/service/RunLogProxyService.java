@@ -32,7 +32,6 @@ public class RunLogProxyService {
     private final StudioPlatformProperties properties;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
-
     public RunLogProxyService(RunService runService,
                               WorkerLeaseMapper workerLeaseMapper,
                               StudioPlatformProperties properties,
@@ -50,7 +49,7 @@ public class RunLogProxyService {
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
             return runService.buildHistoricalFallback(entity);
         }
-        String apiBaseUrl = resolveWorkerApiBaseUrl(entity.getWorkerCode());
+        String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
         String url = UriComponentsBuilder.fromHttpUrl(apiBaseUrl)
                 .path("/internal/runs/{id}/log")
                 .queryParam("maxBytes", DEFAULT_TAIL_BYTES)
@@ -64,7 +63,7 @@ public class RunLogProxyService {
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
             return runService.buildHistoricalFallback(entity);
         }
-        String apiBaseUrl = resolveWorkerApiBaseUrl(entity.getWorkerCode());
+        String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
         String url = UriComponentsBuilder.fromHttpUrl(apiBaseUrl)
                 .path("/internal/runs/{id}/log/download")
                 .buildAndExpand(runRecordId)
@@ -104,16 +103,18 @@ public class RunLogProxyService {
         }
     }
 
-    private String resolveWorkerApiBaseUrl(String workerCode) {
+    private String resolveWorkerApiBaseUrl(RunRecordEntity runRecord) {
         WorkerLeaseEntity lease = workerLeaseMapper.selectOne(new LambdaQueryWrapper<WorkerLeaseEntity>()
-                .eq(WorkerLeaseEntity::getWorkerCode, workerCode)
+                .eq(WorkerLeaseEntity::getTenantId, runRecord.getTenantId())
+                .eq(WorkerLeaseEntity::getWorkerCode, runRecord.getWorkerCode())
                 .last("limit 1"));
         if (lease == null || lease.getCapabilitiesJson() == null) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, "Worker lease not found for " + workerCode);
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Worker lease not found for " + runRecord.getWorkerCode());
         }
         Object apiBaseUrl = lease.getCapabilitiesJson().get("apiBaseUrl");
         if (apiBaseUrl == null || String.valueOf(apiBaseUrl).trim().isEmpty()) {
-            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Worker API base URL is missing for " + workerCode);
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                    "Worker API base URL is missing for " + runRecord.getWorkerCode());
         }
         return String.valueOf(apiBaseUrl).trim();
     }

@@ -37,19 +37,22 @@ public class DispatchService implements WorkflowDispatcher {
     private final WorkflowService workflowService;
     private final CollectionTaskService collectionTaskService;
     private final StudioSecurityService securityService;
+    private final WorkerAuthorizationService workerAuthorizationService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
                            WorkflowDefinitionMapper workflowDefinitionMapper,
                            WorkflowService workflowService,
                            CollectionTaskService collectionTaskService,
-                           StudioSecurityService securityService) {
+                           StudioSecurityService securityService,
+                           WorkerAuthorizationService workerAuthorizationService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowService = workflowService;
         this.collectionTaskService = collectionTaskService;
         this.securityService = securityService;
+        this.workerAuthorizationService = workerAuthorizationService;
     }
 
     @Override
@@ -57,6 +60,9 @@ public class DispatchService implements WorkflowDispatcher {
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
                 .eq(WorkflowDefinitionEntity::getPublished, 1));
         for (WorkflowDefinitionEntity definition : definitions) {
+            if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), definition.getProjectId())) {
+                continue;
+            }
             triggerWorkflowIfIdle(definition.getId(), definition.getProjectId());
         }
     }
@@ -64,7 +70,10 @@ public class DispatchService implements WorkflowDispatcher {
     @Override
     @Transactional
     public void triggerManualRun(Long workflowDefinitionId) {
-        if (!triggerWorkflowIfIdle(workflowDefinitionId, securityService.currentProjectId())) {
+        WorkflowDefinitionView workflow = requireWorkflow(workflowDefinitionId);
+        Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), workflow.getProjectId());
+        workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), runtimeProjectId);
+        if (!triggerWorkflowIfIdle(workflow, runtimeProjectId, true)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
         }
     }
@@ -76,12 +85,50 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public boolean triggerWorkflowIfIdle(Long workflowDefinitionId, Long runtimeProjectId) {
-        WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
-        if (workflow == null) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
+        return triggerWorkflowIfIdle(requireWorkflow(workflowDefinitionId), runtimeProjectId, false);
+    }
+
+    @Transactional
+    public void triggerCollectionTask(Long collectionTaskId) {
+        CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
+        Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
+        workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
+        if (!triggerCollectionTaskIfIdle(definition, runtimeProjectId, true)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
         }
+    }
+
+    @Transactional
+    public boolean triggerCollectionTaskIfIdle(Long collectionTaskId) {
+        return triggerCollectionTaskIfIdle(collectionTaskId, null);
+    }
+
+    @Transactional
+    public boolean triggerCollectionTaskIfIdle(Long collectionTaskId, Long runtimeProjectId) {
+        return triggerCollectionTaskIfIdle(collectionTaskService.requireOnline(collectionTaskId), runtimeProjectId, false);
+    }
+
+    public List<DispatchTaskEntity> queuedTasks() {
+        LambdaQueryWrapper<DispatchTaskEntity> queryWrapper = new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, securityService.currentTenantId())
+                .eq(DispatchTaskEntity::getStatus, "QUEUED");
+        if (securityService.currentProjectId() != null) {
+            queryWrapper.eq(DispatchTaskEntity::getProjectId, securityService.currentProjectId());
+        }
+        return dispatchTaskMapper.selectList(queryWrapper);
+    }
+
+    private boolean triggerWorkflowIfIdle(WorkflowDefinitionView workflow,
+                                          Long runtimeProjectId,
+                                          boolean workerRequired) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, workflow.getProjectId());
-        if (hasActiveWorkflowRun(workflowDefinitionId, resolvedProjectId)) {
+        if (!workerAuthorizationService.hasAvailableWorker(workflow.getTenantId(), resolvedProjectId)) {
+            if (workerRequired) {
+                workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), resolvedProjectId);
+            }
+            return false;
+        }
+        if (hasActiveWorkflowRun(workflow.getTenantId(), workflow.getId(), resolvedProjectId)) {
             return false;
         }
         Long workflowRunId = IdWorker.getId();
@@ -125,53 +172,6 @@ public class DispatchService implements WorkflowDispatcher {
         }
     }
 
-    @Transactional
-    public void triggerCollectionTask(Long collectionTaskId) {
-        if (!triggerCollectionTaskIfIdle(collectionTaskId, securityService.currentProjectId())) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
-        }
-    }
-
-    @Transactional
-    public boolean triggerCollectionTaskIfIdle(Long collectionTaskId) {
-        return triggerCollectionTaskIfIdle(collectionTaskId, null);
-    }
-
-    @Transactional
-    public boolean triggerCollectionTaskIfIdle(Long collectionTaskId, Long runtimeProjectId) {
-        CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
-        Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
-        if (hasActiveCollectionTaskRun(collectionTaskId, resolvedProjectId)) {
-            return false;
-        }
-        DispatchTaskEntity task = new DispatchTaskEntity();
-        task.setTenantId(definition.getTenantId());
-        task.setProjectId(resolvedProjectId);
-        task.setExecutionType(DispatchExecutionType.COLLECTION_TASK.name());
-        task.setCollectionTaskId(collectionTaskId);
-        task.setNodeCode("collection_task_" + collectionTaskId);
-        task.setStatus("QUEUED");
-        task.setAttempts(0);
-        task.setMaxRetries(3);
-        LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("executionType", DispatchExecutionType.COLLECTION_TASK.name());
-        payload.put("nodeType", "COLLECTION_TASK");
-        payload.put("collectionTaskId", collectionTaskId);
-        payload.put("projectId", resolvedProjectId);
-        task.setPayloadJson(payload);
-        dispatchTaskMapper.insert(task);
-        return true;
-    }
-
-    public List<DispatchTaskEntity> queuedTasks() {
-        LambdaQueryWrapper<DispatchTaskEntity> queryWrapper = new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getStatus, "QUEUED");
-        if (securityService.currentProjectId() != null) {
-            queryWrapper.eq(DispatchTaskEntity::getProjectId, securityService.currentProjectId());
-        }
-        return dispatchTaskMapper.selectList(queryWrapper);
-    }
-
     private DispatchTaskEntity buildWorkflowNodeTask(WorkflowDefinitionView workflow,
                                                      Long workflowRunId,
                                                      WorkflowNodeDefinition node,
@@ -197,6 +197,38 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("projectId", runtimeProjectId);
         task.setPayloadJson(payload);
         return task;
+    }
+
+    private boolean triggerCollectionTaskIfIdle(CollectionTaskDefinitionView definition,
+                                                Long runtimeProjectId,
+                                                boolean workerRequired) {
+        Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
+        if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
+            if (workerRequired) {
+                workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), resolvedProjectId);
+            }
+            return false;
+        }
+        if (hasActiveCollectionTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
+            return false;
+        }
+        DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setTenantId(definition.getTenantId());
+        task.setProjectId(resolvedProjectId);
+        task.setExecutionType(DispatchExecutionType.COLLECTION_TASK.name());
+        task.setCollectionTaskId(definition.getId());
+        task.setNodeCode("collection_task_" + definition.getId());
+        task.setStatus("QUEUED");
+        task.setAttempts(0);
+        task.setMaxRetries(3);
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("executionType", DispatchExecutionType.COLLECTION_TASK.name());
+        payload.put("nodeType", "COLLECTION_TASK");
+        payload.put("collectionTaskId", definition.getId());
+        payload.put("projectId", resolvedProjectId);
+        task.setPayloadJson(payload);
+        dispatchTaskMapper.insert(task);
+        return true;
     }
 
     private List<WorkflowNodeDefinition> collectDownstreamNodes(WorkflowDefinitionView workflow,
@@ -318,11 +350,12 @@ public class DispatchService implements WorkflowDispatcher {
         return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
     }
 
-    private boolean hasActiveWorkflowRun(Long workflowDefinitionId, Long projectId) {
-        if (workflowDefinitionId == null) {
+    private boolean hasActiveWorkflowRun(String tenantId, Long workflowDefinitionId, Long projectId) {
+        if (workflowDefinitionId == null || tenantId == null) {
             return false;
         }
         Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, tenantId)
                 .eq(DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
                 .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
@@ -330,17 +363,19 @@ public class DispatchService implements WorkflowDispatcher {
             return true;
         }
         Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, tenantId)
                 .eq(RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
                 .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
                 .eq(RunRecordEntity::getStatus, "RUNNING"));
         return activeRecords != null && activeRecords > 0;
     }
 
-    private boolean hasActiveCollectionTaskRun(Long collectionTaskId, Long projectId) {
-        if (collectionTaskId == null) {
+    private boolean hasActiveCollectionTaskRun(String tenantId, Long collectionTaskId, Long projectId) {
+        if (collectionTaskId == null || tenantId == null) {
             return false;
         }
         Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, tenantId)
                 .eq(DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
                 .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
@@ -348,10 +383,19 @@ public class DispatchService implements WorkflowDispatcher {
             return true;
         }
         Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, tenantId)
                 .eq(RunRecordEntity::getCollectionTaskId, collectionTaskId)
                 .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
                 .eq(RunRecordEntity::getStatus, "RUNNING"));
         return activeRecords != null && activeRecords > 0;
+    }
+
+    private WorkflowDefinitionView requireWorkflow(Long workflowDefinitionId) {
+        WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
+        if (workflow == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
+        }
+        return workflow;
     }
 
     private Long resolveRuntimeProjectId(Long runtimeProjectId, Long ownerProjectId) {

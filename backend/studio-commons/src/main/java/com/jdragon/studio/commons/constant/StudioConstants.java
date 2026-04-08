@@ -28,6 +28,8 @@ public final class StudioConstants {
     public static final String REQUEST_TENANT_HEADER = "X-Tenant-Id";
     public static final String REQUEST_PROJECT_HEADER = "X-Project-Id";
     public static final String INTERNAL_API_TOKEN_HEADER = "X-Studio-Internal-Token";
+    public static final String WORKER_STATUS_ONLINE = "ONLINE";
+    public static final long WORKER_HEARTBEAT_TIMEOUT_SECONDS = 30L;
     public static final String MDC_RUN_LOG_ID = "runLogId";
     public static final String MDC_RUN_LOG_PATH = "runLogPath";
 

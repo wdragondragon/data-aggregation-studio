@@ -50,8 +50,10 @@ public class RunService {
         RunListView view = new RunListView();
         Map<Long, String> collectionTaskNames = collectionTaskNames();
         Map<Long, String> workflowNames = workflowNames();
+        String currentTenantId = securityService.currentTenantId();
         Long currentProjectId = securityService.currentProjectId();
         List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                 .eq(collectionTaskId != null, DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
                 .eq(workflowDefinitionId != null, DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
                 .eq(currentProjectId != null, DispatchTaskEntity::getProjectId, currentProjectId)
@@ -63,6 +65,7 @@ public class RunService {
             view.getQueuedTasks().add(toQueuedTaskView(entity, collectionTaskNames, workflowNames));
         }
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, currentTenantId)
                 .eq(collectionTaskId != null, RunRecordEntity::getCollectionTaskId, collectionTaskId)
                 .eq(workflowDefinitionId != null, RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
                 .eq(currentProjectId != null, RunRecordEntity::getProjectId, currentProjectId)
@@ -82,7 +85,11 @@ public class RunService {
 
     public RunRecordEntity getEntity(Long runRecordId) {
         RunRecordEntity entity = runRecordMapper.selectById(runRecordId);
-        if (entity == null || (securityService.currentProjectId() != null
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Run record not found: " + runRecordId);
+        }
+        if (!securityService.currentTenantId().equals(entity.getTenantId())
+                || (securityService.currentProjectId() != null
                 && !securityService.currentProjectId().equals(entity.getProjectId()))) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Run record not found: " + runRecordId);
         }
@@ -117,6 +124,7 @@ public class RunService {
     private Map<Long, String> workflowNames() {
         Map<Long, String> result = new LinkedHashMap<Long, String>();
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
         for (WorkflowDefinitionEntity definition : definitions) {
             if (definition.getId() != null) {
