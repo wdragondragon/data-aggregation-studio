@@ -10,25 +10,43 @@
       </div>
     </div>
 
-    <div class="studio-grid columns-4">
-      <MetricCard :label="t('web.catalog.sourceTypes')" :value="capabilityRows.length" :hint="t('web.catalog.sourceTypesHint')" />
-      <MetricCard :label="t('web.catalog.readableTypes')" :value="readableTypeCount" tone="primary" :hint="t('web.catalog.readableTypesHint')" />
-      <MetricCard :label="t('web.catalog.writableTypes')" :value="writableTypeCount" tone="warning" :hint="t('web.catalog.writableTypesHint')" />
-      <MetricCard :label="t('web.catalog.executableTypes')" :value="executableTypeBadges.length" tone="success" :hint="t('web.catalog.executableTypesHint')" />
-    </div>
-
     <SectionCard :title="t('web.catalog.capabilityTitle')" :description="t('web.catalog.capabilityDescription')">
       <div class="soft-panel">
-        <div class="capability-summary">
-          <span class="capability-summary__label">{{ t("web.catalog.executableTypes") }}</span>
-          <div class="capability-summary__badges">
-            <StatusPill
-              v-for="type in executableTypeBadges"
-              :key="type"
-              :label="type"
-              tone="success"
-            />
-            <span v-if="executableTypeBadges.length === 0">{{ t("common.none") }}</span>
+        <div class="capability-header">
+          <div class="capability-overview">
+            <div class="capability-overview__item">
+              <span class="capability-overview__label">{{ t("web.catalog.sourceTypes") }}</span>
+              <strong class="capability-overview__value">{{ capabilityRows.length }}</strong>
+              <span class="capability-overview__hint">{{ t("web.catalog.sourceTypesHint") }}</span>
+            </div>
+            <div class="capability-overview__item">
+              <span class="capability-overview__label">{{ t("web.catalog.readableTypes") }}</span>
+              <strong class="capability-overview__value">{{ readableTypeCount }}</strong>
+              <span class="capability-overview__hint">{{ t("web.catalog.readableTypesHint") }}</span>
+            </div>
+            <div class="capability-overview__item">
+              <span class="capability-overview__label">{{ t("web.catalog.writableTypes") }}</span>
+              <strong class="capability-overview__value">{{ writableTypeCount }}</strong>
+              <span class="capability-overview__hint">{{ t("web.catalog.writableTypesHint") }}</span>
+            </div>
+            <div class="capability-overview__item">
+              <span class="capability-overview__label">{{ t("web.catalog.executableTypes") }}</span>
+              <strong class="capability-overview__value">{{ executableTypeBadges.length }}</strong>
+              <span class="capability-overview__hint">{{ t("web.catalog.executableTypesHint") }}</span>
+            </div>
+          </div>
+
+          <div class="capability-summary">
+            <span class="capability-summary__label">{{ t("web.catalog.executableTypes") }}</span>
+            <div class="capability-summary__badges">
+              <StatusPill
+                v-for="type in executableTypeBadges"
+                :key="type"
+                :label="type"
+                tone="success"
+              />
+              <span v-if="executableTypeBadges.length === 0">{{ t("common.none") }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -76,7 +94,7 @@ import { computed, onMounted, reactive } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { CapabilityMatrix, SourceCapabilityEntry } from "@studio/api-sdk";
-import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
 const { t } = useI18n();
@@ -113,6 +131,45 @@ h3 {
 p {
   margin: 0;
   color: var(--studio-text-soft);
+}
+
+.capability-header {
+  display: grid;
+  gap: 12px;
+}
+
+.capability-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.capability-overview__item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(64, 113, 187, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  min-width: 0;
+}
+
+.capability-overview__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--studio-text);
+}
+
+.capability-overview__value {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--studio-primary-deep);
+}
+
+.capability-overview__hint {
+  font-size: 11px;
+  color: var(--studio-text-soft);
+  overflow-wrap: anywhere;
 }
 
 .capability-summary {
@@ -152,5 +209,17 @@ p {
 
 .tag-row.compact {
   gap: 6px;
+}
+
+@media (max-width: 1100px) {
+  .capability-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .capability-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
