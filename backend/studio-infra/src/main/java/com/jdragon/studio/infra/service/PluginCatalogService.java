@@ -64,14 +64,14 @@ public class PluginCatalogService {
     }
 
     public List<CatalogPluginEntity> list() {
-        return catalogPluginMapper.selectList(new LambdaQueryWrapper<CatalogPluginEntity>()
+        return deduplicateByPlugin(catalogPluginMapper.selectList(new LambdaQueryWrapper<CatalogPluginEntity>()
                 .orderByAsc(CatalogPluginEntity::getPluginCategory)
-                .orderByAsc(CatalogPluginEntity::getPluginName));
+                .orderByAsc(CatalogPluginEntity::getPluginName)));
     }
 
     public List<CatalogPluginEntity> listByCategory(String category) {
-        return catalogPluginMapper.selectList(new LambdaQueryWrapper<CatalogPluginEntity>()
-                .eq(CatalogPluginEntity::getPluginCategory, category));
+        return deduplicateByPlugin(catalogPluginMapper.selectList(new LambdaQueryWrapper<CatalogPluginEntity>()
+                .eq(CatalogPluginEntity::getPluginCategory, category)));
     }
 
     public List<String> executableSourceTypes() {
@@ -176,17 +176,20 @@ public class PluginCatalogService {
     }
 
     private int assetRank(String assetType) {
-        if ("plugin.json".equalsIgnoreCase(assetType)) {
+        if ("jar".equalsIgnoreCase(assetType)) {
             return 0;
         }
-        if ("template.json".equalsIgnoreCase(assetType)) {
+        if ("plugin.json".equalsIgnoreCase(assetType)) {
             return 1;
         }
-        if ("plugin_job_template.json".equalsIgnoreCase(assetType)) {
+        if ("template.json".equalsIgnoreCase(assetType)) {
             return 2;
         }
-        if ("transformer.json".equalsIgnoreCase(assetType)) {
+        if ("plugin_job_template.json".equalsIgnoreCase(assetType)) {
             return 3;
+        }
+        if ("transformer.json".equalsIgnoreCase(assetType)) {
+            return 4;
         }
         return 99;
     }

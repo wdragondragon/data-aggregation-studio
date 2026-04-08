@@ -39,13 +39,21 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
     void catalogEndpointsShouldExposeScannedPluginsAndCapabilities() throws Exception {
         String authorization = adminAuthorizationHeader();
 
-        mockMvc.perform(get("/api/v1/catalog/plugins")
+        MvcResult pluginsResult = mockMvc.perform(get("/api/v1/catalog/plugins")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data", hasSize(org.hamcrest.Matchers.greaterThan(0))))
-                .andExpect(jsonPath("$.data[*].pluginName", hasItem("mysql8")));
+                .andExpect(jsonPath("$.data[*].pluginName", hasItem("mysql8")))
+                .andReturn();
+
+        JsonNode plugins = readBody(pluginsResult).path("data");
+        JsonNode mysql8Source = findCatalogEntry(plugins, "SOURCE", "mysql8");
+        assertThat(mysql8Source).as("mysql8 source catalog entry").isNotNull();
+        assertThat(mysql8Source.path("assetType").asText()).isEqualTo("jar");
+        assertThat(mysql8Source.path("assetPath").asText()).endsWith(".jar");
+        assertThat(countCatalogEntries(plugins, "SOURCE", "mysql8")).isEqualTo(1);
 
         mockMvc.perform(get("/api/v1/catalog/capabilities")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
@@ -230,5 +238,34 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
             keys.add(iterator.next().path("fieldKey").asText());
         }
         return keys;
+    }
+
+    private JsonNode findCatalogEntry(JsonNode entries, String category, String pluginName) {
+        if (entries == null || !entries.isArray()) {
+            return null;
+        }
+        Iterator<JsonNode> iterator = entries.elements();
+        while (iterator.hasNext()) {
+            JsonNode entry = iterator.next();
+            if (category.equals(entry.path("pluginCategory").asText()) && pluginName.equals(entry.path("pluginName").asText())) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private int countCatalogEntries(JsonNode entries, String category, String pluginName) {
+        if (entries == null || !entries.isArray()) {
+            return 0;
+        }
+        int count = 0;
+        Iterator<JsonNode> iterator = entries.elements();
+        while (iterator.hasNext()) {
+            JsonNode entry = iterator.next();
+            if (category.equals(entry.path("pluginCategory").asText()) && pluginName.equals(entry.path("pluginName").asText())) {
+                count++;
+            }
+        }
+        return count;
     }
 }
