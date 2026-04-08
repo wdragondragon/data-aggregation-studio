@@ -137,7 +137,8 @@ public class DataModelService {
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
-        projectResourceAccessService.assertWritable(datasource.getProjectId());
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        String currentTenantId = securityService.currentTenantId();
         List<DataModelDefinition> discovered = modelDiscoveryProvider.discoverModels(datasource).getModels();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
         for (DataModelDefinition definition : discovered) {
@@ -148,11 +149,12 @@ public class DataModelService {
             }
             DataModelEntity existing = dataModelMapper.selectOne(new LambdaQueryWrapper<DataModelEntity>()
                     .eq(DataModelEntity::getDatasourceId, datasourceId)
+                    .eq(DataModelEntity::getProjectId, currentProjectId)
                     .eq(DataModelEntity::getPhysicalLocator, definition.getPhysicalLocator())
                     .last("limit 1"));
             DataModelEntity entity = existing == null ? new DataModelEntity() : existing;
-            entity.setTenantId(datasource.getTenantId());
-            entity.setProjectId(datasource.getProjectId());
+            entity.setTenantId(currentTenantId);
+            entity.setProjectId(currentProjectId);
             entity.setDatasourceId(datasourceId);
             entity.setName(definition.getName());
             entity.setModelKind(definition.getModelKind() == null ? ModelKind.DATASET.name() : definition.getModelKind().name());
