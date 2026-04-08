@@ -1,8 +1,12 @@
 package com.jdragon.studio.server.web.controller;
 
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.auth.AuthProfileView;
 import com.jdragon.studio.dto.model.request.LoginRequest;
+import com.jdragon.studio.infra.security.StudioUserPrincipal;
 import com.jdragon.studio.infra.service.JwtTokenService;
+import com.jdragon.studio.infra.service.StudioAccessService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -15,9 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
-import java.security.Principal;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
 
 @Tag(name = "Auth", description = "Authentication APIs")
 @RestController
@@ -26,28 +28,44 @@ public class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final JwtTokenService jwtTokenService;
+    private final StudioAccessService studioAccessService;
 
-    public AuthController(AuthenticationManager authenticationManager, JwtTokenService jwtTokenService) {
+    public AuthController(AuthenticationManager authenticationManager,
+                          JwtTokenService jwtTokenService,
+                          StudioAccessService studioAccessService) {
         this.authenticationManager = authenticationManager;
         this.jwtTokenService = jwtTokenService;
+        this.studioAccessService = studioAccessService;
     }
 
     @Operation(summary = "Login and get JWT token")
     @PostMapping("/login")
-    public Result<Map<String, Object>> login(@Valid @RequestBody LoginRequest request) {
+    public Result<AuthProfileView> login(@Valid @RequestBody LoginRequest request,
+                                         HttpServletRequest servletRequest) {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
-        Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("username", authentication.getName());
-        payload.put("token", jwtTokenService.createToken(authentication.getName()));
-        return Result.success(payload);
+        String token = jwtTokenService.createToken(authentication.getName());
+        StudioUserPrincipal principal = authentication.getPrincipal() instanceof StudioUserPrincipal
+                ? (StudioUserPrincipal) authentication.getPrincipal()
+                : null;
+        return Result.success(studioAccessService.buildProfile(
+                principal,
+                servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
+                servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER),
+                token));
     }
 
     @Operation(summary = "Get current login user")
     @GetMapping("/me")
-    public Result<Map<String, Object>> me(Principal principal) {
-        Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("username", principal == null ? null : principal.getName());
-        return Result.success(payload);
+    public Result<AuthProfileView> me(Authentication authentication,
+                                      HttpServletRequest servletRequest) {
+        StudioUserPrincipal principal = authentication != null && authentication.getPrincipal() instanceof StudioUserPrincipal
+                ? (StudioUserPrincipal) authentication.getPrincipal()
+                : null;
+        return Result.success(studioAccessService.buildProfile(
+                principal,
+                servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
+                servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER),
+                null));
     }
 }

@@ -22,7 +22,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(StudioException.class)
     public ResponseEntity<Result<Void>> handleStudioException(StudioException ex) {
         log.warn("Studio business exception: code={}, message={}", ex.getCode(), ex.getMessage(), ex);
-        return ResponseEntity.badRequest().body(Result.error(ex.getCode(), ex.getMessage()));
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        if (StudioErrorCode.UNAUTHORIZED.equals(ex.getCode())) {
+            status = HttpStatus.UNAUTHORIZED;
+        } else if (StudioErrorCode.FORBIDDEN.equals(ex.getCode())) {
+            status = HttpStatus.FORBIDDEN;
+        } else if (StudioErrorCode.NOT_FOUND.equals(ex.getCode())) {
+            status = HttpStatus.NOT_FOUND;
+        }
+        return ResponseEntity.status(status).body(Result.error(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

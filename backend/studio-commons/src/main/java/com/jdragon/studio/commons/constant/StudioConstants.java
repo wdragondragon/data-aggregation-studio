@@ -21,6 +21,8 @@ public final class StudioConstants {
     public static final String MEMBER_REQUEST_REJECTED = "REJECTED";
     public static final String MEMBER_REQUEST_ACCEPTED = "ACCEPTED";
     public static final String MEMBER_REQUEST_CANCELLED = "CANCELLED";
+    public static final String REQUEST_TENANT_HEADER = "X-Tenant-Id";
+    public static final String REQUEST_PROJECT_HEADER = "X-Project-Id";
     public static final String INTERNAL_API_TOKEN_HEADER = "X-Studio-Internal-Token";
     public static final String MDC_RUN_LOG_ID = "runLogId";
     public static final String MDC_RUN_LOG_PATH = "runLogPath";

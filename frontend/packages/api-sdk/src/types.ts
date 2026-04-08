@@ -20,8 +20,37 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface LoginResponse {
-  username: string;
+export interface AuthTenant {
+  tenantId: string;
+  tenantCode?: string;
+  tenantName: string;
+  enabled?: boolean;
+  roleCodes: string[];
+}
+
+export interface AuthProject {
+  projectId: EntityId;
+  tenantId: string;
+  projectCode?: string;
+  projectName: string;
+  enabled?: boolean;
+  defaultProject?: boolean;
+  roleCodes: string[];
+}
+
+export interface AuthProfile {
+  userId?: EntityId;
+  username: string | null;
+  displayName?: string | null;
+  currentTenantId?: string | null;
+  currentProjectId?: EntityId | null;
+  systemRoleCodes: string[];
+  effectiveRoleCodes: string[];
+  tenants: AuthTenant[];
+  projects: AuthProject[];
+}
+
+export interface LoginResponse extends AuthProfile {
   token: string;
 }
 

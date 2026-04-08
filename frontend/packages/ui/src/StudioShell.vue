@@ -53,12 +53,17 @@
 
     <main class="shell__main">
       <header class="shell__header">
-        <button class="shell__menu-btn" type="button" @click="mobileOpen = !mobileOpen">
-          {{ t("common.menu") }}
-        </button>
-        <div>
-          <p class="shell__header-eyebrow">{{ resolvedModeLabel }}</p>
-          <h2>{{ resolvedTitle }}</h2>
+        <div class="shell__header-main">
+          <button class="shell__menu-btn" type="button" @click="mobileOpen = !mobileOpen">
+            {{ t("common.menu") }}
+          </button>
+          <div>
+            <p class="shell__header-eyebrow">{{ resolvedModeLabel }}</p>
+            <h2>{{ resolvedTitle }}</h2>
+          </div>
+        </div>
+        <div v-if="$slots['header-actions']" class="shell__header-actions">
+          <slot name="header-actions" />
         </div>
         <p class="shell__subtitle">{{ resolvedSubtitle }}</p>
       </header>
@@ -269,6 +274,20 @@ function handleNavigate(path: string) {
   margin-bottom: 14px;
 }
 
+.shell__header-main {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.shell__header-actions {
+  display: flex;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
 .shell__menu-btn {
   display: none;
   color: var(--studio-text);
@@ -327,6 +346,15 @@ function handleNavigate(path: string) {
   .shell__header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .shell__header-main,
+  .shell__header-actions {
+    width: 100%;
+  }
+
+  .shell__header-actions {
+    justify-content: flex-start;
   }
 
   .shell__menu-btn {

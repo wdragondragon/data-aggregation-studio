@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.server.web.filter.JwtAuthenticationFilter;
+import com.jdragon.studio.server.web.filter.StudioRequestContextFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -27,6 +28,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtAuthenticationFilter jwtAuthenticationFilter,
+                                                   StudioRequestContextFilter studioRequestContextFilter,
                                                    ObjectMapper objectMapper) throws Exception {
         http.csrf().disable()
                 .cors(Customizer.withDefaults())
@@ -55,6 +57,7 @@ public class SecurityConfig {
                 .anyRequest()
                 .authenticated();
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(studioRequestContextFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

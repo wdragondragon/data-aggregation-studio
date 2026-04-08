@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { beginStudioApiRequest, endStudioApiRequest } from "./loading";
 import type {
+  AuthProfile,
   CapabilityMatrix,
   CollectionTaskDefinitionView,
   CollectionTaskListQuery,
@@ -52,6 +53,8 @@ export interface StudioApiOptions {
   baseURL?: string;
   timeout?: number;
   getToken?: () => string | null | undefined;
+  getTenantId?: () => string | null | undefined;
+  getProjectId?: () => string | number | null | undefined;
   onUnauthorized?: () => void;
 }
 
@@ -75,6 +78,16 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     if (token) {
       config.headers = config.headers ?? {};
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    const tenantId = options.getTenantId?.();
+    if (tenantId) {
+      config.headers = config.headers ?? {};
+      config.headers["X-Tenant-Id"] = tenantId;
+    }
+    const projectId = options.getProjectId?.();
+    if (projectId != null && projectId !== "") {
+      config.headers = config.headers ?? {};
+      config.headers["X-Project-Id"] = String(projectId);
     }
     return config;
   }, (error) => {
@@ -104,7 +117,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<LoginResponse>({ url: "/auth/login", method: "POST", data: payload });
       },
       me() {
-        return request<{ username: string | null }>({ url: "/auth/me", method: "GET" });
+        return request<AuthProfile>({ url: "/auth/me", method: "GET" });
       },
     },
     catalog: {
