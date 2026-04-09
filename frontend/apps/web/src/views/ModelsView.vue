@@ -11,6 +11,20 @@
       <SectionCard :title="t('web.models.tableTitle')" :description="t('web.models.tableDescription')">
         <div class="models-toolbar">
           <el-select
+            v-model="selectedDatasourceType"
+            clearable
+            :placeholder="t('web.models.datasourceTypePlaceholder')"
+            class="models-toolbar__filter"
+            @change="handleDatasourceTypeChange"
+          >
+            <el-option
+              v-for="typeCode in queryDatasourceTypes"
+              :key="typeCode"
+              :label="typeCode"
+              :value="typeCode"
+            />
+          </el-select>
+          <el-select
             v-model="selectedDatasourceId"
             clearable
             :placeholder="t('web.models.datasourcePlaceholder')"
@@ -18,7 +32,7 @@
             @change="handleDatasourceChange"
           >
             <el-option
-              v-for="item in datasources"
+              v-for="item in filteredDatasourceOptions"
               :key="item.id"
               :label="`${item.name} (${item.typeCode})`"
               :value="item.id"
@@ -27,6 +41,7 @@
           <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openCreateDialog">{{ t("common.newModel") }}</el-button>
           <el-button plain :disabled="!authStore.currentProjectId" @click="openSyncDialog">{{ t("common.sync") }}</el-button>
           <el-button plain @click="rebuildQueryIndex">{{ t("common.rebuild") }}</el-button>
+          <el-button plain @click="openStatisticsWorkspace()">{{ t("common.statistics") }}</el-button>
           <el-button plain @click="refreshModels">{{ t("common.refresh") }}</el-button>
         </div>
 
@@ -37,7 +52,7 @@
               <p>{{ t("web.models.dynamicFiltersDescription") }}</p>
             </div>
             <div class="model-query-panel__actions">
-              <el-button plain @click="appendQueryGroup">{{ t("common.addFilter") }}</el-button>
+              <el-button plain :disabled="!activeQueryDatasourceType" @click="appendQueryGroup">{{ t("common.addFilter") }}</el-button>
               <el-button type="primary" @click="searchModels">{{ t("common.search") }}</el-button>
               <el-button plain @click="resetQueryFilters">{{ t("common.reset") }}</el-button>
             </div>
@@ -219,6 +234,7 @@
       <div class="detail-toolbar">
         <el-button plain @click="goBackToList">{{ t("common.backToList") }}</el-button>
         <div class="detail-toolbar__actions">
+          <el-button plain :disabled="!selectedModel?.datasourceId" @click="openStatisticsWorkspace(selectedModel?.datasourceId)">{{ t("common.statistics") }}</el-button>
           <el-button plain @click="refreshDetail">{{ t("common.refresh") }}</el-button>
           <el-button type="primary" :disabled="!selectedModel || isSharedSelectedModel" @click="openDetailEdit">{{ t("common.edit") }}</el-button>
         </div>
@@ -630,6 +646,7 @@ const {
 } = useClientPagination(models);
 const previewRows = ref<Record<string, unknown>[]>([]);
 const queryGroups = ref<ModelQueryGroupState[]>([]);
+const selectedDatasourceType = ref("");
 const selectedDatasourceId = ref<EntityId>();
 const selectedModel = ref<DataModelDefinition>();
 const editorOpen = ref(false);
@@ -668,7 +685,14 @@ const editorPanelTitle = computed(() => (isEditingModel.value ? t("web.models.ed
 const editorPanelDescription = computed(() =>
   isEditingModel.value ? t("web.models.editDialogDescription") : t("web.models.addDialogDescription"),
 );
+const queryDatasourceTypes = computed(() =>
+  Array.from(new Set(datasources.value.map((item) => item.typeCode).filter(Boolean))).sort(),
+);
+const filteredDatasourceOptions = computed(() =>
+  datasources.value.filter((item) => !selectedDatasourceType.value || normalizeTypeCode(item.typeCode) === normalizeTypeCode(selectedDatasourceType.value)),
+);
 const selectedDatasource = computed(() => findDatasourceById(selectedDatasourceId.value));
+const activeQueryDatasourceType = computed(() => selectedDatasource.value?.typeCode ?? selectedDatasourceType.value);
 const editorDatasource = computed(() => findDatasourceById(modelForm.datasourceId));
 const databaseDatasourceTypes = computed(() =>
   Array.from(new Set(datasources.value.filter((item) => isDatabaseDatasourceType(item.typeCode)).map((item) => item.typeCode))).sort(),
@@ -690,18 +714,7 @@ const availableModelSchemas = computed(() =>
   filterModelSchemas(editorDatasource.value?.typeCode).filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "field"),
 );
 const querySchemaOptions = computed(() =>
-  schemas.value
-    .filter((schema) => normalizeTypeCode(schema.objectType) === "model" || parseMetaModelSchema(schema).config.domain === "BUSINESS")
-    .filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "source")
-    .filter((schema) => searchableFields(schema).length > 0)
-    .filter((schema) => {
-      const parsed = parseMetaModelSchema(schema);
-      if (parsed.config.domain !== "TECHNICAL" || !selectedDatasource.value?.typeCode) {
-        return true;
-      }
-      return normalizeTypeCode(parsed.config.datasourceType) === normalizeTypeCode(selectedDatasource.value.typeCode);
-    })
-    .sort((left, right) => querySchemaLabel(left).localeCompare(querySchemaLabel(right))),
+  buildQuerySchemaOptions(),
 );
 const selectedModelSchema = computed(() => findSelectedModelSchema(availableModelSchemas.value, modelForm.schemaVersionId));
 const editorTechnicalSections = computed(() => buildTechnicalSections(editorDatasource.value?.typeCode, modelForm.schemaVersionId));
@@ -763,6 +776,58 @@ function filterModelSchemas(datasourceTypeCode?: string) {
     const schemaType = normalizeTypeCode(schema.typeCode);
     return schemaType === normalizedType || schemaType.startsWith(`${normalizedType}.`);
   });
+}
+
+function querySchemaOperatorOptions(field?: MetadataFieldDefinition) {
+  const configured = (field?.queryOperators ?? []).map((item) => String(item)).filter(Boolean);
+  if (configured.length > 0) {
+    return configured;
+  }
+  if (field?.valueType === "BOOLEAN") {
+    return ["EQ", "IN"];
+  }
+  if (isNumericQueryField(field)) {
+    return ["EQ", "IN", "GT", "GE", "LT", "LE", "BETWEEN"];
+  }
+  return ["EQ", "LIKE", "IN"];
+}
+
+function defaultQueryOperator(field?: MetadataFieldDefinition) {
+  return String(field?.queryDefaultOperator ?? querySchemaOperatorOptions(field)[0] ?? "EQ");
+}
+
+function activeBusinessMetaModelCodesForQuery() {
+  const typeCode = activeQueryDatasourceType.value;
+  if (!typeCode) {
+    return undefined;
+  }
+  return new Set(
+    filterModelSchemas(typeCode)
+      .map((schema) => normalizeTypeCode(parseMetaModelSchema(schema).config.metaModelCode))
+      .filter((metaModelCode) => Boolean(metaModelCode) && metaModelCode !== "source"),
+  );
+}
+
+function buildQuerySchemaOptions() {
+  const allowedBusinessMetaModels = activeBusinessMetaModelCodesForQuery();
+  return schemas.value
+    .filter((schema) => normalizeTypeCode(schema.objectType) === "model" || parseMetaModelSchema(schema).config.domain === "BUSINESS")
+    .filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "source")
+    .filter((schema) => searchableFields(schema).length > 0)
+    .filter((schema) => {
+      const parsed = parseMetaModelSchema(schema).config;
+      if (parsed.domain === "TECHNICAL") {
+        if (!activeQueryDatasourceType.value) {
+          return false;
+        }
+        return normalizeTypeCode(parsed.datasourceType) === normalizeTypeCode(activeQueryDatasourceType.value);
+      }
+      if (!allowedBusinessMetaModels) {
+        return false;
+      }
+      return allowedBusinessMetaModels.has(normalizeTypeCode(parsed.metaModelCode));
+    })
+    .sort((left, right) => querySchemaLabel(left).localeCompare(querySchemaLabel(right)));
 }
 
 function findSelectedModelSchema(options: MetadataSchemaDefinition[], schemaVersionId?: EntityId) {
@@ -989,7 +1054,7 @@ function queryConditionField(group: ModelQueryGroupState, condition: ModelQueryC
 }
 
 function queryConditionOperators(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
-  return queryConditionField(group, condition)?.queryOperators ?? [];
+  return querySchemaOperatorOptions(queryConditionField(group, condition));
 }
 
 function isMultipleQuerySchema(group: ModelQueryGroupState) {
@@ -1012,7 +1077,7 @@ function createDefaultQueryCondition(schema?: MetadataSchemaDefinition): ModelQu
   const field = searchableFields(schema)[0];
   return {
     fieldKey: field?.fieldKey ?? "",
-    operator: String(field?.queryDefaultOperator ?? field?.queryOperators?.[0] ?? "EQ"),
+    operator: defaultQueryOperator(field),
     value: undefined,
     valueTo: undefined,
     multiValueText: "",
@@ -1294,7 +1359,7 @@ function removeQueryCondition(group: ModelQueryGroupState, index: number) {
 
 function handleQueryFieldChange(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
   const field = queryConditionField(group, condition);
-  condition.operator = String(field?.queryDefaultOperator ?? field?.queryOperators?.[0] ?? "EQ");
+  condition.operator = defaultQueryOperator(field);
   condition.value = undefined;
   condition.valueTo = undefined;
   condition.multiValueText = "";
@@ -1315,6 +1380,14 @@ function parseQueryValue(value: unknown, field?: MetadataFieldDefinition) {
     return Number.isNaN(numberValue) ? undefined : numberValue;
   }
   return value;
+}
+
+function filterModelsBySelectedDatasourceType(items: DataModelDefinition[]) {
+  if (!selectedDatasourceType.value) {
+    return items;
+  }
+  const expectedType = normalizeTypeCode(selectedDatasourceType.value);
+  return items.filter((model) => normalizeTypeCode(findDatasourceById(model.datasourceId)?.typeCode) === expectedType);
 }
 
 function buildModelQueryRequest(): DataModelQueryRequest {
@@ -1466,6 +1539,9 @@ async function loadPage() {
     ]);
     datasources.value = datasourceData;
     schemas.value = schemaData;
+    if (selectedDatasourceType.value && !queryDatasourceTypes.value.some((item) => normalizeTypeCode(item) === normalizeTypeCode(selectedDatasourceType.value))) {
+      selectedDatasourceType.value = "";
+    }
     if (selectedDatasourceId.value && !datasourceData.some((item) => sameId(item.id, selectedDatasourceId.value))) {
       selectedDatasourceId.value = undefined;
       models.value = [];
@@ -1474,6 +1550,10 @@ async function loadPage() {
     }
     if (selectedModel.value?.datasourceId && !sameId(selectedDatasourceId.value, selectedModel.value.datasourceId)) {
       selectedDatasourceId.value = selectedModel.value.datasourceId;
+    }
+    const activeDatasource = findDatasourceById(selectedDatasourceId.value);
+    if (activeDatasource?.typeCode) {
+      selectedDatasourceType.value = activeDatasource.typeCode;
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.loadDatasourcesFailed"));
@@ -1484,16 +1564,31 @@ async function loadModelsForSelectedDatasource() {
   selectedModel.value = undefined;
   previewRows.value = [];
   const queryRequest = buildModelQueryRequest();
-  models.value = queryRequest.groups.length > 0
+  const loadedModels = queryRequest.groups.length > 0
     ? await studioApi.models.query(queryRequest)
     : (selectedDatasourceId.value
       ? await studioApi.models.listByDatasource(selectedDatasourceId.value)
       : await studioApi.models.list());
+  models.value = filterModelsBySelectedDatasourceType(loadedModels);
   resetModelPagination();
+}
+
+async function handleDatasourceTypeChange() {
+  if (selectedDatasourceId.value) {
+    const datasource = findDatasourceById(selectedDatasourceId.value);
+    if (datasource && selectedDatasourceType.value && normalizeTypeCode(datasource.typeCode) !== normalizeTypeCode(selectedDatasourceType.value)) {
+      selectedDatasourceId.value = undefined;
+    }
+  }
+  await handleDatasourceChange();
 }
 
 async function handleDatasourceChange() {
   try {
+    const datasource = findDatasourceById(selectedDatasourceId.value);
+    if (datasource?.typeCode) {
+      selectedDatasourceType.value = datasource.typeCode;
+    }
     normalizeQueryGroupsForDatasource();
     await loadModelsForSelectedDatasource();
   } catch (error) {
@@ -1529,6 +1624,10 @@ async function selectModel(model: DataModelDefinition) {
   if (model.datasourceId) {
     selectedDatasourceId.value = model.datasourceId;
   }
+  const datasource = findDatasourceById(model.datasourceId);
+  if (datasource?.typeCode) {
+    selectedDatasourceType.value = datasource.typeCode;
+  }
   if (!model.id) {
     previewRows.value = [];
     return;
@@ -1548,6 +1647,13 @@ function openModelDetail(model: DataModelDefinition, edit = false) {
     name: "model-detail",
     params: { modelId: String(model.id) },
     query: edit ? { edit: "1" } : undefined,
+  });
+}
+
+function openStatisticsWorkspace(datasourceId?: EntityId) {
+  router.push({
+    name: "model-statistics",
+    query: datasourceId == null ? undefined : { datasourceId: String(datasourceId) },
   });
 }
 
@@ -1616,6 +1722,10 @@ async function saveModel() {
     const saved = await studioApi.models.save(payload);
     editorOpen.value = false;
     selectedDatasourceId.value = saved.datasourceId;
+    const datasource = findDatasourceById(saved.datasourceId);
+    if (datasource?.typeCode) {
+      selectedDatasourceType.value = datasource.typeCode;
+    }
     ElMessage.success(t("web.models.saveSuccess"));
     if (isDetailPage.value) {
       goBackToList();
@@ -1645,6 +1755,10 @@ async function submitSync() {
   syncing.value = true;
   try {
     selectedDatasourceId.value = syncForm.datasourceId;
+    const datasource = findDatasourceById(syncForm.datasourceId);
+    if (datasource?.typeCode) {
+      selectedDatasourceType.value = datasource.typeCode;
+    }
     models.value = await studioApi.models.syncSelected(syncForm.datasourceId, {
       physicalLocators: cloneDeep(syncSelectedLocators.value),
     });
@@ -1690,6 +1804,11 @@ async function deleteModel(model: DataModelDefinition) {
 function buildModelActions(model: DataModelDefinition) {
   const shared = isSharedModel(model);
   return [
+    {
+      key: "statistics",
+      label: t("common.statistics"),
+      onClick: () => openStatisticsWorkspace(model.datasourceId),
+    },
     {
       key: "edit",
       label: t("common.edit"),

@@ -90,6 +90,7 @@ export type NodeType = "COLLECTION_TASK" | "DATA_SCRIPT" | "ETL_SINGLE" | "FUSIO
 export type EdgeCondition = "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS";
 export type QueryOperator = "EQ" | "LIKE" | "IN" | "GT" | "GE" | "LT" | "LE" | "BETWEEN";
 export type RowMatchMode = "SAME_ITEM" | "ANY_ITEM";
+export type StatisticType = "COUNT_BY_VALUE" | "SUMMARY" | "COUNT_BY_BUCKET";
 export type CollectionTaskType = "SINGLE_TABLE" | "FUSION";
 export type CollectionTaskStatus = "DRAFT" | "ONLINE";
 export type ScriptType = "SQL" | "JAVA" | "PYTHON";
@@ -209,6 +210,37 @@ export interface DataModelQueryRequest {
   datasourceId?: EntityId;
   modelKind?: ModelKind | string;
   groups: DataModelQueryGroup[];
+}
+
+export interface DataModelStatisticsBucketConfig {
+  lowerBound?: number;
+  upperBound?: number;
+  step?: number;
+}
+
+export interface DataModelStatisticsRequest extends DataModelQueryRequest {
+  targetMetaSchemaCode: string;
+  targetFieldKey: string;
+  targetScope?: MetadataScope | string;
+  statType?: StatisticType | string;
+  topN?: number;
+  bucketConfig?: DataModelStatisticsBucketConfig;
+}
+
+export interface DataModelStatisticsBucketView {
+  key?: string;
+  label?: string;
+  value?: string;
+  lowerBound?: number | string | null;
+  upperBound?: number | string | null;
+  count?: number | string | null;
+}
+
+export interface DataModelStatisticsView {
+  matchedModelCount?: number | string | null;
+  matchedItemCount?: number | string | null;
+  buckets: DataModelStatisticsBucketView[];
+  summaryMetrics: Record<string, unknown>;
 }
 
 export interface ModelSyncRequest {

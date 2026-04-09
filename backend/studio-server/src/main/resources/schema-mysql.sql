@@ -281,9 +281,12 @@ create table if not exists data_model_attr_index (
     raw_value text,
     key idx_model_attr_index_project (project_id),
     key idx_model_attr_index_model (model_id),
+    key idx_model_attr_index_tenant_model_item (tenant_id, model_id, item_key),
     key idx_model_attr_index_datasource (datasource_id),
     key idx_model_attr_index_lookup (meta_schema_code(128), scope, field_key(128), keyword_value(128)),
-    key idx_model_attr_index_number (meta_schema_code, scope, field_key, number_value)
+    key idx_model_attr_index_number (meta_schema_code, scope, field_key, number_value),
+    key idx_model_attr_index_tenant_lookup (tenant_id, meta_schema_code(128), scope, field_key(128), keyword_value(128)),
+    key idx_model_attr_index_tenant_number (tenant_id, meta_schema_code(128), scope, field_key(128), number_value)
 );
 
 create table if not exists workflow_definition (

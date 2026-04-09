@@ -40,6 +40,7 @@ public class DataModelService {
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final DataModelAccessScopeService dataModelAccessScopeService;
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
@@ -48,7 +49,8 @@ public class DataModelService {
                             DataModelSearchIndexService dataModelSearchIndexService,
                             BusinessMetaModelMetadataService businessMetaModelMetadataService,
                             StudioSecurityService securityService,
-                            ProjectResourceAccessService projectResourceAccessService) {
+                            ProjectResourceAccessService projectResourceAccessService,
+                            DataModelAccessScopeService dataModelAccessScopeService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
         this.modelDiscoveryProvider = modelDiscoveryProvider;
@@ -57,6 +59,7 @@ public class DataModelService {
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.dataModelAccessScopeService = dataModelAccessScopeService;
     }
 
     public List<DataModelDefinition> list() {
@@ -278,21 +281,7 @@ public class DataModelService {
     }
 
     private LambdaQueryWrapper<DataModelEntity> buildAccessibleQuery() {
-        LambdaQueryWrapper<DataModelEntity> queryWrapper = new LambdaQueryWrapper<DataModelEntity>()
-                .eq(DataModelEntity::getTenantId, securityService.currentTenantId());
-        Long currentProjectId = projectResourceAccessService.currentProjectId();
-        if (currentProjectId == null) {
-            return queryWrapper;
-        }
-        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_MODEL);
-        if (sharedIds.isEmpty()) {
-            queryWrapper.eq(DataModelEntity::getProjectId, currentProjectId);
-            return queryWrapper;
-        }
-        queryWrapper.and(wrapper -> wrapper.eq(DataModelEntity::getProjectId, currentProjectId)
-                .or()
-                .in(DataModelEntity::getId, sharedIds));
-        return queryWrapper;
+        return dataModelAccessScopeService.buildAccessibleQuery();
     }
 
     private DataModelEntity findAccessibleEntity(Long modelId) {

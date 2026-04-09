@@ -39,6 +39,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     private final DatasourceMapper datasourceMapper;
     private final DataModelMapper dataModelMapper;
     private final PluginCatalogService pluginCatalogService;
+    private final DataModelScopedIndexRefreshService dataModelScopedIndexRefreshService;
 
     private static final String META_MODEL_CONFIG_PREFIX = "META_MODEL_CONFIG:";
 
@@ -47,13 +48,15 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                                  MetaFieldDefinitionMapper fieldDefinitionMapper,
                                  DatasourceMapper datasourceMapper,
                                  DataModelMapper dataModelMapper,
-                                 PluginCatalogService pluginCatalogService) {
+                                 PluginCatalogService pluginCatalogService,
+                                 DataModelScopedIndexRefreshService dataModelScopedIndexRefreshService) {
         this.schemaMapper = schemaMapper;
         this.versionMapper = versionMapper;
         this.fieldDefinitionMapper = fieldDefinitionMapper;
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.pluginCatalogService = pluginCatalogService;
+        this.dataModelScopedIndexRefreshService = dataModelScopedIndexRefreshService;
     }
 
     @Override
@@ -71,6 +74,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     @Transactional
     public MetadataSchemaDefinition saveDraft(MetadataSchemaSaveRequest request) {
         MetaSchemaEntity schema = request.getSchemaId() == null ? new MetaSchemaEntity() : schemaMapper.selectById(request.getSchemaId());
+        MetadataSchemaDefinition previousDefinition = schema == null || schema.getId() == null ? null : toDefinition(schema);
         if (schema == null) {
             schema = new MetaSchemaEntity();
         }
@@ -119,7 +123,9 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
         schema.setCurrentVersionId(version.getId());
         schemaMapper.updateById(schema);
-        return toDefinition(schema);
+        MetadataSchemaDefinition currentDefinition = toDefinition(schema);
+        dataModelScopedIndexRefreshService.scheduleScopedRebuild(previousDefinition, currentDefinition);
+        return currentDefinition;
     }
 
     @Override

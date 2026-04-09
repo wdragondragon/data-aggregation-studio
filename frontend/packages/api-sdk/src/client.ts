@@ -18,6 +18,8 @@ import type {
   DataDevelopmentTreeNode,
   DataModelDefinition,
   DataModelQueryRequest,
+  DataModelStatisticsRequest,
+  DataModelStatisticsView,
   DataModelSaveRequest,
   DataSourceDefinition,
   EntityId,
@@ -194,6 +196,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       query(payload: DataModelQueryRequest) {
         return request<DataModelDefinition[]>({ url: "/models/query", method: "POST", data: payload });
+      },
+      statistics(payload: DataModelStatisticsRequest) {
+        return request<DataModelStatisticsView>({ url: "/models/statistics", method: "POST", data: payload });
       },
       rebuildIndex(datasourceId?: EntityId) {
         return request<number>({

@@ -265,6 +265,8 @@ public class StudioSchemaUpgradeService {
 
         ensureIndex("data_model_attr_index", "idx_model_attr_index_model",
                 "alter table data_model_attr_index add key idx_model_attr_index_model (model_id)");
+        ensureIndex("data_model_attr_index", "idx_model_attr_index_tenant_model_item",
+                "alter table data_model_attr_index add key idx_model_attr_index_tenant_model_item (tenant_id, model_id, item_key)");
         ensureIndex("data_model_attr_index", "idx_model_attr_index_datasource",
                 "alter table data_model_attr_index add key idx_model_attr_index_datasource (datasource_id)");
         ensureIndex("data_model_attr_index", "idx_model_attr_index_project",
@@ -273,6 +275,10 @@ public class StudioSchemaUpgradeService {
                 "alter table data_model_attr_index add key idx_model_attr_index_lookup (meta_schema_code(128), scope, field_key(128), keyword_value(128))");
         ensureIndex("data_model_attr_index", "idx_model_attr_index_number",
                 "alter table data_model_attr_index add key idx_model_attr_index_number (meta_schema_code, scope, field_key, number_value)");
+        ensureIndex("data_model_attr_index", "idx_model_attr_index_tenant_lookup",
+                "alter table data_model_attr_index add key idx_model_attr_index_tenant_lookup (tenant_id, meta_schema_code(128), scope, field_key(128), keyword_value(128))");
+        ensureIndex("data_model_attr_index", "idx_model_attr_index_tenant_number",
+                "alter table data_model_attr_index add key idx_model_attr_index_tenant_number (tenant_id, meta_schema_code(128), scope, field_key(128), number_value)");
         ensureIndex("datasource_definition", "uk_datasource_definition_project_name",
                 "alter table datasource_definition add unique key uk_datasource_definition_project_name (project_id, name)");
         ensureIndex("datasource_definition", "idx_datasource_definition_project",
@@ -396,9 +402,12 @@ public class StudioSchemaUpgradeService {
                 ")");
         jdbcTemplate.execute("create index if not exists idx_model_attr_index_project on data_model_attr_index(project_id)");
         jdbcTemplate.execute("create index if not exists idx_model_attr_index_model on data_model_attr_index(model_id)");
+        jdbcTemplate.execute("create index if not exists idx_model_attr_index_tenant_model_item on data_model_attr_index(tenant_id, model_id, item_key)");
         jdbcTemplate.execute("create index if not exists idx_model_attr_index_datasource on data_model_attr_index(datasource_id)");
         jdbcTemplate.execute("create index if not exists idx_model_attr_index_lookup on data_model_attr_index(meta_schema_code, scope, field_key, keyword_value)");
         jdbcTemplate.execute("create index if not exists idx_model_attr_index_number on data_model_attr_index(meta_schema_code, scope, field_key, number_value)");
+        jdbcTemplate.execute("create index if not exists idx_model_attr_index_tenant_lookup on data_model_attr_index(tenant_id, meta_schema_code, scope, field_key, keyword_value)");
+        jdbcTemplate.execute("create index if not exists idx_model_attr_index_tenant_number on data_model_attr_index(tenant_id, meta_schema_code, scope, field_key, number_value)");
 
         jdbcTemplate.execute("create table if not exists collection_task_definition (" +
                 "id integer primary key," +

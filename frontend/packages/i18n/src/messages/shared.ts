@@ -43,6 +43,7 @@ export const sharedMessages = {
       trigger: "Trigger",
       syncAll: "Sync All",
       rebuild: "Rebuild",
+      statistics: "Statistics",
       signIn: "Sign In",
       enterStudio: "Enter Studio",
       openRuntime: "Open Runtime",
@@ -119,6 +120,8 @@ export const sharedMessages = {
           menuCaption: "Model discovery and preview",
           detailTitle: "Model Detail",
           detailSubtitle: "Inspect model metadata, grouped meta model sections and sample rows in a focused page.",
+          statisticsTitle: "Model Statistics",
+          statisticsSubtitle: "Analyze indexed business fields within the current tenant and project visibility scope.",
         },
         dataDevelopment: {
           title: "Data Development",
@@ -224,6 +227,7 @@ export const sharedMessages = {
       trigger: "触发",
       syncAll: "全部同步",
       rebuild: "重建",
+      statistics: "统计",
       signIn: "登录",
       enterStudio: "进入工作台",
       openRuntime: "打开运行时",
@@ -300,6 +304,8 @@ export const sharedMessages = {
           menuCaption: "模型发现与预览",
           detailTitle: "模型详情",
           detailSubtitle: "在独立页面集中查看模型元数据、分组元模型分区与样例数据。",
+          statisticsTitle: "模型统计",
+          statisticsSubtitle: "在当前租户与项目可见范围内分析已建立索引的业务字段。",
         },
         dataDevelopment: {
           title: "数据开发",

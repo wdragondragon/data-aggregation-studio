@@ -2,10 +2,13 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataModelStatisticsView;
 import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
+import com.jdragon.studio.dto.model.request.DataModelStatisticsRequest;
 import com.jdragon.studio.dto.model.request.ModelSyncRequest;
 import com.jdragon.studio.infra.service.DataModelService;
+import com.jdragon.studio.infra.service.DataModelStatisticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,9 +30,12 @@ import java.util.Map;
 public class ModelController {
 
     private final DataModelService dataModelService;
+    private final DataModelStatisticsService dataModelStatisticsService;
 
-    public ModelController(DataModelService dataModelService) {
+    public ModelController(DataModelService dataModelService,
+                           DataModelStatisticsService dataModelStatisticsService) {
         this.dataModelService = dataModelService;
+        this.dataModelStatisticsService = dataModelStatisticsService;
     }
 
     @Operation(summary = "List all datasource models")
@@ -54,6 +60,12 @@ public class ModelController {
     @PostMapping("/query")
     public Result<List<DataModelDefinition>> query(@RequestBody(required = false) DataModelQueryRequest request) {
         return Result.success(dataModelService.query(request));
+    }
+
+    @Operation(summary = "Statistic models by dynamic metadata conditions")
+    @PostMapping("/statistics")
+    public Result<DataModelStatisticsView> statistics(@RequestBody DataModelStatisticsRequest request) {
+        return Result.success(dataModelStatisticsService.statistics(request));
     }
 
     @Operation(summary = "Sync models from datasource")

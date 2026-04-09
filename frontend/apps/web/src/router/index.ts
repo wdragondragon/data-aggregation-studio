@@ -92,6 +92,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/models/statistics",
+        name: "model-statistics",
+        component: () => import("@/views/ModelStatisticsView.vue"),
+        meta: {
+          titleKey: "routes.web.models.statisticsTitle",
+          subtitleKey: "routes.web.models.statisticsSubtitle",
+        },
+      },
+      {
         path: "/models/:modelId",
         name: "model-detail",
         component: () => import("@/views/ModelsView.vue"),

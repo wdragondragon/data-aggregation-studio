@@ -29,13 +29,19 @@ public class DataModelSearchIndexService {
     private final DataModelAttrIndexMapper indexMapper;
     private final MetadataSchemaService metadataSchemaService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
+    private final DataModelAccessScopeService dataModelAccessScopeService;
+    private final StudioSecurityService securityService;
 
     public DataModelSearchIndexService(DataModelAttrIndexMapper indexMapper,
                                        MetadataSchemaService metadataSchemaService,
-                                       BusinessMetaModelMetadataService businessMetaModelMetadataService) {
+                                       BusinessMetaModelMetadataService businessMetaModelMetadataService,
+                                       DataModelAccessScopeService dataModelAccessScopeService,
+                                       StudioSecurityService securityService) {
         this.indexMapper = indexMapper;
         this.metadataSchemaService = metadataSchemaService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
+        this.dataModelAccessScopeService = dataModelAccessScopeService;
+        this.securityService = securityService;
     }
 
     @Transactional
@@ -69,34 +75,77 @@ public class DataModelSearchIndexService {
     }
 
     public Set<Long> queryModelIds(DataModelQueryRequest request) {
-        Set<Long> matchedModelIds = null;
-        if (request == null || request.getGroups() == null) {
-            return new LinkedHashSet<Long>();
+        Set<Long> matchedModelIds = resolveAccessibleModelIds(request);
+        if (matchedModelIds.isEmpty()) {
+            return matchedModelIds;
+        }
+        if (request == null || request.getGroups() == null || request.getGroups().isEmpty()) {
+            return matchedModelIds;
         }
         for (DataModelQueryGroup group : request.getGroups()) {
-            Set<Long> groupMatched = matchGroup(group, request.getDatasourceId(), matchedModelIds);
-            if (matchedModelIds == null) {
-                matchedModelIds = groupMatched;
-            } else {
-                matchedModelIds.retainAll(groupMatched);
-            }
-            if (matchedModelIds == null || matchedModelIds.isEmpty()) {
+            GroupMatchResult groupMatched = matchGroup(group, request.getDatasourceId(), matchedModelIds);
+            matchedModelIds.retainAll(groupMatched.getModelIds());
+            if (matchedModelIds.isEmpty()) {
                 return new LinkedHashSet<Long>();
             }
         }
-        return matchedModelIds == null ? new LinkedHashSet<Long>() : matchedModelIds;
+        return matchedModelIds;
     }
 
-    private Set<Long> matchGroup(DataModelQueryGroup group,
-                                 Long datasourceId,
-                                 Set<Long> candidateModelIds) {
+    public Set<DataModelMatchUnit> queryMatchUnits(DataModelQueryRequest request,
+                                                   String targetMetaSchemaCode) {
+        if (targetMetaSchemaCode == null || targetMetaSchemaCode.trim().isEmpty()) {
+            return new LinkedHashSet<DataModelMatchUnit>();
+        }
+        Set<Long> matchedModelIds = resolveAccessibleModelIds(request);
+        if (matchedModelIds.isEmpty()) {
+            return new LinkedHashSet<DataModelMatchUnit>();
+        }
+        if (request == null || request.getGroups() == null || request.getGroups().isEmpty()) {
+            return new LinkedHashSet<DataModelMatchUnit>();
+        }
+        Set<DataModelMatchUnit> matchedUnits = null;
+        boolean hasTargetGroup = false;
+        for (DataModelQueryGroup group : request.getGroups()) {
+            GroupMatchResult groupMatched = matchGroup(group, request.getDatasourceId(), matchedModelIds);
+            matchedModelIds.retainAll(groupMatched.getModelIds());
+            if (matchedModelIds.isEmpty()) {
+                return new LinkedHashSet<DataModelMatchUnit>();
+            }
+            if (sameSchemaCode(group == null ? null : group.getMetaSchemaCode(), targetMetaSchemaCode)) {
+                hasTargetGroup = true;
+                Set<DataModelMatchUnit> groupUnits = filterUnitsByModels(groupMatched.getUnits(), matchedModelIds);
+                if (matchedUnits == null) {
+                    matchedUnits = groupUnits;
+                } else {
+                    matchedUnits.retainAll(groupUnits);
+                }
+                if (matchedUnits.isEmpty()) {
+                    return new LinkedHashSet<DataModelMatchUnit>();
+                }
+            } else if (matchedUnits != null) {
+                matchedUnits = filterUnitsByModels(matchedUnits, matchedModelIds);
+                if (matchedUnits.isEmpty()) {
+                    return new LinkedHashSet<DataModelMatchUnit>();
+                }
+            }
+        }
+        if (!hasTargetGroup || matchedUnits == null) {
+            return new LinkedHashSet<DataModelMatchUnit>();
+        }
+        return filterUnitsByModels(matchedUnits, matchedModelIds);
+    }
+
+    private GroupMatchResult matchGroup(DataModelQueryGroup group,
+                                        Long datasourceId,
+                                        Set<Long> candidateModelIds) {
         MetadataSchemaDefinition schema = findSchemaByCode(group == null ? null : group.getMetaSchemaCode());
         if (schema == null) {
-            return new LinkedHashSet<Long>();
+            return GroupMatchResult.empty();
         }
         List<MetadataFieldDefinition> searchableFields = searchableFields(schema);
         if (searchableFields.isEmpty()) {
-            return new LinkedHashSet<Long>();
+            return GroupMatchResult.empty();
         }
         Map<String, MetadataFieldDefinition> fieldMap = new LinkedHashMap<String, MetadataFieldDefinition>();
         for (MetadataFieldDefinition field : searchableFields) {
@@ -104,7 +153,7 @@ public class DataModelSearchIndexService {
         }
         List<DataModelQueryCondition> conditions = normalizeConditions(group, fieldMap);
         if (conditions.isEmpty()) {
-            return new LinkedHashSet<Long>();
+            return GroupMatchResult.empty();
         }
         List<DataModelAttrIndexEntity> rows = loadGroupRows(group, schema, datasourceId, candidateModelIds, fieldMap.keySet());
         String displayMode = metadataSchemaService.getSchemaDisplayMode(schema);
@@ -121,6 +170,7 @@ public class DataModelSearchIndexService {
                                                          Set<Long> candidateModelIds,
                                                          Set<String> fieldKeys) {
         LambdaQueryWrapper<DataModelAttrIndexEntity> queryWrapper = new LambdaQueryWrapper<DataModelAttrIndexEntity>()
+                .eq(DataModelAttrIndexEntity::getTenantId, securityService.currentTenantId())
                 .eq(DataModelAttrIndexEntity::getMetaSchemaCode, schema.getSchemaCode())
                 .eq(DataModelAttrIndexEntity::getScope, normalize(group == null || group.getScope() == null
                         ? metadataSchemaService.getSchemaDomain(schema)
@@ -140,35 +190,50 @@ public class DataModelSearchIndexService {
         return indexMapper.selectList(queryWrapper);
     }
 
-    private Set<Long> matchAnyItem(List<DataModelAttrIndexEntity> rows,
-                                   List<DataModelQueryCondition> conditions,
-                                   Map<String, MetadataFieldDefinition> fieldMap) {
-        Set<Long> matchedModelIds = null;
+    private GroupMatchResult matchAnyItem(List<DataModelAttrIndexEntity> rows,
+                                          List<DataModelQueryCondition> conditions,
+                                          Map<String, MetadataFieldDefinition> fieldMap) {
+        Map<Long, Set<String>> matchedItems = null;
         for (DataModelQueryCondition condition : conditions) {
-            Set<Long> conditionMatched = new LinkedHashSet<Long>();
+            Map<Long, Set<String>> conditionMatched = new LinkedHashMap<Long, Set<String>>();
             for (DataModelAttrIndexEntity row : rows) {
                 if (!condition.getFieldKey().equals(row.getFieldKey())) {
                     continue;
                 }
                 if (matches(row, condition, fieldMap.get(condition.getFieldKey()))) {
-                    conditionMatched.add(row.getModelId());
+                    Set<String> itemKeys = conditionMatched.get(row.getModelId());
+                    if (itemKeys == null) {
+                        itemKeys = new LinkedHashSet<String>();
+                        conditionMatched.put(row.getModelId(), itemKeys);
+                    }
+                    itemKeys.add(resolveItemKey(row));
                 }
             }
-            if (matchedModelIds == null) {
-                matchedModelIds = conditionMatched;
+            if (matchedItems == null) {
+                matchedItems = conditionMatched;
             } else {
-                matchedModelIds.retainAll(conditionMatched);
+                Map<Long, Set<String>> next = new LinkedHashMap<Long, Set<String>>();
+                for (Map.Entry<Long, Set<String>> entry : matchedItems.entrySet()) {
+                    Set<String> conditionKeys = conditionMatched.get(entry.getKey());
+                    if (conditionKeys == null || conditionKeys.isEmpty()) {
+                        continue;
+                    }
+                    Set<String> merged = new LinkedHashSet<String>(entry.getValue());
+                    merged.addAll(conditionKeys);
+                    next.put(entry.getKey(), merged);
+                }
+                matchedItems = next;
             }
-            if (matchedModelIds == null || matchedModelIds.isEmpty()) {
-                return new LinkedHashSet<Long>();
+            if (matchedItems == null || matchedItems.isEmpty()) {
+                return GroupMatchResult.empty();
             }
         }
-        return matchedModelIds == null ? new LinkedHashSet<Long>() : matchedModelIds;
+        return toGroupMatchResult(matchedItems);
     }
 
-    private Set<Long> matchSameItem(List<DataModelAttrIndexEntity> rows,
-                                    List<DataModelQueryCondition> conditions,
-                                    Map<String, MetadataFieldDefinition> fieldMap) {
+    private GroupMatchResult matchSameItem(List<DataModelAttrIndexEntity> rows,
+                                           List<DataModelQueryCondition> conditions,
+                                           Map<String, MetadataFieldDefinition> fieldMap) {
         Map<Long, Set<String>> matchedItems = null;
         for (DataModelQueryCondition condition : conditions) {
             Map<Long, Set<String>> conditionMatched = new LinkedHashMap<Long, Set<String>>();
@@ -184,7 +249,7 @@ public class DataModelSearchIndexService {
                     itemKeys = new LinkedHashSet<String>();
                     conditionMatched.put(row.getModelId(), itemKeys);
                 }
-                itemKeys.add(row.getItemKey());
+                itemKeys.add(resolveItemKey(row));
             }
             if (matchedItems == null) {
                 matchedItems = conditionMatched;
@@ -205,10 +270,10 @@ public class DataModelSearchIndexService {
                 matchedItems = next;
             }
             if (matchedItems == null || matchedItems.isEmpty()) {
-                return new LinkedHashSet<Long>();
+                return GroupMatchResult.empty();
             }
         }
-        return matchedItems == null ? new LinkedHashSet<Long>() : new LinkedHashSet<Long>(matchedItems.keySet());
+        return toGroupMatchResult(matchedItems);
     }
 
     private boolean matches(DataModelAttrIndexEntity row,
@@ -576,5 +641,76 @@ public class DataModelSearchIndexService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private String resolveItemKey(DataModelAttrIndexEntity row) {
+        if (row == null || row.getItemKey() == null || row.getItemKey().trim().isEmpty()) {
+            return SINGLE_ITEM_KEY;
+        }
+        return row.getItemKey();
+    }
+
+    private Set<Long> resolveAccessibleModelIds(DataModelQueryRequest request) {
+        return dataModelAccessScopeService.listAccessibleModelIds(
+                request == null ? null : request.getDatasourceId(),
+                request == null ? null : request.getModelKind());
+    }
+
+    private GroupMatchResult toGroupMatchResult(Map<Long, Set<String>> matchedItems) {
+        if (matchedItems == null || matchedItems.isEmpty()) {
+            return GroupMatchResult.empty();
+        }
+        Set<Long> modelIds = new LinkedHashSet<Long>();
+        Set<DataModelMatchUnit> units = new LinkedHashSet<DataModelMatchUnit>();
+        for (Map.Entry<Long, Set<String>> entry : matchedItems.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            modelIds.add(entry.getKey());
+            for (String itemKey : entry.getValue()) {
+                units.add(new DataModelMatchUnit(entry.getKey(), itemKey));
+            }
+        }
+        return new GroupMatchResult(modelIds, units);
+    }
+
+    private Set<DataModelMatchUnit> filterUnitsByModels(Set<DataModelMatchUnit> units,
+                                                        Set<Long> modelIds) {
+        Set<DataModelMatchUnit> filtered = new LinkedHashSet<DataModelMatchUnit>();
+        if (units == null || units.isEmpty() || modelIds == null || modelIds.isEmpty()) {
+            return filtered;
+        }
+        for (DataModelMatchUnit unit : units) {
+            if (unit != null && unit.getModelId() != null && modelIds.contains(unit.getModelId())) {
+                filtered.add(unit);
+            }
+        }
+        return filtered;
+    }
+
+    private boolean sameSchemaCode(String left, String right) {
+        return left != null && right != null && left.trim().equalsIgnoreCase(right.trim());
+    }
+
+    private static class GroupMatchResult {
+        private final Set<Long> modelIds;
+        private final Set<DataModelMatchUnit> units;
+
+        private GroupMatchResult(Set<Long> modelIds, Set<DataModelMatchUnit> units) {
+            this.modelIds = modelIds == null ? new LinkedHashSet<Long>() : modelIds;
+            this.units = units == null ? new LinkedHashSet<DataModelMatchUnit>() : units;
+        }
+
+        private static GroupMatchResult empty() {
+            return new GroupMatchResult(new LinkedHashSet<Long>(), new LinkedHashSet<DataModelMatchUnit>());
+        }
+
+        private Set<Long> getModelIds() {
+            return modelIds;
+        }
+
+        private Set<DataModelMatchUnit> getUnits() {
+            return units;
+        }
     }
 }

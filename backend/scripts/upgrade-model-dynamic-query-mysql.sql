@@ -6,6 +6,7 @@ alter table meta_field_definition add column if not exists query_default_operato
 create table if not exists data_model_attr_index (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
+    project_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -25,7 +26,12 @@ create table if not exists data_model_attr_index (
     raw_value text
 );
 
+alter table data_model_attr_index add column if not exists project_id bigint;
+alter table data_model_attr_index add key idx_model_attr_index_project (project_id);
 alter table data_model_attr_index add key idx_model_attr_index_model (model_id);
+alter table data_model_attr_index add key idx_model_attr_index_tenant_model_item (tenant_id, model_id, item_key);
 alter table data_model_attr_index add key idx_model_attr_index_datasource (datasource_id);
 alter table data_model_attr_index add key idx_model_attr_index_lookup (meta_schema_code(128), scope, field_key(128), keyword_value(128));
 alter table data_model_attr_index add key idx_model_attr_index_number (meta_schema_code, scope, field_key, number_value);
+alter table data_model_attr_index add key idx_model_attr_index_tenant_lookup (tenant_id, meta_schema_code(128), scope, field_key(128), keyword_value(128));
+alter table data_model_attr_index add key idx_model_attr_index_tenant_number (tenant_id, meta_schema_code(128), scope, field_key(128), number_value);
