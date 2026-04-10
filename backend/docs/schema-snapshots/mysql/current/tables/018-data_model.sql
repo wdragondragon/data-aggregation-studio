@@ -13,6 +13,6 @@ CREATE TABLE `data_model` (
   `business_metadata` json DEFAULT NULL,
   `project_id` bigint DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_data_model_project_name` (`project_id`,`name`),
+  UNIQUE KEY `uk_data_model_project_datasource_name` (`project_id`,`datasource_id`,`name`),
   KEY `idx_data_model_project` (`project_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
