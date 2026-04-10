@@ -76,11 +76,11 @@ a {
 }
 
 .studio-toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: flex-start;
-  justify-content: space-between;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
 }
@@ -168,6 +168,10 @@ a {
   .studio-grid.columns-2,
   .studio-grid.columns-3,
   .studio-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-toolbar {
     grid-template-columns: minmax(0, 1fr);
   }
 

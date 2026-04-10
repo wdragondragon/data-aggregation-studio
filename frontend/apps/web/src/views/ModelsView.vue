@@ -5,10 +5,34 @@
         <h3>{{ t("web.models.heading") }}</h3>
         <p>{{ t("web.models.description") }}</p>
       </div>
+      <div v-if="!isDetailPage" class="soft-panel index-queue-card">
+        <div class="index-queue-card__header">
+          <div>
+            <strong>{{ t("web.models.indexQueueTitle") }}</strong>
+            <p>{{ t("web.models.indexQueueDescription") }}</p>
+          </div>
+          <StatusPill
+            :label="indexQueueBusy ? t('web.models.indexQueueBusy') : t('web.models.indexQueueIdle')"
+            :tone="indexQueueBusy ? 'warning' : 'success'"
+          />
+        </div>
+        <div class="index-queue-card__metrics">
+          <div class="index-queue-card__metric">
+            <span class="index-queue-card__metric-label">{{ t("web.models.indexQueuePending") }}</span>
+            <strong class="index-queue-card__metric-value">{{ indexQueuePendingRebuildCount }}</strong>
+          </div>
+          <div class="index-queue-card__metric">
+            <span class="index-queue-card__metric-label">{{ t("web.models.indexQueueQueuedCommands") }}</span>
+            <strong class="index-queue-card__metric-value">{{ indexQueueQueuedCommandCount }}</strong>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template v-if="!isDetailPage">
-      <SectionCard :title="t('web.models.tableTitle')" :description="t('web.models.tableDescription')">
+      <el-tabs v-model="activeListTab" class="models-tabs">
+        <el-tab-pane label="模型列表" name="models">
+          <SectionCard :title="t('web.models.tableTitle')" :description="t('web.models.tableDescription')">
         <div class="models-toolbar">
           <el-select
             v-model="selectedDatasourceType"
@@ -67,8 +91,9 @@
             :key="group.key"
             class="soft-panel model-query-group"
           >
-            <div class="studio-form-grid">
-              <el-form-item :label="t('web.models.filterMetaModel')">
+            <div class="model-query-group__header">
+              <div class="model-query-group__meta">
+                <span class="model-query-group__label">{{ t("web.models.filterMetaModel") }}</span>
                 <el-select
                   v-model="group.metaSchemaCode"
                   clearable
@@ -82,102 +107,113 @@
                     :value="schema.schemaCode"
                   />
                 </el-select>
-              </el-form-item>
-              <el-form-item v-if="isMultipleQuerySchema(group)" :label="t('web.models.filterRowMatchMode')">
+              </div>
+              <div v-if="isMultipleQuerySchema(group)" class="model-query-group__meta model-query-group__meta--compact">
+                <span class="model-query-group__label">{{ t("web.models.filterRowMatchMode") }}</span>
                 <el-select v-model="group.rowMatchMode">
                   <el-option :label="t('web.models.filterRowMatchSameItem')" value="SAME_ITEM" />
                   <el-option :label="t('web.models.filterRowMatchAnyItem')" value="ANY_ITEM" />
                 </el-select>
-              </el-form-item>
+              </div>
+              <div class="model-query-group__actions">
+                <el-button type="primary" plain @click="appendQueryCondition(group)">{{ t("common.addCondition") }}</el-button>
+                <el-button link type="danger" @click="removeQueryGroup(group.key)">{{ t("common.remove") }}</el-button>
+              </div>
             </div>
 
-            <div class="multiple-section-actions">
-              <el-button type="primary" plain @click="appendQueryCondition(group)">{{ t("common.addCondition") }}</el-button>
-              <el-button link type="danger" @click="removeQueryGroup(group.key)">{{ t("common.remove") }}</el-button>
+            <div v-if="group.conditions.length === 0" class="soft-panel empty-hint section-empty">
+              {{ t("web.models.dynamicFiltersEmpty") }}
             </div>
 
-            <el-table :data="group.conditions" border>
-              <el-table-column :label="t('web.models.filterField')" min-width="160">
-                <template #default="{ row }">
-                  <el-select
-                    v-model="row.fieldKey"
-                    clearable
-                    :placeholder="t('web.models.filterFieldPlaceholder')"
-                    @change="handleQueryFieldChange(group, row)"
-                  >
-                    <el-option
-                      v-for="field in querySchemaFields(group)"
-                      :key="field.fieldKey"
-                      :label="field.fieldName"
-                      :value="field.fieldKey"
-                    />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('web.models.filterOperator')" width="140">
-                <template #default="{ row }">
-                  <el-select
-                    v-model="row.operator"
-                    clearable
-                    :placeholder="t('web.models.filterOperatorPlaceholder')"
-                  >
-                    <el-option
-                      v-for="operator in queryConditionOperators(group, row)"
-                      :key="operator"
-                      :label="operator"
-                      :value="operator"
-                    />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('web.models.filterValue')" min-width="260">
-                <template #default="{ row }">
-                  <div class="query-condition-value">
-                    <el-input
-                      v-if="row.operator === 'IN'"
-                      v-model="row.multiValueText"
-                      :placeholder="t('web.models.filterValuesPlaceholder')"
-                    />
-                    <template v-else-if="row.operator === 'BETWEEN'">
+            <div v-else class="model-query-group__conditions">
+              <div
+                v-for="(row, index) in group.conditions"
+                :key="`${group.key}-${index}`"
+                class="soft-panel model-query-condition"
+              >
+                <div class="model-query-condition__line">
+                  <div class="model-query-condition__segment">
+                    <span class="model-query-condition__label">{{ t("web.models.filterField") }}</span>
+                    <el-select
+                      v-model="row.fieldKey"
+                      clearable
+                      :placeholder="t('web.models.filterFieldPlaceholder')"
+                      @change="handleQueryFieldChange(group, row)"
+                    >
+                      <el-option
+                        v-for="field in querySchemaFields(group)"
+                        :key="field.fieldKey"
+                        :label="field.fieldName"
+                        :value="field.fieldKey"
+                      />
+                    </el-select>
+                  </div>
+                  <div class="model-query-condition__segment model-query-condition__segment--operator">
+                    <span class="model-query-condition__label">{{ t("web.models.filterOperator") }}</span>
+                    <el-select
+                      v-model="row.operator"
+                      clearable
+                      :placeholder="t('web.models.filterOperatorPlaceholder')"
+                    >
+                      <el-option
+                        v-for="operator in queryConditionOperators(group, row)"
+                        :key="operator"
+                        :label="operator"
+                        :value="operator"
+                      />
+                    </el-select>
+                  </div>
+                  <div class="model-query-condition__segment model-query-condition__segment--value">
+                    <span class="model-query-condition__label">{{ t("web.models.filterValue") }}</span>
+                    <div class="query-condition-value">
+                      <el-input
+                        v-if="row.operator === 'IN'"
+                        v-model="row.multiValueText"
+                        :placeholder="t('web.models.filterValuesPlaceholder')"
+                      />
+                      <template v-else-if="row.operator === 'BETWEEN'">
+                        <component
+                          :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
+                          :model-value="queryConditionInputValue(row.value)"
+                          class="query-condition-value__input"
+                          :placeholder="t('web.models.filterValuePlaceholder')"
+                          @update:model-value="setQueryConditionValue(row, $event)"
+                        />
+                        <span class="query-condition-value__divider">-</span>
+                        <component
+                          :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
+                          :model-value="queryConditionInputValue(row.valueTo)"
+                          class="query-condition-value__input"
+                          :placeholder="t('web.models.filterValueToPlaceholder')"
+                          @update:model-value="setQueryConditionValueTo(row, $event)"
+                        />
+                      </template>
+                      <el-select
+                        v-else-if="queryConditionField(group, row)?.valueType === 'BOOLEAN'"
+                        :model-value="queryConditionBooleanValue(row.value)"
+                        clearable
+                        :placeholder="t('web.models.filterValuePlaceholder')"
+                        @update:model-value="setQueryConditionValue(row, $event)"
+                      >
+                        <el-option :label="t('common.yes')" :value="true" />
+                        <el-option :label="t('common.no')" :value="false" />
+                      </el-select>
                       <component
                         :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                        v-model="row.value"
+                        v-else
+                        :model-value="queryConditionInputValue(row.value)"
                         class="query-condition-value__input"
                         :placeholder="t('web.models.filterValuePlaceholder')"
+                        @update:model-value="setQueryConditionValue(row, $event)"
                       />
-                      <span class="query-condition-value__divider">-</span>
-                      <component
-                        :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                        v-model="row.valueTo"
-                        class="query-condition-value__input"
-                        :placeholder="t('web.models.filterValueToPlaceholder')"
-                      />
-                    </template>
-                    <el-select
-                      v-else-if="queryConditionField(group, row)?.valueType === 'BOOLEAN'"
-                      v-model="row.value"
-                      clearable
-                      :placeholder="t('web.models.filterValuePlaceholder')"
-                    >
-                      <el-option :label="t('common.yes')" :value="true" />
-                      <el-option :label="t('common.no')" :value="false" />
-                    </el-select>
-                    <component
-                      :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                      v-else
-                      v-model="row.value"
-                      class="query-condition-value__input"
-                      :placeholder="t('web.models.filterValuePlaceholder')"
-                    />
+                    </div>
                   </div>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('web.metadata.actions')" width="100">
-                <template #default="{ $index }">
-                  <el-button link type="danger" @click="removeQueryCondition(group, $index)">{{ t("common.remove") }}</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+                  <el-button link type="danger" class="model-query-condition__remove" @click="removeQueryCondition(group, index)">
+                    {{ t("common.remove") }}
+                  </el-button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -227,7 +263,115 @@
             :total="models.length"
           />
         </div>
-      </SectionCard>
+          </SectionCard>
+        </el-tab-pane>
+
+        <el-tab-pane label="模型同步任务" name="sync-tasks">
+          <SectionCard title="模型同步任务" description="大批量表同步会自动转入后台任务执行，避免页面长时间等待。">
+            <div class="models-toolbar">
+              <el-select
+                v-model="syncTaskFilters.datasourceType"
+                clearable
+                placeholder="按数据源类型筛选"
+                class="models-toolbar__filter"
+                @change="handleSyncTaskDatasourceTypeChange"
+              >
+                <el-option
+                  v-for="typeCode in queryDatasourceTypes"
+                  :key="typeCode"
+                  :label="typeCode"
+                  :value="typeCode"
+                />
+              </el-select>
+              <el-select
+                v-model="syncTaskFilters.datasourceId"
+                clearable
+                placeholder="按数据源筛选"
+                class="models-toolbar__filter"
+                @change="loadSyncTasks"
+              >
+                <el-option
+                  v-for="item in syncTaskFilterDatasourceOptions"
+                  :key="item.id"
+                  :label="`${item.name} (${item.typeCode})`"
+                  :value="item.id"
+                />
+              </el-select>
+              <el-select
+                v-model="syncTaskFilters.status"
+                clearable
+                placeholder="按状态筛选"
+                class="models-toolbar__filter"
+                @change="loadSyncTasks"
+              >
+                <el-option v-for="status in syncTaskStatusOptions" :key="status" :label="formatStatusLabel(t, status)" :value="status" />
+              </el-select>
+              <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openCreateSyncTaskDialog">新建同步任务</el-button>
+              <el-button plain @click="loadSyncTasks">刷新任务</el-button>
+            </div>
+
+            <el-table :data="syncTasks" border v-loading="loadingSyncTasksPage">
+              <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+                <template #default="{ $index }">
+                  {{ (syncTaskPagination.page - 1) * syncTaskPagination.pageSize + $index + 1 }}
+                </template>
+              </el-table-column>
+              <el-table-column label="同步名称" min-width="220">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="openSyncTaskDetail(row)">{{ row.name }}</el-button>
+                </template>
+              </el-table-column>
+              <el-table-column label="同步进度" min-width="220">
+                <template #default="{ row }">
+                  <div class="sync-task-progress">
+                    <el-progress :percentage="Number(row.progressPercent || 0)" :stroke-width="10" />
+                    <span class="cell-subtle">
+                      {{ Number(row.successCount || 0) }}/{{ Number(row.totalCount || 0) }} 成功，失败 {{ Number(row.failedCount || 0) }}，停止 {{ Number(row.stoppedCount || 0) }}
+                    </span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="创建时间" min-width="180">
+                <template #default="{ row }">
+                  {{ row.createdAt || t("common.none") }}
+                </template>
+              </el-table-column>
+              <el-table-column label="持续时间" min-width="140">
+                <template #default="{ row }">
+                  {{ formatDurationMs(row.durationMs) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="120" align="center" header-align="center">
+                <template #default="{ row }">
+                  <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center">
+                <template #default="{ row }">
+                  <div class="sync-task-actions">
+                    <el-button link type="primary" @click="openSyncTaskDetail(row)">查看</el-button>
+                    <el-button link type="warning" :disabled="!canStopSyncTask(row)" @click="stopSyncTask(row)">停止</el-button>
+                    <el-button link type="danger" :disabled="!canDeleteSyncTask(row)" @click="deleteSyncTask(row)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div class="table-pagination">
+              <el-pagination
+                v-model:current-page="syncTaskPagination.page"
+                v-model:page-size="syncTaskPagination.pageSize"
+                background
+                layout="total, sizes, prev, pager, next"
+                :page-sizes="[10, 20, 50, 100]"
+                :total="syncTaskTotal"
+                @current-change="loadSyncTasks"
+                @size-change="handleSyncTaskPageSizeChange"
+              />
+            </div>
+          </SectionCard>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <template v-else>
@@ -386,28 +530,62 @@
         </el-form-item>
       </div>
 
-      <div class="sync-table-panel">
-        <div class="sync-table-panel__title">
-          <strong>{{ t("web.models.syncTables") }}</strong>
-        </div>
-        <el-table
-          v-loading="loadingSyncTables"
-          :data="syncDiscoveredModels"
-          border
-          @selection-change="handleSyncSelectionChange"
-        >
-          <el-table-column type="selection" width="52" />
-          <el-table-column prop="name" :label="t('web.models.syncTableName')" min-width="180" />
-          <el-table-column prop="physicalLocator" :label="t('web.models.syncTableLocator')" min-width="220" show-overflow-tooltip />
-        </el-table>
-        <div v-if="syncForm.datasourceId && !loadingSyncTables && syncDiscoveredModels.length === 0" class="soft-panel empty-hint">
-          {{ t("web.models.syncNoTables") }}
-        </div>
-      </div>
+      <ModelSyncTableSelector
+        v-model="syncSelectedLocators"
+        :datasource-id="syncForm.datasourceId"
+        :disabled="syncing"
+      />
 
       <template #footer>
         <el-button @click="syncDialogOpen = false">{{ t("common.cancel") }}</el-button>
         <el-button type="primary" :loading="syncing" @click="submitSync">{{ t("common.sync") }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="syncTaskDialogOpen" title="新建模型同步任务" width="76%">
+      <p class="dialog-description">选择数据源与需要同步的表，提交后会立即在后台创建并执行同步任务。</p>
+      <div class="studio-form-grid">
+        <el-form-item label="数据源类型">
+          <el-select
+            v-model="syncTaskForm.datasourceType"
+            clearable
+            placeholder="选择数据源类型"
+            @change="handleSyncTaskFormDatasourceTypeChange"
+          >
+            <el-option
+              v-for="typeCode in databaseDatasourceTypes"
+              :key="typeCode"
+              :label="typeCode"
+              :value="typeCode"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="数据源">
+          <el-select
+            v-model="syncTaskForm.datasourceId"
+            clearable
+            placeholder="选择数据源"
+            @change="handleSyncTaskFormDatasourceChange"
+          >
+            <el-option
+              v-for="item in syncTaskDatasourceOptions"
+              :key="item.id"
+              :label="`${item.name} (${item.typeCode})`"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+      </div>
+
+      <ModelSyncTableSelector
+        v-model="syncTaskForm.selectedLocators"
+        :datasource-id="syncTaskForm.datasourceId"
+        :disabled="creatingSyncTask"
+      />
+
+      <template #footer>
+        <el-button @click="syncTaskDialogOpen = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" :loading="creatingSyncTask" @click="submitSyncTaskCreate">创建并执行</el-button>
       </template>
     </el-dialog>
 
@@ -542,6 +720,7 @@ import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import type {
   DataModelDefinition,
+  DataModelIndexQueueStatusView,
   DataModelQueryCondition,
   DataModelQueryGroup,
   DataModelQueryRequest,
@@ -551,11 +730,13 @@ import type {
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
   ModelKind,
+  ModelSyncTaskView,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
+import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
@@ -565,7 +746,7 @@ import {
   setBusinessMetaModelRows,
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
-import { cloneDeep, formatModelKind, isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
+import { cloneDeep, formatModelKind, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 type MetaSectionBinding = "TECHNICAL" | "BUSINESS";
 
@@ -583,6 +764,12 @@ interface ModelFormState {
 interface SyncFormState {
   datasourceType: string;
   datasourceId?: EntityId;
+}
+
+interface SyncTaskFormState {
+  datasourceType: string;
+  datasourceId?: EntityId;
+  selectedLocators: string[];
 }
 
 interface ModelMetaSection {
@@ -649,13 +836,27 @@ const queryGroups = ref<ModelQueryGroupState[]>([]);
 const selectedDatasourceType = ref("");
 const selectedDatasourceId = ref<EntityId>();
 const selectedModel = ref<DataModelDefinition>();
+const activeListTab = ref("models");
 const editorOpen = ref(false);
 const saving = ref(false);
 const syncDialogOpen = ref(false);
 const syncing = ref(false);
-const loadingSyncTables = ref(false);
-const syncDiscoveredModels = ref<DataModelDefinition[]>([]);
 const syncSelectedLocators = ref<string[]>([]);
+const syncTaskDialogOpen = ref(false);
+const creatingSyncTask = ref(false);
+const syncTasks = ref<ModelSyncTaskView[]>([]);
+const loadingSyncTasksPage = ref(false);
+const syncTaskTotal = ref(0);
+const indexQueueStatus = ref<DataModelIndexQueueStatusView>();
+const syncTaskPagination = reactive({
+  page: 1,
+  pageSize: 20,
+});
+const syncTaskFilters = reactive({
+  datasourceType: "",
+  datasourceId: undefined as EntityId | undefined,
+  status: "",
+});
 
 const modelForm = reactive<ModelFormState>({
   name: "",
@@ -666,6 +867,11 @@ const modelForm = reactive<ModelFormState>({
 
 const syncForm = reactive<SyncFormState>({
   datasourceType: "",
+});
+
+const syncTaskForm = reactive<SyncTaskFormState>({
+  datasourceType: "",
+  selectedLocators: [],
 });
 
 const detailModelId = computed(() => {
@@ -702,6 +908,21 @@ const syncDatasourceOptions = computed(() =>
     (item) => isDatabaseDatasourceType(item.typeCode) && (!syncForm.datasourceType || item.typeCode === syncForm.datasourceType),
   ),
 );
+const syncTaskDatasourceOptions = computed(() =>
+  datasources.value.filter(
+    (item) => isDatabaseDatasourceType(item.typeCode)
+      && (!syncTaskForm.datasourceType || item.typeCode === syncTaskForm.datasourceType),
+  ),
+);
+const syncTaskFilterDatasourceOptions = computed(() =>
+  datasources.value.filter(
+    (item) => !syncTaskFilters.datasourceType || item.typeCode === syncTaskFilters.datasourceType,
+  ),
+);
+const syncTaskStatusOptions = computed(() => ["PENDING", "RUNNING", "STOPPING", "SUCCESS", "FAILED", "STOPPED"]);
+const indexQueueBusy = computed(() => Boolean(indexQueueStatus.value?.busy));
+const indexQueuePendingRebuildCount = computed(() => Number(indexQueueStatus.value?.pendingRebuildCount ?? 0));
+const indexQueueQueuedCommandCount = computed(() => Number(indexQueueStatus.value?.queuedCommandCount ?? 0));
 const manualDatasourceOptions = computed(() =>
   datasources.value.filter((item) => {
     if (isEditingModel.value && sameId(item.id, modelForm.datasourceId)) {
@@ -1055,6 +1276,22 @@ function queryConditionField(group: ModelQueryGroupState, condition: ModelQueryC
 
 function queryConditionOperators(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
   return querySchemaOperatorOptions(queryConditionField(group, condition));
+}
+
+function queryConditionInputValue(value: unknown): string | number | undefined {
+  return typeof value === "string" || typeof value === "number" ? value : undefined;
+}
+
+function queryConditionBooleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function setQueryConditionValue(condition: ModelQueryConditionState, value: string | number | boolean | null | undefined) {
+  condition.value = value == null ? undefined : value;
+}
+
+function setQueryConditionValueTo(condition: ModelQueryConditionState, value: string | number | null | undefined) {
+  condition.valueTo = value == null ? undefined : value;
 }
 
 function isMultipleQuerySchema(group: ModelQueryGroupState) {
@@ -1499,36 +1736,146 @@ function handleModelSchemaChange() {
 function openSyncDialog() {
   syncForm.datasourceType = "";
   syncForm.datasourceId = undefined;
-  syncDiscoveredModels.value = [];
   syncSelectedLocators.value = [];
   syncDialogOpen.value = true;
 }
 
 function handleSyncDatasourceTypeChange() {
   syncForm.datasourceId = undefined;
-  syncDiscoveredModels.value = [];
   syncSelectedLocators.value = [];
 }
 
-async function handleSyncDatasourceChange() {
-  syncDiscoveredModels.value = [];
+function handleSyncDatasourceChange() {
   syncSelectedLocators.value = [];
-  if (!syncForm.datasourceId) {
+}
+
+function openCreateSyncTaskDialog() {
+  syncTaskForm.datasourceType = "";
+  syncTaskForm.datasourceId = undefined;
+  syncTaskForm.selectedLocators = [];
+  syncTaskDialogOpen.value = true;
+}
+
+function handleSyncTaskFormDatasourceTypeChange() {
+  syncTaskForm.datasourceId = undefined;
+  syncTaskForm.selectedLocators = [];
+}
+
+function handleSyncTaskFormDatasourceChange() {
+  syncTaskForm.selectedLocators = [];
+}
+
+function handleSyncTaskDatasourceTypeChange() {
+  syncTaskFilters.datasourceId = undefined;
+  syncTaskPagination.page = 1;
+  void loadSyncTasks();
+}
+
+function handleSyncTaskPageSizeChange(pageSize: number) {
+  syncTaskPagination.pageSize = pageSize;
+  syncTaskPagination.page = 1;
+  void loadSyncTasks();
+}
+
+async function loadSyncTasks() {
+  if (!authStore.currentProjectId) {
+    syncTasks.value = [];
+    syncTaskTotal.value = 0;
     return;
   }
-  loadingSyncTables.value = true;
+  loadingSyncTasksPage.value = true;
   try {
-    const result = await studioApi.datasources.discover(syncForm.datasourceId);
-    syncDiscoveredModels.value = result.models.filter((item) => (item.modelKind ?? "TABLE") === "TABLE");
+    const result = await studioApi.modelSyncTasks.list({
+      pageNo: syncTaskPagination.page,
+      pageSize: syncTaskPagination.pageSize,
+      datasourceType: syncTaskFilters.datasourceType || undefined,
+      datasourceId: syncTaskFilters.datasourceId,
+      status: syncTaskFilters.status || undefined,
+    });
+    syncTasks.value = result.items;
+    syncTaskTotal.value = result.total;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.models.syncLoadTablesFailed"));
+    ElMessage.error(error instanceof Error ? error.message : "加载同步任务失败");
   } finally {
-    loadingSyncTables.value = false;
+    loadingSyncTasksPage.value = false;
   }
 }
 
-function handleSyncSelectionChange(rows: DataModelDefinition[]) {
-  syncSelectedLocators.value = rows.map((item) => item.physicalLocator || item.name).filter(Boolean);
+async function loadIndexQueueStatus(showError = false) {
+  try {
+    indexQueueStatus.value = await studioApi.models.indexQueueStatus();
+  } catch (error) {
+    if (showError) {
+      ElMessage.error(error instanceof Error ? error.message : "加载索引队列状态失败");
+    }
+  }
+}
+
+function canStopSyncTask(task: ModelSyncTaskView) {
+  return ["PENDING", "RUNNING", "STOPPING"].includes(String(task.status || "").toUpperCase());
+}
+
+function canDeleteSyncTask(task: ModelSyncTaskView) {
+  return ["SUCCESS", "FAILED", "STOPPED"].includes(String(task.status || "").toUpperCase());
+}
+
+function openSyncTaskDetail(task: ModelSyncTaskView) {
+  if (!task.id) {
+    return;
+  }
+  router.push({
+    name: "model-sync-task-detail",
+    params: { taskId: String(task.id) },
+  });
+}
+
+async function stopSyncTask(task: ModelSyncTaskView) {
+  if (!task.id || !canStopSyncTask(task)) {
+    return;
+  }
+  try {
+    await studioApi.modelSyncTasks.stop(task.id);
+    ElMessage.success("已请求停止同步任务");
+    await loadSyncTasks();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "停止同步任务失败");
+  }
+}
+
+async function deleteSyncTask(task: ModelSyncTaskView) {
+  if (!task.id || !canDeleteSyncTask(task)) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `删除同步任务“${task.name}”吗？已同步的模型不会回滚。`,
+      t("common.confirm"),
+      { type: "warning" },
+    );
+    await studioApi.modelSyncTasks.delete(task.id);
+    ElMessage.success("同步任务已删除");
+    await loadSyncTasks();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : "删除同步任务失败");
+    }
+  }
+}
+
+function formatDurationMs(durationMs?: number) {
+  if (durationMs == null || Number.isNaN(Number(durationMs))) {
+    return t("common.none");
+  }
+  if (durationMs < 1000) {
+    return `${durationMs} ms`;
+  }
+  const seconds = durationMs / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds >= 10 ? 1 : 2)} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainderSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${remainderSeconds}s`;
 }
 
 async function loadPage() {
@@ -1598,6 +1945,7 @@ async function handleDatasourceChange() {
 
 async function refreshModels() {
   await loadPage();
+  await loadIndexQueueStatus();
   await handleDatasourceChange();
 }
 
@@ -1651,9 +1999,13 @@ function openModelDetail(model: DataModelDefinition, edit = false) {
 }
 
 function openStatisticsWorkspace(datasourceId?: EntityId) {
+  const activeDatasource = datasourceId == null ? selectedDatasource.value : findDatasourceById(datasourceId);
   router.push({
-    name: "model-statistics",
-    query: datasourceId == null ? undefined : { datasourceId: String(datasourceId) },
+    name: "statistics",
+    query: {
+      ...(datasourceId == null ? {} : { datasourceId: String(datasourceId) }),
+      ...(activeDatasource?.typeCode ? { datasourceType: activeDatasource.typeCode } : {}),
+    },
   });
 }
 
@@ -1752,6 +2104,32 @@ async function submitSync() {
     ElMessage.warning(t("web.models.syncNoSelection"));
     return;
   }
+  if (syncSelectedLocators.value.length > 20) {
+    try {
+      await ElMessageBox.confirm(
+        "当前选择的表超过 20 张，页面同步耗时较长，将自动创建模型同步任务并立即执行。",
+        t("common.confirm"),
+        { type: "warning" },
+      );
+      const created = await studioApi.modelSyncTasks.create({
+        datasourceId: syncForm.datasourceId,
+        physicalLocators: cloneDeep(syncSelectedLocators.value),
+        source: "AUTO_PAGE",
+      });
+      syncDialogOpen.value = false;
+      activeListTab.value = "sync-tasks";
+      await loadSyncTasks();
+      if (created.id) {
+        openSyncTaskDetail(created);
+      }
+      return;
+    } catch (error) {
+      if (error !== "cancel") {
+        ElMessage.error(error instanceof Error ? error.message : "创建同步任务失败");
+      }
+      return;
+    }
+  }
   syncing.value = true;
   try {
     selectedDatasourceId.value = syncForm.datasourceId;
@@ -1770,6 +2148,35 @@ async function submitSync() {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.syncFailed"));
   } finally {
     syncing.value = false;
+  }
+}
+
+async function submitSyncTaskCreate() {
+  if (!syncTaskForm.datasourceId) {
+    ElMessage.warning("请先选择数据源");
+    return;
+  }
+  if (syncTaskForm.selectedLocators.length === 0) {
+    ElMessage.warning(t("web.models.syncNoSelection"));
+    return;
+  }
+  creatingSyncTask.value = true;
+  try {
+    const created = await studioApi.modelSyncTasks.create({
+      datasourceId: syncTaskForm.datasourceId,
+      physicalLocators: cloneDeep(syncTaskForm.selectedLocators),
+      source: "MANUAL",
+    });
+    syncTaskDialogOpen.value = false;
+    activeListTab.value = "sync-tasks";
+    await loadSyncTasks();
+    if (created.id) {
+      openSyncTaskDetail(created);
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "创建同步任务失败");
+  } finally {
+    creatingSyncTask.value = false;
   }
 }
 
@@ -1826,12 +2233,52 @@ function buildModelActions(model: DataModelDefinition) {
   ];
 }
 
+function normalizeListTab(value: unknown) {
+  return value === "sync-tasks" ? "sync-tasks" : "models";
+}
+
+watch(
+  () => route.query.tab,
+  (value) => {
+    if (!isDetailPage.value) {
+      activeListTab.value = normalizeListTab(value);
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  activeListTab,
+  async (value) => {
+    if (isDetailPage.value) {
+      return;
+    }
+    const normalized = normalizeListTab(value);
+    if (route.query.tab !== normalized) {
+      await router.replace({
+        name: "models",
+        query: normalized === "sync-tasks" ? { tab: normalized } : {},
+      });
+    }
+    if (normalized === "sync-tasks") {
+      await loadSyncTasks();
+      return;
+    }
+  },
+  { immediate: true },
+);
+
 watch(
   () => [route.params.modelId, route.fullPath, authStore.currentTenantId, authStore.currentProjectId],
   async () => {
     await loadPage();
     if (isDetailPage.value) {
       await loadModelDetail();
+      return;
+    }
+    await loadIndexQueueStatus();
+    if (activeListTab.value === "sync-tasks") {
+      await loadSyncTasks();
       return;
     }
     await handleDatasourceChange();
@@ -1858,8 +2305,65 @@ p {
   margin-bottom: 12px;
 }
 
+.index-queue-card {
+  min-width: 280px;
+  max-width: 360px;
+  display: grid;
+  gap: 12px;
+}
+
+.index-queue-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.index-queue-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.index-queue-card__metric {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.index-queue-card__metric-label {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.index-queue-card__metric-value {
+  color: var(--studio-text);
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.models-tabs {
+  display: grid;
+  gap: 12px;
+}
+
 .models-toolbar__filter {
   min-width: 280px;
+}
+
+.sync-task-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.sync-task-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .model-query-panel {
@@ -1888,21 +2392,100 @@ p {
 
 .model-query-group {
   display: grid;
+  gap: 12px;
+}
+
+.model-query-group__header {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.4fr) minmax(220px, 0.9fr) auto;
+  align-items: end;
   gap: 10px;
+}
+
+.model-query-group__meta {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.model-query-group__meta--compact {
+  max-width: 320px;
+}
+
+.model-query-group__label,
+.model-query-condition__label {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.model-query-group__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.model-query-group__conditions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+  gap: 10px;
+}
+
+.model-query-condition {
+  min-width: 0;
+}
+
+.model-query-condition__line {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(130px, 0.8fr) minmax(220px, 1.5fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.model-query-condition__segment {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.model-query-condition__segment--operator {
+  max-width: 180px;
+}
+
+.model-query-condition__segment--value {
+  min-width: 0;
+}
+
+.model-query-condition__remove {
+  align-self: end;
+  white-space: nowrap;
 }
 
 .query-condition-value {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .query-condition-value__input {
-  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .query-condition-value__divider {
+  flex: 0 0 auto;
   color: var(--studio-text-soft);
+}
+
+.model-query-condition :deep(.el-select),
+.model-query-condition :deep(.el-input),
+.model-query-condition :deep(.el-input-number) {
+  width: 100%;
 }
 
 .detail-toolbar {
@@ -2024,8 +2607,41 @@ p {
   gap: 10px;
 }
 
+.sync-table-panel__header {
+  display: grid;
+  gap: 8px;
+}
+
 .sync-table-panel__title {
   color: var(--studio-text);
+}
+
+.sync-table-panel__title strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sync-table-panel__search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.sync-table-panel__search-input {
+  width: 100%;
+}
+
+.sync-table-panel__search-action {
+  min-width: 96px;
 }
 
 .multiple-section-actions {
@@ -2060,8 +2676,37 @@ p {
     min-width: 100%;
   }
 
+  .index-queue-card {
+    min-width: 100%;
+    max-width: none;
+  }
+
+  .index-queue-card__header {
+    flex-direction: column;
+  }
+
   .model-query-panel__header {
     flex-direction: column;
+  }
+
+  .model-query-group__header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-query-group__actions {
+    justify-content: flex-start;
+  }
+
+  .model-query-group__conditions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-query-condition__line {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-query-condition__segment--operator {
+    max-width: none;
   }
 
   .detail-toolbar {
@@ -2083,6 +2728,18 @@ p {
 
   .table-pagination {
     justify-content: flex-start;
+  }
+
+  .sync-table-panel__search {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-table-panel__search-input {
+    width: 100%;
+  }
+
+  .sync-table-panel__search-action {
+    width: 100%;
   }
 }
 </style>

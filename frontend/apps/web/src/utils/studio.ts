@@ -8,8 +8,11 @@ export function toneFromStatus(status?: string | number | boolean) {
   if (value === "FAILED" || value === "ERROR" || value === "FALSE" || value === "0") {
     return "danger";
   }
-  if (value === "RUNNING" || value === "QUEUED" || value === "DRAFT") {
+  if (value === "RUNNING" || value === "QUEUED" || value === "DRAFT" || value === "PENDING" || value === "STOPPING") {
     return "warning";
+  }
+  if (value === "STOPPED") {
+    return "neutral";
   }
   return "primary";
 }
@@ -80,7 +83,10 @@ export function formatStatusLabel(t: TranslateFn, status?: string | number | boo
     FAILED: "common.statusFailed",
     ERROR: "common.statusError",
     RUNNING: "common.statusRunning",
+    PENDING: "common.statusPending",
     QUEUED: "common.statusQueued",
+    STOPPING: "common.statusStopping",
+    STOPPED: "common.statusStopped",
     NOT_RUN: "common.statusNotRun",
     UNKNOWN: "common.unknown",
   };

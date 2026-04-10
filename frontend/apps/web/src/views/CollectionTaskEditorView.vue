@@ -143,12 +143,12 @@
         </el-form-item>
       </div>
 
-      <FieldMappingEditor
+      <CollectionTaskFieldMappingEditor
         :model-value="form.fieldMappings"
         :source-aliases="sourceAliasOptions"
         :source-field-options-by-alias="sourceFieldOptionsByAlias"
         :target-fields="targetFieldOptions"
-        :transformer-options="transformerOptions"
+        :rule-options="fieldMappingRules"
         @update:model-value="form.fieldMappings = $event"
       />
 
@@ -232,11 +232,11 @@ import type {
   CollectionTaskSourceBinding,
   DataModelDefinition,
   DataSourceDefinition,
-  PluginCatalogEntry,
+  FieldMappingRuleView,
 } from "@studio/api-sdk";
-import { FieldMappingEditor } from "@studio/workflow-designer";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
 import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
 import { cloneDeep, prettyJson } from "@/utils/studio";
 
@@ -251,7 +251,7 @@ const router = useRouter();
 const taskId = computed(() => route.params.taskId as string | undefined);
 const activeStep = ref(1);
 const datasources = ref<DataSourceDefinition[]>([]);
-const transformers = ref<PluginCatalogEntry[]>([]);
+const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
 const modelCache = ref<Record<string, DataModelDefinition[]>>({});
 const saving = ref(false);
 const previewLoading = ref(false);
@@ -286,7 +286,6 @@ const form = reactive<CollectionTaskEditorForm>({
 
 const isFusionTask = computed(() => form.sourceBindings.length > 1);
 const taskTypeLabel = computed(() => (isFusionTask.value ? t("web.collectionTasks.typeFusion") : t("web.collectionTasks.typeSingle")));
-const transformerOptions = computed(() => Array.from(new Set(transformers.value.map((item) => item.pluginName))));
 const sourceAliasOptions = computed(() => form.sourceBindings.map((item) => item.sourceAlias).filter(Boolean));
 const targetFieldOptions = computed(() => resolveFieldsByModelId(form.targetBinding.modelId));
 const canPreviewConfig = computed(() =>
@@ -353,12 +352,12 @@ const writeMode = computed<string>({
 
 async function loadReferenceData() {
   try {
-    const [datasourceData, transformerData] = await Promise.all([
+    const [datasourceData, fieldMappingRuleData] = await Promise.all([
       studioApi.datasources.list(),
-      studioApi.catalog.plugins("TRANSFORMER"),
+      studioApi.fieldMappingRules.options(),
     ]);
     datasources.value = datasourceData;
-    transformers.value = transformerData;
+    fieldMappingRules.value = fieldMappingRuleData;
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
     await ensureModels(form.targetBinding.datasourceId);
   } catch (error) {

@@ -3,6 +3,7 @@ package com.jdragon.studio.test.support;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.StudioInitializationService;
 import com.jdragon.studio.server.bootstrap.StudioServerApplication;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +65,9 @@ public abstract class StudioApiRegressionTestSupport {
     @Autowired
     protected JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    protected DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
+
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         prepareRuntimeFiles();
@@ -87,7 +91,9 @@ public abstract class StudioApiRegressionTestSupport {
 
     @BeforeEach
     void resetStudioData() {
+        awaitIndexQueueIdle();
         studioInitializationService.initialize(true);
+        awaitIndexQueueIdle();
     }
 
     protected String adminAuthorizationHeader() throws Exception {
@@ -123,6 +129,29 @@ public abstract class StudioApiRegressionTestSupport {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setAccept(java.util.Collections.singletonList(MediaType.APPLICATION_JSON));
         return headers;
+    }
+
+    protected void awaitIndexQueueIdle() {
+        boolean idle = false;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            idle = dataModelIndexRebuildQueueService.awaitIdle(java.time.Duration.ofSeconds(5));
+            if (!idle) {
+                continue;
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for index rebuild queue", ex);
+            }
+            idle = dataModelIndexRebuildQueueService.awaitIdle(java.time.Duration.ofSeconds(1));
+            if (idle) {
+                return;
+            }
+        }
+        if (!idle) {
+            throw new IllegalStateException("Index rebuild queue did not become idle within timeout");
+        }
     }
 
     private static void prepareRuntimeFiles() {

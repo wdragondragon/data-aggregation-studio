@@ -91,9 +91,23 @@ export type EdgeCondition = "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS";
 export type QueryOperator = "EQ" | "LIKE" | "IN" | "GT" | "GE" | "LT" | "LE" | "BETWEEN";
 export type RowMatchMode = "SAME_ITEM" | "ANY_ITEM";
 export type StatisticType = "COUNT_BY_VALUE" | "SUMMARY" | "COUNT_BY_BUCKET";
+export type StatisticsChartType = "TREND" | "BAR" | "PIE" | "TOPN";
 export type CollectionTaskType = "SINGLE_TABLE" | "FUSION";
 export type CollectionTaskStatus = "DRAFT" | "ONLINE";
 export type ScriptType = "SQL" | "JAVA" | "PYTHON";
+export type ModelSyncTaskSource = "MANUAL" | "AUTO_PAGE";
+export type ModelSyncTaskStatus = "PENDING" | "RUNNING" | "STOPPING" | "SUCCESS" | "FAILED" | "STOPPED";
+export type ModelSyncTaskItemStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "STOPPED";
+export type FieldMappingRuleParamComponentType =
+  | "input"
+  | "numberPicker"
+  | "textArea"
+  | "datePicker"
+  | "dateTimePicker"
+  | "rangePicker"
+  | "select"
+  | "checkbox"
+  | "radioGroup";
 
 export interface MetadataFieldDefinition {
   fieldKey: string;
@@ -181,6 +195,15 @@ export interface DataModelDefinition extends BaseRecord {
   businessMetadata: Record<string, unknown>;
 }
 
+export interface DataModelIndexQueueStatusView {
+  queuedRebuildCount?: number | string | null;
+  activeRebuildCount?: number | string | null;
+  pendingRebuildCount?: number | string | null;
+  queuedCommandCount?: number | string | null;
+  activeCommandCount?: number | string | null;
+  busy?: boolean | null;
+}
+
 export interface DataModelSaveRequest {
   id?: EntityId;
   datasourceId: EntityId;
@@ -243,19 +266,171 @@ export interface DataModelStatisticsView {
   summaryMetrics: Record<string, unknown>;
 }
 
+export interface DataModelStatisticsOptionsRequest {
+  datasourceId?: EntityId;
+  datasourceType?: string;
+  targetScope?: MetadataScope | string;
+}
+
+export interface DataModelStatisticsFieldOptionView {
+  fieldKey: string;
+  fieldName: string;
+  scope?: MetadataScope;
+  valueType?: FieldValueType;
+  queryOperators?: QueryOperator[] | string[];
+  queryDefaultOperator?: QueryOperator | string;
+  supportedChartTypes?: StatisticsChartType[] | string[];
+}
+
+export interface DataModelStatisticsSchemaOptionView {
+  schemaCode: string;
+  schemaName: string;
+  scope?: MetadataScope;
+  datasourceType?: string;
+  metaModelCode?: string;
+  displayMode?: "SINGLE" | "MULTIPLE" | string;
+  fields: DataModelStatisticsFieldOptionView[];
+}
+
+export interface DataModelStatisticsOptionsView {
+  datasourceType?: string;
+  querySchemas: DataModelStatisticsSchemaOptionView[];
+  targetSchemas: DataModelStatisticsSchemaOptionView[];
+}
+
+export interface DataModelStatisticsChartRequest extends DataModelStatisticsRequest {
+  chartType: StatisticsChartType | string;
+  days?: number;
+  timeMode?: "CREATED_AT" | string;
+}
+
+export interface DataModelStatisticsChartSeriesView {
+  name?: string;
+  type?: string;
+  data: unknown[];
+}
+
+export interface DataModelStatisticsChartTableRowView {
+  key?: string;
+  label?: string;
+  category?: string;
+  date?: string;
+  rank?: number;
+  count?: number | string | null;
+  ratio?: number | string | null;
+  lowerBound?: number | string | null;
+  upperBound?: number | string | null;
+  value?: string;
+}
+
+export interface DataModelStatisticsChartView {
+  chartType?: StatisticsChartType | string;
+  summaryMetrics: Record<string, unknown>;
+  xAxis: string[];
+  series: DataModelStatisticsChartSeriesView[];
+  tableRows: DataModelStatisticsChartTableRowView[];
+  disabledReason?: string;
+}
+
 export interface ModelSyncRequest {
   physicalLocators: string[];
 }
 
 export interface ModelDiscoveryResult {
-  datasourceType?: string;
   models: DataModelDefinition[];
+  message?: string;
+  total?: number;
+  pageNo?: number;
+  pageSize?: number;
+  hasMore?: boolean;
   [key: string]: unknown;
 }
 
+export interface ModelSyncTaskCreateRequest {
+  datasourceId: EntityId;
+  physicalLocators: string[];
+  source?: ModelSyncTaskSource | string;
+}
+
+export interface ModelSyncTaskView extends BaseRecord {
+  datasourceId?: EntityId;
+  datasourceType?: string;
+  datasourceNameSnapshot?: string;
+  batchNo?: number;
+  name: string;
+  source?: ModelSyncTaskSource | string;
+  status?: ModelSyncTaskStatus | string;
+  totalCount?: number;
+  successCount?: number;
+  failedCount?: number;
+  stoppedCount?: number;
+  progressPercent?: number;
+  stopRequested?: boolean;
+  createdBy?: EntityId;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  lastError?: string;
+}
+
+export interface ModelSyncTaskItemView extends BaseRecord {
+  taskId?: EntityId;
+  seqNo?: number;
+  physicalLocator?: string;
+  modelNameSnapshot?: string;
+  status?: ModelSyncTaskItemStatus | string;
+  message?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+}
+
 export interface TransformerBinding {
+  mappingRuleId?: EntityId;
+  mappingCode?: string;
+  mappingName?: string;
+  mappingType?: string;
   transformerCode: string;
   parameters: Record<string, unknown>;
+}
+
+export interface FieldMappingRuleParamView extends BaseRecord {
+  ruleId?: EntityId;
+  paramName: string;
+  paramOrder: number;
+  componentType: FieldMappingRuleParamComponentType | string;
+  paramValueJson?: string;
+  description?: string;
+}
+
+export interface FieldMappingRuleView extends BaseRecord {
+  mappingName: string;
+  mappingType: string;
+  mappingCode: string;
+  enabled?: boolean;
+  description?: string;
+  createdBy?: EntityId;
+  createdByName?: string;
+  params: FieldMappingRuleParamView[];
+}
+
+export interface FieldMappingRuleParamSaveRequest {
+  id?: EntityId;
+  paramName: string;
+  paramOrder: number;
+  componentType: FieldMappingRuleParamComponentType | string;
+  paramValueJson?: string;
+  description?: string;
+}
+
+export interface FieldMappingRuleSaveRequest {
+  id?: EntityId;
+  mappingName: string;
+  mappingType: string;
+  mappingCode: string;
+  enabled?: boolean;
+  description?: string;
+  params: FieldMappingRuleParamSaveRequest[];
 }
 
 export interface FieldMappingDefinition {

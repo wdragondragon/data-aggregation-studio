@@ -2,7 +2,6 @@ package com.jdragon.studio.infra.service;
 
 import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -13,8 +12,6 @@ import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.mapper.MetaSchemaVersionMapper;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -34,18 +31,18 @@ public class DataModelScopedIndexRefreshService {
     private final DataModelMapper dataModelMapper;
     private final DatasourceMapper datasourceMapper;
     private final MetaSchemaVersionMapper versionMapper;
-    private final DataModelSearchIndexService dataModelSearchIndexService;
+    private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final StudioSecurityService securityService;
 
     public DataModelScopedIndexRefreshService(DataModelMapper dataModelMapper,
                                               DatasourceMapper datasourceMapper,
                                               MetaSchemaVersionMapper versionMapper,
-                                              @Lazy DataModelSearchIndexService dataModelSearchIndexService,
+                                              @Lazy DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                                               StudioSecurityService securityService) {
         this.dataModelMapper = dataModelMapper;
         this.datasourceMapper = datasourceMapper;
         this.versionMapper = versionMapper;
-        this.dataModelSearchIndexService = dataModelSearchIndexService;
+        this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.securityService = securityService;
     }
 
@@ -55,17 +52,7 @@ public class DataModelScopedIndexRefreshService {
             return;
         }
         final String tenantId = securityService.currentTenantId();
-        Runnable task = () -> rebuildImpactedIndexes(tenantId, previousSchema, currentSchema);
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            task.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                task.run();
-            }
-        });
+        rebuildImpactedIndexes(tenantId, previousSchema, currentSchema);
     }
 
     private boolean requiresRebuild(MetadataSchemaDefinition previousSchema,
@@ -91,22 +78,7 @@ public class DataModelScopedIndexRefreshService {
         if (impactedModelIds.isEmpty()) {
             return;
         }
-
-        Map<Long, DatasourceEntity> datasourceMap = new LinkedHashMap<Long, DatasourceEntity>();
-        List<DatasourceEntity> datasources = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
-                .eq(DatasourceEntity::getTenantId, tenantId));
-        for (DatasourceEntity datasource : datasources) {
-            datasourceMap.put(datasource.getId(), datasource);
-        }
-
-        List<DataModelEntity> models = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
-                .eq(DataModelEntity::getTenantId, tenantId)
-                .in(DataModelEntity::getId, impactedModelIds)
-                .orderByAsc(DataModelEntity::getId));
-        for (DataModelEntity model : models) {
-            DatasourceEntity datasource = model.getDatasourceId() == null ? null : datasourceMap.get(model.getDatasourceId());
-            dataModelSearchIndexService.rebuildModelIndex(model, toDatasourceDefinition(datasource));
-        }
+        dataModelIndexRebuildQueueService.enqueueModelRebuilds(new ArrayList<Long>(impactedModelIds));
     }
 
     private Set<Long> resolveImpactedModelIds(String tenantId,
@@ -299,22 +271,6 @@ public class DataModelScopedIndexRefreshService {
                 + normalize(resolveSchemaMetaModelCode(schema)) + "#"
                 + normalize(resolveSchemaDisplayMode(schema)) + "#"
                 + String.join(",", fieldSignatures);
-    }
-
-    private DataSourceDefinition toDatasourceDefinition(DatasourceEntity datasource) {
-        if (datasource == null) {
-            return null;
-        }
-        DataSourceDefinition definition = new DataSourceDefinition();
-        definition.setId(datasource.getId());
-        definition.setTenantId(datasource.getTenantId());
-        definition.setProjectId(datasource.getProjectId());
-        definition.setName(datasource.getName());
-        definition.setTypeCode(datasource.getTypeCode());
-        definition.setSchemaVersionId(datasource.getSchemaVersionId());
-        definition.setTechnicalMetadata(datasource.getTechnicalMetadata());
-        definition.setBusinessMetadata(datasource.getBusinessMetadata());
-        return definition;
     }
 
     private JSONObject extractMetaModelConfig(MetadataSchemaDefinition schema) {

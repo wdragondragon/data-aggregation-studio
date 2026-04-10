@@ -18,5 +18,5 @@ backend/.idea/
 *.db
 *.sqlite
 *.sqlite3
-runtime/
+/runtime/
 aggregation-home/

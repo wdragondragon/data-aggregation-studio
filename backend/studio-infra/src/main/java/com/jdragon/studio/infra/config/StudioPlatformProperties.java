@@ -19,6 +19,7 @@ public class StudioPlatformProperties {
     private String workerApiBaseUrl;
     private String internalApiToken = "studio-internal-token";
     private PythonProperties python = new PythonProperties();
+    private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
 
     @Data
     public static class PythonProperties {
@@ -26,5 +27,10 @@ public class StudioPlatformProperties {
         private List<String> executableArgs = new ArrayList<String>();
         private Long executionTimeoutSeconds = 120L;
         private String tempDir;
+    }
+
+    @Data
+    public static class ModelSyncTaskProperties {
+        private Integer maxConcurrency = 1;
     }
 }

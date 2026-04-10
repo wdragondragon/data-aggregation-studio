@@ -169,6 +169,36 @@ create table if not exists catalog_plugin (
     template json
 );
 
+create table if not exists field_mapping_rule (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    mapping_name varchar(255) not null,
+    mapping_type varchar(255) not null,
+    mapping_code varchar(255) not null,
+    enabled int default 1,
+    description varchar(1000),
+    created_by bigint,
+    key idx_field_mapping_rule_type_enabled (mapping_type, enabled),
+    key idx_field_mapping_rule_created_at (created_at)
+);
+
+create table if not exists field_mapping_rule_param (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    rule_id bigint not null,
+    param_name varchar(255) not null,
+    param_order int not null,
+    component_type varchar(64) not null,
+    param_value_json text,
+    description varchar(1000),
+    key idx_field_mapping_rule_param_rule_order (rule_id, param_order),
+    key idx_field_mapping_rule_param_rule_name (rule_id, param_name)
+);
+
 create table if not exists meta_schema (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
@@ -254,8 +284,60 @@ create table if not exists data_model (
     schema_version_id bigint,
     technical_metadata json,
     business_metadata json,
-    unique key uk_data_model_project_name (project_id, name),
-    key idx_data_model_project (project_id)
+    unique key uk_data_model_project_datasource_name (project_id, datasource_id, name),
+    key idx_data_model_project (project_id),
+    key idx_data_model_tenant_project_created (tenant_id, project_id, created_at),
+    key idx_data_model_tenant_datasource_created (tenant_id, datasource_id, created_at)
+);
+
+create table if not exists model_sync_task (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    datasource_id bigint not null,
+    datasource_type varchar(128),
+    datasource_name_snapshot varchar(255),
+    batch_no int not null,
+    name varchar(255) not null,
+    source varchar(64),
+    status varchar(64),
+    total_count int default 0,
+    success_count int default 0,
+    failed_count int default 0,
+    stopped_count int default 0,
+    progress_percent int default 0,
+    stop_requested int default 0,
+    created_by bigint,
+    started_at datetime,
+    finished_at datetime,
+    duration_ms bigint,
+    last_error varchar(2000),
+    unique key uk_model_sync_task_project_datasource_batch (project_id, datasource_id, batch_no),
+    key idx_model_sync_task_project_created (project_id, created_at),
+    key idx_model_sync_task_project_status (project_id, status)
+);
+
+create table if not exists model_sync_task_item (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    task_id bigint not null,
+    seq_no int not null,
+    physical_locator varchar(1000),
+    model_name_snapshot varchar(255),
+    status varchar(64),
+    message varchar(2000),
+    started_at datetime,
+    finished_at datetime,
+    duration_ms bigint,
+    key idx_model_sync_task_item_task_seq (task_id, seq_no),
+    key idx_model_sync_task_item_task_status (task_id, status)
 );
 
 create table if not exists data_model_attr_index (

@@ -12,36 +12,46 @@
     @locale-change="handleLocaleChange"
     @logout="handleLogout"
   >
-    <template #header-actions>
+    <template #sidebar-context>
       <div class="studio-layout__context">
-        <el-select
-          :model-value="authStore.currentTenantId ?? undefined"
-          class="studio-layout__context-select"
-          :placeholder="t('common.selectTenant')"
-          :disabled="!authStore.isAuthenticated || authStore.tenants.length === 0 || contextLoading"
-          @change="handleTenantChange"
-        >
-          <el-option
-            v-for="tenant in authStore.tenants"
-            :key="tenant.tenantId"
-            :label="tenant.tenantName"
-            :value="tenant.tenantId"
-          />
-        </el-select>
-        <el-select
-          :model-value="authStore.currentProjectId ?? undefined"
-          class="studio-layout__context-select"
-          :placeholder="t('common.selectProject')"
-          :disabled="!authStore.isAuthenticated || authStore.projects.length === 0 || contextLoading"
-          @change="handleProjectChange"
-        >
-          <el-option
-            v-for="project in authStore.projects"
-            :key="project.projectId"
-            :label="project.projectName"
-            :value="project.projectId"
-          />
-        </el-select>
+        <div class="studio-layout__context-header">
+          <strong>{{ t("common.project") }} / {{ t("common.tenant") }}</strong>
+          <span>{{ authStore.username || t("common.none") }}</span>
+        </div>
+        <div class="studio-layout__context-field">
+          <span class="studio-layout__context-label">{{ t("common.tenant") }}</span>
+          <el-select
+            :model-value="authStore.currentTenantId ?? undefined"
+            class="studio-layout__context-select"
+            :placeholder="t('common.selectTenant')"
+            :disabled="!authStore.isAuthenticated || authStore.tenants.length === 0 || contextLoading"
+            @change="handleTenantChange"
+          >
+            <el-option
+              v-for="tenant in authStore.tenants"
+              :key="tenant.tenantId"
+              :label="tenant.tenantName"
+              :value="tenant.tenantId"
+            />
+          </el-select>
+        </div>
+        <div class="studio-layout__context-field">
+          <span class="studio-layout__context-label">{{ t("common.project") }}</span>
+          <el-select
+            :model-value="authStore.currentProjectId ?? undefined"
+            class="studio-layout__context-select"
+            :placeholder="t('common.selectProject')"
+            :disabled="!authStore.isAuthenticated || authStore.projects.length === 0 || contextLoading"
+            @change="handleProjectChange"
+          >
+            <el-option
+              v-for="project in authStore.projects"
+              :key="project.projectId"
+              :label="project.projectName"
+              :value="project.projectId"
+            />
+          </el-select>
+        </div>
       </div>
     </template>
     <router-view />
@@ -69,7 +79,7 @@ const unsubscribe = subscribeStudioApiLoading((loading) => {
   appLoading.value = loading;
 });
 
-const studioMenus = computed(() => resolveStudioMenus(t));
+const studioMenus = computed(() => resolveStudioMenus(t, authStore.systemRoleCodes));
 const activeMenuPath = computed(() => {
   const matched = studioMenus.value.find((item) => route.path === item.path || route.path.startsWith(`${item.path}/`));
   return matched?.path ?? route.path;
@@ -146,24 +156,94 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .studio-layout__context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: flex-end;
+  display: grid;
+  gap: 10px;
   width: 100%;
+  padding: 12px 12px 14px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(243, 248, 255, 0.1), rgba(243, 248, 255, 0.05));
+  border: 1px solid rgba(243, 248, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.studio-layout__context-header {
+  display: grid;
+  gap: 4px;
+}
+
+.studio-layout__context-header strong {
+  color: rgba(248, 250, 252, 0.96);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.studio-layout__context-header span {
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 12px;
+}
+
+.studio-layout__context-field {
+  display: grid;
+  gap: 6px;
+}
+
+.studio-layout__context-label {
+  color: rgba(241, 245, 249, 0.92);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .studio-layout__context-select {
-  min-width: 220px;
+  width: 100%;
+  min-width: 0;
+}
+
+.studio-layout__context-select :deep(.el-select__wrapper) {
+  min-height: 40px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.16);
+  transition: box-shadow 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.studio-layout__context-select :deep(.el-select__wrapper:hover) {
+  background: rgba(15, 23, 42, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.24);
+}
+
+.studio-layout__context-select :deep(.el-select__wrapper.is-focused) {
+  background: rgba(15, 23, 42, 0.4);
+  box-shadow:
+    inset 0 0 0 1px rgba(147, 197, 253, 0.52),
+    0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.studio-layout__context-select :deep(.el-select__selected-item) {
+  color: rgba(248, 250, 252, 0.96);
+  font-weight: 600;
+}
+
+.studio-layout__context-select :deep(.el-select__placeholder) {
+  color: rgba(226, 232, 240, 0.58);
+}
+
+.studio-layout__context-select :deep(.el-select__caret),
+.studio-layout__context-select :deep(.el-input__icon) {
+  color: rgba(226, 232, 240, 0.74);
+}
+
+.studio-layout__context-select :deep(.el-select__wrapper.is-disabled) {
+  background: rgba(15, 23, 42, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.08);
 }
 
 @media (max-width: 980px) {
   .studio-layout__context {
-    justify-content: flex-start;
+    gap: 8px;
   }
 
   .studio-layout__context-select {
-    flex: 1 1 100%;
     min-width: 0;
   }
 }

@@ -10,5 +10,16 @@ public interface SourceCapabilityProvider {
     ConnectionTestResult testConnection(DataSourceDefinition definition);
 
     ModelDiscoveryResult discoverModels(DataSourceDefinition definition);
+
+    default ModelDiscoveryResult discoverModels(DataSourceDefinition definition, String keyword) {
+        return discoverModels(definition);
+    }
+
+    default ModelDiscoveryResult discoverModels(DataSourceDefinition definition,
+                                                String keyword,
+                                                Integer pageNo,
+                                                Integer pageSize) {
+        return discoverModels(definition, keyword);
+    }
 }
 

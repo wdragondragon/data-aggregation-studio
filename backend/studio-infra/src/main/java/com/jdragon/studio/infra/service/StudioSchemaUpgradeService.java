@@ -128,6 +128,85 @@ public class StudioSchemaUpgradeService {
                     ")");
         }
 
+        if (!tableExists("model_sync_task")) {
+            jdbcTemplate.execute("create table model_sync_task (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "datasource_id bigint not null," +
+                    "datasource_type varchar(128)," +
+                    "datasource_name_snapshot varchar(255)," +
+                    "batch_no int not null," +
+                    "name varchar(255)," +
+                    "source varchar(64)," +
+                    "status varchar(64)," +
+                    "total_count int default 0," +
+                    "success_count int default 0," +
+                    "failed_count int default 0," +
+                    "stopped_count int default 0," +
+                    "progress_percent int default 0," +
+                    "stop_requested int default 0," +
+                    "created_by bigint," +
+                    "started_at datetime," +
+                    "finished_at datetime," +
+                    "duration_ms bigint," +
+                    "last_error varchar(1000)" +
+                    ")");
+        }
+
+        if (!tableExists("model_sync_task_item")) {
+            jdbcTemplate.execute("create table model_sync_task_item (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "task_id bigint not null," +
+                    "seq_no int not null," +
+                    "physical_locator varchar(255)," +
+                    "model_name_snapshot varchar(255)," +
+                    "status varchar(64)," +
+                    "message varchar(2000)," +
+                    "started_at datetime," +
+                    "finished_at datetime," +
+                    "duration_ms bigint" +
+                    ")");
+        }
+
+        if (!tableExists("field_mapping_rule")) {
+            jdbcTemplate.execute("create table field_mapping_rule (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "mapping_name varchar(255) not null," +
+                    "mapping_type varchar(255) not null," +
+                    "mapping_code varchar(255) not null," +
+                    "enabled int default 1," +
+                    "description varchar(1000)," +
+                    "created_by bigint" +
+                    ")");
+        }
+
+        if (!tableExists("field_mapping_rule_param")) {
+            jdbcTemplate.execute("create table field_mapping_rule_param (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "rule_id bigint not null," +
+                    "param_name varchar(255) not null," +
+                    "param_order int not null," +
+                    "component_type varchar(64) not null," +
+                    "param_value_json text," +
+                    "description varchar(1000)" +
+                    ")");
+        }
+
         if (!tableExists("data_dev_directory")) {
             jdbcTemplate.execute("create table data_dev_directory (" +
                     "id bigint primary key," +
@@ -283,10 +362,31 @@ public class StudioSchemaUpgradeService {
                 "alter table datasource_definition add unique key uk_datasource_definition_project_name (project_id, name)");
         ensureIndex("datasource_definition", "idx_datasource_definition_project",
                 "alter table datasource_definition add key idx_datasource_definition_project (project_id)");
-        ensureIndex("data_model", "uk_data_model_project_name",
-                "alter table data_model add unique key uk_data_model_project_name (project_id, name)");
+        ensureDataModelNameUniqueIndexMysql();
         ensureIndex("data_model", "idx_data_model_project",
                 "alter table data_model add key idx_data_model_project (project_id)");
+        ensureIndex("data_model", "idx_data_model_tenant_project_created",
+                "alter table data_model add key idx_data_model_tenant_project_created (tenant_id, project_id, created_at)");
+        ensureIndex("data_model", "idx_data_model_tenant_datasource_created",
+                "alter table data_model add key idx_data_model_tenant_datasource_created (tenant_id, datasource_id, created_at)");
+        ensureIndex("model_sync_task", "uk_model_sync_task_project_datasource_batch",
+                "alter table model_sync_task add unique key uk_model_sync_task_project_datasource_batch (project_id, datasource_id, batch_no)");
+        ensureIndex("model_sync_task", "idx_model_sync_task_project_created",
+                "alter table model_sync_task add key idx_model_sync_task_project_created (project_id, created_at)");
+        ensureIndex("model_sync_task", "idx_model_sync_task_project_status",
+                "alter table model_sync_task add key idx_model_sync_task_project_status (project_id, status)");
+        ensureIndex("model_sync_task_item", "idx_model_sync_task_item_task_seq",
+                "alter table model_sync_task_item add key idx_model_sync_task_item_task_seq (task_id, seq_no)");
+        ensureIndex("model_sync_task_item", "idx_model_sync_task_item_task_status",
+                "alter table model_sync_task_item add key idx_model_sync_task_item_task_status (task_id, status)");
+        ensureIndex("field_mapping_rule", "idx_field_mapping_rule_type_enabled",
+                "alter table field_mapping_rule add key idx_field_mapping_rule_type_enabled (mapping_type, enabled)");
+        ensureIndex("field_mapping_rule", "idx_field_mapping_rule_created_at",
+                "alter table field_mapping_rule add key idx_field_mapping_rule_created_at (created_at)");
+        ensureIndex("field_mapping_rule_param", "idx_field_mapping_rule_param_rule_order",
+                "alter table field_mapping_rule_param add key idx_field_mapping_rule_param_rule_order (rule_id, param_order)");
+        ensureIndex("field_mapping_rule_param", "idx_field_mapping_rule_param_rule_name",
+                "alter table field_mapping_rule_param add key idx_field_mapping_rule_param_rule_name (rule_id, param_name)");
         ensureIndex("workflow_definition", "uk_workflow_definition_project_code",
                 "alter table workflow_definition add unique key uk_workflow_definition_project_code (project_id, code)");
         ensureIndex("workflow_definition", "uk_workflow_definition_project_name",
@@ -442,6 +542,86 @@ public class StudioSchemaUpgradeService {
                 ")");
         jdbcTemplate.execute("create index if not exists idx_collection_task_schedule_project on collection_task_schedule(project_id)");
 
+        jdbcTemplate.execute("create table if not exists model_sync_task (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "datasource_id integer not null," +
+                "datasource_type text," +
+                "datasource_name_snapshot text," +
+                "batch_no integer not null," +
+                "name text," +
+                "source text," +
+                "status text," +
+                "total_count integer default 0," +
+                "success_count integer default 0," +
+                "failed_count integer default 0," +
+                "stopped_count integer default 0," +
+                "progress_percent integer default 0," +
+                "stop_requested integer default 0," +
+                "created_by integer," +
+                "started_at text," +
+                "finished_at text," +
+                "duration_ms integer," +
+                "last_error text" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_model_sync_task_project_datasource_batch on model_sync_task(project_id, datasource_id, batch_no)");
+        jdbcTemplate.execute("create index if not exists idx_model_sync_task_project_created on model_sync_task(project_id, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_model_sync_task_project_status on model_sync_task(project_id, status)");
+
+        jdbcTemplate.execute("create table if not exists model_sync_task_item (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "task_id integer not null," +
+                "seq_no integer not null," +
+                "physical_locator text," +
+                "model_name_snapshot text," +
+                "status text," +
+                "message text," +
+                "started_at text," +
+                "finished_at text," +
+                "duration_ms integer" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_model_sync_task_item_task_seq on model_sync_task_item(task_id, seq_no)");
+        jdbcTemplate.execute("create index if not exists idx_model_sync_task_item_task_status on model_sync_task_item(task_id, status)");
+
+        jdbcTemplate.execute("create table if not exists field_mapping_rule (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "mapping_name text not null," +
+                "mapping_type text not null," +
+                "mapping_code text not null," +
+                "enabled integer default 1," +
+                "description text," +
+                "created_by integer" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_type_enabled on field_mapping_rule(mapping_type, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_created_at on field_mapping_rule(created_at)");
+
+        jdbcTemplate.execute("create table if not exists field_mapping_rule_param (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "rule_id integer not null," +
+                "param_name text not null," +
+                "param_order integer not null," +
+                "component_type text not null," +
+                "param_value_json text," +
+                "description text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_param_rule_order on field_mapping_rule_param(rule_id, param_order)");
+        jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_param_rule_name on field_mapping_rule_param(rule_id, param_name)");
+
         jdbcTemplate.execute("create table if not exists data_dev_directory (" +
                 "id integer primary key," +
                 "tenant_id text default 'default'," +
@@ -475,8 +655,10 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id)");
         jdbcTemplate.execute("create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name)");
         jdbcTemplate.execute("create index if not exists idx_datasource_definition_project on datasource_definition(project_id)");
-        jdbcTemplate.execute("create unique index if not exists uk_data_model_project_name on data_model(project_id, name)");
+        ensureDataModelNameUniqueIndexSqlite();
         jdbcTemplate.execute("create index if not exists idx_data_model_project on data_model(project_id)");
+        jdbcTemplate.execute("create index if not exists idx_data_model_tenant_project_created on data_model(tenant_id, project_id, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_model_tenant_datasource_created on data_model(tenant_id, datasource_id, created_at)");
         jdbcTemplate.execute("create unique index if not exists uk_workflow_definition_project_code on workflow_definition(project_id, code)");
         jdbcTemplate.execute("create unique index if not exists uk_workflow_definition_project_name on workflow_definition(project_id, name)");
         jdbcTemplate.execute("create index if not exists idx_workflow_definition_project on workflow_definition(project_id)");
@@ -589,7 +771,7 @@ public class StudioSchemaUpgradeService {
 
         jdbcTemplate.execute("create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name)");
         jdbcTemplate.execute("create index if not exists idx_datasource_definition_project on datasource_definition(project_id)");
-        jdbcTemplate.execute("create unique index if not exists uk_data_model_project_name on data_model(project_id, name)");
+        ensureDataModelNameUniqueIndexSqlite();
         jdbcTemplate.execute("create index if not exists idx_data_model_project on data_model(project_id)");
         jdbcTemplate.execute("create unique index if not exists uk_workflow_definition_project_code on workflow_definition(project_id, code)");
         jdbcTemplate.execute("create unique index if not exists uk_workflow_definition_project_name on workflow_definition(project_id, name)");
@@ -667,6 +849,34 @@ public class StudioSchemaUpgradeService {
         }
     }
 
+    private void ensureDataModelNameUniqueIndexMysql() {
+        if (!tableExists("data_model")) {
+            return;
+        }
+        if (indexExists("data_model", "uk_data_model_project_name")) {
+            jdbcTemplate.execute("alter table data_model drop index uk_data_model_project_name");
+        }
+        if (!indexMatchesColumns("data_model", "uk_data_model_project_datasource_name",
+                "project_id", "datasource_id", "name")) {
+            if (indexExists("data_model", "uk_data_model_project_datasource_name")) {
+                jdbcTemplate.execute("alter table data_model drop index uk_data_model_project_datasource_name");
+            }
+            jdbcTemplate.execute("alter table data_model add unique key uk_data_model_project_datasource_name (project_id, datasource_id, name)");
+        }
+    }
+
+    private void ensureDataModelNameUniqueIndexSqlite() {
+        if (!tableExists("data_model")) {
+            return;
+        }
+        jdbcTemplate.execute("drop index if exists uk_data_model_project_name");
+        if (!indexMatchesColumns("data_model", "uk_data_model_project_datasource_name",
+                "project_id", "datasource_id", "name")) {
+            jdbcTemplate.execute("drop index if exists uk_data_model_project_datasource_name");
+            jdbcTemplate.execute("create unique index if not exists uk_data_model_project_datasource_name on data_model(project_id, datasource_id, name)");
+        }
+    }
+
     private boolean tableExists(String tableName) {
         return Boolean.TRUE.equals(jdbcTemplate.execute((ConnectionCallback<Boolean>) connection -> {
             DatabaseMetaData metaData = connection.getMetaData();
@@ -712,6 +922,53 @@ public class StudioSchemaUpgradeService {
         if (!indexExists(tableName, indexName)) {
             jdbcTemplate.execute(ddl);
         }
+    }
+
+    private boolean indexMatchesColumns(String tableName, String indexName, String... expectedColumns) {
+        return Boolean.TRUE.equals(jdbcTemplate.execute((ConnectionCallback<Boolean>) connection -> {
+            DatabaseMetaData metaData = connection.getMetaData();
+            ResultSet indexes = metaData.getIndexInfo(connection.getCatalog(), null, tableName, false, false);
+            try {
+                return indexMatchesColumns(indexes, indexName, expectedColumns);
+            } finally {
+                indexes.close();
+            }
+        })) || Boolean.TRUE.equals(jdbcTemplate.execute((ConnectionCallback<Boolean>) connection -> {
+            DatabaseMetaData metaData = connection.getMetaData();
+            ResultSet indexes = metaData.getIndexInfo(connection.getCatalog(), null,
+                    tableName.toUpperCase(Locale.ENGLISH), false, false);
+            try {
+                return indexMatchesColumns(indexes, indexName, expectedColumns);
+            } finally {
+                indexes.close();
+            }
+        }));
+    }
+
+    private boolean indexMatchesColumns(ResultSet indexes, String indexName, String... expectedColumns) throws java.sql.SQLException {
+        java.util.Map<Short, String> actualColumns = new java.util.TreeMap<Short, String>();
+        while (indexes.next()) {
+            String current = indexes.getString("INDEX_NAME");
+            if (!indexName.equalsIgnoreCase(current)) {
+                continue;
+            }
+            String columnName = indexes.getString("COLUMN_NAME");
+            short ordinal = indexes.getShort("ORDINAL_POSITION");
+            if (columnName != null && ordinal > 0) {
+                actualColumns.put(ordinal, columnName.toLowerCase(Locale.ENGLISH));
+            }
+        }
+        if (actualColumns.size() != expectedColumns.length) {
+            return false;
+        }
+        int position = 0;
+        for (String actual : actualColumns.values()) {
+            if (!expectedColumns[position].equalsIgnoreCase(actual)) {
+                return false;
+            }
+            position++;
+        }
+        return true;
     }
 
     private boolean indexExists(String tableName, String indexName) {

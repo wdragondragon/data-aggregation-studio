@@ -26,7 +26,9 @@ import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.aggregation.pluginloader.spi.AbstractPlugin;
 import org.springframework.stereotype.Service;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +36,34 @@ import java.util.Set;
 
 @Service
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
+
+    public static class HydrationResult {
+        private final String physicalLocator;
+        private final DataModelDefinition definition;
+        private final String errorMessage;
+
+        public HydrationResult(String physicalLocator, DataModelDefinition definition, String errorMessage) {
+            this.physicalLocator = physicalLocator;
+            this.definition = definition;
+            this.errorMessage = errorMessage;
+        }
+
+        public String getPhysicalLocator() {
+            return physicalLocator;
+        }
+
+        public DataModelDefinition getDefinition() {
+            return definition;
+        }
+
+        public String getErrorMessage() {
+            return errorMessage;
+        }
+
+        public boolean isSuccess() {
+            return definition != null && (errorMessage == null || errorMessage.trim().isEmpty());
+        }
+    }
 
     private final EncryptionService encryptionService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
@@ -88,23 +118,35 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     @Override
     public ModelDiscoveryResult discoverModels(DataSourceDefinition definition) {
+        return discoverModels(definition, null);
+    }
+
+    @Override
+    public ModelDiscoveryResult discoverModels(DataSourceDefinition definition, String keyword) {
+        return discoverModels(definition, keyword, null, null);
+    }
+
+    @Override
+    public ModelDiscoveryResult discoverModels(DataSourceDefinition definition,
+                                               String keyword,
+                                               Integer pageNo,
+                                               Integer pageSize) {
         ModelDiscoveryResult result = new ModelDiscoveryResult();
         try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
             AbstractPlugin plugin = loader.loadPlugin();
             if (plugin instanceof AbstractDataSourcePlugin) {
                 AbstractDataSourcePlugin sourcePlugin = (AbstractDataSourcePlugin) plugin;
                 BaseDataSourceDTO datasource = toBaseDataSource(definition);
-                List<String> tableNames = sourcePlugin.getTableNames(datasource, "");
-                for (String tableName : tableNames) {
+                String normalizedKeyword = keyword == null ? "" : keyword.trim();
+                List<String> tableNames = sourcePlugin.getTableNames(datasource, normalizedKeyword);
+                List<String> pagedTableNames = paginate(tableNames, result, pageNo, pageSize);
+                for (String tableName : pagedTableNames) {
                     DataModelDefinition model = new DataModelDefinition();
-                    List<TableInfo> tableInfos = sourcePlugin.getTableInfos(datasource, tableName);
-                    TableInfo tableInfo = firstTableInfo(tableInfos, tableName);
-                    List<ColumnInfo> columns = sourcePlugin.getColumns(datasource, tableName);
                     model.setDatasourceId(definition.getId());
                     model.setName(tableName);
-                    model.setModelKind(resolveModelKind(tableInfo));
+                    model.setModelKind(ModelKind.TABLE);
                     model.setPhysicalLocator(tableName);
-                    model.setTechnicalMetadata(buildRelationalMetadata(definition, tableName, tableInfo, columns));
+                    model.setTechnicalMetadata(buildLightweightRelationalMetadata(definition, tableName));
                     model.setBusinessMetadata(buildEmptyBusinessMetadata());
                     result.getModels().add(model);
                 }
@@ -116,8 +158,16 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
                 String rootPath = String.valueOf(metadata.getOrDefault("rootPath", "/"));
                 String regex = String.valueOf(metadata.getOrDefault("pattern", ".*"));
+                String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
                 fileHelper.connect(Configuration.from(metadata));
+                List<String> fileNames = new ArrayList<String>();
                 for (String fileName : fileHelper.listFile(rootPath, regex)) {
+                    if (normalizedKeyword.isEmpty() || fileName.toLowerCase().contains(normalizedKeyword)) {
+                        fileNames.add(fileName);
+                    }
+                }
+                List<String> pagedFileNames = paginate(fileNames, result, pageNo, pageSize);
+                for (String fileName : pagedFileNames) {
                     DataModelDefinition model = new DataModelDefinition();
                     model.setDatasourceId(definition.getId());
                     model.setName(fileName);
@@ -132,14 +182,25 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             }
             if (plugin instanceof QueueAbstract) {
                 Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
+                String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
+                String modelName = String.valueOf(metadata.getOrDefault("topic", metadata.getOrDefault("queue", definition.getName())));
+                result.setPageNo(resolvePageNo(pageNo));
+                result.setPageSize(resolvePageSize(pageSize, 1));
+                result.setTotal(0L);
+                result.setHasMore(false);
+                if (!normalizedKeyword.isEmpty() && !modelName.toLowerCase().contains(normalizedKeyword)) {
+                    result.setMessage("Queue model does not match keyword");
+                    return result;
+                }
                 DataModelDefinition model = new DataModelDefinition();
                 model.setDatasourceId(definition.getId());
-                model.setName(String.valueOf(metadata.getOrDefault("topic", metadata.getOrDefault("queue", definition.getName()))));
+                model.setName(modelName);
                 model.setModelKind(ModelKind.TOPIC);
                 model.setPhysicalLocator(model.getName());
                 model.setTechnicalMetadata(buildQueueMetadata(definition, metadata, model.getName()));
                 model.setBusinessMetadata(buildEmptyBusinessMetadata());
                 result.getModels().add(model);
+                result.setTotal(1L);
                 result.setMessage("Queue model synthesized from datasource metadata");
                 return result;
             }
@@ -148,6 +209,139 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             result.setMessage(e.getMessage());
         }
         return result;
+    }
+
+    private List<String> paginate(List<String> names,
+                                  ModelDiscoveryResult result,
+                                  Integer pageNo,
+                                  Integer pageSize) {
+        List<String> source = names == null ? new ArrayList<String>() : names;
+        if (pageNo == null && pageSize == null) {
+            result.setTotal(source.size());
+            result.setPageNo(1);
+            result.setPageSize(source.size());
+            result.setHasMore(false);
+            return new ArrayList<String>(source);
+        }
+        int safePageNo = resolvePageNo(pageNo);
+        int safePageSize = resolvePageSize(pageSize, source.size());
+        int total = source.size();
+        int offset = Math.max(0, (safePageNo - 1) * safePageSize);
+        int end = Math.min(total, offset + safePageSize);
+        result.setTotal(total);
+        result.setPageNo(safePageNo);
+        result.setPageSize(safePageSize);
+        result.setHasMore(end < total);
+        if (offset >= total) {
+            return new ArrayList<String>();
+        }
+        return new ArrayList<String>(source.subList(offset, end));
+    }
+
+    private int resolvePageNo(Integer pageNo) {
+        return pageNo == null || pageNo.intValue() < 1 ? 1 : pageNo.intValue();
+    }
+
+    private int resolvePageSize(Integer pageSize, int defaultSize) {
+        int safeDefault = defaultSize <= 0 ? 200 : defaultSize;
+        int safePageSize = pageSize == null || pageSize.intValue() < 1 ? safeDefault : pageSize.intValue();
+        return Math.min(safePageSize, 1000);
+    }
+
+    public DataModelDefinition hydrateDiscoveredModel(DataSourceDefinition definition, DataModelDefinition definitionModel) {
+        if (definition == null || definitionModel == null) {
+            return definitionModel;
+        }
+        try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
+            AbstractPlugin plugin = loader.loadPlugin();
+            if (!(plugin instanceof AbstractDataSourcePlugin)) {
+                return definitionModel;
+            }
+            AbstractDataSourcePlugin sourcePlugin = (AbstractDataSourcePlugin) plugin;
+            BaseDataSourceDTO datasource = toBaseDataSource(definition);
+            String physicalLocator = definitionModel.getPhysicalLocator();
+            String resolvedTableName = physicalLocator == null || physicalLocator.trim().isEmpty()
+                    ? definitionModel.getName()
+                    : physicalLocator;
+            List<TableInfo> tableInfos = sourcePlugin.getTableInfos(datasource, resolvedTableName);
+            TableInfo tableInfo = firstTableInfo(tableInfos, resolvedTableName);
+            List<ColumnInfo> columns = sourcePlugin.getColumns(datasource, resolvedTableName);
+            definitionModel.setModelKind(resolveModelKind(tableInfo));
+            definitionModel.setTechnicalMetadata(buildRelationalMetadata(definition, resolvedTableName, tableInfo, columns));
+            if (definitionModel.getBusinessMetadata() == null) {
+                definitionModel.setBusinessMetadata(buildEmptyBusinessMetadata());
+            }
+            return definitionModel;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load model metadata for " + definitionModel.getPhysicalLocator(), e);
+        }
+    }
+
+    public List<HydrationResult> hydrateDiscoveredModels(DataSourceDefinition definition,
+                                                         List<DataModelDefinition> definitionModels) {
+        List<HydrationResult> results = new ArrayList<HydrationResult>();
+        if (definition == null || definitionModels == null || definitionModels.isEmpty()) {
+            return results;
+        }
+        try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
+            AbstractPlugin plugin = loader.loadPlugin();
+            if (!(plugin instanceof AbstractDataSourcePlugin)) {
+                for (DataModelDefinition item : definitionModels) {
+                    results.add(new HydrationResult(resolvePhysicalLocator(item), item, null));
+                }
+                return results;
+            }
+            AbstractDataSourcePlugin sourcePlugin = (AbstractDataSourcePlugin) plugin;
+            BaseDataSourceDTO datasource = toBaseDataSource(definition);
+            List<String> locators = new ArrayList<String>();
+            Map<String, DataModelDefinition> definitionsByLocator = new LinkedHashMap<String, DataModelDefinition>();
+            for (DataModelDefinition item : definitionModels) {
+                String locator = resolvePhysicalLocator(item);
+                if (locator == null || locator.trim().isEmpty()) {
+                    results.add(new HydrationResult(locator, null, "Physical locator is required"));
+                    continue;
+                }
+                locators.add(locator);
+                definitionsByLocator.put(locator, item);
+            }
+            if (locators.isEmpty()) {
+                return results;
+            }
+            try {
+                Map<String, List<TableInfo>> tableInfoMap = loadTableInfoMap(sourcePlugin, datasource, locators);
+                Map<String, List<ColumnInfo>> columnMap = loadColumnMap(sourcePlugin, datasource, locators);
+                for (String locator : locators) {
+                    DataModelDefinition source = definitionsByLocator.get(locator);
+                    try {
+                        List<TableInfo> tableInfos = tableInfoMap == null ? Collections.<TableInfo>emptyList()
+                                : tableInfoMap.get(locator);
+                        List<ColumnInfo> columns = columnMap == null ? Collections.<ColumnInfo>emptyList()
+                                : columnMap.get(locator);
+                        TableInfo tableInfo = firstTableInfo(tableInfos, locator);
+                        DataModelDefinition hydrated = cloneDefinition(source);
+                        hydrated.setModelKind(resolveModelKind(tableInfo));
+                        hydrated.setTechnicalMetadata(buildRelationalMetadata(definition, locator, tableInfo, columns));
+                        if (hydrated.getBusinessMetadata() == null) {
+                            hydrated.setBusinessMetadata(buildEmptyBusinessMetadata());
+                        }
+                        results.add(new HydrationResult(locator, hydrated, null));
+                    } catch (Exception itemException) {
+                        results.add(hydrateIndividually(definition, source, itemException));
+                    }
+                }
+                return results;
+            } catch (Exception batchException) {
+                for (String locator : locators) {
+                    results.add(hydrateIndividually(definition, definitionsByLocator.get(locator), batchException));
+                }
+                return results;
+            }
+        } catch (Exception e) {
+            for (DataModelDefinition item : definitionModels) {
+                results.add(new HydrationResult(resolvePhysicalLocator(item), null, e.getMessage()));
+            }
+            return results;
+        }
     }
 
     @Override
@@ -191,6 +385,103 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         return tableInfos.get(0);
     }
 
+    private HydrationResult hydrateIndividually(DataSourceDefinition definition,
+                                                DataModelDefinition item,
+                                                Exception originalBatchException) {
+        try {
+            return new HydrationResult(resolvePhysicalLocator(item), hydrateDiscoveredModel(definition, cloneDefinition(item)), null);
+        } catch (Exception itemException) {
+            String message = itemException.getMessage();
+            if ((message == null || message.trim().isEmpty()) && originalBatchException != null) {
+                message = originalBatchException.getMessage();
+            }
+            return new HydrationResult(resolvePhysicalLocator(item), null, message);
+        }
+    }
+
+    private DataModelDefinition cloneDefinition(DataModelDefinition source) {
+        if (source == null) {
+            return null;
+        }
+        DataModelDefinition target = new DataModelDefinition();
+        target.setId(source.getId());
+        target.setTenantId(source.getTenantId());
+        target.setProjectId(source.getProjectId());
+        target.setDeleted(source.getDeleted());
+        target.setCreatedAt(source.getCreatedAt());
+        target.setUpdatedAt(source.getUpdatedAt());
+        target.setDatasourceId(source.getDatasourceId());
+        target.setName(source.getName());
+        target.setModelKind(source.getModelKind());
+        target.setPhysicalLocator(source.getPhysicalLocator());
+        target.setSchemaVersionId(source.getSchemaVersionId());
+        target.setTechnicalMetadata(source.getTechnicalMetadata() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(source.getTechnicalMetadata()));
+        target.setBusinessMetadata(source.getBusinessMetadata() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(source.getBusinessMetadata()));
+        return target;
+    }
+
+    private String resolvePhysicalLocator(DataModelDefinition definitionModel) {
+        if (definitionModel == null) {
+            return null;
+        }
+        String physicalLocator = definitionModel.getPhysicalLocator();
+        if (physicalLocator != null && !physicalLocator.trim().isEmpty()) {
+            return physicalLocator.trim();
+        }
+        return definitionModel.getName();
+    }
+
+    private Map<String, List<TableInfo>> loadTableInfoMap(AbstractDataSourcePlugin sourcePlugin,
+                                                          BaseDataSourceDTO datasource,
+                                                          List<String> locators) throws Exception {
+        Method batchMethod = findBatchMethod(sourcePlugin.getClass(), "getTableInfos");
+        if (batchMethod != null) {
+            Object value = batchMethod.invoke(sourcePlugin, datasource, locators);
+            if (value instanceof Map) {
+                return (Map<String, List<TableInfo>>) value;
+            }
+        }
+        Map<String, List<TableInfo>> result = new LinkedHashMap<String, List<TableInfo>>();
+        for (String locator : locators) {
+            result.put(locator, sourcePlugin.getTableInfos(datasource, locator));
+        }
+        return result;
+    }
+
+    private Map<String, List<ColumnInfo>> loadColumnMap(AbstractDataSourcePlugin sourcePlugin,
+                                                        BaseDataSourceDTO datasource,
+                                                        List<String> locators) throws Exception {
+        Method batchMethod = findBatchMethod(sourcePlugin.getClass(), "getColumns");
+        if (batchMethod != null) {
+            Object value = batchMethod.invoke(sourcePlugin, datasource, locators);
+            if (value instanceof Map) {
+                return (Map<String, List<ColumnInfo>>) value;
+            }
+        }
+        Map<String, List<ColumnInfo>> result = new LinkedHashMap<String, List<ColumnInfo>>();
+        for (String locator : locators) {
+            result.put(locator, sourcePlugin.getColumns(datasource, locator));
+        }
+        return result;
+    }
+
+    private Method findBatchMethod(Class<?> pluginClass, String methodName) {
+        if (pluginClass == null || methodName == null || methodName.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            Method method = pluginClass.getMethod(methodName, BaseDataSourceDTO.class, List.class);
+            method.setAccessible(true);
+            return method;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private ModelKind resolveModelKind(TableInfo tableInfo) {
         if (tableInfo == null || tableInfo.getTableType() == null) {
             return ModelKind.TABLE;
@@ -222,6 +513,14 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 metadata.put("externalTable", tableInfo.getExternalTable());
             }
         }
+        return metadata;
+    }
+
+    private Map<String, Object> buildLightweightRelationalMetadata(DataSourceDefinition definition, String tableName) {
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("sourceType", definition.getTypeCode());
+        metadata.put("discoveryMode", "AUTO");
+        metadata.put("physicalName", tableName);
         return metadata;
     }
 

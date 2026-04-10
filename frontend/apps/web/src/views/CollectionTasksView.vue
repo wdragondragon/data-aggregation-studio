@@ -24,6 +24,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTasks.listTitle')" :description="t('web.collectionTasks.listDescription')">
+      <div class="task-table-wrap">
         <el-table :data="pagedTasks" border size="small" table-layout="fixed" class="task-table">
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
@@ -84,6 +85,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="taskPagination.page"
@@ -364,14 +366,17 @@ p {
 
 .task-filter-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  width: 100%;
+  max-width: 100%;
 }
 
 .task-filter-actions {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -388,6 +393,21 @@ p {
 .task-table,
 .task-run-table {
   width: 100%;
+}
+
+.task-table {
+  min-width: 1220px;
+}
+
+.task-run-table {
+  min-width: 940px;
+}
+
+.task-table-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .task-primary-cell,
@@ -423,11 +443,11 @@ p {
 
 @media (max-width: 1200px) {
   .task-filter-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .task-filter-actions {
-    justify-content: flex-start;
+    grid-column: 1 / -1;
   }
 
   .table-pagination {
@@ -436,6 +456,12 @@ p {
 
   .table-pagination :deep(.el-pagination) {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .task-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

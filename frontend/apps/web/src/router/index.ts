@@ -7,6 +7,7 @@ interface StudioMenuDescriptor {
   path: string;
   labelKey: string;
   captionKey: string;
+  requiredSystemRole?: string;
 }
 
 export const studioMenuDescriptors: StudioMenuDescriptor[] = [
@@ -15,19 +16,29 @@ export const studioMenuDescriptors: StudioMenuDescriptor[] = [
   { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
   { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
   { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
+  { path: "/statistics", labelKey: "routes.web.statistics.title", captionKey: "routes.web.statistics.menuCaption" },
   { path: "/data-development", labelKey: "routes.web.dataDevelopment.title", captionKey: "routes.web.dataDevelopment.menuCaption" },
+  {
+    path: "/field-mapping-rules",
+    labelKey: "routes.web.fieldMappingRules.title",
+    captionKey: "routes.web.fieldMappingRules.menuCaption",
+    requiredSystemRole: "SUPER_ADMIN",
+  },
   { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption" },
   { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
   { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
   { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
 ];
 
-export function resolveStudioMenus(t: (key: string) => string): StudioNavItem[] {
-  return studioMenuDescriptors.map((item) => ({
+export function resolveStudioMenus(t: (key: string) => string, systemRoleCodes: string[] = []): StudioNavItem[] {
+  const normalizedRoles = systemRoleCodes.map((item) => item.toUpperCase());
+  return studioMenuDescriptors
+    .filter((item) => !item.requiredSystemRole || normalizedRoles.includes(item.requiredSystemRole.toUpperCase()))
+    .map((item) => ({
     path: item.path,
     label: t(item.labelKey),
     caption: t(item.captionKey),
-  }));
+    }));
 }
 
 const routes: RouteRecordRaw[] = [
@@ -92,12 +103,28 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: "/models/statistics",
-        name: "model-statistics",
+        path: "/statistics",
+        name: "statistics",
         component: () => import("@/views/ModelStatisticsView.vue"),
         meta: {
-          titleKey: "routes.web.models.statisticsTitle",
-          subtitleKey: "routes.web.models.statisticsSubtitle",
+          titleKey: "routes.web.statistics.title",
+          subtitleKey: "routes.web.statistics.subtitle",
+        },
+      },
+      {
+        path: "/models/statistics",
+        name: "model-statistics",
+        redirect: {
+          name: "statistics",
+        },
+      },
+      {
+        path: "/models/sync-tasks/:taskId",
+        name: "model-sync-task-detail",
+        component: () => import("@/views/ModelSyncTaskDetailView.vue"),
+        meta: {
+          titleKey: "routes.web.models.syncTaskDetailTitle",
+          subtitleKey: "routes.web.models.syncTaskDetailSubtitle",
         },
       },
       {
@@ -116,6 +143,36 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.dataDevelopment.title",
           subtitleKey: "routes.web.dataDevelopment.subtitle",
+        },
+      },
+      {
+        path: "/field-mapping-rules",
+        name: "field-mapping-rules",
+        component: () => import("@/views/FieldMappingRulesView.vue"),
+        meta: {
+          titleKey: "routes.web.fieldMappingRules.title",
+          subtitleKey: "routes.web.fieldMappingRules.subtitle",
+          requiresSuperAdmin: true,
+        },
+      },
+      {
+        path: "/field-mapping-rules/new",
+        name: "field-mapping-rule-create",
+        component: () => import("@/views/FieldMappingRuleEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.fieldMappingRules.createTitle",
+          subtitleKey: "routes.web.fieldMappingRules.createSubtitle",
+          requiresSuperAdmin: true,
+        },
+      },
+      {
+        path: "/field-mapping-rules/:ruleId/edit",
+        name: "field-mapping-rule-edit",
+        component: () => import("@/views/FieldMappingRuleEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.fieldMappingRules.editTitle",
+          subtitleKey: "routes.web.fieldMappingRules.editSubtitle",
+          requiresSuperAdmin: true,
         },
       },
       {
@@ -236,6 +293,15 @@ router.beforeEach(async (to) => {
         redirect: to.fullPath,
       },
     };
+  }
+
+  if (to.meta.requiresSuperAdmin) {
+    const normalizedRoles = (authStore.systemRoleCodes ?? []).map((item) => item.toUpperCase());
+    if (!normalizedRoles.includes("SUPER_ADMIN")) {
+      return {
+        path: "/dashboard",
+      };
+    }
   }
 
   return true;

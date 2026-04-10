@@ -41,6 +41,8 @@ studio:
   encryption-secret: studio-secret-key
   worker-code: studio-server-worker
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
+  model-sync-task:
+    max-concurrency: ${STUDIO_MODEL_SYNC_TASK_MAX_CONCURRENCY:1}
   python:
     executable: ${STUDIO_PYTHON_EXECUTABLE:}
     execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}

@@ -250,6 +250,306 @@ class DataModelStatisticsRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
     }
 
+    @Test
+    void shouldListStatisticsOptionsByScopeAndFieldEligibility() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        syncMysqlTechnicalTableSchema(authorization);
+        createBusinessSchema(authorization,
+                "business:stats:eligible",
+                "可统计业务信息",
+                "table",
+                "stats",
+                "统计目录",
+                "SINGLE",
+                Arrays.asList(
+                        businessField("owner", "责任人", "STRING", true, false),
+                        businessField("secret", "敏感字段", "STRING", true, true),
+                        businessField("payload", "载荷", "JSON", true, false),
+                        businessField("hidden", "隐藏字段", "STRING", false, false)
+                ));
+        createBusinessSchema(authorization,
+                "business:stats:topic_only",
+                "消息业务信息",
+                "topic",
+                "stats",
+                "统计目录",
+                "SINGLE",
+                Arrays.asList(businessField("tag", "标签", "STRING", true, false)));
+
+        Map<String, Object> businessPayload = new LinkedHashMap<String, Object>();
+        businessPayload.put("targetScope", "BUSINESS");
+        MvcResult businessResult = mockMvc.perform(post("/api/v1/statistics/options")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(businessPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+
+        JsonNode businessData = readBody(businessResult).path("data");
+        assertThat(schemaCodes(businessData.path("targetSchemas")))
+                .contains("business:stats:eligible")
+                .contains("business:stats:topic_only")
+                .doesNotContain("technical:mysql8:table");
+        assertThat(schemaCodes(businessData.path("querySchemas")))
+                .contains("business:stats:eligible")
+                .contains("business:stats:topic_only")
+                .doesNotContain("technical:mysql8:table");
+
+        JsonNode businessSchema = findSchemaOptionByCode(businessData.path("targetSchemas"), "business:stats:eligible");
+        assertThat(fieldKeys(businessSchema.path("fields"))).containsExactly("owner");
+
+        Map<String, Object> narrowedBusinessPayload = new LinkedHashMap<String, Object>();
+        narrowedBusinessPayload.put("targetScope", "BUSINESS");
+        narrowedBusinessPayload.put("datasourceType", "mysql8");
+        MvcResult narrowedBusinessResult = mockMvc.perform(post("/api/v1/statistics/options")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(narrowedBusinessPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        JsonNode narrowedBusinessData = readBody(narrowedBusinessResult).path("data");
+        assertThat(schemaCodes(narrowedBusinessData.path("targetSchemas")))
+                .contains("business:stats:eligible")
+                .doesNotContain("technical:mysql8:table")
+                .doesNotContain("business:stats:topic_only");
+
+        Map<String, Object> technicalWithoutTypePayload = new LinkedHashMap<String, Object>();
+        technicalWithoutTypePayload.put("targetScope", "TECHNICAL");
+        MvcResult technicalWithoutTypeResult = mockMvc.perform(post("/api/v1/statistics/options")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(technicalWithoutTypePayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        JsonNode technicalWithoutTypeData = readBody(technicalWithoutTypeResult).path("data");
+        assertThat(technicalWithoutTypeData.path("targetSchemas").size()).isEqualTo(0);
+        assertThat(technicalWithoutTypeData.path("querySchemas").size()).isEqualTo(0);
+
+        Map<String, Object> technicalPayload = new LinkedHashMap<String, Object>();
+        technicalPayload.put("targetScope", "TECHNICAL");
+        technicalPayload.put("datasourceType", "mysql8");
+        MvcResult technicalResult = mockMvc.perform(post("/api/v1/statistics/options")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(technicalPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+
+        JsonNode technicalData = readBody(technicalResult).path("data");
+        assertThat(schemaCodes(technicalData.path("targetSchemas")))
+                .contains("technical:mysql8:table")
+                .doesNotContain("business:stats:eligible");
+        assertThat(schemaCodes(technicalData.path("querySchemas")))
+                .contains("technical:mysql8:table")
+                .contains("business:stats:eligible")
+                .doesNotContain("business:stats:topic_only");
+    }
+
+    @Test
+    void shouldQueryChartViewsForSingleBusinessField() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        Long tableSchemaVersionId = syncMysqlTechnicalTableSchema(authorization);
+        Long ownerSchemaVersionId = createBusinessSchema(authorization,
+                "business:chart:owner",
+                "图表责任人",
+                "table",
+                "chart",
+                "图表目录",
+                "SINGLE",
+                Arrays.asList(businessField("owner", "责任人", "STRING", true, false)));
+
+        Long projectId = createProject(authorization, "chart_stats", "Chart Stats");
+        Long datasourceId = createDatasource(authorization, projectId, "chart-ds");
+
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_table_1", singleBusinessMetadata(ownerSchemaVersionId, "owner", "alice"));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_table_2", singleBusinessMetadata(ownerSchemaVersionId, "owner", "bob"));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_table_3", singleBusinessMetadata(ownerSchemaVersionId, "owner", "bob"));
+
+        JsonNode bar = chartQuery(authorization, projectId, chartRequest("business:chart:owner", "owner", "BUSINESS", "BAR"));
+        assertThat(bar.path("data").path("xAxis")).hasSize(2);
+        assertThat(bar.path("data").path("tableRows").get(0).path("count").asLong()).isEqualTo(2L);
+
+        JsonNode pie = chartQuery(authorization, projectId, chartRequest("business:chart:owner", "owner", "BUSINESS", "PIE"));
+        assertThat(pie.path("data").path("series").get(0).path("type").asText()).isEqualTo("pie");
+        assertThat(pie.path("data").path("tableRows")).hasSize(2);
+
+        JsonNode topN = chartQuery(authorization, projectId, chartRequest("business:chart:owner", "owner", "BUSINESS", "TOPN"));
+        assertThat(topN.path("data").path("tableRows").get(0).path("label").asText()).isEqualTo("bob");
+        assertThat(topN.path("data").path("tableRows").get(0).path("count").asLong()).isEqualTo(2L);
+
+        Map<String, Object> trendRequest = chartRequest("business:chart:owner", "owner", "BUSINESS", "TREND");
+        trendRequest.put("days", 7);
+        JsonNode trend = chartQuery(authorization, projectId, trendRequest);
+        assertThat(trend.path("data").path("xAxis")).hasSize(7);
+        assertThat(trend.path("data").path("summaryMetrics").path("matchedModelCount").asLong()).isEqualTo(3L);
+        long trendCount = 0L;
+        for (JsonNode row : trend.path("data").path("tableRows")) {
+            trendCount += row.path("count").asLong();
+        }
+        assertThat(trendCount).isEqualTo(3L);
+    }
+
+    @Test
+    void shouldApplyTopNOnlyToRankingChart() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        Long tableSchemaVersionId = syncMysqlTechnicalTableSchema(authorization);
+        Long ownerSchemaVersionId = createBusinessSchema(authorization,
+                "business:chart:topn_only",
+                "TopN 仅排行",
+                "table",
+                "chart",
+                "图表目录",
+                "SINGLE",
+                Arrays.asList(businessField("owner", "责任人", "STRING", true, false)));
+
+        Long projectId = createProject(authorization, "chart_topn_only", "Chart TopN Only");
+        Long datasourceId = createDatasource(authorization, projectId, "chart-topn-only-ds");
+
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_topn_only_1", singleBusinessMetadata(ownerSchemaVersionId, "owner", "alice"));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_topn_only_2", singleBusinessMetadata(ownerSchemaVersionId, "owner", "bob"));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_topn_only_3", singleBusinessMetadata(ownerSchemaVersionId, "owner", "carol"));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_topn_only_4", singleBusinessMetadata(ownerSchemaVersionId, "owner", "carol"));
+
+        Map<String, Object> barRequest = chartRequest("business:chart:topn_only", "owner", "BUSINESS", "BAR");
+        barRequest.put("topN", 1);
+        JsonNode bar = chartQuery(authorization, projectId, barRequest);
+        assertThat(bar.path("data").path("tableRows")).hasSize(3);
+
+        Map<String, Object> pieRequest = chartRequest("business:chart:topn_only", "owner", "BUSINESS", "PIE");
+        pieRequest.put("topN", 1);
+        JsonNode pie = chartQuery(authorization, projectId, pieRequest);
+        assertThat(pie.path("data").path("tableRows")).hasSize(3);
+
+        Map<String, Object> topNRequest = chartRequest("business:chart:topn_only", "owner", "BUSINESS", "TOPN");
+        topNRequest.put("topN", 1);
+        JsonNode topN = chartQuery(authorization, projectId, topNRequest);
+        assertThat(topN.path("data").path("tableRows")).hasSize(1);
+        assertThat(topN.path("data").path("tableRows").get(0).path("label").asText()).isEqualTo("carol");
+        assertThat(topN.path("data").path("tableRows").get(0).path("count").asLong()).isEqualTo(2L);
+    }
+
+    @Test
+    void shouldAutoBucketNumericBarChartAndIgnoreIncomingBucketConfig() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        Long tableSchemaVersionId = syncMysqlTechnicalTableSchema(authorization);
+        Long scoreSchemaVersionId = createBusinessSchema(authorization,
+                "business:chart:auto_bucket",
+                "自动分桶评分",
+                "table",
+                "chart",
+                "图表目录",
+                "SINGLE",
+                Arrays.asList(businessField("score", "评分", "INTEGER", true, false)));
+
+        Long projectId = createProject(authorization, "chart_auto_bucket", "Chart Auto Bucket");
+        Long datasourceId = createDatasource(authorization, projectId, "chart-auto-bucket-ds");
+
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_auto_bucket_1", singleBusinessMetadata(scoreSchemaVersionId, "score", 3));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_auto_bucket_2", singleBusinessMetadata(scoreSchemaVersionId, "score", 17));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_auto_bucket_3", singleBusinessMetadata(scoreSchemaVersionId, "score", 24));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_auto_bucket_4", singleBusinessMetadata(scoreSchemaVersionId, "score", 39));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_auto_bucket_5", singleBusinessMetadata(scoreSchemaVersionId, "score", 42));
+
+        Map<String, Object> request = chartRequest("business:chart:auto_bucket", "score", "BUSINESS", "BAR");
+        Map<String, Object> bucketConfig = new LinkedHashMap<String, Object>();
+        bucketConfig.put("lowerBound", 10);
+        bucketConfig.put("upperBound", 30);
+        bucketConfig.put("step", 1);
+        request.put("bucketConfig", bucketConfig);
+
+        JsonNode bar = chartQuery(authorization, projectId, request);
+        JsonNode data = bar.path("data");
+        assertThat(data.path("summaryMetrics").path("effectiveLowerBound").decimalValue()).isEqualByComparingTo(new BigDecimal("0"));
+        assertThat(data.path("summaryMetrics").path("effectiveUpperBound").decimalValue()).isEqualByComparingTo(new BigDecimal("50"));
+        assertThat(data.path("summaryMetrics").path("effectiveStep").decimalValue()).isEqualByComparingTo(new BigDecimal("10"));
+        assertThat(data.path("summaryMetrics").path("effectiveBucketCount").asLong()).isEqualTo(5L);
+        assertThat(data.path("tableRows")).hasSize(5);
+
+        long total = 0L;
+        for (JsonNode row : data.path("tableRows")) {
+            total += row.path("count").asLong();
+        }
+        assertThat(total).isEqualTo(5L);
+    }
+
+    @Test
+    void shouldCollapseIdenticalNumericValuesIntoSingleAutomaticBucket() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        Long tableSchemaVersionId = syncMysqlTechnicalTableSchema(authorization);
+        Long scoreSchemaVersionId = createBusinessSchema(authorization,
+                "business:chart:single_bucket",
+                "单桶评分",
+                "table",
+                "chart",
+                "图表目录",
+                "SINGLE",
+                Arrays.asList(businessField("score", "评分", "INTEGER", true, false)));
+
+        Long projectId = createProject(authorization, "chart_single_bucket", "Chart Single Bucket");
+        Long datasourceId = createDatasource(authorization, projectId, "chart-single-bucket-ds");
+
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_single_bucket_1", singleBusinessMetadata(scoreSchemaVersionId, "score", 7));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_single_bucket_2", singleBusinessMetadata(scoreSchemaVersionId, "score", 7));
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_single_bucket_3", singleBusinessMetadata(scoreSchemaVersionId, "score", 7));
+
+        JsonNode bar = chartQuery(authorization, projectId, chartRequest("business:chart:single_bucket", "score", "BUSINESS", "BAR"));
+        JsonNode data = bar.path("data");
+        assertThat(data.path("summaryMetrics").path("effectiveLowerBound").decimalValue()).isEqualByComparingTo(new BigDecimal("7"));
+        assertThat(data.path("summaryMetrics").path("effectiveUpperBound").decimalValue()).isEqualByComparingTo(new BigDecimal("7"));
+        assertThat(data.path("summaryMetrics").path("effectiveBucketCount").asLong()).isEqualTo(1L);
+        assertThat(data.path("tableRows")).hasSize(1);
+        assertThat(data.path("tableRows").get(0).path("count").asLong()).isEqualTo(3L);
+    }
+
+    @Test
+    void shouldDisableTrendChartForMultipleMetaModel() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        Long tableSchemaVersionId = syncMysqlTechnicalTableSchema(authorization);
+        Long qualitySchemaVersionId = createBusinessSchema(authorization,
+                "business:chart:multiple",
+                "图表明细",
+                "field",
+                "chart",
+                "图表目录",
+                "MULTIPLE",
+                Arrays.asList(
+                        businessField("label", "标签", "STRING", true, false),
+                        businessField("score", "评分", "INTEGER", true, false)
+                ));
+
+        Long projectId = createProject(authorization, "chart_multiple_stats", "Chart Multiple Stats");
+        Long datasourceId = createDatasource(authorization, projectId, "chart-multi-ds");
+
+        createModel(authorization, projectId, datasourceId, tableSchemaVersionId,
+                "chart_multi_table",
+                multipleBusinessMetadata(qualitySchemaVersionId, Arrays.asList(
+                        row("label", "apple", "score", 5),
+                        row("label", "banana", "score", 7)
+                )));
+
+        JsonNode trend = chartQuery(authorization, projectId, chartRequest("business:chart:multiple", "label", "BUSINESS", "TREND"));
+        assertThat(trend.path("data").path("disabledReason").asText()).isNotBlank();
+    }
+
     private Long syncMysqlTechnicalTableSchema(String authorization) throws Exception {
         mockMvc.perform(post("/api/v1/meta-schemas/technical/sync/mysql8")
                         .header("Authorization", authorization))
@@ -343,6 +643,7 @@ class DataModelStatisticsRegressionTest extends StudioApiRegressionTestSupport {
                         .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
+        awaitIndexQueueIdle();
     }
 
     private JsonNode findSchemaByCode(String authorization,
@@ -469,6 +770,7 @@ class DataModelStatisticsRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();
+        awaitIndexQueueIdle();
         return readBody(result).path("data").path("id").asLong();
     }
 
@@ -504,12 +806,39 @@ class DataModelStatisticsRegressionTest extends StudioApiRegressionTestSupport {
         return readBody(result);
     }
 
+    private JsonNode chartQuery(String authorization,
+                                Long projectId,
+                                Map<String, Object> payload) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/statistics/charts/query")
+                        .header("Authorization", authorization)
+                        .header("X-Project-Id", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return readBody(result);
+    }
+
     private Map<String, Object> statisticsRequest(String schemaCode, String fieldKey, String statType) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("targetMetaSchemaCode", schemaCode);
         payload.put("targetFieldKey", fieldKey);
         payload.put("targetScope", "BUSINESS");
         payload.put("statType", statType);
+        return payload;
+    }
+
+    private Map<String, Object> chartRequest(String schemaCode,
+                                             String fieldKey,
+                                             String targetScope,
+                                             String chartType) {
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("targetMetaSchemaCode", schemaCode);
+        payload.put("targetFieldKey", fieldKey);
+        payload.put("targetScope", targetScope);
+        payload.put("chartType", chartType);
+        payload.put("topN", 10);
+        payload.put("timeMode", "CREATED_AT");
         return payload;
     }
 
@@ -567,6 +896,37 @@ class DataModelStatisticsRegressionTest extends StudioApiRegressionTestSupport {
         for (JsonNode bucket : buckets) {
             result.put(bucket.path("value").asText(), bucket.path("count").asLong());
         }
+        return result;
+    }
+
+    private List<String> schemaCodes(JsonNode schemas) {
+        List<String> result = new ArrayList<String>();
+        for (JsonNode schema : schemas) {
+            result.add(schema.path("schemaCode").asText());
+        }
+        return result;
+    }
+
+    private List<String> fieldKeys(JsonNode fields) {
+        List<String> result = new ArrayList<String>();
+        for (JsonNode field : fields) {
+            result.add(field.path("fieldKey").asText());
+        }
+        return result;
+    }
+
+    private JsonNode findSchemaOptionByCode(JsonNode schemas, String schemaCode) {
+        for (JsonNode schema : schemas) {
+            if (schemaCode.equals(schema.path("schemaCode").asText())) {
+                return schema;
+            }
+        }
+        throw new IllegalStateException("Unable to resolve schema option by code " + schemaCode);
+    }
+
+    private Map<String, Object> mapOf(String key, Object value) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put(key, value);
         return result;
     }
 

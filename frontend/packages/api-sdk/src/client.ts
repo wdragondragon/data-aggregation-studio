@@ -17,19 +17,29 @@ import type {
   DataDevelopmentScriptSaveRequest,
   DataDevelopmentTreeNode,
   DataModelDefinition,
+  DataModelIndexQueueStatusView,
   DataModelQueryRequest,
   DataModelStatisticsRequest,
+  DataModelStatisticsOptionsRequest,
+  DataModelStatisticsOptionsView,
+  DataModelStatisticsChartRequest,
+  DataModelStatisticsChartView,
   DataModelStatisticsView,
   DataModelSaveRequest,
   DataSourceDefinition,
   EntityId,
   ExportProjectBundle,
+  FieldMappingRuleSaveRequest,
+  FieldMappingRuleView,
   JobContainerConfig,
   LoginRequest,
   LoginResponse,
   MetadataSchemaDefinition,
   ModelSyncRequest,
   ModelDiscoveryResult,
+  ModelSyncTaskCreateRequest,
+  ModelSyncTaskItemView,
+  ModelSyncTaskView,
   PermissionEntity,
   PageResult,
   PluginCatalogEntry,
@@ -141,6 +151,33 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<CapabilityMatrix>({ url: "/catalog/capabilities", method: "GET" });
       },
     },
+    fieldMappingRules: {
+      list(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        mappingType?: string;
+        enabled?: boolean;
+      }) {
+        return request<PageResult<FieldMappingRuleView>>({ url: "/field-mapping-rules", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<FieldMappingRuleView>({ url: `/field-mapping-rules/${id}`, method: "GET" });
+      },
+      save(payload: FieldMappingRuleSaveRequest) {
+        return request<FieldMappingRuleView>({ url: "/field-mapping-rules", method: "POST", data: payload });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/field-mapping-rules/${id}`, method: "DELETE" });
+      },
+      options(mappingType?: string) {
+        return request<FieldMappingRuleView[]>({
+          url: "/field-mapping-rules/options",
+          method: "GET",
+          params: mappingType ? { mappingType } : undefined,
+        });
+      },
+    },
     metaSchemas: {
       list() {
         return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas", method: "GET" });
@@ -177,8 +214,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       testCurrent(payload: Record<string, unknown>) {
         return request<ConnectionTestResult>({ url: "/datasources/test", method: "POST", data: payload });
       },
-      discover(id: EntityId) {
-        return request<ModelDiscoveryResult>({ url: `/datasources/${id}/discover`, method: "POST" });
+      discover(id: EntityId, keywordOrOptions?: string | { keyword?: string; pageNo?: number; pageSize?: number }) {
+        const options = typeof keywordOrOptions === "string"
+          ? { keyword: keywordOrOptions }
+          : (keywordOrOptions ?? {});
+        const keyword = options.keyword?.trim();
+        return request<ModelDiscoveryResult>({
+          url: `/datasources/${id}/discover`,
+          method: "POST",
+          params: {
+            ...(keyword ? { keyword } : {}),
+            ...(options.pageNo ? { pageNo: options.pageNo } : {}),
+            ...(options.pageSize ? { pageSize: options.pageSize } : {}),
+          },
+        });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/datasources/${id}`, method: "DELETE" });
@@ -207,6 +256,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           params: datasourceId == null ? undefined : { datasourceId },
         });
       },
+      indexQueueStatus() {
+        return request<DataModelIndexQueueStatusView>({
+          url: "/models/index/queue-status",
+          method: "GET",
+        });
+      },
       sync(datasourceId: EntityId) {
         return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}/sync`, method: "POST" });
       },
@@ -225,6 +280,49 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       delete(modelId: EntityId) {
         return request<void>({ url: `/models/${modelId}`, method: "DELETE" });
+      },
+    },
+    modelSyncTasks: {
+      create(payload: ModelSyncTaskCreateRequest) {
+        return request<ModelSyncTaskView>({ url: "/model-sync-tasks", method: "POST", data: payload });
+      },
+      list(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        datasourceType?: string;
+        datasourceId?: EntityId;
+        status?: string;
+      }) {
+        return request<PageResult<ModelSyncTaskView>>({ url: "/model-sync-tasks", method: "GET", params });
+      },
+      get(taskId: EntityId) {
+        return request<ModelSyncTaskView>({ url: `/model-sync-tasks/${taskId}`, method: "GET" });
+      },
+      listItems(taskId: EntityId, params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        status?: string;
+      }) {
+        return request<PageResult<ModelSyncTaskItemView>>({
+          url: `/model-sync-tasks/${taskId}/items`,
+          method: "GET",
+          params,
+        });
+      },
+      stop(taskId: EntityId) {
+        return request<ModelSyncTaskView>({ url: `/model-sync-tasks/${taskId}/stop`, method: "POST" });
+      },
+      delete(taskId: EntityId) {
+        return request<void>({ url: `/model-sync-tasks/${taskId}`, method: "DELETE" });
+      },
+    },
+    statistics: {
+      options(payload?: DataModelStatisticsOptionsRequest) {
+        return request<DataModelStatisticsOptionsView>({ url: "/statistics/options", method: "POST", data: payload });
+      },
+      queryChart(payload: DataModelStatisticsChartRequest) {
+        return request<DataModelStatisticsChartView>({ url: "/statistics/charts/query", method: "POST", data: payload });
       },
     },
     workflows: {

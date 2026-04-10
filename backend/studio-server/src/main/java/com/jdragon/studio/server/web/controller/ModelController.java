@@ -2,12 +2,14 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataModelIndexQueueStatusView;
 import com.jdragon.studio.dto.model.DataModelStatisticsView;
 import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsRequest;
 import com.jdragon.studio.dto.model.request.ModelSyncRequest;
 import com.jdragon.studio.infra.service.DataModelService;
+import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.DataModelStatisticsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,11 +32,14 @@ import java.util.Map;
 public class ModelController {
 
     private final DataModelService dataModelService;
+    private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final DataModelStatisticsService dataModelStatisticsService;
 
     public ModelController(DataModelService dataModelService,
+                           DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                            DataModelStatisticsService dataModelStatisticsService) {
         this.dataModelService = dataModelService;
+        this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.dataModelStatisticsService = dataModelStatisticsService;
     }
 
@@ -105,5 +110,11 @@ public class ModelController {
     @PostMapping("/index/rebuild")
     public Result<Integer> rebuildIndex(@RequestParam(value = "datasourceId", required = false) Long datasourceId) {
         return Result.success(dataModelService.rebuildSearchIndex(datasourceId));
+    }
+
+    @Operation(summary = "Get model dynamic query index queue status")
+    @GetMapping("/index/queue-status")
+    public Result<DataModelIndexQueueStatusView> indexQueueStatus() {
+        return Result.success(dataModelIndexRebuildQueueService.currentStatus());
     }
 }

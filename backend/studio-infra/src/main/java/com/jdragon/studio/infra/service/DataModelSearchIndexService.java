@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,6 +54,39 @@ public class DataModelSearchIndexService {
         List<DataModelAttrIndexEntity> entries = buildIndexEntries(model, datasource);
         for (DataModelAttrIndexEntity entry : entries) {
             indexMapper.insert(entry);
+        }
+    }
+
+    @Transactional
+    public void rebuildModelIndexes(List<DataModelEntity> models,
+                                    Map<Long, DataSourceDefinition> datasourceMap) {
+        if (models == null || models.isEmpty()) {
+            return;
+        }
+        List<DataModelEntity> ordered = new ArrayList<DataModelEntity>();
+        for (DataModelEntity model : models) {
+            if (model == null || model.getId() == null) {
+                continue;
+            }
+            ordered.add(model);
+        }
+        ordered.sort(new Comparator<DataModelEntity>() {
+            @Override
+            public int compare(DataModelEntity left, DataModelEntity right) {
+                return Long.compare(left.getId(), right.getId());
+            }
+        });
+        for (DataModelEntity model : ordered) {
+            deleteByModelId(model.getId());
+        }
+        for (DataModelEntity model : ordered) {
+            DataSourceDefinition datasource = datasourceMap == null || model.getDatasourceId() == null
+                    ? null
+                    : datasourceMap.get(model.getDatasourceId());
+            List<DataModelAttrIndexEntity> entries = buildIndexEntries(model, datasource);
+            for (DataModelAttrIndexEntity entry : entries) {
+                indexMapper.insert(entry);
+            }
         }
     }
 

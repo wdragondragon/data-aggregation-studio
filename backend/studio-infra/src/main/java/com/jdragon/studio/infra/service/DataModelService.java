@@ -18,10 +18,14 @@ import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -32,11 +36,14 @@ import java.util.Set;
 @Service
 public class DataModelService {
 
+    private static final Logger log = LoggerFactory.getLogger(DataModelService.class);
+
     private final DataModelMapper dataModelMapper;
     private final DataSourceService dataSourceService;
     private final AggregationSourceCapabilityProvider modelDiscoveryProvider;
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelSearchIndexService dataModelSearchIndexService;
+    private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
@@ -47,6 +54,7 @@ public class DataModelService {
                             AggregationSourceCapabilityProvider modelDiscoveryProvider,
                             MetadataSchemaService metadataSchemaService,
                             DataModelSearchIndexService dataModelSearchIndexService,
+                            DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                             BusinessMetaModelMetadataService businessMetaModelMetadataService,
                             StudioSecurityService securityService,
                             ProjectResourceAccessService projectResourceAccessService,
@@ -56,6 +64,7 @@ public class DataModelService {
         this.modelDiscoveryProvider = modelDiscoveryProvider;
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
+        this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
@@ -131,53 +140,77 @@ public class DataModelService {
 
     @Transactional
     public List<DataModelDefinition> syncFromDatasource(Long datasourceId) {
-        return syncFromDatasource(datasourceId, null);
+        syncFromDatasourceAtomically(datasourceId, null);
+        return listByDatasource(datasourceId);
     }
 
     @Transactional
     public List<DataModelDefinition> syncFromDatasource(Long datasourceId, List<String> physicalLocators) {
+        syncFromDatasourceAtomically(datasourceId, physicalLocators);
+        return listByDatasource(datasourceId);
+    }
+
+    private void syncFromDatasourceAtomically(Long datasourceId, List<String> physicalLocators) {
         DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         String currentTenantId = securityService.currentTenantId();
-        List<DataModelDefinition> discovered = modelDiscoveryProvider.discoverModels(datasource).getModels();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
-        for (DataModelDefinition definition : discovered) {
-            if (!selectedLocators.isEmpty()
-                    && !selectedLocators.contains(definition.getPhysicalLocator())
-                    && !selectedLocators.contains(definition.getName())) {
-                continue;
+        List<DataModelDefinition> discovered = buildSyncCandidates(datasource, selectedLocators);
+        List<AggregationSourceCapabilityProvider.HydrationResult> hydratedModels = modelDiscoveryProvider
+                .hydrateDiscoveredModels(datasource, discovered);
+        List<DataModelEntity> savedEntities = new ArrayList<DataModelEntity>();
+        for (AggregationSourceCapabilityProvider.HydrationResult hydrated : hydratedModels) {
+            if (!hydrated.isSuccess() || hydrated.getDefinition() == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, resolveHydrationFailureMessage(hydrated));
             }
-            DataModelEntity existing = dataModelMapper.selectOne(new LambdaQueryWrapper<DataModelEntity>()
-                    .eq(DataModelEntity::getDatasourceId, datasourceId)
-                    .eq(DataModelEntity::getProjectId, currentProjectId)
-                    .eq(DataModelEntity::getPhysicalLocator, definition.getPhysicalLocator())
-                    .last("limit 1"));
-            DataModelEntity entity = existing == null ? new DataModelEntity() : existing;
-            entity.setTenantId(currentTenantId);
-            entity.setProjectId(currentProjectId);
-            entity.setDatasourceId(datasourceId);
-            entity.setName(definition.getName());
-            entity.setModelKind(definition.getModelKind() == null ? ModelKind.DATASET.name() : definition.getModelKind().name());
-            entity.setPhysicalLocator(definition.getPhysicalLocator());
-            Long schemaVersionId = resolveSchemaVersionId(definition, datasource.getTypeCode(), existing);
-            entity.setSchemaVersionId(schemaVersionId);
-            Map<String, Object> technicalMetadata = mergeTechnicalMetadata(existing == null ? null : existing.getTechnicalMetadata(),
-                    definition.getTechnicalMetadata());
-            entity.setTechnicalMetadata(normalizeTechnicalMetadata(technicalMetadata, datasource.getTypeCode(), schemaVersionId));
-            entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForModel(
-                    existing == null ? null : existing.getBusinessMetadata(),
-                    resolveAllowedBusinessMetaModelCodes(datasource.getTypeCode(), schemaVersionId)));
-            if (entity.getId() == null) {
-                dataModelMapper.insert(entity);
-            } else {
-                dataModelMapper.updateById(entity);
-            }
-            dataModelSearchIndexService.rebuildModelIndex(entity, datasource);
+            savedEntities.add(upsertHydratedModel(datasourceId, datasource, currentProjectId, currentTenantId, hydrated.getDefinition()));
         }
-        return listByDatasource(datasourceId);
+        dataModelIndexRebuildQueueService.enqueueModelRebuilds(extractModelIds(savedEntities));
+    }
+
+    @Transactional
+    public DataModelSyncBatchResult syncBatchFromDatasource(Long datasourceId, List<String> physicalLocators) {
+        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        if (datasource == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
+        }
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        String currentTenantId = securityService.currentTenantId();
+        Set<String> selectedLocators = normalizeLocators(physicalLocators);
+        List<DataModelDefinition> discovered = buildSyncCandidates(datasource, selectedLocators);
+        List<AggregationSourceCapabilityProvider.HydrationResult> hydratedModels = modelDiscoveryProvider
+                .hydrateDiscoveredModels(datasource, discovered);
+        DataModelSyncBatchResult result = new DataModelSyncBatchResult();
+        List<DataModelEntity> savedEntities = new ArrayList<DataModelEntity>();
+        for (AggregationSourceCapabilityProvider.HydrationResult hydrated : hydratedModels) {
+            DataModelSyncItemResult itemResult = new DataModelSyncItemResult();
+            itemResult.setPhysicalLocator(hydrated.getPhysicalLocator());
+            LocalDateTime startedAt = LocalDateTime.now();
+            itemResult.setStartedAt(startedAt);
+            try {
+                if (!hydrated.isSuccess() || hydrated.getDefinition() == null) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST, resolveHydrationFailureMessage(hydrated));
+                }
+                DataModelEntity entity = upsertHydratedModel(datasourceId, datasource, currentProjectId, currentTenantId, hydrated.getDefinition());
+                savedEntities.add(entity);
+                itemResult.setModelName(entity.getName());
+                itemResult.setSuccess(true);
+            } catch (Exception ex) {
+                itemResult.setSuccess(false);
+                itemResult.setMessage(ex.getMessage());
+                log.warn("Failed to sync model. datasourceId={}, physicalLocator={}, reason={}",
+                        datasourceId, hydrated.getPhysicalLocator(), ex.getMessage());
+            }
+            LocalDateTime finishedAt = LocalDateTime.now();
+            itemResult.setFinishedAt(finishedAt);
+            itemResult.setDurationMs(Long.valueOf(Duration.between(startedAt, finishedAt).toMillis()));
+            result.addItem(itemResult);
+        }
+        dataModelIndexRebuildQueueService.enqueueModelRebuilds(extractModelIds(savedEntities));
+        return result;
     }
 
     @Transactional
@@ -191,7 +224,7 @@ public class DataModelService {
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
         }
-        ensureUniqueName(currentProjectId, request.getName(), entity.getId());
+        ensureUniqueName(currentProjectId, request.getDatasourceId(), request.getName(), entity.getId());
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
         entity.setDatasourceId(request.getDatasourceId());
@@ -217,7 +250,7 @@ public class DataModelService {
         } else {
             dataModelMapper.updateById(entity);
         }
-        dataModelSearchIndexService.rebuildModelIndex(entity, datasource);
+        dataModelIndexRebuildQueueService.enqueueModelRebuild(entity.getId());
         return toDefinition(entity);
     }
 
@@ -233,8 +266,8 @@ public class DataModelService {
     @Transactional
     public void delete(Long modelId) {
         requireWritableEntity(modelId);
-        dataModelSearchIndexService.deleteByModelId(modelId);
         dataModelMapper.deleteById(modelId);
+        dataModelIndexRebuildQueueService.enqueueModelDelete(modelId);
     }
 
     @Transactional
@@ -245,19 +278,81 @@ public class DataModelService {
             queryWrapper.eq(DataModelEntity::getDatasourceId, datasourceId);
         }
         List<DataModelEntity> entities = dataModelMapper.selectList(queryWrapper);
-        Map<Long, DataSourceDefinition> datasourceCache = new LinkedHashMap<Long, DataSourceDefinition>();
-        for (DataModelEntity entity : entities) {
-            if (entity.getDatasourceId() == null) {
-                continue;
-            }
-            DataSourceDefinition datasource = datasourceCache.get(entity.getDatasourceId());
-            if (datasource == null) {
-                datasource = dataSourceService.getInternal(entity.getDatasourceId());
-                datasourceCache.put(entity.getDatasourceId(), datasource);
-            }
-            dataModelSearchIndexService.rebuildModelIndex(entity, datasource);
-        }
+        dataModelIndexRebuildQueueService.enqueueModelRebuilds(extractModelIds(entities));
         return entities.size();
+    }
+
+    private List<DataModelDefinition> buildSyncCandidates(DataSourceDefinition datasource,
+                                                          Set<String> selectedLocators) {
+        if (selectedLocators == null || selectedLocators.isEmpty()) {
+            return modelDiscoveryProvider.discoverModels(datasource).getModels();
+        }
+        List<DataModelDefinition> candidates = new ArrayList<DataModelDefinition>();
+        for (String locator : selectedLocators) {
+            DataModelDefinition definition = new DataModelDefinition();
+            definition.setDatasourceId(datasource.getId());
+            definition.setName(locator);
+            definition.setModelKind(ModelKind.TABLE);
+            definition.setPhysicalLocator(locator);
+            Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+            technicalMetadata.put("sourceType", datasource.getTypeCode());
+            technicalMetadata.put("discoveryMode", "AUTO");
+            technicalMetadata.put("physicalName", locator);
+            definition.setTechnicalMetadata(technicalMetadata);
+            definition.setBusinessMetadata(new LinkedHashMap<String, Object>());
+            candidates.add(definition);
+        }
+        return candidates;
+    }
+
+    private String resolveHydrationFailureMessage(AggregationSourceCapabilityProvider.HydrationResult hydrated) {
+        if (hydrated == null) {
+            return "Failed to load model metadata";
+        }
+        String physicalLocator = hydrated.getPhysicalLocator();
+        String message = hydrated.getErrorMessage();
+        if (message == null || message.trim().isEmpty()) {
+            message = "Failed to load model metadata";
+        }
+        if (physicalLocator == null || physicalLocator.trim().isEmpty()) {
+            return message;
+        }
+        return "Failed to load model metadata for " + physicalLocator + ": " + message;
+    }
+
+    private DataModelEntity upsertHydratedModel(Long datasourceId,
+                                                DataSourceDefinition datasource,
+                                                Long currentProjectId,
+                                                String currentTenantId,
+                                                DataModelDefinition hydratedDefinition) {
+        DataModelEntity existing = dataModelMapper.selectOne(new LambdaQueryWrapper<DataModelEntity>()
+                .eq(DataModelEntity::getDatasourceId, datasourceId)
+                .eq(DataModelEntity::getProjectId, currentProjectId)
+                .eq(DataModelEntity::getPhysicalLocator, hydratedDefinition.getPhysicalLocator())
+                .last("limit 1"));
+        ensureUniqueName(currentProjectId, datasourceId, hydratedDefinition.getName(),
+                existing == null ? null : existing.getId());
+        DataModelEntity entity = existing == null ? new DataModelEntity() : existing;
+        entity.setTenantId(currentTenantId);
+        entity.setProjectId(currentProjectId);
+        entity.setDatasourceId(datasourceId);
+        entity.setName(hydratedDefinition.getName());
+        entity.setModelKind(hydratedDefinition.getModelKind() == null ? ModelKind.DATASET.name() : hydratedDefinition.getModelKind().name());
+        entity.setPhysicalLocator(hydratedDefinition.getPhysicalLocator());
+        Long schemaVersionId = resolveSchemaVersionId(hydratedDefinition, datasource.getTypeCode(), existing);
+        entity.setSchemaVersionId(schemaVersionId);
+        Map<String, Object> technicalMetadata = mergeTechnicalMetadata(existing == null ? null : existing.getTechnicalMetadata(),
+                hydratedDefinition.getTechnicalMetadata());
+        entity.setTechnicalMetadata(normalizeTechnicalMetadata(technicalMetadata, datasource.getTypeCode(), schemaVersionId));
+        entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForModel(
+                existing == null ? null : existing.getBusinessMetadata(),
+                resolveAllowedBusinessMetaModelCodes(datasource.getTypeCode(), schemaVersionId)));
+        if (entity.getId() == null) {
+            dataModelMapper.insert(entity);
+        } else {
+            dataModelMapper.updateById(entity);
+        }
+        return entity;
     }
 
     private DataModelDefinition toDefinition(DataModelEntity entity) {
@@ -303,18 +398,19 @@ public class DataModelService {
         return entity;
     }
 
-    private void ensureUniqueName(Long projectId, String name, Long selfId) {
-        if (projectId == null || name == null || name.trim().isEmpty()) {
+    private void ensureUniqueName(Long projectId, Long datasourceId, String name, Long selfId) {
+        if (projectId == null || datasourceId == null || name == null || name.trim().isEmpty()) {
             return;
         }
         List<DataModelEntity> duplicates = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
                 .eq(DataModelEntity::getProjectId, projectId)
+                .eq(DataModelEntity::getDatasourceId, datasourceId)
                 .eq(DataModelEntity::getName, name.trim()));
         for (DataModelEntity duplicate : duplicates) {
             if (selfId != null && selfId.equals(duplicate.getId())) {
                 continue;
             }
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model name already exists in the current project");
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model name already exists in the current datasource");
         }
     }
 
@@ -324,6 +420,19 @@ public class DataModelService {
             result.add(toDefinition(entity));
         }
         return result;
+    }
+
+    private List<Long> extractModelIds(List<DataModelEntity> entities) {
+        List<Long> modelIds = new ArrayList<Long>();
+        if (entities == null) {
+            return modelIds;
+        }
+        for (DataModelEntity entity : entities) {
+            if (entity != null && entity.getId() != null) {
+                modelIds.add(entity.getId());
+            }
+        }
+        return modelIds;
     }
 
     private List<DataModelQueryGroup> normalizeQueryGroups(List<DataModelQueryGroup> groups) {

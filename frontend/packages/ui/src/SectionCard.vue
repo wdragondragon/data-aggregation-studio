@@ -27,6 +27,9 @@ withDefaults(defineProps<{
 
 <style scoped>
 .section-card {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--studio-border);
   border-radius: var(--studio-radius-xl);
   background: var(--studio-surface);

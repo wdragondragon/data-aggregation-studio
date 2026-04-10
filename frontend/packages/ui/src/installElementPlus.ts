@@ -1,6 +1,8 @@
 import type { App, Plugin } from "vue";
 import {
   ElButton,
+  ElCheckbox,
+  ElCheckboxGroup,
   ElDatePicker,
   ElDescriptions,
   ElDescriptionsItem,
@@ -33,6 +35,8 @@ import {
   ElLoading
 } from "element-plus";
 import "element-plus/es/components/button/style/css";
+import "element-plus/es/components/checkbox/style/css";
+import "element-plus/es/components/checkbox-group/style/css";
 import "element-plus/es/components/date-picker/style/css";
 import "element-plus/es/components/descriptions/style/css";
 import "element-plus/es/components/descriptions-item/style/css";
@@ -68,6 +72,8 @@ import "element-plus/es/components/loading/style/css";
 
 const components: Plugin[] = [
   ElButton,
+  ElCheckbox,
+  ElCheckboxGroup,
   ElDatePicker,
   ElDescriptions,
   ElDescriptionsItem,

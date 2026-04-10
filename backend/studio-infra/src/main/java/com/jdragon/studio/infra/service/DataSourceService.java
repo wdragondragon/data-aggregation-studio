@@ -34,7 +34,7 @@ public class DataSourceService {
     private final EncryptionService encryptionService;
     private final AggregationSourceCapabilityProvider capabilityProvider;
     private final MetadataSchemaService metadataSchemaService;
-    private final DataModelSearchIndexService dataModelSearchIndexService;
+    private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
@@ -44,7 +44,7 @@ public class DataSourceService {
                              EncryptionService encryptionService,
                              AggregationSourceCapabilityProvider capabilityProvider,
                              MetadataSchemaService metadataSchemaService,
-                             DataModelSearchIndexService dataModelSearchIndexService,
+                             DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                              BusinessMetaModelMetadataService businessMetaModelMetadataService,
                              StudioSecurityService securityService,
                              ProjectResourceAccessService projectResourceAccessService) {
@@ -53,7 +53,7 @@ public class DataSourceService {
         this.encryptionService = encryptionService;
         this.capabilityProvider = capabilityProvider;
         this.metadataSchemaService = metadataSchemaService;
-        this.dataModelSearchIndexService = dataModelSearchIndexService;
+        this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
@@ -119,17 +119,25 @@ public class DataSourceService {
     }
 
     public ModelDiscoveryResult discoverModels(Long id) {
+        return discoverModels(id, null);
+    }
+
+    public ModelDiscoveryResult discoverModels(Long id, String keyword) {
+        return discoverModels(id, keyword, null, null);
+    }
+
+    public ModelDiscoveryResult discoverModels(Long id, String keyword, Integer pageNo, Integer pageSize) {
         DataSourceDefinition definition = getInternal(id);
-        return capabilityProvider.discoverModels(definition);
+        return capabilityProvider.discoverModels(definition, keyword, pageNo, pageSize);
     }
 
     @Transactional
     public void delete(Long id) {
         requireWritableEntity(id);
-        dataModelSearchIndexService.deleteByDatasourceId(id);
         dataModelMapper.delete(new LambdaQueryWrapper<DataModelEntity>()
                 .eq(DataModelEntity::getDatasourceId, id));
         datasourceMapper.deleteById(id);
+        dataModelIndexRebuildQueueService.enqueueDatasourceDelete(id);
     }
 
     private DataSourceDefinition toDefinition(DatasourceEntity entity, boolean maskSensitive) {

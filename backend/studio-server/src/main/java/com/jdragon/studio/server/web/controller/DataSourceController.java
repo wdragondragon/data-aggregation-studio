@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
@@ -62,8 +63,11 @@ public class DataSourceController {
 
     @Operation(summary = "Discover models from datasource")
     @PostMapping("/{id}/discover")
-    public Result<ModelDiscoveryResult> discover(@PathVariable("id") Long id) {
-        return Result.success(dataSourceService.discoverModels(id));
+    public Result<ModelDiscoveryResult> discover(@PathVariable("id") Long id,
+                                                 @RequestParam(value = "keyword", required = false) String keyword,
+                                                 @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                 @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataSourceService.discoverModels(id, keyword, pageNo, pageSize));
     }
 
     @Operation(summary = "Delete datasource")

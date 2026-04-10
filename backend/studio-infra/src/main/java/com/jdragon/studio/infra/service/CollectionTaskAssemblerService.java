@@ -175,15 +175,31 @@ public class CollectionTaskAssemblerService {
                 Map<String, Object> item = new LinkedHashMap<String, Object>();
                 item.put("name", transformer.getTransformerCode());
                 Map<String, Object> parameters = new LinkedHashMap<String, Object>();
-                if (transformer.getParameters() != null) {
-                    parameters.putAll(transformer.getParameters());
-                }
                 parameters.put("columnIndex", columnIndex);
+                parameters.put("paras", extractRuntimeParas(transformer));
                 item.put("parameter", parameters);
                 transformers.add(item);
             }
         }
         return transformers;
+    }
+
+    private List<Object> extractRuntimeParas(TransformerBinding transformer) {
+        if (transformer == null || transformer.getParameters() == null || transformer.getParameters().isEmpty()) {
+            return Collections.emptyList();
+        }
+        Object paras = transformer.getParameters().get("paras");
+        if (paras instanceof List) {
+            return new ArrayList<Object>((List<Object>) paras);
+        }
+        List<Object> fallback = new ArrayList<Object>();
+        for (Map.Entry<String, Object> entry : transformer.getParameters().entrySet()) {
+            if ("columnIndex".equals(entry.getKey()) || "paras".equals(entry.getKey())) {
+                continue;
+            }
+            fallback.add(entry.getValue());
+        }
+        return fallback;
     }
 
     private Map<String, Object> buildConnectionConfig(DataSourceDefinition datasource) {
