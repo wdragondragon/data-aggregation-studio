@@ -1,5 +1,5 @@
 <template>
-  <el-drawer :model-value="modelValue" :title="t('web.runs.logTitle')" size="54%" @close="emit('update:modelValue', false)">
+  <el-drawer :model-value="modelValue" :title="drawerTitle" size="54%" @close="emit('update:modelValue', false)">
     <template v-if="activeRunRecord">
       <div class="log-section">
         <div class="log-action-row">
@@ -11,12 +11,13 @@
         </div>
         <div class="log-summary-grid compact-panel">
           <div><strong>{{ t("web.runs.collectionTask") }}:</strong> {{ activeRunRecord.collectionTaskName ?? t("common.none") }}</div>
-          <div><strong>{{ t("web.runs.node") }}:</strong> {{ activeRunRecord.nodeCode ?? t("common.none") }}</div>
+          <div v-if="!isCollectionTaskVariant"><strong>{{ t("web.runs.node") }}:</strong> {{ activeRunRecord.nodeCode ?? t("common.none") }}</div>
           <div class="log-status-row">
             <strong>{{ t("web.runs.status") }}:</strong>
             <span class="log-status-chip">{{ formatStatusLabel(t, activeRunRecord.status) }}</span>
           </div>
           <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerCode ?? t("common.none") }}</div>
+          <div v-if="isCollectionTaskVariant"><strong>{{ t("web.runs.startedAt") }}:</strong> {{ activeRunRecord.startedAt ?? t("common.none") }}</div>
         </div>
 
         <SectionCard :title="t('web.runMetrics.summaryTitle')" :description="t('web.runs.detailSummaryDescription')">
@@ -88,6 +89,7 @@ import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/run
 const props = defineProps<{
   modelValue: boolean;
   runRecordId?: EntityId | null;
+  variant?: "default" | "collection-task";
 }>();
 
 const emit = defineEmits<{
@@ -97,6 +99,8 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const activeRunRecord = ref<RunRecord | null>(null);
 const activeRunLog = ref<RunLogView | null>(null);
+const isCollectionTaskVariant = computed(() => props.variant === "collection-task");
+const drawerTitle = computed(() => (isCollectionTaskVariant.value ? t("web.collectionTaskRuns.heading") : t("web.runs.logTitle")));
 
 const displayedLogContent = computed(() => {
   const content = activeRunLog.value?.content;

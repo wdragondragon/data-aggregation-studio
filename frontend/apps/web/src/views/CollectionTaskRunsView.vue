@@ -102,17 +102,14 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column :label="`${t('web.runs.workflow')} / ${t('web.runs.node')}`" min-width="180">
-            <template #default="{ row }">
-              <div class="stack-cell">
-                <span>{{ row.workflowName || t("web.runs.directCollectionTask") }}</span>
-                <span class="cell-subtle">{{ row.nodeCode || t("common.none") }}</span>
-              </div>
-            </template>
-          </el-table-column>
           <el-table-column :label="t('web.runs.status')" width="108" align="center" header-align="center">
             <template #default="{ row }">
               <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.worker')" min-width="150">
+            <template #default="{ row }">
+              <span>{{ row.workerCode || t("common.none") }}</span>
             </template>
           </el-table-column>
           <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="190">
@@ -159,7 +156,7 @@
       </div>
     </SectionCard>
 
-    <RunLogDrawer v-model="logDrawerVisible" :run-record-id="activeRunRecordId" />
+    <RunLogDrawer v-model="logDrawerVisible" :run-record-id="activeRunRecordId" variant="collection-task" />
   </div>
 </template>
 
@@ -201,6 +198,9 @@ const filters = ref<{
 const filteredRunRecords = computed(() => {
   const normalizedStatus = String(filters.value.status || "").trim().toUpperCase();
   const items = allRunRecords.value.filter((item) => {
+    if (item.collectionTaskId == null) {
+      return false;
+    }
     if (!normalizedStatus) {
       return true;
     }
