@@ -8,6 +8,7 @@
       <div class="studio-toolbar-actions">
         <el-button @click="goBack">{{ t("common.backToList") }}</el-button>
         <el-button plain @click="loadDetail">{{ t("common.refresh") }}</el-button>
+        <FollowToggleButton v-if="route.params.workflowRunId" target-type="WORKFLOW_RUN" :target-id="String(route.params.workflowRunId)" />
       </div>
     </div>
 
@@ -113,6 +114,7 @@ import { useI18n } from "vue-i18n";
 import type { WorkflowRunDetail } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
+import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";

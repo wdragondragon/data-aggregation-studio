@@ -26,6 +26,7 @@
                 <el-button link type="primary" class="workflow-name-link" @click="viewWorkflow(row)">
                   {{ row.name }}
                 </el-button>
+                <FollowToggleButton v-if="row.id" target-type="WORKFLOW" :target-id="row.id" />
                 <span v-if="isSharedWorkflow(row)" class="cell-subtle">共享工作流只读</span>
               </div>
             </template>
@@ -84,6 +85,7 @@ import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";

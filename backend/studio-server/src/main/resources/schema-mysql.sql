@@ -180,6 +180,7 @@ create table if not exists field_mapping_rule (
     enabled int default 1,
     description varchar(1000),
     created_by bigint,
+    unique key uk_field_mapping_rule_code (mapping_code),
     key idx_field_mapping_rule_type_enabled (mapping_type, enabled),
     key idx_field_mapping_rule_created_at (created_at)
 );
@@ -197,6 +198,64 @@ create table if not exists field_mapping_rule_param (
     description varchar(1000),
     key idx_field_mapping_rule_param_rule_order (rule_id, param_order),
     key idx_field_mapping_rule_param_rule_name (rule_id, param_name)
+);
+
+create table if not exists user_registration_request (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    status varchar(64) not null,
+    username varchar(128) not null,
+    password_hash varchar(255) not null,
+    display_name varchar(255),
+    reason varchar(1000),
+    review_comment varchar(1000),
+    reviewer_user_id bigint,
+    approved_user_id bigint,
+    reviewed_at datetime,
+    key idx_user_registration_request_status_created (status, created_at),
+    unique key uk_user_registration_request_username_status (username, status)
+);
+
+create table if not exists studio_notification (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    recipient_user_id bigint not null,
+    tenant_id varchar(64),
+    project_id bigint,
+    category varchar(128),
+    title varchar(255),
+    content varchar(2000),
+    target_type varchar(128),
+    target_id bigint,
+    target_path varchar(1000),
+    target_tenant_id varchar(64),
+    target_project_id bigint,
+    dedupe_key varchar(255),
+    read_at datetime,
+    archived_at datetime,
+    payload_json json,
+    key idx_studio_notification_recipient_created (recipient_user_id, created_at),
+    key idx_studio_notification_recipient_unread (recipient_user_id, read_at, archived_at),
+    unique key uk_studio_notification_recipient_dedupe (recipient_user_id, dedupe_key)
+);
+
+create table if not exists studio_follow_subscription (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    user_id bigint not null,
+    target_type varchar(128) not null,
+    target_id bigint not null,
+    enabled int default 1,
+    unique key uk_studio_follow_subscription_target (tenant_id, project_id, user_id, target_type, target_id),
+    key idx_studio_follow_subscription_lookup (target_type, target_id, enabled)
 );
 
 create table if not exists meta_schema (
@@ -378,6 +437,7 @@ create table if not exists workflow_definition (
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
+    created_by bigint,
     code varchar(255),
     name varchar(255),
     current_version_id bigint,
@@ -454,6 +514,7 @@ create table if not exists collection_task_definition (
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
+    created_by bigint,
     name varchar(255),
     task_type varchar(64),
     status varchar(64),
@@ -526,6 +587,7 @@ create table if not exists dispatch_task (
     workflow_definition_id bigint,
     workflow_version_id bigint,
     collection_task_id bigint,
+    triggered_by_user_id bigint,
     run_record_id bigint,
     node_code varchar(255),
     status varchar(64),
@@ -550,19 +612,31 @@ create table if not exists run_record (
     workflow_definition_id bigint,
     workflow_version_id bigint,
     collection_task_id bigint,
+    triggered_by_user_id bigint,
     node_code varchar(255),
     status varchar(64),
     worker_code varchar(255),
     message varchar(2000),
     started_at datetime,
     ended_at datetime,
+    collected_records bigint,
+    read_succeed_records bigint,
+    read_failed_records bigint,
+    write_succeed_records bigint,
+    write_failed_records bigint,
+    failed_records bigint,
+    transformer_total_records bigint,
+    transformer_success_records bigint,
+    transformer_failed_records bigint,
+    transformer_filter_records bigint,
     log_file_path varchar(1000),
     log_size_bytes bigint,
     log_charset varchar(64),
     payload_json json,
     result_json json,
     key idx_run_record_project_created (project_id, created_at),
-    key idx_run_record_project_workflow_run (project_id, workflow_run_id)
+    key idx_run_record_project_workflow_run (project_id, workflow_run_id),
+    key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at)
 );
 
 create table if not exists worker_lease (

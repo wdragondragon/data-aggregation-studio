@@ -8,6 +8,7 @@
       <div class="studio-toolbar-actions">
         <el-button @click="goBack">返回列表</el-button>
         <el-button plain @click="loadDetail">刷新</el-button>
+        <FollowToggleButton v-if="task?.id" target-type="MODEL_SYNC_TASK" :target-id="task.id" />
         <el-button plain type="warning" :disabled="!canStop" @click="stopTask">停止</el-button>
         <el-button plain type="danger" :disabled="!canDelete" @click="deleteTask">删除</el-button>
       </div>
@@ -141,6 +142,7 @@ import { useI18n } from "vue-i18n";
 import type { ModelSyncTaskItemView, ModelSyncTaskView } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const route = useRoute();

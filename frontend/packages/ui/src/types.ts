@@ -1,7 +1,9 @@
 export interface StudioNavItem {
   label: string;
-  path: string;
+  path?: string;
+  key?: string;
   caption?: string;
+  children?: StudioNavItem[];
 }
 
 export interface StudioLocaleOption {

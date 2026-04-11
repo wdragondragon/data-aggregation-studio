@@ -7,6 +7,8 @@ import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
+import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
+import com.jdragon.studio.dto.model.request.UserRegistrationRequestReviewRequest;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberRequestEntity;
@@ -15,6 +17,7 @@ import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.TenantEntity;
 import com.jdragon.studio.infra.entity.TenantMemberEntity;
 import com.jdragon.studio.infra.service.SystemManagementService;
+import com.jdragon.studio.infra.service.UserRegistrationRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -34,9 +37,12 @@ import java.util.List;
 public class SystemManagementController {
 
     private final SystemManagementService systemManagementService;
+    private final UserRegistrationRequestService userRegistrationRequestService;
 
-    public SystemManagementController(SystemManagementService systemManagementService) {
+    public SystemManagementController(SystemManagementService systemManagementService,
+                                      UserRegistrationRequestService userRegistrationRequestService) {
         this.systemManagementService = systemManagementService;
+        this.userRegistrationRequestService = userRegistrationRequestService;
     }
 
     @Operation(summary = "List accessible tenants")
@@ -170,6 +176,33 @@ public class SystemManagementController {
     @DeleteMapping("/resource-shares/{id}")
     public Result<Void> deleteResourceShare(@PathVariable("id") Long id) {
         systemManagementService.deleteResourceShare(id);
+        return Result.success(null);
+    }
+
+    @Operation(summary = "List user registration requests")
+    @GetMapping("/user-registration-requests")
+    public Result<List<UserRegistrationRequestView>> listUserRegistrationRequests() {
+        return Result.success(userRegistrationRequestService.list());
+    }
+
+    @Operation(summary = "Approve user registration request")
+    @PostMapping("/user-registration-requests/{id}/approve")
+    public Result<UserRegistrationRequestView> approveUserRegistrationRequest(@PathVariable("id") Long id,
+                                                                              @RequestBody(required = false) UserRegistrationRequestReviewRequest request) {
+        return Result.success(userRegistrationRequestService.approve(id, request));
+    }
+
+    @Operation(summary = "Reject user registration request")
+    @PostMapping("/user-registration-requests/{id}/reject")
+    public Result<UserRegistrationRequestView> rejectUserRegistrationRequest(@PathVariable("id") Long id,
+                                                                             @RequestBody(required = false) UserRegistrationRequestReviewRequest request) {
+        return Result.success(userRegistrationRequestService.reject(id, request));
+    }
+
+    @Operation(summary = "Delete user registration request")
+    @DeleteMapping("/user-registration-requests/{id}")
+    public Result<Void> deleteUserRegistrationRequest(@PathVariable("id") Long id) {
+        userRegistrationRequestService.delete(id);
         return Result.success(null);
     }
 }

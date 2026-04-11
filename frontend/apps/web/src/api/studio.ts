@@ -44,8 +44,36 @@ export function setStoredProjectId(projectId: string | number | null | undefined
   window.localStorage.setItem(STUDIO_PROJECT_KEY, String(projectId));
 }
 
+export function resolveStudioApiBaseUrl(path = "") {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+  if (!path) {
+    return baseUrl;
+  }
+  if (path.startsWith("/")) {
+    return `${baseUrl}${path}`;
+  }
+  return `${baseUrl}/${path}`;
+}
+
+export function buildStudioRequestHeaders() {
+  const headers: Record<string, string> = {};
+  const token = getStoredToken();
+  const tenantId = getStoredTenantId();
+  const projectId = getStoredProjectId();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (tenantId) {
+    headers["X-Tenant-Id"] = tenantId;
+  }
+  if (projectId) {
+    headers["X-Project-Id"] = String(projectId);
+  }
+  return headers;
+}
+
 export const studioApi = createStudioApi({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api/v1",
+  baseURL: resolveStudioApiBaseUrl(),
   getToken: getStoredToken,
   getTenantId: getStoredTenantId,
   getProjectId: getStoredProjectId,

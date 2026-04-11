@@ -7,38 +7,124 @@ interface StudioMenuDescriptor {
   path: string;
   labelKey: string;
   captionKey: string;
-  requiredSystemRole?: string;
+  requiredRoleCodes?: string[];
+  requiresProject?: boolean;
+  visibleWhenNoProject?: boolean;
 }
 
-export const studioMenuDescriptors: StudioMenuDescriptor[] = [
-  { path: "/dashboard", labelKey: "routes.web.dashboard.title", captionKey: "routes.web.dashboard.menuCaption" },
-  { path: "/catalog", labelKey: "routes.web.catalog.title", captionKey: "routes.web.catalog.menuCaption" },
-  { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption" },
-  { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
-  { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
-  { path: "/statistics", labelKey: "routes.web.statistics.title", captionKey: "routes.web.statistics.menuCaption" },
-  { path: "/data-development", labelKey: "routes.web.dataDevelopment.title", captionKey: "routes.web.dataDevelopment.menuCaption" },
+interface StudioMenuGroupDescriptor {
+  key: string;
+  labelKey: string;
+  captionKey?: string;
+  items: StudioMenuDescriptor[];
+}
+
+export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
   {
-    path: "/field-mapping-rules",
-    labelKey: "routes.web.fieldMappingRules.title",
-    captionKey: "routes.web.fieldMappingRules.menuCaption",
-    requiredSystemRole: "SUPER_ADMIN",
+    key: "workspace",
+    labelKey: "routes.web.menuGroups.workspace.title",
+    captionKey: "routes.web.menuGroups.workspace.caption",
+    items: [
+      { path: "/dashboard", labelKey: "routes.web.dashboard.title", captionKey: "routes.web.dashboard.menuCaption", requiresProject: true },
+      { path: "/catalog", labelKey: "routes.web.catalog.title", captionKey: "routes.web.catalog.menuCaption", requiresProject: true },
+      { path: "/access-center", labelKey: "routes.web.accessCenter.title", captionKey: "routes.web.accessCenter.subtitle", visibleWhenNoProject: true },
+    ],
   },
-  { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption" },
-  { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
-  { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
-  { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
+  {
+    key: "assets",
+    labelKey: "routes.web.menuGroups.assets.title",
+    captionKey: "routes.web.menuGroups.assets.caption",
+    items: [
+      { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption", requiresProject: true },
+      { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption", requiresProject: true },
+      { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption", requiresProject: true },
+      { path: "/statistics", labelKey: "routes.web.statistics.title", captionKey: "routes.web.statistics.menuCaption", requiresProject: true },
+    ],
+  },
+  {
+    key: "collection",
+    labelKey: "routes.web.menuGroups.collection.title",
+    captionKey: "routes.web.menuGroups.collection.caption",
+    items: [
+      {
+        path: "/field-mapping-rules",
+        labelKey: "routes.web.fieldMappingRules.title",
+        captionKey: "routes.web.fieldMappingRules.menuCaption",
+        requiredRoleCodes: ["SUPER_ADMIN"],
+        requiresProject: true,
+      },
+      { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption", requiresProject: true },
+      { path: "/collection-task-runs", labelKey: "routes.web.collectionTaskRuns.title", captionKey: "routes.web.collectionTaskRuns.menuCaption", requiresProject: true },
+      { path: "/run-metrics", labelKey: "routes.web.runMetrics.title", captionKey: "routes.web.runMetrics.menuCaption", requiresProject: true },
+    ],
+  },
+  {
+    key: "development",
+    labelKey: "routes.web.menuGroups.development.title",
+    captionKey: "routes.web.menuGroups.development.caption",
+    items: [
+      { path: "/data-development", labelKey: "routes.web.dataDevelopment.title", captionKey: "routes.web.dataDevelopment.menuCaption", requiresProject: true },
+      { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption", requiresProject: true },
+      { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption", requiresProject: true },
+    ],
+  },
+  {
+    key: "administration",
+    labelKey: "routes.web.menuGroups.administration.title",
+    captionKey: "routes.web.menuGroups.administration.caption",
+    items: [
+      { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN"] },
+    ],
+  },
 ];
 
-export function resolveStudioMenus(t: (key: string) => string, systemRoleCodes: string[] = []): StudioNavItem[] {
-  const normalizedRoles = systemRoleCodes.map((item) => item.toUpperCase());
-  return studioMenuDescriptors
-    .filter((item) => !item.requiredSystemRole || normalizedRoles.includes(item.requiredSystemRole.toUpperCase()))
-    .map((item) => ({
-    path: item.path,
-    label: t(item.labelKey),
-    caption: t(item.captionKey),
-    }));
+export function resolveStudioMenus(
+  t: (key: string) => string,
+  context: {
+    systemRoleCodes?: string[];
+    effectiveRoleCodes?: string[];
+    hasProject?: boolean;
+  } = {},
+): StudioNavItem[] {
+  const normalizedRoles = [
+    ...(context.systemRoleCodes ?? []),
+    ...(context.effectiveRoleCodes ?? []),
+  ].map((item) => item.toUpperCase());
+  const hasProject = Boolean(context.hasProject);
+  const menus: StudioNavItem[] = [];
+  for (const group of studioMenuDescriptors) {
+    const children: StudioNavItem[] = group.items
+      .filter((item) => isMenuVisible(item, normalizedRoles, hasProject))
+      .map((item) => ({
+        key: item.path,
+        path: item.path,
+        label: t(item.labelKey),
+        caption: t(item.captionKey),
+      }));
+    if (children.length === 0) {
+      continue;
+    }
+    menus.push({
+      key: group.key,
+      label: t(group.labelKey),
+      caption: group.captionKey ? t(group.captionKey) : undefined,
+      children,
+    });
+  }
+  return menus;
+}
+
+function isMenuVisible(item: StudioMenuDescriptor, normalizedRoles: string[], hasProject: boolean) {
+  if (item.visibleWhenNoProject) {
+    return !hasProject;
+  }
+  if (item.requiresProject && !hasProject) {
+    return false;
+  }
+  if (!item.requiredRoleCodes || item.requiredRoleCodes.length === 0) {
+    return true;
+  }
+  return item.requiredRoleCodes.some((roleCode) => normalizedRoles.includes(roleCode.toUpperCase()));
 }
 
 const routes: RouteRecordRaw[] = [
@@ -53,10 +139,29 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: "/register",
+    name: "register",
+    component: () => import("@/views/RegisterView.vue"),
+    meta: {
+      public: true,
+      titleKey: "routes.web.register.title",
+      subtitleKey: "routes.web.register.subtitle",
+    },
+  },
+  {
     path: "/",
     component: StudioLayout,
     redirect: "/dashboard",
     children: [
+      {
+        path: "/access-center",
+        name: "access-center",
+        component: () => import("@/views/WorkspaceAccessView.vue"),
+        meta: {
+          titleKey: "routes.web.accessCenter.title",
+          subtitleKey: "routes.web.accessCenter.subtitle",
+        },
+      },
       {
         path: "/dashboard",
         name: "dashboard",
@@ -203,6 +308,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/collection-task-runs",
+        name: "collection-task-runs",
+        component: () => import("@/views/CollectionTaskRunsView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTaskRuns.title",
+          subtitleKey: "routes.web.collectionTaskRuns.subtitle",
+        },
+      },
+      {
         path: "/workflows",
         name: "workflows",
         component: () => import("@/views/WorkflowsView.vue"),
@@ -257,6 +371,24 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/run-metrics",
+        name: "run-metrics",
+        component: () => import("@/views/RunMetricsView.vue"),
+        meta: {
+          titleKey: "routes.web.runMetrics.title",
+          subtitleKey: "routes.web.runMetrics.subtitle",
+        },
+      },
+      {
+        path: "/notifications",
+        name: "notifications",
+        component: () => import("@/views/NotificationsView.vue"),
+        meta: {
+          titleKey: "routes.web.notifications.title",
+          subtitleKey: "routes.web.notifications.subtitle",
+        },
+      },
+      {
         path: "/system",
         name: "system",
         component: () => import("@/views/SystemView.vue"),
@@ -304,7 +436,33 @@ router.beforeEach(async (to) => {
     }
   }
 
+  if (!authStore.currentProjectId && !canAccessWithoutProject(to.path, authStore)) {
+    return {
+      path: "/access-center",
+    };
+  }
+
   return true;
 });
+
+function canAccessWithoutProject(path: string, authStore: ReturnType<typeof useAuthStore>) {
+  if (!path) {
+    return false;
+  }
+  if (path === "/access-center" || path.startsWith("/access-center/")) {
+    return true;
+  }
+  if (path === "/notifications" || path.startsWith("/notifications/")) {
+    return true;
+  }
+  if (path === "/system" || path.startsWith("/system/")) {
+    const roleCodes = [
+      ...(authStore.systemRoleCodes ?? []),
+      ...(authStore.effectiveRoleCodes ?? []),
+    ].map((item) => item.toUpperCase());
+    return roleCodes.includes("SUPER_ADMIN") || roleCodes.includes("TENANT_ADMIN");
+  }
+  return false;
+}
 
 export default router;

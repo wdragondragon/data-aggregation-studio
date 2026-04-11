@@ -20,6 +20,22 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface UserRegistrationRequestCreateRequest {
+  username: string;
+  password: string;
+  displayName?: string;
+  reason?: string;
+}
+
+export interface UserRegistrationRequestReviewRequest {
+  reviewComment?: string;
+}
+
+export interface WorkspaceAccessApplyRequest {
+  projectId: EntityId;
+  reason?: string;
+}
+
 export interface AuthTenant {
   tenantId: string;
   tenantCode?: string;
@@ -49,6 +65,52 @@ export interface AuthProfile {
   tenants: AuthTenant[];
   projects: AuthProject[];
 }
+
+export interface WorkspaceAccessProjectView {
+  projectId: EntityId;
+  tenantId: string;
+  tenantName?: string;
+  projectCode?: string;
+  projectName: string;
+  description?: string;
+  enabled?: boolean;
+  pendingRequestId?: EntityId | null;
+  pendingRequestStatus?: string | null;
+}
+
+export interface WorkspaceAccessTenantGroupView {
+  tenantId: string;
+  tenantCode?: string;
+  tenantName: string;
+  enabled?: boolean;
+  projects: WorkspaceAccessProjectView[];
+}
+
+export interface WorkspaceAccessRequestView {
+  requestId: EntityId;
+  projectId: EntityId;
+  tenantId: string;
+  tenantName?: string;
+  projectName?: string;
+  requestType?: string;
+  status?: string;
+  reason?: string;
+  reviewComment?: string;
+  createdAt?: string;
+  reviewedAt?: string | null;
+}
+
+export interface WorkspaceAccessOverviewView {
+  tenantGroups: WorkspaceAccessTenantGroupView[];
+  requests: WorkspaceAccessRequestView[];
+}
+
+export type FollowTargetType =
+  | "MODEL_SYNC_TASK"
+  | "COLLECTION_TASK"
+  | "COLLECTION_TASK_RUN"
+  | "WORKFLOW"
+  | "WORKFLOW_RUN";
 
 export interface LoginResponse extends AuthProfile {
   token: string;
@@ -675,8 +737,74 @@ export interface RunRecord extends BaseRecord {
   logFilePath?: string;
   logSizeBytes?: number;
   logCharset?: string;
+  metricSummary?: RunMetricSummary;
   payloadJson?: Record<string, unknown>;
   resultJson?: Record<string, unknown>;
+}
+
+export interface RunMetricSummary {
+  collectedRecords?: number | string | null;
+  successRecords?: number | string | null;
+  readSucceedRecords?: number | string | null;
+  readFailedRecords?: number | string | null;
+  writeSucceedRecords?: number | string | null;
+  writeFailedRecords?: number | string | null;
+  failedRecords?: number | string | null;
+  transformerTotalRecords?: number | string | null;
+  transformerSuccessRecords?: number | string | null;
+  transformerFailedRecords?: number | string | null;
+  transformerFilterRecords?: number | string | null;
+}
+
+export interface RunMetricFilterOption {
+  id?: EntityId;
+  name?: string;
+  label?: string;
+  typeCode?: string;
+}
+
+export interface RunMetricOptionsView {
+  datasources: RunMetricFilterOption[];
+  sourceModels: RunMetricFilterOption[];
+  targetModels: RunMetricFilterOption[];
+}
+
+export interface RunMetricTrendSeries {
+  key?: string;
+  name?: string;
+  data: Array<number | string | null>;
+}
+
+export interface RunMetricTrendView {
+  xAxis: string[];
+  series: RunMetricTrendSeries[];
+}
+
+export interface RunMetricTopNItem {
+  id?: EntityId;
+  name?: string;
+  label?: string;
+  typeCode?: string;
+  count?: number | string | null;
+}
+
+export interface RunMetricDashboardResponse {
+  trend: RunMetricTrendView;
+  sourceDatasourceTopN: RunMetricTopNItem[];
+  targetDatasourceTopN: RunMetricTopNItem[];
+  sourceModelTopN: RunMetricTopNItem[];
+  targetModelTopN: RunMetricTopNItem[];
+  legacyRunCount?: number | string | null;
+}
+
+export interface RunMetricDashboardQueryRequest {
+  datasourceId?: EntityId;
+  sourceModelId?: EntityId;
+  targetModelId?: EntityId;
+  startTime?: string;
+  endTime?: string;
+  granularity?: "DAY" | "WEEK" | "MONTH" | string;
+  topN?: number;
 }
 
 export interface RunLogView {
@@ -759,6 +887,58 @@ export interface StudioUser extends BaseRecord {
   displayName?: string;
   passwordHash?: string;
   enabled?: number | boolean;
+}
+
+export interface UserRegistrationRequestView extends BaseRecord {
+  status?: string;
+  username: string;
+  displayName?: string;
+  reason?: string;
+  reviewComment?: string;
+  reviewerUserId?: EntityId;
+  reviewerUsername?: string;
+  approvedUserId?: EntityId;
+  approvedUsername?: string;
+  reviewedAt?: string;
+}
+
+export interface NotificationView {
+  id?: EntityId;
+  category?: string;
+  title?: string;
+  content?: string;
+  targetType?: string;
+  targetId?: EntityId;
+  targetPath?: string;
+  targetTenantId?: string;
+  targetProjectId?: EntityId;
+  read?: boolean;
+  readAt?: string;
+  archivedAt?: string;
+  createdAt?: string;
+  payloadJson?: Record<string, unknown>;
+}
+
+export interface NotificationSnapshotView {
+  unreadCount?: number;
+  recentNotifications: NotificationView[];
+}
+
+export interface NotificationQueryRequest {
+  pageNo?: number;
+  pageSize?: number;
+  unreadOnly?: boolean;
+}
+
+export interface FollowRequest {
+  targetType: FollowTargetType | string;
+  targetId: EntityId;
+}
+
+export interface FollowStatusView {
+  targetType?: FollowTargetType | string;
+  targetId?: EntityId;
+  following?: boolean;
 }
 
 export interface SystemTenant extends BaseRecord {

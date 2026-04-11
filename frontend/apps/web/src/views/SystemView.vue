@@ -2,8 +2,8 @@
   <div class="studio-page">
     <div class="studio-toolbar">
       <div>
-        <h3>租户与项目管理</h3>
-        <p>当前上下文：{{ authStore.currentTenantName ?? "-" }} / {{ authStore.currentProjectName ?? "-" }}</p>
+        <h3>{{ t("web.system.heading") }}</h3>
+        <p>{{ t("web.system.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
         <el-button plain @click="loadPage">{{ t("common.refresh") }}</el-button>
@@ -16,6 +16,53 @@
 
     <SectionCard title="组织管理" description="统一管理租户、项目、成员、申请邀请和 Worker 下发关系。">
       <el-tabs v-model="activeTab">
+        <el-tab-pane v-if="isSuperAdmin" label="用户管理" name="users">
+          <div class="tab-toolbar">
+            <el-button type="primary" @click="openUserDialog()">新建用户</el-button>
+          </div>
+          <el-table :data="users" border size="small">
+            <el-table-column prop="username" label="用户名" min-width="160" />
+            <el-table-column prop="displayName" label="显示名" min-width="180" />
+            <el-table-column label="启用" width="110" align="center">
+              <template #default="{ row }">
+                <el-tag :type="toBooleanFlag(row.enabled) ? 'success' : 'info'">{{ toBooleanFlag(row.enabled) ? "开启" : "关闭" }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="创建时间" min-width="180" />
+            <el-table-column label="操作" width="180" align="center">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openUserDialog(row)">编辑</el-button>
+                <el-button link type="danger" @click="deleteUser(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="isSuperAdmin" label="注册登记" name="registrationRequests">
+          <el-table :data="registrationRequests" border size="small">
+            <el-table-column prop="status" label="状态" width="110" align="center" />
+            <el-table-column prop="username" label="用户名" min-width="160" />
+            <el-table-column prop="displayName" label="显示名" min-width="160" />
+            <el-table-column prop="reason" label="申请说明" min-width="220" />
+            <el-table-column prop="createdAt" label="提交时间" min-width="180" />
+            <el-table-column label="审批信息" min-width="220">
+              <template #default="{ row }">
+                <div class="stack-cell">
+                  <span>{{ row.reviewerUsername || "待处理" }}</span>
+                  <span class="cell-subtle">{{ row.reviewComment || "暂无审批备注" }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="220" align="center">
+              <template #default="{ row }">
+                <el-button link type="success" :disabled="row.status !== 'PENDING'" @click="approveRegistration(row)">通过</el-button>
+                <el-button link type="warning" :disabled="row.status !== 'PENDING'" @click="rejectRegistration(row)">拒绝</el-button>
+                <el-button link type="danger" @click="deleteRegistration(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
         <el-tab-pane label="租户" name="tenants">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openTenantDialog()">新建租户</el-button>
@@ -114,8 +161,24 @@
             <el-table-column prop="inviterUsername" label="邀请人" min-width="140" />
             <el-table-column prop="reviewerUsername" label="审批人" min-width="140" />
             <el-table-column prop="reason" label="原因" min-width="220" />
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="280" align="center">
               <template #default="{ row }">
+                <el-button
+                  v-if="canReviewProjectRequest(row)"
+                  link
+                  type="success"
+                  @click="approveProjectRequest(row)"
+                >
+                  通过
+                </el-button>
+                <el-button
+                  v-if="canReviewProjectRequest(row)"
+                  link
+                  type="warning"
+                  @click="rejectProjectRequest(row)"
+                >
+                  拒绝
+                </el-button>
                 <el-button link type="primary" @click="openRequestDialog(row)">编辑</el-button>
                 <el-button link type="danger" @click="deleteProjectRequest(row)">删除</el-button>
               </template>
@@ -185,6 +248,19 @@
         </el-tab-pane>
       </el-tabs>
     </SectionCard>
+
+    <el-dialog v-model="userDialogOpen" title="用户" width="480px">
+      <el-form label-position="top">
+        <el-form-item label="用户名"><el-input v-model="userForm.username" /></el-form-item>
+        <el-form-item label="显示名"><el-input v-model="userForm.displayName" /></el-form-item>
+        <el-form-item label="密码"><el-input v-model="userForm.passwordHash" type="password" show-password /></el-form-item>
+        <el-form-item label="启用"><el-switch v-model="userForm.enabled" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="userDialogOpen = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" @click="saveUser">{{ t("common.save") }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="tenantDialogOpen" title="租户" width="480px">
       <el-form label-position="top">
@@ -352,6 +428,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskDefinitionView,
@@ -368,6 +445,7 @@ import type {
   SystemProjectWorker,
   SystemTenant,
   SystemTenantMember,
+  UserRegistrationRequestView,
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
@@ -375,11 +453,15 @@ import { useAuthStore } from "@/stores/auth";
 import { resolveProjectName, sameEntityId } from "@/utils/studio";
 
 const { t } = useI18n();
+const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const activeTab = ref("tenants");
+const isSuperAdmin = computed(() => authStore.systemRoleCodes.map((item) => item.toUpperCase()).includes("SUPER_ADMIN"));
 const tenants = ref<SystemTenant[]>([]);
 const projects = ref<SystemProject[]>([]);
 const users = ref<StudioUser[]>([]);
+const registrationRequests = ref<UserRegistrationRequestView[]>([]);
 const tenantMembers = ref<SystemTenantMember[]>([]);
 const projectMembers = ref<SystemProjectMember[]>([]);
 const projectMemberRequests = ref<SystemProjectMemberRequest[]>([]);
@@ -391,6 +473,7 @@ const taskResources = ref<CollectionTaskDefinitionView[]>([]);
 const workflowResources = ref<WorkflowDefinitionView[]>([]);
 const dataDevelopmentScriptResources = ref<DataDevelopmentScript[]>([]);
 
+const userDialogOpen = ref(false);
 const tenantDialogOpen = ref(false);
 const projectDialogOpen = ref(false);
 const tenantMemberDialogOpen = ref(false);
@@ -399,6 +482,7 @@ const requestDialogOpen = ref(false);
 const workerDialogOpen = ref(false);
 const shareDialogOpen = ref(false);
 
+const userForm = reactive<Partial<StudioUser>>({ enabled: 1, passwordHash: "" });
 const tenantForm = reactive<Partial<SystemTenant>>({ enabled: true });
 const projectForm = reactive<Partial<SystemProject>>({ enabled: true, defaultProject: false });
 const tenantMemberForm = reactive<Partial<SystemTenantMember>>({ status: "ACTIVE", roleCode: "TENANT_ADMIN" });
@@ -428,10 +512,11 @@ function resetForm(target: Record<string, unknown>, defaults: Record<string, unk
 async function loadPage() {
   try {
     const currentProjectId = authStore.currentProjectId ?? undefined;
-    const [tenantData, projectData, userData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData, dataDevelopmentScriptData] = await Promise.all([
+    const [tenantData, projectData, userData, registrationRequestData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData, dataDevelopmentScriptData] = await Promise.all([
       studioApi.system.tenants.list(),
       studioApi.system.projects.list(),
-      studioApi.users.list(),
+      isSuperAdmin.value ? studioApi.users.list() : Promise.resolve([] as StudioUser[]),
+      isSuperAdmin.value ? studioApi.system.userRegistrationRequests.list() : Promise.resolve([] as UserRegistrationRequestView[]),
       studioApi.system.tenantMembers.list(),
       currentProjectId == null ? Promise.resolve([] as SystemProjectMember[]) : studioApi.system.projectMembers.list(currentProjectId),
       currentProjectId == null ? Promise.resolve([] as SystemProjectMemberRequest[]) : studioApi.system.projectMemberRequests.list(currentProjectId),
@@ -446,6 +531,7 @@ async function loadPage() {
     tenants.value = tenantData;
     projects.value = projectData;
     users.value = userData;
+    registrationRequests.value = registrationRequestData;
     tenantMembers.value = tenantMemberData;
     projectMembers.value = projectMemberData;
     projectMemberRequests.value = requestData;
@@ -542,6 +628,14 @@ function openTenantDialog(row?: SystemTenant) {
   tenantDialogOpen.value = true;
 }
 
+function openUserDialog(row?: StudioUser) {
+  resetForm(userForm as Record<string, unknown>, { enabled: 1, passwordHash: "" });
+  Object.assign(userForm, row ?? {});
+  userForm.enabled = toBooleanFlag(userForm.enabled);
+  userForm.passwordHash = "";
+  userDialogOpen.value = true;
+}
+
 function openProjectDialog(row?: SystemProject) {
   resetForm(projectForm as Record<string, unknown>, { enabled: true, defaultProject: false });
   Object.assign(projectForm, row ?? {});
@@ -568,6 +662,14 @@ function openRequestDialog(row?: SystemProjectMemberRequest) {
   requestDialogOpen.value = true;
 }
 
+function normalizeRequestValue(value?: string | null) {
+  return value?.trim().toUpperCase() ?? "";
+}
+
+function canReviewProjectRequest(row: SystemProjectMemberRequest) {
+  return normalizeRequestValue(row.requestType) === "APPLY" && normalizeRequestValue(row.status) === "PENDING";
+}
+
 function openWorkerDialog(row?: SystemProjectWorker) {
   resetForm(workerForm as Record<string, unknown>, { enabled: true });
   Object.assign(workerForm, row ?? {});
@@ -588,6 +690,15 @@ async function saveTenant() {
     enabled: toIntegerFlag(tenantForm.enabled),
   });
   await wrapSave(() => studioApi.system.tenants.save(payload), tenantDialogOpen, "租户保存成功");
+}
+
+async function saveUser() {
+  const payload: Partial<StudioUser> = {
+    ...userForm,
+    enabled: toIntegerFlag(userForm.enabled),
+    passwordHash: userForm.passwordHash?.trim() ? userForm.passwordHash.trim() : undefined,
+  };
+  await wrapSave(() => studioApi.users.save(payload), userDialogOpen, "用户保存成功");
 }
 
 async function saveProject() {
@@ -620,6 +731,60 @@ async function saveProjectRequest() {
   await wrapSave(() => studioApi.system.projectMemberRequests.save(payload), requestDialogOpen, "申请 / 邀请保存成功");
 }
 
+async function approveProjectRequest(row: SystemProjectMemberRequest) {
+  const result = await ElMessageBox.prompt("可选填写审批备注", "通过项目加入申请", {
+    confirmButtonText: "通过",
+    cancelButtonText: "取消",
+    inputValue: row.reviewComment ?? "",
+    inputPlaceholder: "如无需备注可留空",
+  }).catch((error: unknown) => {
+    if (error === "cancel" || error === "close") {
+      return null;
+    }
+    throw error;
+  });
+  if (result == null) {
+    return;
+  }
+  const payload = normalizeDeletedFlag<Partial<SystemProjectMemberRequest>>({
+    ...row,
+    projectId: requireCurrentProjectId(),
+    status: "APPROVED",
+    reviewComment: result.value?.trim() || undefined,
+  });
+  await studioApi.system.projectMemberRequests.save(payload);
+  ElMessage.success("项目加入申请已通过");
+  await loadPage();
+}
+
+async function rejectProjectRequest(row: SystemProjectMemberRequest) {
+  const result = await ElMessageBox.prompt("请填写拒绝原因", "拒绝项目加入申请", {
+    confirmButtonText: "拒绝",
+    cancelButtonText: "取消",
+    inputType: "textarea",
+    inputValue: row.reviewComment ?? "",
+    inputPlaceholder: "请输入拒绝原因",
+    inputValidator: (value) => (value?.trim() ? true : "请填写拒绝原因"),
+  }).catch((error: unknown) => {
+    if (error === "cancel" || error === "close") {
+      return null;
+    }
+    throw error;
+  });
+  if (result == null) {
+    return;
+  }
+  const payload = normalizeDeletedFlag<Partial<SystemProjectMemberRequest>>({
+    ...row,
+    projectId: requireCurrentProjectId(),
+    status: "REJECTED",
+    reviewComment: result.value.trim(),
+  });
+  await studioApi.system.projectMemberRequests.save(payload);
+  ElMessage.success("项目加入申请已拒绝");
+  await loadPage();
+}
+
 async function saveProjectWorker() {
   const payload = normalizeDeletedFlag<Partial<SystemProjectWorker>>({
     ...workerForm,
@@ -641,6 +806,10 @@ async function saveResourceShare() {
 
 async function deleteTenant(row: SystemTenant) {
   await confirmDelete(`确认删除租户 ${row.tenantName} 吗？`, () => studioApi.system.tenants.delete(row.id!));
+}
+
+async function deleteUser(row: StudioUser) {
+  await confirmDelete(`确认删除用户 ${row.username} 吗？`, () => studioApi.users.delete(row.id!));
 }
 
 async function deleteProject(row: SystemProject) {
@@ -665,6 +834,54 @@ async function deleteProjectWorker(row: SystemProjectWorker) {
 
 async function deleteResourceShare(row: ResourceShare) {
   await confirmDelete(`确认取消共享 ${resourceLabel(row)} 吗？`, () => studioApi.system.resourceShares.delete(row.id!));
+}
+
+async function approveRegistration(row: UserRegistrationRequestView) {
+  try {
+    const result = await ElMessageBox.prompt("可选填写审批备注", "通过注册登记", {
+      confirmButtonText: t("common.confirm"),
+      cancelButtonText: t("common.cancel"),
+      inputPlaceholder: "审批通过后会自动创建账号",
+    });
+    await studioApi.system.userRegistrationRequests.approve(row.id!, {
+      reviewComment: result.value?.trim() || undefined,
+    });
+    ElMessage.success("注册登记已通过");
+    await loadPage();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : "审批失败");
+    }
+  }
+}
+
+async function rejectRegistration(row: UserRegistrationRequestView) {
+  try {
+    const result = await ElMessageBox.prompt("请填写拒绝原因", "拒绝注册登记", {
+      confirmButtonText: t("common.confirm"),
+      cancelButtonText: t("common.cancel"),
+      inputPlaceholder: "请输入拒绝原因",
+      inputValidator: (value) => {
+        if (!value || !value.trim()) {
+          return "拒绝原因不能为空";
+        }
+        return true;
+      },
+    });
+    await studioApi.system.userRegistrationRequests.reject(row.id!, {
+      reviewComment: result.value.trim(),
+    });
+    ElMessage.success("注册登记已拒绝");
+    await loadPage();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : "审批失败");
+    }
+  }
+}
+
+async function deleteRegistration(row: UserRegistrationRequestView) {
+  await confirmDelete(`确认删除注册登记 ${row.username} 吗？`, () => studioApi.system.userRegistrationRequests.delete(row.id!));
 }
 
 async function wrapSave(action: () => Promise<unknown>, dialogFlag: { value: boolean }, successMessage: string) {
@@ -697,6 +914,28 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
   if (authStore.isAuthenticated) {
     loadPage();
   }
+});
+
+watch(() => route.query.tab, (value) => {
+  if (typeof value === "string" && value) {
+    if (!isSuperAdmin.value && (value === "users" || value === "registrationRequests")) {
+      activeTab.value = "tenants";
+      return;
+    }
+    activeTab.value = value;
+  }
+}, { immediate: true });
+
+watch(activeTab, (value) => {
+  if (route.query.tab === value) {
+    return;
+  }
+  router.replace({
+    query: {
+      ...route.query,
+      tab: value,
+    },
+  });
 });
 
 onMounted(() => {

@@ -169,6 +169,9 @@ public class WorkflowService {
         definition.setProjectId(currentProjectId);
         definition.setCode(request.getCode());
         definition.setName(request.getName());
+        if (definition.getId() == null && definition.getCreatedBy() == null) {
+            definition.setCreatedBy(securityService.currentUserId());
+        }
         if (definition.getId() == null) {
             definitionMapper.insert(definition);
         } else {

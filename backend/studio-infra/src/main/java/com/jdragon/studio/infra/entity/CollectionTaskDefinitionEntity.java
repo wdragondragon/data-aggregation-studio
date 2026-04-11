@@ -15,6 +15,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "collection_task_definition", autoResultMap = true)
 public class CollectionTaskDefinitionEntity extends BaseProjectTenantEntity {
+    private Long createdBy;
     private String name;
     private String taskType;
     private String status;

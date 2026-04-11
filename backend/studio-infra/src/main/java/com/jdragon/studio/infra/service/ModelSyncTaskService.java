@@ -49,6 +49,8 @@ public class ModelSyncTaskService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final Executor modelSyncTaskExecutor;
+    private final FollowSubscriptionService followSubscriptionService;
+    private final NotificationService notificationService;
     private final Object batchNoLock = new Object();
 
     public ModelSyncTaskService(ModelSyncTaskMapper modelSyncTaskMapper,
@@ -57,6 +59,8 @@ public class ModelSyncTaskService {
                                 DataModelService dataModelService,
                                 StudioSecurityService securityService,
                                 ProjectResourceAccessService projectResourceAccessService,
+                                FollowSubscriptionService followSubscriptionService,
+                                NotificationService notificationService,
                                 @Qualifier("modelSyncTaskExecutor") Executor modelSyncTaskExecutor) {
         this.modelSyncTaskMapper = modelSyncTaskMapper;
         this.modelSyncTaskItemMapper = modelSyncTaskItemMapper;
@@ -64,6 +68,8 @@ public class ModelSyncTaskService {
         this.dataModelService = dataModelService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.followSubscriptionService = followSubscriptionService;
+        this.notificationService = notificationService;
         this.modelSyncTaskExecutor = modelSyncTaskExecutor;
     }
 
@@ -408,6 +414,7 @@ public class ModelSyncTaskService {
         modelSyncTaskMapper.updateById(task);
         log.info("Finished model sync task. taskId={}, status={}, successCount={}, failedCount={}, stoppedCount={}, durationMs={}",
                 task.getId(), task.getStatus(), task.getSuccessCount(), task.getFailedCount(), task.getStoppedCount(), task.getDurationMs());
+        notifyTaskTerminal(task);
     }
 
     private void failTask(Long taskId, String errorMessage) {
@@ -624,5 +631,31 @@ public class ModelSyncTaskService {
         return ModelSyncTaskStatus.SUCCESS.name().equals(normalized)
                 || ModelSyncTaskStatus.FAILED.name().equals(normalized)
                 || ModelSyncTaskStatus.STOPPED.name().equals(normalized);
+    }
+
+    private void notifyTaskTerminal(ModelSyncTaskEntity task) {
+        if (task == null || !isTerminalTaskStatus(task.getStatus())) {
+            return;
+        }
+        Set<Long> recipientUserIds = new LinkedHashSet<Long>();
+        if (task.getCreatedBy() != null) {
+            recipientUserIds.add(task.getCreatedBy());
+        }
+        recipientUserIds.addAll(followSubscriptionService.followerUserIds(task.getTenantId(), task.getProjectId(),
+                com.jdragon.studio.commons.constant.StudioConstants.FOLLOW_TARGET_MODEL_SYNC_TASK, task.getId()));
+        if (recipientUserIds.isEmpty()) {
+            return;
+        }
+        notificationService.notifyUsers(new ArrayList<Long>(recipientUserIds),
+                new NotificationCommand()
+                        .setCategory(com.jdragon.studio.commons.constant.StudioConstants.NOTIFICATION_CATEGORY_MODEL_SYNC_TASK)
+                        .setTitle("模型同步任务已结束")
+                        .setContent("模型同步任务 " + task.getName() + " 当前状态为 " + task.getStatus() + "。")
+                        .setTargetType(com.jdragon.studio.commons.constant.StudioConstants.FOLLOW_TARGET_MODEL_SYNC_TASK)
+                        .setTargetId(task.getId())
+                        .setTargetPath("/models/sync-tasks/" + task.getId())
+                        .setTargetTenantId(task.getTenantId())
+                        .setTargetProjectId(task.getProjectId())
+                        .setDedupeKey("model-sync-task:" + task.getId() + ":" + task.getStatus()));
     }
 }

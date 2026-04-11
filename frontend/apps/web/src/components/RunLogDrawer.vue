@@ -2,6 +2,13 @@
   <el-drawer :model-value="modelValue" :title="t('web.runs.logTitle')" size="54%" @close="emit('update:modelValue', false)">
     <template v-if="activeRunRecord">
       <div class="log-section">
+        <div class="log-action-row">
+          <FollowToggleButton
+            v-if="activeRunRecord.id && activeRunRecord.collectionTaskId"
+            target-type="COLLECTION_TASK_RUN"
+            :target-id="activeRunRecord.id"
+          />
+        </div>
         <div class="log-summary-grid compact-panel">
           <div><strong>{{ t("web.runs.collectionTask") }}:</strong> {{ activeRunRecord.collectionTaskName ?? t("common.none") }}</div>
           <div><strong>{{ t("web.runs.node") }}:</strong> {{ activeRunRecord.nodeCode ?? t("common.none") }}</div>
@@ -11,6 +18,18 @@
           </div>
           <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerCode ?? t("common.none") }}</div>
         </div>
+
+        <SectionCard :title="t('web.runMetrics.summaryTitle')" :description="t('web.runs.detailSummaryDescription')">
+          <div class="metric-grid">
+            <MetricCard
+              v-for="metric in metricCards"
+              :key="metric.key"
+              :label="metric.label"
+              :value="metric.value"
+              :tone="metric.tone"
+            />
+          </div>
+        </SectionCard>
 
         <SectionCard :title="t('web.runs.messageTitle')" :description="t('web.runs.messageDescription')">
           <el-input
@@ -60,9 +79,11 @@ import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { EntityId, RunLogView, RunRecord } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { MetricCard, SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { formatStatusLabel } from "@/utils/studio";
+import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/runMetrics";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -83,6 +104,19 @@ const displayedLogContent = computed(() => {
     return "";
   }
   return String(content).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+});
+
+const metricCards = computed(() => {
+  const summary = activeRunRecord.value?.metricSummary;
+  return [
+    { key: "collected", label: metricLabel(t, "collectedRecords"), value: formatMetricNumber(metricSummaryValue(summary, "collectedRecords")), tone: "primary" as const },
+    { key: "success", label: metricLabel(t, "successRecords"), value: formatMetricNumber(metricSummaryValue(summary, "successRecords")), tone: "success" as const },
+    { key: "failed", label: metricLabel(t, "failedRecords"), value: formatMetricNumber(metricSummaryValue(summary, "failedRecords")), tone: "warning" as const },
+    { key: "transformerTotal", label: metricLabel(t, "transformerTotalRecords"), value: formatMetricNumber(metricSummaryValue(summary, "transformerTotalRecords")), tone: "accent" as const },
+    { key: "transformerSuccess", label: metricLabel(t, "transformerSuccessRecords"), value: formatMetricNumber(metricSummaryValue(summary, "transformerSuccessRecords")), tone: "success" as const },
+    { key: "transformerFailed", label: metricLabel(t, "transformerFailedRecords"), value: formatMetricNumber(metricSummaryValue(summary, "transformerFailedRecords")), tone: "warning" as const },
+    { key: "transformerFilter", label: metricLabel(t, "transformerFilterRecords"), value: formatMetricNumber(metricSummaryValue(summary, "transformerFilterRecords")), tone: "primary" as const },
+  ];
 });
 
 async function load() {
@@ -163,10 +197,21 @@ watch(
   gap: 12px;
 }
 
+.log-action-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .log-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 14px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
 }
 
 .compact-panel {

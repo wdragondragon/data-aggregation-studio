@@ -8,6 +8,7 @@ import com.jdragon.aggregation.core.enums.State;
 import com.jdragon.aggregation.core.job.JobContainer;
 import com.jdragon.aggregation.core.plugin.spi.reporter.JobPointReporter;
 import com.jdragon.aggregation.core.statistics.communication.Communication;
+import com.jdragon.aggregation.core.statistics.communication.CommunicationTool;
 import com.jdragon.aggregation.core.statistics.communication.RunStatus;
 import org.springframework.stereotype.Component;
 
@@ -60,12 +61,15 @@ public class AggregationNodeExecutor implements NodeExecutor {
             result.put("error", failure.getMessage());
             result.put("exceptionType", failure.getClass().getName());
         }
-        result.put("summary", buildSummary(config, runStatus, jobState));
+        result.put("summary", buildSummary(config, communication, runStatus, jobState));
         return result;
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> buildSummary(Map<String, Object> config, RunStatus runStatus, State jobState) {
+    private Map<String, Object> buildSummary(Map<String, Object> config,
+                                             Communication communication,
+                                             RunStatus runStatus,
+                                             State jobState) {
         Map<String, Object> summary = new LinkedHashMap<String, Object>();
         Map<String, Object> reader = valueAsMap(config.get("reader"));
         Map<String, Object> writer = valueAsMap(config.get("writer"));
@@ -77,13 +81,34 @@ public class AggregationNodeExecutor implements NodeExecutor {
         summary.put("target", summarizeEndpoint(writer));
         summary.put("jobState", jobState == null ? null : jobState.name());
         if (runStatus != null) {
+            long readSucceedRecords = communication == null ? 0L : communication.getLongCounter(CommunicationTool.READ_SUCCEED_RECORDS);
+            long readFailedRecords = communication == null ? 0L : communication.getLongCounter(CommunicationTool.READ_FAILED_RECORDS);
+            long writeFailedRecords = communication == null ? 0L : communication.getLongCounter(CommunicationTool.WRITE_FAILED_RECORDS);
+            long writeSucceedRecords = communication == null ? 0L : CommunicationTool.getWriteSucceedRecords(communication);
+            long totalReadRecords = communication == null ? runStatus.getTotal() : CommunicationTool.getTotalReadRecords(communication);
+            long totalErrorRecords = communication == null ? runStatus.getError() : CommunicationTool.getTotalErrorRecords(communication);
+            long successRecords = Math.max(0L, readSucceedRecords - writeFailedRecords);
+            long transformerSuccess = runStatus.getTransformerSuccess();
+            long transformerError = runStatus.getTransformerError();
+            long transformerFilter = runStatus.getTransformerFilter();
             summary.put("totalRecords", runStatus.getTotal());
             summary.put("totalBytes", runStatus.getBytes());
             summary.put("errorRecords", runStatus.getError());
             summary.put("errorBytes", runStatus.getBytesError());
-            summary.put("transformerSuccess", runStatus.getTransformerSuccess());
-            summary.put("transformerError", runStatus.getTransformerError());
-            summary.put("transformerFilter", runStatus.getTransformerFilter());
+            summary.put("collectedRecords", totalReadRecords);
+            summary.put("successRecords", successRecords);
+            summary.put("readSucceedRecords", readSucceedRecords);
+            summary.put("readFailedRecords", readFailedRecords);
+            summary.put("writeSucceedRecords", writeSucceedRecords);
+            summary.put("writeFailedRecords", writeFailedRecords);
+            summary.put("failedRecords", totalErrorRecords);
+            summary.put("transformerTotalRecords", transformerSuccess + transformerError + transformerFilter);
+            summary.put("transformerSuccessRecords", transformerSuccess);
+            summary.put("transformerFailedRecords", transformerError);
+            summary.put("transformerFilterRecords", transformerFilter);
+            summary.put("transformerSuccess", transformerSuccess);
+            summary.put("transformerError", transformerError);
+            summary.put("transformerFilter", transformerFilter);
             summary.put("recordSpeed", runStatus.getRecordSpeed());
             summary.put("byteSpeed", runStatus.getByteSpeed());
         }

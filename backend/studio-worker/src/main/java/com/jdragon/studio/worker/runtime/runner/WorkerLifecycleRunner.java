@@ -299,6 +299,7 @@ public class WorkerLifecycleRunner {
         event.setLogFilePath(runRecord.getLogFilePath());
         event.setLogSizeBytes(logSizeBytes);
         event.setLogCharset(runRecord.getLogCharset());
+        event.setTriggeredByUserId(runRecord.getTriggeredByUserId());
         event.setPayload(payload);
         executionEventPublisher.publish(event);
     }
@@ -314,6 +315,7 @@ public class WorkerLifecycleRunner {
         entity.setCollectionTaskId(task.getCollectionTaskId());
         entity.setNodeCode(task.getNodeCode());
         entity.setWorkerCode(properties.getWorkerCode());
+        entity.setTriggeredByUserId(task.getTriggeredByUserId());
         entity.setStatus("RUNNING");
         entity.setMessage("Task execution started");
         entity.setStartedAt(startedAt);

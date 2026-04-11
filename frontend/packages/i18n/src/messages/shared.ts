@@ -22,6 +22,8 @@ export const sharedMessages = {
       backToList: "Back To List",
       edit: "Edit",
       delete: "Delete",
+      actions: "Actions",
+      status: "Status",
       publish: "Publish",
       test: "Test",
       discover: "Discover",
@@ -74,11 +76,14 @@ export const sharedMessages = {
       manualTrigger: "Manual trigger",
       loggedInAs: "{subtitle} Logged in as {username}.",
       loggedInContext: "{subtitle} Logged in as {username}. Current context: {tenant} / {project}.",
+      loggedInNoProjectContext: "{subtitle} Logged in as {username}. No tenant or project is currently bound.",
       fields: "{count} fields",
       tenant: "Tenant",
       project: "Project",
       selectTenant: "Select tenant",
       selectProject: "Select project",
+      noProjectBound: "No project bound",
+      openAccessCenter: "Open access center",
       collapseSidebar: "Collapse sidebar",
       expandSidebar: "Expand sidebar",
       contextSwitchFailed: "Failed to switch tenant or project.",
@@ -95,9 +100,39 @@ export const sharedMessages = {
     },
     routes: {
       web: {
+        menuGroups: {
+          workspace: {
+            title: "Workspace",
+            caption: "Overview and capability entry points",
+          },
+          assets: {
+            title: "Data Assets",
+            caption: "Metadata, datasources, models and statistics",
+          },
+          collection: {
+            title: "Data Collection",
+            caption: "Mapping rules, collection tasks and metrics",
+          },
+          development: {
+            title: "Data Development",
+            caption: "Scripts, workflows and workflow logs",
+          },
+          administration: {
+            title: "Administration",
+            caption: "Platform and permission management",
+          },
+        },
         login: {
           title: "Sign In",
           subtitle: "Use the seeded admin account to enter the studio.",
+        },
+        register: {
+          title: "Register",
+          subtitle: "Submit a registration request for administrator approval.",
+        },
+        accessCenter: {
+          title: "Access Center",
+          subtitle: "Request access when your account has not joined any tenant project yet.",
         },
         dashboard: {
           title: "Dashboard",
@@ -149,6 +184,11 @@ export const sharedMessages = {
           editTitle: "Edit Collection Task",
           editSubtitle: "Adjust bindings, mappings and schedule for an existing collection task.",
         },
+        collectionTaskRuns: {
+          title: "Collection Task Logs",
+          subtitle: "Review collection task execution history and drill down into worker logs.",
+          menuCaption: "Collection task run history and logs",
+        },
         fieldMappingRules: {
           title: "Field Mapping Rules",
           subtitle: "Register reusable mapping methods and parameter definitions for collection tasks.",
@@ -175,6 +215,15 @@ export const sharedMessages = {
           menuCaption: "Workflow run history and node logs",
           detailTitle: "Workflow Run Detail",
           detailSubtitle: "Inspect the DAG status of a workflow run and drill down into node logs.",
+        },
+        runMetrics: {
+          title: "Run Metrics",
+          subtitle: "Inspect collection task run indicators with trends and TopN rankings.",
+          menuCaption: "Run indicators and historical monitoring",
+        },
+        notifications: {
+          title: "Notifications",
+          subtitle: "Review inbox messages, approvals and task state changes in one place.",
         },
         system: {
           title: "System Management",
@@ -227,6 +276,8 @@ export const sharedMessages = {
       backToList: "返回列表",
       edit: "编辑",
       delete: "删除",
+      actions: "操作",
+      status: "状态",
       publish: "发布",
       test: "测试",
       discover: "发现",
@@ -279,11 +330,14 @@ export const sharedMessages = {
       manualTrigger: "手动触发",
       loggedInAs: "{subtitle} 当前登录用户：{username}。",
       loggedInContext: "{subtitle} 当前登录用户：{username}，当前上下文：{tenant} / {project}。",
+      loggedInNoProjectContext: "{subtitle} 当前登录用户：{username}，暂未绑定租户和项目。",
       fields: "{count} 个字段",
       tenant: "租户",
       project: "项目",
       selectTenant: "选择租户",
       selectProject: "选择项目",
+      noProjectBound: "暂未绑定项目",
+      openAccessCenter: "进入访问申请中心",
       collapseSidebar: "收起菜单",
       expandSidebar: "展开菜单",
       contextSwitchFailed: "切换租户或项目失败。",
@@ -300,9 +354,39 @@ export const sharedMessages = {
     },
     routes: {
       web: {
+        menuGroups: {
+          workspace: {
+            title: "工作台",
+            caption: "总览与能力入口",
+          },
+          assets: {
+            title: "数据资产",
+            caption: "元数据、数据源、模型与统计",
+          },
+          collection: {
+            title: "数据采集",
+            caption: "映射规则、采集任务与指标监控",
+          },
+          development: {
+            title: "数据开发",
+            caption: "数据开发、工作流与工作流日志",
+          },
+          administration: {
+            title: "系统管理",
+            caption: "平台与权限管理",
+          },
+        },
         login: {
           title: "登录",
           subtitle: "使用初始化的管理员账号进入工作台。",
+        },
+        register: {
+          title: "注册登记",
+          subtitle: "提交注册登记，等待管理员审批后自动创建账号。",
+        },
+        accessCenter: {
+          title: "访问申请中心",
+          subtitle: "当账号尚未加入任何租户项目时，在这里申请访问权限。",
         },
         dashboard: {
           title: "总览",
@@ -354,6 +438,11 @@ export const sharedMessages = {
           editTitle: "编辑采集任务",
           editSubtitle: "调整已有采集任务的绑定、映射与定时。",
         },
+        collectionTaskRuns: {
+          title: "采集任务日志",
+          subtitle: "查看采集任务运行历史，并继续下钻到 worker 日志。",
+          menuCaption: "采集任务运行历史与日志",
+        },
         fieldMappingRules: {
           title: "字段映射规则",
           subtitle: "注册可复用的字段映射方法和参数定义，供采集任务动态选择。",
@@ -380,6 +469,15 @@ export const sharedMessages = {
           menuCaption: "工作流运行历史与节点日志",
           detailTitle: "工作流运行详情",
           detailSubtitle: "查看某次工作流运行的 DAG 状态并下钻节点日志。",
+        },
+        runMetrics: {
+          title: "指标监控",
+          subtitle: "查看采集任务运行指标、趋势和 TopN 排行。",
+          menuCaption: "运行指标与历史监控",
+        },
+        notifications: {
+          title: "消息中心",
+          subtitle: "统一查看站内信、审批提醒和任务状态通知。",
         },
         system: {
           title: "系统管理",

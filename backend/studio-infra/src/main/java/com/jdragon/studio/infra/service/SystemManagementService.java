@@ -67,6 +67,7 @@ public class SystemManagementService {
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
     private final StudioSecurityService securityService;
+    private final NotificationService notificationService;
 
     public SystemManagementService(TenantMapper tenantMapper,
                                    ProjectMapper projectMapper,
@@ -82,7 +83,8 @@ public class SystemManagementService {
                                    CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                                    WorkflowDefinitionMapper workflowDefinitionMapper,
                                    DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
-                                   StudioSecurityService securityService) {
+                                   StudioSecurityService securityService,
+                                   NotificationService notificationService) {
         this.tenantMapper = tenantMapper;
         this.projectMapper = projectMapper;
         this.tenantMemberMapper = tenantMemberMapper;
@@ -98,6 +100,7 @@ public class SystemManagementService {
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
         this.securityService = securityService;
+        this.notificationService = notificationService;
     }
 
     public List<SystemTenantView> listTenants() {
@@ -340,9 +343,13 @@ public class SystemManagementService {
     public ProjectMemberRequestEntity saveProjectMemberRequest(ProjectMemberRequestEntity entity) {
         ProjectEntity project = requireManageableProject(entity == null ? null : entity.getProjectId());
         StudioUserEntity user = requireUser(entity == null ? null : entity.getUserId());
+        ProjectMemberRequestEntity existing = entity != null && entity.getId() != null
+                ? requireProjectMemberRequest(entity.getId(), project.getId(), project.getTenantId())
+                : null;
+        String previousStatus = existing == null ? null : existing.getStatus();
         ProjectMemberRequestEntity target = entity.getId() == null
                 ? new ProjectMemberRequestEntity()
-                : requireProjectMemberRequest(entity.getId(), project.getId(), project.getTenantId());
+                : existing;
         target.setTenantId(project.getTenantId());
         target.setProjectId(project.getId());
         target.setUserId(user.getId());
@@ -366,6 +373,7 @@ public class SystemManagementService {
         if (isApprovedStatus(target.getStatus())) {
             ensureProjectMembership(project.getTenantId(), project.getId(), user.getId(), StudioConstants.ROLE_PROJECT_MEMBER);
         }
+        maybeNotifyProjectAccessReview(project, user, target, previousStatus);
         return target;
     }
 
@@ -483,6 +491,9 @@ public class SystemManagementService {
             target.setDeleted(0);
         } else {
             resourceShareMapper.updateById(target);
+        }
+        if (target.getEnabled() != null && target.getEnabled().intValue() == 1) {
+            notifyResourceShare(target, targetProject);
         }
         return target;
     }
@@ -686,6 +697,40 @@ public class SystemManagementService {
                 || StudioConstants.MEMBER_REQUEST_ACCEPTED.equalsIgnoreCase(status);
     }
 
+    private void maybeNotifyProjectAccessReview(ProjectEntity project,
+                                                StudioUserEntity user,
+                                                ProjectMemberRequestEntity request,
+                                                String previousStatus) {
+        if (project == null
+                || user == null
+                || request == null
+                || request.getId() == null
+                || !StudioConstants.MEMBER_REQUEST_APPLY.equalsIgnoreCase(request.getRequestType())
+                || !isReviewStatus(request.getStatus())
+                || request.getUserId() == null) {
+            return;
+        }
+        if (previousStatus != null && previousStatus.equalsIgnoreCase(request.getStatus())) {
+            return;
+        }
+        boolean approved = isApprovedStatus(request.getStatus());
+        notificationService.notifyUsers(Collections.singletonList(request.getUserId()),
+                new NotificationCommand()
+                        .setCategory(StudioConstants.NOTIFICATION_CATEGORY_PROJECT_ACCESS_REVIEW)
+                        .setTitle(approved ? "项目加入申请已通过" : "项目加入申请未通过")
+                        .setContent(approved
+                                ? "你已获准加入项目 " + project.getProjectName() + "，现在可以进入对应租户与项目。"
+                                : (hasText(request.getReviewComment())
+                                ? request.getReviewComment()
+                                : "项目 " + project.getProjectName() + " 的加入申请未通过。"))
+                        .setTargetType("PROJECT_MEMBER_REQUEST")
+                        .setTargetId(request.getId())
+                        .setTargetPath(approved ? "/dashboard" : "/access-center")
+                        .setTargetTenantId(project.getTenantId())
+                        .setTargetProjectId(approved ? project.getId() : null)
+                        .setDedupeKey("project-access-review:" + request.getId() + ":" + request.getStatus().toLowerCase()));
+    }
+
     private void addIfNotNull(Set<Long> target, Long value) {
         if (value != null) {
             target.add(value);
@@ -826,6 +871,78 @@ public class SystemManagementService {
         if (!tenantId.equals(resourceTenantId) || resourceProjectId == null || !resourceProjectId.equals(sourceProjectId)) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, resourceName + " not found: " + resourceId);
         }
+    }
+
+    private void notifyResourceShare(ResourceShareEntity share, ProjectEntity targetProject) {
+        if (share == null || targetProject == null) {
+            return;
+        }
+        List<Long> recipientUserIds = notificationService.activeProjectMemberUserIds(targetProject.getTenantId(), targetProject.getId());
+        if (recipientUserIds.isEmpty()) {
+            return;
+        }
+        notificationService.notifyUsers(recipientUserIds,
+                new NotificationCommand()
+                        .setCategory(StudioConstants.NOTIFICATION_CATEGORY_RESOURCE_SHARE)
+                        .setTitle("收到新的共享资源")
+                        .setContent("项目 " + targetProject.getProjectName() + " 收到了共享资源：" + resolveSharedResourceLabel(share) + "。")
+                        .setTargetType(share.getResourceType())
+                        .setTargetId(share.getResourceId())
+                        .setTargetPath(resolveShareTargetPath(share))
+                        .setTargetTenantId(targetProject.getTenantId())
+                        .setTargetProjectId(targetProject.getId())
+                        .setDedupeKey("resource-share:" + share.getId() + ":" + targetProject.getId() + ":" + (share.getUpdatedAt() == null ? "0" : share.getUpdatedAt().toString())));
+    }
+
+    private String resolveSharedResourceLabel(ResourceShareEntity share) {
+        if (share == null || !hasText(share.getResourceType()) || share.getResourceId() == null) {
+            return "未知资源";
+        }
+        String resourceType = share.getResourceType().trim().toUpperCase();
+        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
+            DatasourceEntity entity = datasourceMapper.selectById(share.getResourceId());
+            return entity == null ? "数据源#" + share.getResourceId() : "数据源 " + entity.getName();
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
+            DataModelEntity entity = dataModelMapper.selectById(share.getResourceId());
+            return entity == null ? "模型#" + share.getResourceId() : "模型 " + entity.getName();
+        }
+        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
+            CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(share.getResourceId());
+            return entity == null ? "采集任务#" + share.getResourceId() : "采集任务 " + entity.getName();
+        }
+        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
+            WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(share.getResourceId());
+            return entity == null ? "工作流#" + share.getResourceId() : "工作流 " + entity.getName();
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
+            DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(share.getResourceId());
+            return entity == null ? "数据开发脚本#" + share.getResourceId() : "数据开发脚本 " + entity.getFileName();
+        }
+        return share.getResourceType() + "#" + share.getResourceId();
+    }
+
+    private String resolveShareTargetPath(ResourceShareEntity share) {
+        if (share == null || !hasText(share.getResourceType()) || share.getResourceId() == null) {
+            return "/dashboard";
+        }
+        String resourceType = share.getResourceType().trim().toUpperCase();
+        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
+            return "/datasources";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
+            return "/models/" + share.getResourceId();
+        }
+        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
+            return "/collection-tasks";
+        }
+        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
+            return "/workflows/" + share.getResourceId();
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
+            return "/data-development";
+        }
+        return "/dashboard";
     }
 
     private String requireCurrentTenantId() {

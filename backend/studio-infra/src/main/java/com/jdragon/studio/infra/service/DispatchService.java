@@ -188,6 +188,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setStatus("QUEUED");
         task.setAttempts(0);
         task.setMaxRetries(3);
+        task.setTriggeredByUserId(securityService.currentUserId());
         LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("executionType", DispatchExecutionType.WORKFLOW_NODE.name());
         payload.put("workflowRunId", workflowRunId);
@@ -221,6 +222,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setStatus("QUEUED");
         task.setAttempts(0);
         task.setMaxRetries(3);
+        task.setTriggeredByUserId(securityService.currentUserId());
         LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("executionType", DispatchExecutionType.COLLECTION_TASK.name());
         payload.put("nodeType", "COLLECTION_TASK");

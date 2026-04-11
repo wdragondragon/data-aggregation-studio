@@ -8,6 +8,7 @@
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/workflows')">{{ t("common.backToList") }}</el-button>
         <el-button plain @click="loadWorkflow">{{ t("common.refresh") }}</el-button>
+        <FollowToggleButton v-if="workflow?.id" target-type="WORKFLOW" :target-id="workflow.id" />
         <el-button type="primary" plain :disabled="!workflow?.id" @click="openLogs">{{ t("web.workflows.logsEntry") }}</el-button>
         <el-button type="primary" :disabled="!workflow?.id || isSharedWorkflow" @click="openEditor">{{ t("common.edit") }}</el-button>
       </div>
@@ -131,6 +132,7 @@ import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk
 import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import { studioApi } from "@/api/studio";
+import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";

@@ -22,6 +22,7 @@ public class ExecutionEvent {
     private String logFilePath;
     private Long logSizeBytes;
     private String logCharset;
+    private Long triggeredByUserId;
     private LocalDateTime startedAt;
     private LocalDateTime endedAt;
     private LocalDateTime occurredAt;

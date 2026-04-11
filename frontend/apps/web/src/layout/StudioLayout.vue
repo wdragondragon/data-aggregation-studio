@@ -12,6 +12,9 @@
     @locale-change="handleLocaleChange"
     @logout="handleLogout"
   >
+    <template #header-actions>
+      <NotificationBell v-if="authStore.isAuthenticated" />
+    </template>
     <template #sidebar-context>
       <div class="studio-layout__context">
         <div class="studio-layout__context-header">
@@ -52,6 +55,12 @@
             />
           </el-select>
         </div>
+        <div v-if="authStore.isAuthenticated && !authStore.currentProjectId" class="studio-layout__context-empty">
+          <span>{{ t("common.noProjectBound") }}</span>
+          <el-button text type="primary" @click="router.push('/access-center')">
+            {{ t("common.openAccessCenter") }}
+          </el-button>
+        </div>
       </div>
     </template>
     <router-view />
@@ -59,19 +68,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import { subscribeStudioApiLoading } from "@studio/api-sdk";
-import { StudioShell } from "@studio/ui";
+import { StudioShell, type StudioNavItem } from "@studio/ui";
 import { persistStudioLocale, resolveStudioLocale } from "@studio/i18n";
 import { useI18n } from "vue-i18n";
+import NotificationBell from "@/components/NotificationBell.vue";
 import { resolveStudioMenus } from "@/router";
 import { useAuthStore } from "@/stores/auth";
+import { useNotificationStore } from "@/stores/notifications";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const notificationStore = useNotificationStore();
 const { locale, t } = useI18n();
 const appLoading = ref(false);
 const contextLoading = ref(false);
@@ -79,10 +91,18 @@ const unsubscribe = subscribeStudioApiLoading((loading) => {
   appLoading.value = loading;
 });
 
-const studioMenus = computed(() => resolveStudioMenus(t, authStore.systemRoleCodes));
+const studioMenus = computed(() => {
+  if (!authStore.currentProjectId) {
+    return [];
+  }
+  return resolveStudioMenus(t, {
+    systemRoleCodes: authStore.systemRoleCodes,
+    effectiveRoleCodes: authStore.effectiveRoleCodes,
+    hasProject: Boolean(authStore.currentProjectId),
+  });
+});
 const activeMenuPath = computed(() => {
-  const matched = studioMenus.value.find((item) => route.path === item.path || route.path.startsWith(`${item.path}/`));
-  return matched?.path ?? route.path;
+  return resolveActiveMenuPath(studioMenus.value, route.path) ?? route.path;
 });
 const localeOptions = computed(() => [
   { value: "en-US", label: t("common.locales.en") },
@@ -105,6 +125,12 @@ const pageSubtitle = computed(() => {
       username: authStore.username,
       tenant: authStore.currentTenantName,
       project: authStore.currentProjectName,
+    });
+  }
+  if (!authStore.currentProjectId) {
+    return t("common.loggedInNoProjectContext", {
+      subtitle,
+      username: authStore.username,
     });
   }
   return t("common.loggedInAs", { subtitle, username: authStore.username });
@@ -151,7 +177,48 @@ async function handleProjectChange(projectId: string | number) {
 
 onBeforeUnmount(() => {
   unsubscribe();
+  notificationStore.stop();
 });
+
+onMounted(() => {
+  if (authStore.isAuthenticated) {
+    notificationStore.start();
+    void notificationStore.loadSnapshot().catch(() => {});
+  }
+});
+
+watch(() => authStore.isAuthenticated, (authenticated) => {
+  if (authenticated) {
+    notificationStore.start();
+    void notificationStore.loadSnapshot().catch(() => {});
+    return;
+  }
+  notificationStore.stop();
+});
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  if (!authStore.isAuthenticated) {
+    return;
+  }
+  notificationStore.stop();
+  notificationStore.start();
+  void notificationStore.loadSnapshot().catch(() => {});
+});
+
+function resolveActiveMenuPath(items: StudioNavItem[], currentPath: string): string | null {
+  for (const item of items) {
+    if (item.path && (currentPath === item.path || currentPath.startsWith(`${item.path}/`))) {
+      return item.path;
+    }
+    if (item.children?.length) {
+      const matched = resolveActiveMenuPath(item.children, currentPath);
+      if (matched) {
+        return matched;
+      }
+    }
+  }
+  return null;
+}
 </script>
 
 <style scoped>
@@ -210,6 +277,16 @@ onBeforeUnmount(() => {
 .studio-layout__context-select :deep(.el-select__wrapper:hover) {
   background: rgba(15, 23, 42, 0.34);
   box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.24);
+}
+
+.studio-layout__context-empty {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 12px;
 }
 
 .studio-layout__context-select :deep(.el-select__wrapper.is-focused) {

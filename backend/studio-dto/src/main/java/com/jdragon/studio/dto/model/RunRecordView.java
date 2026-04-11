@@ -26,6 +26,7 @@ public class RunRecordView extends BaseDefinition {
     private String logFilePath;
     private Long logSizeBytes;
     private String logCharset;
+    private RunMetricSummaryView metricSummary;
     private Map<String, Object> payloadJson = new LinkedHashMap<String, Object>();
     private Map<String, Object> resultJson = new LinkedHashMap<String, Object>();
 }

@@ -146,6 +146,9 @@ public class CollectionTaskService {
         entity.setExecutionOptionsJson(request.getExecutionOptions() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(request.getExecutionOptions()));
+        if (entity.getId() == null && entity.getCreatedBy() == null) {
+            entity.setCreatedBy(securityService.currentUserId());
+        }
 
         if (entity.getId() == null) {
             definitionMapper.insert(entity);

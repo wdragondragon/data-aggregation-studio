@@ -46,27 +46,41 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_model", "project_id", "alter table data_model add column project_id bigint");
         ensureColumn("data_model_attr_index", "project_id", "alter table data_model_attr_index add column project_id bigint");
         ensureColumn("workflow_definition", "project_id", "alter table workflow_definition add column project_id bigint");
+        ensureColumn("workflow_definition", "created_by", "alter table workflow_definition add column created_by bigint");
         ensureColumn("workflow_definition_version", "project_id", "alter table workflow_definition_version add column project_id bigint");
         ensureColumn("workflow_node", "project_id", "alter table workflow_node add column project_id bigint");
         ensureColumn("workflow_edge", "project_id", "alter table workflow_edge add column project_id bigint");
         ensureColumn("workflow_schedule", "project_id", "alter table workflow_schedule add column project_id bigint");
         ensureColumn("collection_task_definition", "project_id", "alter table collection_task_definition add column project_id bigint");
+        ensureColumn("collection_task_definition", "created_by", "alter table collection_task_definition add column created_by bigint");
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id bigint");
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id bigint");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id bigint");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type varchar(64)");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id bigint");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
+        ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id bigint");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id bigint");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id bigint");
         ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at datetime");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type varchar(64)");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id bigint");
         ensureColumn("run_record", "collection_task_id", "alter table run_record add column collection_task_id bigint");
+        ensureColumn("run_record", "triggered_by_user_id", "alter table run_record add column triggered_by_user_id bigint");
         ensureColumn("run_record", "project_id", "alter table run_record add column project_id bigint");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path varchar(1000)");
         ensureColumn("run_record", "log_size_bytes", "alter table run_record add column log_size_bytes bigint");
         ensureColumn("run_record", "log_charset", "alter table run_record add column log_charset varchar(64)");
+        ensureColumn("run_record", "collected_records", "alter table run_record add column collected_records bigint");
+        ensureColumn("run_record", "read_succeed_records", "alter table run_record add column read_succeed_records bigint");
+        ensureColumn("run_record", "read_failed_records", "alter table run_record add column read_failed_records bigint");
+        ensureColumn("run_record", "write_succeed_records", "alter table run_record add column write_succeed_records bigint");
+        ensureColumn("run_record", "write_failed_records", "alter table run_record add column write_failed_records bigint");
+        ensureColumn("run_record", "failed_records", "alter table run_record add column failed_records bigint");
+        ensureColumn("run_record", "transformer_total_records", "alter table run_record add column transformer_total_records bigint");
+        ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records bigint");
+        ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records bigint");
+        ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records bigint");
 
         if (!tableExists("data_model_attr_index")) {
             jdbcTemplate.execute("create table data_model_attr_index (" +
@@ -204,6 +218,63 @@ public class StudioSchemaUpgradeService {
                     "component_type varchar(64) not null," +
                     "param_value_json text," +
                     "description varchar(1000)" +
+                    ")");
+        }
+
+        if (!tableExists("user_registration_request")) {
+            jdbcTemplate.execute("create table user_registration_request (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "status varchar(64) not null," +
+                    "username varchar(128) not null," +
+                    "password_hash varchar(255) not null," +
+                    "display_name varchar(255)," +
+                    "reason varchar(1000)," +
+                    "review_comment varchar(1000)," +
+                    "reviewer_user_id bigint," +
+                    "approved_user_id bigint," +
+                    "reviewed_at datetime" +
+                    ")");
+        }
+
+        if (!tableExists("studio_notification")) {
+            jdbcTemplate.execute("create table studio_notification (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "recipient_user_id bigint not null," +
+                    "tenant_id varchar(64)," +
+                    "project_id bigint," +
+                    "category varchar(128)," +
+                    "title varchar(255)," +
+                    "content varchar(2000)," +
+                    "target_type varchar(128)," +
+                    "target_id bigint," +
+                    "target_path varchar(1000)," +
+                    "target_tenant_id varchar(64)," +
+                    "target_project_id bigint," +
+                    "dedupe_key varchar(255)," +
+                    "read_at datetime," +
+                    "archived_at datetime," +
+                    "payload_json json" +
+                    ")");
+        }
+
+        if (!tableExists("studio_follow_subscription")) {
+            jdbcTemplate.execute("create table studio_follow_subscription (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "user_id bigint not null," +
+                    "target_type varchar(128) not null," +
+                    "target_id bigint not null," +
+                    "enabled int default 1" +
                     ")");
         }
 
@@ -383,10 +454,26 @@ public class StudioSchemaUpgradeService {
                 "alter table field_mapping_rule add key idx_field_mapping_rule_type_enabled (mapping_type, enabled)");
         ensureIndex("field_mapping_rule", "idx_field_mapping_rule_created_at",
                 "alter table field_mapping_rule add key idx_field_mapping_rule_created_at (created_at)");
+        ensureIndex("field_mapping_rule", "uk_field_mapping_rule_code",
+                "alter table field_mapping_rule add unique key uk_field_mapping_rule_code (mapping_code)");
         ensureIndex("field_mapping_rule_param", "idx_field_mapping_rule_param_rule_order",
                 "alter table field_mapping_rule_param add key idx_field_mapping_rule_param_rule_order (rule_id, param_order)");
         ensureIndex("field_mapping_rule_param", "idx_field_mapping_rule_param_rule_name",
                 "alter table field_mapping_rule_param add key idx_field_mapping_rule_param_rule_name (rule_id, param_name)");
+        ensureIndex("user_registration_request", "idx_user_registration_request_status_created",
+                "alter table user_registration_request add key idx_user_registration_request_status_created (status, created_at)");
+        ensureIndex("user_registration_request", "uk_user_registration_request_username_status",
+                "alter table user_registration_request add unique key uk_user_registration_request_username_status (username, status)");
+        ensureIndex("studio_notification", "idx_studio_notification_recipient_created",
+                "alter table studio_notification add key idx_studio_notification_recipient_created (recipient_user_id, created_at)");
+        ensureIndex("studio_notification", "idx_studio_notification_recipient_unread",
+                "alter table studio_notification add key idx_studio_notification_recipient_unread (recipient_user_id, read_at, archived_at)");
+        ensureIndex("studio_notification", "uk_studio_notification_recipient_dedupe",
+                "alter table studio_notification add unique key uk_studio_notification_recipient_dedupe (recipient_user_id, dedupe_key)");
+        ensureIndex("studio_follow_subscription", "uk_studio_follow_subscription_target",
+                "alter table studio_follow_subscription add unique key uk_studio_follow_subscription_target (tenant_id, project_id, user_id, target_type, target_id)");
+        ensureIndex("studio_follow_subscription", "idx_studio_follow_subscription_lookup",
+                "alter table studio_follow_subscription add key idx_studio_follow_subscription_lookup (target_type, target_id, enabled)");
         ensureIndex("workflow_definition", "uk_workflow_definition_project_code",
                 "alter table workflow_definition add unique key uk_workflow_definition_project_code (project_id, code)");
         ensureIndex("workflow_definition", "uk_workflow_definition_project_name",
@@ -425,6 +512,8 @@ public class StudioSchemaUpgradeService {
                 "alter table run_record add key idx_run_record_project_created (project_id, created_at)");
         ensureIndex("run_record", "idx_run_record_project_workflow_run",
                 "alter table run_record add key idx_run_record_project_workflow_run (project_id, workflow_run_id)");
+        ensureIndex("run_record", "idx_run_record_project_collection_task_ended",
+                "alter table run_record add key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at)");
         ensureIndex("studio_tenant", "uk_studio_tenant_code",
                 "alter table studio_tenant add unique key uk_studio_tenant_code (tenant_code)");
         ensureIndex("studio_project", "uk_studio_project_code",
@@ -456,27 +545,41 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_model", "project_id", "alter table data_model add column project_id integer");
         ensureColumn("data_model_attr_index", "project_id", "alter table data_model_attr_index add column project_id integer");
         ensureColumn("workflow_definition", "project_id", "alter table workflow_definition add column project_id integer");
+        ensureColumn("workflow_definition", "created_by", "alter table workflow_definition add column created_by integer");
         ensureColumn("workflow_definition_version", "project_id", "alter table workflow_definition_version add column project_id integer");
         ensureColumn("workflow_node", "project_id", "alter table workflow_node add column project_id integer");
         ensureColumn("workflow_edge", "project_id", "alter table workflow_edge add column project_id integer");
         ensureColumn("workflow_schedule", "project_id", "alter table workflow_schedule add column project_id integer");
         ensureColumn("collection_task_definition", "project_id", "alter table collection_task_definition add column project_id integer");
+        ensureColumn("collection_task_definition", "created_by", "alter table collection_task_definition add column created_by integer");
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id integer");
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id integer");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id integer");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type text");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id integer");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
+        ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id integer");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id integer");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id integer");
         ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at text");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type text");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id integer");
         ensureColumn("run_record", "collection_task_id", "alter table run_record add column collection_task_id integer");
+        ensureColumn("run_record", "triggered_by_user_id", "alter table run_record add column triggered_by_user_id integer");
         ensureColumn("run_record", "project_id", "alter table run_record add column project_id integer");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path text");
         ensureColumn("run_record", "log_size_bytes", "alter table run_record add column log_size_bytes integer");
         ensureColumn("run_record", "log_charset", "alter table run_record add column log_charset text");
+        ensureColumn("run_record", "collected_records", "alter table run_record add column collected_records integer");
+        ensureColumn("run_record", "read_succeed_records", "alter table run_record add column read_succeed_records integer");
+        ensureColumn("run_record", "read_failed_records", "alter table run_record add column read_failed_records integer");
+        ensureColumn("run_record", "write_succeed_records", "alter table run_record add column write_succeed_records integer");
+        ensureColumn("run_record", "write_failed_records", "alter table run_record add column write_failed_records integer");
+        ensureColumn("run_record", "failed_records", "alter table run_record add column failed_records integer");
+        ensureColumn("run_record", "transformer_total_records", "alter table run_record add column transformer_total_records integer");
+        ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records integer");
+        ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records integer");
+        ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records integer");
 
         jdbcTemplate.execute("create table if not exists data_model_attr_index (" +
                 "id integer primary key," +
@@ -606,6 +709,7 @@ public class StudioSchemaUpgradeService {
                 ")");
         jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_type_enabled on field_mapping_rule(mapping_type, enabled)");
         jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_created_at on field_mapping_rule(created_at)");
+        jdbcTemplate.execute("create unique index if not exists uk_field_mapping_rule_code on field_mapping_rule(mapping_code)");
 
         jdbcTemplate.execute("create table if not exists field_mapping_rule_param (" +
                 "id integer primary key," +
@@ -621,6 +725,64 @@ public class StudioSchemaUpgradeService {
                 ")");
         jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_param_rule_order on field_mapping_rule_param(rule_id, param_order)");
         jdbcTemplate.execute("create index if not exists idx_field_mapping_rule_param_rule_name on field_mapping_rule_param(rule_id, param_name)");
+
+        jdbcTemplate.execute("create table if not exists user_registration_request (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "status text not null," +
+                "username text not null," +
+                "password_hash text not null," +
+                "display_name text," +
+                "reason text," +
+                "review_comment text," +
+                "reviewer_user_id integer," +
+                "approved_user_id integer," +
+                "reviewed_at text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_user_registration_request_status_created on user_registration_request(status, created_at)");
+        jdbcTemplate.execute("create unique index if not exists uk_user_registration_request_username_status on user_registration_request(username, status)");
+
+        jdbcTemplate.execute("create table if not exists studio_notification (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "recipient_user_id integer not null," +
+                "tenant_id text," +
+                "project_id integer," +
+                "category text," +
+                "title text," +
+                "content text," +
+                "target_type text," +
+                "target_id integer," +
+                "target_path text," +
+                "target_tenant_id text," +
+                "target_project_id integer," +
+                "dedupe_key text," +
+                "read_at text," +
+                "archived_at text," +
+                "payload_json text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_studio_notification_recipient_created on studio_notification(recipient_user_id, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_studio_notification_recipient_unread on studio_notification(recipient_user_id, read_at, archived_at)");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_notification_recipient_dedupe on studio_notification(recipient_user_id, dedupe_key)");
+
+        jdbcTemplate.execute("create table if not exists studio_follow_subscription (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "user_id integer not null," +
+                "target_type text not null," +
+                "target_id integer not null," +
+                "enabled integer default 1" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_follow_subscription_target on studio_follow_subscription(tenant_id, project_id, user_id, target_type, target_id)");
+        jdbcTemplate.execute("create index if not exists idx_studio_follow_subscription_lookup on studio_follow_subscription(target_type, target_id, enabled)");
 
         jdbcTemplate.execute("create table if not exists data_dev_directory (" +
                 "id integer primary key," +
@@ -670,6 +832,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_created on run_record(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id)");
+        jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
 
         jdbcTemplate.execute("create table if not exists studio_tenant (" +
                 "id integer primary key," +
@@ -784,6 +947,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_created on run_record(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id)");
+        jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
 
         backfillProjectIdsSqlite();
     }

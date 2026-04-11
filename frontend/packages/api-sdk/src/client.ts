@@ -31,6 +31,8 @@ import type {
   ExportProjectBundle,
   FieldMappingRuleSaveRequest,
   FieldMappingRuleView,
+  FollowRequest,
+  FollowStatusView,
   JobContainerConfig,
   LoginRequest,
   LoginResponse,
@@ -40,10 +42,16 @@ import type {
   ModelSyncTaskCreateRequest,
   ModelSyncTaskItemView,
   ModelSyncTaskView,
+  NotificationQueryRequest,
+  NotificationSnapshotView,
+  NotificationView,
   PermissionEntity,
   PageResult,
   PluginCatalogEntry,
   Result,
+  RunMetricDashboardQueryRequest,
+  RunMetricDashboardResponse,
+  RunMetricOptionsView,
   RunListQuery,
   RoleEntity,
   RunListResponse,
@@ -58,6 +66,12 @@ import type {
   SystemProjectWorker,
   SystemTenant,
   SystemTenantMember,
+  UserRegistrationRequestCreateRequest,
+  UserRegistrationRequestReviewRequest,
+  UserRegistrationRequestView,
+  WorkspaceAccessApplyRequest,
+  WorkspaceAccessOverviewView,
+  WorkspaceAccessRequestView,
   WorkflowRunDetail,
   WorkflowRunListQuery,
   WorkflowRunSummary,
@@ -137,6 +151,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       me() {
         return request<AuthProfile>({ url: "/auth/me", method: "GET" });
+      },
+      submitRegisterRequest(payload: UserRegistrationRequestCreateRequest) {
+        return request<void>({ url: "/auth/register-requests", method: "POST", data: payload });
+      },
+    },
+    access: {
+      overview() {
+        return request<WorkspaceAccessOverviewView>({ url: "/access/overview", method: "GET" });
+      },
+      apply(payload: WorkspaceAccessApplyRequest) {
+        return request<WorkspaceAccessRequestView>({ url: "/access/project-requests", method: "POST", data: payload });
+      },
+      cancel(requestId: EntityId) {
+        return request<WorkspaceAccessRequestView>({ url: `/access/project-requests/${requestId}/cancel`, method: "POST" });
       },
     },
     catalog: {
@@ -442,6 +470,50 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<RunLogView>({ url: `/runs/${id}/log/download`, method: "GET" });
       },
     },
+    runMetrics: {
+      options() {
+        return request<RunMetricOptionsView>({ url: "/run-metrics/options", method: "GET" });
+      },
+      query(payload?: RunMetricDashboardQueryRequest) {
+        return request<RunMetricDashboardResponse>({ url: "/run-metrics/query", method: "POST", data: payload });
+      },
+    },
+    notifications: {
+      list(params?: NotificationQueryRequest) {
+        return request<PageResult<NotificationView>>({ url: "/notifications", method: "GET", params });
+      },
+      snapshot() {
+        return request<NotificationSnapshotView>({ url: "/notifications/snapshot", method: "GET" });
+      },
+      unreadCount() {
+        return request<number>({ url: "/notifications/unread-count", method: "GET" });
+      },
+      markRead(id: EntityId) {
+        return request<NotificationView>({ url: `/notifications/${id}/read`, method: "POST" });
+      },
+      markAllRead() {
+        return request<void>({ url: "/notifications/read-all", method: "POST" });
+      },
+    },
+    follows: {
+      status(targetType: string, targetId: EntityId) {
+        return request<FollowStatusView>({
+          url: "/follows/status",
+          method: "GET",
+          params: { targetType, targetId },
+        });
+      },
+      follow(payload: FollowRequest) {
+        return request<FollowStatusView>({ url: "/follows", method: "POST", data: payload });
+      },
+      unfollow(targetType: string, targetId: EntityId) {
+        return request<void>({
+          url: "/follows",
+          method: "DELETE",
+          params: { targetType, targetId },
+        });
+      },
+    },
     workflowRuns: {
       list(params?: WorkflowRunListQuery) {
         return request<PageResult<WorkflowRunSummary>>({
@@ -575,6 +647,28 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
         delete(id: EntityId) {
           return request<void>({ url: `/system/resource-shares/${id}`, method: "DELETE" });
+        },
+      },
+      userRegistrationRequests: {
+        list() {
+          return request<UserRegistrationRequestView[]>({ url: "/system/user-registration-requests", method: "GET" });
+        },
+        approve(id: EntityId, payload?: UserRegistrationRequestReviewRequest) {
+          return request<UserRegistrationRequestView>({
+            url: `/system/user-registration-requests/${id}/approve`,
+            method: "POST",
+            data: payload,
+          });
+        },
+        reject(id: EntityId, payload?: UserRegistrationRequestReviewRequest) {
+          return request<UserRegistrationRequestView>({
+            url: `/system/user-registration-requests/${id}/reject`,
+            method: "POST",
+            data: payload,
+          });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/system/user-registration-requests/${id}`, method: "DELETE" });
         },
       },
     },

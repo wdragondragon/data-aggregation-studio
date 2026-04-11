@@ -92,7 +92,12 @@
           </el-button>
         </el-form>
 
-        <p class="login__panel-note">{{ t("web.login.footerNote") }}</p>
+        <div class="login__panel-footer">
+          <p class="login__panel-note">{{ t("web.login.footerNote") }}</p>
+          <el-button link type="primary" class="login__register-link" @click="router.push('/register')">
+            {{ t("web.register.entry") }}
+          </el-button>
+        </div>
       </div>
     </section>
   </div>
@@ -531,6 +536,17 @@ async function submit() {
 .login__panel-note {
   margin: 16px 0 0;
 }
+
+.login__panel-footer {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.login__register-link {
+  justify-self: flex-start;
+  padding: 0;
+ }
 
 @keyframes loginFloat {
   from {

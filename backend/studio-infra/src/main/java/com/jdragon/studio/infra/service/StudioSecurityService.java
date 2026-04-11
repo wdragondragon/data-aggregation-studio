@@ -69,4 +69,22 @@ public class StudioSecurityService {
         }
         return requestContext.getEffectiveRoleCodes();
     }
+
+    public boolean hasAnyRole(String... roleCodes) {
+        List<String> currentRoles = currentRoleCodes();
+        if (currentRoles == null || currentRoles.isEmpty() || roleCodes == null) {
+            return false;
+        }
+        for (String currentRole : currentRoles) {
+            if (currentRole == null || currentRole.trim().isEmpty()) {
+                continue;
+            }
+            for (String roleCode : roleCodes) {
+                if (roleCode != null && roleCode.equalsIgnoreCase(currentRole)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

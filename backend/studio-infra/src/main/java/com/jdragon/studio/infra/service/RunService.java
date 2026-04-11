@@ -30,17 +30,20 @@ public class RunService {
     private final CollectionTaskService collectionTaskService;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final StudioSecurityService securityService;
+    private final RunMetricSummaryMapper runMetricSummaryMapper;
 
     public RunService(DispatchTaskMapper dispatchTaskMapper,
                       RunRecordMapper runRecordMapper,
                       CollectionTaskService collectionTaskService,
                       WorkflowDefinitionMapper workflowDefinitionMapper,
-                      StudioSecurityService securityService) {
+                      StudioSecurityService securityService,
+                      RunMetricSummaryMapper runMetricSummaryMapper) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.collectionTaskService = collectionTaskService;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.securityService = securityService;
+        this.runMetricSummaryMapper = runMetricSummaryMapper;
     }
 
     public RunListView list(Long collectionTaskId,
@@ -188,6 +191,7 @@ public class RunService {
         view.setLogFilePath(entity.getLogFilePath());
         view.setLogSizeBytes(entity.getLogSizeBytes());
         view.setLogCharset(entity.getLogCharset());
+        view.setMetricSummary(runMetricSummaryMapper.fromEntity(entity));
         view.setPayloadJson(entity.getPayloadJson() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(entity.getPayloadJson()));

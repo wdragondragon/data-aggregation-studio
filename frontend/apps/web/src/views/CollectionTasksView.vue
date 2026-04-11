@@ -38,6 +38,7 @@
                 {{ row.name }}
               </el-button>
               <strong v-else>{{ row.name }}</strong>
+              <FollowToggleButton v-if="row.id" target-type="COLLECTION_TASK" :target-id="row.id" />
               <span v-if="isSharedTask(row)" class="cell-subtle">共享任务只读</span>
             </div>
           </template>
@@ -128,6 +129,16 @@
                 <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
               </template>
             </el-table-column>
+            <el-table-column :label="t('web.runMetrics.summaryTitle')" min-width="220">
+              <template #default="{ row }">
+                <div class="run-metric-summary">
+                  <span>{{ metricLabel(t, 'collectedRecords') }}: {{ formatMetricNumber(row.metricSummary?.collectedRecords) }}</span>
+                  <span>{{ metricLabel(t, 'successRecords') }}: {{ formatMetricNumber(metricSummaryValue(row.metricSummary, 'successRecords')) }}</span>
+                  <span>{{ metricLabel(t, 'failedRecords') }}: {{ formatMetricNumber(row.metricSummary?.failedRecords) }}</span>
+                  <span>{{ metricLabel(t, 'transformerFilterRecords') }}: {{ formatMetricNumber(row.metricSummary?.transformerFilterRecords) }}</span>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column :label="t('web.runs.message')" min-width="220">
               <template #default="{ row }">
                 <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
@@ -167,10 +178,12 @@ import { useI18n } from "vue-i18n";
 import type { CollectionTaskDefinitionView, CollectionTaskListQuery, RunRecord } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { useAuthStore } from "@/stores/auth";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { formatCollectionTaskType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/runMetrics";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -223,12 +236,19 @@ function manageSchedule(task: CollectionTaskDefinitionView) {
   router.push(`/collection-tasks/${task.id}/edit?step=3`);
 }
 
+function viewTaskRuns(task: CollectionTaskDefinitionView) {
+  router.push({
+    path: "/collection-task-runs",
+    query: task.id ? { collectionTaskId: String(task.id) } : undefined,
+  });
+}
+
 function buildTaskActions(task: CollectionTaskDefinitionView) {
   const shared = isSharedTask(task);
   return [
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editTask(task) },
     { key: "schedule", label: t("web.collectionTasks.scheduleManage"), disabled: shared, onClick: () => manageSchedule(task) },
-    { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => openLogs(task) },
+    { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => viewTaskRuns(task) },
     { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || task.status === "ONLINE", onClick: () => publishTask(task) },
     { key: "trigger", label: t("common.trigger"), type: "warning", onClick: () => triggerTask(task) },
     { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteTask(task) },
@@ -427,6 +447,14 @@ p {
 .cell-subtle {
   color: var(--studio-text-soft);
   font-size: 12px;
+}
+
+.run-metric-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  font-size: 12px;
+  color: var(--studio-text-soft);
 }
 
 .table-pagination {

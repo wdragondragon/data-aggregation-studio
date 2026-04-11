@@ -4,9 +4,12 @@ import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.auth.AuthProfileView;
 import com.jdragon.studio.dto.model.request.LoginRequest;
+import com.jdragon.studio.dto.model.request.UserRegistrationRequestCreateRequest;
+import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
 import com.jdragon.studio.infra.security.StudioUserPrincipal;
 import com.jdragon.studio.infra.service.JwtTokenService;
 import com.jdragon.studio.infra.service.StudioAccessService;
+import com.jdragon.studio.infra.service.UserRegistrationRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -29,13 +32,16 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtTokenService jwtTokenService;
     private final StudioAccessService studioAccessService;
+    private final UserRegistrationRequestService userRegistrationRequestService;
 
     public AuthController(AuthenticationManager authenticationManager,
                           JwtTokenService jwtTokenService,
-                          StudioAccessService studioAccessService) {
+                          StudioAccessService studioAccessService,
+                          UserRegistrationRequestService userRegistrationRequestService) {
         this.authenticationManager = authenticationManager;
         this.jwtTokenService = jwtTokenService;
         this.studioAccessService = studioAccessService;
+        this.userRegistrationRequestService = userRegistrationRequestService;
     }
 
     @Operation(summary = "Login and get JWT token")
@@ -67,5 +73,11 @@ public class AuthController {
                 servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
                 servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER),
                 null));
+    }
+
+    @Operation(summary = "Submit registration request")
+    @PostMapping("/register-requests")
+    public Result<UserRegistrationRequestView> submitRegistrationRequest(@Valid @RequestBody UserRegistrationRequestCreateRequest request) {
+        return Result.success(userRegistrationRequestService.submit(request));
     }
 }
