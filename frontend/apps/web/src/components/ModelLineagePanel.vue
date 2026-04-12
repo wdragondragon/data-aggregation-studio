@@ -43,7 +43,9 @@
           <div class="lineage-toolbar__actions">
             <div class="lineage-legend">
               <div v-for="item in legendItems" :key="item.key" class="lineage-legend__item">
-                <span class="lineage-legend__swatch" :style="{ background: item.color }"></span>
+                <span class="lineage-legend__swatch" :class="`lineage-legend__swatch--${item.key}`">
+                  <span class="lineage-legend__swatch-line"></span>
+                </span>
                 <span>{{ item.label }}</span>
               </div>
             </div>
@@ -320,8 +322,9 @@ const summaryCards = computed(() => {
   ];
 });
 const legendItems = computed(() => [
-  { key: "automatic", label: t("web.models.lineageLegendAutomatic"), color: "#2563eb" },
-  { key: "manual", label: t("web.models.lineageLegendManual"), color: "#10b981" },
+  { key: "automatic", label: `${t("web.models.lineageLegendAutomatic")} · ${t("web.models.lineageStatusNormal")}` },
+  { key: "manual", label: `${t("web.models.lineageLegendManual")} · ${t("web.models.lineageStatusNormal")}` },
+  { key: "mixed", label: `${t("web.models.lineageLegendAutomatic")} + ${t("web.models.lineageLegendManual")}` },
 ]);
 const manualDialogTitle = computed(() => (manualForm.relationId != null ? t("web.models.lineageEditRelation") : t("web.models.lineageCreateRelation")));
 const manualModelOptions = computed(() => {
@@ -560,6 +563,9 @@ function formatSourceTypeLabel(value?: string) {
   }
   if (normalized === "MANUAL") {
     return t("web.models.lineageLegendManual");
+  }
+  if (normalized === "MIXED") {
+    return `${t("web.models.lineageLegendAutomatic")} + ${t("web.models.lineageLegendManual")}`;
   }
   return value || t("common.none");
 }
@@ -995,9 +1001,44 @@ function calculateMaxDepth(adjacency: Map<string, Set<string>>, startNodeIds: st
 }
 
 .lineage-legend__swatch {
-  width: 14px;
+  width: 34px;
   height: 14px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.lineage-legend__swatch-line {
+  width: 100%;
+  height: 0;
+  border-top: 3px solid #2563eb;
+  position: relative;
+}
+
+.lineage-legend__swatch-line::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -5px;
+  border-left: 7px solid currentColor;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.lineage-legend__swatch--automatic .lineage-legend__swatch-line {
+  border-top-color: #2563eb;
+  color: #2563eb;
+}
+
+.lineage-legend__swatch--manual .lineage-legend__swatch-line {
+  border-top-color: #10b981;
+  border-top-style: dashed;
+  color: #10b981;
+}
+
+.lineage-legend__swatch--mixed .lineage-legend__swatch-line {
+  border-top-color: #8b5cf6;
+  border-top-style: dashed;
+  color: #8b5cf6;
 }
 
 .lineage-edge-drawer {

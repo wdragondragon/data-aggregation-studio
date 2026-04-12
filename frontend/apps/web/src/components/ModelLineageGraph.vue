@@ -60,6 +60,8 @@ const emit = defineEmits<{
 
 const LINEAGE_NODE_SHAPE = "lineage-vue-er-node";
 const INITIAL_SCALE = 0.84;
+const MIN_VIEWPORT_WIDTH = 560;
+const MIN_VIEWPORT_HEIGHT = 560;
 const TeleportContainer = getTeleport();
 
 const shellRef = ref<HTMLDivElement>();
@@ -100,8 +102,8 @@ const layoutResult = computed(() => buildLayout(props.nodes, props.edges, focusN
 const positionedNodes = computed(() => layoutResult.value.nodes);
 const surfaceWidth = computed(() => layoutResult.value.width);
 const surfaceHeight = computed(() => layoutResult.value.height);
-const effectiveViewportWidth = computed(() => Math.max(420, viewportWidth.value || 0));
-const effectiveViewportHeight = computed(() => Math.max(520, viewportHeight.value || 520));
+const effectiveViewportWidth = computed(() => Math.max(MIN_VIEWPORT_WIDTH, viewportWidth.value || 0));
+const effectiveViewportHeight = computed(() => Math.max(MIN_VIEWPORT_HEIGHT, viewportHeight.value || MIN_VIEWPORT_HEIGHT));
 const boardStyle = computed(() => ({
   width: `${effectiveViewportWidth.value}px`,
   height: `${effectiveViewportHeight.value}px`,
@@ -157,7 +159,10 @@ function initGraph() {
     background: {
       color: "transparent",
     },
-    panning: false,
+    panning: {
+      enabled: true,
+      eventTypes: ["leftMouseDown", "mouseWheel"],
+    },
     mousewheel: {
       enabled: true,
       modifiers: ["ctrl", "meta"],
@@ -212,7 +217,7 @@ function observeViewport() {
   const syncViewport = () => {
     const rect = target.getBoundingClientRect();
     viewportWidth.value = Math.max(0, Math.floor(rect.width));
-    viewportHeight.value = Math.max(520, Math.floor(rect.height || 0));
+    viewportHeight.value = Math.max(MIN_VIEWPORT_HEIGHT, Math.floor(rect.height || 0));
   };
   syncViewport();
   resizeObserver?.disconnect();
@@ -259,10 +264,11 @@ function buildGraphNode(graph: Graph, node: PositionedNode, level: string) {
 
 function buildGraphEdge(graph: Graph, edge: DataModelLineageEdgeView, level: string) {
   const tone = resolveStatusTone(edge.displayStatus ?? edge.latestRunStatus);
+  const creationTone = resolveCreationTone(edge.sourceTypeLabel ?? edge.sourceType);
   const sourcePort = level === "FIELD" && edge.sourceField ? `out:${normalizeFieldKey(edge.sourceField)}` : "out";
   const targetPort = level === "FIELD" && edge.targetField ? `in:${normalizeFieldKey(edge.targetField)}` : "in";
   const isSelfLoop = Boolean(edge.selfLoop || edge.sourceNodeId === edge.targetNodeId);
-  return graph.createEdge({
+  const edgeCell = graph.createEdge({
     id: edge.edgeId,
     source: {
       cell: edge.sourceNodeId,
@@ -295,12 +301,15 @@ function buildGraphEdge(graph: Graph, edge: DataModelLineageEdgeView, level: str
     },
     attrs: {
       line: {
-        stroke: tone.stroke,
+        stroke: creationTone.stroke,
         strokeWidth: tone.strokeWidth,
-        strokeDasharray: tone.strokeDasharray,
+        strokeDasharray: creationTone.strokeDasharray ?? tone.strokeDasharray,
+        strokeOpacity: resolveStatusOpacity(edge.displayStatus ?? edge.latestRunStatus),
         targetMarker: {
-          name: "classic",
-          size: 6,
+          name: creationTone.markerName,
+          size: creationTone.markerSize,
+          fill: creationTone.stroke,
+          stroke: creationTone.stroke,
         },
       },
     },
@@ -308,6 +317,32 @@ function buildGraphEdge(graph: Graph, edge: DataModelLineageEdgeView, level: str
       edgeId: edge.edgeId,
     },
   });
+  if (level !== "FIELD") {
+    edgeCell.appendLabel({
+      attrs: {
+        body: {
+          refWidth: "100%",
+          refHeight: "100%",
+          fill: creationTone.badgeFill,
+          stroke: creationTone.badgeStroke,
+          strokeWidth: 1,
+          rx: 10,
+          ry: 10,
+        },
+        label: {
+          text: creationTone.badgeText,
+          fill: "#ffffff",
+          fontSize: 11,
+          fontWeight: 700,
+        },
+      },
+      position: {
+        distance: 0.5,
+        offset: isSelfLoop ? -18 : -10,
+      },
+    });
+  }
+  return edgeCell;
 }
 
 function buildNodePorts(node: PositionedNode, renderData: LineageNodeCellData["renderData"], level: string) {
@@ -501,6 +536,52 @@ function bfsDistances(startNodeId: string, adjacency: Map<string, string[]>) {
   }
   return distances;
 }
+
+function resolveCreationTone(sourceType?: string) {
+  const normalized = String(sourceType ?? "").trim().toUpperCase();
+  if (normalized === "MANUAL") {
+    return {
+      stroke: "#10b981",
+      strokeDasharray: "10 6",
+      badgeFill: "#10b981",
+      badgeStroke: "#059669",
+      badgeText: "\u624B\u52A8",
+      markerName: "block",
+      markerSize: 7,
+    };
+  }
+  if (normalized === "MIXED") {
+    return {
+      stroke: "#8b5cf6",
+      strokeDasharray: "12 6 2 6",
+      badgeFill: "#8b5cf6",
+      badgeStroke: "#7c3aed",
+      badgeText: "\u6DF7\u5408",
+      markerName: "classic",
+      markerSize: 7,
+    };
+  }
+  return {
+    stroke: "#2563eb",
+    strokeDasharray: undefined,
+    badgeFill: "#2563eb",
+    badgeStroke: "#1d4ed8",
+    badgeText: "\u81EA\u52A8",
+    markerName: "classic",
+    markerSize: 6,
+  };
+}
+
+function resolveStatusOpacity(status?: string) {
+  const normalized = String(status ?? "").trim().toUpperCase();
+  if (normalized === "NOT_RUN" || normalized === "STOPPED") {
+    return 0.74;
+  }
+  if (normalized === "RUNNING" || normalized === "PENDING") {
+    return 0.92;
+  }
+  return 1;
+}
 </script>
 
 <style scoped>
@@ -525,7 +606,7 @@ function bfsDistances(startNodeId: string, adjacency: Map<string, string[]>) {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  height: clamp(440px, 60vh, 680px);
+  height: clamp(520px, 72vh, 820px);
   overflow: hidden;
   padding-bottom: 8px;
   position: relative;
@@ -551,6 +632,7 @@ function bfsDistances(startNodeId: string, adjacency: Map<string, string[]>) {
   height: 100% !important;
   border-radius: 14px;
   overflow: hidden;
+  cursor: grab;
 }
 
 .lineage-canvas-shell :deep(.x6-graph-svg),
@@ -566,6 +648,10 @@ function bfsDistances(startNodeId: string, adjacency: Map<string, string[]>) {
 
 .lineage-canvas-shell :deep(.x6-node.x6-node-selected),
 .lineage-canvas-shell :deep(.x6-node:active) {
+  cursor: grabbing;
+}
+
+.lineage-canvas-shell :deep(.x6-graph.x6-graph-panning) {
   cursor: grabbing;
 }
 

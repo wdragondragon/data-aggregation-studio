@@ -73,6 +73,7 @@ public class DataModelLineageService {
     private static final String DISPLAY_STATUS_EXCEPTION = "EXCEPTION";
     private static final String SOURCE_TYPE_LABEL_AUTOMATIC = "AUTOMATIC";
     private static final String SOURCE_TYPE_LABEL_MANUAL = "MANUAL";
+    private static final String SOURCE_TYPE_LABEL_MIXED = "MIXED";
     private static final String VISUAL_PLATFORM_MODEL = "PLATFORM_MODEL";
     private static final String VISUAL_EXTERNAL_ACCESS = "EXTERNAL_ACCESS";
     private static final Pattern QUALIFIED_FIELD_PATTERN = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)\\.([A-Za-z_][A-Za-z0-9_]*)");
@@ -901,7 +902,7 @@ public class DataModelLineageService {
                     ? safeText(latest.getSourceFieldKey()) + " -> " + safeText(latest.getTargetFieldKey())
                     : null);
             edge.setSourceType(preferred == null ? null : preferred.getSourceType());
-            edge.setSourceTypeLabel(resolveSourceTypeLabel(preferred == null ? null : preferred.getSourceType()));
+            edge.setSourceTypeLabel(resolveAggregatedSourceTypeLabel(contributors));
             edge.setLatestRunId(preferred == null ? null : preferred.getLatestRunId());
             edge.setLatestRunStatus(preferred == null ? RUN_STATUS_NOT_RUN : defaultRunStatus(preferred.getLatestRunStatus()));
             edge.setDisplayStatus(resolveDisplayStatus(preferred));
@@ -950,7 +951,7 @@ public class DataModelLineageService {
         detail.setSourceField(level == LineageLevel.FIELD ? latest.getSourceFieldKey() : null);
         detail.setTargetField(level == LineageLevel.FIELD ? latest.getTargetFieldKey() : null);
         detail.setSourceType(preferred == null ? null : preferred.getSourceType());
-        detail.setSourceTypeLabel(resolveSourceTypeLabel(preferred == null ? null : preferred.getSourceType()));
+        detail.setSourceTypeLabel(resolveAggregatedSourceTypeLabel(contributors));
         detail.setLatestRunId(preferred == null ? null : preferred.getLatestRunId());
         detail.setLatestRunStatus(preferred == null ? RUN_STATUS_NOT_RUN : defaultRunStatus(preferred.getLatestRunStatus()));
         detail.setDisplayStatus(resolveDisplayStatus(preferred));
@@ -1427,6 +1428,31 @@ public class DataModelLineageService {
 
     private String resolveSourceTypeLabel(String sourceType) {
         if (SOURCE_TYPE_MANUAL.equalsIgnoreCase(sourceType)) {
+            return SOURCE_TYPE_LABEL_MANUAL;
+        }
+        return SOURCE_TYPE_LABEL_AUTOMATIC;
+    }
+
+    private String resolveAggregatedSourceTypeLabel(List<DataModelLineageRelationEntity> contributors) {
+        if (contributors == null || contributors.isEmpty()) {
+            return SOURCE_TYPE_LABEL_AUTOMATIC;
+        }
+        boolean hasAutomatic = false;
+        boolean hasManual = false;
+        for (DataModelLineageRelationEntity contributor : contributors) {
+            if (contributor == null) {
+                continue;
+            }
+            if (SOURCE_TYPE_MANUAL.equalsIgnoreCase(contributor.getSourceType())) {
+                hasManual = true;
+            } else {
+                hasAutomatic = true;
+            }
+        }
+        if (hasAutomatic && hasManual) {
+            return SOURCE_TYPE_LABEL_MIXED;
+        }
+        if (hasManual) {
             return SOURCE_TYPE_LABEL_MANUAL;
         }
         return SOURCE_TYPE_LABEL_AUTOMATIC;
