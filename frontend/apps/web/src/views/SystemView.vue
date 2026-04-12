@@ -523,7 +523,7 @@ async function loadPage() {
       currentProjectId == null ? Promise.resolve([] as SystemProjectWorker[]) : studioApi.system.projectWorkers.list(currentProjectId),
       currentProjectId == null ? Promise.resolve([] as ResourceShare[]) : studioApi.system.resourceShares.list({ projectId: currentProjectId }),
       currentProjectId == null ? Promise.resolve([] as DataSourceDefinition[]) : studioApi.datasources.list(),
-      currentProjectId == null ? Promise.resolve([] as DataModelDefinition[]) : studioApi.models.list(),
+      currentProjectId == null ? Promise.resolve([] as DataModelDefinition[]) : studioApi.models.listPage({ pageNo: 1, pageSize: 5000 }),
       currentProjectId == null ? Promise.resolve([] as CollectionTaskDefinitionView[]) : studioApi.collectionTasks.list(),
       currentProjectId == null ? Promise.resolve([] as WorkflowDefinitionView[]) : studioApi.workflows.list(),
       currentProjectId == null ? Promise.resolve([] as DataDevelopmentScript[]) : studioApi.dataDevelopment.listScripts(),
@@ -538,7 +538,7 @@ async function loadPage() {
     projectWorkers.value = workerData;
     resourceShares.value = shareData;
     datasourceResources.value = datasourceData;
-    modelResources.value = modelData;
+    modelResources.value = Array.isArray(modelData) ? modelData : modelData.items ?? [];
     taskResources.value = taskData;
     workflowResources.value = workflowData;
     dataDevelopmentScriptResources.value = dataDevelopmentScriptData;

@@ -217,7 +217,7 @@
           </div>
         </div>
 
-        <el-table :data="pagedModels" border :empty-text="modelTableEmptyText">
+        <el-table :data="models" border :empty-text="modelTableEmptyText">
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(modelPagination, $index) }}
@@ -260,7 +260,9 @@
             background
             layout="total, sizes, prev, pager, next"
             :page-sizes="[10, 20, 50, 100]"
-            :total="models.length"
+            :total="modelPagination.total"
+            @current-change="handleModelPageChange"
+            @size-change="handleModelPageSizeChange"
           />
         </div>
           </SectionCard>
@@ -384,115 +386,123 @@
         </div>
       </div>
 
-      <SectionCard :title="t('web.models.previewTitle')" :description="t('web.models.previewDescription')">
-        <div v-if="selectedModel" class="soft-panel preview-head">
-          <div>
-            <strong>{{ selectedModel.name }}</strong>
-            <p>{{ selectedModel.physicalLocator }}</p>
-            <p>所属项目：{{ resolveProjectLabel(selectedModel.projectId) }}</p>
-          </div>
-          <div class="preview-head__tags">
-            <StatusPill :label="formatModelKind(t, selectedModel.modelKind)" tone="primary" />
-            <StatusPill
-              :label="isSharedSelectedModel ? '共享来源' : '当前项目'"
-              :tone="isSharedSelectedModel ? 'warning' : 'success'"
-            />
-          </div>
-        </div>
-        <div v-else class="soft-panel empty-hint">
-          {{ t("web.models.previewEmpty") }}
-        </div>
-
-        <template v-if="selectedModel">
-          <div v-if="isSharedSelectedModel" class="soft-panel warning-hint">
-            当前模型来自其他项目共享，支持查看与引用，但不能在此项目中编辑或删除。
-          </div>
-          <div class="model-section-stack">
-            <div
-              v-for="section in previewSections"
-              :key="section.key"
-              class="soft-panel model-meta-section"
-            >
-              <div class="model-meta-section__header">
-                <div>
-                  <strong>{{ section.title }}</strong>
-                  <p>{{ section.description }}</p>
-                </div>
-                <div class="model-meta-section__tags">
-                  <StatusPill
-                    :label="section.binding === 'TECHNICAL' ? t('metaForm.technicalTitle') : t('metaForm.businessTitle')"
-                    :tone="section.binding === 'TECHNICAL' ? 'primary' : 'success'"
-                  />
-                  <StatusPill
-                    :label="section.displayMode === 'MULTIPLE' ? t('web.metadata.displayMultiple') : t('web.metadata.displaySingle')"
-                    tone="neutral"
-                  />
-                </div>
+      <el-tabs v-model="activeDetailTab" class="model-detail-tabs">
+        <el-tab-pane :label="t('web.models.detailTabOverview')" name="overview">
+          <SectionCard :title="t('web.models.previewTitle')" :description="t('web.models.previewDescription')">
+            <div v-if="selectedModel" class="soft-panel preview-head">
+              <div>
+                <strong>{{ selectedModel.name }}</strong>
+                <p>{{ selectedModel.physicalLocator }}</p>
+                <p>所属项目：{{ resolveProjectLabel(selectedModel.projectId) }}</p>
               </div>
-
-              <div v-if="section.displayMode === 'MULTIPLE'">
-                <div v-if="previewSectionRows(section).length === 0" class="soft-panel empty-hint section-empty">
-                  {{ t("web.models.metaSectionEmpty") }}
-                </div>
-                <el-table v-else :data="previewSectionRows(section)" border>
-                  <el-table-column
-                    v-for="field in section.fields"
-                    :key="field.fieldKey"
-                    :prop="field.fieldKey"
-                    :label="field.fieldName"
-                    min-width="140"
-                    show-overflow-tooltip
-                  >
-                    <template #default="{ row }">
-                      {{ formatDisplayValue(row[field.fieldKey]) }}
-                    </template>
-                  </el-table-column>
-                </el-table>
+              <div class="preview-head__tags">
+                <StatusPill :label="formatModelKind(t, selectedModel.modelKind)" tone="primary" />
+                <StatusPill
+                  :label="isSharedSelectedModel ? '共享来源' : '当前项目'"
+                  :tone="isSharedSelectedModel ? 'warning' : 'success'"
+                />
               </div>
+            </div>
+            <div v-else class="soft-panel empty-hint">
+              {{ t("web.models.previewEmpty") }}
+            </div>
 
-              <div v-else class="model-field-grid">
+            <template v-if="selectedModel">
+              <div v-if="isSharedSelectedModel" class="soft-panel warning-hint">
+                当前模型来自其他项目共享，支持查看与引用，但不能在此项目中编辑或删除。
+              </div>
+              <div class="model-section-stack">
                 <div
-                  v-for="field in section.fields"
-                  :key="field.fieldKey"
-                  class="model-field-grid__item"
+                  v-for="section in previewSections"
+                  :key="section.key"
+                  class="soft-panel model-meta-section"
                 >
-                  <span class="model-field-grid__label">{{ field.fieldName }}</span>
-                  <div class="model-field-grid__value">
-                    {{ formatDisplayValue(sectionValue(section, field.fieldKey, false)) }}
+                  <div class="model-meta-section__header">
+                    <div>
+                      <strong>{{ section.title }}</strong>
+                      <p>{{ section.description }}</p>
+                    </div>
+                    <div class="model-meta-section__tags">
+                      <StatusPill
+                        :label="section.binding === 'TECHNICAL' ? t('metaForm.technicalTitle') : t('metaForm.businessTitle')"
+                        :tone="section.binding === 'TECHNICAL' ? 'primary' : 'success'"
+                      />
+                      <StatusPill
+                        :label="section.displayMode === 'MULTIPLE' ? t('web.metadata.displayMultiple') : t('web.metadata.displaySingle')"
+                        tone="neutral"
+                      />
+                    </div>
+                  </div>
+
+                  <div v-if="section.displayMode === 'MULTIPLE'">
+                    <div v-if="previewSectionRows(section).length === 0" class="soft-panel empty-hint section-empty">
+                      {{ t("web.models.metaSectionEmpty") }}
+                    </div>
+                    <el-table v-else :data="previewSectionRows(section)" border>
+                      <el-table-column
+                        v-for="field in section.fields"
+                        :key="field.fieldKey"
+                        :prop="field.fieldKey"
+                        :label="field.fieldName"
+                        min-width="140"
+                        show-overflow-tooltip
+                      >
+                        <template #default="{ row }">
+                          {{ formatDisplayValue(row[field.fieldKey]) }}
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                  </div>
+
+                  <div v-else class="model-field-grid">
+                    <div
+                      v-for="field in section.fields"
+                      :key="field.fieldKey"
+                      class="model-field-grid__item"
+                    >
+                      <span class="model-field-grid__label">{{ field.fieldName }}</span>
+                      <div class="model-field-grid__value">
+                        {{ formatDisplayValue(sectionValue(section, field.fieldKey, false)) }}
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                <div v-if="previewSections.length === 0" class="soft-panel empty-hint">
+                  {{ t("web.models.metaSectionEmpty") }}
+                </div>
               </div>
-            </div>
 
-            <div v-if="previewSections.length === 0" class="soft-panel empty-hint">
-              {{ t("web.models.metaSectionEmpty") }}
-            </div>
-          </div>
+              <div class="soft-panel sample-panel">
+                <div class="model-meta-section__header">
+                  <div>
+                    <strong>{{ t("web.models.sampleRowsTitle") }}</strong>
+                    <p>{{ t("web.models.sampleRowsDescription") }}</p>
+                  </div>
+                </div>
 
-          <div class="soft-panel sample-panel">
-            <div class="model-meta-section__header">
-              <div>
-                <strong>{{ t("web.models.sampleRowsTitle") }}</strong>
-                <p>{{ t("web.models.sampleRowsDescription") }}</p>
+                <div v-if="previewRows.length === 0" class="soft-panel empty-hint section-empty">
+                  {{ t("web.models.sampleRowsEmpty") }}
+                </div>
+                <el-table v-else :data="previewRows" border>
+                  <el-table-column
+                    v-for="column in previewColumns"
+                    :key="column"
+                    :prop="column"
+                    :label="column"
+                    min-width="140"
+                    show-overflow-tooltip
+                  />
+                </el-table>
               </div>
-            </div>
+            </template>
+          </SectionCard>
+        </el-tab-pane>
 
-            <div v-if="previewRows.length === 0" class="soft-panel empty-hint section-empty">
-              {{ t("web.models.sampleRowsEmpty") }}
-            </div>
-            <el-table v-else :data="previewRows" border>
-              <el-table-column
-                v-for="column in previewColumns"
-                :key="column"
-                :prop="column"
-                :label="column"
-                min-width="140"
-                show-overflow-tooltip
-              />
-            </el-table>
-          </div>
-        </template>
-      </SectionCard>
+        <el-tab-pane :label="t('web.models.detailTabLineage')" name="lineage">
+          <ModelLineagePanel :model-id="detailModelId" :model="selectedModel" />
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <el-dialog v-model="syncDialogOpen" :title="t('web.models.syncDialogTitle')" width="72%">
@@ -736,8 +746,9 @@ import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
+import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
 import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
-import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
   getBusinessMetaModelRows,
@@ -826,17 +837,18 @@ const authStore = useAuthStore();
 const datasources = ref<DataSourceDefinition[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const models = ref<DataModelDefinition[]>([]);
-const {
-  pagination: modelPagination,
-  pagedItems: pagedModels,
-  resetPagination: resetModelPagination,
-} = useClientPagination(models);
+const modelPagination = reactive({
+  page: 1,
+  pageSize: 20,
+  total: 0,
+});
 const previewRows = ref<Record<string, unknown>[]>([]);
 const queryGroups = ref<ModelQueryGroupState[]>([]);
 const selectedDatasourceType = ref("");
 const selectedDatasourceId = ref<EntityId>();
 const selectedModel = ref<DataModelDefinition>();
 const activeListTab = ref("models");
+const activeDetailTab = ref("overview");
 const editorOpen = ref(false);
 const saving = ref(false);
 const syncDialogOpen = ref(false);
@@ -950,6 +962,28 @@ const showManualDatasourceHint = computed(
 const isSharedSelectedModel = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, selectedModel.value?.projectId),
 );
+
+function normalizeModelPagePayload(payload: unknown) {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload as DataModelDefinition[],
+      total: payload.length,
+    };
+  }
+  if (payload && typeof payload === "object") {
+    const candidate = payload as { items?: unknown; total?: unknown };
+    if (Array.isArray(candidate.items)) {
+      return {
+        items: candidate.items as DataModelDefinition[],
+        total: Number(candidate.total ?? candidate.items.length ?? 0),
+      };
+    }
+  }
+  return {
+    items: [] as DataModelDefinition[],
+    total: 0,
+  };
+}
 
 function sameId(left?: EntityId, right?: EntityId) {
   if (left == null || right == null) {
@@ -1619,14 +1653,6 @@ function parseQueryValue(value: unknown, field?: MetadataFieldDefinition) {
   return value;
 }
 
-function filterModelsBySelectedDatasourceType(items: DataModelDefinition[]) {
-  if (!selectedDatasourceType.value) {
-    return items;
-  }
-  const expectedType = normalizeTypeCode(selectedDatasourceType.value);
-  return items.filter((model) => normalizeTypeCode(findDatasourceById(model.datasourceId)?.typeCode) === expectedType);
-}
-
 function buildModelQueryRequest(): DataModelQueryRequest {
   const groups: DataModelQueryGroup[] = [];
   for (const group of queryGroups.value) {
@@ -1690,17 +1716,31 @@ function buildModelQueryRequest(): DataModelQueryRequest {
   }
   return {
     datasourceId: selectedDatasourceId.value,
+    datasourceType: selectedDatasourceType.value || undefined,
     groups,
   };
 }
 
 async function searchModels() {
+  modelPagination.page = 1;
   await handleDatasourceChange();
 }
 
 async function resetQueryFilters() {
   queryGroups.value = [];
+  modelPagination.page = 1;
   await handleDatasourceChange();
+}
+
+function handleModelPageChange(page: number) {
+  modelPagination.page = page;
+  void handleDatasourceChange();
+}
+
+function handleModelPageSizeChange(pageSize: number) {
+  modelPagination.pageSize = pageSize;
+  modelPagination.page = 1;
+  void handleDatasourceChange();
 }
 
 function openCreateDialog() {
@@ -1911,13 +1951,24 @@ async function loadModelsForSelectedDatasource() {
   selectedModel.value = undefined;
   previewRows.value = [];
   const queryRequest = buildModelQueryRequest();
-  const loadedModels = queryRequest.groups.length > 0
-    ? await studioApi.models.query(queryRequest)
+  const payload = queryRequest.groups.length > 0
+    ? await studioApi.models.queryPage(queryRequest, {
+      pageNo: modelPagination.page,
+      pageSize: modelPagination.pageSize,
+    })
     : (selectedDatasourceId.value
-      ? await studioApi.models.listByDatasource(selectedDatasourceId.value)
-      : await studioApi.models.list());
-  models.value = filterModelsBySelectedDatasourceType(loadedModels);
-  resetModelPagination();
+      ? await studioApi.models.listByDatasourcePage(selectedDatasourceId.value, {
+        pageNo: modelPagination.page,
+        pageSize: modelPagination.pageSize,
+      })
+      : await studioApi.models.listPage({
+        datasourceType: selectedDatasourceType.value || undefined,
+        pageNo: modelPagination.page,
+        pageSize: modelPagination.pageSize,
+      }));
+  const result = normalizeModelPagePayload(payload);
+  models.value = result.items;
+  modelPagination.total = Number(result.total ?? 0);
 }
 
 async function handleDatasourceTypeChange() {
@@ -1927,6 +1978,7 @@ async function handleDatasourceTypeChange() {
       selectedDatasourceId.value = undefined;
     }
   }
+  modelPagination.page = 1;
   await handleDatasourceChange();
 }
 
@@ -2082,6 +2134,7 @@ async function saveModel() {
     if (isDetailPage.value) {
       goBackToList();
     } else {
+      modelPagination.page = 1;
       await handleDatasourceChange();
       const current = models.value.find((item) => sameId(item.id, saved.id));
       if (current) {
@@ -2137,13 +2190,13 @@ async function submitSync() {
     if (datasource?.typeCode) {
       selectedDatasourceType.value = datasource.typeCode;
     }
-    models.value = await studioApi.models.syncSelected(syncForm.datasourceId, {
+    await studioApi.models.syncSelected(syncForm.datasourceId, {
       physicalLocators: cloneDeep(syncSelectedLocators.value),
     });
-    selectedModel.value = undefined;
-    previewRows.value = [];
+    modelPagination.page = 1;
     syncDialogOpen.value = false;
     ElMessage.success(t("web.models.syncSuccess"));
+    await handleDatasourceChange();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.syncFailed"));
   } finally {
@@ -2273,6 +2326,7 @@ watch(
   async () => {
     await loadPage();
     if (isDetailPage.value) {
+      activeDetailTab.value = "overview";
       await loadModelDetail();
       return;
     }
@@ -2665,6 +2719,14 @@ p {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.model-detail-tabs :deep(.el-tabs__header) {
+  margin-bottom: 18px;
+}
+
+.model-detail-tabs :deep(.el-tabs__nav-wrap::after) {
+  background: rgba(148, 163, 184, 0.22);
 }
 
 @media (max-width: 980px) {

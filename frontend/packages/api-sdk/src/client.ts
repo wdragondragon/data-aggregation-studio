@@ -17,8 +17,12 @@ import type {
   DataDevelopmentScriptSaveRequest,
   DataDevelopmentTreeNode,
   DataModelDefinition,
+  DataModelLineageEdgeDetailView,
+  DataModelLineageLevel,
+  DataModelLineageView,
   DataModelIndexQueueStatusView,
   DataModelQueryRequest,
+  DataModelManualLineageSaveRequest,
   DataModelStatisticsRequest,
   DataModelStatisticsOptionsRequest,
   DataModelStatisticsOptionsView,
@@ -97,6 +101,34 @@ async function unwrap<T>(promise: Promise<{ data: Result<T> }>): Promise<T> {
     throw new Error(response.data.message || "Request failed");
   }
   return response.data.data;
+}
+
+function normalizePageResult<T>(payload: unknown, pageNo = 1, pageSize = 20): PageResult<T> {
+  if (Array.isArray(payload)) {
+    return {
+      pageNo,
+      pageSize,
+      total: payload.length,
+      items: payload as T[],
+    };
+  }
+  if (payload && typeof payload === "object") {
+    const candidate = payload as Partial<PageResult<T>>;
+    if (Array.isArray(candidate.items)) {
+      return {
+        pageNo: Number(candidate.pageNo ?? pageNo),
+        pageSize: Number(candidate.pageSize ?? pageSize),
+        total: Number(candidate.total ?? candidate.items.length ?? 0),
+        items: candidate.items,
+      };
+    }
+  }
+  return {
+    pageNo,
+    pageSize,
+    total: 0,
+    items: [],
+  };
 }
 
 export function createStudioApi(options: StudioApiOptions = {}) {
@@ -262,17 +294,91 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     models: {
-      list() {
-        return request<DataModelDefinition[]>({ url: "/models", method: "GET" });
+      listPage(params?: {
+        datasourceType?: string;
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        return request<unknown>({ url: "/models", method: "GET", params }).then((payload) =>
+          normalizePageResult<DataModelDefinition>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
       },
-      listByDatasource(datasourceId: EntityId) {
-        return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}`, method: "GET" });
+      async list(params?: {
+        datasourceType?: string;
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        const result = await request<PageResult<DataModelDefinition>>({
+          url: "/models",
+          method: "GET",
+          params: {
+            datasourceType: params?.datasourceType,
+            pageNo: params?.pageNo ?? 1,
+            pageSize: params?.pageSize ?? 5000,
+          },
+        });
+        return result.items;
+      },
+      listByDatasourcePage(datasourceId: EntityId, params?: {
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        return request<unknown>({
+          url: `/models/datasource/${datasourceId}`,
+          method: "GET",
+          params,
+        }).then((payload) =>
+          normalizePageResult<DataModelDefinition>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      async listByDatasource(datasourceId: EntityId, params?: {
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        const result = await request<PageResult<DataModelDefinition>>({
+          url: `/models/datasource/${datasourceId}`,
+          method: "GET",
+          params: {
+            pageNo: params?.pageNo ?? 1,
+            pageSize: params?.pageSize ?? 5000,
+          },
+        });
+        return result.items;
       },
       get(modelId: EntityId) {
         return request<DataModelDefinition>({ url: `/models/${modelId}`, method: "GET" });
       },
-      query(payload: DataModelQueryRequest) {
-        return request<DataModelDefinition[]>({ url: "/models/query", method: "POST", data: payload });
+      queryPage(payload: DataModelQueryRequest, params?: {
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        return request<unknown>({
+          url: "/models/query",
+          method: "POST",
+          data: payload,
+          params,
+        }).then((result) =>
+          normalizePageResult<DataModelDefinition>(
+            result,
+            params?.pageNo ?? payload.pageNo ?? 1,
+            params?.pageSize ?? payload.pageSize ?? 20,
+          ),
+        );
+      },
+      async query(payload: DataModelQueryRequest, params?: {
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        const result = await request<PageResult<DataModelDefinition>>({
+          url: "/models/query",
+          method: "POST",
+          data: payload,
+          params: {
+            pageNo: params?.pageNo ?? payload.pageNo ?? 1,
+            pageSize: params?.pageSize ?? payload.pageSize ?? 5000,
+          },
+        });
+        return result.items;
       },
       statistics(payload: DataModelStatisticsRequest) {
         return request<DataModelStatisticsView>({ url: "/models/statistics", method: "POST", data: payload });
@@ -304,6 +410,40 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           url: `/models/${modelId}/preview`,
           method: "GET",
           params: { limit },
+        });
+      },
+      lineage(modelId: EntityId, level: DataModelLineageLevel | string) {
+        return request<DataModelLineageView>({
+          url: `/models/${modelId}/lineage`,
+          method: "GET",
+          params: { level },
+        });
+      },
+      lineageEdgeDetail(modelId: EntityId, edgeId: string, level: DataModelLineageLevel | string) {
+        return request<DataModelLineageEdgeDetailView>({
+          url: `/models/${modelId}/lineage/edges/${encodeURIComponent(edgeId)}`,
+          method: "GET",
+          params: { level },
+        });
+      },
+      createManualLineage(modelId: EntityId, payload: DataModelManualLineageSaveRequest) {
+        return request<void>({
+          url: `/models/${modelId}/lineage/manual`,
+          method: "POST",
+          data: payload,
+        });
+      },
+      updateManualLineage(modelId: EntityId, relationId: EntityId, payload: DataModelManualLineageSaveRequest) {
+        return request<void>({
+          url: `/models/${modelId}/lineage/manual/${relationId}`,
+          method: "PUT",
+          data: payload,
+        });
+      },
+      deleteManualLineage(modelId: EntityId, relationId: EntityId) {
+        return request<void>({
+          url: `/models/${modelId}/lineage/manual/${relationId}`,
+          method: "DELETE",
         });
       },
       delete(modelId: EntityId) {

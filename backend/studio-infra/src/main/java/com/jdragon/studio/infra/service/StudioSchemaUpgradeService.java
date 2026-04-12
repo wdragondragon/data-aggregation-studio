@@ -81,6 +81,50 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records bigint");
         ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records bigint");
         ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records bigint");
+        ensureColumn("data_model_lineage_relation", "manual_maintainer_user_id", "alter table data_model_lineage_relation add column manual_maintainer_user_id bigint");
+        ensureColumn("data_model_lineage_relation", "manual_maintainer_name_snapshot", "alter table data_model_lineage_relation add column manual_maintainer_name_snapshot varchar(255)");
+
+        if (!tableExists("data_model_lineage_relation")) {
+            jdbcTemplate.execute("create table data_model_lineage_relation (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "level varchar(32)," +
+                    "source_type varchar(64)," +
+                    "collection_task_id bigint," +
+                    "collection_task_name_snapshot varchar(255)," +
+                    "source_datasource_id bigint," +
+                    "source_datasource_name_snapshot varchar(255)," +
+                    "source_datasource_type_snapshot varchar(128)," +
+                    "source_database_name_snapshot varchar(255)," +
+                    "source_host_snapshot varchar(255)," +
+                    "source_port_snapshot varchar(64)," +
+                    "source_model_id bigint," +
+                    "source_model_name_snapshot varchar(255)," +
+                    "source_model_locator_snapshot varchar(1000)," +
+                    "source_field_key varchar(255)," +
+                    "target_datasource_id bigint," +
+                    "target_datasource_name_snapshot varchar(255)," +
+                    "target_datasource_type_snapshot varchar(128)," +
+                    "target_database_name_snapshot varchar(255)," +
+                    "target_host_snapshot varchar(255)," +
+                    "target_port_snapshot varchar(64)," +
+                    "target_model_id bigint," +
+                    "target_model_name_snapshot varchar(255)," +
+                    "target_model_locator_snapshot varchar(1000)," +
+                    "target_field_key varchar(255)," +
+                    "mapping_mode varchar(64)," +
+                    "expression_snapshot text," +
+                    "manual_maintainer_user_id bigint," +
+                    "manual_maintainer_name_snapshot varchar(255)," +
+                    "latest_run_id bigint," +
+                    "latest_run_status varchar(64)," +
+                    "latest_run_at datetime" +
+                    ")");
+        }
 
         if (!tableExists("data_model_attr_index")) {
             jdbcTemplate.execute("create table data_model_attr_index (" +
@@ -514,6 +558,16 @@ public class StudioSchemaUpgradeService {
                 "alter table run_record add key idx_run_record_project_workflow_run (project_id, workflow_run_id)");
         ensureIndex("run_record", "idx_run_record_project_collection_task_ended",
                 "alter table run_record add key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at)");
+        ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_target_level",
+                "alter table data_model_lineage_relation add key idx_data_model_lineage_target_level (tenant_id, target_model_id, level)");
+        ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_source_level",
+                "alter table data_model_lineage_relation add key idx_data_model_lineage_source_level (tenant_id, source_model_id, level)");
+        ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_task",
+                "alter table data_model_lineage_relation add key idx_data_model_lineage_task (tenant_id, collection_task_id)");
+        ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_target_datasource_level",
+                "alter table data_model_lineage_relation add key idx_data_model_lineage_target_datasource_level (tenant_id, target_datasource_id, level)");
+        ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_source_datasource_level",
+                "alter table data_model_lineage_relation add key idx_data_model_lineage_source_datasource_level (tenant_id, source_datasource_id, level)");
         ensureIndex("studio_tenant", "uk_studio_tenant_code",
                 "alter table studio_tenant add unique key uk_studio_tenant_code (tenant_code)");
         ensureIndex("studio_project", "uk_studio_project_code",
@@ -833,6 +887,50 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_run_record_project_created on run_record(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
+        jdbcTemplate.execute("create table if not exists data_model_lineage_relation (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "level text," +
+                "source_type text," +
+                "collection_task_id integer," +
+                "collection_task_name_snapshot text," +
+                "source_datasource_id integer," +
+                "source_datasource_name_snapshot text," +
+                "source_datasource_type_snapshot text," +
+                "source_database_name_snapshot text," +
+                "source_host_snapshot text," +
+                "source_port_snapshot text," +
+                "source_model_id integer," +
+                "source_model_name_snapshot text," +
+                "source_model_locator_snapshot text," +
+                "source_field_key text," +
+                "target_datasource_id integer," +
+                "target_datasource_name_snapshot text," +
+                "target_datasource_type_snapshot text," +
+                "target_database_name_snapshot text," +
+                "target_host_snapshot text," +
+                "target_port_snapshot text," +
+                "target_model_id integer," +
+                "target_model_name_snapshot text," +
+                "target_model_locator_snapshot text," +
+                    "target_field_key text," +
+                    "mapping_mode text," +
+                    "expression_snapshot text," +
+                    "manual_maintainer_user_id integer," +
+                    "manual_maintainer_name_snapshot text," +
+                    "latest_run_id integer," +
+                    "latest_run_status text," +
+                    "latest_run_at text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_data_model_lineage_target_level on data_model_lineage_relation(tenant_id, target_model_id, level)");
+        jdbcTemplate.execute("create index if not exists idx_data_model_lineage_source_level on data_model_lineage_relation(tenant_id, source_model_id, level)");
+        jdbcTemplate.execute("create index if not exists idx_data_model_lineage_task on data_model_lineage_relation(tenant_id, collection_task_id)");
+        jdbcTemplate.execute("create index if not exists idx_data_model_lineage_target_datasource_level on data_model_lineage_relation(tenant_id, target_datasource_id, level)");
+        jdbcTemplate.execute("create index if not exists idx_data_model_lineage_source_datasource_level on data_model_lineage_relation(tenant_id, source_datasource_id, level)");
 
         jdbcTemplate.execute("create table if not exists studio_tenant (" +
                 "id integer primary key," +

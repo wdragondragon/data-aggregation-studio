@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
@@ -27,6 +28,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,6 +39,9 @@ import java.util.Set;
 public class DataModelService {
 
     private static final Logger log = LoggerFactory.getLogger(DataModelService.class);
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 5000;
 
     private final DataModelMapper dataModelMapper;
     private final DataSourceService dataSourceService;
@@ -72,26 +77,11 @@ public class DataModelService {
     }
 
     public List<DataModelDefinition> list() {
-        List<DataModelEntity> entities = dataModelMapper.selectList(buildAccessibleQuery()
-                .orderByAsc(DataModelEntity::getProjectId)
-                .orderByAsc(DataModelEntity::getName));
-        List<DataModelDefinition> result = new ArrayList<DataModelDefinition>();
-        for (DataModelEntity entity : entities) {
-            result.add(toDefinition(entity));
-        }
-        return result;
+        return listPage(null, DEFAULT_PAGE_NO, MAX_PAGE_SIZE).getItems();
     }
 
     public List<DataModelDefinition> listByDatasource(Long datasourceId) {
-        dataSourceService.get(datasourceId);
-        List<DataModelEntity> entities = dataModelMapper.selectList(buildAccessibleQuery()
-                .eq(DataModelEntity::getDatasourceId, datasourceId)
-                .orderByAsc(DataModelEntity::getName));
-        List<DataModelDefinition> result = new ArrayList<DataModelDefinition>();
-        for (DataModelEntity entity : entities) {
-            result.add(toDefinition(entity));
-        }
-        return result;
+        return listByDatasourcePage(datasourceId, DEFAULT_PAGE_NO, MAX_PAGE_SIZE).getItems();
     }
 
     public DataModelDefinition get(Long modelId) {
@@ -103,39 +93,38 @@ public class DataModelService {
     }
 
     public List<DataModelDefinition> query(DataModelQueryRequest request) {
+        return queryPage(request, request == null ? null : request.getPageNo(), request == null ? null : request.getPageSize()).getItems();
+    }
+
+    public PageView<DataModelDefinition> listPage(String datasourceType, Integer pageNo, Integer pageSize) {
+        return pageQuery(buildBaseQuery(null, datasourceType, null), pageNo, pageSize);
+    }
+
+    public PageView<DataModelDefinition> listByDatasourcePage(Long datasourceId, Integer pageNo, Integer pageSize) {
+        dataSourceService.get(datasourceId);
+        return pageQuery(buildBaseQuery(datasourceId, null, null), pageNo, pageSize);
+    }
+
+    public PageView<DataModelDefinition> queryPage(DataModelQueryRequest request, Integer pageNo, Integer pageSize) {
         if (request == null) {
-            return list();
+            return pageQuery(buildBaseQuery(null, null, null), pageNo, pageSize);
         }
         List<DataModelQueryGroup> groups = normalizeQueryGroups(request.getGroups());
         if (groups.isEmpty()) {
-            LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
-                    .orderByAsc(DataModelEntity::getName);
-            if (request.getDatasourceId() != null) {
-                queryWrapper.eq(DataModelEntity::getDatasourceId, request.getDatasourceId());
-            }
-            if (request.getModelKind() != null && !request.getModelKind().trim().isEmpty()) {
-                queryWrapper.eq(DataModelEntity::getModelKind, request.getModelKind().trim().toUpperCase());
-            }
-            return toDefinitions(dataModelMapper.selectList(queryWrapper));
+            return pageQuery(buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind()), pageNo, pageSize);
         }
         DataModelQueryRequest normalizedRequest = new DataModelQueryRequest();
         normalizedRequest.setDatasourceId(request.getDatasourceId());
+        normalizedRequest.setDatasourceType(request.getDatasourceType());
         normalizedRequest.setModelKind(request.getModelKind());
         normalizedRequest.setGroups(groups);
         Set<Long> matchedIds = dataModelSearchIndexService.queryModelIds(normalizedRequest);
         if (matchedIds.isEmpty()) {
-            return new ArrayList<DataModelDefinition>();
+            return PageView.of(normalizePageNo(pageNo), normalizePageSize(pageSize), 0L, new ArrayList<DataModelDefinition>());
         }
-        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
-                .in(DataModelEntity::getId, matchedIds)
-                .orderByAsc(DataModelEntity::getName);
-        if (request.getDatasourceId() != null) {
-            queryWrapper.eq(DataModelEntity::getDatasourceId, request.getDatasourceId());
-        }
-        if (request.getModelKind() != null && !request.getModelKind().trim().isEmpty()) {
-            queryWrapper.eq(DataModelEntity::getModelKind, request.getModelKind().trim().toUpperCase());
-        }
-        return toDefinitions(dataModelMapper.selectList(queryWrapper));
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind())
+                .in(DataModelEntity::getId, matchedIds);
+        return pageQuery(queryWrapper, pageNo, pageSize);
     }
 
     @Transactional
@@ -373,6 +362,84 @@ public class DataModelService {
             definition.setModelKind(ModelKind.valueOf(entity.getModelKind()));
         }
         return definition;
+    }
+
+    private PageView<DataModelDefinition> pageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
+        return pageQuery(queryWrapper, null, null);
+    }
+
+    private PageView<DataModelDefinition> pageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper,
+                                                    Integer pageNo,
+                                                    Integer pageSize) {
+        int resolvedPageNo = normalizePageNo(pageNo);
+        int resolvedPageSize = normalizePageSize(pageSize);
+        long total = safeCount(queryWrapper);
+        if (total <= 0L) {
+            return PageView.of(resolvedPageNo, resolvedPageSize, 0L, Collections.<DataModelDefinition>emptyList());
+        }
+        long offset = (long) (resolvedPageNo - 1) * resolvedPageSize;
+        List<DataModelEntity> entities = dataModelMapper.selectList(cloneQuery(queryWrapper)
+                .last("limit " + resolvedPageSize + " offset " + offset));
+        return PageView.of(resolvedPageNo, resolvedPageSize, total, toDefinitions(entities));
+    }
+
+    private long safeCount(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
+        Long total = dataModelMapper.selectCount(cloneQuery(queryWrapper));
+        return total == null ? 0L : total.longValue();
+    }
+
+    private LambdaQueryWrapper<DataModelEntity> buildBaseQuery(Long datasourceId,
+                                                               String datasourceType,
+                                                               String modelKind) {
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
+                .orderByAsc(DataModelEntity::getProjectId)
+                .orderByAsc(DataModelEntity::getName)
+                .orderByAsc(DataModelEntity::getId);
+        if (datasourceId != null) {
+            queryWrapper.eq(DataModelEntity::getDatasourceId, datasourceId);
+        } else if (datasourceType != null && !datasourceType.trim().isEmpty()) {
+            Set<Long> datasourceIds = resolveDatasourceIdsByType(datasourceType.trim());
+            if (datasourceIds.isEmpty()) {
+                queryWrapper.in(DataModelEntity::getId, Collections.singleton(Long.valueOf(-1L)));
+                return queryWrapper;
+            }
+            queryWrapper.in(DataModelEntity::getDatasourceId, datasourceIds);
+        }
+        if (modelKind != null && !modelKind.trim().isEmpty()) {
+            queryWrapper.eq(DataModelEntity::getModelKind, modelKind.trim().toUpperCase());
+        }
+        return queryWrapper;
+    }
+
+    private Set<Long> resolveDatasourceIdsByType(String datasourceType) {
+        if (datasourceType == null || datasourceType.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<Long> datasourceIds = new HashSet<Long>();
+        for (DataSourceDefinition datasource : dataSourceService.list()) {
+            if (datasource != null
+                    && datasource.getId() != null
+                    && datasource.getTypeCode() != null
+                    && datasourceType.equalsIgnoreCase(datasource.getTypeCode())) {
+                datasourceIds.add(Long.valueOf(String.valueOf(datasource.getId())));
+            }
+        }
+        return datasourceIds;
+    }
+
+    private LambdaQueryWrapper<DataModelEntity> cloneQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
+        return queryWrapper == null ? new LambdaQueryWrapper<DataModelEntity>() : queryWrapper.clone();
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        return pageNo == null || pageNo.intValue() < 1 ? DEFAULT_PAGE_NO : pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
     }
 
     private LambdaQueryWrapper<DataModelEntity> buildAccessibleQuery() {

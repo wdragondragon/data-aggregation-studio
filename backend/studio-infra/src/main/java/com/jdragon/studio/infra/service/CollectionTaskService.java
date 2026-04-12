@@ -48,6 +48,7 @@ public class CollectionTaskService {
     private final ObjectMapper objectMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final DataModelLineageService dataModelLineageService;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
                                  CollectionTaskScheduleMapper scheduleMapper,
@@ -58,7 +59,8 @@ public class CollectionTaskService {
                                  CollectionTaskAssemblerService collectionTaskAssemblerService,
                                  ObjectMapper objectMapper,
                                  StudioSecurityService securityService,
-                                 ProjectResourceAccessService projectResourceAccessService) {
+                                 ProjectResourceAccessService projectResourceAccessService,
+                                 DataModelLineageService dataModelLineageService) {
         this.definitionMapper = definitionMapper;
         this.scheduleMapper = scheduleMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
@@ -69,6 +71,7 @@ public class CollectionTaskService {
         this.objectMapper = objectMapper;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.dataModelLineageService = dataModelLineageService;
     }
 
     public List<CollectionTaskDefinitionView> list(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
@@ -156,6 +159,7 @@ public class CollectionTaskService {
             definitionMapper.updateById(entity);
         }
         saveSchedule(entity.getId(), entity.getProjectId(), request.getSchedule());
+        dataModelLineageService.scheduleTaskRebuildAfterCommit(entity.getId());
         return get(entity.getId());
     }
 
@@ -184,6 +188,7 @@ public class CollectionTaskService {
         runRecordMapper.delete(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getCollectionTaskId, id));
         definitionMapper.deleteById(id);
+        dataModelLineageService.scheduleTaskDeleteAfterCommit(id);
     }
 
     public List<CollectionTaskScheduleEntity> findEnabledSchedules() {

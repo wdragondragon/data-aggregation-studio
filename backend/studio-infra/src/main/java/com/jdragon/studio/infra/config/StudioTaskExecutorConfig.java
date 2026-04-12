@@ -37,4 +37,16 @@ public class StudioTaskExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "lineageRebuildExecutor")
+    public Executor lineageRebuildExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("lineage-rebuild-");
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(1000);
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
 }

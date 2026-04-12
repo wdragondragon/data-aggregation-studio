@@ -154,6 +154,7 @@ export type QueryOperator = "EQ" | "LIKE" | "IN" | "GT" | "GE" | "LT" | "LE" | "
 export type RowMatchMode = "SAME_ITEM" | "ANY_ITEM";
 export type StatisticType = "COUNT_BY_VALUE" | "SUMMARY" | "COUNT_BY_BUCKET";
 export type StatisticsChartType = "TREND" | "BAR" | "PIE" | "TOPN";
+export type DataModelLineageLevel = "DATABASE" | "TABLE" | "FIELD";
 export type CollectionTaskType = "SINGLE_TABLE" | "FUSION";
 export type CollectionTaskStatus = "DRAFT" | "ONLINE";
 export type ScriptType = "SQL" | "JAVA" | "PYTHON";
@@ -257,6 +258,113 @@ export interface DataModelDefinition extends BaseRecord {
   businessMetadata: Record<string, unknown>;
 }
 
+export interface DataModelLineageSummaryView {
+  upstreamDepth?: number | string | null;
+  totalUpstreamCount?: number | string | null;
+  directUpstreamCount?: number | string | null;
+  downstreamDepth?: number | string | null;
+  totalDownstreamCount?: number | string | null;
+  directDownstreamCount?: number | string | null;
+}
+
+export interface DataModelLineageNodeFieldView {
+  fieldKey?: string;
+  fieldName?: string;
+}
+
+export interface DataModelLineageNodeView {
+  nodeId: string;
+  visualType?: string;
+  focus?: boolean;
+  title?: string;
+  subtitle?: string;
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  datasourceName?: string;
+  datasourceType?: string;
+  databaseName?: string;
+  physicalLocator?: string;
+  host?: string;
+  port?: string;
+  dailyIncrement?: string;
+  totalCount?: string;
+  fields: DataModelLineageNodeFieldView[];
+}
+
+export interface DataModelLineageEdgeView {
+  edgeId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  selfLoop?: boolean;
+  sourceField?: string;
+  targetField?: string;
+  label?: string;
+  sourceType?: string;
+  sourceTypeLabel?: string;
+  displayStatus?: string;
+  latestRunStatus?: string;
+  latestRunId?: EntityId;
+  latestRunAt?: string;
+  contributorCount?: number | string | null;
+}
+
+export interface DataModelLineageUnresolvedExpressionView {
+  collectionTaskId?: EntityId;
+  collectionTaskName?: string;
+  targetField?: string;
+  expression?: string;
+  latestRunStatus?: string;
+  latestRunId?: EntityId;
+  latestRunAt?: string;
+}
+
+export interface DataModelLineageContributorView {
+  sourceType?: string;
+  sourceTypeLabel?: string;
+  displayStatus?: string;
+  relationId?: EntityId;
+  sourceModelId?: EntityId;
+  targetModelId?: EntityId;
+  sourceField?: string;
+  targetField?: string;
+  collectionTaskId?: EntityId;
+  collectionTaskName?: string;
+  latestRunId?: EntityId;
+  latestRunStatus?: string;
+  latestRunAt?: string;
+  taskPath?: string;
+  runPath?: string;
+  mappingMode?: string;
+  expression?: string;
+  maintainerUserId?: EntityId;
+  maintainer?: string;
+  updatedAt?: string;
+  editable?: boolean;
+}
+
+export interface DataModelLineageEdgeDetailView {
+  edgeId?: string;
+  sourceNodeTitle?: string;
+  targetNodeTitle?: string;
+  sourceField?: string;
+  targetField?: string;
+  sourceType?: string;
+  sourceTypeLabel?: string;
+  displayStatus?: string;
+  latestRunStatus?: string;
+  latestRunId?: EntityId;
+  latestRunAt?: string;
+  contributors: DataModelLineageContributorView[];
+}
+
+export interface DataModelLineageView {
+  editable?: boolean;
+  summary?: DataModelLineageSummaryView;
+  nodes: DataModelLineageNodeView[];
+  edges: DataModelLineageEdgeView[];
+  unresolvedExpressions: DataModelLineageUnresolvedExpressionView[];
+}
+
 export interface DataModelIndexQueueStatusView {
   queuedRebuildCount?: number | string | null;
   activeRebuildCount?: number | string | null;
@@ -293,8 +401,19 @@ export interface DataModelQueryGroup {
 
 export interface DataModelQueryRequest {
   datasourceId?: EntityId;
+  datasourceType?: string;
   modelKind?: ModelKind | string;
+  pageNo?: number;
+  pageSize?: number;
   groups: DataModelQueryGroup[];
+}
+
+export interface DataModelManualLineageSaveRequest {
+  level: DataModelLineageLevel;
+  sourceModelId: EntityId;
+  targetModelId: EntityId;
+  sourceFieldKey?: string;
+  targetFieldKey?: string;
 }
 
 export interface DataModelStatisticsBucketConfig {

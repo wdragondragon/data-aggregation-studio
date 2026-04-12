@@ -645,6 +645,51 @@ create index if not exists idx_run_record_project_created on run_record(project_
 create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id);
 create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at);
 
+create table if not exists data_model_lineage_relation (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    level text,
+    source_type text,
+    collection_task_id integer,
+    collection_task_name_snapshot text,
+    source_datasource_id integer,
+    source_datasource_name_snapshot text,
+    source_datasource_type_snapshot text,
+    source_database_name_snapshot text,
+    source_host_snapshot text,
+    source_port_snapshot text,
+    source_model_id integer,
+    source_model_name_snapshot text,
+    source_model_locator_snapshot text,
+    source_field_key text,
+    target_datasource_id integer,
+    target_datasource_name_snapshot text,
+    target_datasource_type_snapshot text,
+    target_database_name_snapshot text,
+    target_host_snapshot text,
+    target_port_snapshot text,
+    target_model_id integer,
+    target_model_name_snapshot text,
+    target_model_locator_snapshot text,
+    target_field_key text,
+    mapping_mode text,
+    expression_snapshot text,
+    manual_maintainer_user_id integer,
+    manual_maintainer_name_snapshot text,
+    latest_run_id integer,
+    latest_run_status text,
+    latest_run_at text
+);
+create index if not exists idx_data_model_lineage_target_level on data_model_lineage_relation(tenant_id, target_model_id, level);
+create index if not exists idx_data_model_lineage_source_level on data_model_lineage_relation(tenant_id, source_model_id, level);
+create index if not exists idx_data_model_lineage_task on data_model_lineage_relation(tenant_id, collection_task_id);
+create index if not exists idx_data_model_lineage_target_datasource_level on data_model_lineage_relation(tenant_id, target_datasource_id, level);
+create index if not exists idx_data_model_lineage_source_datasource_level on data_model_lineage_relation(tenant_id, source_datasource_id, level);
+
 create table if not exists worker_lease (
     id integer primary key,
     tenant_id text default 'default',

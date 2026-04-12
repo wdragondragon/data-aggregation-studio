@@ -195,3 +195,50 @@ alter table run_record add column if not exists transformer_success_records bigi
 alter table run_record add column if not exists transformer_failed_records bigint;
 alter table run_record add column if not exists transformer_filter_records bigint;
 alter table run_record add key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at);
+
+create table if not exists data_model_lineage_relation (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    level varchar(32),
+    source_type varchar(64),
+    collection_task_id bigint,
+    collection_task_name_snapshot varchar(255),
+    source_datasource_id bigint,
+    source_datasource_name_snapshot varchar(255),
+    source_datasource_type_snapshot varchar(128),
+    source_database_name_snapshot varchar(255),
+    source_host_snapshot varchar(255),
+    source_port_snapshot varchar(64),
+    source_model_id bigint,
+    source_model_name_snapshot varchar(255),
+    source_model_locator_snapshot varchar(1000),
+    source_field_key varchar(255),
+    target_datasource_id bigint,
+    target_datasource_name_snapshot varchar(255),
+    target_datasource_type_snapshot varchar(128),
+    target_database_name_snapshot varchar(255),
+    target_host_snapshot varchar(255),
+    target_port_snapshot varchar(64),
+    target_model_id bigint,
+    target_model_name_snapshot varchar(255),
+    target_model_locator_snapshot varchar(1000),
+    target_field_key varchar(255),
+    mapping_mode varchar(64),
+    expression_snapshot text,
+    manual_maintainer_user_id bigint,
+    manual_maintainer_name_snapshot varchar(255),
+    latest_run_id bigint,
+    latest_run_status varchar(64),
+    latest_run_at datetime
+);
+alter table data_model_lineage_relation add column if not exists manual_maintainer_user_id bigint;
+alter table data_model_lineage_relation add column if not exists manual_maintainer_name_snapshot varchar(255);
+alter table data_model_lineage_relation add key idx_data_model_lineage_target_level (tenant_id, target_model_id, level);
+alter table data_model_lineage_relation add key idx_data_model_lineage_source_level (tenant_id, source_model_id, level);
+alter table data_model_lineage_relation add key idx_data_model_lineage_task (tenant_id, collection_task_id);
+alter table data_model_lineage_relation add key idx_data_model_lineage_target_datasource_level (tenant_id, target_datasource_id, level);
+alter table data_model_lineage_relation add key idx_data_model_lineage_source_datasource_level (tenant_id, source_datasource_id, level);

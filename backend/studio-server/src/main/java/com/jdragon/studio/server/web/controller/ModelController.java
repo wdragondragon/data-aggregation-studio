@@ -3,11 +3,17 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataModelIndexQueueStatusView;
+import com.jdragon.studio.dto.model.DataModelLineageEdgeDetailView;
+import com.jdragon.studio.dto.model.DataModelLineageView;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.DataModelStatisticsView;
+import com.jdragon.studio.dto.enums.LineageLevel;
+import com.jdragon.studio.dto.model.request.DataModelManualLineageSaveRequest;
 import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsRequest;
 import com.jdragon.studio.dto.model.request.ModelSyncRequest;
+import com.jdragon.studio.infra.service.DataModelLineageService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.DataModelStatisticsService;
@@ -17,6 +23,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,25 +41,32 @@ public class ModelController {
     private final DataModelService dataModelService;
     private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final DataModelStatisticsService dataModelStatisticsService;
+    private final DataModelLineageService dataModelLineageService;
 
     public ModelController(DataModelService dataModelService,
                            DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
-                           DataModelStatisticsService dataModelStatisticsService) {
+                           DataModelStatisticsService dataModelStatisticsService,
+                           DataModelLineageService dataModelLineageService) {
         this.dataModelService = dataModelService;
         this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.dataModelStatisticsService = dataModelStatisticsService;
+        this.dataModelLineageService = dataModelLineageService;
     }
 
     @Operation(summary = "List all datasource models")
     @GetMapping
-    public Result<List<DataModelDefinition>> list() {
-        return Result.success(dataModelService.list());
+    public Result<PageView<DataModelDefinition>> list(@RequestParam(value = "datasourceType", required = false) String datasourceType,
+                                                      @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataModelService.listPage(datasourceType, pageNo, pageSize));
     }
 
     @Operation(summary = "List models by datasource")
     @GetMapping("/datasource/{datasourceId}")
-    public Result<List<DataModelDefinition>> listByDatasource(@PathVariable("datasourceId") Long datasourceId) {
-        return Result.success(dataModelService.listByDatasource(datasourceId));
+    public Result<PageView<DataModelDefinition>> listByDatasource(@PathVariable("datasourceId") Long datasourceId,
+                                                                  @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataModelService.listByDatasourcePage(datasourceId, pageNo, pageSize));
     }
 
     @Operation(summary = "Get datasource model detail")
@@ -63,8 +77,10 @@ public class ModelController {
 
     @Operation(summary = "Query models by dynamic metadata conditions")
     @PostMapping("/query")
-    public Result<List<DataModelDefinition>> query(@RequestBody(required = false) DataModelQueryRequest request) {
-        return Result.success(dataModelService.query(request));
+    public Result<PageView<DataModelDefinition>> query(@RequestBody(required = false) DataModelQueryRequest request,
+                                                       @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                       @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataModelService.queryPage(request, pageNo, pageSize));
     }
 
     @Operation(summary = "Statistic models by dynamic metadata conditions")
@@ -97,6 +113,46 @@ public class ModelController {
     public Result<List<Map<String, Object>>> preview(@PathVariable("modelId") Long modelId,
                                                      @RequestParam(value = "limit", defaultValue = "20") int limit) {
         return Result.success(dataModelService.preview(modelId, limit));
+    }
+
+    @Operation(summary = "Get model lineage")
+    @GetMapping("/{modelId}/lineage")
+    public Result<DataModelLineageView> lineage(@PathVariable("modelId") Long modelId,
+                                                @RequestParam("level") LineageLevel level) {
+        return Result.success(dataModelLineageService.getModelLineage(modelId, level));
+    }
+
+    @Operation(summary = "Get model lineage edge detail")
+    @GetMapping("/{modelId}/lineage/edges/{edgeId}")
+    public Result<DataModelLineageEdgeDetailView> lineageEdgeDetail(@PathVariable("modelId") Long modelId,
+                                                                    @PathVariable("edgeId") String edgeId,
+                                                                    @RequestParam("level") LineageLevel level) {
+        return Result.success(dataModelLineageService.getEdgeDetail(modelId, level, edgeId));
+    }
+
+    @Operation(summary = "Create manual model lineage")
+    @PostMapping("/{modelId}/lineage/manual")
+    public Result<Void> createManualLineage(@PathVariable("modelId") Long modelId,
+                                            @Valid @RequestBody DataModelManualLineageSaveRequest request) {
+        dataModelLineageService.saveManualLineage(modelId, null, request);
+        return Result.success(null);
+    }
+
+    @Operation(summary = "Update manual model lineage")
+    @PutMapping("/{modelId}/lineage/manual/{relationId}")
+    public Result<Void> updateManualLineage(@PathVariable("modelId") Long modelId,
+                                            @PathVariable("relationId") Long relationId,
+                                            @Valid @RequestBody DataModelManualLineageSaveRequest request) {
+        dataModelLineageService.saveManualLineage(modelId, relationId, request);
+        return Result.success(null);
+    }
+
+    @Operation(summary = "Delete manual model lineage")
+    @DeleteMapping("/{modelId}/lineage/manual/{relationId}")
+    public Result<Void> deleteManualLineage(@PathVariable("modelId") Long modelId,
+                                            @PathVariable("relationId") Long relationId) {
+        dataModelLineageService.deleteManualLineage(modelId, relationId);
+        return Result.success(null);
     }
 
     @Operation(summary = "Delete datasource model")

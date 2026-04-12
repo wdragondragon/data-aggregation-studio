@@ -62,14 +62,14 @@ $serviceDefinitions = @{
     backend = New-ServiceDefinition `
         -Name "backend" `
         -Workdir $backendWorkdir `
-        -Command "Set-Location '$backendWorkdir'; powershell -ExecutionPolicy Bypass -File '$backendWorkdir\\scripts\\upgrade-studio-schema.ps1'; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -pl studio-server spring-boot:run" `
+        -Command "Set-Location '$backendWorkdir'; powershell -ExecutionPolicy Bypass -File '$backendWorkdir\\scripts\\upgrade-studio-schema.ps1'; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-server -am -DskipTests install; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-server spring-boot:run" `
         -Port 18080 `
         -PrimaryUrl "http://127.0.0.1:18080" `
         -AlternateUrls @("http://localhost:18080")
     worker = New-ServiceDefinition `
         -Name "worker" `
         -Workdir $backendWorkdir `
-        -Command "Set-Location '$backendWorkdir'; mvn -pl studio-worker spring-boot:run" `
+        -Command "Set-Location '$backendWorkdir'; mvn -o -pl studio-worker -am -DskipTests install; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-worker spring-boot:run" `
         -Port 18081 `
         -PrimaryUrl "http://127.0.0.1:18081" `
         -AlternateUrls @("http://localhost:18081")

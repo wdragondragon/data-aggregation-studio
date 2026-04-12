@@ -31,6 +31,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private final RunMetricSummaryMapper runMetricSummaryMapper;
     private final FollowSubscriptionService followSubscriptionService;
     private final NotificationService notificationService;
+    private final DataModelLineageService dataModelLineageService;
 
     public ExecutionEventService(RunRecordMapper runRecordMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
@@ -39,7 +40,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                                  DispatchService dispatchService,
                                  RunMetricSummaryMapper runMetricSummaryMapper,
                                  FollowSubscriptionService followSubscriptionService,
-                                 NotificationService notificationService) {
+                                 NotificationService notificationService,
+                                 DataModelLineageService dataModelLineageService) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
@@ -48,6 +50,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         this.runMetricSummaryMapper = runMetricSummaryMapper;
         this.followSubscriptionService = followSubscriptionService;
         this.notificationService = notificationService;
+        this.dataModelLineageService = dataModelLineageService;
     }
 
     @Override
@@ -87,6 +90,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
             runRecordMapper.updateById(entity);
         }
         dispatchService.continueWorkflowRun(event);
+        dataModelLineageService.updateCollectionTaskRunStatus(event);
         maybeNotifyCollectionTaskRun(entity, event);
         maybeNotifyWorkflowRun(entity, event);
     }

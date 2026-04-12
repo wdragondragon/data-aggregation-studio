@@ -18,6 +18,7 @@ import {
   ElOption,
   ElPagination,
   ElPopover,
+  ElProgress,
   ElRadio,
   ElRadioGroup,
   ElRow,
@@ -54,6 +55,7 @@ import "element-plus/es/components/message-box/style/css";
 import "element-plus/es/components/option/style/css";
 import "element-plus/es/components/pagination/style/css";
 import "element-plus/es/components/popover/style/css";
+import "element-plus/es/components/progress/style/css";
 import "element-plus/es/components/radio/style/css";
 import "element-plus/es/components/radio-group/style/css";
 import "element-plus/es/components/row/style/css";
@@ -89,6 +91,7 @@ const components: Plugin[] = [
   ElOption,
   ElPagination,
   ElPopover,
+  ElProgress,
   ElRadio,
   ElRadioGroup,
   ElRow,
