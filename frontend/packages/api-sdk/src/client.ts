@@ -181,6 +181,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       login(payload: LoginRequest) {
         return request<LoginResponse>({ url: "/auth/login", method: "POST", data: payload });
       },
+      gatewayExchange() {
+        return request<LoginResponse>({ url: "/auth/gateway/exchange", method: "POST" });
+      },
       me() {
         return request<AuthProfile>({ url: "/auth/me", method: "GET" });
       },

@@ -18,6 +18,7 @@ public class StudioPlatformProperties {
     private String runtimeLogDir = "./runtime/run-logs";
     private String workerApiBaseUrl;
     private String internalApiToken = "studio-internal-token";
+    private GatewayProperties gateway = new GatewayProperties();
     private PythonProperties python = new PythonProperties();
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
 
@@ -32,5 +33,12 @@ public class StudioPlatformProperties {
     @Data
     public static class ModelSyncTaskProperties {
         private Integer maxConcurrency = 1;
+    }
+
+    @Data
+    public static class GatewayProperties {
+        private boolean trustEnabled = false;
+        private String sharedSecret = "change-me";
+        private Long signatureExpireSeconds = 300L;
     }
 }

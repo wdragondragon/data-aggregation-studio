@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.model.request.LoginRequest;
 import com.jdragon.studio.dto.model.request.UserRegistrationRequestCreateRequest;
 import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
 import com.jdragon.studio.infra.security.StudioUserPrincipal;
+import com.jdragon.studio.infra.service.GatewayAuthExchangeService;
 import com.jdragon.studio.infra.service.JwtTokenService;
 import com.jdragon.studio.infra.service.StudioAccessService;
 import com.jdragon.studio.infra.service.UserRegistrationRequestService;
@@ -33,15 +34,18 @@ public class AuthController {
     private final JwtTokenService jwtTokenService;
     private final StudioAccessService studioAccessService;
     private final UserRegistrationRequestService userRegistrationRequestService;
+    private final GatewayAuthExchangeService gatewayAuthExchangeService;
 
     public AuthController(AuthenticationManager authenticationManager,
                           JwtTokenService jwtTokenService,
                           StudioAccessService studioAccessService,
-                          UserRegistrationRequestService userRegistrationRequestService) {
+                          UserRegistrationRequestService userRegistrationRequestService,
+                          GatewayAuthExchangeService gatewayAuthExchangeService) {
         this.authenticationManager = authenticationManager;
         this.jwtTokenService = jwtTokenService;
         this.studioAccessService = studioAccessService;
         this.userRegistrationRequestService = userRegistrationRequestService;
+        this.gatewayAuthExchangeService = gatewayAuthExchangeService;
     }
 
     @Operation(summary = "Login and get JWT token")
@@ -73,6 +77,18 @@ public class AuthController {
                 servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
                 servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER),
                 null));
+    }
+
+    @Operation(summary = "Exchange trusted gateway identity for studio JWT")
+    @PostMapping("/gateway/exchange")
+    public Result<AuthProfileView> gatewayExchange(HttpServletRequest servletRequest) {
+        return Result.success(gatewayAuthExchangeService.exchange(
+                servletRequest.getHeader(StudioConstants.GATEWAY_USER_INFO_HEADER),
+                servletRequest.getHeader(StudioConstants.GATEWAY_TIMESTAMP_HEADER),
+                servletRequest.getHeader(StudioConstants.GATEWAY_REQUEST_PATH_HEADER),
+                servletRequest.getHeader(StudioConstants.GATEWAY_SIGNATURE_HEADER),
+                servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
+                servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER)));
     }
 
     @Operation(summary = "Submit registration request")

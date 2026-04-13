@@ -8,7 +8,40 @@ create table if not exists sys_user (
     password_hash varchar(255) not null,
     display_name varchar(255),
     enabled int default 1,
+    auth_source varchar(32) default 'LOCAL',
     unique key uk_sys_user_username (username)
+);
+
+set @sys_user_auth_source_ddl = (
+    select if(
+        exists(
+            select 1
+            from information_schema.columns
+            where table_schema = database()
+              and table_name = 'sys_user'
+              and column_name = 'auth_source'
+        ),
+        'select 1',
+        'alter table sys_user add column auth_source varchar(32) default ''LOCAL'''
+    )
+);
+prepare stmt_sys_user_auth_source from @sys_user_auth_source_ddl;
+execute stmt_sys_user_auth_source;
+deallocate prepare stmt_sys_user_auth_source;
+
+create table if not exists studio_external_user_binding (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    provider_code varchar(64) not null,
+    external_user_id varchar(128) not null,
+    external_account varchar(255),
+    studio_user_id bigint not null,
+    last_seen_at datetime,
+    unique key uk_studio_external_user_binding_external (provider_code, external_user_id),
+    key idx_studio_external_user_binding_user (studio_user_id)
 );
 
 create table if not exists sys_role (

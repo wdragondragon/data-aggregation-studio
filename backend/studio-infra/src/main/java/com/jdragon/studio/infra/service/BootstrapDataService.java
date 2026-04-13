@@ -51,7 +51,11 @@ public class BootstrapDataService {
             user.setDisplayName("Studio Admin");
             user.setPasswordHash(encoder.encode(StudioConstants.DEFAULT_ADMIN_PASSWORD));
             user.setEnabled(1);
+            user.setAuthSource(StudioConstants.AUTH_SOURCE_LOCAL);
             userMapper.insert(user);
+        } else if (user.getAuthSource() == null || user.getAuthSource().trim().isEmpty()) {
+            user.setAuthSource(StudioConstants.AUTH_SOURCE_LOCAL);
+            userMapper.updateById(user);
         }
 
         PermissionEntity permission = ensurePermission();

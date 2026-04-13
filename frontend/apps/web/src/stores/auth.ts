@@ -94,6 +94,13 @@ export const useAuthStore = defineStore("studio-auth", () => {
     hydrateProfile(response);
   }
 
+  async function loginWithGateway() {
+    const response = await studioApi.auth.gatewayExchange();
+    token.value = response.token;
+    setStoredToken(response.token);
+    hydrateProfile(response);
+  }
+
   async function refreshProfile() {
     if (!token.value) {
       resetState();
@@ -151,6 +158,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
     isAuthenticated,
     bootstrap,
     login,
+    loginWithGateway,
     refreshProfile,
     selectTenant,
     selectProject,

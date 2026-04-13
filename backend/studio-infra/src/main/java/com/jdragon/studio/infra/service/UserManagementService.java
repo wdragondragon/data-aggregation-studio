@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.infra.entity.StudioExternalUserBindingEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.UserRoleEntity;
+import com.jdragon.studio.infra.mapper.StudioExternalUserBindingMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.UserRoleMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,15 +24,18 @@ public class UserManagementService {
     private final UserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
     private final StudioSecurityService securityService;
+    private final StudioExternalUserBindingMapper externalUserBindingMapper;
 
     public UserManagementService(StudioUserMapper userMapper,
                                  UserRoleMapper userRoleMapper,
                                  PasswordEncoder passwordEncoder,
-                                 StudioSecurityService securityService) {
+                                 StudioSecurityService securityService,
+                                 StudioExternalUserBindingMapper externalUserBindingMapper) {
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
         this.passwordEncoder = passwordEncoder;
         this.securityService = securityService;
+        this.externalUserBindingMapper = externalUserBindingMapper;
     }
 
     public List<StudioUserEntity> list() {
@@ -54,6 +59,7 @@ public class UserManagementService {
         if (entity.getId() == null) {
             target = new StudioUserEntity();
             target.setTenantId(StudioConstants.DEFAULT_TENANT_ID);
+            target.setAuthSource(StudioConstants.AUTH_SOURCE_LOCAL);
         } else {
             target = requireUser(entity.getId());
         }
@@ -62,9 +68,15 @@ public class UserManagementService {
         target.setDisplayName(hasText(entity.getDisplayName()) ? entity.getDisplayName().trim() : null);
         target.setEnabled(entity.getEnabled() == null ? Integer.valueOf(1) : entity.getEnabled());
         if (hasText(entity.getPasswordHash())) {
+            if (StudioConstants.AUTH_SOURCE_GATEWAY.equalsIgnoreCase(target.getAuthSource())) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Gateway users do not support local password updates");
+            }
             target.setPasswordHash(resolvePasswordHash(entity.getPasswordHash().trim()));
         } else if (target.getId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Password is required");
+        }
+        if (!hasText(target.getAuthSource())) {
+            target.setAuthSource(StudioConstants.AUTH_SOURCE_LOCAL);
         }
         if (target.getId() == null) {
             userMapper.insert(target);
@@ -83,6 +95,8 @@ public class UserManagementService {
         }
         userRoleMapper.delete(new LambdaQueryWrapper<UserRoleEntity>()
                 .eq(UserRoleEntity::getUserId, userId));
+        externalUserBindingMapper.delete(new LambdaQueryWrapper<StudioExternalUserBindingEntity>()
+                .eq(StudioExternalUserBindingEntity::getStudioUserId, userId));
         userMapper.deleteById(userId);
     }
 
@@ -128,8 +142,22 @@ public class UserManagementService {
         copy.setUsername(entity.getUsername());
         copy.setDisplayName(entity.getDisplayName());
         copy.setEnabled(entity.getEnabled());
+        copy.setAuthSource(entity.getAuthSource());
+        copy.setExternalAccount(loadExternalAccount(entity.getId()));
         copy.setPasswordHash(null);
         return copy;
+    }
+
+    private String loadExternalAccount(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        StudioExternalUserBindingEntity binding = externalUserBindingMapper.selectOne(
+                new LambdaQueryWrapper<StudioExternalUserBindingEntity>()
+                        .eq(StudioExternalUserBindingEntity::getStudioUserId, userId)
+                        .eq(StudioExternalUserBindingEntity::getProviderCode, StudioConstants.GATEWAY_PROVIDER_CODE)
+                        .last("limit 1"));
+        return binding == null ? null : binding.getExternalAccount();
     }
 
     private void requireSuperAdmin() {

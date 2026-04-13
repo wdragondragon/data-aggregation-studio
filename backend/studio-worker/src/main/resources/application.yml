@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: studio-worker
+  profiles:
+    active: ${APP_ACTIVE:prod}
+  config:
+    import:
+      - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://192.168.188.129:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:root}
@@ -12,6 +17,23 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  cloud:
+    nacos:
+      username: ${NACOS_USER:nacos}
+      password: ${NACOS_PASSWORD:Wjoms_2020}
+      discovery:
+        enabled: true
+        server-addr: ${NACOS_SERVER:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:ZCYY}
+        group: ${NACOS_GROUP:ZCYY_GROUP}
+      config:
+        enabled: true
+        server-addr: ${NACOS_SERVER:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:ZCYY}
+        group: ${NACOS_GROUP:ZCYY_GROUP}
+        file-extension: yaml
+        import-check:
+          enabled: false
 
 mybatis-plus:
   configuration:
@@ -30,6 +52,10 @@ studio:
   runtime-log-dir: ${STUDIO_RUNTIME_LOG_DIR:./runtime/run-logs}
   worker-api-base-url: ${STUDIO_WORKER_API_BASE_URL:http://127.0.0.1:${server.port}}
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
+  gateway:
+    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:true}
+    shared-secret: ${STUDIO_GATEWAY_SHARED_SECRET:change-me}
+    signature-expire-seconds: ${STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS:300}
   python:
     executable: ${STUDIO_PYTHON_EXECUTABLE:}
     execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}

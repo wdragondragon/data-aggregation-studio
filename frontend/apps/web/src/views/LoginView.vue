@@ -61,6 +61,25 @@
           </div>
         </div>
 
+        <div class="login__gateway">
+          <el-button
+            type="primary"
+            size="large"
+            :loading="gatewayLoading"
+            class="login__submit login__submit--gateway"
+            @click="submitGateway"
+          >
+            统一登录
+          </el-button>
+          <p class="login__gateway-tip">
+            gateway 模式下会直接换取 `studio JWT`，直连模式下会跳转到统一入口。
+          </p>
+        </div>
+
+        <div class="login__divider">
+          <span>或使用本地账号登录</span>
+        </div>
+
         <el-form label-position="top" class="login__form" @submit.prevent="submit">
           <el-form-item :label="t('web.login.usernameLabel')">
             <el-input
@@ -108,6 +127,7 @@ import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
+import { getGatewayStudioEntryUrl, isGatewayStudioMode } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 
 const router = useRouter();
@@ -115,6 +135,7 @@ const route = useRoute();
 const authStore = useAuthStore();
 const { t } = useI18n();
 const loading = ref(false);
+const gatewayLoading = ref(false);
 const form = reactive({
   username: "admin",
   password: "admin123",
@@ -152,6 +173,28 @@ async function submit() {
     ElMessage.error(error instanceof Error ? error.message : t("web.login.failed"));
   } finally {
     loading.value = false;
+  }
+}
+
+async function submitGateway() {
+  gatewayLoading.value = true;
+  try {
+    if (isGatewayStudioMode()) {
+      await authStore.loginWithGateway();
+      ElMessage.success("统一登录成功");
+      const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard";
+      router.push(redirect);
+      return;
+    }
+    const entryUrl = getGatewayStudioEntryUrl();
+    if (!entryUrl) {
+      throw new Error("未配置统一登录入口地址");
+    }
+    window.location.assign(entryUrl);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "统一登录失败");
+  } finally {
+    gatewayLoading.value = false;
   }
 }
 </script>
@@ -504,6 +547,41 @@ async function submit() {
   margin-top: 4px;
 }
 
+.login__gateway {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.login__gateway-tip,
+.login__divider span {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--studio-text-soft);
+}
+
+.login__divider {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.login__divider::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 1px solid rgba(64, 113, 187, 0.14);
+}
+
+.login__divider span {
+  position: relative;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
 .login__form :deep(.el-form-item__label) {
   padding-bottom: 6px;
   font-size: 13px;
@@ -531,6 +609,10 @@ async function submit() {
   font-weight: 700;
   letter-spacing: 0.04em;
   box-shadow: 0 18px 28px rgba(37, 99, 235, 0.2);
+}
+
+.login__submit--gateway {
+  margin-top: 0;
 }
 
 .login__panel-note {

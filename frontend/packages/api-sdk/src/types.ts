@@ -1006,6 +1006,8 @@ export interface StudioUser extends BaseRecord {
   displayName?: string;
   passwordHash?: string;
   enabled?: number | boolean;
+  authSource?: string;
+  externalAccount?: string;
 }
 
 export interface UserRegistrationRequestView extends BaseRecord {

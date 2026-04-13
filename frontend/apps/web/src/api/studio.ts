@@ -55,6 +55,22 @@ export function resolveStudioApiBaseUrl(path = "") {
   return `${baseUrl}/${path}`;
 }
 
+export function isGatewayStudioMode() {
+  const baseUrl = resolveStudioApiBaseUrl();
+  return baseUrl.indexOf("/data-aggregation-studio/") >= 0
+    || baseUrl.indexOf("/data-aggregation-studio") === 0
+    || baseUrl.indexOf("data-aggregation-studio/api/v1") >= 0;
+}
+
+export function getGatewayStudioEntryUrl() {
+  const entryUrl = import.meta.env.VITE_GATEWAY_STUDIO_ENTRY_URL;
+  if (typeof entryUrl !== "string") {
+    return null;
+  }
+  const trimmed = entryUrl.trim();
+  return trimmed ? trimmed : null;
+}
+
 export function buildStudioRequestHeaders() {
   const headers: Record<string, string> = {};
   const token = getStoredToken();
