@@ -199,6 +199,8 @@ Swagger and Knife4j:
 All frontend-facing APIs use the generic `Result<T>` wrapper and are documented
 through Swagger/OpenAPI with Knife4j UI.
 
+Project documents are organized under [docs/README.md](./docs/README.md).
+
 ## Runtime Notes
 
 - Online mode uses `studio-server + studio-worker + MySQL`

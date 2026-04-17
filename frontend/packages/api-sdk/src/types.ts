@@ -212,24 +212,33 @@ export interface MetadataSchemaDefinition extends BaseRecord {
   fields: MetadataFieldDefinition[];
 }
 
-export interface PluginCatalogEntry extends BaseRecord {
-  pluginName: string;
-  pluginCategory: string;
-  assetType: string;
-  assetPath: string;
-  executable?: number | boolean;
-  metadata?: Record<string, unknown>;
-  template?: Record<string, unknown>;
-}
-
 export interface SourceCapabilityEntry {
   typeCode: string;
+  typeName?: string;
+  sourceCategory?: string;
   sourcePlugin: string;
   readable: boolean;
   writable: boolean;
   executable: boolean;
+  sqlExecutable?: boolean;
   readerPlugins: string[];
   writerPlugins: string[];
+}
+
+export interface DatasourceTypeCapabilityView extends BaseRecord {
+  typeCode: string;
+  typeName: string;
+  sourceCategory?: string;
+  enabled: boolean;
+  readable: boolean;
+  writable: boolean;
+  executable: boolean;
+  sqlExecutable: boolean;
+  sourcePlugin?: string;
+  readerPlugins: string[];
+  writerPlugins: string[];
+  sortOrder?: number;
+  description?: string;
 }
 
 export interface CapabilityMatrix {

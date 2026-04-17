@@ -35,7 +35,7 @@
         </el-table-column>
         <el-table-column :label="t('web.datasources.executableColumn')" width="130" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="row.executable ? t('common.runnable') : t('common.catalogOnly')" :tone="row.executable ? 'success' : 'warning'" />
+            <StatusPill :label="row.executable ? t('common.managed') : t('common.unmanaged')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
         </el-table-column>
         <el-table-column prop="updatedAt" :label="t('web.datasources.updatedColumn')" min-width="170" align="center" header-align="center" />
@@ -85,7 +85,7 @@
               </el-select>
             </el-form-item>
             <el-form-item :label="t('web.datasources.executionSurface')">
-              <el-switch v-model="form.executable" inline-prompt :active-text="t('common.run')" :inactive-text="t('common.catalog')" />
+              <el-switch v-model="form.executable" inline-prompt :active-text="t('common.managedShort')" :inactive-text="t('common.unmanagedShort')" />
             </el-form-item>
             <el-form-item :label="t('web.datasources.enabled')">
               <el-switch v-model="form.enabled" inline-prompt :active-text="t('common.on')" :inactive-text="t('common.off')" />
@@ -229,7 +229,6 @@ import type {
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
   ModelDiscoveryResult,
-  PluginCatalogEntry,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
@@ -269,7 +268,6 @@ const authStore = useAuthStore();
 const datasources = ref<DataSourceDefinition[]>([]);
 const { pagination: datasourcePagination, pagedItems: pagedDatasources, resetPagination: resetDatasourcePagination } = useClientPagination(datasources);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
-const sourcePlugins = ref<PluginCatalogEntry[]>([]);
 const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
 });
@@ -289,7 +287,9 @@ const form = reactive<DataSourceForm>({
   businessMetadata: {},
 });
 
-const sourceTypeOptions = computed(() => Array.from(new Set(sourcePlugins.value.map((item) => item.pluginName))));
+const sourceTypeOptions = computed(() =>
+  Array.from(new Set((capabilityMatrix.sourceCapabilities ?? []).map((item) => item.typeCode).filter(Boolean)))
+);
 
 const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
   const businessDefault: MetadataFieldDefinition[] = [];
@@ -556,11 +556,10 @@ function applyBusinessMetadataDefaults() {
 
 async function loadPage() {
   try {
-    const [datasourceData, schemaData, capabilityData, pluginData] = await Promise.all([
+    const [datasourceData, schemaData, capabilityData] = await Promise.all([
       studioApi.datasources.list(),
       studioApi.metaSchemas.list(),
       studioApi.catalog.capabilities(),
-      studioApi.catalog.plugins("SOURCE"),
     ]);
     datasources.value = datasourceData;
     resetDatasourcePagination();
@@ -569,7 +568,6 @@ async function loadPage() {
     capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
     capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
     capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
-    sourcePlugins.value = pluginData;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
   }

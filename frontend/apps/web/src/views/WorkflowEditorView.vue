@@ -262,14 +262,6 @@
               :model-value="selectedNodeConfig"
               @update:model-value="selectedNodeConfig = $event"
             />
-            <FieldMappingEditor
-              v-if="selectedNode.nodeType === 'CONSISTENCY'"
-              :model-value="selectedNode.fieldMappings"
-              :source-fields="sourceFieldOptions"
-              :target-fields="targetFieldOptions"
-              :transformer-options="transformerOptions"
-              @update:model-value="updateSelectedNode('fieldMappings', $event)"
-            />
           </template>
         </template>
 
@@ -522,13 +514,12 @@ import type {
   DataDevelopmentTreeNode,
   DataSourceDefinition,
   MetadataFieldDefinition,
-  PluginCatalogEntry,
   QualityTaskDefinitionView,
   WorkflowDefinitionView,
   WorkflowNodeDefinition,
   WorkflowSaveRequest,
 } from "@studio/api-sdk";
-import { FieldMappingEditor, WorkflowCanvas } from "@studio/workflow-designer";
+import { WorkflowCanvas } from "@studio/workflow-designer";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
@@ -539,7 +530,6 @@ import {
   formatCollectionTaskType,
   formatNodeType,
   formatScriptType,
-  parseCommaSeparated,
   prettyJson,
 } from "@/utils/studio";
 
@@ -572,7 +562,6 @@ const router = useRouter();
 
 const workflowId = computed(() => route.params.workflowId as string | undefined);
 const datasources = ref<DataSourceDefinition[]>([]);
-const transformers = ref<PluginCatalogEntry[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskDefinitionView[]>([]);
 const onlineQualityTasks = ref<QualityTaskDefinitionView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);
@@ -616,7 +605,6 @@ const form = reactive<WorkflowEditor>({
   edges: [],
 });
 
-const transformerOptions = computed(() => Array.from(new Set(transformers.value.map((item) => item.pluginName))));
 const datasourceOptions = computed(() => datasources.value.map((item) => item.name));
 const selectedNode = computed(() => form.nodes.find((node) => node.nodeCode === selectedNodeCode.value));
 const filteredCollectionTasks = computed(() =>
@@ -681,8 +669,6 @@ const selectedHttpMethod = computed(() => {
 });
 const selectedHttpQueryParams = computed(() => normalizeHttpParamRows(selectedNode.value?.config?.queryParams));
 const selectedHttpHeaders = computed(() => normalizeHttpParamRows(selectedNode.value?.config?.headers));
-const sourceFieldOptions = computed(() => parseCommaSeparated(selectedNodeConfig.value.sourceFields));
-const targetFieldOptions = computed(() => parseCommaSeparated(selectedNodeConfig.value.targetFields));
 const selectedScriptMaxRows = computed(() => {
   const rawValue = selectedNode.value?.config?.maxRows;
   if (typeof rawValue === "number") {
@@ -773,12 +759,10 @@ function resetWorkflow() {
 
 async function loadReferenceData() {
   try {
-    const [datasourceData, transformerData] = await Promise.all([
+    const [datasourceData] = await Promise.all([
       studioApi.datasources.list(),
-      studioApi.catalog.plugins("TRANSFORMER"),
     ]);
     datasources.value = datasourceData;
-    transformers.value = transformerData;
     await refreshSelectedNodeCandidates();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));

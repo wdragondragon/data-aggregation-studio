@@ -63,7 +63,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const paletteRegistry = computed<Record<NodeType, PaletteItem>>(() => ({
+const paletteRegistry = computed<Partial<Record<NodeType, PaletteItem>>>(() => ({
   COLLECTION_TASK: {
     type: "COLLECTION_TASK",
     label: t("workflowCanvas.nodeTypes.COLLECTION_TASK.label"),
@@ -94,12 +94,6 @@ const paletteRegistry = computed<Record<NodeType, PaletteItem>>(() => ({
     caption: t("workflowCanvas.nodeTypes.FUSION.caption"),
     color: "#ca8d2e",
   },
-  CONSISTENCY: {
-    type: "CONSISTENCY",
-    label: t("workflowCanvas.nodeTypes.CONSISTENCY.label"),
-    caption: t("workflowCanvas.nodeTypes.CONSISTENCY.caption"),
-    color: "#2f7a53",
-  },
   HTTP: {
     type: "HTTP",
     label: t("workflowCanvas.nodeTypes.HTTP.label"),
@@ -114,7 +108,11 @@ const paletteRegistry = computed<Record<NodeType, PaletteItem>>(() => ({
   },
 }));
 
-const palette = computed(() => props.paletteTypes.map((type) => paletteRegistry.value[type]).filter(Boolean));
+const palette = computed(() =>
+  props.paletteTypes
+    .map((type) => paletteRegistry.value[type])
+    .filter((item): item is PaletteItem => Boolean(item)),
+);
 const hidePaletteSection = computed(() => props.readonly || props.hidePalette || palette.value.length === 0);
 
 const containerRef = ref<HTMLDivElement>();

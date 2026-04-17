@@ -30,6 +30,7 @@ import type {
   DataModelStatisticsChartView,
   DataModelStatisticsView,
   DataModelSaveRequest,
+  DatasourceTypeCapabilityView,
   DataSourceDefinition,
   DataServiceDefinitionView,
   DataServiceDebugRequest,
@@ -63,7 +64,6 @@ import type {
   NotificationView,
   PermissionEntity,
   PageResult,
-  PluginCatalogEntry,
   QualityRuleParseRequest,
   QualityRuleParseResult,
   QualityRuleSaveRequest,
@@ -239,15 +239,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     catalog: {
-      plugins(category?: string) {
-        return request<PluginCatalogEntry[]>({
-          url: "/catalog/plugins",
-          method: "GET",
-          params: category ? { category } : undefined,
-        });
-      },
       capabilities() {
         return request<CapabilityMatrix>({ url: "/catalog/capabilities", method: "GET" });
+      },
+      datasourceTypes() {
+        return request<DatasourceTypeCapabilityView[]>({ url: "/catalog/datasource-types", method: "GET" });
       },
     },
     fieldMappingRules: {

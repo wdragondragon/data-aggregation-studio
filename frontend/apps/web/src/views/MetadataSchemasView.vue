@@ -339,7 +339,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { MetadataFieldDefinition, MetadataSchemaDefinition, PluginCatalogEntry } from "@studio/api-sdk";
+import type { DatasourceTypeCapabilityView, MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
@@ -391,7 +391,7 @@ const requiredTechnicalMetaModels = [
 const { t } = useI18n();
 
 const schemas = ref<MetadataSchemaDefinition[]>([]);
-const sourcePlugins = ref<PluginCatalogEntry[]>([]);
+const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
 const selectedNode = ref<MetaModelTreeNode>();
 const drawerOpen = ref(false);
 const saving = ref(false);
@@ -412,9 +412,9 @@ const form = reactive<SchemaDraftForm>({
 
 const sourceTypeOptions = computed(() => {
   const options = new Set<string>();
-  for (const plugin of sourcePlugins.value) {
-    if (plugin.pluginName) {
-      options.add(plugin.pluginName);
+  for (const datasourceType of datasourceTypes.value) {
+    if (datasourceType.typeCode) {
+      options.add(datasourceType.typeCode);
     }
   }
   for (const schema of schemas.value) {
@@ -741,12 +741,12 @@ function normalizeFieldDraft(field: MetadataFieldDefinition) {
 
 async function loadPage() {
   try {
-    const [schemaData, pluginData] = await Promise.all([
+    const [schemaData, datasourceTypeData] = await Promise.all([
       studioApi.metaSchemas.list(),
-      studioApi.catalog.plugins("SOURCE"),
+      studioApi.catalog.datasourceTypes(),
     ]);
     schemas.value = schemaData;
-    sourcePlugins.value = pluginData;
+    datasourceTypes.value = datasourceTypeData;
     const matchedNode = selectedNode.value ? findNodeById(treeData.value, selectedNode.value.id) : undefined;
     selectedNode.value = matchedNode ?? treeData.value[0];
   } catch (error) {

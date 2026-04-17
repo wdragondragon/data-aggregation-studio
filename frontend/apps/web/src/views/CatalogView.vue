@@ -52,7 +52,19 @@
       </div>
 
       <el-table :data="capabilityRows" border size="small" style="margin-top: 12px">
-        <el-table-column prop="typeCode" :label="t('web.catalog.sourceTypeColumn')" min-width="140" />
+        <el-table-column :label="t('web.catalog.sourceTypeColumn')" min-width="150">
+          <template #default="{ row }">
+            <div class="source-type-cell">
+              <strong>{{ row.typeName || row.typeCode }}</strong>
+              <span>{{ row.typeCode }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.catalog.sourceCategoryColumn')" width="130" align="center" header-align="center">
+          <template #default="{ row }">
+            <StatusPill :label="sourceCategoryLabel(row.sourceCategory)" :tone="sourceCategoryTone(row.sourceCategory)" />
+          </template>
+        </el-table-column>
         <el-table-column :label="t('web.catalog.readableColumn')" width="110" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.readable ? t('common.yes') : t('common.no')" :tone="row.readable ? 'success' : 'neutral'" />
@@ -65,7 +77,7 @@
         </el-table-column>
         <el-table-column :label="t('web.catalog.executionColumn')" width="120" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="row.executable ? t('common.runnable') : t('common.catalogOnly')" :tone="row.executable ? 'success' : 'warning'" />
+            <StatusPill :label="row.executable ? t('common.managed') : t('common.unmanaged')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
         </el-table-column>
         <el-table-column :label="t('web.catalog.readerPluginsColumn')" min-width="180">
@@ -107,6 +119,34 @@ const capabilityRows = computed<SourceCapabilityEntry[]>(() => capabilityMatrix.
 const readableTypeCount = computed(() => capabilityRows.value.filter((item) => item.readable).length);
 const writableTypeCount = computed(() => capabilityRows.value.filter((item) => item.writable).length);
 const executableTypeBadges = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes ?? []);
+
+function sourceCategoryLabel(category?: string) {
+  const normalized = (category || "").toUpperCase();
+  if (normalized === "FILE_SYSTEM") {
+    return t("web.catalog.sourceCategoryFileSystem");
+  }
+  if (normalized === "MESSAGE_QUEUE") {
+    return t("web.catalog.sourceCategoryMessageQueue");
+  }
+  if (normalized === "DATABASE") {
+    return t("web.catalog.sourceCategoryDatabase");
+  }
+  return t("web.catalog.sourceCategoryUnknown");
+}
+
+function sourceCategoryTone(category?: string): "primary" | "success" | "warning" | "danger" | "neutral" {
+  const normalized = (category || "").toUpperCase();
+  if (normalized === "FILE_SYSTEM") {
+    return "primary";
+  }
+  if (normalized === "MESSAGE_QUEUE") {
+    return "warning";
+  }
+  if (normalized === "DATABASE") {
+    return "success";
+  }
+  return "neutral";
+}
 
 async function loadCatalog() {
   try {
@@ -209,6 +249,22 @@ p {
 
 .tag-row.compact {
   gap: 6px;
+}
+
+.source-type-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.source-type-cell strong {
+  font-size: 13px;
+  color: var(--studio-text);
+}
+
+.source-type-cell span {
+  font-size: 12px;
+  color: var(--studio-text-soft);
 }
 
 @media (max-width: 1100px) {
