@@ -187,20 +187,74 @@ create table if not exists studio_resource_share (
     key idx_studio_resource_share_project (target_project_id)
 );
 
-create table if not exists catalog_plugin (
+create table if not exists datasource_type_capability (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
-    plugin_name varchar(255),
-    plugin_category varchar(64),
-    asset_type varchar(128),
-    asset_path varchar(1024),
+    type_code varchar(128) not null,
+    type_name varchar(255) not null,
+    enabled int default 1,
+    readable int default 0,
+    writable int default 0,
     executable int default 0,
-    metadata json,
-    template json
+    sql_executable int default 0,
+    source_category varchar(32) not null default 'DATABASE',
+    source_plugin varchar(128),
+    reader_plugins_json json,
+    writer_plugins_json json,
+    sort_order int default 0,
+    description varchar(1000),
+    unique key uk_datasource_type_capability_code (tenant_id, type_code)
 );
+
+set @studio_has_source_category := (
+    select count(*)
+    from information_schema.columns
+    where table_schema = database()
+      and table_name = 'datasource_type_capability'
+      and column_name = 'source_category'
+);
+set @studio_add_source_category_sql := if(
+    @studio_has_source_category = 0,
+    'alter table datasource_type_capability add column source_category varchar(32) not null default ''DATABASE'' after sql_executable',
+    'select 1'
+);
+prepare studio_add_source_category_stmt from @studio_add_source_category_sql;
+execute studio_add_source_category_stmt;
+deallocate prepare studio_add_source_category_stmt;
+
+update datasource_type_capability
+set source_category = 'FILE_SYSTEM'
+where type_code in ('ftp', 'sftp', 'minio', 'tbds-hdfs', 'tbds-hdfs3');
+
+update datasource_type_capability
+set source_category = 'MESSAGE_QUEUE'
+where type_code in ('kafka', 'rocketmq', 'rabbitmq');
+
+update datasource_type_capability
+set source_category = 'DATABASE'
+where source_category is null or source_category = '';
+
+insert ignore into datasource_type_capability (id, tenant_id, deleted, created_at, updated_at, type_code, type_name, source_category, enabled, readable, writable, executable, sql_executable, source_plugin, reader_plugins_json, writer_plugins_json, sort_order, description) values
+(cast(conv(substr(md5('datasource_type_capability|default|mysql8'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'mysql8', 'MySQL 8', 'DATABASE', 1, 1, 1, 1, 1, 'mysql8', '["mysql8"]', '["mysql8"]', 10, 'MySQL 数据库'),
+(cast(conv(substr(md5('datasource_type_capability|default|oracle'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'oracle', 'Oracle', 'DATABASE', 1, 1, 0, 1, 1, 'oracle', '["oracle"]', '[]', 20, 'Oracle 数据库'),
+(cast(conv(substr(md5('datasource_type_capability|default|postgres'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'postgres', 'PostgreSQL', 'DATABASE', 1, 1, 0, 1, 1, 'postgres', '["postgres"]', '[]', 30, 'PostgreSQL 数据库'),
+(cast(conv(substr(md5('datasource_type_capability|default|dm'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'dm', '达梦数据库', 'DATABASE', 1, 1, 1, 1, 1, 'dm', '["dm"]', '["dm"]', 40, '达梦数据库'),
+(cast(conv(substr(md5('datasource_type_capability|default|ftp'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'ftp', 'FTP', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'ftp', '[]', '[]', 50, 'FTP 文件数据源'),
+(cast(conv(substr(md5('datasource_type_capability|default|sftp'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'sftp', 'SFTP', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'sftp', '[]', '[]', 60, 'SFTP 文件数据源'),
+(cast(conv(substr(md5('datasource_type_capability|default|minio'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'minio', 'MinIO', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'minio', '[]', '[]', 70, 'MinIO 对象存储'),
+(cast(conv(substr(md5('datasource_type_capability|default|kafka'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'kafka', 'Kafka', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'kafka', '["kafka"]', '["kafka"]', 80, 'Kafka 消息队列'),
+(cast(conv(substr(md5('datasource_type_capability|default|rocketmq'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'rocketmq', 'RocketMQ', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'rocketmq', '["rocketmq"]', '["rocketmq"]', 90, 'RocketMQ 消息队列'),
+(cast(conv(substr(md5('datasource_type_capability|default|rabbitmq'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'rabbitmq', 'RabbitMQ', 'MESSAGE_QUEUE', 1, 0, 0, 1, 0, 'rabbitmq', '[]', '[]', 100, 'RabbitMQ 消息队列'),
+(cast(conv(substr(md5('datasource_type_capability|default|odps'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'odps', 'ODPS', 'DATABASE', 1, 0, 0, 1, 1, 'odps', '[]', '[]', 110, 'ODPS / MaxCompute 数据源'),
+(cast(conv(substr(md5('datasource_type_capability|default|tbds-hdfs'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'tbds-hdfs', 'TBDS HDFS', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'tbds-hdfs', '[]', '[]', 120, 'TBDS HDFS 文件系统'),
+(cast(conv(substr(md5('datasource_type_capability|default|tbds-hdfs3'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'tbds-hdfs3', 'TBDS HDFS3', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'tbds-hdfs3', '[]', '[]', 130, 'TBDS HDFS3 文件系统'),
+(cast(conv(substr(md5('datasource_type_capability|default|tbds-hive2'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'tbds-hive2', 'TBDS Hive2', 'DATABASE', 1, 1, 0, 1, 1, 'tbds-hive2', '["tbds-hive2"]', '[]', 140, 'TBDS Hive2 数据源'),
+(cast(conv(substr(md5('datasource_type_capability|default|tbds-hive3'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'tbds-hive3', 'TBDS Hive3', 'DATABASE', 1, 0, 0, 1, 1, 'tbds-hive3', '[]', '[]', 150, 'TBDS Hive3 数据源'),
+(cast(conv(substr(md5('datasource_type_capability|default|influxdb'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'influxdb', 'InfluxDB', 'DATABASE', 1, 0, 0, 1, 0, 'influxdb', '[]', '[]', 160, 'InfluxDB 数据源'),
+(cast(conv(substr(md5('datasource_type_capability|default|influxdbv1'), 1, 15), 16, 10) as unsigned), 'default', 0, current_timestamp, current_timestamp, 'influxdbv1', 'InfluxDB v1', 'DATABASE', 1, 1, 1, 1, 0, 'influxdbv1', '["influxdbv1"]', '["influxdbv1"]', 170, 'InfluxDB v1 数据源');
 
 create table if not exists field_mapping_rule (
     id bigint primary key,

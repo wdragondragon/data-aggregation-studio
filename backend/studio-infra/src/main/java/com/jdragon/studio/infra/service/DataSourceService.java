@@ -38,6 +38,7 @@ public class DataSourceService {
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
@@ -47,7 +48,8 @@ public class DataSourceService {
                              DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                              BusinessMetaModelMetadataService businessMetaModelMetadataService,
                              StudioSecurityService securityService,
-                             ProjectResourceAccessService projectResourceAccessService) {
+                             ProjectResourceAccessService projectResourceAccessService,
+                             DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.encryptionService = encryptionService;
@@ -57,6 +59,7 @@ public class DataSourceService {
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
     public List<DataSourceDefinition> list() {
@@ -84,6 +87,7 @@ public class DataSourceService {
     public DataSourceDefinition save(DataSourceSaveRequest request) {
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         String currentTenantId = securityService.currentTenantId();
+        datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
         DatasourceEntity entity = request.getId() == null ? new DatasourceEntity() : requireWritableEntity(request.getId());
         if (entity == null) {
             entity = new DatasourceEntity();
@@ -111,11 +115,15 @@ public class DataSourceService {
 
     public ConnectionTestResult testConnection(Long id) {
         DataSourceDefinition definition = getInternal(id);
+        ensureDatasourceCanTest(definition);
         return capabilityProvider.testConnection(definition);
     }
 
     public ConnectionTestResult testConnection(DataSourceSaveRequest request) {
-        return capabilityProvider.testConnection(buildDefinitionForTest(request));
+        datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
+        DataSourceDefinition definition = buildDefinitionForTest(request);
+        ensureDatasourceCanTest(definition);
+        return capabilityProvider.testConnection(definition);
     }
 
     public ModelDiscoveryResult discoverModels(Long id) {
@@ -128,6 +136,7 @@ public class DataSourceService {
 
     public ModelDiscoveryResult discoverModels(Long id, String keyword, Integer pageNo, Integer pageSize) {
         DataSourceDefinition definition = getInternal(id);
+        datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
         return capabilityProvider.discoverModels(definition, keyword, pageNo, pageSize);
     }
 
@@ -174,6 +183,16 @@ public class DataSourceService {
         definition.setTechnicalMetadata(technicalMetadata);
         definition.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         return definition;
+    }
+
+    private void ensureDatasourceCanTest(DataSourceDefinition definition) {
+        if (definition == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found");
+        }
+        datasourceTypeCapabilityService.ensureExecutable(definition.getTypeCode());
+        if (!Boolean.TRUE.equals(definition.getEnabled()) || !Boolean.TRUE.equals(definition.getExecutable())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource must be enabled and executable before testing connection");
+        }
     }
 
     private LambdaQueryWrapper<DatasourceEntity> buildAccessibleQuery() {

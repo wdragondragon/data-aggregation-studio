@@ -5,9 +5,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $backendRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent $backendRoot
 $serverModule = Join-Path $backendRoot "studio-server"
 if ([string]::IsNullOrWhiteSpace($InputDir)) {
-    $InputDir = Join-Path $backendRoot "docs\schema-snapshots\mysql\current"
+    $InputDir = Join-Path $repoRoot "docs\数据库\结构快照\mysql\current"
 }
 
 Push-Location $backendRoot

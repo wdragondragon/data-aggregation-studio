@@ -1,13 +1,12 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
-import com.jdragon.studio.infra.entity.CatalogPluginEntity;
-import com.jdragon.studio.infra.service.PluginCatalogService;
+import com.jdragon.studio.dto.model.DatasourceTypeCapabilityView;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
@@ -19,26 +18,26 @@ import java.util.Map;
 @RequestMapping("/api/v1/catalog")
 public class CatalogController {
 
-    private final PluginCatalogService pluginCatalogService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
 
-    public CatalogController(PluginCatalogService pluginCatalogService) {
-        this.pluginCatalogService = pluginCatalogService;
-    }
-
-    @Operation(summary = "List plugin catalog entries")
-    @GetMapping("/plugins")
-    public Result<List<CatalogPluginEntity>> listPlugins(@RequestParam(value = "category", required = false) String category) {
-        return Result.success(category == null ? pluginCatalogService.list() : pluginCatalogService.listByCategory(category));
+    public CatalogController(DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
     @Operation(summary = "Get executable capability matrix")
     @GetMapping("/capabilities")
     public Result<Map<String, Object>> capabilityMatrix() {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("executableSourceTypes", pluginCatalogService.executableSourceTypes());
-        payload.put("executableTargetTypes", pluginCatalogService.executableTargetTypes());
-        payload.put("executableDatasourceTypes", pluginCatalogService.executableDatasourceTypes());
-        payload.put("sourceCapabilities", pluginCatalogService.sourceCapabilities());
+        payload.put("executableSourceTypes", datasourceTypeCapabilityService.executableSourceTypes());
+        payload.put("executableTargetTypes", datasourceTypeCapabilityService.executableTargetTypes());
+        payload.put("executableDatasourceTypes", datasourceTypeCapabilityService.executableDatasourceTypes());
+        payload.put("sourceCapabilities", datasourceTypeCapabilityService.sourceCapabilities());
         return Result.success(payload);
+    }
+
+    @Operation(summary = "List enabled datasource type capabilities")
+    @GetMapping("/datasource-types")
+    public Result<List<DatasourceTypeCapabilityView>> datasourceTypes() {
+        return Result.success(datasourceTypeCapabilityService.listEnabled());
     }
 }

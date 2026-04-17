@@ -9,6 +9,7 @@ import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
@@ -64,7 +65,8 @@ class DataSourceServiceRegressionTest {
                 mock(DataModelIndexRebuildQueueService.class),
                 businessMetaModelMetadataService,
                 mock(StudioSecurityService.class),
-                mock(ProjectResourceAccessService.class)
+                mock(ProjectResourceAccessService.class),
+                mock(DatasourceTypeCapabilityService.class)
         );
 
         DataSourceSaveRequest request = new DataSourceSaveRequest();

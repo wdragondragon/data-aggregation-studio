@@ -10,6 +10,8 @@ import com.jdragon.aggregation.core.plugin.spi.reporter.JobPointReporter;
 import com.jdragon.aggregation.core.statistics.communication.Communication;
 import com.jdragon.aggregation.core.statistics.communication.CommunicationTool;
 import com.jdragon.aggregation.core.statistics.communication.RunStatus;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -19,6 +21,17 @@ import java.util.Map;
 
 @Component
 public class AggregationNodeExecutor implements NodeExecutor {
+
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+
+    public AggregationNodeExecutor() {
+        this.datasourceTypeCapabilityService = null;
+    }
+
+    @Autowired
+    public AggregationNodeExecutor(DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
+    }
 
     @Override
     public boolean supports(WorkflowNodeDefinition definition) {
@@ -35,6 +48,7 @@ public class AggregationNodeExecutor implements NodeExecutor {
         Map<String, Object> config = definition.getConfig() == null
                 ? Collections.<String, Object>emptyMap()
                 : definition.getConfig();
+        validateDatasourceCapabilities(config);
         long startedAt = System.currentTimeMillis();
         JobContainer container = createJobContainer(config);
         if (runtimeContext != null) {
@@ -63,6 +77,31 @@ public class AggregationNodeExecutor implements NodeExecutor {
         }
         result.put("summary", buildSummary(config, communication, runStatus, jobState));
         return result;
+    }
+
+    private void validateDatasourceCapabilities(Map<String, Object> config) {
+        if (datasourceTypeCapabilityService == null) {
+            return;
+        }
+        Map<String, Object> reader = valueAsMap(config.get("reader"));
+        Map<String, Object> writer = valueAsMap(config.get("writer"));
+        String readerType = asString(reader.get("type"));
+        if ("fusion".equalsIgnoreCase(readerType)) {
+            Map<String, Object> readerConfig = valueAsMap(reader.get("config"));
+            List<Map<String, Object>> sources = valueAsList(readerConfig.get("sources"));
+            for (Map<String, Object> source : sources) {
+                String sourceType = asString(source.get("type"));
+                if (sourceType != null) {
+                    datasourceTypeCapabilityService.ensureReadable(sourceType);
+                }
+            }
+        } else if (readerType != null) {
+            datasourceTypeCapabilityService.ensureReadable(readerType);
+        }
+        String writerType = asString(writer.get("type"));
+        if (writerType != null) {
+            datasourceTypeCapabilityService.ensureWritable(writerType);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -188,6 +227,14 @@ public class AggregationNodeExecutor implements NodeExecutor {
             }
         }
         return aliases;
+    }
+
+    private String asString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
     }
 
     protected JobContainer createJobContainer(Map<String, Object> config) {

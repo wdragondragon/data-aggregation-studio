@@ -38,7 +38,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     private final MetaFieldDefinitionMapper fieldDefinitionMapper;
     private final DatasourceMapper datasourceMapper;
     private final DataModelMapper dataModelMapper;
-    private final PluginCatalogService pluginCatalogService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final DataModelScopedIndexRefreshService dataModelScopedIndexRefreshService;
 
     private static final String META_MODEL_CONFIG_PREFIX = "META_MODEL_CONFIG:";
@@ -48,14 +48,14 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                                  MetaFieldDefinitionMapper fieldDefinitionMapper,
                                  DatasourceMapper datasourceMapper,
                                  DataModelMapper dataModelMapper,
-                                 PluginCatalogService pluginCatalogService,
+                                 DatasourceTypeCapabilityService datasourceTypeCapabilityService,
                                  DataModelScopedIndexRefreshService dataModelScopedIndexRefreshService) {
         this.schemaMapper = schemaMapper;
         this.versionMapper = versionMapper;
         this.fieldDefinitionMapper = fieldDefinitionMapper;
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
-        this.pluginCatalogService = pluginCatalogService;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.dataModelScopedIndexRefreshService = dataModelScopedIndexRefreshService;
     }
 
@@ -178,7 +178,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     @Transactional
     public List<MetadataSchemaDefinition> syncAllTechnicalMetaModels() {
         List<MetadataSchemaDefinition> result = new ArrayList<MetadataSchemaDefinition>();
-        for (String typeCode : pluginCatalogService.sourceTypes()) {
+        for (String typeCode : datasourceTypeCapabilityService.sourceTypes()) {
             result.addAll(syncTechnicalMetaModels(typeCode));
         }
         return result;

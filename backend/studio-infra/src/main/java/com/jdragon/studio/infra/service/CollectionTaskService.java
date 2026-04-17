@@ -49,6 +49,7 @@ public class CollectionTaskService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final DataModelLineageService dataModelLineageService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
                                  CollectionTaskScheduleMapper scheduleMapper,
@@ -60,7 +61,8 @@ public class CollectionTaskService {
                                  ObjectMapper objectMapper,
                                  StudioSecurityService securityService,
                                  ProjectResourceAccessService projectResourceAccessService,
-                                 DataModelLineageService dataModelLineageService) {
+                                 DataModelLineageService dataModelLineageService,
+                                 DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
         this.definitionMapper = definitionMapper;
         this.scheduleMapper = scheduleMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
@@ -72,6 +74,7 @@ public class CollectionTaskService {
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.dataModelLineageService = dataModelLineageService;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
     public List<CollectionTaskDefinitionView> list(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
@@ -398,6 +401,7 @@ public class CollectionTaskService {
         List<CollectionTaskSourceBinding> result = new ArrayList<CollectionTaskSourceBinding>();
         for (CollectionTaskSourceBinding binding : bindings) {
             DataSourceDefinition datasource = dataSourceService.get(binding.getDatasourceId());
+            datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
             DataModelDefinition model = dataModelService.get(binding.getModelId());
             ensureModelBelongsToDatasource(model, datasource);
             CollectionTaskSourceBinding enriched = new CollectionTaskSourceBinding();
@@ -415,6 +419,7 @@ public class CollectionTaskService {
 
     private CollectionTaskTargetBinding enrichTargetBinding(CollectionTaskTargetBinding binding) {
         DataSourceDefinition datasource = dataSourceService.get(binding.getDatasourceId());
+        datasourceTypeCapabilityService.ensureWritable(datasource.getTypeCode());
         DataModelDefinition model = dataModelService.get(binding.getModelId());
         ensureModelBelongsToDatasource(model, datasource);
         CollectionTaskTargetBinding enriched = new CollectionTaskTargetBinding();

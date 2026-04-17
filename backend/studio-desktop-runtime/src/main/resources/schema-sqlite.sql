@@ -7,8 +7,27 @@ create table if not exists sys_user (
     username text not null unique,
     password_hash text not null,
     display_name text,
+    auth_source text default 'LOCAL',
     enabled integer default 1
 );
+
+create table if not exists studio_external_user_binding (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    provider_code text not null,
+    external_user_id text not null,
+    external_account text,
+    studio_user_id integer not null,
+    last_seen_at text
+);
+
+create unique index if not exists uk_studio_external_user_binding_external
+    on studio_external_user_binding(provider_code, external_user_id);
+create index if not exists idx_studio_external_user_binding_user
+    on studio_external_user_binding(studio_user_id);
 
 create table if not exists sys_role (
     id integer primary key,
@@ -158,20 +177,46 @@ create table if not exists studio_resource_share (
 create unique index if not exists uk_studio_resource_share_target on studio_resource_share(resource_type, resource_id, target_project_id);
 create index if not exists idx_studio_resource_share_project on studio_resource_share(target_project_id);
 
-create table if not exists catalog_plugin (
+create table if not exists datasource_type_capability (
     id integer primary key,
     tenant_id text default 'default',
     deleted integer default 0,
     created_at text,
     updated_at text,
-    plugin_name text,
-    plugin_category text,
-    asset_type text,
-    asset_path text,
+    type_code text not null,
+    type_name text not null,
+    enabled integer default 1,
+    readable integer default 0,
+    writable integer default 0,
     executable integer default 0,
-    metadata text,
-    template text
+    sql_executable integer default 0,
+    source_category text not null default 'DATABASE',
+    source_plugin text,
+    reader_plugins_json text,
+    writer_plugins_json text,
+    sort_order integer default 0,
+    description text
 );
+create unique index if not exists uk_datasource_type_capability_code on datasource_type_capability(tenant_id, type_code);
+
+insert or ignore into datasource_type_capability (id, tenant_id, deleted, created_at, updated_at, type_code, type_name, source_category, enabled, readable, writable, executable, sql_executable, source_plugin, reader_plugins_json, writer_plugins_json, sort_order, description) values
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'mysql8', 'MySQL 8', 'DATABASE', 1, 1, 1, 1, 1, 'mysql8', '["mysql8"]', '["mysql8"]', 10, 'MySQL 数据库'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'oracle', 'Oracle', 'DATABASE', 1, 1, 0, 1, 1, 'oracle', '["oracle"]', '[]', 20, 'Oracle 数据库'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'postgres', 'PostgreSQL', 'DATABASE', 1, 1, 0, 1, 1, 'postgres', '["postgres"]', '[]', 30, 'PostgreSQL 数据库'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'dm', '达梦数据库', 'DATABASE', 1, 1, 1, 1, 1, 'dm', '["dm"]', '["dm"]', 40, '达梦数据库'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'ftp', 'FTP', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'ftp', '[]', '[]', 50, 'FTP 文件数据源'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'sftp', 'SFTP', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'sftp', '[]', '[]', 60, 'SFTP 文件数据源'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'minio', 'MinIO', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'minio', '[]', '[]', 70, 'MinIO 对象存储'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'kafka', 'Kafka', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'kafka', '["kafka"]', '["kafka"]', 80, 'Kafka 消息队列'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'rocketmq', 'RocketMQ', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'rocketmq', '["rocketmq"]', '["rocketmq"]', 90, 'RocketMQ 消息队列'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'rabbitmq', 'RabbitMQ', 'MESSAGE_QUEUE', 1, 0, 0, 1, 0, 'rabbitmq', '[]', '[]', 100, 'RabbitMQ 消息队列'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'odps', 'ODPS', 'DATABASE', 1, 0, 0, 1, 1, 'odps', '[]', '[]', 110, 'ODPS / MaxCompute 数据源'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'tbds-hdfs', 'TBDS HDFS', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'tbds-hdfs', '[]', '[]', 120, 'TBDS HDFS 文件系统'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'tbds-hdfs3', 'TBDS HDFS3', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'tbds-hdfs3', '[]', '[]', 130, 'TBDS HDFS3 文件系统'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'tbds-hive2', 'TBDS Hive2', 'DATABASE', 1, 1, 0, 1, 1, 'tbds-hive2', '["tbds-hive2"]', '[]', 140, 'TBDS Hive2 数据源'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'tbds-hive3', 'TBDS Hive3', 'DATABASE', 1, 0, 0, 1, 1, 'tbds-hive3', '[]', '[]', 150, 'TBDS Hive3 数据源'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'influxdb', 'InfluxDB', 'DATABASE', 1, 0, 0, 1, 0, 'influxdb', '[]', '[]', 160, 'InfluxDB 数据源'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'influxdbv1', 'InfluxDB v1', 'DATABASE', 1, 1, 1, 1, 0, 'influxdbv1', '["influxdbv1"]', '["influxdbv1"]', 170, 'InfluxDB v1 数据源');
 
 create table if not exists field_mapping_rule (
     id integer primary key,

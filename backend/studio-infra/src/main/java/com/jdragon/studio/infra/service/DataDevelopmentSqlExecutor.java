@@ -33,17 +33,6 @@ import java.util.Set;
 @Service
 public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor {
 
-    private static final Set<String> SQL_DATASOURCE_TYPES = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(
-            "mysql5",
-            "mysql8",
-            "dm",
-            "oracle",
-            "postgres",
-            "tbds-hive2",
-            "tbds-hive3",
-            "odps"
-    )));
-
     private static final Set<String> RESERVED_KEYS = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(
             "name",
             "type",
@@ -64,20 +53,23 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
     )));
 
     private final EncryptionService encryptionService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
 
-    public DataDevelopmentSqlExecutor(EncryptionService encryptionService) {
+    public DataDevelopmentSqlExecutor(EncryptionService encryptionService,
+                                      DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
         this.encryptionService = encryptionService;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
     public boolean supports(DataSourceDefinition datasource) {
         if (datasource == null || datasource.getTypeCode() == null) {
             return false;
         }
-        return SQL_DATASOURCE_TYPES.contains(datasource.getTypeCode().trim().toLowerCase(Locale.ENGLISH));
+        return datasourceTypeCapabilityService.isSqlExecutable(datasource.getTypeCode());
     }
 
     public Set<String> supportedDatasourceTypes() {
-        return SQL_DATASOURCE_TYPES;
+        return new LinkedHashSet<String>(datasourceTypeCapabilityService.sqlExecutableTypes());
     }
 
     @Override

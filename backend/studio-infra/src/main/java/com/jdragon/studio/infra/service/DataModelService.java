@@ -53,6 +53,7 @@ public class DataModelService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final DataModelAccessScopeService dataModelAccessScopeService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
@@ -63,7 +64,8 @@ public class DataModelService {
                             BusinessMetaModelMetadataService businessMetaModelMetadataService,
                             StudioSecurityService securityService,
                             ProjectResourceAccessService projectResourceAccessService,
-                            DataModelAccessScopeService dataModelAccessScopeService) {
+                            DataModelAccessScopeService dataModelAccessScopeService,
+                            DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
         this.modelDiscoveryProvider = modelDiscoveryProvider;
@@ -74,6 +76,7 @@ public class DataModelService {
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.dataModelAccessScopeService = dataModelAccessScopeService;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
     public List<DataModelDefinition> list() {
@@ -144,6 +147,7 @@ public class DataModelService {
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
+        datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         String currentTenantId = securityService.currentTenantId();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
@@ -166,6 +170,7 @@ public class DataModelService {
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
+        datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         String currentTenantId = securityService.currentTenantId();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
@@ -249,6 +254,7 @@ public class DataModelService {
             return new ArrayList<Map<String, Object>>();
         }
         DataSourceDefinition datasource = dataSourceService.getInternal(model.getDatasourceId());
+        datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
         return modelDiscoveryProvider.preview(datasource, toDefinition(model), limit);
     }
 
