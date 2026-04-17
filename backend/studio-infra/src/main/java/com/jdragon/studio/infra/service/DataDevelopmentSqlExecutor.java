@@ -16,6 +16,7 @@ import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
 import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
@@ -73,6 +74,10 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
             return false;
         }
         return SQL_DATASOURCE_TYPES.contains(datasource.getTypeCode().trim().toLowerCase(Locale.ENGLISH));
+    }
+
+    public Set<String> supportedDatasourceTypes() {
+        return SQL_DATASOURCE_TYPES;
     }
 
     @Override
@@ -166,6 +171,65 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
                     result.setQuery(Boolean.FALSE);
                     result.setMessage(String.format("Executed %d statement(s), affected rows: %d", statements.size(), totalAffectedRows));
                 }
+                return result;
+            }
+        } catch (StudioException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL execution failed: " + ex.getMessage());
+        }
+    }
+
+    public SqlExecutionResultView executePreparedQuery(DataSourceDefinition datasource,
+                                                       String sql,
+                                                       List<Object> parameters,
+                                                       Integer maxRows) {
+        if (!supports(datasource)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only database datasources can execute SQL scripts");
+        }
+        if (sql == null || sql.trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL script content is empty");
+        }
+        BaseDataSourceDTO dataSourceDTO = toBaseDataSourceDTO(datasource);
+        long startedAt = System.currentTimeMillis();
+        try (PluginClassLoaderCloseable loader =
+                     PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
+            AbstractDataSourcePlugin plugin = loader.loadPlugin();
+            try (Connection connection = plugin.getConnection(dataSourceDTO);
+                 PreparedStatement statement = connection.prepareStatement(sql)) {
+                if (maxRows != null && maxRows.intValue() > 0) {
+                    statement.setMaxRows(maxRows.intValue());
+                }
+                List<Object> safeParameters = parameters == null ? Collections.emptyList() : parameters;
+                for (int index = 0; index < safeParameters.size(); index++) {
+                    statement.setObject(index + 1, safeParameters.get(index));
+                }
+                SqlStatementExecutionResultView statementResult = new SqlStatementExecutionResultView();
+                statementResult.setStatementIndex(1);
+                statementResult.setSql(sql);
+                statementResult.setQuery(Boolean.TRUE);
+                long statementStartedAt = System.currentTimeMillis();
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    populateQueryResult(statementResult, resultSet);
+                }
+                statementResult.setExecutionMs(System.currentTimeMillis() - statementStartedAt);
+                statementResult.setMessage(String.format("Query returned %d row(s)", statementResult.getRows().size()));
+                statementResult.getSummary().put("rowCount", statementResult.getRows().size());
+
+                SqlExecutionResultView result = new SqlExecutionResultView();
+                result.setDatasourceName(datasource.getName());
+                result.setStatementCount(1);
+                result.setQuery(Boolean.TRUE);
+                result.setAffectedRows(0);
+                result.setExecutionMs(System.currentTimeMillis() - startedAt);
+                result.setMessage("Query executed successfully");
+                result.setColumns(new ArrayList<String>(statementResult.getColumns()));
+                result.setRows(new ArrayList<Map<String, Object>>(statementResult.getRows()));
+                result.getSummary().put("statementCount", 1);
+                result.getSummary().put("queryCount", 1);
+                result.getSummary().put("rowCount", result.getRows().size());
+                result.getSummary().put("datasourceType", datasource.getTypeCode());
+                result.getResults().add(statementResult);
                 return result;
             }
         } catch (StudioException ex) {

@@ -5,10 +5,14 @@ import path from 'node:path';
 export default defineConfig({
   plugins: [vue()],
   resolve: {
+    dedupe: ['@antv/x6'],
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@web': path.resolve(__dirname, './src')
     }
+  },
+  optimizeDeps: {
+    exclude: ['@antv/x6-vue-shape']
   },
   build: {
     rollupOptions: {
@@ -38,6 +42,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
+        target: 'http://127.0.0.1:18080',
+        changeOrigin: true
+      },
+      '/openapi': {
         target: 'http://127.0.0.1:18080',
         changeOrigin: true
       }

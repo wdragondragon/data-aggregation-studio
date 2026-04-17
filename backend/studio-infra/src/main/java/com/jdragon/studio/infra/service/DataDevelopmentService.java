@@ -104,6 +104,10 @@ public class DataDevelopmentService {
         return result;
     }
 
+    public List<String> listSqlDatasourceTypes() {
+        return new ArrayList<String>(sqlExecutor.supportedDatasourceTypes());
+    }
+
     public DataDevelopmentScriptView getScript(Long scriptId) {
         return toScriptView(requireReadableScript(scriptId));
     }

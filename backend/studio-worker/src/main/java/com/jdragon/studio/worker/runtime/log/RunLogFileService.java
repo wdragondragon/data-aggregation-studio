@@ -18,7 +18,11 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,7 +38,8 @@ public class RunLogFileService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
-    private static final int DEFAULT_TAIL_BYTES = 64 * 1024;
+    private static final int DEFAULT_PAGE_BYTES = 64 * 1024;
+    private static final int MAX_PAGE_BYTES = 512 * 1024;
 
     private final StudioPlatformProperties properties;
     private final LoggerContext loggerContext;
@@ -71,12 +76,12 @@ public class RunLogFileService {
         return new RunLogScope(prepared.getRunRecordId());
     }
 
-    public RunLogView readTail(RunRecordEntity entity, Integer maxBytes) {
-        return readLog(entity, maxBytes == null || maxBytes <= 0 ? DEFAULT_TAIL_BYTES : maxBytes, false);
+    public RunLogView readPage(RunRecordEntity entity, Integer pageNo, Integer pageSizeBytes) {
+        return readLogPage(entity, pageNo, pageSizeBytes == null || pageSizeBytes.intValue() <= 0 ? DEFAULT_PAGE_BYTES : pageSizeBytes.intValue(), false);
     }
 
     public RunLogView readFull(RunRecordEntity entity) {
-        return readLog(entity, Integer.MAX_VALUE, true);
+        return readLogPage(entity, 1, Integer.MAX_VALUE, true);
     }
 
     public long fileSize(String relativePath) {
@@ -94,43 +99,147 @@ public class RunLogFileService {
         }
     }
 
-    private RunLogView readLog(RunRecordEntity entity, int maxBytes, boolean full) {
+    private RunLogView readLogPage(RunRecordEntity entity, Integer pageNo, int pageSizeBytes, boolean full) {
         Path path = resolveLogPath(entity.getLogFilePath());
         if (!Files.exists(path)) {
             throw new IllegalStateException("Run log file not found for runRecordId=" + entity.getId());
         }
         try {
             long size = Files.size(path);
-            byte[] bytes = full ? Files.readAllBytes(path) : readTailBytes(path, maxBytes);
+            int safePageSizeBytes = normalizePageSizeBytes(pageSizeBytes);
+            int totalPages = full ? 1 : computeTotalPages(size, safePageSizeBytes);
+            int safePageNo = full ? 1 : normalizePageNo(pageNo, totalPages);
+            Charset charset = Charset.forName(entity.getLogCharset() == null ? DEFAULT_CHARSET.name() : entity.getLogCharset());
+            byte[] bytes = full ? Files.readAllBytes(path) : readPageBytes(path, safePageNo, safePageSizeBytes, charset);
             RunLogView view = new RunLogView();
             view.setRunRecordId(entity.getId());
-            view.setCharset(entity.getLogCharset() == null ? DEFAULT_CHARSET.name() : entity.getLogCharset());
+            view.setCharset(charset.name());
             view.setContentType("text/plain;charset=" + view.getCharset());
-            view.setContent(new String(bytes, Charset.forName(view.getCharset())));
+            view.setContent(decodeBytes(bytes, charset));
             view.setSizeBytes(size);
-            view.setTruncated(!full && size > bytes.length);
+            view.setTruncated(false);
+            view.setPaged(!full && totalPages > 1);
             view.setUpdatedAt(resolveUpdatedAt(path));
             view.setDownloadName(path.getFileName().toString());
             view.setHistoricalFallback(false);
+            view.setPageNo(Integer.valueOf(safePageNo));
+            view.setTotalPages(Integer.valueOf(totalPages));
+            view.setPageSizeBytes(Integer.valueOf(full ? Integer.MAX_VALUE : safePageSizeBytes));
             return view;
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read run log file for runRecordId=" + entity.getId(), e);
         }
     }
 
-    private byte[] readTailBytes(Path path, int maxBytes) throws IOException {
+    private byte[] readPageBytes(Path path, int pageNo, int pageSizeBytes, Charset charset) throws IOException {
         try (RandomAccessFile file = new RandomAccessFile(path.toFile(), "r")) {
             long size = file.length();
-            if (size <= maxBytes) {
+            if (size <= pageSizeBytes) {
                 byte[] bytes = new byte[(int) size];
                 file.readFully(bytes);
                 return bytes;
             }
-            byte[] bytes = new byte[maxBytes];
-            file.seek(size - maxBytes);
+            long start = (long) (pageNo - 1) * (long) pageSizeBytes;
+            if (start >= size) {
+                start = Math.max(0L, size - pageSizeBytes);
+            }
+            long safeStart = alignPageStart(file, start, charset);
+            int readLength = (int) Math.min((long) pageSizeBytes + (start - safeStart), size - safeStart);
+            byte[] bytes = new byte[readLength];
+            file.seek(safeStart);
             file.readFully(bytes);
+            return trimToCharsetBoundary(bytes, safeStart, size, charset);
+        }
+    }
+
+    private long alignPageStart(RandomAccessFile file, long start, Charset charset) throws IOException {
+        if (start <= 0L || charset == null || !"UTF-8".equalsIgnoreCase(charset.name())) {
+            return start;
+        }
+        long safeStart = start;
+        while (safeStart > 0L) {
+            file.seek(safeStart);
+            int current = file.read();
+            if (current < 0 || !isUtf8ContinuationByte((byte) current)) {
+                break;
+            }
+            safeStart--;
+        }
+        return safeStart;
+    }
+
+    private byte[] trimToCharsetBoundary(byte[] bytes, long absoluteStart, long fileSize, Charset charset) {
+        if (bytes == null || bytes.length == 0 || charset == null || !"UTF-8".equalsIgnoreCase(charset.name())) {
             return bytes;
         }
+        int safeStart = 0;
+        if (absoluteStart > 0L) {
+            while (safeStart < bytes.length && isUtf8ContinuationByte(bytes[safeStart])) {
+                safeStart++;
+            }
+        }
+        int safeEnd = bytes.length;
+        if (absoluteStart + bytes.length < fileSize) {
+            while (safeEnd > safeStart && !canDecode(bytes, safeStart, safeEnd - safeStart, charset)) {
+                safeEnd--;
+            }
+        }
+        if (safeStart <= 0 && safeEnd >= bytes.length) {
+            return bytes;
+        }
+        if (safeEnd <= safeStart) {
+            return new byte[0];
+        }
+        byte[] result = new byte[safeEnd - safeStart];
+        System.arraycopy(bytes, safeStart, result, 0, result.length);
+        return result;
+    }
+
+    private boolean canDecode(byte[] bytes, int offset, int length, Charset charset) {
+        CharsetDecoder decoder = charset.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+            decoder.decode(ByteBuffer.wrap(bytes, offset, length));
+            return true;
+        } catch (CharacterCodingException ex) {
+            return false;
+        }
+    }
+
+    private boolean isUtf8ContinuationByte(byte value) {
+        return (value & 0xC0) == 0x80;
+    }
+
+    private String decodeBytes(byte[] bytes, Charset charset) {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        return new String(bytes, charset);
+    }
+
+    private int normalizePageNo(Integer pageNo, int totalPages) {
+        if (totalPages <= 0) {
+            return 1;
+        }
+        if (pageNo == null || pageNo.intValue() <= 0) {
+            return totalPages;
+        }
+        return Math.min(pageNo.intValue(), totalPages);
+    }
+
+    private int normalizePageSizeBytes(int pageSizeBytes) {
+        if (pageSizeBytes <= 0) {
+            return DEFAULT_PAGE_BYTES;
+        }
+        return Math.min(pageSizeBytes, MAX_PAGE_BYTES);
+    }
+
+    private int computeTotalPages(long sizeBytes, int pageSizeBytes) {
+        if (sizeBytes <= 0L) {
+            return 1;
+        }
+        return (int) Math.max(1L, (sizeBytes + pageSizeBytes - 1L) / pageSizeBytes);
     }
 
     private LocalDateTime resolveUpdatedAt(Path path) throws IOException {

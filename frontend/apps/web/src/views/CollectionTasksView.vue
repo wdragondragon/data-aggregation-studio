@@ -80,7 +80,7 @@
             <StatusPill :label="formatStatusLabel(t, row.status)" :tone="row.status === 'ONLINE' ? 'success' : 'warning'" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.metadata.actions')" width="120" align="center" header-align="center">
+        <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <OverflowActionGroup :items="buildTaskActions(row)" />
           </template>
@@ -129,22 +129,22 @@
                 <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runMetrics.summaryTitle')" min-width="220">
+            <el-table-column :label="t('web.runMetrics.summaryTitle')" width="260">
               <template #default="{ row }">
                 <div class="run-metric-summary">
-                  <span>{{ metricLabel(t, 'collectedRecords') }}: {{ formatMetricNumber(row.metricSummary?.collectedRecords) }}</span>
-                  <span>{{ metricLabel(t, 'successRecords') }}: {{ formatMetricNumber(metricSummaryValue(row.metricSummary, 'successRecords')) }}</span>
-                  <span>{{ metricLabel(t, 'failedRecords') }}: {{ formatMetricNumber(row.metricSummary?.failedRecords) }}</span>
-                  <span>{{ metricLabel(t, 'transformerFilterRecords') }}: {{ formatMetricNumber(row.metricSummary?.transformerFilterRecords) }}</span>
+                  <span class="run-metric-chip">{{ metricLabel(t, 'collectedRecords') }}: {{ formatMetricNumber(row.metricSummary?.collectedRecords) }}</span>
+                  <span class="run-metric-chip">{{ metricLabel(t, 'successRecords') }}: {{ formatMetricNumber(metricSummaryValue(row.metricSummary, 'successRecords')) }}</span>
+                  <span class="run-metric-chip">{{ metricLabel(t, 'failedRecords') }}: {{ formatMetricNumber(row.metricSummary?.failedRecords) }}</span>
+                  <span class="run-metric-chip">{{ metricLabel(t, 'transformerFilterRecords') }}: {{ formatMetricNumber(row.metricSummary?.transformerFilterRecords) }}</span>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runs.message')" min-width="220">
+            <el-table-column :label="t('web.runs.message')" min-width="300">
               <template #default="{ row }">
-                <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
+                <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center">
+        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                   {{ t("web.runs.viewLog") }}
@@ -166,7 +166,7 @@
       </template>
     </el-drawer>
 
-    <RunLogDrawer v-model="logDrawerVisible" :run-record-id="activeRunRecordId" />
+    <RunLogDrawer v-model="logDrawerVisible" :run-record-id="activeRunRecordId" variant="collection-task" />
   </div>
 </template>
 
@@ -179,6 +179,7 @@ import type { CollectionTaskDefinitionView, CollectionTaskListQuery, RunRecord }
 import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
+import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
@@ -416,18 +417,18 @@ p {
 }
 
 .task-table {
-  min-width: 1220px;
+  min-width: 0;
 }
 
 .task-run-table {
-  min-width: 940px;
+  min-width: 1280px;
 }
 
 .task-table-wrap {
-  overflow-x: auto;
-  padding-bottom: 4px;
+  overflow: visible;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
 }
 
 .task-primary-cell,
@@ -450,11 +451,23 @@ p {
 }
 
 .run-metric-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.run-metric-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 78, 139, 0.08);
+  color: var(--studio-text);
   font-size: 12px;
-  color: var(--studio-text-soft);
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .table-pagination {

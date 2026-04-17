@@ -113,7 +113,7 @@
         </el-table-column>
         <el-table-column label="错误信息" min-width="260">
           <template #default="{ row }">
-            <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
+            <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
           </template>
         </el-table-column>
       </el-table>
@@ -143,6 +143,7 @@ import type { ModelSyncTaskItemView, ModelSyncTaskView } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
+import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const route = useRoute();

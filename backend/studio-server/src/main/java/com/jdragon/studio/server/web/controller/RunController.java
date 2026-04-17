@@ -33,12 +33,13 @@ public class RunController {
     @Operation(summary = "List queued tasks and run records")
     @GetMapping
     public Result<RunListView> list(@RequestParam(value = "collectionTaskId", required = false) Long collectionTaskId,
+                                    @RequestParam(value = "qualityTaskId", required = false) Long qualityTaskId,
                                     @RequestParam(value = "workflowDefinitionId", required = false) Long workflowDefinitionId,
                                     @RequestParam(value = "startTime", required = false)
                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
                                     @RequestParam(value = "endTime", required = false)
                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime) {
-        return Result.success(runService.list(collectionTaskId, workflowDefinitionId, startTime, endTime));
+        return Result.success(runService.list(collectionTaskId, qualityTaskId, workflowDefinitionId, startTime, endTime));
     }
 
     @Operation(summary = "Get run record detail")
@@ -49,8 +50,10 @@ public class RunController {
 
     @Operation(summary = "Get run log tail")
     @GetMapping("/{id}/log")
-    public Result<RunLogView> log(@PathVariable("id") Long id) {
-        return Result.success(runLogProxyService.viewLog(id));
+    public Result<RunLogView> log(@PathVariable("id") Long id,
+                                  @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                  @RequestParam(value = "pageSizeBytes", required = false) Integer pageSizeBytes) {
+        return Result.success(runLogProxyService.viewLog(id, pageNo, pageSizeBytes));
     }
 
     @Operation(summary = "Download full run log")

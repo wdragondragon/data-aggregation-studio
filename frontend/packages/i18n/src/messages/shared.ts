@@ -113,9 +113,17 @@ export const sharedMessages = {
             title: "Data Collection",
             caption: "Mapping rules, collection tasks and metrics",
           },
+          quality: {
+            title: "Data Quality",
+            caption: "Quality rules and quality tasks",
+          },
           development: {
             title: "Data Development",
             caption: "Scripts, workflows and workflow logs",
+          },
+          dataService: {
+            title: "Data Service",
+            caption: "Publish model data as subscription APIs",
           },
           administration: {
             title: "Administration",
@@ -175,6 +183,22 @@ export const sharedMessages = {
           subtitle: "Organize SQL scripts in tenant-scoped directories, execute them and reuse them in workflows.",
           menuCaption: "Script directory and SQL execution",
         },
+        dataServices: {
+          title: "Data Services",
+          subtitle: "Publish model tables or SELECT queries as subscribable APIs with debugging and token control.",
+          menuCaption: "Model publishing APIs",
+          createTitle: "New Data Service",
+          createSubtitle: "Configure source fields, request parameters and publish settings for a new API.",
+          editTitle: "Edit Data Service",
+          editSubtitle: "Adjust source, parameter mapping, publishing and debugging settings.",
+        },
+        dataServiceMetrics: {
+          title: "Service Monitoring",
+          subtitle: "Track external API calls, latency, success rate and subscription activity for data services.",
+          menuCaption: "API calls and latency",
+          logsTitle: "Access Logs",
+          logsSubtitle: "Inspect external data service API exceptions, slow queries and request diagnostics.",
+        },
         collectionTasks: {
           title: "Collection Tasks",
           subtitle: "Manage reusable single-table and fusion collection jobs before they enter workflow orchestration.",
@@ -198,6 +222,34 @@ export const sharedMessages = {
           editTitle: "Edit Field Mapping Rule",
           editSubtitle: "Refine mapping metadata and parameter definitions for an existing rule.",
         },
+        qualityRules: {
+          title: "Quality Rules",
+          subtitle: "Manage reusable data quality rules, SQL templates and input or output definitions.",
+          menuCaption: "Quality rule registry",
+          createTitle: "New Quality Rule",
+          createSubtitle: "Create a reusable quality rule and define its SQL template.",
+          editTitle: "Edit Quality Rule",
+          editSubtitle: "Adjust rule metadata, placeholders and output definitions.",
+        },
+        qualityMetrics: {
+          title: "Quality Metrics",
+          subtitle: "Review project-wide quality health, asset coverage and issue center insights.",
+          menuCaption: "Quality dashboard and issue center",
+        },
+        qualityTasks: {
+          title: "Quality Tasks",
+          subtitle: "Bind quality rules to datasources, models and fields, then preview and execute checks.",
+          menuCaption: "Quality task registry and scheduling",
+          createTitle: "New Quality Task",
+          createSubtitle: "Select a rule, bind runtime parameters and save the quality task.",
+          editTitle: "Edit Quality Task",
+          editSubtitle: "Adjust bindings, alerts and schedule for an existing quality task.",
+        },
+        qualityTaskRuns: {
+          title: "Quality Task Logs",
+          subtitle: "Review quality task execution history and keep log details on a dedicated page.",
+          menuCaption: "Quality task run history and logs",
+        },
         workflows: {
           title: "Workflow Studio",
           subtitle: "Review workflow drafts and jump into a dedicated canvas editor when you need to design a graph.",
@@ -207,7 +259,7 @@ export const sharedMessages = {
           detailTitle: "Workflow Detail",
           detailSubtitle: "Inspect workflow metadata and DAG structure in a focused detail page.",
           editorTitle: "Workflow Editor",
-          editorSubtitle: "Bind online collection tasks and operational nodes inside a focused workflow canvas.",
+          editorSubtitle: "Bind online collection or quality tasks and operational nodes inside a focused workflow canvas.",
         },
         runs: {
           title: "Workflow Logs",
@@ -367,9 +419,17 @@ export const sharedMessages = {
             title: "数据采集",
             caption: "映射规则、采集任务与指标监控",
           },
+          quality: {
+            title: "数据质量",
+            caption: "质量规则与质量任务",
+          },
           development: {
             title: "数据开发",
             caption: "数据开发、工作流与工作流日志",
+          },
+          dataService: {
+            title: "数据服务",
+            caption: "将模型数据发布为订阅 API",
           },
           administration: {
             title: "系统管理",
@@ -429,6 +489,22 @@ export const sharedMessages = {
           subtitle: "在租户目录下组织 SQL 脚本，直接执行并复用到工作流里。",
           menuCaption: "脚本目录与 SQL 开发",
         },
+        dataServices: {
+          title: "数据服务",
+          subtitle: "将模型表或 SELECT 查询发布为可订阅调用的 API，并支持调试和 Token 管理。",
+          menuCaption: "模型发布 API",
+          createTitle: "新建数据服务",
+          createSubtitle: "配置来源字段、请求参数和发布设置，生成新的服务 API。",
+          editTitle: "编辑数据服务",
+          editSubtitle: "调整来源、参数映射、发布和调试设置。",
+        },
+        dataServiceMetrics: {
+          title: "服务监控",
+          subtitle: "统计数据服务开放 API 的访问次数、耗时、成功率和订阅方调用情况。",
+          menuCaption: "API 调用与耗时",
+          logsTitle: "访问日志",
+          logsSubtitle: "查看数据服务开放 API 的异常查询、慢查询和调用诊断信息。",
+        },
         collectionTasks: {
           title: "采集任务管理",
           subtitle: "先管理可复用的单表/融合采集任务，再让工作流去引用它们。",
@@ -452,6 +528,34 @@ export const sharedMessages = {
           editTitle: "编辑字段映射规则",
           editSubtitle: "调整已有映射规则的基本信息和参数定义。",
         },
+        qualityRules: {
+          title: "质量规则",
+          subtitle: "维护可复用的数据质量规则、SQL 模板以及输入输出定义。",
+          menuCaption: "质量规则注册表",
+          createTitle: "新建质量规则",
+          createSubtitle: "创建一个可复用的质量规则并定义 SQL 模板。",
+          editTitle: "编辑质量规则",
+          editSubtitle: "调整规则元信息、占位符和输出定义。",
+        },
+        qualityMetrics: {
+          title: "质量指标",
+          subtitle: "从项目视角查看质量健康度、资产覆盖和问题中心。",
+          menuCaption: "质量大盘与问题中心",
+        },
+        qualityTasks: {
+          title: "质量任务",
+          subtitle: "将质量规则绑定到数据源、模型和字段，并进行预览、校验与执行。",
+          menuCaption: "质量任务注册与调度",
+          createTitle: "新建质量任务",
+          createSubtitle: "选择质量规则，绑定运行参数并保存任务。",
+          editTitle: "编辑质量任务",
+          editSubtitle: "调整既有任务的绑定、告警和调度配置。",
+        },
+        qualityTaskRuns: {
+          title: "质量任务日志",
+          subtitle: "查看质量任务运行历史，并在独立页面保留日志详情与下载入口。",
+          menuCaption: "质量任务运行历史与日志",
+        },
         workflows: {
           title: "工作流编排",
           subtitle: "先查看工作流列表，需要设计时再进入独立画布页。",
@@ -461,7 +565,7 @@ export const sharedMessages = {
           detailTitle: "工作流详情",
           detailSubtitle: "在独立详情页查看工作流元数据和 DAG 结构。",
           editorTitle: "工作流编辑器",
-          editorSubtitle: "在专注的画布页里绑定已上线采集任务与运维节点。",
+          editorSubtitle: "在专注的画布页里绑定已上线采集或质量任务与运维节点。",
         },
         runs: {
           title: "工作流日志",

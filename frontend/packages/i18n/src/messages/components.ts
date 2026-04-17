@@ -49,6 +49,10 @@ export const componentMessages = {
           label: "Collection Task",
           caption: "Bind an online collection job",
         },
+        QUALITY_TASK: {
+          label: "Quality Task",
+          caption: "Run a quality validation job",
+        },
         DATA_SCRIPT: {
           label: "Data Script",
           caption: "Run a saved SQL script",
@@ -125,6 +129,10 @@ export const componentMessages = {
         COLLECTION_TASK: {
           label: "采集任务",
           caption: "绑定已上线采集任务",
+        },
+        QUALITY_TASK: {
+          label: "质量任务",
+          caption: "执行数据质量校验任务",
         },
         DATA_SCRIPT: {
           label: "数据脚本",

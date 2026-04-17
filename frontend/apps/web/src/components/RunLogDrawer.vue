@@ -10,17 +10,21 @@
           />
         </div>
         <div class="log-summary-grid compact-panel">
-          <div><strong>{{ t("web.runs.collectionTask") }}:</strong> {{ activeRunRecord.collectionTaskName ?? t("common.none") }}</div>
-          <div v-if="!isCollectionTaskVariant"><strong>{{ t("web.runs.node") }}:</strong> {{ activeRunRecord.nodeCode ?? t("common.none") }}</div>
+          <div><strong>{{ runTargetLabel }}:</strong> {{ runTargetName }}</div>
+          <div v-if="!isCollectionTaskVariant && !isQualityTaskVariant"><strong>{{ t("web.runs.node") }}:</strong> {{ activeRunRecord.nodeCode ?? t("common.none") }}</div>
           <div class="log-status-row">
             <strong>{{ t("web.runs.status") }}:</strong>
             <span class="log-status-chip">{{ formatStatusLabel(t, activeRunRecord.status) }}</span>
           </div>
           <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerCode ?? t("common.none") }}</div>
-          <div v-if="isCollectionTaskVariant"><strong>{{ t("web.runs.startedAt") }}:</strong> {{ activeRunRecord.startedAt ?? t("common.none") }}</div>
+          <div v-if="isCollectionTaskVariant || isQualityTaskVariant"><strong>{{ t("web.runs.startedAt") }}:</strong> {{ activeRunRecord.startedAt ?? t("common.none") }}</div>
         </div>
 
-        <SectionCard :title="t('web.runMetrics.summaryTitle')" :description="t('web.runs.detailSummaryDescription')">
+        <SectionCard
+          v-if="isCollectionTaskVariant"
+          :title="t('web.runMetrics.summaryTitle')"
+          :description="t('web.runs.detailSummaryDescription')"
+        >
           <div class="metric-grid">
             <MetricCard
               v-for="metric in metricCards"
@@ -48,15 +52,19 @@
             <div class="log-meta">
               <span>{{ t("web.runs.logSize", { size: formatSize(activeRunLog?.sizeBytes) }) }}</span>
               <span>{{ t("web.runs.logCharset", { charset: activeRunLog?.charset || "UTF-8" }) }}</span>
+              <span v-if="activeRunLog?.paged">{{ t("web.runs.logPageSize", { size: formatSize(activeRunLog?.pageSizeBytes) }) }}</span>
               <span v-if="activeRunLog?.updatedAt">{{ t("web.runs.logUpdatedAt", { time: activeRunLog.updatedAt }) }}</span>
             </div>
             <div class="studio-toolbar-actions">
-              <el-button link type="primary" @click="refreshLog">{{ t("common.refresh") }}</el-button>
+              <el-button link type="primary" :loading="logLoading" @click="refreshLog">{{ t("common.refresh") }}</el-button>
               <el-button link type="primary" @click="downloadLog">{{ t("web.runs.downloadLog") }}</el-button>
             </div>
           </div>
           <div v-if="activeRunLog?.historicalFallback" class="log-note">
             {{ t("web.runs.fallbackLogNotice") }}
+          </div>
+          <div v-else-if="activeRunLog?.paged" class="log-note">
+            {{ t("web.runs.pagedLogNotice") }}
           </div>
           <div v-else-if="activeRunLog?.truncated" class="log-note">
             {{ t("web.runs.truncatedLogNotice") }}
@@ -69,6 +77,18 @@
             class="log-content-input"
             :model-value="displayedLogContent || t('web.runs.noLogContent')"
           />
+          <div v-if="showLogPagination" class="log-pagination">
+            <span class="log-pagination-summary">{{ t("web.runs.logPageSummary", { current: currentLogPage, total: totalLogPages, size: formatSize(activeRunLog?.pageSizeBytes) }) }}</span>
+            <el-pagination
+              :current-page="currentLogPage"
+              :page-size="1"
+              small
+              background
+              layout="prev, pager, next"
+              :total="totalLogPages"
+              @current-change="handleLogPageChange"
+            />
+          </div>
         </SectionCard>
       </div>
     </template>
@@ -89,7 +109,7 @@ import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/run
 const props = defineProps<{
   modelValue: boolean;
   runRecordId?: EntityId | null;
-  variant?: "default" | "collection-task";
+  variant?: "default" | "collection-task" | "quality-task" | "workflow";
 }>();
 
 const emit = defineEmits<{
@@ -97,10 +117,36 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const DEFAULT_LOG_PAGE_SIZE_BYTES = 64 * 1024;
 const activeRunRecord = ref<RunRecord | null>(null);
 const activeRunLog = ref<RunLogView | null>(null);
+const logLoading = ref(false);
+const logPageNo = ref<number>(1);
 const isCollectionTaskVariant = computed(() => props.variant === "collection-task");
+const isQualityTaskVariant = computed(() => props.variant === "quality-task");
+const isWorkflowVariant = computed(() => props.variant === "workflow");
 const drawerTitle = computed(() => (isCollectionTaskVariant.value ? t("web.collectionTaskRuns.heading") : t("web.runs.logTitle")));
+const runTargetLabel = computed(() => {
+  if (isQualityTaskVariant.value) {
+    return "质量任务";
+  }
+  if (isWorkflowVariant.value) {
+    return t("web.runs.workflow");
+  }
+  if (isCollectionTaskVariant.value) {
+    return t("web.runs.collectionTask");
+  }
+  return t("web.runs.node");
+});
+const runTargetName = computed(() => {
+  if (isQualityTaskVariant.value) {
+    return activeRunRecord.value?.qualityTaskName ?? t("common.none");
+  }
+  if (isWorkflowVariant.value) {
+    return activeRunRecord.value?.workflowName ?? activeRunRecord.value?.nodeCode ?? t("common.none");
+  }
+  return activeRunRecord.value?.collectionTaskName ?? t("common.none");
+});
 
 const displayedLogContent = computed(() => {
   const content = activeRunLog.value?.content;
@@ -109,6 +155,9 @@ const displayedLogContent = computed(() => {
   }
   return String(content).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 });
+const totalLogPages = computed(() => Math.max(1, activeRunLog.value?.totalPages || 1));
+const currentLogPage = computed(() => Math.max(1, activeRunLog.value?.pageNo || logPageNo.value || 1));
+const showLogPagination = computed(() => !activeRunLog.value?.historicalFallback && totalLogPages.value > 1);
 
 const metricCards = computed(() => {
   const summary = activeRunRecord.value?.metricSummary;
@@ -130,14 +179,28 @@ async function load() {
     return;
   }
   try {
-    const [runRecord, runLog] = await Promise.all([
-      studioApi.runs.get(props.runRecordId),
-      studioApi.runs.getLog(props.runRecordId),
-    ]);
-    activeRunRecord.value = runRecord;
-    activeRunLog.value = runLog;
+    activeRunRecord.value = await studioApi.runs.get(props.runRecordId);
+    await loadLog();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadLogFailed"));
+  }
+}
+
+async function loadLog(pageNo?: number) {
+  if (!props.runRecordId) {
+    activeRunLog.value = null;
+    return;
+  }
+  logLoading.value = true;
+  try {
+    const runLog = await studioApi.runs.getLog(props.runRecordId, {
+      pageNo,
+      pageSizeBytes: DEFAULT_LOG_PAGE_SIZE_BYTES,
+    });
+    activeRunLog.value = runLog;
+    logPageNo.value = runLog.pageNo || 1;
+  } finally {
+    logLoading.value = false;
   }
 }
 
@@ -146,7 +209,18 @@ async function refreshLog() {
     return;
   }
   try {
-    activeRunLog.value = await studioApi.runs.getLog(props.runRecordId);
+    await loadLog(currentLogPage.value);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadLogFailed"));
+  }
+}
+
+async function handleLogPageChange(page: number) {
+  if (!props.runRecordId || page === currentLogPage.value) {
+    return;
+  }
+  try {
+    await loadLog(page);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadLogFailed"));
   }
@@ -188,6 +262,7 @@ function formatSize(value?: number) {
 watch(
   () => [props.modelValue, props.runRecordId],
   () => {
+    logPageNo.value = 1;
     void load();
   },
   { immediate: true },
@@ -300,9 +375,27 @@ watch(
   white-space: pre;
 }
 
+.log-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.log-pagination-summary {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
 @media (max-width: 960px) {
   .log-summary-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-pagination {
+    align-items: flex-start;
   }
 }
 </style>

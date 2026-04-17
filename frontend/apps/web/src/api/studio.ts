@@ -55,6 +55,44 @@ export function resolveStudioApiBaseUrl(path = "") {
   return `${baseUrl}/${path}`;
 }
 
+export function resolveDataServiceOpenUrl(endpointPath?: string) {
+  if (!endpointPath) {
+    return "";
+  }
+  return `${resolveDataServiceOpenBaseUrl()}${endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`}`;
+}
+
+function resolveDataServiceOpenBaseUrl() {
+  const configured = normalizeBaseUrl(import.meta.env.VITE_DATA_SERVICE_OPEN_BASE_URL);
+  if (configured) {
+    return configured;
+  }
+
+  const apiBaseUrl = resolveStudioApiBaseUrl();
+  if (/^https?:\/\//i.test(apiBaseUrl)) {
+    try {
+      const url = new URL(apiBaseUrl);
+      const pathname = url.pathname.replace(/\/api\/v1\/?$/i, "").replace(/\/api\/?$/i, "");
+      return `${url.origin}${pathname}`.replace(/\/$/, "");
+    } catch {
+      // Fall through to the environment defaults below.
+    }
+  }
+
+  if (import.meta.env.DEV) {
+    return "http://127.0.0.1:18080";
+  }
+
+  return window.location.origin;
+}
+
+function normalizeBaseUrl(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().replace(/\/$/, "");
+}
+
 export function isGatewayStudioMode() {
   const baseUrl = resolveStudioApiBaseUrl();
   return baseUrl.indexOf("/data-aggregation-studio/") >= 0

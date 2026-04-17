@@ -5,7 +5,7 @@ import { sharedMessages } from "./messages/shared";
 import { webMessages } from "./messages/web";
 
 export const STUDIO_LOCALE_STORAGE_KEY = "studio.locale";
-export const DEFAULT_STUDIO_LOCALE = "en-US";
+export const DEFAULT_STUDIO_LOCALE = "zh-CN";
 
 export const studioMessages = {
   "en-US": {

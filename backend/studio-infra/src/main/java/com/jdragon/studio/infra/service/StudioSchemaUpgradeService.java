@@ -59,6 +59,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type varchar(64)");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id bigint");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
+        ensureColumn("dispatch_task", "quality_task_id", "alter table dispatch_task add column quality_task_id bigint");
         ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id bigint");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id bigint");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id bigint");
@@ -66,6 +67,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type varchar(64)");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id bigint");
         ensureColumn("run_record", "collection_task_id", "alter table run_record add column collection_task_id bigint");
+        ensureColumn("run_record", "quality_task_id", "alter table run_record add column quality_task_id bigint");
         ensureColumn("run_record", "triggered_by_user_id", "alter table run_record add column triggered_by_user_id bigint");
         ensureColumn("run_record", "project_id", "alter table run_record add column project_id bigint");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path varchar(1000)");
@@ -83,6 +85,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records bigint");
         ensureColumn("data_model_lineage_relation", "manual_maintainer_user_id", "alter table data_model_lineage_relation add column manual_maintainer_user_id bigint");
         ensureColumn("data_model_lineage_relation", "manual_maintainer_name_snapshot", "alter table data_model_lineage_relation add column manual_maintainer_name_snapshot varchar(255)");
+        ensureQualityTablesMysql();
+        ensureDataServiceTablesMysql();
 
         if (!tableExists("data_model_lineage_relation")) {
             jdbcTemplate.execute("create table data_model_lineage_relation (" +
@@ -552,12 +556,16 @@ public class StudioSchemaUpgradeService {
                 "alter table dispatch_task add key idx_dispatch_task_project_status (project_id, status)");
         ensureIndex("dispatch_task", "idx_dispatch_task_project_workflow_run",
                 "alter table dispatch_task add key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id)");
+        ensureIndex("dispatch_task", "idx_dispatch_task_project_quality_task_status",
+                "alter table dispatch_task add key idx_dispatch_task_project_quality_task_status (project_id, quality_task_id, status)");
         ensureIndex("run_record", "idx_run_record_project_created",
                 "alter table run_record add key idx_run_record_project_created (project_id, created_at)");
         ensureIndex("run_record", "idx_run_record_project_workflow_run",
                 "alter table run_record add key idx_run_record_project_workflow_run (project_id, workflow_run_id)");
         ensureIndex("run_record", "idx_run_record_project_collection_task_ended",
                 "alter table run_record add key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at)");
+        ensureIndex("run_record", "idx_run_record_project_quality_task_ended",
+                "alter table run_record add key idx_run_record_project_quality_task_ended (project_id, quality_task_id, ended_at)");
         ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_target_level",
                 "alter table data_model_lineage_relation add key idx_data_model_lineage_target_level (tenant_id, target_model_id, level)");
         ensureIndex("data_model_lineage_relation", "idx_data_model_lineage_source_level",
@@ -612,6 +620,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type text");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id integer");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
+        ensureColumn("dispatch_task", "quality_task_id", "alter table dispatch_task add column quality_task_id integer");
         ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id integer");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id integer");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id integer");
@@ -619,6 +628,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type text");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id integer");
         ensureColumn("run_record", "collection_task_id", "alter table run_record add column collection_task_id integer");
+        ensureColumn("run_record", "quality_task_id", "alter table run_record add column quality_task_id integer");
         ensureColumn("run_record", "triggered_by_user_id", "alter table run_record add column triggered_by_user_id integer");
         ensureColumn("run_record", "project_id", "alter table run_record add column project_id integer");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path text");
@@ -634,6 +644,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records integer");
         ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records integer");
         ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records integer");
+        ensureQualityTablesSqlite();
+        ensureDataServiceTablesSqlite();
 
         jdbcTemplate.execute("create table if not exists data_model_attr_index (" +
                 "id integer primary key," +
@@ -884,9 +896,11 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_workflow_schedule_project on workflow_schedule(project_id)");
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id)");
+        jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_quality_task_status on dispatch_task(project_id, quality_task_id, status)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_created on run_record(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
+        jdbcTemplate.execute("create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at)");
         jdbcTemplate.execute("create table if not exists data_model_lineage_relation (" +
                 "id integer primary key," +
                 "tenant_id text default 'default'," +
@@ -1043,9 +1057,11 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_workflow_schedule_project on workflow_schedule(project_id)");
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id)");
+        jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_quality_task_status on dispatch_task(project_id, quality_task_id, status)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_created on run_record(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
+        jdbcTemplate.execute("create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at)");
 
         backfillProjectIdsSqlite();
     }
@@ -1109,6 +1125,886 @@ public class StudioSchemaUpgradeService {
         if (!columnExists(tableName, columnName)) {
             jdbcTemplate.execute(ddl);
         }
+    }
+
+    private void ensureQualityTablesMysql() {
+        if (!tableExists("quality_rule")) {
+            jdbcTemplate.execute("create table quality_rule (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "created_by bigint," +
+                    "rule_name varchar(255) not null," +
+                    "rule_code varchar(255) not null," +
+                    "scope_type varchar(32) not null," +
+                    "rule_dimension varchar(64) not null," +
+                    "description varchar(2000)," +
+                    "supported_datasource_types_json json," +
+                    "granularity varchar(32) not null," +
+                    "logic_sql text," +
+                    "enabled int default 1" +
+                    ")");
+        }
+        ensureIndex("quality_rule", "uk_quality_rule_scope_code",
+                "alter table quality_rule add unique key uk_quality_rule_scope_code (tenant_id, project_id, scope_type, rule_code)");
+        ensureIndex("quality_rule", "idx_quality_rule_scope_enabled",
+                "alter table quality_rule add key idx_quality_rule_scope_enabled (tenant_id, project_id, scope_type, enabled)");
+        ensureIndex("quality_rule", "idx_quality_rule_dimension_enabled",
+                "alter table quality_rule add key idx_quality_rule_dimension_enabled (rule_dimension, enabled)");
+
+        if (!tableExists("quality_rule_input_param")) {
+            jdbcTemplate.execute("create table quality_rule_input_param (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "rule_id bigint not null," +
+                    "param_order int not null," +
+                    "param_name varchar(255) not null," +
+                    "param_type varchar(32) not null," +
+                    "param_meaning varchar(1000)" +
+                    ")");
+        }
+        ensureIndex("quality_rule_input_param", "idx_quality_rule_input_param_rule_order",
+                "alter table quality_rule_input_param add key idx_quality_rule_input_param_rule_order (rule_id, param_order)");
+        ensureIndex("quality_rule_input_param", "idx_quality_rule_input_param_rule_name",
+                "alter table quality_rule_input_param add key idx_quality_rule_input_param_rule_name (rule_id, param_name)");
+
+        if (!tableExists("quality_rule_output_param")) {
+            jdbcTemplate.execute("create table quality_rule_output_param (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "rule_id bigint not null," +
+                    "output_order int not null," +
+                    "result_field varchar(255) not null," +
+                    "output_type varchar(32) not null," +
+                    "output_description varchar(1000)" +
+                    ")");
+        }
+        ensureIndex("quality_rule_output_param", "idx_quality_rule_output_param_rule_order",
+                "alter table quality_rule_output_param add key idx_quality_rule_output_param_rule_order (rule_id, output_order)");
+        ensureIndex("quality_rule_output_param", "idx_quality_rule_output_param_rule_field",
+                "alter table quality_rule_output_param add key idx_quality_rule_output_param_rule_field (rule_id, result_field)");
+
+        if (!tableExists("quality_task_definition")) {
+            jdbcTemplate.execute("create table quality_task_definition (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "created_by bigint," +
+                    "task_name varchar(255) not null," +
+                    "task_code varchar(255) not null," +
+                    "status varchar(64)," +
+                    "rule_id bigint not null," +
+                    "rule_name_snapshot varchar(255)," +
+                    "rule_dimension varchar(64)," +
+                    "granularity varchar(32)," +
+                    "datasource_id bigint," +
+                    "datasource_name_snapshot varchar(255)," +
+                    "datasource_type_code varchar(128)," +
+                    "model_id bigint," +
+                    "model_name_snapshot varchar(255)," +
+                    "model_physical_locator varchar(500)," +
+                    "column_name varchar(255)," +
+                    "where_clause text," +
+                    "resolved_sql_preview text," +
+                    "parameter_bindings_json json," +
+                    "rule_snapshot_json json" +
+                    ")");
+        }
+        ensureIndex("quality_task_definition", "uk_quality_task_definition_project_code",
+                "alter table quality_task_definition add unique key uk_quality_task_definition_project_code (project_id, task_code)");
+        ensureIndex("quality_task_definition", "uk_quality_task_definition_project_name",
+                "alter table quality_task_definition add unique key uk_quality_task_definition_project_name (project_id, task_name)");
+        ensureIndex("quality_task_definition", "idx_quality_task_definition_project_status",
+                "alter table quality_task_definition add key idx_quality_task_definition_project_status (project_id, status)");
+        ensureIndex("quality_task_definition", "idx_quality_task_definition_rule_dimension",
+                "alter table quality_task_definition add key idx_quality_task_definition_rule_dimension (project_id, rule_dimension)");
+
+        if (!tableExists("quality_task_schedule")) {
+            jdbcTemplate.execute("create table quality_task_schedule (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "quality_task_id bigint," +
+                    "cron_expression varchar(255)," +
+                    "enabled int default 0," +
+                    "timezone varchar(64)," +
+                    "last_triggered_at datetime" +
+                    ")");
+        }
+        ensureIndex("quality_task_schedule", "idx_quality_task_schedule_project",
+                "alter table quality_task_schedule add key idx_quality_task_schedule_project (project_id)");
+        ensureIndex("quality_task_schedule", "idx_quality_task_schedule_task",
+                "alter table quality_task_schedule add key idx_quality_task_schedule_task (quality_task_id)");
+
+        if (!tableExists("quality_task_alert")) {
+            jdbcTemplate.execute("create table quality_task_alert (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "quality_task_id bigint not null," +
+                    "output_order int not null," +
+                    "result_field varchar(255) not null," +
+                    "output_type varchar(32) not null," +
+                    "enabled int default 0," +
+                    "operator varchar(32)," +
+                    "expected_value varchar(255)," +
+                    "min_value varchar(255)," +
+                    "max_value varchar(255)" +
+                    ")");
+        }
+        ensureIndex("quality_task_alert", "idx_quality_task_alert_task",
+                "alter table quality_task_alert add key idx_quality_task_alert_task (quality_task_id)");
+        ensureIndex("quality_task_alert", "idx_quality_task_alert_task_order",
+                "alter table quality_task_alert add key idx_quality_task_alert_task_order (quality_task_id, output_order)");
+
+        if (!tableExists("quality_issue")) {
+            jdbcTemplate.execute("create table quality_issue (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "issue_code varchar(64)," +
+                    "signature varchar(1024) not null," +
+                    "issue_type varchar(64)," +
+                    "quality_task_id bigint," +
+                    "quality_task_name_snapshot varchar(255)," +
+                    "rule_id bigint," +
+                    "rule_name_snapshot varchar(255)," +
+                    "rule_dimension varchar(64)," +
+                    "datasource_id bigint," +
+                    "datasource_name_snapshot varchar(255)," +
+                    "datasource_type_code varchar(128)," +
+                    "model_id bigint," +
+                    "model_name_snapshot varchar(255)," +
+                    "model_physical_locator varchar(500)," +
+                    "column_name varchar(255)," +
+                    "output_field varchar(255)," +
+                    "granularity varchar(32)," +
+                    "title varchar(255)," +
+                    "latest_message varchar(2000)," +
+                    "severity varchar(32)," +
+                    "system_severity varchar(32)," +
+                    "manual_severity varchar(32)," +
+                    "status varchar(32)," +
+                    "assignee_user_id bigint," +
+                    "assignee_name_snapshot varchar(255)," +
+                    "first_seen_at datetime," +
+                    "last_seen_at datetime," +
+                    "last_recovery_at datetime," +
+                    "sla_due_at datetime," +
+                    "occurrence_count int default 0," +
+                    "consecutive_failure_count int default 0," +
+                    "reopen_count int default 0," +
+                    "last_run_record_id bigint," +
+                    "last_run_status varchar(32)," +
+                    "current_evidence_json json" +
+                    ")");
+        }
+        ensureIndex("quality_issue", "uk_quality_issue_signature",
+                "alter table quality_issue add unique key uk_quality_issue_signature (tenant_id, project_id, signature(255))");
+        ensureIndex("quality_issue", "idx_quality_issue_status_severity",
+                "alter table quality_issue add key idx_quality_issue_status_severity (project_id, status, severity)");
+        ensureIndex("quality_issue", "idx_quality_issue_asset",
+                "alter table quality_issue add key idx_quality_issue_asset (project_id, datasource_id, model_id)");
+        ensureIndex("quality_issue", "idx_quality_issue_task",
+                "alter table quality_issue add key idx_quality_issue_task (project_id, quality_task_id)");
+        ensureIndex("quality_issue", "idx_quality_issue_last_seen",
+                "alter table quality_issue add key idx_quality_issue_last_seen (project_id, last_seen_at)");
+
+        if (!tableExists("quality_issue_comment")) {
+            jdbcTemplate.execute("create table quality_issue_comment (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "issue_id bigint not null," +
+                    "author_user_id bigint," +
+                    "author_name_snapshot varchar(255)," +
+                    "content text" +
+                    ")");
+        }
+        ensureIndex("quality_issue_comment", "idx_quality_issue_comment_issue",
+                "alter table quality_issue_comment add key idx_quality_issue_comment_issue (issue_id, created_at)");
+
+        if (!tableExists("quality_issue_event")) {
+            jdbcTemplate.execute("create table quality_issue_event (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "issue_id bigint not null," +
+                    "event_type varchar(64)," +
+                    "event_title varchar(255)," +
+                    "event_message text," +
+                    "actor_user_id bigint," +
+                    "actor_name_snapshot varchar(255)," +
+                    "metadata_json json" +
+                    ")");
+        }
+        ensureIndex("quality_issue_event", "idx_quality_issue_event_issue",
+                "alter table quality_issue_event add key idx_quality_issue_event_issue (issue_id, created_at)");
+        ensureIndex("quality_issue_event", "idx_quality_issue_event_project_type",
+                "alter table quality_issue_event add key idx_quality_issue_event_project_type (project_id, event_type, created_at)");
+
+        if (!tableExists("quality_metric_snapshot")) {
+            jdbcTemplate.execute("create table quality_metric_snapshot (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "snapshot_date date," +
+                    "datasource_id bigint," +
+                    "datasource_name_snapshot varchar(255)," +
+                    "datasource_type_code varchar(128)," +
+                    "model_id bigint," +
+                    "model_name_snapshot varchar(255)," +
+                    "model_physical_locator varchar(500)," +
+                    "rule_dimension varchar(64)," +
+                    "execution_health_score bigint," +
+                    "governance_risk_score bigint," +
+                    "active_issue_count bigint," +
+                    "overdue_issue_count bigint," +
+                    "coverage_rate bigint," +
+                    "failure_rate bigint," +
+                    "affected_asset_count bigint," +
+                    "reopen_rate bigint" +
+                    ")");
+        }
+        ensureIndex("quality_metric_snapshot", "idx_quality_metric_snapshot_project_date",
+                "alter table quality_metric_snapshot add key idx_quality_metric_snapshot_project_date (project_id, snapshot_date)");
+        ensureIndex("quality_metric_snapshot", "idx_quality_metric_snapshot_asset",
+                "alter table quality_metric_snapshot add key idx_quality_metric_snapshot_asset (project_id, datasource_id, model_id, snapshot_date)");
+        ensureIndex("quality_metric_snapshot", "idx_quality_metric_snapshot_dimension",
+                "alter table quality_metric_snapshot add key idx_quality_metric_snapshot_dimension (project_id, rule_dimension, snapshot_date)");
+    }
+
+    private void ensureQualityTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists quality_rule (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "created_by integer," +
+                "rule_name text not null," +
+                "rule_code text not null," +
+                "scope_type text not null," +
+                "rule_dimension text not null," +
+                "description text," +
+                "supported_datasource_types_json text," +
+                "granularity text not null," +
+                "logic_sql text," +
+                "enabled integer default 1" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_quality_rule_scope_code on quality_rule(tenant_id, project_id, scope_type, rule_code)");
+        jdbcTemplate.execute("create index if not exists idx_quality_rule_scope_enabled on quality_rule(tenant_id, project_id, scope_type, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_quality_rule_dimension_enabled on quality_rule(rule_dimension, enabled)");
+
+        jdbcTemplate.execute("create table if not exists quality_rule_input_param (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "rule_id integer not null," +
+                "param_order integer not null," +
+                "param_name text not null," +
+                "param_type text not null," +
+                "param_meaning text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_rule_input_param_rule_order on quality_rule_input_param(rule_id, param_order)");
+        jdbcTemplate.execute("create index if not exists idx_quality_rule_input_param_rule_name on quality_rule_input_param(rule_id, param_name)");
+
+        jdbcTemplate.execute("create table if not exists quality_rule_output_param (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "rule_id integer not null," +
+                "output_order integer not null," +
+                "result_field text not null," +
+                "output_type text not null," +
+                "output_description text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_rule_output_param_rule_order on quality_rule_output_param(rule_id, output_order)");
+        jdbcTemplate.execute("create index if not exists idx_quality_rule_output_param_rule_field on quality_rule_output_param(rule_id, result_field)");
+
+        jdbcTemplate.execute("create table if not exists quality_task_definition (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "created_by integer," +
+                "task_name text not null," +
+                "task_code text not null," +
+                "status text," +
+                "rule_id integer not null," +
+                "rule_name_snapshot text," +
+                "rule_dimension text," +
+                "granularity text," +
+                "datasource_id integer," +
+                "datasource_name_snapshot text," +
+                "datasource_type_code text," +
+                "model_id integer," +
+                "model_name_snapshot text," +
+                "model_physical_locator text," +
+                "column_name text," +
+                "where_clause text," +
+                "resolved_sql_preview text," +
+                "parameter_bindings_json text," +
+                "rule_snapshot_json text" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_quality_task_definition_project_code on quality_task_definition(project_id, task_code)");
+        jdbcTemplate.execute("create unique index if not exists uk_quality_task_definition_project_name on quality_task_definition(project_id, task_name)");
+        jdbcTemplate.execute("create index if not exists idx_quality_task_definition_project_status on quality_task_definition(project_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_quality_task_definition_rule_dimension on quality_task_definition(project_id, rule_dimension)");
+
+        jdbcTemplate.execute("create table if not exists quality_task_schedule (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "quality_task_id integer," +
+                "cron_expression text," +
+                "enabled integer default 0," +
+                "timezone text," +
+                "last_triggered_at text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_task_schedule_project on quality_task_schedule(project_id)");
+        jdbcTemplate.execute("create index if not exists idx_quality_task_schedule_task on quality_task_schedule(quality_task_id)");
+
+        jdbcTemplate.execute("create table if not exists quality_task_alert (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "quality_task_id integer not null," +
+                "output_order integer not null," +
+                "result_field text not null," +
+                "output_type text not null," +
+                "enabled integer default 0," +
+                "operator text," +
+                "expected_value text," +
+                "min_value text," +
+                "max_value text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_task_alert_task on quality_task_alert(quality_task_id)");
+        jdbcTemplate.execute("create index if not exists idx_quality_task_alert_task_order on quality_task_alert(quality_task_id, output_order)");
+
+        jdbcTemplate.execute("create table if not exists quality_issue (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "issue_code text," +
+                "signature text not null," +
+                "issue_type text," +
+                "quality_task_id integer," +
+                "quality_task_name_snapshot text," +
+                "rule_id integer," +
+                "rule_name_snapshot text," +
+                "rule_dimension text," +
+                "datasource_id integer," +
+                "datasource_name_snapshot text," +
+                "datasource_type_code text," +
+                "model_id integer," +
+                "model_name_snapshot text," +
+                "model_physical_locator text," +
+                "column_name text," +
+                "output_field text," +
+                "granularity text," +
+                "title text," +
+                "latest_message text," +
+                "severity text," +
+                "system_severity text," +
+                "manual_severity text," +
+                "status text," +
+                "assignee_user_id integer," +
+                "assignee_name_snapshot text," +
+                "first_seen_at text," +
+                "last_seen_at text," +
+                "last_recovery_at text," +
+                "sla_due_at text," +
+                "occurrence_count integer default 0," +
+                "consecutive_failure_count integer default 0," +
+                "reopen_count integer default 0," +
+                "last_run_record_id integer," +
+                "last_run_status text," +
+                "current_evidence_json text" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_quality_issue_signature on quality_issue(tenant_id, project_id, signature)");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_status_severity on quality_issue(project_id, status, severity)");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_asset on quality_issue(project_id, datasource_id, model_id)");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_task on quality_issue(project_id, quality_task_id)");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_last_seen on quality_issue(project_id, last_seen_at)");
+
+        jdbcTemplate.execute("create table if not exists quality_issue_comment (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "issue_id integer not null," +
+                "author_user_id integer," +
+                "author_name_snapshot text," +
+                "content text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_comment_issue on quality_issue_comment(issue_id, created_at)");
+
+        jdbcTemplate.execute("create table if not exists quality_issue_event (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "issue_id integer not null," +
+                "event_type text," +
+                "event_title text," +
+                "event_message text," +
+                "actor_user_id integer," +
+                "actor_name_snapshot text," +
+                "metadata_json text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_event_issue on quality_issue_event(issue_id, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_quality_issue_event_project_type on quality_issue_event(project_id, event_type, created_at)");
+
+        jdbcTemplate.execute("create table if not exists quality_metric_snapshot (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "snapshot_date text," +
+                "datasource_id integer," +
+                "datasource_name_snapshot text," +
+                "datasource_type_code text," +
+                "model_id integer," +
+                "model_name_snapshot text," +
+                "model_physical_locator text," +
+                "rule_dimension text," +
+                "execution_health_score integer," +
+                "governance_risk_score integer," +
+                "active_issue_count integer," +
+                "overdue_issue_count integer," +
+                "coverage_rate integer," +
+                "failure_rate integer," +
+                "affected_asset_count integer," +
+                "reopen_rate integer" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_quality_metric_snapshot_project_date on quality_metric_snapshot(project_id, snapshot_date)");
+        jdbcTemplate.execute("create index if not exists idx_quality_metric_snapshot_asset on quality_metric_snapshot(project_id, datasource_id, model_id, snapshot_date)");
+        jdbcTemplate.execute("create index if not exists idx_quality_metric_snapshot_dimension on quality_metric_snapshot(project_id, rule_dimension, snapshot_date)");
+    }
+
+    private void ensureDataServiceTablesMysql() {
+        if (!tableExists("data_service_definition")) {
+            jdbcTemplate.execute("create table data_service_definition (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "created_by bigint," +
+                    "service_code varchar(128) not null," +
+                    "service_name varchar(255) not null," +
+                    "service_type varchar(64) not null," +
+                    "status varchar(64) not null," +
+                    "source_type varchar(64) not null," +
+                    "datasource_id bigint," +
+                    "datasource_name_snapshot varchar(255)," +
+                    "datasource_type_code varchar(128)," +
+                    "model_id bigint," +
+                    "model_name_snapshot varchar(255)," +
+                    "model_physical_locator varchar(1000)," +
+                    "custom_sql longtext," +
+                    "request_method varchar(32)," +
+                    "response_type varchar(32)," +
+                    "endpoint_path varchar(1000)," +
+                    "service_key varchar(128)," +
+                    "cache_enabled int default 0" +
+                    ")");
+        }
+        ensureIndex("data_service_definition", "uk_data_service_project_code",
+                "alter table data_service_definition add unique key uk_data_service_project_code (tenant_id, project_id, service_code)");
+        ensureIndex("data_service_definition", "idx_data_service_project_status",
+                "alter table data_service_definition add key idx_data_service_project_status (project_id, status)");
+        ensureIndex("data_service_definition", "idx_data_service_code_key",
+                "alter table data_service_definition add key idx_data_service_code_key (service_code, service_key)");
+
+        if (!tableExists("data_service_request_param")) {
+            jdbcTemplate.execute("create table data_service_request_param (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null," +
+                    "sort_order int," +
+                    "param_name varchar(128) not null," +
+                    "field_name varchar(255)," +
+                    "value_type varchar(64)," +
+                    "query_operator varchar(64)," +
+                    "required int default 0," +
+                    "description varchar(1000)," +
+                    "fixed_param int default 0" +
+                    ")");
+        }
+        ensureIndex("data_service_request_param", "idx_data_service_request_service_order",
+                "alter table data_service_request_param add key idx_data_service_request_service_order (service_id, sort_order)");
+
+        if (!tableExists("data_service_response_param")) {
+            jdbcTemplate.execute("create table data_service_response_param (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null," +
+                    "sort_order int," +
+                    "enabled int default 1," +
+                    "param_name varchar(128) not null," +
+                    "field_name varchar(255) not null," +
+                    "example_value varchar(1000)," +
+                    "description varchar(1000)" +
+                    ")");
+        }
+        ensureIndex("data_service_response_param", "idx_data_service_response_service_order",
+                "alter table data_service_response_param add key idx_data_service_response_service_order (service_id, sort_order)");
+
+        if (!tableExists("data_service_publish_param")) {
+            jdbcTemplate.execute("create table data_service_publish_param (" +
+                    "id bigint primary key," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null," +
+                    "sort_order int," +
+                    "frontend_param_name varchar(128) not null," +
+                    "backend_param_name varchar(128) not null," +
+                    "position varchar(32)," +
+                    "value_type varchar(64)," +
+                    "example_value varchar(1000)," +
+                    "default_value varchar(1000)," +
+                    "required int default 0," +
+                    "description varchar(1000)" +
+                    ")");
+        }
+        ensureIndex("data_service_publish_param", "idx_data_service_publish_service_order",
+                "alter table data_service_publish_param add key idx_data_service_publish_service_order (service_id, sort_order)");
+
+        if (!tableExists("data_service_subscription")) {
+            jdbcTemplate.execute("create table data_service_subscription (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null," +
+                    "subscription_name varchar(255) not null," +
+                    "token_hash varchar(128) not null," +
+                    "enabled int default 1," +
+                    "created_by bigint," +
+                    "last_used_at datetime" +
+                    ")");
+        }
+        ensureIndex("data_service_subscription", "idx_data_service_subscription_service_enabled",
+                "alter table data_service_subscription add key idx_data_service_subscription_service_enabled (service_id, enabled)");
+        ensureIndex("data_service_subscription", "idx_data_service_subscription_token",
+                "alter table data_service_subscription add key idx_data_service_subscription_token (token_hash)");
+
+        if (!tableExists("data_service_access_log")) {
+            jdbcTemplate.execute("create table data_service_access_log (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint," +
+                    "service_code_snapshot varchar(255)," +
+                    "service_name_snapshot varchar(255)," +
+                    "service_status_snapshot varchar(64)," +
+                    "subscription_id bigint," +
+                    "subscription_name_snapshot varchar(255)," +
+                    "request_method varchar(16)," +
+                    "occurred_at datetime," +
+                    "duration_ms bigint," +
+                    "success int default 0," +
+                    "http_status int," +
+                    "error_code varchar(128)," +
+                    "error_message varchar(1000)," +
+                    "client_ip varchar(128)," +
+                    "user_agent varchar(500)," +
+                    "cache_enabled int default 0," +
+                    "cache_hit int default 0," +
+                    "row_count bigint default 0" +
+                    ")");
+        }
+        ensureColumn("data_service_access_log", "cache_enabled",
+                "alter table data_service_access_log add column cache_enabled int default 0 after user_agent");
+        jdbcTemplate.execute("update data_service_access_log set cache_enabled = 1 where cache_hit = 1 and (cache_enabled is null or cache_enabled <> 1)");
+        ensureIndex("data_service_access_log", "idx_data_service_access_project_time",
+                "alter table data_service_access_log add key idx_data_service_access_project_time (tenant_id, project_id, occurred_at)");
+        ensureIndex("data_service_access_log", "idx_data_service_access_service_time",
+                "alter table data_service_access_log add key idx_data_service_access_service_time (service_id, occurred_at)");
+        ensureIndex("data_service_access_log", "idx_data_service_access_subscription_time",
+                "alter table data_service_access_log add key idx_data_service_access_subscription_time (subscription_id, occurred_at)");
+        ensureIndex("data_service_access_log", "idx_data_service_access_success",
+                "alter table data_service_access_log add key idx_data_service_access_success (project_id, success, occurred_at)");
+        ensureIndex("data_service_access_log", "idx_data_service_access_cache",
+                "alter table data_service_access_log add key idx_data_service_access_cache (project_id, cache_hit, occurred_at)");
+        if (!tableExists("data_service_access_counter")) {
+            jdbcTemplate.execute("create table data_service_access_counter (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null default 0," +
+                    "subscription_id bigint not null default 0," +
+                    "bucket_start datetime not null," +
+                    "success int not null default 0," +
+                    "cache_enabled int not null default 0," +
+                    "cache_hit int not null default 0," +
+                    "access_count bigint default 0," +
+                    "row_count bigint default 0" +
+                    ")");
+        }
+        ensureIndex("data_service_access_counter", "uk_data_service_access_counter",
+                "alter table data_service_access_counter add unique key uk_data_service_access_counter (tenant_id, project_id, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit)");
+        ensureIndex("data_service_access_counter", "idx_data_service_counter_project_bucket",
+                "alter table data_service_access_counter add key idx_data_service_counter_project_bucket (tenant_id, project_id, bucket_start)");
+        ensureIndex("data_service_access_counter", "idx_data_service_counter_service_bucket",
+                "alter table data_service_access_counter add key idx_data_service_counter_service_bucket (service_id, bucket_start)");
+        backfillDataServiceAccessCounterMysql();
+    }
+
+    private void backfillDataServiceAccessCounterMysql() {
+        jdbcTemplate.execute("insert ignore into data_service_access_counter (" +
+                "id, tenant_id, project_id, deleted, created_at, updated_at, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit, access_count, row_count" +
+                ") select " +
+                "cast(conv(substr(md5(concat(t.tenant_id, '|', t.project_id, '|', t.service_id, '|', t.subscription_id, '|', date_format(t.bucket_start, '%Y-%m-%d %H:%i:%s'), '|', t.success, '|', t.cache_enabled, '|', t.cache_hit)), 1, 15), 16, 10) as unsigned) as id," +
+                "t.tenant_id, t.project_id, 0, current_timestamp, current_timestamp, t.service_id, t.subscription_id, t.bucket_start, t.success, t.cache_enabled, t.cache_hit, t.access_count, t.row_count " +
+                "from (" +
+                "select tenant_id, project_id, coalesce(service_id, 0) as service_id, coalesce(subscription_id, 0) as subscription_id, " +
+                "str_to_date(date_format(coalesce(occurred_at, created_at), '%Y-%m-%d %H:00:00'), '%Y-%m-%d %H:%i:%s') as bucket_start, " +
+                "case when success = 1 then 1 else 0 end as success, " +
+                "case when cache_enabled = 1 then 1 else 0 end as cache_enabled, " +
+                "case when cache_enabled = 1 and cache_hit = 1 then 1 else 0 end as cache_hit, " +
+                "count(*) as access_count, coalesce(sum(row_count), 0) as row_count " +
+                "from data_service_access_log " +
+                "where deleted = 0 and project_id is not null and service_id is not null and coalesce(occurred_at, created_at) is not null " +
+                "group by tenant_id, project_id, coalesce(service_id, 0), coalesce(subscription_id, 0), bucket_start, success, cache_enabled, cache_hit" +
+                ") t");
+    }
+
+    private void ensureDataServiceTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists data_service_definition (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "created_by integer," +
+                "service_code text not null," +
+                "service_name text not null," +
+                "service_type text not null," +
+                "status text not null," +
+                "source_type text not null," +
+                "datasource_id integer," +
+                "datasource_name_snapshot text," +
+                "datasource_type_code text," +
+                "model_id integer," +
+                "model_name_snapshot text," +
+                "model_physical_locator text," +
+                "custom_sql text," +
+                "request_method text," +
+                "response_type text," +
+                "endpoint_path text," +
+                "service_key text," +
+                "cache_enabled integer default 0" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_data_service_project_code on data_service_definition(tenant_id, project_id, service_code)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_project_status on data_service_definition(project_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_code_key on data_service_definition(service_code, service_key)");
+
+        jdbcTemplate.execute("create table if not exists data_service_request_param (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null," +
+                "sort_order integer," +
+                "param_name text not null," +
+                "field_name text," +
+                "value_type text," +
+                "query_operator text," +
+                "required integer default 0," +
+                "description text," +
+                "fixed_param integer default 0" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_data_service_request_service_order on data_service_request_param(service_id, sort_order)");
+
+        jdbcTemplate.execute("create table if not exists data_service_response_param (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null," +
+                "sort_order integer," +
+                "enabled integer default 1," +
+                "param_name text not null," +
+                "field_name text not null," +
+                "example_value text," +
+                "description text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_data_service_response_service_order on data_service_response_param(service_id, sort_order)");
+
+        jdbcTemplate.execute("create table if not exists data_service_publish_param (" +
+                "id integer primary key," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null," +
+                "sort_order integer," +
+                "frontend_param_name text not null," +
+                "backend_param_name text not null," +
+                "position text," +
+                "value_type text," +
+                "example_value text," +
+                "default_value text," +
+                "required integer default 0," +
+                "description text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_data_service_publish_service_order on data_service_publish_param(service_id, sort_order)");
+
+        jdbcTemplate.execute("create table if not exists data_service_subscription (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null," +
+                "subscription_name text not null," +
+                "token_hash text not null," +
+                "enabled integer default 1," +
+                "created_by integer," +
+                "last_used_at text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_data_service_subscription_service_enabled on data_service_subscription(service_id, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_subscription_token on data_service_subscription(token_hash)");
+
+        jdbcTemplate.execute("create table if not exists data_service_access_log (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer," +
+                "service_code_snapshot text," +
+                "service_name_snapshot text," +
+                "service_status_snapshot text," +
+                "subscription_id integer," +
+                "subscription_name_snapshot text," +
+                "request_method text," +
+                "occurred_at text," +
+                "duration_ms integer," +
+                "success integer default 0," +
+                "http_status integer," +
+                "error_code text," +
+                "error_message text," +
+                "client_ip text," +
+                "user_agent text," +
+                "cache_enabled integer default 0," +
+                "cache_hit integer default 0," +
+                "row_count integer default 0" +
+                ")");
+        ensureColumn("data_service_access_log", "cache_enabled",
+                "alter table data_service_access_log add column cache_enabled integer default 0");
+        jdbcTemplate.execute("update data_service_access_log set cache_enabled = 1 where cache_hit = 1 and (cache_enabled is null or cache_enabled <> 1)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_access_project_time on data_service_access_log(tenant_id, project_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_access_service_time on data_service_access_log(service_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_access_subscription_time on data_service_access_log(subscription_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_access_success on data_service_access_log(project_id, success, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_access_cache on data_service_access_log(project_id, cache_hit, occurred_at)");
+
+        jdbcTemplate.execute("create table if not exists data_service_access_counter (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null default 0," +
+                "subscription_id integer not null default 0," +
+                "bucket_start text not null," +
+                "success integer not null default 0," +
+                "cache_enabled integer not null default 0," +
+                "cache_hit integer not null default 0," +
+                "access_count integer default 0," +
+                "row_count integer default 0" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_data_service_access_counter on data_service_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_counter_project_bucket on data_service_access_counter(tenant_id, project_id, bucket_start)");
+        jdbcTemplate.execute("create index if not exists idx_data_service_counter_service_bucket on data_service_access_counter(service_id, bucket_start)");
+        backfillDataServiceAccessCounterSqlite();
+    }
+
+    private void backfillDataServiceAccessCounterSqlite() {
+        jdbcTemplate.execute("insert or ignore into data_service_access_counter (" +
+                "id, tenant_id, project_id, deleted, created_at, updated_at, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit, access_count, row_count" +
+                ") select " +
+                "abs(random()) as id, t.tenant_id, t.project_id, 0, datetime('now'), datetime('now'), t.service_id, t.subscription_id, t.bucket_start, t.success, t.cache_enabled, t.cache_hit, t.access_count, t.row_count " +
+                "from (" +
+                "select tenant_id, project_id, coalesce(service_id, 0) as service_id, coalesce(subscription_id, 0) as subscription_id, " +
+                "strftime('%Y-%m-%d %H:00:00', coalesce(occurred_at, created_at)) as bucket_start, " +
+                "case when success = 1 then 1 else 0 end as success, " +
+                "case when cache_enabled = 1 then 1 else 0 end as cache_enabled, " +
+                "case when cache_enabled = 1 and cache_hit = 1 then 1 else 0 end as cache_hit, " +
+                "count(*) as access_count, coalesce(sum(row_count), 0) as row_count " +
+                "from data_service_access_log " +
+                "where deleted = 0 and project_id is not null and service_id is not null and coalesce(occurred_at, created_at) is not null " +
+                "group by tenant_id, project_id, coalesce(service_id, 0), coalesce(subscription_id, 0), bucket_start, success, cache_enabled, cache_hit" +
+                ") t");
     }
 
     private void ensureDataModelNameUniqueIndexMysql() {

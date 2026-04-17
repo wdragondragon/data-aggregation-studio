@@ -79,7 +79,7 @@
 
     <SectionCard :title="t('web.collectionTaskRuns.runtimeTitle')" :description="t('web.collectionTaskRuns.runtimeDescription')">
       <div class="table-scroll-shell">
-        <el-table :data="pagedRunRecords" border size="small" table-layout="auto" class="task-run-table">
+        <el-table :data="pagedRunRecords" border size="small" table-layout="fixed" class="task-run-table">
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(pagination, $index) }}
@@ -107,12 +107,12 @@
               <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.worker')" min-width="150">
+          <el-table-column :label="t('web.runs.worker')" width="170" show-overflow-tooltip>
             <template #default="{ row }">
-              <span>{{ row.workerCode || t("common.none") }}</span>
+              <span class="mono-ellipsis">{{ row.workerCode || t("common.none") }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="190">
+          <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" width="200">
             <template #default="{ row }">
               <div class="stack-cell">
                 <span>{{ row.startedAt || t("common.none") }}</span>
@@ -120,22 +120,22 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runMetrics.summaryTitle')" min-width="260">
+          <el-table-column :label="t('web.runMetrics.summaryTitle')" width="260">
             <template #default="{ row }">
               <div class="run-metric-summary">
-                <span>{{ metricLabel(t, 'collectedRecords') }}: {{ formatMetricNumber(row.metricSummary?.collectedRecords) }}</span>
-                <span>{{ metricLabel(t, 'successRecords') }}: {{ formatMetricNumber(metricSummaryValue(row.metricSummary, 'successRecords')) }}</span>
-                <span>{{ metricLabel(t, 'failedRecords') }}: {{ formatMetricNumber(row.metricSummary?.failedRecords) }}</span>
-                <span>{{ metricLabel(t, 'transformerFilterRecords') }}: {{ formatMetricNumber(row.metricSummary?.transformerFilterRecords) }}</span>
+                <span class="run-metric-chip">{{ metricLabel(t, 'collectedRecords') }}: {{ formatMetricNumber(row.metricSummary?.collectedRecords) }}</span>
+                <span class="run-metric-chip">{{ metricLabel(t, 'successRecords') }}: {{ formatMetricNumber(metricSummaryValue(row.metricSummary, 'successRecords')) }}</span>
+                <span class="run-metric-chip">{{ metricLabel(t, 'failedRecords') }}: {{ formatMetricNumber(row.metricSummary?.failedRecords) }}</span>
+                <span class="run-metric-chip">{{ metricLabel(t, 'transformerFilterRecords') }}: {{ formatMetricNumber(row.metricSummary?.transformerFilterRecords) }}</span>
               </div>
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.message')" min-width="240">
+          <el-table-column :label="t('web.runs.message')" min-width="300">
             <template #default="{ row }">
-              <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
+              <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center">
+        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                 {{ t("web.runs.viewLog") }}
@@ -170,6 +170,7 @@ import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
+import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { formatStatusLabel, resolveProjectName, toneFromStatus } from "@/utils/studio";
@@ -450,11 +451,12 @@ p {
   width: 100%;
   min-width: 0;
   overflow-x: auto;
+  overflow-y: visible;
 }
 
 .task-run-table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1410px;
 }
 
 .task-run-table :deep(.cell) {
@@ -462,12 +464,40 @@ p {
 }
 
 .stack-cell,
-.wrap-cell,
-.run-metric-summary {
+.wrap-cell {
   display: grid;
   gap: 4px;
   line-height: 1.45;
   word-break: break-word;
+}
+
+.run-metric-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.run-metric-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 78, 139, 0.08);
+  color: var(--studio-text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.mono-ellipsis {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 .cell-subtle {

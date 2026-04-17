@@ -29,10 +29,9 @@
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" min-width="180" />
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openUserDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteUser(row)">删除</el-button>
+                <OverflowActionGroup :items="userActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -53,11 +52,9 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="220" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="success" :disabled="row.status !== 'PENDING'" @click="approveRegistration(row)">通过</el-button>
-                <el-button link type="warning" :disabled="row.status !== 'PENDING'" @click="rejectRegistration(row)">拒绝</el-button>
-                <el-button link type="danger" @click="deleteRegistration(row)">删除</el-button>
+                <OverflowActionGroup :items="registrationActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -76,10 +73,9 @@
                 <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? "开启" : "关闭" }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openTenantDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteTenant(row)">删除</el-button>
+                <OverflowActionGroup :items="tenantActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -103,10 +99,9 @@
                 <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? "开启" : "关闭" }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openProjectDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteProject(row)">删除</el-button>
+                <OverflowActionGroup :items="projectActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -121,10 +116,9 @@
             <el-table-column prop="displayName" label="显示名" min-width="180" />
             <el-table-column prop="roleCode" label="角色" min-width="160" />
             <el-table-column prop="status" label="状态" width="110" align="center" />
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openTenantMemberDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteTenantMember(row)">删除</el-button>
+                <OverflowActionGroup :items="tenantMemberActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -140,10 +134,9 @@
             <el-table-column prop="projectName" label="项目" min-width="180" />
             <el-table-column prop="roleCode" label="角色" min-width="160" />
             <el-table-column prop="status" label="状态" width="110" align="center" />
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openProjectMemberDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteProjectMember(row)">删除</el-button>
+                <OverflowActionGroup :items="projectMemberActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -161,26 +154,9 @@
             <el-table-column prop="inviterUsername" label="邀请人" min-width="140" />
             <el-table-column prop="reviewerUsername" label="审批人" min-width="140" />
             <el-table-column prop="reason" label="原因" min-width="220" />
-            <el-table-column label="操作" width="280" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button
-                  v-if="canReviewProjectRequest(row)"
-                  link
-                  type="success"
-                  @click="approveProjectRequest(row)"
-                >
-                  通过
-                </el-button>
-                <el-button
-                  v-if="canReviewProjectRequest(row)"
-                  link
-                  type="warning"
-                  @click="rejectProjectRequest(row)"
-                >
-                  拒绝
-                </el-button>
-                <el-button link type="primary" @click="openRequestDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteProjectRequest(row)">删除</el-button>
+                <OverflowActionGroup :items="projectRequestActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -201,10 +177,9 @@
                 <el-tag :type="row.boundToProject ? 'success' : 'info'">{{ row.boundToProject ? "是" : "否" }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openWorkerDialog(row)">编辑</el-button>
-                <el-button v-if="row.id" link type="danger" @click="deleteProjectWorker(row)">解绑</el-button>
+                <OverflowActionGroup :items="workerActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -238,10 +213,9 @@
                 <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? "开启" : "关闭" }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
+            <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openShareDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteResourceShare(row)">取消共享</el-button>
+                <OverflowActionGroup :items="resourceShareActions(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -447,7 +421,7 @@ import type {
   SystemTenantMember,
   UserRegistrationRequestView,
 } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { OverflowActionGroup, SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { resolveProjectName, sameEntityId } from "@/utils/studio";
@@ -619,6 +593,72 @@ function resourceLabel(share: ResourceShare) {
   const resourceType = normalizeResourceType(share.resourceType);
   const option = shareOptionList(resourceType).find((item) => sameEntityId(item.id, share.resourceId));
   return option?.label ?? `${resourceType || "RESOURCE"} #${share.resourceId ?? "-"}`;
+}
+
+function userActions(row: StudioUser) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openUserDialog(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteUser(row) },
+  ];
+}
+
+function registrationActions(row: UserRegistrationRequestView) {
+  return [
+    { key: "approve", label: "通过", type: "success", disabled: row.status !== "PENDING", onClick: () => approveRegistration(row) },
+    { key: "reject", label: "拒绝", type: "warning", disabled: row.status !== "PENDING", onClick: () => rejectRegistration(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteRegistration(row) },
+  ];
+}
+
+function tenantActions(row: SystemTenant) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openTenantDialog(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteTenant(row) },
+  ];
+}
+
+function projectActions(row: SystemProject) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openProjectDialog(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteProject(row) },
+  ];
+}
+
+function tenantMemberActions(row: SystemTenantMember) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openTenantMemberDialog(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteTenantMember(row) },
+  ];
+}
+
+function projectMemberActions(row: SystemProjectMember) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openProjectMemberDialog(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteProjectMember(row) },
+  ];
+}
+
+function projectRequestActions(row: SystemProjectMemberRequest) {
+  return [
+    { key: "approve", label: "通过", type: "success", visible: canReviewProjectRequest(row), onClick: () => approveProjectRequest(row) },
+    { key: "reject", label: "拒绝", type: "warning", visible: canReviewProjectRequest(row), onClick: () => rejectProjectRequest(row) },
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openRequestDialog(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteProjectRequest(row) },
+  ];
+}
+
+function workerActions(row: SystemProjectWorker) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openWorkerDialog(row) },
+    { key: "delete", label: "解绑", type: "danger", visible: Boolean(row.id), onClick: () => deleteProjectWorker(row) },
+  ];
+}
+
+function resourceShareActions(row: ResourceShare) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => openShareDialog(row) },
+    { key: "delete", label: "取消共享", type: "danger", onClick: () => deleteResourceShare(row) },
+  ];
 }
 
 function openTenantDialog(row?: SystemTenant) {

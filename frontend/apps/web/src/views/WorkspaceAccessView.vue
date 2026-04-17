@@ -27,7 +27,7 @@
         <el-table-column prop="reason" :label="t('web.accessCenter.reasonColumn')" min-width="220" />
         <el-table-column prop="reviewComment" :label="t('web.accessCenter.reviewCommentColumn')" min-width="220" />
         <el-table-column prop="createdAt" :label="t('web.accessCenter.appliedAtColumn')" min-width="180" />
-        <el-table-column :label="t('common.actions')" width="140" align="center">
+        <el-table-column :label="t('common.actions')" width="140" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="String(row.status || '').toUpperCase() === 'PENDING'"

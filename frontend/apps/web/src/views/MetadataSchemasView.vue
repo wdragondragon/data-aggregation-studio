@@ -319,7 +319,7 @@
               </el-select>
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.metadata.actions')" width="100">
+            <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
             <template #default="{ $index }">
               <el-button link type="danger" @click="removeField($index)">{{ t("common.remove") }}</el-button>
             </template>

@@ -19,6 +19,7 @@ public class RunRecordEntity extends BaseProjectTenantEntity {
     private Long workflowDefinitionId;
     private Long workflowVersionId;
     private Long collectionTaskId;
+    private Long qualityTaskId;
     private Long triggeredByUserId;
     private String nodeCode;
     private String status;

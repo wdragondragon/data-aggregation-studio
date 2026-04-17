@@ -52,7 +52,7 @@
               />
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
+        <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <OverflowActionGroup :items="buildWorkflowActions(row)" />
             </template>

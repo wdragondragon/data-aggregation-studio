@@ -318,10 +318,11 @@ function firstNavigablePath(items: StudioNavItem[]): string | null {
 }
 
 .shell__brand h1 {
-  font-size: clamp(30px, 2.2vw, 40px);
+  font-size: clamp(24px, 1.45vw, 34px);
   line-height: 1.05;
   letter-spacing: -0.03em;
-  word-break: keep-all;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .shell__brand-mark {

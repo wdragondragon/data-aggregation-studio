@@ -111,6 +111,12 @@ public class DataDevelopmentController {
         return Result.success(dataDevelopmentService.listSqlCapableDatasources());
     }
 
+    @Operation(summary = "List SQL-capable datasource types")
+    @GetMapping("/datasource-types")
+    public Result<List<String>> datasourceTypes() {
+        return Result.success(dataDevelopmentService.listSqlDatasourceTypes());
+    }
+
     @Operation(summary = "Execute script in editor")
     @PostMapping("/scripts/execute")
     public Result<DataScriptExecutionResultView> executeScript(@Valid @RequestBody DataScriptExecutionRequest request) {

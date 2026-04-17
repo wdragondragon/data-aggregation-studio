@@ -3,6 +3,9 @@ import {
   ElButton,
   ElCheckbox,
   ElCheckboxGroup,
+  ElCollapse,
+  ElCollapseItem,
+  ElConfigProvider,
   ElDatePicker,
   ElDescriptions,
   ElDescriptionsItem,
@@ -20,6 +23,7 @@ import {
   ElPopover,
   ElProgress,
   ElRadio,
+  ElRadioButton,
   ElRadioGroup,
   ElRow,
   ElSelect,
@@ -31,6 +35,8 @@ import {
   ElTabPane,
   ElTabs,
   ElTag,
+  ElTimeline,
+  ElTimelineItem,
   ElTree,
   ElInputNumber,
   ElLoading
@@ -38,6 +44,9 @@ import {
 import "element-plus/es/components/button/style/css";
 import "element-plus/es/components/checkbox/style/css";
 import "element-plus/es/components/checkbox-group/style/css";
+import "element-plus/es/components/collapse/style/css";
+import "element-plus/es/components/collapse-item/style/css";
+import "element-plus/es/components/config-provider/style/css";
 import "element-plus/es/components/date-picker/style/css";
 import "element-plus/es/components/descriptions/style/css";
 import "element-plus/es/components/descriptions-item/style/css";
@@ -57,6 +66,7 @@ import "element-plus/es/components/pagination/style/css";
 import "element-plus/es/components/popover/style/css";
 import "element-plus/es/components/progress/style/css";
 import "element-plus/es/components/radio/style/css";
+import "element-plus/es/components/radio-button/style/css";
 import "element-plus/es/components/radio-group/style/css";
 import "element-plus/es/components/row/style/css";
 import "element-plus/es/components/select/style/css";
@@ -68,6 +78,8 @@ import "element-plus/es/components/table-column/style/css";
 import "element-plus/es/components/tab-pane/style/css";
 import "element-plus/es/components/tabs/style/css";
 import "element-plus/es/components/tag/style/css";
+import "element-plus/es/components/timeline/style/css";
+import "element-plus/es/components/timeline-item/style/css";
 import "element-plus/es/components/tree/style/css";
 import "element-plus/es/components/input-number/style/css";
 import "element-plus/es/components/loading/style/css";
@@ -76,6 +88,9 @@ const components: Plugin[] = [
   ElButton,
   ElCheckbox,
   ElCheckboxGroup,
+  ElCollapse,
+  ElCollapseItem,
+  ElConfigProvider,
   ElDatePicker,
   ElDescriptions,
   ElDescriptionsItem,
@@ -93,6 +108,7 @@ const components: Plugin[] = [
   ElPopover,
   ElProgress,
   ElRadio,
+  ElRadioButton,
   ElRadioGroup,
   ElRow,
   ElSelect,
@@ -104,6 +120,8 @@ const components: Plugin[] = [
   ElTabPane,
   ElTabs,
   ElTag,
+  ElTimeline,
+  ElTimelineItem,
   ElTree,
   ElInputNumber
 ];

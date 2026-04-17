@@ -32,6 +32,7 @@ const props = defineProps<{
   scriptType: ScriptType;
   placeholder?: string;
   sqlHints?: SqlEditorHintSource;
+  readonly?: boolean;
 }>();
 
 const modelValue = defineModel<string>({ required: true });
@@ -120,6 +121,8 @@ function createEditor() {
     lineHeight: 22,
     fontFamily: "\"Cascadia Code\", \"Consolas\", monospace",
     padding: { top: 14, bottom: 14 },
+    readOnly: props.readonly === true,
+    domReadOnly: props.readonly === true,
   });
   editorRef.value = editor;
 
@@ -182,6 +185,16 @@ watch(
     }
   },
   { deep: true },
+);
+
+watch(
+  () => props.readonly,
+  (readonly) => {
+    editorRef.value?.updateOptions({
+      readOnly: readonly === true,
+      domReadOnly: readonly === true,
+    });
+  },
 );
 
 onMounted(() => {

@@ -25,7 +25,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Service
 public class RunLogProxyService {
 
-    private static final int DEFAULT_TAIL_BYTES = 64 * 1024;
+    private static final int DEFAULT_PAGE_BYTES = 64 * 1024;
 
     private final RunService runService;
     private final WorkerLeaseMapper workerLeaseMapper;
@@ -44,15 +44,19 @@ public class RunLogProxyService {
         this.objectMapper = objectMapper;
     }
 
-    public RunLogView viewLog(Long runRecordId) {
+    public RunLogView viewLog(Long runRecordId, Integer pageNo, Integer pageSizeBytes) {
         RunRecordEntity entity = runService.getEntity(runRecordId);
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
             return runService.buildHistoricalFallback(entity);
         }
+        int safePageSizeBytes = pageSizeBytes == null || pageSizeBytes.intValue() <= 0 ? DEFAULT_PAGE_BYTES : pageSizeBytes.intValue();
         String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
         String url = UriComponentsBuilder.fromHttpUrl(apiBaseUrl)
                 .path("/internal/runs/{id}/log")
-                .queryParam("maxBytes", DEFAULT_TAIL_BYTES)
+                .queryParam("pageSizeBytes", safePageSizeBytes)
+                .queryParamIfPresent("pageNo", pageNo == null || pageNo.intValue() <= 0
+                        ? java.util.Optional.empty()
+                        : java.util.Optional.of(pageNo))
                 .buildAndExpand(runRecordId)
                 .toUriString();
         return exchange(url);

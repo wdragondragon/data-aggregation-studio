@@ -21,6 +21,11 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  redis:
+    host: ${REDIS_HOST:172.16.20.19}
+    port: ${REDIS_PORT:6379}
+    database: ${REDIS_DATABASE:1}
+    password: '${REDIS_PASSWORD:&gGEa4E3ea4#5}'
   cloud:
     nacos:
       username: ${NACOS_USER:nacos}

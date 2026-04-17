@@ -18,6 +18,7 @@ public final class StudioConstants {
     public static final String RESOURCE_TYPE_DATASOURCE = "DATASOURCE";
     public static final String RESOURCE_TYPE_DATA_MODEL = "DATA_MODEL";
     public static final String RESOURCE_TYPE_COLLECTION_TASK = "COLLECTION_TASK";
+    public static final String RESOURCE_TYPE_QUALITY_TASK = "QUALITY_TASK";
     public static final String RESOURCE_TYPE_WORKFLOW = "WORKFLOW";
     public static final String RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT = "DATA_DEVELOPMENT_SCRIPT";
     public static final String FOLLOW_TARGET_MODEL_SYNC_TASK = "MODEL_SYNC_TASK";

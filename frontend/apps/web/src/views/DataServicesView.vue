@@ -1,0 +1,448 @@
+<template>
+  <div class="studio-page">
+    <div class="studio-toolbar">
+      <div>
+        <h3>数据服务</h3>
+        <p>将模型表或自定义 SELECT 查询发布为可订阅调用的 API。</p>
+      </div>
+      <div class="studio-toolbar-actions">
+        <el-button plain @click="loadServices">刷新</el-button>
+        <el-button type="primary" @click="router.push('/data-services/new')">新建服务</el-button>
+      </div>
+    </div>
+
+    <SectionCard title="查询条件" description="按服务名称、编码、状态和服务类型筛选。">
+      <div class="service-filter-grid">
+        <el-input v-model="filters.keyword" class="service-filter-keyword" clearable placeholder="服务名称、服务编码、数据源或模型" />
+        <el-select v-model="filters.status" class="service-filter-select" clearable placeholder="服务状态">
+          <el-option label="草稿" value="DRAFT" />
+          <el-option label="已发布" value="ONLINE" />
+          <el-option label="已下线" value="OFFLINE" />
+        </el-select>
+        <el-select v-model="filters.serviceType" class="service-filter-select" clearable placeholder="服务类型">
+          <el-option label="模型发布" value="MODEL_PUBLISH" />
+          <el-option label="服务代理（暂不支持）" value="SERVICE_PROXY" disabled />
+        </el-select>
+        <div class="service-filter-actions">
+          <el-button type="primary" @click="searchServices">查询</el-button>
+          <el-button plain @click="resetFilters">重置</el-button>
+        </div>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="服务列表" description="服务发布后，需要创建订阅 Token 才能开放调用。">
+      <el-table :data="services" border>
+        <el-table-column label="序号" width="76" align="center" header-align="center">
+          <template #default="{ $index }">{{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}</template>
+        </el-table-column>
+        <el-table-column label="服务" min-width="220">
+          <template #default="{ row }">
+            <div class="table-entity-cell">
+              <span class="table-entity-cell__title">{{ row.serviceName }}</span>
+              <span class="table-entity-cell__meta">{{ row.serviceCode }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源" min-width="260">
+          <template #default="{ row }">
+            <div class="source-cell">
+              <div class="source-cell__main">
+                <span>{{ row.datasourceName || "-" }}</span>
+                <span class="source-cell__arrow">→</span>
+                <span>{{ row.sourceType === "SQL" ? "自定义 SQL" : (row.modelName || "-") }}</span>
+              </div>
+              <div class="source-cell__meta">{{ row.datasourceTypeCode || "-" }} · {{ row.sourceType === "SQL" ? "SQL 语句" : row.modelPhysicalLocator || "-" }}</div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="发布地址" min-width="320">
+          <template #default="{ row }">
+            <el-input :model-value="resolveEndpoint(row)" readonly size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110" align="center" header-align="center">
+          <template #default="{ row }">
+            <StatusPill :label="resolveStatusLabel(row.status)" :tone="resolveStatusTone(row.status)" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
+        <el-table-column label="操作" width="190" align="center" header-align="center" fixed="right">
+          <template #default="{ row }">
+            <OverflowActionGroup :items="buildActions(row)" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          background
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="total"
+          @current-change="loadServices"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
+    </SectionCard>
+
+    <el-dialog v-model="subscriptionDialogVisible" title="订阅 Token 管理" width="760px">
+      <div class="subscription-header">
+        <div>
+          <strong>{{ selectedService?.serviceName }}</strong>
+          <p>外部调用需要在请求头中携带 <code>X-Data-Service-Token</code>。</p>
+        </div>
+        <div class="subscription-create">
+          <el-input v-model="subscriptionName" placeholder="订阅名称" />
+          <el-button type="primary" :loading="creatingSubscription" @click="createSubscription">创建 Token</el-button>
+        </div>
+      </div>
+      <div v-if="newToken" class="token-once-card">
+        <div class="token-once-card__header">
+          <div>
+            <strong>新 Token 仅展示一次</strong>
+            <p>请立即记录或复制，关闭弹窗后将只能看到脱敏信息。</p>
+          </div>
+          <el-button plain @click="copyNewToken">复制 Token</el-button>
+        </div>
+        <el-input :model-value="newToken" readonly />
+      </div>
+      <el-table :data="subscriptions" border>
+        <el-table-column prop="subscriptionName" label="订阅名称" min-width="180" />
+        <el-table-column prop="tokenMasked" label="Token" min-width="220" />
+        <el-table-column label="状态" width="100" align="center" header-align="center">
+          <template #default="{ row }">
+            <StatusPill :label="row.enabled ? '启用' : '停用'" :tone="row.enabled ? 'success' : 'neutral'" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="lastUsedAt" label="最近使用" min-width="180" />
+        <el-table-column label="操作" width="110" align="center" header-align="center">
+          <template #default="{ row }">
+            <el-button v-if="row.enabled" link type="danger" @click="disableSubscription(row.id)">停用</el-button>
+            <el-button v-else link type="primary" @click="enableSubscription(row.id)">启用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessage, ElMessageBox } from "element-plus";
+import type { DataServiceDefinitionView, DataServiceSubscriptionView, EntityId } from "@studio/api-sdk";
+import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
+
+const router = useRouter();
+
+const filters = reactive({
+  keyword: "",
+  status: "",
+  serviceType: "",
+});
+const pagination = reactive({
+  page: 1,
+  pageSize: 10,
+});
+const services = ref<DataServiceDefinitionView[]>([]);
+const total = ref(0);
+const subscriptionDialogVisible = ref(false);
+const selectedService = ref<DataServiceDefinitionView | null>(null);
+const subscriptions = ref<DataServiceSubscriptionView[]>([]);
+const subscriptionName = ref("");
+const newToken = ref("");
+const creatingSubscription = ref(false);
+
+async function loadServices() {
+  try {
+    const page = await studioApi.dataServices.list({
+      pageNo: pagination.page,
+      pageSize: pagination.pageSize,
+      keyword: filters.keyword.trim() || undefined,
+      status: filters.status || undefined,
+      serviceType: filters.serviceType || undefined,
+    });
+    services.value = page.items;
+    total.value = page.total;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "加载数据服务失败");
+  }
+}
+
+async function searchServices() {
+  pagination.page = 1;
+  await loadServices();
+}
+
+function resetFilters() {
+  filters.keyword = "";
+  filters.status = "";
+  filters.serviceType = "";
+  pagination.page = 1;
+  void loadServices();
+}
+
+function handlePageSizeChange() {
+  pagination.page = 1;
+  void loadServices();
+}
+
+function buildActions(row: DataServiceDefinitionView) {
+  return [
+    { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/data-services/${row.id}/edit`); } },
+    { key: "debug", label: "调试", onClick: () => { void router.push(`/data-services/${row.id}/edit?debug=1`); } },
+    { key: "metrics", label: "监控", onClick: () => { void router.push(`/data-service-metrics?serviceId=${row.id}`); } },
+    { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", onClick: () => publishService(row) },
+    { key: "offline", label: "下线", visible: row.status === "ONLINE", onClick: () => offlineService(row) },
+    { key: "subscriptions", label: "订阅", onClick: () => openSubscriptions(row) },
+    { key: "delete", label: "删除", type: "danger", onClick: () => deleteService(row) },
+  ];
+}
+
+async function publishService(row: DataServiceDefinitionView) {
+  if (!row.id) {
+    return;
+  }
+  try {
+    await studioApi.dataServices.publish(row.id);
+    ElMessage.success("数据服务已发布");
+    await loadServices();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "发布失败");
+  }
+}
+
+async function offlineService(row: DataServiceDefinitionView) {
+  if (!row.id) {
+    return;
+  }
+  try {
+    await studioApi.dataServices.offline(row.id);
+    ElMessage.success("数据服务已下线");
+    await loadServices();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "下线失败");
+  }
+}
+
+async function deleteService(row: DataServiceDefinitionView) {
+  if (!row.id) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除数据服务“${row.serviceName}”吗？`, "提示", { type: "warning" });
+    await studioApi.dataServices.delete(row.id);
+    ElMessage.success("数据服务已删除");
+    await loadServices();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : "删除失败");
+    }
+  }
+}
+
+async function openSubscriptions(row: DataServiceDefinitionView) {
+  selectedService.value = row;
+  subscriptionDialogVisible.value = true;
+  subscriptionName.value = "";
+  newToken.value = "";
+  await loadSubscriptions();
+}
+
+async function loadSubscriptions() {
+  if (!selectedService.value?.id) {
+    subscriptions.value = [];
+    return;
+  }
+  subscriptions.value = await studioApi.dataServices.listSubscriptions(selectedService.value.id);
+}
+
+async function createSubscription() {
+  if (!selectedService.value?.id || !subscriptionName.value.trim()) {
+    ElMessage.warning("请填写订阅名称");
+    return;
+  }
+  creatingSubscription.value = true;
+  try {
+    const created = await studioApi.dataServices.createSubscription(selectedService.value.id, subscriptionName.value.trim());
+    newToken.value = created.token || "";
+    subscriptionName.value = "";
+    if (!newToken.value) {
+      ElMessage.warning("订阅已创建，但接口未返回明文 Token；请联系管理员检查服务端返回。");
+    }
+    await loadSubscriptions();
+    ElMessage.success("订阅 Token 已创建或刷新");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "创建订阅 Token 失败");
+  } finally {
+    creatingSubscription.value = false;
+  }
+}
+
+async function disableSubscription(subscriptionId?: EntityId) {
+  if (!selectedService.value?.id || !subscriptionId) {
+    return;
+  }
+  try {
+    await studioApi.dataServices.disableSubscription(selectedService.value.id, subscriptionId);
+    ElMessage.success("订阅 Token 已停用");
+    await loadSubscriptions();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "停用订阅 Token 失败");
+  }
+}
+
+async function enableSubscription(subscriptionId?: EntityId) {
+  if (!selectedService.value?.id || !subscriptionId) {
+    return;
+  }
+  try {
+    await studioApi.dataServices.enableSubscription(selectedService.value.id, subscriptionId);
+    ElMessage.success("订阅 Token 已启用");
+    await loadSubscriptions();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "启用订阅 Token 失败");
+  }
+}
+
+async function copyNewToken() {
+  if (!newToken.value) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(newToken.value);
+    ElMessage.success("Token 已复制");
+  } catch {
+    fallbackCopyText(newToken.value);
+  }
+}
+
+function fallbackCopyText(value: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+  ElMessage.success("Token 已复制");
+}
+
+function resolveEndpoint(row: DataServiceDefinitionView) {
+  if (!row.endpointPath) {
+    return "-";
+  }
+  return resolveDataServiceOpenUrl(row.endpointPath);
+}
+
+function resolveStatusLabel(status?: string) {
+  if (status === "ONLINE") {
+    return "已发布";
+  }
+  if (status === "OFFLINE") {
+    return "已下线";
+  }
+  return "草稿";
+}
+
+function resolveStatusTone(status?: string) {
+  if (status === "ONLINE") {
+    return "success";
+  }
+  if (status === "OFFLINE") {
+    return "neutral";
+  }
+  return "warning";
+}
+
+onMounted(loadServices);
+</script>
+
+<style scoped>
+.service-filter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.service-filter-keyword {
+  flex: 0 1 360px;
+}
+
+.service-filter-select {
+  width: 180px;
+}
+
+.service-filter-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.source-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.source-cell__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.source-cell__arrow {
+  color: var(--studio-text-soft);
+}
+
+.source-cell__meta {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.subscription-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.subscription-header p {
+  margin: 6px 0 0;
+  color: var(--studio-text-soft);
+}
+
+.subscription-create {
+  display: flex;
+  gap: 8px;
+  min-width: 340px;
+}
+
+.token-once-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(22, 163, 74, 0.24);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.08), rgba(255, 255, 255, 0.92));
+}
+
+.token-once-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.token-once-card__header p {
+  margin: 4px 0 0;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+</style>

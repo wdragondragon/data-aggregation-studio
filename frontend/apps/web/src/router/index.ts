@@ -69,6 +69,26 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     ],
   },
   {
+    key: "dataService",
+    labelKey: "routes.web.menuGroups.dataService.title",
+    captionKey: "routes.web.menuGroups.dataService.caption",
+    items: [
+      { path: "/data-services", labelKey: "routes.web.dataServices.title", captionKey: "routes.web.dataServices.menuCaption", requiresProject: true },
+      { path: "/data-service-metrics", labelKey: "routes.web.dataServiceMetrics.title", captionKey: "routes.web.dataServiceMetrics.menuCaption", requiresProject: true },
+    ],
+  },
+  {
+    key: "quality",
+    labelKey: "routes.web.menuGroups.quality.title",
+    captionKey: "routes.web.menuGroups.quality.caption",
+    items: [
+      { path: "/quality-rules", labelKey: "routes.web.qualityRules.title", captionKey: "routes.web.qualityRules.menuCaption", requiresProject: true },
+      { path: "/quality-tasks", labelKey: "routes.web.qualityTasks.title", captionKey: "routes.web.qualityTasks.menuCaption", requiresProject: true },
+      { path: "/quality-task-runs", labelKey: "routes.web.qualityTaskRuns.title", captionKey: "routes.web.qualityTaskRuns.menuCaption", requiresProject: true },
+      { path: "/quality-metrics", labelKey: "routes.web.qualityMetrics.title", captionKey: "routes.web.qualityMetrics.menuCaption", requiresProject: true },
+    ],
+  },
+  {
     key: "administration",
     labelKey: "routes.web.menuGroups.administration.title",
     captionKey: "routes.web.menuGroups.administration.caption",
@@ -251,6 +271,51 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/data-services",
+        name: "data-services",
+        component: () => import("@/views/DataServicesView.vue"),
+        meta: {
+          titleKey: "routes.web.dataServices.title",
+          subtitleKey: "routes.web.dataServices.subtitle",
+        },
+      },
+      {
+        path: "/data-services/new",
+        name: "data-service-create",
+        component: () => import("@/views/DataServiceEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.dataServices.createTitle",
+          subtitleKey: "routes.web.dataServices.createSubtitle",
+        },
+      },
+      {
+        path: "/data-services/:serviceId/edit",
+        name: "data-service-edit",
+        component: () => import("@/views/DataServiceEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.dataServices.editTitle",
+          subtitleKey: "routes.web.dataServices.editSubtitle",
+        },
+      },
+      {
+        path: "/data-service-metrics",
+        name: "data-service-metrics",
+        component: () => import("@/views/DataServiceMetricsView.vue"),
+        meta: {
+          titleKey: "routes.web.dataServiceMetrics.title",
+          subtitleKey: "routes.web.dataServiceMetrics.subtitle",
+        },
+      },
+      {
+        path: "/data-service-metrics/access-logs",
+        name: "data-service-access-logs",
+        component: () => import("@/views/DataServiceAccessLogsView.vue"),
+        meta: {
+          titleKey: "routes.web.dataServiceMetrics.logsTitle",
+          subtitleKey: "routes.web.dataServiceMetrics.logsSubtitle",
+        },
+      },
+      {
         path: "/field-mapping-rules",
         name: "field-mapping-rules",
         component: () => import("@/views/FieldMappingRulesView.vue"),
@@ -314,6 +379,78 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.collectionTaskRuns.title",
           subtitleKey: "routes.web.collectionTaskRuns.subtitle",
+        },
+      },
+      {
+        path: "/quality-metrics",
+        name: "quality-metrics",
+        component: () => import("@/views/QualityMetricsView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityMetrics.title",
+          subtitleKey: "routes.web.qualityMetrics.subtitle",
+        },
+      },
+      {
+        path: "/quality-rules",
+        name: "quality-rules",
+        component: () => import("@/views/QualityRulesView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityRules.title",
+          subtitleKey: "routes.web.qualityRules.subtitle",
+        },
+      },
+      {
+        path: "/quality-rules/new",
+        name: "quality-rule-create",
+        component: () => import("@/views/QualityRuleEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityRules.createTitle",
+          subtitleKey: "routes.web.qualityRules.createSubtitle",
+        },
+      },
+      {
+        path: "/quality-rules/:ruleId/edit",
+        name: "quality-rule-edit",
+        component: () => import("@/views/QualityRuleEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityRules.editTitle",
+          subtitleKey: "routes.web.qualityRules.editSubtitle",
+        },
+      },
+      {
+        path: "/quality-tasks",
+        name: "quality-tasks",
+        component: () => import("@/views/QualityTasksView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityTasks.title",
+          subtitleKey: "routes.web.qualityTasks.subtitle",
+        },
+      },
+      {
+        path: "/quality-tasks/new",
+        name: "quality-task-create",
+        component: () => import("@/views/QualityTaskEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityTasks.createTitle",
+          subtitleKey: "routes.web.qualityTasks.createSubtitle",
+        },
+      },
+      {
+        path: "/quality-tasks/:taskId/edit",
+        name: "quality-task-edit",
+        component: () => import("@/views/QualityTaskEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityTasks.editTitle",
+          subtitleKey: "routes.web.qualityTasks.editSubtitle",
+        },
+      },
+      {
+        path: "/quality-task-runs",
+        name: "quality-task-runs",
+        component: () => import("@/views/QualityTaskRunsView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityTaskRuns.title",
+          subtitleKey: "routes.web.qualityTaskRuns.subtitle",
         },
       },
       {

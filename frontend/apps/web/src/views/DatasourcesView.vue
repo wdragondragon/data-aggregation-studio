@@ -39,7 +39,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="updatedAt" :label="t('web.datasources.updatedColumn')" min-width="170" align="center" header-align="center" />
-        <el-table-column :label="t('web.datasources.actionsColumn')" width="140" align="center" header-align="center">
+        <el-table-column :label="t('web.datasources.actionsColumn')" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <OverflowActionGroup :items="buildDatasourceActions(row)" />
           </template>
@@ -175,7 +175,7 @@
                     </component>
                   </template>
                 </el-table-column>
-                <el-table-column :label="t('web.metadata.actions')" width="100">
+            <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
                   <template #default="{ $index }">
                     <el-button link type="danger" @click="removeSectionRow(section, $index)">{{ t("common.remove") }}</el-button>
                   </template>

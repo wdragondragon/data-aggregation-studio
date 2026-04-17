@@ -45,7 +45,7 @@
         </el-table-column>
         <el-table-column prop="createdByName" :label="t('web.fieldMappingRules.createdBy')" min-width="140" />
         <el-table-column prop="createdAt" :label="t('web.fieldMappingRules.createdAt')" min-width="180" />
-        <el-table-column :label="t('fieldMapping.actions')" width="120" align="center" header-align="center">
+        <el-table-column :label="t('fieldMapping.actions')" width="130" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <OverflowActionGroup :items="buildRuleActions(row)" />
           </template>

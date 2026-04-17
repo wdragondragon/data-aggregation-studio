@@ -148,7 +148,7 @@ export type FieldComponentType =
   | "CRON";
 export type SchemaStatus = "DRAFT" | "PUBLISHED";
 export type ModelKind = "TABLE" | "VIEW" | "FILE" | "TOPIC" | "MEASUREMENT" | "DATASET";
-export type NodeType = "COLLECTION_TASK" | "DATA_SCRIPT" | "ETL_SINGLE" | "FUSION" | "CONSISTENCY" | "HTTP" | "SHELL";
+export type NodeType = "COLLECTION_TASK" | "QUALITY_TASK" | "DATA_SCRIPT" | "ETL_SINGLE" | "FUSION" | "CONSISTENCY" | "HTTP" | "SHELL";
 export type EdgeCondition = "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS";
 export type QueryOperator = "EQ" | "LIKE" | "IN" | "GT" | "GE" | "LT" | "LE" | "BETWEEN";
 export type RowMatchMode = "SAME_ITEM" | "ANY_ITEM";
@@ -158,6 +158,14 @@ export type DataModelLineageLevel = "DATABASE" | "TABLE" | "FIELD";
 export type CollectionTaskType = "SINGLE_TABLE" | "FUSION";
 export type CollectionTaskStatus = "DRAFT" | "ONLINE";
 export type ScriptType = "SQL" | "JAVA" | "PYTHON";
+export type DataServiceType = "MODEL_PUBLISH" | "SERVICE_PROXY";
+export type DataServiceStatus = "DRAFT" | "ONLINE" | "OFFLINE";
+export type DataServiceSourceType = "TABLE" | "SQL";
+export type DataServiceRequestMethod = "GET" | "POST";
+export type DataServiceResponseType = "JSON" | "XML" | "FILE";
+export type DataServiceValueType = "STRING" | "INT" | "TIME" | "FLOAT" | "TIMESTAMP" | "LIST";
+export type DataServiceQueryOperator = "EQ" | "LIKE" | "NE" | "GT" | "GE" | "LT" | "LE" | "CONTAINS" | "NOT_CONTAINS";
+export type DataServiceParamPosition = "BODY" | "QUERY" | "HEADER";
 export type ModelSyncTaskSource = "MANUAL" | "AUTO_PAGE";
 export type ModelSyncTaskStatus = "PENDING" | "RUNNING" | "STOPPING" | "SUCCESS" | "FAILED" | "STOPPED";
 export type ModelSyncTaskItemStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "STOPPED";
@@ -256,6 +264,247 @@ export interface DataModelDefinition extends BaseRecord {
   schemaVersionId?: EntityId;
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
+}
+
+export interface DataServiceRequestParam {
+  id?: EntityId;
+  serviceId?: EntityId;
+  sortOrder?: number;
+  paramName: string;
+  fieldName?: string;
+  valueType?: DataServiceValueType;
+  queryOperator?: DataServiceQueryOperator;
+  required?: boolean;
+  description?: string;
+  fixedParam?: boolean;
+}
+
+export interface DataServiceResponseParam {
+  id?: EntityId;
+  serviceId?: EntityId;
+  sortOrder?: number;
+  enabled?: boolean;
+  paramName: string;
+  fieldName: string;
+  exampleValue?: string;
+  description?: string;
+}
+
+export interface DataServicePublishParam {
+  id?: EntityId;
+  serviceId?: EntityId;
+  sortOrder?: number;
+  frontendParamName: string;
+  backendParamName: string;
+  position?: DataServiceParamPosition;
+  valueType?: DataServiceValueType;
+  exampleValue?: string;
+  defaultValue?: string;
+  required?: boolean;
+  description?: string;
+}
+
+export interface DataServiceFieldView {
+  fieldName: string;
+  fieldType?: string;
+  exampleValue?: string;
+  description?: string;
+}
+
+export interface DataServiceResolveFieldsView {
+  fields: DataServiceFieldView[];
+  requestParams: DataServiceRequestParam[];
+  responseParams: DataServiceResponseParam[];
+}
+
+export interface DataServiceDefinitionView extends BaseRecord {
+  createdBy?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  serviceType?: DataServiceType;
+  status?: DataServiceStatus;
+  sourceType?: DataServiceSourceType;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  customSql?: string;
+  requestMethod?: DataServiceRequestMethod;
+  responseType?: DataServiceResponseType;
+  endpointPath?: string;
+  serviceKey?: string;
+  cacheEnabled?: boolean;
+  requestParams: DataServiceRequestParam[];
+  responseParams: DataServiceResponseParam[];
+  publishParams: DataServicePublishParam[];
+}
+
+export interface DataServiceSaveRequest {
+  id?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  serviceType?: DataServiceType;
+  sourceType?: DataServiceSourceType;
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  customSql?: string;
+  requestMethod?: DataServiceRequestMethod;
+  responseType?: DataServiceResponseType;
+  cacheEnabled?: boolean;
+  requestParams: DataServiceRequestParam[];
+  responseParams: DataServiceResponseParam[];
+  publishParams: DataServicePublishParam[];
+}
+
+export interface DataServiceResolveFieldsRequest {
+  sourceType?: DataServiceSourceType;
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  customSql?: string;
+}
+
+export interface DataServiceDebugRequest {
+  headers?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+}
+
+export interface DataServiceInvokeResponse {
+  pageNum?: number;
+  pageSize?: number;
+  pages?: number;
+  table?: {
+    bodies?: Record<string, unknown>[];
+  };
+  [key: string]: unknown;
+}
+
+export interface DataServiceSubscriptionView extends BaseRecord {
+  serviceId?: EntityId;
+  subscriptionName: string;
+  token?: string;
+  tokenMasked?: string;
+  enabled?: boolean;
+  createdBy?: EntityId;
+  lastUsedAt?: string;
+}
+
+export interface DataServiceMetricOptionView {
+  id?: EntityId;
+  name?: string;
+  label?: string;
+  status?: string;
+  serviceId?: EntityId;
+  serviceName?: string;
+}
+
+export interface DataServiceMetricOptionsView {
+  services: DataServiceMetricOptionView[];
+  subscriptions: DataServiceMetricOptionView[];
+}
+
+export interface DataServiceMetricSummaryView {
+  accessCount?: number;
+  successCount?: number;
+  failureCount?: number;
+  successRate?: number;
+  minResponseTimeMs?: number;
+  maxResponseTimeMs?: number;
+  avgResponseTimeMs?: number;
+  p95ResponseTimeMs?: number;
+  p99ResponseTimeMs?: number;
+  lastAccessAt?: string;
+  cacheEnabledCount?: number;
+  cacheHitCount?: number;
+  cacheMissCount?: number;
+  cacheDisabledCount?: number;
+  cacheHitRate?: number;
+  counterBacked?: boolean;
+}
+
+export interface DataServiceApiMetricView {
+  serviceId?: EntityId;
+  serviceName?: string;
+  serviceCode?: string;
+  status?: string;
+  subscriptionId?: EntityId;
+  subscriptionName?: string;
+  accessCount?: number;
+  successCount?: number;
+  failureCount?: number;
+  successRate?: number;
+  minResponseTimeMs?: number;
+  maxResponseTimeMs?: number;
+  avgResponseTimeMs?: number;
+  p95ResponseTimeMs?: number;
+  p99ResponseTimeMs?: number;
+  lastAccessAt?: string;
+  cacheEnabledCount?: number;
+  cacheHitCount?: number;
+  cacheMissCount?: number;
+  cacheDisabledCount?: number;
+  cacheHitRate?: number;
+}
+
+export interface DataServiceMetricDistributionView {
+  key?: string;
+  label?: string;
+  count?: number;
+}
+
+export interface DataServiceAccessLogView extends BaseRecord {
+  serviceId?: EntityId;
+  serviceCode?: string;
+  serviceName?: string;
+  serviceStatus?: string;
+  subscriptionId?: EntityId;
+  subscriptionName?: string;
+  requestMethod?: string;
+  occurredAt?: string;
+  durationMs?: number;
+  success?: boolean;
+  httpStatus?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  clientIp?: string;
+  userAgent?: string;
+  cacheEnabled?: boolean;
+  cacheHit?: boolean;
+  rowCount?: number;
+}
+
+export interface DataServiceMetricDashboardView {
+  summary?: DataServiceMetricSummaryView;
+  accessTrend?: RunMetricTrendView;
+  cumulativeAccessTrend?: RunMetricTrendView;
+  outputRowTrend?: RunMetricTrendView;
+  cumulativeOutputRowTrend?: RunMetricTrendView;
+  cacheHitTrend?: RunMetricTrendView;
+  cumulativeCacheHitTrend?: RunMetricTrendView;
+  responseTimeTrend?: RunMetricTrendView;
+  successRateTrend?: RunMetricTrendView;
+  errorDistribution?: DataServiceMetricDistributionView[];
+  topSlowApis?: DataServiceApiMetricView[];
+  topFailedApis?: DataServiceApiMetricView[];
+  subscriptionRank?: DataServiceApiMetricView[];
+}
+
+export interface DataServiceMetricQueryRequest {
+  serviceId?: EntityId;
+  subscriptionId?: EntityId;
+  serviceStatus?: string;
+  success?: boolean;
+  cacheHit?: boolean;
+  startTime?: string;
+  endTime?: string;
+  granularity?: string;
+  logFocus?: "ALL" | "ERROR" | "SLOW" | "ERROR_OR_SLOW";
+  minDurationMs?: number;
+  topN?: number;
+  pageNo?: number;
+  pageSize?: number;
 }
 
 export interface DataModelLineageSummaryView {
@@ -677,6 +926,347 @@ export interface CollectionTaskSaveRequest {
 
 export type JobContainerConfig = Record<string, unknown>;
 
+export type QualityRuleScopeType = "SYSTEM" | "PROJECT";
+export type QualityRuleDimension = "CONSISTENCY" | "ACCURACY" | "UNIQUENESS" | "TIMELINESS" | "COMPLETENESS" | "VALIDITY";
+export type QualityRuleGranularity = "TABLE" | "COLUMN";
+export type QualityRuleParamType = "TABLE" | "COLUMN" | "CUSTOM";
+export type QualityRuleOutputType = "NUMBER" | "STRING";
+export type QualityTaskStatus = "DRAFT" | "ONLINE";
+export type QualityTaskAlertOperator = "EQ" | "NE" | "LT" | "LE" | "GT" | "GE" | "LT_R_LT" | "LT_R_LE" | "LE_R_LT" | "LE_R_LE";
+
+export interface QualityRuleInputParamView extends BaseRecord {
+  ruleId?: EntityId;
+  paramOrder?: number;
+  paramName: string;
+  paramType?: QualityRuleParamType;
+  paramMeaning?: string;
+}
+
+export interface QualityRuleOutputParamView extends BaseRecord {
+  ruleId?: EntityId;
+  outputOrder?: number;
+  resultField: string;
+  outputType?: QualityRuleOutputType;
+  outputDescription?: string;
+}
+
+export interface QualityRuleView extends BaseRecord {
+  ruleName: string;
+  ruleCode: string;
+  scopeType?: QualityRuleScopeType;
+  ruleDimension?: QualityRuleDimension;
+  description?: string;
+  supportedDatasourceTypes: string[];
+  granularity?: QualityRuleGranularity;
+  logicSql: string;
+  enabled?: boolean;
+  createdBy?: EntityId;
+  createdByName?: string;
+  editable?: boolean;
+  deletable?: boolean;
+  inputParams: QualityRuleInputParamView[];
+  outputParams: QualityRuleOutputParamView[];
+}
+
+export interface QualityRuleInputParamSaveRequest {
+  id?: EntityId;
+  paramOrder?: number;
+  paramName: string;
+  paramType?: QualityRuleParamType;
+  paramMeaning?: string;
+}
+
+export interface QualityRuleOutputParamSaveRequest {
+  id?: EntityId;
+  outputOrder?: number;
+  resultField: string;
+  outputType?: QualityRuleOutputType;
+  outputDescription?: string;
+}
+
+export interface QualityRuleSaveRequest {
+  id?: EntityId;
+  ruleName: string;
+  ruleCode: string;
+  scopeType: QualityRuleScopeType;
+  ruleDimension: QualityRuleDimension;
+  description?: string;
+  supportedDatasourceTypes: string[];
+  granularity: QualityRuleGranularity;
+  logicSql: string;
+  enabled?: boolean;
+  inputParams: QualityRuleInputParamSaveRequest[];
+  outputParams: QualityRuleOutputParamSaveRequest[];
+}
+
+export interface QualityRuleParseRequest {
+  granularity?: QualityRuleGranularity;
+  logicSql?: string;
+}
+
+export interface QualityRuleValidateRequest {
+  granularity?: QualityRuleGranularity;
+  logicSql?: string;
+}
+
+export interface QualityRuleParseResult {
+  inputParams: QualityRuleInputParamView[];
+  outputParams: QualityRuleOutputParamView[];
+  warnings: string[];
+}
+
+export interface QualityRuleValidationResult {
+  valid?: boolean;
+  message?: string;
+  warnings: string[];
+}
+
+export interface QualityTaskParamBinding {
+  paramOrder?: number;
+  paramName: string;
+  paramType?: QualityRuleParamType;
+  paramMeaning?: string;
+  paramValue?: string;
+  editable?: boolean;
+}
+
+export interface QualityTaskAlertConfig {
+  outputOrder?: number;
+  resultField?: string;
+  outputType?: QualityRuleOutputType;
+  enabled?: boolean;
+  operator?: QualityTaskAlertOperator;
+  expectedValue?: string;
+  minValue?: string;
+  maxValue?: string;
+}
+
+export interface QualityTaskDefinitionView extends BaseRecord {
+  createdBy?: EntityId;
+  taskName: string;
+  taskCode: string;
+  status?: QualityTaskStatus;
+  ruleId?: EntityId;
+  ruleName?: string;
+  ruleDimension?: QualityRuleDimension;
+  granularity?: QualityRuleGranularity;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  columnName?: string;
+  whereClause?: string;
+  resolvedSqlPreview?: string;
+  parameterBindings: QualityTaskParamBinding[];
+  outputParams: QualityRuleOutputParamView[];
+  alertConfigs: QualityTaskAlertConfig[];
+  schedule?: CollectionTaskScheduleDefinition;
+  ruleSnapshot?: Record<string, unknown>;
+}
+
+export interface QualityTaskSaveRequest {
+  id?: EntityId;
+  taskName: string;
+  taskCode: string;
+  ruleId: EntityId;
+  granularity: QualityRuleGranularity;
+  datasourceId: EntityId;
+  modelId: EntityId;
+  columnName?: string;
+  whereClause?: string;
+  resolvedSqlPreview?: string;
+  parameterBindings: QualityTaskParamBinding[];
+  alertConfigs: QualityTaskAlertConfig[];
+  schedule?: CollectionTaskScheduleDefinition;
+}
+
+export interface QualityTaskPreviewView {
+  resolvedSql?: string;
+  warnings: string[];
+}
+
+export interface QualityTaskValidationView {
+  valid?: boolean;
+  message?: string;
+  resolvedSql?: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  outputParams: QualityRuleOutputParamView[];
+  warnings: string[];
+  summary: Record<string, unknown>;
+}
+
+export type QualityIssueSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type QualityIssueStatus =
+  | "OPEN"
+  | "ACKNOWLEDGED"
+  | "INVESTIGATING"
+  | "MITIGATED"
+  | "RESOLVED"
+  | "FALSE_POSITIVE";
+
+export interface QualityMetricOptionsView {
+  datasources: RunMetricFilterOption[];
+  models: RunMetricFilterOption[];
+}
+
+export interface QualityScoreTrendPoint {
+  dateLabel?: string;
+  executionHealthScore?: number;
+  governanceRiskScore?: number;
+}
+
+export interface QualityAssetRiskView {
+  assetId?: string;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  executionHealthScore?: number;
+  governanceRiskScore?: number;
+  activeIssueCount?: number;
+  overdueIssueCount?: number;
+  coverageRate?: number;
+  coverageDimensions: string[];
+  riskDimensions: string[];
+  latestRunStatus?: string;
+  latestRunAt?: string;
+  latestEvidence?: string;
+}
+
+export interface QualityMetricDashboardView {
+  summaryMetrics: Record<string, number>;
+  scoreTrend: QualityScoreTrendPoint[];
+  issueTrend: Array<Record<string, unknown>>;
+  dimensionDistribution: Array<Record<string, unknown>>;
+  coverageMatrix: Array<Record<string, unknown>>;
+  riskyAssets: QualityAssetRiskView[];
+  noisyTargets: Array<Record<string, unknown>>;
+}
+
+export interface QualityIssueTimelineEvent {
+  id?: EntityId;
+  eventType?: string;
+  title?: string;
+  message?: string;
+  actorUserId?: EntityId;
+  actorName?: string;
+  createdAt?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface QualityIssueView {
+  id?: EntityId;
+  issueCode?: string;
+  issueType?: string;
+  title?: string;
+  severity?: QualityIssueSeverity;
+  systemSeverity?: QualityIssueSeverity;
+  manualSeverity?: QualityIssueSeverity;
+  status?: QualityIssueStatus;
+  assetId?: string;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  qualityTaskId?: EntityId;
+  qualityTaskName?: string;
+  ruleId?: EntityId;
+  ruleName?: string;
+  ruleDimension?: string;
+  granularity?: string;
+  columnName?: string;
+  outputField?: string;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  lastRecoveryAt?: string;
+  slaDueAt?: string;
+  assigneeUserId?: EntityId;
+  assigneeName?: string;
+  latestMessage?: string;
+  lastRunRecordId?: EntityId;
+  lastRunStatus?: string;
+  occurrenceCount?: number;
+  consecutiveFailureCount?: number;
+  reopenCount?: number;
+  overdue?: boolean;
+  active?: boolean;
+}
+
+export interface QualityIssueDetailView extends QualityIssueView {
+  currentEvidence?: Record<string, unknown>;
+  timeline: QualityIssueTimelineEvent[];
+}
+
+export interface QualityAssetDetailView extends QualityAssetRiskView {
+  summaryMetrics: Record<string, unknown>;
+  scoreTrend: QualityScoreTrendPoint[];
+  activeIssues: QualityIssueView[];
+  relatedTasks: Array<Record<string, unknown>>;
+  latestFailures: Array<Record<string, unknown>>;
+  fieldIssueGroups: Array<Record<string, unknown>>;
+}
+
+export interface QualityMetricDashboardQueryRequest {
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  ruleDimension?: string;
+  granularity?: string;
+  taskStatus?: string;
+  startTime?: string;
+  endTime?: string;
+  topN?: number;
+}
+
+export interface QualityAssetQueryRequest {
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  ruleDimension?: string;
+  granularity?: string;
+  taskStatus?: string;
+  startTime?: string;
+  endTime?: string;
+  onlyProblemAssets?: boolean;
+  onlyLowCoverageAssets?: boolean;
+}
+
+export interface QualityIssueQueryRequest {
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  ruleDimension?: string;
+  granularity?: string;
+  taskStatus?: string;
+  severity?: QualityIssueSeverity | string;
+  status?: QualityIssueStatus | string;
+  assigneeUserId?: EntityId;
+  startTime?: string;
+  endTime?: string;
+}
+
+export interface QualityIssueAssignRequest {
+  assigneeUserId?: EntityId | null;
+}
+
+export interface QualityIssueStatusRequest {
+  status: QualityIssueStatus | string;
+  comment?: string;
+}
+
+export interface QualityIssueSeverityRequest {
+  severity: QualityIssueSeverity | string;
+  comment?: string;
+}
+
+export interface QualityIssueCommentRequest {
+  content: string;
+}
+
 export interface DataDevelopmentDirectory extends BaseRecord {
   parentId?: EntityId;
   name: string;
@@ -831,6 +1421,8 @@ export interface QueuedTask extends BaseRecord {
   workflowName?: string;
   collectionTaskId?: EntityId;
   collectionTaskName?: string;
+  qualityTaskId?: EntityId;
+  qualityTaskName?: string;
   nodeCode?: string;
   status?: string;
   leaseOwner?: string;
@@ -847,6 +1439,8 @@ export interface RunRecord extends BaseRecord {
   workflowName?: string;
   collectionTaskId?: EntityId;
   collectionTaskName?: string;
+  qualityTaskId?: EntityId;
+  qualityTaskName?: string;
   nodeCode?: string;
   workerCode?: string;
   status?: string;
@@ -930,12 +1524,16 @@ export interface RunLogView {
   runRecordId?: EntityId;
   content?: string;
   truncated?: boolean;
+  paged?: boolean;
   sizeBytes?: number;
   updatedAt?: string;
   charset?: string;
   downloadName?: string;
   contentType?: string;
   historicalFallback?: boolean;
+  pageNo?: number;
+  totalPages?: number;
+  pageSizeBytes?: number;
 }
 
 export interface RunListResponse {
@@ -945,9 +1543,15 @@ export interface RunListResponse {
 
 export interface RunListQuery {
   collectionTaskId?: EntityId;
+  qualityTaskId?: EntityId;
   workflowDefinitionId?: EntityId;
   startTime?: string;
   endTime?: string;
+}
+
+export interface RunLogQuery {
+  pageNo?: number;
+  pageSizeBytes?: number;
 }
 
 export interface WorkflowRunSummary {

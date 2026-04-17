@@ -8,6 +8,7 @@ import com.jdragon.studio.core.spi.ExecutionEventPublisher;
 import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
+import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
@@ -43,6 +44,7 @@ public class WorkerLifecycleRunner {
     private final ExecutionEventPublisher executionEventPublisher;
     private final StudioPlatformProperties properties;
     private final CollectionTaskService collectionTaskService;
+    private final QualityTaskService qualityTaskService;
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
     private final RunLogFileService runLogFileService;
 
@@ -53,6 +55,7 @@ public class WorkerLifecycleRunner {
                                  ExecutionEventPublisher executionEventPublisher,
                                  StudioPlatformProperties properties,
                                  CollectionTaskService collectionTaskService,
+                                 QualityTaskService qualityTaskService,
                                  CollectionTaskAssemblerService collectionTaskAssemblerService,
                                  RunLogFileService runLogFileService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
@@ -62,6 +65,7 @@ public class WorkerLifecycleRunner {
         this.executionEventPublisher = executionEventPublisher;
         this.properties = properties;
         this.collectionTaskService = collectionTaskService;
+        this.qualityTaskService = qualityTaskService;
         this.collectionTaskAssemblerService = collectionTaskAssemblerService;
         this.runLogFileService = runLogFileService;
     }
@@ -257,6 +261,15 @@ public class WorkerLifecycleRunner {
             com.jdragon.studio.dto.model.CollectionTaskDefinitionView task = collectionTaskService.requireOnline(collectionTaskId);
             node.setNodeName(task.getName());
             node.setConfig(collectionTaskAssemblerService.assemble(task));
+        } else if (node.getNodeType() == com.jdragon.studio.dto.enums.NodeType.QUALITY_TASK) {
+            Long qualityTaskId = resolveQualityTaskId(dispatchTask, payload, node.getConfig());
+            com.jdragon.studio.dto.model.QualityTaskDefinitionView task = qualityTaskService.requireOnline(qualityTaskId);
+            node.setNodeName(task.getTaskName());
+            Map<String, Object> qualityConfig = node.getConfig() == null
+                    ? new LinkedHashMap<String, Object>()
+                    : new LinkedHashMap<String, Object>(node.getConfig());
+            qualityConfig.put("qualityTaskId", task.getId());
+            node.setConfig(qualityConfig);
         }
         return node;
     }
@@ -275,6 +288,20 @@ public class WorkerLifecycleRunner {
         return parseLong(config.get("collectionTaskId"));
     }
 
+    private Long resolveQualityTaskId(DispatchTaskEntity dispatchTask,
+                                      Map<String, Object> payload,
+                                      Map<String, Object> config) {
+        Long qualityTaskId = dispatchTask.getQualityTaskId();
+        if (qualityTaskId != null) {
+            return qualityTaskId;
+        }
+        qualityTaskId = parseLong(payload.get("qualityTaskId"));
+        if (qualityTaskId != null) {
+            return qualityTaskId;
+        }
+        return parseLong(config.get("qualityTaskId"));
+    }
+
     private void publishEvent(String eventType,
                               DispatchTaskEntity task,
                               RunRecordEntity runRecord,
@@ -289,6 +316,7 @@ public class WorkerLifecycleRunner {
         event.setWorkflowVersionId(task.getWorkflowVersionId());
         event.setWorkflowRunId(task.getWorkflowRunId());
         event.setCollectionTaskId(task.getCollectionTaskId());
+        event.setQualityTaskId(task.getQualityTaskId());
         event.setProjectId(task.getProjectId());
         event.setExecutionType(task.getExecutionType() == null ? DispatchExecutionType.WORKFLOW_NODE : DispatchExecutionType.valueOf(task.getExecutionType()));
         event.setNodeCode(task.getNodeCode());
@@ -313,6 +341,7 @@ public class WorkerLifecycleRunner {
         entity.setWorkflowDefinitionId(task.getWorkflowDefinitionId());
         entity.setWorkflowVersionId(task.getWorkflowVersionId());
         entity.setCollectionTaskId(task.getCollectionTaskId());
+        entity.setQualityTaskId(task.getQualityTaskId());
         entity.setNodeCode(task.getNodeCode());
         entity.setWorkerCode(properties.getWorkerCode());
         entity.setTriggeredByUserId(task.getTriggeredByUserId());

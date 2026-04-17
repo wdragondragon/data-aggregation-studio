@@ -111,11 +111,11 @@
             <template #default="{ row }">
               <div class="stats-cell">
                 <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
-                <span class="cell-subtle">{{ row.summaryMessage || t("common.none") }}</span>
+                <MessagePreviewText class="cell-subtle" :text="row.summaryMessage" :empty-text="t('common.none')" />
               </div>
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.actions')" width="112" align="center" header-align="center">
+        <el-table-column :label="t('web.runs.actions')" width="112" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openRunDetail(row)">{{ t("web.runs.viewRunDetail") }}</el-button>
             </template>
@@ -146,6 +146,7 @@ import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
@@ -417,12 +418,12 @@ p {
 .table-scroll-shell {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .workflow-run-table {
   width: 100%;
-  min-width: 1072px;
+  min-width: 0;
 }
 
 .workflow-run-table :deep(.cell) {

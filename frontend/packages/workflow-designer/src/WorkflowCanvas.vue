@@ -48,7 +48,7 @@ const props = withDefaults(
   {
     nodes: () => [],
     edges: () => [],
-    paletteTypes: () => ["COLLECTION_TASK", "DATA_SCRIPT", "CONSISTENCY", "HTTP", "SHELL"],
+    paletteTypes: () => ["COLLECTION_TASK", "QUALITY_TASK", "DATA_SCRIPT", "HTTP", "SHELL"],
     nodeStatuses: () => ({}),
     readonly: false,
     hidePalette: false,
@@ -69,6 +69,12 @@ const paletteRegistry = computed<Record<NodeType, PaletteItem>>(() => ({
     label: t("workflowCanvas.nodeTypes.COLLECTION_TASK.label"),
     caption: t("workflowCanvas.nodeTypes.COLLECTION_TASK.caption"),
     color: "#175cd3",
+  },
+  QUALITY_TASK: {
+    type: "QUALITY_TASK",
+    label: t("workflowCanvas.nodeTypes.QUALITY_TASK.label"),
+    caption: t("workflowCanvas.nodeTypes.QUALITY_TASK.caption"),
+    color: "#2563eb",
   },
   DATA_SCRIPT: {
     type: "DATA_SCRIPT",
@@ -223,11 +229,14 @@ function buildNodeLabel(node: WorkflowNodeDefinition, typeLabel: string) {
   const taskName = typeof node.config?.collectionTaskName === "string"
     ? node.config.collectionTaskName.trim()
     : "";
+  const qualityTaskName = typeof node.config?.qualityTaskName === "string"
+    ? node.config.qualityTaskName.trim()
+    : "";
   const scriptName = typeof node.config?.scriptName === "string"
     ? node.config.scriptName.trim()
     : "";
   const nodeName = typeof node.nodeName === "string" ? node.nodeName.trim() : "";
-  const primary = taskName || scriptName || nodeName || typeLabel || node.nodeCode;
+  const primary = taskName || qualityTaskName || scriptName || nodeName || typeLabel || node.nodeCode;
   const secondary = typeLabel && typeLabel !== primary ? typeLabel : "";
   return secondary ? `${primary}\n${secondary}` : primary;
 }

@@ -4,6 +4,7 @@
     :script-type="scriptType"
     :placeholder="placeholder"
     :sql-hints="sqlHints"
+    :readonly="readonly"
   />
 </template>
 
@@ -16,6 +17,7 @@ const props = defineProps<{
   scriptType: ScriptType;
   placeholder?: string;
   sqlHints?: SqlEditorHintSource;
+  readonly?: boolean;
 }>();
 
 const model = defineModel<string>({ required: true });

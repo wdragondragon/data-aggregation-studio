@@ -14,6 +14,7 @@ import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
+import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.service.WorkflowService;
@@ -55,11 +56,12 @@ class DispatchServiceWorkflowContinuationRegressionTest {
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
                 runRecordMapper,
-                mock(WorkflowDefinitionMapper.class),
-                workflowService,
-                mock(CollectionTaskService.class),
-                mock(StudioSecurityService.class),
-                mock(WorkerAuthorizationService.class)
+            mock(WorkflowDefinitionMapper.class),
+            workflowService,
+            mock(CollectionTaskService.class),
+            mock(QualityTaskService.class),
+            mock(StudioSecurityService.class),
+            mock(WorkerAuthorizationService.class)
         );
 
         dispatchService.continueWorkflowRun(successEvent(1000L, 10L, "A"));
@@ -92,11 +94,12 @@ class DispatchServiceWorkflowContinuationRegressionTest {
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
                 runRecordMapper,
-                mock(WorkflowDefinitionMapper.class),
-                workflowService,
-                mock(CollectionTaskService.class),
-                mock(StudioSecurityService.class),
-                mock(WorkerAuthorizationService.class)
+            mock(WorkflowDefinitionMapper.class),
+            workflowService,
+            mock(CollectionTaskService.class),
+            mock(QualityTaskService.class),
+            mock(StudioSecurityService.class),
+            mock(WorkerAuthorizationService.class)
         );
 
         dispatchService.continueWorkflowRun(successEvent(2000L, 10L, "A"));
@@ -130,11 +133,12 @@ class DispatchServiceWorkflowContinuationRegressionTest {
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
                 runRecordMapper,
-                mock(WorkflowDefinitionMapper.class),
-                workflowService,
-                mock(CollectionTaskService.class),
-                mock(StudioSecurityService.class),
-                mock(WorkerAuthorizationService.class)
+            mock(WorkflowDefinitionMapper.class),
+            workflowService,
+            mock(CollectionTaskService.class),
+            mock(QualityTaskService.class),
+            mock(StudioSecurityService.class),
+            mock(WorkerAuthorizationService.class)
         );
 
         dispatchService.continueWorkflowRun(successEvent(3000L, 10L, "B"));

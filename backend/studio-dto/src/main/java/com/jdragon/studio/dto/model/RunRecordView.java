@@ -17,6 +17,8 @@ public class RunRecordView extends BaseDefinition {
     private String workflowName;
     private Long collectionTaskId;
     private String collectionTaskName;
+    private Long qualityTaskId;
+    private String qualityTaskName;
     private String nodeCode;
     private String workerCode;
     private String status;

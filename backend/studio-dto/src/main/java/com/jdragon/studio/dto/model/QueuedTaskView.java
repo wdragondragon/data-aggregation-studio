@@ -16,6 +16,8 @@ public class QueuedTaskView extends BaseDefinition {
     private String workflowName;
     private Long collectionTaskId;
     private String collectionTaskName;
+    private Long qualityTaskId;
+    private String qualityTaskName;
     private String nodeCode;
     private String status;
     private String leaseOwner;

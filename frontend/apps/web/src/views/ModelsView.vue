@@ -93,7 +93,6 @@
           >
             <div class="model-query-group__header">
               <div class="model-query-group__meta">
-                <span class="model-query-group__label">{{ t("web.models.filterMetaModel") }}</span>
                 <el-select
                   v-model="group.metaSchemaCode"
                   clearable
@@ -109,8 +108,7 @@
                 </el-select>
               </div>
               <div v-if="isMultipleQuerySchema(group)" class="model-query-group__meta model-query-group__meta--compact">
-                <span class="model-query-group__label">{{ t("web.models.filterRowMatchMode") }}</span>
-                <el-select v-model="group.rowMatchMode">
+                <el-select v-model="group.rowMatchMode" :placeholder="t('web.models.filterRowMatchMode')">
                   <el-option :label="t('web.models.filterRowMatchSameItem')" value="SAME_ITEM" />
                   <el-option :label="t('web.models.filterRowMatchAnyItem')" value="ANY_ITEM" />
                 </el-select>
@@ -133,7 +131,6 @@
               >
                 <div class="model-query-condition__line">
                   <div class="model-query-condition__segment">
-                    <span class="model-query-condition__label">{{ t("web.models.filterField") }}</span>
                     <el-select
                       v-model="row.fieldKey"
                       clearable
@@ -149,7 +146,6 @@
                     </el-select>
                   </div>
                   <div class="model-query-condition__segment model-query-condition__segment--operator">
-                    <span class="model-query-condition__label">{{ t("web.models.filterOperator") }}</span>
                     <el-select
                       v-model="row.operator"
                       clearable
@@ -164,7 +160,6 @@
                     </el-select>
                   </div>
                   <div class="model-query-condition__segment model-query-condition__segment--value">
-                    <span class="model-query-condition__label">{{ t("web.models.filterValue") }}</span>
                     <div class="query-condition-value">
                       <el-input
                         v-if="row.operator === 'IN'"
@@ -247,7 +242,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="physicalLocator" :label="t('web.models.physicalLocator')" min-width="220" show-overflow-tooltip />
-          <el-table-column :label="t('web.metadata.actions')" width="140" align="center" header-align="center">
+        <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <OverflowActionGroup :items="buildModelActions(row)" />
             </template>
@@ -348,7 +343,7 @@
                   <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
                 </template>
               </el-table-column>
-              <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center">
+          <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
                 <template #default="{ row }">
                   <div class="sync-task-actions">
                     <el-button link type="primary" @click="openSyncTaskDetail(row)">查看</el-button>
@@ -698,7 +693,7 @@
                   </component>
                 </template>
               </el-table-column>
-              <el-table-column :label="t('web.metadata.actions')" width="100">
+            <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
                 <template #default="{ $index }">
                   <el-button link type="danger" @click="removeSectionRow(section, $index)">{{ t("common.remove") }}</el-button>
                 </template>
@@ -2464,15 +2459,6 @@ p {
 
 .model-query-group__meta--compact {
   max-width: 320px;
-}
-
-.model-query-group__label,
-.model-query-condition__label {
-  color: var(--studio-text-soft);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .model-query-group__actions {

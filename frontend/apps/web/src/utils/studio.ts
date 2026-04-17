@@ -119,6 +119,7 @@ export function formatNodeType(t: TranslateFn, nodeType?: string | null) {
   const value = normalizeEnumValue(nodeType);
   const mapping: Record<string, string> = {
     COLLECTION_TASK: "web.workflows.nodeTypeCollectionTask",
+    QUALITY_TASK: "routes.web.qualityTasks.title",
     DATA_SCRIPT: "web.workflows.nodeTypeDataScript",
     ETL_SINGLE: "web.workflows.nodeTypeEtlSingle",
     FUSION: "web.workflows.nodeTypeFusion",

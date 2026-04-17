@@ -8,6 +8,7 @@ import com.jdragon.studio.core.spi.WorkflowDispatcher;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.enums.EdgeCondition;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
+import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
@@ -36,6 +37,7 @@ public class DispatchService implements WorkflowDispatcher {
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final WorkflowService workflowService;
     private final CollectionTaskService collectionTaskService;
+    private final QualityTaskService qualityTaskService;
     private final StudioSecurityService securityService;
     private final WorkerAuthorizationService workerAuthorizationService;
 
@@ -44,6 +46,7 @@ public class DispatchService implements WorkflowDispatcher {
                            WorkflowDefinitionMapper workflowDefinitionMapper,
                            WorkflowService workflowService,
                            CollectionTaskService collectionTaskService,
+                           QualityTaskService qualityTaskService,
                            StudioSecurityService securityService,
                            WorkerAuthorizationService workerAuthorizationService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
@@ -51,6 +54,7 @@ public class DispatchService implements WorkflowDispatcher {
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowService = workflowService;
         this.collectionTaskService = collectionTaskService;
+        this.qualityTaskService = qualityTaskService;
         this.securityService = securityService;
         this.workerAuthorizationService = workerAuthorizationService;
     }
@@ -106,6 +110,26 @@ public class DispatchService implements WorkflowDispatcher {
     @Transactional
     public boolean triggerCollectionTaskIfIdle(Long collectionTaskId, Long runtimeProjectId) {
         return triggerCollectionTaskIfIdle(collectionTaskService.requireOnline(collectionTaskId), runtimeProjectId, false);
+    }
+
+    @Transactional
+    public void triggerQualityTask(Long qualityTaskId) {
+        QualityTaskDefinitionView definition = qualityTaskService.requireOnline(qualityTaskId);
+        Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
+        workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
+        if (!triggerQualityTaskIfIdle(definition, runtimeProjectId, true)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task already has an active run");
+        }
+    }
+
+    @Transactional
+    public boolean triggerQualityTaskIfIdle(Long qualityTaskId) {
+        return triggerQualityTaskIfIdle(qualityTaskId, null);
+    }
+
+    @Transactional
+    public boolean triggerQualityTaskIfIdle(Long qualityTaskId, Long runtimeProjectId) {
+        return triggerQualityTaskIfIdle(qualityTaskService.requireOnline(qualityTaskId), runtimeProjectId, false);
     }
 
     public List<DispatchTaskEntity> queuedTasks() {
@@ -184,6 +208,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setWorkflowDefinitionId(workflow.getId());
         task.setWorkflowVersionId(workflow.getVersionId());
         task.setCollectionTaskId(resolveCollectionTaskId(node));
+        task.setQualityTaskId(resolveQualityTaskId(node));
         task.setNodeCode(node.getNodeCode());
         task.setStatus("QUEUED");
         task.setAttempts(0);
@@ -227,6 +252,39 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("executionType", DispatchExecutionType.COLLECTION_TASK.name());
         payload.put("nodeType", "COLLECTION_TASK");
         payload.put("collectionTaskId", definition.getId());
+        payload.put("projectId", resolvedProjectId);
+        task.setPayloadJson(payload);
+        dispatchTaskMapper.insert(task);
+        return true;
+    }
+
+    private boolean triggerQualityTaskIfIdle(QualityTaskDefinitionView definition,
+                                             Long runtimeProjectId,
+                                             boolean workerRequired) {
+        Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
+        if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
+            if (workerRequired) {
+                workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), resolvedProjectId);
+            }
+            return false;
+        }
+        if (hasActiveQualityTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
+            return false;
+        }
+        DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setTenantId(definition.getTenantId());
+        task.setProjectId(resolvedProjectId);
+        task.setExecutionType(DispatchExecutionType.QUALITY_TASK.name());
+        task.setQualityTaskId(definition.getId());
+        task.setNodeCode("quality_task_" + definition.getId());
+        task.setStatus("QUEUED");
+        task.setAttempts(0);
+        task.setMaxRetries(3);
+        task.setTriggeredByUserId(securityService.currentUserId());
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("executionType", DispatchExecutionType.QUALITY_TASK.name());
+        payload.put("nodeType", "QUALITY_TASK");
+        payload.put("qualityTaskId", definition.getId());
         payload.put("projectId", resolvedProjectId);
         task.setPayloadJson(payload);
         dispatchTaskMapper.insert(task);
@@ -392,6 +450,26 @@ public class DispatchService implements WorkflowDispatcher {
         return activeRecords != null && activeRecords > 0;
     }
 
+    private boolean hasActiveQualityTaskRun(String tenantId, Long qualityTaskId, Long projectId) {
+        if (qualityTaskId == null || tenantId == null) {
+            return false;
+        }
+        Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, tenantId)
+                .eq(DispatchTaskEntity::getQualityTaskId, qualityTaskId)
+                .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
+        if (activeTasks != null && activeTasks > 0L) {
+            return true;
+        }
+        Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, tenantId)
+                .eq(RunRecordEntity::getQualityTaskId, qualityTaskId)
+                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
+                .eq(RunRecordEntity::getStatus, "RUNNING"));
+        return activeRecords != null && activeRecords > 0L;
+    }
+
     private WorkflowDefinitionView requireWorkflow(Long workflowDefinitionId) {
         WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
         if (workflow == null) {
@@ -410,6 +488,14 @@ public class DispatchService implements WorkflowDispatcher {
         }
         Object collectionTaskId = node.getConfig().get("collectionTaskId");
         return parseLong(collectionTaskId);
+    }
+
+    private Long resolveQualityTaskId(WorkflowNodeDefinition node) {
+        if (node.getConfig() == null) {
+            return null;
+        }
+        Object qualityTaskId = node.getConfig().get("qualityTaskId");
+        return parseLong(qualityTaskId);
     }
 
     private Long parseLong(Object value) {

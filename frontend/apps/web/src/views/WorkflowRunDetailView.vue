@@ -89,10 +89,10 @@
         </el-table-column>
         <el-table-column :label="t('web.runs.message')" min-width="280">
           <template #default="{ row }">
-            <div class="wrap-cell">{{ row.message || t("common.none") }}</div>
+            <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center">
+        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" :disabled="!row.runRecordId" @click="activeRunRecordId = row.runRecordId">
               {{ t("web.runs.viewLog") }}
@@ -102,7 +102,7 @@
       </el-table>
     </SectionCard>
 
-    <RunLogDrawer v-model="logVisible" :run-record-id="activeRunRecordId" />
+    <RunLogDrawer v-model="logVisible" :run-record-id="activeRunRecordId" variant="workflow" />
   </div>
 </template>
 
@@ -115,6 +115,7 @@ import type { WorkflowRunDetail } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
+import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";

@@ -32,6 +32,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private final FollowSubscriptionService followSubscriptionService;
     private final NotificationService notificationService;
     private final DataModelLineageService dataModelLineageService;
+    private final QualityIssueService qualityIssueService;
 
     public ExecutionEventService(RunRecordMapper runRecordMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
@@ -41,7 +42,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                                  RunMetricSummaryMapper runMetricSummaryMapper,
                                  FollowSubscriptionService followSubscriptionService,
                                  NotificationService notificationService,
-                                 DataModelLineageService dataModelLineageService) {
+                                 DataModelLineageService dataModelLineageService,
+                                 QualityIssueService qualityIssueService) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
@@ -51,6 +53,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         this.followSubscriptionService = followSubscriptionService;
         this.notificationService = notificationService;
         this.dataModelLineageService = dataModelLineageService;
+        this.qualityIssueService = qualityIssueService;
     }
 
     @Override
@@ -68,6 +71,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setWorkflowDefinitionId(event.getWorkflowDefinitionId());
         entity.setWorkflowVersionId(event.getWorkflowVersionId());
         entity.setCollectionTaskId(event.getCollectionTaskId());
+        entity.setQualityTaskId(event.getQualityTaskId());
         entity.setProjectId(event.getProjectId());
         entity.setNodeCode(event.getNodeCode());
         entity.setWorkerCode(event.getWorkerCode());
@@ -91,6 +95,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         }
         dispatchService.continueWorkflowRun(event);
         dataModelLineageService.updateCollectionTaskRunStatus(event);
+        qualityIssueService.handleExecutionEvent(event, entity);
         maybeNotifyCollectionTaskRun(entity, event);
         maybeNotifyWorkflowRun(entity, event);
     }

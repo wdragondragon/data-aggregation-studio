@@ -78,7 +78,7 @@
             </template>
           </el-table-column>
 
-          <el-table-column :label="t('fieldMapping.actions')" width="110">
+            <el-table-column :label="t('fieldMapping.actions')" width="110" fixed="right">
             <template #default="{ $index }">
               <el-button link type="danger" :disabled="form.sourceBindings.length === 1" @click="removeSourceBinding($index)">{{ t("common.remove") }}</el-button>
             </template>

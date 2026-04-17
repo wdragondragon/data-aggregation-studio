@@ -13,7 +13,7 @@
 
     <SectionCard :title="t('web.runMetrics.filterTitle')" :description="t('web.runMetrics.filterDescription')">
       <div class="studio-form-grid">
-        <el-form-item :label="t('web.runMetrics.datasourceLabel')">
+        <el-form-item>
           <el-select v-model="filters.datasourceId" clearable filterable :placeholder="t('web.runMetrics.datasourcePlaceholder')">
             <el-option
               v-for="item in options.datasources"
@@ -24,7 +24,7 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item :label="t('web.runMetrics.sourceModelLabel')">
+        <el-form-item>
           <el-select v-model="filters.sourceModelId" clearable filterable :placeholder="t('web.runMetrics.sourceModelPlaceholder')">
             <el-option
               v-for="item in options.sourceModels"
@@ -35,7 +35,7 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item :label="t('web.runMetrics.targetModelLabel')">
+        <el-form-item>
           <el-select v-model="filters.targetModelId" clearable filterable :placeholder="t('web.runMetrics.targetModelPlaceholder')">
             <el-option
               v-for="item in options.targetModels"
@@ -46,19 +46,26 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item :label="t('web.runMetrics.granularityLabel')">
-          <el-select v-model="filters.granularity">
+        <el-form-item>
+          <el-select v-model="filters.granularity" :placeholder="t('web.runMetrics.granularityLabel')">
             <el-option :label="t('web.runMetrics.granularityDay')" value="DAY" />
             <el-option :label="t('web.runMetrics.granularityWeek')" value="WEEK" />
             <el-option :label="t('web.runMetrics.granularityMonth')" value="MONTH" />
           </el-select>
         </el-form-item>
 
-        <el-form-item :label="t('web.runMetrics.topNLabel')">
-          <el-input-number v-model="filters.topN" :min="1" :max="100" controls-position="right" class="metrics-topn-input" />
+        <el-form-item>
+          <el-input-number
+            v-model="filters.topN"
+            :min="1"
+            :max="100"
+            controls-position="right"
+            class="metrics-topn-input"
+            :placeholder="t('web.runMetrics.topNLabel')"
+          />
         </el-form-item>
 
-        <el-form-item :label="t('web.runMetrics.timeRangeLabel')" class="run-metrics-time-range">
+        <el-form-item class="run-metrics-time-range">
           <el-date-picker
             v-model="timeRange"
             type="datetimerange"

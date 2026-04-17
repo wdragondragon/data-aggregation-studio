@@ -20,6 +20,7 @@ public class StudioSchemaUpgradeApplication {
         ConfigurableApplicationContext context = new SpringApplicationBuilder(StudioSchemaUpgradeApplication.class)
                 .web(WebApplicationType.NONE)
                 .logStartupInfo(false)
+                .properties("studio.schema.auto-upgrade-on-startup=false")
                 .run(args);
         int exitCode = 0;
         try {

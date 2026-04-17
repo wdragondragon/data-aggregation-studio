@@ -43,6 +43,7 @@ public class SecurityConfig {
                 .authorizeRequests()
                 .antMatchers(
                         "/api/v1/auth/**",
+                        "/openapi/data-services/**",
                         "/actuator/health/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",

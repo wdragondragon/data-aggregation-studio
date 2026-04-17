@@ -32,8 +32,9 @@ public class InternalRunLogController {
 
     @GetMapping("/{id}/log")
     public Result<RunLogView> viewLog(@PathVariable("id") Long id,
-                                      @RequestParam(value = "maxBytes", required = false) Integer maxBytes) {
-        return Result.success(runLogFileService.readTail(requiredRecord(id), maxBytes));
+                                      @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                      @RequestParam(value = "pageSizeBytes", required = false) Integer pageSizeBytes) {
+        return Result.success(runLogFileService.readPage(requiredRecord(id), pageNo, pageSizeBytes));
     }
 
     @GetMapping("/{id}/log/download")

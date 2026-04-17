@@ -7,12 +7,14 @@ import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.core.spi.ExecutionEventPublisher;
+import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
 import org.junit.jupiter.api.Test;
@@ -53,10 +55,11 @@ class WorkerLifecycleRunnerRegressionTest {
                 mock(com.jdragon.studio.infra.mapper.DispatchTaskMapper.class),
                 mock(com.jdragon.studio.infra.mapper.WorkerLeaseMapper.class),
                 mock(com.jdragon.studio.infra.mapper.RunRecordMapper.class),
-                Collections.emptyList(),
+                Collections.<NodeExecutor>emptyList(),
                 mock(com.jdragon.studio.core.spi.ExecutionEventPublisher.class),
                 new StudioPlatformProperties(),
                 collectionTaskService,
+                mock(QualityTaskService.class),
                 assemblerService,
                 mock(RunLogFileService.class)
         );
@@ -130,10 +133,11 @@ class WorkerLifecycleRunnerRegressionTest {
                 dispatchTaskMapper,
                 workerLeaseMapper,
                 runRecordMapper,
-                Collections.emptyList(),
+                Collections.<NodeExecutor>emptyList(),
                 executionEventPublisher,
                 properties,
                 collectionTaskService,
+                mock(QualityTaskService.class),
                 assemblerService,
                 runLogFileService
         );

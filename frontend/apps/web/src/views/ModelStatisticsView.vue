@@ -44,14 +44,18 @@
 
       <div v-show="setupExpanded" class="statistics-setup-panel">
         <div class="studio-form-grid">
-          <el-form-item :label="t('web.statistics.targetScopeLabel')">
-            <el-select v-model="selectedTargetScope" @change="handleTargetScopeChange">
+          <el-form-item>
+            <el-select
+              v-model="selectedTargetScope"
+              :placeholder="t('web.statistics.targetScopeLabel')"
+              @change="handleTargetScopeChange"
+            >
               <el-option :label="t('web.statistics.targetScopeBusiness')" value="BUSINESS" />
               <el-option :label="t('web.statistics.targetScopeTechnical')" value="TECHNICAL" />
             </el-select>
           </el-form-item>
 
-          <el-form-item :label="t('web.statistics.datasourceTypeLabel')">
+          <el-form-item>
             <el-select
               v-model="selectedDatasourceType"
               clearable
@@ -62,7 +66,7 @@
             </el-select>
           </el-form-item>
 
-          <el-form-item :label="t('web.models.datasourceLabel')">
+          <el-form-item>
             <el-select
               v-model="selectedDatasourceId"
               clearable
@@ -79,7 +83,7 @@
             </el-select>
           </el-form-item>
 
-          <el-form-item :label="t('web.statistics.targetMetaModelLabel')">
+          <el-form-item>
             <el-select
               v-model="targetMetaSchemaCode"
               clearable
@@ -96,7 +100,7 @@
             </el-select>
           </el-form-item>
 
-          <el-form-item :label="t('web.statistics.targetFieldLabel')">
+          <el-form-item>
             <el-select
               v-model="targetFieldKey"
               clearable
@@ -131,7 +135,7 @@
 
         <div v-for="group in queryGroups" :key="group.key" class="soft-panel model-query-group">
           <div class="studio-form-grid">
-            <el-form-item :label="t('web.models.filterMetaModel')">
+            <el-form-item>
               <el-select
                 v-model="group.metaSchemaCode"
                 clearable
@@ -148,8 +152,8 @@
               </el-select>
             </el-form-item>
 
-            <el-form-item v-if="isMultipleQuerySchema(group)" :label="t('web.models.filterRowMatchMode')">
-              <el-select v-model="group.rowMatchMode">
+            <el-form-item v-if="isMultipleQuerySchema(group)">
+              <el-select v-model="group.rowMatchMode" :placeholder="t('web.models.filterRowMatchMode')">
                 <el-option :label="t('web.models.filterRowMatchSameItem')" value="SAME_ITEM" />
                 <el-option :label="t('web.models.filterRowMatchAnyItem')" value="ANY_ITEM" />
               </el-select>
@@ -236,7 +240,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column :label="t('web.metadata.actions')" width="100">
+            <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
               <template #default="{ $index }">
                 <el-button link type="danger" @click="removeQueryCondition(group, $index)">{{ t("common.remove") }}</el-button>
               </template>

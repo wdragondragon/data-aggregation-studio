@@ -233,6 +233,56 @@ create table if not exists field_mapping_rule_param (
     key idx_field_mapping_rule_param_rule_name (rule_id, param_name)
 );
 
+create table if not exists quality_rule (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    created_by bigint,
+    rule_name varchar(255) not null,
+    rule_code varchar(255) not null,
+    scope_type varchar(32) not null,
+    rule_dimension varchar(64) not null,
+    description varchar(2000),
+    supported_datasource_types_json json,
+    granularity varchar(32) not null,
+    logic_sql text,
+    enabled int default 1,
+    unique key uk_quality_rule_scope_code (tenant_id, project_id, scope_type, rule_code),
+    key idx_quality_rule_scope_enabled (tenant_id, project_id, scope_type, enabled),
+    key idx_quality_rule_dimension_enabled (rule_dimension, enabled)
+);
+
+create table if not exists quality_rule_input_param (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    rule_id bigint not null,
+    param_order int not null,
+    param_name varchar(255) not null,
+    param_type varchar(32) not null,
+    param_meaning varchar(1000),
+    key idx_quality_rule_input_param_rule_order (rule_id, param_order),
+    key idx_quality_rule_input_param_rule_name (rule_id, param_name)
+);
+
+create table if not exists quality_rule_output_param (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    rule_id bigint not null,
+    output_order int not null,
+    result_field varchar(255) not null,
+    output_type varchar(32) not null,
+    output_description varchar(1000),
+    key idx_quality_rule_output_param_rule_order (rule_id, output_order),
+    key idx_quality_rule_output_param_rule_field (rule_id, result_field)
+);
+
 create table if not exists user_registration_request (
     id bigint primary key,
     deleted int default 0,
@@ -575,6 +625,405 @@ create table if not exists collection_task_schedule (
     key idx_collection_task_schedule_project (project_id)
 );
 
+create table if not exists quality_task_definition (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    created_by bigint,
+    task_name varchar(255) not null,
+    task_code varchar(255) not null,
+    status varchar(64),
+    rule_id bigint not null,
+    rule_name_snapshot varchar(255),
+    rule_dimension varchar(64),
+    granularity varchar(32),
+    datasource_id bigint,
+    datasource_name_snapshot varchar(255),
+    datasource_type_code varchar(128),
+    model_id bigint,
+    model_name_snapshot varchar(255),
+    model_physical_locator varchar(500),
+    column_name varchar(255),
+    where_clause text,
+    resolved_sql_preview text,
+    parameter_bindings_json json,
+    rule_snapshot_json json,
+    unique key uk_quality_task_definition_project_code (project_id, task_code),
+    unique key uk_quality_task_definition_project_name (project_id, task_name),
+    key idx_quality_task_definition_project_status (project_id, status),
+    key idx_quality_task_definition_rule_dimension (project_id, rule_dimension)
+);
+
+create table if not exists quality_task_schedule (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    quality_task_id bigint,
+    cron_expression varchar(255),
+    enabled int default 0,
+    timezone varchar(64),
+    last_triggered_at datetime,
+    key idx_quality_task_schedule_project (project_id),
+    key idx_quality_task_schedule_task (quality_task_id)
+);
+
+create table if not exists quality_task_alert (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    quality_task_id bigint not null,
+    output_order int not null,
+    result_field varchar(255) not null,
+    output_type varchar(32) not null,
+    enabled int default 0,
+    operator varchar(32),
+    expected_value varchar(255),
+    min_value varchar(255),
+    max_value varchar(255),
+    key idx_quality_task_alert_task (quality_task_id),
+    key idx_quality_task_alert_task_order (quality_task_id, output_order)
+);
+
+create table if not exists quality_issue (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    issue_code varchar(64),
+    signature varchar(1024) not null,
+    issue_type varchar(64),
+    quality_task_id bigint,
+    quality_task_name_snapshot varchar(255),
+    rule_id bigint,
+    rule_name_snapshot varchar(255),
+    rule_dimension varchar(64),
+    datasource_id bigint,
+    datasource_name_snapshot varchar(255),
+    datasource_type_code varchar(128),
+    model_id bigint,
+    model_name_snapshot varchar(255),
+    model_physical_locator varchar(500),
+    column_name varchar(255),
+    output_field varchar(255),
+    granularity varchar(32),
+    title varchar(255),
+    latest_message varchar(2000),
+    severity varchar(32),
+    system_severity varchar(32),
+    manual_severity varchar(32),
+    status varchar(32),
+    assignee_user_id bigint,
+    assignee_name_snapshot varchar(255),
+    first_seen_at datetime,
+    last_seen_at datetime,
+    last_recovery_at datetime,
+    sla_due_at datetime,
+    occurrence_count int default 0,
+    consecutive_failure_count int default 0,
+    reopen_count int default 0,
+    last_run_record_id bigint,
+    last_run_status varchar(32),
+    current_evidence_json json,
+    unique key uk_quality_issue_signature (tenant_id, project_id, signature(255)),
+    key idx_quality_issue_status_severity (project_id, status, severity),
+    key idx_quality_issue_asset (project_id, datasource_id, model_id),
+    key idx_quality_issue_task (project_id, quality_task_id),
+    key idx_quality_issue_last_seen (project_id, last_seen_at)
+);
+
+create table if not exists quality_issue_comment (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    issue_id bigint not null,
+    author_user_id bigint,
+    author_name_snapshot varchar(255),
+    content text,
+    key idx_quality_issue_comment_issue (issue_id, created_at)
+);
+
+create table if not exists quality_issue_event (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    issue_id bigint not null,
+    event_type varchar(64),
+    event_title varchar(255),
+    event_message text,
+    actor_user_id bigint,
+    actor_name_snapshot varchar(255),
+    metadata_json json,
+    key idx_quality_issue_event_issue (issue_id, created_at),
+    key idx_quality_issue_event_project_type (project_id, event_type, created_at)
+);
+
+create table if not exists quality_metric_snapshot (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    snapshot_date date,
+    datasource_id bigint,
+    datasource_name_snapshot varchar(255),
+    datasource_type_code varchar(128),
+    model_id bigint,
+    model_name_snapshot varchar(255),
+    model_physical_locator varchar(500),
+    rule_dimension varchar(64),
+    execution_health_score bigint,
+    governance_risk_score bigint,
+    active_issue_count bigint,
+    overdue_issue_count bigint,
+    coverage_rate bigint,
+    failure_rate bigint,
+    affected_asset_count bigint,
+    reopen_rate bigint,
+    key idx_quality_metric_snapshot_project_date (project_id, snapshot_date),
+    key idx_quality_metric_snapshot_asset (project_id, datasource_id, model_id, snapshot_date),
+    key idx_quality_metric_snapshot_dimension (project_id, rule_dimension, snapshot_date)
+);
+
+create table if not exists data_service_definition (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    created_by bigint,
+    service_code varchar(128) not null,
+    service_name varchar(255) not null,
+    service_type varchar(64) not null,
+    status varchar(64) not null,
+    source_type varchar(64) not null,
+    datasource_id bigint,
+    datasource_name_snapshot varchar(255),
+    datasource_type_code varchar(128),
+    model_id bigint,
+    model_name_snapshot varchar(255),
+    model_physical_locator varchar(1000),
+    custom_sql longtext,
+    request_method varchar(32),
+    response_type varchar(32),
+    endpoint_path varchar(1000),
+    service_key varchar(128),
+    cache_enabled int default 0,
+    unique key uk_data_service_project_code (tenant_id, project_id, service_code),
+    key idx_data_service_project_status (project_id, status),
+    key idx_data_service_code_key (service_code, service_key)
+);
+
+create table if not exists data_service_request_param (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null,
+    sort_order int,
+    param_name varchar(128) not null,
+    field_name varchar(255),
+    value_type varchar(64),
+    query_operator varchar(64),
+    required int default 0,
+    description varchar(1000),
+    fixed_param int default 0,
+    key idx_data_service_request_service_order (service_id, sort_order)
+);
+
+create table if not exists data_service_response_param (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null,
+    sort_order int,
+    enabled int default 1,
+    param_name varchar(128) not null,
+    field_name varchar(255) not null,
+    example_value varchar(1000),
+    description varchar(1000),
+    key idx_data_service_response_service_order (service_id, sort_order)
+);
+
+create table if not exists data_service_publish_param (
+    id bigint primary key,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null,
+    sort_order int,
+    frontend_param_name varchar(128) not null,
+    backend_param_name varchar(128) not null,
+    position varchar(32),
+    value_type varchar(64),
+    example_value varchar(1000),
+    default_value varchar(1000),
+    required int default 0,
+    description varchar(1000),
+    key idx_data_service_publish_service_order (service_id, sort_order)
+);
+
+create table if not exists data_service_subscription (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null,
+    subscription_name varchar(255) not null,
+    token_hash varchar(128) not null,
+    enabled int default 1,
+    created_by bigint,
+    last_used_at datetime,
+    key idx_data_service_subscription_service_enabled (service_id, enabled),
+    key idx_data_service_subscription_token (token_hash)
+);
+
+create table if not exists data_service_access_log (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint,
+    service_code_snapshot varchar(255),
+    service_name_snapshot varchar(255),
+    service_status_snapshot varchar(64),
+    subscription_id bigint,
+    subscription_name_snapshot varchar(255),
+    request_method varchar(16),
+    occurred_at datetime,
+    duration_ms bigint,
+    success int default 0,
+    http_status int,
+    error_code varchar(128),
+    error_message varchar(1000),
+    client_ip varchar(128),
+    user_agent varchar(500),
+    cache_enabled int default 0,
+    cache_hit int default 0,
+    row_count bigint default 0,
+    key idx_data_service_access_project_time (tenant_id, project_id, occurred_at),
+    key idx_data_service_access_service_time (service_id, occurred_at),
+    key idx_data_service_access_subscription_time (subscription_id, occurred_at),
+    key idx_data_service_access_success (project_id, success, occurred_at),
+    key idx_data_service_access_cache (project_id, cache_hit, occurred_at)
+);
+
+set @data_service_access_log_cache_enabled_ddl = (
+    select if(
+        exists(
+            select 1
+            from information_schema.columns
+            where table_schema = database()
+              and table_name = 'data_service_access_log'
+              and column_name = 'cache_enabled'
+        ),
+        'select 1',
+        'alter table data_service_access_log add column cache_enabled int default 0 after user_agent'
+    )
+);
+prepare stmt_data_service_access_log_cache_enabled from @data_service_access_log_cache_enabled_ddl;
+execute stmt_data_service_access_log_cache_enabled;
+deallocate prepare stmt_data_service_access_log_cache_enabled;
+
+update data_service_access_log
+set cache_enabled = 1
+where cache_hit = 1
+  and (cache_enabled is null or cache_enabled <> 1);
+
+create table if not exists data_service_access_counter (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null default 0,
+    subscription_id bigint not null default 0,
+    bucket_start datetime not null,
+    success int not null default 0,
+    cache_enabled int not null default 0,
+    cache_hit int not null default 0,
+    access_count bigint default 0,
+    row_count bigint default 0,
+    unique key uk_data_service_access_counter (tenant_id, project_id, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit),
+    key idx_data_service_counter_project_bucket (tenant_id, project_id, bucket_start),
+    key idx_data_service_counter_service_bucket (service_id, bucket_start)
+);
+
+insert ignore into data_service_access_counter (
+    id,
+    tenant_id,
+    project_id,
+    deleted,
+    created_at,
+    updated_at,
+    service_id,
+    subscription_id,
+    bucket_start,
+    success,
+    cache_enabled,
+    cache_hit,
+    access_count,
+    row_count
+)
+select
+    cast(conv(substr(md5(concat(t.tenant_id, '|', t.project_id, '|', t.service_id, '|', t.subscription_id, '|', date_format(t.bucket_start, '%Y-%m-%d %H:%i:%s'), '|', t.success, '|', t.cache_enabled, '|', t.cache_hit)), 1, 15), 16, 10) as unsigned) as id,
+    t.tenant_id,
+    t.project_id,
+    0,
+    current_timestamp,
+    current_timestamp,
+    t.service_id,
+    t.subscription_id,
+    t.bucket_start,
+    t.success,
+    t.cache_enabled,
+    t.cache_hit,
+    t.access_count,
+    t.row_count
+from (
+    select
+        tenant_id,
+        project_id,
+        coalesce(service_id, 0) as service_id,
+        coalesce(subscription_id, 0) as subscription_id,
+        str_to_date(date_format(coalesce(occurred_at, created_at), '%Y-%m-%d %H:00:00'), '%Y-%m-%d %H:%i:%s') as bucket_start,
+        case when success = 1 then 1 else 0 end as success,
+        case when cache_enabled = 1 then 1 else 0 end as cache_enabled,
+        case when cache_enabled = 1 and cache_hit = 1 then 1 else 0 end as cache_hit,
+        count(*) as access_count,
+        coalesce(sum(row_count), 0) as row_count
+    from data_service_access_log
+    where deleted = 0
+      and project_id is not null
+      and service_id is not null
+      and coalesce(occurred_at, created_at) is not null
+    group by tenant_id, project_id, coalesce(service_id, 0), coalesce(subscription_id, 0), bucket_start, success, cache_enabled, cache_hit
+) t;
+
 create table if not exists data_dev_directory (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
@@ -633,6 +1082,23 @@ create table if not exists dispatch_task (
     key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id)
 );
 
+set @dispatch_task_quality_task_id_ddl = (
+    select if(
+        exists(
+            select 1
+            from information_schema.columns
+            where table_schema = database()
+              and table_name = 'dispatch_task'
+              and column_name = 'quality_task_id'
+        ),
+        'select 1',
+        'alter table dispatch_task add column quality_task_id bigint after collection_task_id'
+    )
+);
+prepare stmt_dispatch_task_quality_task_id from @dispatch_task_quality_task_id_ddl;
+execute stmt_dispatch_task_quality_task_id;
+deallocate prepare stmt_dispatch_task_quality_task_id;
+
 create table if not exists run_record (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
@@ -671,6 +1137,23 @@ create table if not exists run_record (
     key idx_run_record_project_workflow_run (project_id, workflow_run_id),
     key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at)
 );
+
+set @run_record_quality_task_id_ddl = (
+    select if(
+        exists(
+            select 1
+            from information_schema.columns
+            where table_schema = database()
+              and table_name = 'run_record'
+              and column_name = 'quality_task_id'
+        ),
+        'select 1',
+        'alter table run_record add column quality_task_id bigint after collection_task_id'
+    )
+);
+prepare stmt_run_record_quality_task_id from @run_record_quality_task_id_ddl;
+execute stmt_run_record_quality_task_id;
+deallocate prepare stmt_run_record_quality_task_id;
 
 create table if not exists data_model_lineage_relation (
     id bigint primary key,

@@ -31,6 +31,18 @@ import type {
   DataModelStatisticsView,
   DataModelSaveRequest,
   DataSourceDefinition,
+  DataServiceDefinitionView,
+  DataServiceDebugRequest,
+  DataServiceInvokeResponse,
+  DataServiceAccessLogView,
+  DataServiceApiMetricView,
+  DataServiceMetricDashboardView,
+  DataServiceMetricOptionsView,
+  DataServiceMetricQueryRequest,
+  DataServiceResolveFieldsRequest,
+  DataServiceResolveFieldsView,
+  DataServiceSaveRequest,
+  DataServiceSubscriptionView,
   EntityId,
   ExportProjectBundle,
   FieldMappingRuleSaveRequest,
@@ -52,6 +64,29 @@ import type {
   PermissionEntity,
   PageResult,
   PluginCatalogEntry,
+  QualityRuleParseRequest,
+  QualityRuleParseResult,
+  QualityRuleSaveRequest,
+  QualityRuleValidationResult,
+  QualityRuleValidateRequest,
+  QualityRuleView,
+  QualityTaskDefinitionView,
+  QualityMetricOptionsView,
+  QualityMetricDashboardView,
+  QualityMetricDashboardQueryRequest,
+  QualityAssetRiskView,
+  QualityAssetDetailView,
+  QualityAssetQueryRequest,
+  QualityIssueView,
+  QualityIssueDetailView,
+  QualityIssueQueryRequest,
+  QualityIssueAssignRequest,
+  QualityIssueStatusRequest,
+  QualityIssueSeverityRequest,
+  QualityIssueCommentRequest,
+  QualityTaskPreviewView,
+  QualityTaskSaveRequest,
+  QualityTaskValidationView,
   Result,
   RunMetricDashboardQueryRequest,
   RunMetricDashboardResponse,
@@ -59,6 +94,7 @@ import type {
   RunListQuery,
   RoleEntity,
   RunListResponse,
+  RunLogQuery,
   RunLogView,
   RunRecord,
   ScriptType,
@@ -241,6 +277,50 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         });
       },
     },
+    qualityRules: {
+      list(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        ruleDimension?: string;
+        scopeType?: string;
+        enabled?: boolean;
+      }) {
+        return request<PageResult<QualityRuleView>>({ url: "/quality-rules", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<QualityRuleView>({ url: `/quality-rules/${id}`, method: "GET" });
+      },
+      save(payload: QualityRuleSaveRequest) {
+        return request<QualityRuleView>({ url: "/quality-rules", method: "POST", data: payload });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/quality-rules/${id}`, method: "DELETE" });
+      },
+      batchDelete(ids: EntityId[]) {
+        return request<void>({ url: "/quality-rules/batch-delete", method: "POST", data: { ids } });
+      },
+      enable(id: EntityId) {
+        return request<QualityRuleView>({ url: `/quality-rules/${id}/enable`, method: "POST" });
+      },
+      disable(id: EntityId) {
+        return request<QualityRuleView>({ url: `/quality-rules/${id}/disable`, method: "POST" });
+      },
+      parse(payload: QualityRuleParseRequest) {
+        return request<QualityRuleParseResult>({ url: "/quality-rules/parse-params", method: "POST", data: payload });
+      },
+      validate(payload: QualityRuleValidateRequest) {
+        return request<QualityRuleValidationResult>({ url: "/quality-rules/validate", method: "POST", data: payload });
+      },
+      options(params?: {
+        ruleDimension?: string;
+        granularity?: string;
+        datasourceType?: string;
+        enabledOnly?: boolean;
+      }) {
+        return request<QualityRuleView[]>({ url: "/quality-rules/options", method: "GET", params });
+      },
+    },
     metaSchemas: {
       list() {
         return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas", method: "GET" });
@@ -294,6 +374,78 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       delete(id: EntityId) {
         return request<void>({ url: `/datasources/${id}`, method: "DELETE" });
+      },
+    },
+    dataServices: {
+      list(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        status?: string;
+        serviceType?: string;
+      }) {
+        return request<PageResult<DataServiceDefinitionView>>({ url: "/data-services", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<DataServiceDefinitionView>({ url: `/data-services/${id}`, method: "GET" });
+      },
+      save(payload: DataServiceSaveRequest) {
+        return request<DataServiceDefinitionView>({ url: "/data-services", method: "POST", data: payload });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/data-services/${id}`, method: "DELETE" });
+      },
+      publish(id: EntityId) {
+        return request<DataServiceDefinitionView>({ url: `/data-services/${id}/publish`, method: "POST" });
+      },
+      offline(id: EntityId) {
+        return request<DataServiceDefinitionView>({ url: `/data-services/${id}/offline`, method: "POST" });
+      },
+      resolveFields(payload: DataServiceResolveFieldsRequest) {
+        return request<DataServiceResolveFieldsView>({ url: "/data-services/resolve-fields", method: "POST", data: payload });
+      },
+      async debug(id: EntityId, payload: DataServiceDebugRequest) {
+        const response = await instance.request<Result<DataServiceInvokeResponse>>({ url: `/data-services/${id}/debug`, method: "POST", data: payload });
+        if (!response.data.success) {
+          throw new Error(response.data.message || "Request failed");
+        }
+        return response.data;
+      },
+      listSubscriptions(id: EntityId) {
+        return request<DataServiceSubscriptionView[]>({ url: `/data-services/${id}/subscriptions`, method: "GET" });
+      },
+      createSubscription(id: EntityId, subscriptionName: string) {
+        return request<DataServiceSubscriptionView>({
+          url: `/data-services/${id}/subscriptions`,
+          method: "POST",
+          data: { subscriptionName },
+        });
+      },
+      disableSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<DataServiceSubscriptionView>({
+          url: `/data-services/${id}/subscriptions/${subscriptionId}/disable`,
+          method: "POST",
+        });
+      },
+      enableSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<DataServiceSubscriptionView>({
+          url: `/data-services/${id}/subscriptions/${subscriptionId}/enable`,
+          method: "POST",
+        });
+      },
+    },
+    dataServiceMetrics: {
+      options() {
+        return request<DataServiceMetricOptionsView>({ url: "/data-service-metrics/options", method: "GET" });
+      },
+      queryDashboard(payload?: DataServiceMetricQueryRequest) {
+        return request<DataServiceMetricDashboardView>({ url: "/data-service-metrics/dashboard/query", method: "POST", data: payload });
+      },
+      queryApiStats(payload?: DataServiceMetricQueryRequest) {
+        return request<PageResult<DataServiceApiMetricView>>({ url: "/data-service-metrics/api-stats/query", method: "POST", data: payload });
+      },
+      queryAccessLogs(payload?: DataServiceMetricQueryRequest) {
+        return request<PageResult<DataServiceAccessLogView>>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload });
       },
     },
     models: {
@@ -545,6 +697,113 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<void>({ url: `/collection-tasks/${id}`, method: "DELETE" });
       },
     },
+    qualityTasks: {
+      listPage(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        status?: string;
+        ruleDimension?: string;
+        granularity?: string;
+      }) {
+        return request<unknown>({ url: "/quality-tasks", method: "GET", params }).then((payload) =>
+          normalizePageResult<QualityTaskDefinitionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      async list(params?: {
+        keyword?: string;
+        status?: string;
+        ruleDimension?: string;
+        granularity?: string;
+      }) {
+        const pageSize = 200;
+        const firstPagePayload = await request<unknown>({
+          url: "/quality-tasks",
+          method: "GET",
+          params: {
+            ...params,
+            pageNo: 1,
+            pageSize,
+          },
+        });
+        const firstPage = normalizePageResult<QualityTaskDefinitionView>(firstPagePayload, 1, pageSize);
+        const items = [...firstPage.items];
+        const totalPages = Math.ceil(firstPage.total / pageSize);
+        for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
+          const pagePayload = await request<unknown>({
+            url: "/quality-tasks",
+            method: "GET",
+            params: {
+              ...params,
+              pageNo,
+              pageSize,
+            },
+          });
+          const page = normalizePageResult<QualityTaskDefinitionView>(pagePayload, pageNo, pageSize);
+          items.push(...page.items);
+        }
+        return items;
+      },
+      listOnline() {
+        return request<QualityTaskDefinitionView[]>({ url: "/quality-tasks/online", method: "GET" });
+      },
+      get(id: EntityId) {
+        return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}`, method: "GET" });
+      },
+      save(payload: QualityTaskSaveRequest) {
+        return request<QualityTaskDefinitionView>({ url: "/quality-tasks", method: "POST", data: payload });
+      },
+      preview(payload: QualityTaskSaveRequest) {
+        return request<QualityTaskPreviewView>({ url: "/quality-tasks/preview", method: "POST", data: payload });
+      },
+      validate(payload: QualityTaskSaveRequest) {
+        return request<QualityTaskValidationView>({ url: "/quality-tasks/validate", method: "POST", data: payload });
+      },
+      publish(id: EntityId) {
+        return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}/online`, method: "POST" });
+      },
+      saveSchedule(id: EntityId, payload: CollectionTaskScheduleDefinition) {
+        return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}/schedule`, method: "POST", data: payload });
+      },
+      trigger(id: EntityId) {
+        return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}/trigger`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/quality-tasks/${id}`, method: "DELETE" });
+      },
+    },
+    qualityMetrics: {
+      options() {
+        return request<QualityMetricOptionsView>({ url: "/quality-metrics/options", method: "GET" });
+      },
+      queryDashboard(payload?: QualityMetricDashboardQueryRequest) {
+        return request<QualityMetricDashboardView>({ url: "/quality-metrics/dashboard/query", method: "POST", data: payload });
+      },
+      queryAssets(payload?: QualityAssetQueryRequest) {
+        return request<QualityAssetRiskView[]>({ url: "/quality-metrics/assets/query", method: "POST", data: payload });
+      },
+      getAsset(assetId: string, params?: { startTime?: string; endTime?: string }) {
+        return request<QualityAssetDetailView>({ url: `/quality-metrics/assets/${assetId}`, method: "GET", params });
+      },
+      queryIssues(payload?: QualityIssueQueryRequest) {
+        return request<QualityIssueView[]>({ url: "/quality-metrics/issues/query", method: "POST", data: payload });
+      },
+      getIssue(id: EntityId) {
+        return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}`, method: "GET" });
+      },
+      assignIssue(id: EntityId, payload?: QualityIssueAssignRequest) {
+        return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}/assign`, method: "POST", data: payload });
+      },
+      updateIssueStatus(id: EntityId, payload: QualityIssueStatusRequest) {
+        return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}/status`, method: "POST", data: payload });
+      },
+      updateIssueSeverity(id: EntityId, payload: QualityIssueSeverityRequest) {
+        return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}/severity`, method: "POST", data: payload });
+      },
+      addIssueComment(id: EntityId, payload: QualityIssueCommentRequest) {
+        return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}/comment`, method: "POST", data: payload });
+      },
+    },
     dataDevelopment: {
       tree() {
         return request<DataDevelopmentTreeNode[]>({ url: "/data-development/tree", method: "GET" });
@@ -583,6 +842,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       listSqlDatasources() {
         return request<DataSourceDefinition[]>({ url: "/data-development/datasources", method: "GET" });
       },
+      listSqlDatasourceTypes() {
+        return request<string[]>({ url: "/data-development/datasource-types", method: "GET" });
+      },
       executeSql(payload: SqlExecutionRequest) {
         return request<SqlExecutionResult>({ url: "/data-development/sql/execute", method: "POST", data: payload });
       },
@@ -606,8 +868,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       get(id: EntityId) {
         return request<RunRecord>({ url: `/runs/${id}`, method: "GET" });
       },
-      getLog(id: EntityId) {
-        return request<RunLogView>({ url: `/runs/${id}/log`, method: "GET" });
+      getLog(id: EntityId, params?: RunLogQuery) {
+        return request<RunLogView>({ url: `/runs/${id}/log`, method: "GET", params });
       },
       downloadLog(id: EntityId) {
         return request<RunLogView>({ url: `/runs/${id}/log/download`, method: "GET" });

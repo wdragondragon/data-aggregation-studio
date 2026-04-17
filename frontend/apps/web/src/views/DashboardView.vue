@@ -85,7 +85,7 @@
                   <span>{{ t("web.dashboard.runStarted") }}: {{ run.startedAt || t("common.none") }}</span>
                   <span>{{ t("web.dashboard.runDuration") }}: {{ formatDuration(run.durationMs) }}</span>
                 </div>
-                <p class="dashboard-list-item__message">{{ run.summaryMessage || t("common.none") }}</p>
+                <MessagePreviewText class="dashboard-list-item__message" :text="run.summaryMessage" :empty-text="t('common.none')" />
               </div>
               <span class="dashboard-list-item__action">{{ t("web.dashboard.openRun") }}</span>
             </button>
@@ -226,6 +226,7 @@ import type {
 } from "@studio/api-sdk";
 import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import { formatScriptType, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 

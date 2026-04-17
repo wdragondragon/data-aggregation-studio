@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.dto.model.QueuedTaskView;
 import com.jdragon.studio.dto.model.RunListView;
 import com.jdragon.studio.dto.model.RunRecordView;
+import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
@@ -28,6 +29,7 @@ public class RunService {
     private final DispatchTaskMapper dispatchTaskMapper;
     private final RunRecordMapper runRecordMapper;
     private final CollectionTaskService collectionTaskService;
+    private final QualityTaskService qualityTaskService;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final StudioSecurityService securityService;
     private final RunMetricSummaryMapper runMetricSummaryMapper;
@@ -35,29 +37,34 @@ public class RunService {
     public RunService(DispatchTaskMapper dispatchTaskMapper,
                       RunRecordMapper runRecordMapper,
                       CollectionTaskService collectionTaskService,
+                      QualityTaskService qualityTaskService,
                       WorkflowDefinitionMapper workflowDefinitionMapper,
                       StudioSecurityService securityService,
                       RunMetricSummaryMapper runMetricSummaryMapper) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.collectionTaskService = collectionTaskService;
+        this.qualityTaskService = qualityTaskService;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.securityService = securityService;
         this.runMetricSummaryMapper = runMetricSummaryMapper;
     }
 
     public RunListView list(Long collectionTaskId,
+                            Long qualityTaskId,
                             Long workflowDefinitionId,
                             LocalDateTime startTime,
                             LocalDateTime endTime) {
         RunListView view = new RunListView();
         Map<Long, String> collectionTaskNames = collectionTaskNames();
+        Map<Long, String> qualityTaskNames = qualityTaskNames();
         Map<Long, String> workflowNames = workflowNames();
         String currentTenantId = securityService.currentTenantId();
         Long currentProjectId = securityService.currentProjectId();
         List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                 .eq(collectionTaskId != null, DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
+                .eq(qualityTaskId != null, DispatchTaskEntity::getQualityTaskId, qualityTaskId)
                 .eq(workflowDefinitionId != null, DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
                 .eq(currentProjectId != null, DispatchTaskEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, DispatchTaskEntity::getCreatedAt, startTime)
@@ -65,25 +72,26 @@ public class RunService {
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING")
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
         for (DispatchTaskEntity entity : queued) {
-            view.getQueuedTasks().add(toQueuedTaskView(entity, collectionTaskNames, workflowNames));
+            view.getQueuedTasks().add(toQueuedTaskView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
         }
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getTenantId, currentTenantId)
                 .eq(collectionTaskId != null, RunRecordEntity::getCollectionTaskId, collectionTaskId)
+                .eq(qualityTaskId != null, RunRecordEntity::getQualityTaskId, qualityTaskId)
                 .eq(workflowDefinitionId != null, RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
                 .eq(currentProjectId != null, RunRecordEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, RunRecordEntity::getCreatedAt, startTime)
                 .le(endTime != null, RunRecordEntity::getCreatedAt, endTime)
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         for (RunRecordEntity entity : records) {
-            view.getRunRecords().add(toRunRecordView(entity, collectionTaskNames, workflowNames));
+            view.getRunRecords().add(toRunRecordView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
         }
         return view;
     }
 
     public RunRecordView get(Long runRecordId) {
         RunRecordEntity entity = getEntity(runRecordId);
-        return toRunRecordView(entity, collectionTaskNames(), workflowNames());
+        return toRunRecordView(entity, collectionTaskNames(), qualityTaskNames(), workflowNames());
     }
 
     public RunRecordEntity getEntity(Long runRecordId) {
@@ -109,6 +117,10 @@ public class RunService {
         view.setUpdatedAt(entity.getUpdatedAt());
         view.setHistoricalFallback(true);
         view.setTruncated(false);
+        view.setPaged(false);
+        view.setPageNo(1);
+        view.setTotalPages(1);
+        view.setPageSizeBytes(0);
         view.setContent(buildFallbackContent(entity));
         return view;
     }
@@ -119,6 +131,16 @@ public class RunService {
         for (CollectionTaskDefinitionView task : tasks) {
             if (task.getId() != null) {
                 result.put(task.getId(), task.getName());
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, String> qualityTaskNames() {
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        for (QualityTaskDefinitionView task : qualityTaskService.list(null, null, null, null)) {
+            if (task.getId() != null) {
+                result.put(task.getId(), task.getTaskName());
             }
         }
         return result;
@@ -139,6 +161,7 @@ public class RunService {
 
     private QueuedTaskView toQueuedTaskView(DispatchTaskEntity entity,
                                             Map<Long, String> collectionTaskNames,
+                                            Map<Long, String> qualityTaskNames,
                                             Map<Long, String> workflowNames) {
         QueuedTaskView view = new QueuedTaskView();
         view.setId(entity.getId());
@@ -154,6 +177,8 @@ public class RunService {
         view.setWorkflowName(resolveWorkflowName(entity.getWorkflowDefinitionId(), workflowNames));
         view.setCollectionTaskId(entity.getCollectionTaskId());
         view.setCollectionTaskName(resolveCollectionTaskName(entity.getCollectionTaskId(), collectionTaskNames));
+        view.setQualityTaskId(entity.getQualityTaskId());
+        view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
         view.setLeaseOwner(entity.getLeaseOwner());
@@ -167,6 +192,7 @@ public class RunService {
 
     private RunRecordView toRunRecordView(RunRecordEntity entity,
                                           Map<Long, String> collectionTaskNames,
+                                          Map<Long, String> qualityTaskNames,
                                           Map<Long, String> workflowNames) {
         RunRecordView view = new RunRecordView();
         view.setId(entity.getId());
@@ -182,6 +208,8 @@ public class RunService {
         view.setWorkflowName(resolveWorkflowName(entity.getWorkflowDefinitionId(), workflowNames));
         view.setCollectionTaskId(entity.getCollectionTaskId());
         view.setCollectionTaskName(resolveCollectionTaskName(entity.getCollectionTaskId(), collectionTaskNames));
+        view.setQualityTaskId(entity.getQualityTaskId());
+        view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
         view.setWorkerCode(entity.getWorkerCode());
         view.setStatus(entity.getStatus());
@@ -206,6 +234,13 @@ public class RunService {
             return null;
         }
         return collectionTaskNames.get(collectionTaskId);
+    }
+
+    private String resolveQualityTaskName(Long qualityTaskId, Map<Long, String> qualityTaskNames) {
+        if (qualityTaskId == null) {
+            return null;
+        }
+        return qualityTaskNames.get(qualityTaskId);
     }
 
     private String resolveWorkflowName(Long workflowDefinitionId, Map<Long, String> workflowNames) {

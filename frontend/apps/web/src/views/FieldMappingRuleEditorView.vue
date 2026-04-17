@@ -107,7 +107,7 @@
             <el-input v-model="row.description" :placeholder="t('web.fieldMappingRules.paramDescriptionPlaceholder')" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('fieldMapping.actions')" width="110" align="center" header-align="center">
+            <el-table-column :label="t('fieldMapping.actions')" width="110" align="center" header-align="center" fixed="right">
           <template #default="{ $index }">
             <el-button link type="danger" @click="removeParam($index)">{{ t("common.remove") }}</el-button>
           </template>

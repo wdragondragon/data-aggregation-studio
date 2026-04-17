@@ -1,24 +1,26 @@
 <template>
   <div class="overflow-action-group" :class="{ 'overflow-action-group--always': collapseMode === 'always' }">
-    <div v-if="showInlineAction" class="overflow-action-group__inline">
+    <div v-if="inlineItems.length" class="overflow-action-group__inline">
       <el-button
-        :link="visibleItems[0]?.link ?? true"
-        :type="visibleItems[0]?.type"
-        :plain="visibleItems[0]?.plain"
-        :disabled="visibleItems[0]?.disabled"
+        v-for="item in inlineItems"
+        :key="item.key"
+        :link="item.link ?? true"
+        :type="item.type"
+        :plain="item.plain"
+        :disabled="item.disabled"
         size="small"
-        @click="handleClick(visibleItems[0])"
+        @click="handleClick(item)"
       >
-        {{ visibleItems[0]?.label }}
+        {{ item.label }}
       </el-button>
     </div>
 
-    <el-dropdown v-else trigger="click" placement="bottom-end" class="overflow-action-group__dropdown">
+    <el-dropdown v-if="dropdownItems.length" trigger="click" placement="bottom-end" class="overflow-action-group__dropdown">
       <el-button plain size="small">{{ dropdownLabel }}</el-button>
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item
-            v-for="item in visibleItems"
+            v-for="item in dropdownItems"
             :key="item.key"
             :disabled="item.disabled"
             :divided="item.divided"
@@ -50,8 +52,30 @@ const props = withDefaults(defineProps<{
 const { t } = useI18n();
 
 const visibleItems = computed(() => (props.items ?? []).filter((item) => item && item.visible !== false));
-const showInlineAction = computed(() => props.collapseMode !== "always" && visibleItems.value.length <= 1);
+const pinnedItems = computed(() => visibleItems.value.filter((item) => isPinnedAction(item)));
+const inlineItems = computed(() => {
+  if (props.collapseMode === "always") {
+    return [];
+  }
+  if (pinnedItems.value.length) {
+    return pinnedItems.value;
+  }
+  return visibleItems.value.length <= 1 ? visibleItems.value : [];
+});
+const dropdownItems = computed(() => {
+  if (props.collapseMode === "always") {
+    return visibleItems.value;
+  }
+  if (pinnedItems.value.length) {
+    return visibleItems.value.filter((item) => !isPinnedAction(item));
+  }
+  return visibleItems.value.length <= 1 ? [] : visibleItems.value;
+});
 const dropdownLabel = computed(() => props.dropdownLabel || t("common.more"));
+
+function isPinnedAction(item: OverflowActionItem) {
+  return item.key === "edit" || item.key === "delete";
+}
 
 function handleClick(item?: OverflowActionItem) {
   if (!item || item.disabled || !item.onClick) {
@@ -64,19 +88,27 @@ function handleClick(item?: OverflowActionItem) {
 <style scoped>
 .overflow-action-group {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .overflow-action-group__inline {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 2px;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 4px;
   min-width: 0;
 }
 
 .overflow-action-group__dropdown {
   display: inline-flex;
+}
+
+.overflow-action-group :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .overflow-action-group__item--danger {
