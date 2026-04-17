@@ -5,6 +5,8 @@ coverage/
 .vscode/
 .DS_Store
 *.log
+*.pid
+*.tsbuildinfo
 
 frontend/apps/*/dist/
 frontend/apps/*/.vite/
@@ -19,4 +21,6 @@ backend/.idea/
 *.sqlite
 *.sqlite3
 /runtime/
+/tmp/
+/backend/runtime/
 aggregation-home/
