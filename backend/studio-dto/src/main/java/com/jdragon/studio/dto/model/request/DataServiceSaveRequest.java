@@ -9,7 +9,7 @@ import com.jdragon.studio.dto.model.DataServiceRequestParamView;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,3 +35,4 @@ public class DataServiceSaveRequest {
     private List<DataServiceResponseParamView> responseParams = new ArrayList<DataServiceResponseParamView>();
     private List<DataServicePublishParamView> publishParams = new ArrayList<DataServicePublishParamView>();
 }
+

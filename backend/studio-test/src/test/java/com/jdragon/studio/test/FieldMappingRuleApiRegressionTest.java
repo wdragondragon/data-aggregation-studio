@@ -51,11 +51,17 @@ class FieldMappingRuleApiRegressionTest extends StudioApiRegressionTestSupport {
         saveRule(authorization, rulePayload("Date Format", "规整", "date_format", false,
                 param("format", 1, "input", null, "Format text")));
 
-        mockMvc.perform(get("/api/v1/field-mapping-rules/options")
+        MvcResult optionsResult = mockMvc.perform(get("/api/v1/field-mapping-rules/options")
                         .header("Authorization", authorization))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].mappingCode").value("phone_normalize"));
+                .andReturn();
+
+        JsonNode options = readBody(optionsResult).path("data");
+        assertThat(options.isArray()).isTrue();
+        assertThat(options)
+                .anyMatch(item -> "phone_normalize".equals(item.path("mappingCode").asText()));
+        assertThat(options)
+                .noneMatch(item -> "date_format".equals(item.path("mappingCode").asText()));
 
         mockMvc.perform(delete("/api/v1/field-mapping-rules/{id}", ruleId)
                         .header("Authorization", authorization))

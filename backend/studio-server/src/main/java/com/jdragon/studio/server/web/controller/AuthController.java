@@ -22,8 +22,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 
 @Tag(name = "Auth", description = "Authentication APIs")
 @RestController
@@ -97,3 +97,4 @@ public class AuthController {
         return Result.success(userRegistrationRequestService.submit(request));
     }
 }
+

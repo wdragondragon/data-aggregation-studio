@@ -97,10 +97,14 @@ public abstract class StudioApiRegressionTestSupport {
     }
 
     protected String adminAuthorizationHeader() throws Exception {
-        return "Bearer " + loginAndGetAdminToken();
+        return adminAuthorizationHeader(loginAsAdmin());
     }
 
     protected String loginAndGetAdminToken() throws Exception {
+        return loginAsAdmin().path("data").path("token").asText();
+    }
+
+    protected JsonNode loginAsAdmin() throws Exception {
         Map<String, String> payload = new LinkedHashMap<String, String>();
         payload.put("username", StudioConstants.DEFAULT_ADMIN_USERNAME);
         payload.put("password", StudioConstants.DEFAULT_ADMIN_PASSWORD);
@@ -116,7 +120,27 @@ public abstract class StudioApiRegressionTestSupport {
         if (tokenNode.isMissingNode() || tokenNode.isNull() || tokenNode.asText().trim().isEmpty()) {
             throw new IllegalStateException("Admin login did not return a JWT token");
         }
-        return tokenNode.asText();
+        return body;
+    }
+
+    protected String adminAuthorizationHeader(JsonNode loginBody) {
+        JsonNode tokenNode = loginBody.path("data").path("token");
+        if (tokenNode.isMissingNode() || tokenNode.isNull() || tokenNode.asText().trim().isEmpty()) {
+            throw new IllegalStateException("Admin login did not return a JWT token");
+        }
+        return "Bearer " + tokenNode.asText();
+    }
+
+    protected Long currentProjectId() throws Exception {
+        return currentProjectId(loginAsAdmin());
+    }
+
+    protected Long currentProjectId(JsonNode loginBody) {
+        JsonNode projectNode = loginBody.path("data").path("currentProjectId");
+        if (projectNode.isMissingNode() || projectNode.isNull() || projectNode.asText().trim().isEmpty()) {
+            throw new IllegalStateException("Admin login did not return currentProjectId");
+        }
+        return Long.valueOf(projectNode.asText());
     }
 
     protected JsonNode readBody(MvcResult result) throws Exception {

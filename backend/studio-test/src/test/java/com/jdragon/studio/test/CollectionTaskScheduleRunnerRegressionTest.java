@@ -27,19 +27,23 @@ class CollectionTaskScheduleRunnerRegressionTest {
 
         CollectionTaskScheduleEntity schedule = new CollectionTaskScheduleEntity();
         schedule.setCollectionTaskId(10L);
+        schedule.setTenantId("default");
+        schedule.setProjectId(100L);
         schedule.setCronExpression("0/1 * * * * ? *");
         schedule.setEnabled(1);
         schedule.setTimezone("Asia/Shanghai");
         schedule.setLastTriggeredAt(LocalDateTime.now().minusSeconds(3));
 
         when(collectionTaskService.findEnabledSchedules()).thenReturn(Collections.singletonList(schedule));
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        when(workerAuthorizationService.hasAvailableWorker("default", 100L)).thenReturn(true);
         when(dispatchService.triggerCollectionTaskIfIdle(10L)).thenReturn(false);
 
         CollectionTaskScheduleRunner runner = new CollectionTaskScheduleRunner(
                 collectionTaskService,
                 dispatchService,
                 evaluator,
-                mock(WorkerAuthorizationService.class));
+                workerAuthorizationService);
         runner.dispatchDueCollectionTasks();
 
         verify(dispatchService).triggerCollectionTaskIfIdle(10L);

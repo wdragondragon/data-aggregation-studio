@@ -19,14 +19,17 @@ class WorkflowRunPaginationRegressionTest extends StudioApiRegressionTestSupport
 
     @Test
     void shouldPageWorkflowRunsForSummaryList() throws Exception {
-        insertWorkflowDefinition(101L, "wf_101", "Workflow 101");
-        insertWorkflowDefinition(102L, "wf_102", "Workflow 102");
-        insertWorkflowRunRecord(3001L, 9001L, 101L, "SUCCESS", LocalDateTime.of(2026, 4, 7, 12, 0, 0));
-        insertWorkflowRunRecord(3002L, 9002L, 101L, "FAILED", LocalDateTime.of(2026, 4, 7, 12, 5, 0));
-        insertWorkflowRunRecord(3003L, 9003L, 102L, "RUNNING", LocalDateTime.of(2026, 4, 7, 12, 10, 0));
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long projectId = currentProjectId(loginBody);
+        insertWorkflowDefinition(101L, projectId, "wf_101", "Workflow 101");
+        insertWorkflowDefinition(102L, projectId, "wf_102", "Workflow 102");
+        insertWorkflowRunRecord(3001L, 9001L, 101L, projectId, "SUCCESS", LocalDateTime.of(2026, 4, 7, 12, 0, 0));
+        insertWorkflowRunRecord(3002L, 9002L, 101L, projectId, "FAILED", LocalDateTime.of(2026, 4, 7, 12, 5, 0));
+        insertWorkflowRunRecord(3003L, 9003L, 102L, projectId, "RUNNING", LocalDateTime.of(2026, 4, 7, 12, 10, 0));
 
         MvcResult firstPageResult = mockMvc.perform(get("/api/v1/workflow-runs")
-                        .header("Authorization", adminAuthorizationHeader())
+                        .header("Authorization", authorization)
                         .accept(MediaType.APPLICATION_JSON)
                         .param("pageNo", "1")
                         .param("pageSize", "2"))
@@ -40,7 +43,7 @@ class WorkflowRunPaginationRegressionTest extends StudioApiRegressionTestSupport
         assertThat(firstPage.path("items").get(1).path("workflowRunId").asLong()).isEqualTo(9002L);
 
         MvcResult secondPageResult = mockMvc.perform(get("/api/v1/workflow-runs")
-                        .header("Authorization", adminAuthorizationHeader())
+                        .header("Authorization", authorization)
                         .accept(MediaType.APPLICATION_JSON)
                         .param("pageNo", "2")
                         .param("pageSize", "2"))
@@ -55,14 +58,17 @@ class WorkflowRunPaginationRegressionTest extends StudioApiRegressionTestSupport
 
     @Test
     void shouldFilterWorkflowRunsBySummaryStatus() throws Exception {
-        insertWorkflowDefinition(201L, "wf_201", "Workflow 201");
-        insertWorkflowDefinition(202L, "wf_202", "Workflow 202");
-        insertWorkflowRunRecord(4001L, 9101L, 201L, "SUCCESS", LocalDateTime.of(2026, 4, 7, 13, 0, 0));
-        insertWorkflowRunRecord(4002L, 9102L, 201L, "FAILED", LocalDateTime.of(2026, 4, 7, 13, 5, 0));
-        insertWorkflowRunRecord(4003L, 9103L, 202L, "SUCCESS", LocalDateTime.of(2026, 4, 7, 13, 10, 0));
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long projectId = currentProjectId(loginBody);
+        insertWorkflowDefinition(201L, projectId, "wf_201", "Workflow 201");
+        insertWorkflowDefinition(202L, projectId, "wf_202", "Workflow 202");
+        insertWorkflowRunRecord(4001L, 9101L, 201L, projectId, "SUCCESS", LocalDateTime.of(2026, 4, 7, 13, 0, 0));
+        insertWorkflowRunRecord(4002L, 9102L, 201L, projectId, "FAILED", LocalDateTime.of(2026, 4, 7, 13, 5, 0));
+        insertWorkflowRunRecord(4003L, 9103L, 202L, projectId, "SUCCESS", LocalDateTime.of(2026, 4, 7, 13, 10, 0));
 
         MvcResult failedOnlyResult = mockMvc.perform(get("/api/v1/workflow-runs")
-                        .header("Authorization", adminAuthorizationHeader())
+                        .header("Authorization", authorization)
                         .accept(MediaType.APPLICATION_JSON)
                         .param("status", "FAILED")
                         .param("pageNo", "1")
@@ -77,7 +83,7 @@ class WorkflowRunPaginationRegressionTest extends StudioApiRegressionTestSupport
         assertThat(failedOnly.path("items").get(0).path("status").asText()).isEqualTo("FAILED");
 
         MvcResult successOnlyResult = mockMvc.perform(get("/api/v1/workflow-runs")
-                        .header("Authorization", adminAuthorizationHeader())
+                        .header("Authorization", authorization)
                         .accept(MediaType.APPLICATION_JSON)
                         .param("status", "SUCCESS")
                         .param("pageNo", "1")
@@ -92,22 +98,24 @@ class WorkflowRunPaginationRegressionTest extends StudioApiRegressionTestSupport
         assertThat(successOnly.path("items").get(1).path("workflowRunId").asLong()).isEqualTo(9101L);
     }
 
-    private void insertWorkflowDefinition(Long definitionId, String code, String name) {
+    private void insertWorkflowDefinition(Long definitionId, Long projectId, String code, String name) {
         String timestamp = FORMATTER.format(LocalDateTime.now());
-        jdbcTemplate.update("insert into workflow_definition (id, tenant_id, deleted, created_at, updated_at, code, name, current_version_id, published) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                definitionId, "default", 0, timestamp, timestamp, code, name, null, 1);
+        jdbcTemplate.update("insert into workflow_definition (id, tenant_id, project_id, deleted, created_at, updated_at, code, name, current_version_id, published) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                definitionId, "default", projectId, 0, timestamp, timestamp, code, name, null, 1);
     }
 
     private void insertWorkflowRunRecord(Long recordId,
                                          Long workflowRunId,
                                          Long workflowDefinitionId,
+                                         Long projectId,
                                          String status,
                                          LocalDateTime startedAt) {
         String timestamp = FORMATTER.format(startedAt);
-        jdbcTemplate.update("insert into run_record (id, tenant_id, deleted, created_at, updated_at, execution_type, workflow_run_id, workflow_definition_id, workflow_version_id, collection_task_id, node_code, status, worker_code, message, started_at, ended_at, log_file_path, log_size_bytes, log_charset, payload_json, result_json) " +
-                        "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        jdbcTemplate.update("insert into run_record (id, tenant_id, project_id, deleted, created_at, updated_at, execution_type, workflow_run_id, workflow_definition_id, workflow_version_id, collection_task_id, node_code, status, worker_code, message, started_at, ended_at, log_file_path, log_size_bytes, log_charset, payload_json, result_json) " +
+                        "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 recordId,
                 "default",
+                projectId,
                 0,
                 timestamp,
                 timestamp,

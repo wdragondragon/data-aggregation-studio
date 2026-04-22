@@ -19,7 +19,9 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
 
     @Test
     void shouldCreateDirectoryAndSqlScriptAndExposeThemThroughTreeApis() throws Exception {
-        String authorization = adminAuthorizationHeader();
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        String currentProjectId = currentProjectId(loginBody).toString();
 
         MvcResult directoryResult = mockMvc.perform(post("/api/v1/data-development/directories")
                         .header("Authorization", authorization)
@@ -28,7 +30,7 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.name").value("ods"))
-                .andExpect(jsonPath("$.data.projectId").isNumber())
+                .andExpect(jsonPath("$.data.projectId").value(currentProjectId))
                 .andReturn();
 
         String directoryId = readBody(directoryResult).path("data").path("id").asText();
@@ -70,7 +72,7 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.fileName").value("orders_profile.sql"))
                 .andExpect(jsonPath("$.data.scriptType").value("SQL"))
-                .andExpect(jsonPath("$.data.projectId").isNumber())
+                .andExpect(jsonPath("$.data.projectId").value(currentProjectId))
                 .andExpect(jsonPath("$.data.datasourceName").value("Test SQL Datasource"));
 
         mockMvc.perform(get("/api/v1/data-development/datasources")
@@ -101,7 +103,9 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
 
     @Test
     void shouldSaveAndExecuteJavaScriptWithoutDatasource() throws Exception {
-        String authorization = adminAuthorizationHeader();
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        String currentProjectId = currentProjectId(loginBody).toString();
 
         Map<String, Object> scriptPayload = new LinkedHashMap<String, Object>();
         scriptPayload.put("fileName", "demo_job.java");
@@ -131,7 +135,7 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.fileName").value("demo_job.java"))
-                .andExpect(jsonPath("$.data.projectId").isNumber())
+                .andExpect(jsonPath("$.data.projectId").value(currentProjectId))
                 .andExpect(jsonPath("$.data.scriptType").value("JAVA"));
 
         Map<String, Object> executionPayload = new LinkedHashMap<String, Object>();
@@ -158,7 +162,9 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
 
     @Test
     void shouldSaveAndExecutePythonScriptWithoutDatasource() throws Exception {
-        String authorization = adminAuthorizationHeader();
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        String currentProjectId = currentProjectId(loginBody).toString();
         createSqlDatasource(authorization, "Python Bridge Datasource");
 
         Map<String, Object> scriptPayload = new LinkedHashMap<String, Object>();
@@ -182,7 +188,7 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.fileName").value("demo_job.py"))
-                .andExpect(jsonPath("$.data.projectId").isNumber())
+                .andExpect(jsonPath("$.data.projectId").value(currentProjectId))
                 .andExpect(jsonPath("$.data.scriptType").value("PYTHON"));
 
         Map<String, Object> executionPayload = new LinkedHashMap<String, Object>();

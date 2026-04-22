@@ -4,8 +4,8 @@ import com.jdragon.studio.dto.enums.ScriptType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -29,3 +29,4 @@ public class DataScriptExecutionRequest {
     @Schema(description = "Maximum rows for SQL query")
     private Integer maxRows;
 }
+

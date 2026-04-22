@@ -2,13 +2,16 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
+import com.jdragon.studio.infra.entity.ProjectWorkerBindingEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.TenantEntity;
 import com.jdragon.studio.infra.entity.TenantMemberEntity;
 import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
+import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.TenantMapper;
 import com.jdragon.studio.infra.mapper.TenantMemberMapper;
@@ -23,18 +26,24 @@ public class TenantProjectFoundationService {
     private final ProjectMapper projectMapper;
     private final TenantMemberMapper tenantMemberMapper;
     private final ProjectMemberMapper projectMemberMapper;
+    private final ProjectWorkerBindingMapper projectWorkerBindingMapper;
     private final StudioUserMapper userMapper;
+    private final StudioPlatformProperties studioPlatformProperties;
 
     public TenantProjectFoundationService(TenantMapper tenantMapper,
                                           ProjectMapper projectMapper,
                                           TenantMemberMapper tenantMemberMapper,
                                           ProjectMemberMapper projectMemberMapper,
-                                          StudioUserMapper userMapper) {
+                                          ProjectWorkerBindingMapper projectWorkerBindingMapper,
+                                          StudioUserMapper userMapper,
+                                          StudioPlatformProperties studioPlatformProperties) {
         this.tenantMapper = tenantMapper;
         this.projectMapper = projectMapper;
         this.tenantMemberMapper = tenantMemberMapper;
         this.projectMemberMapper = projectMemberMapper;
+        this.projectWorkerBindingMapper = projectWorkerBindingMapper;
         this.userMapper = userMapper;
+        this.studioPlatformProperties = studioPlatformProperties;
     }
 
     public void bootstrapFoundation(StudioUserEntity adminUser) {
@@ -51,6 +60,7 @@ public class TenantProjectFoundationService {
                     : StudioConstants.ROLE_PROJECT_MEMBER;
             ensureProjectMembership(project.getId(), tenant.getTenantCode(), user.getId(), roleCode);
         }
+        ensureDesktopProjectWorkerBinding(project.getId(), tenant.getTenantCode());
     }
 
     private void normalizeUserTenantIds() {
@@ -173,5 +183,49 @@ public class TenantProjectFoundationService {
             return false;
         }
         return left.longValue() == right.longValue();
+    }
+
+    private void ensureDesktopProjectWorkerBinding(Long projectId, String tenantId) {
+        if (!studioPlatformProperties.isDesktopRuntime() || projectId == null || !hasText(tenantId)) {
+            return;
+        }
+        String workerCode = trimToNull(studioPlatformProperties.getWorkerCode());
+        if (workerCode == null) {
+            return;
+        }
+        ProjectWorkerBindingEntity binding = projectWorkerBindingMapper.selectOne(new LambdaQueryWrapper<ProjectWorkerBindingEntity>()
+                .eq(ProjectWorkerBindingEntity::getTenantId, tenantId)
+                .eq(ProjectWorkerBindingEntity::getProjectId, projectId)
+                .eq(ProjectWorkerBindingEntity::getWorkerCode, workerCode)
+                .last("limit 1"));
+        if (binding == null) {
+            binding = new ProjectWorkerBindingEntity();
+            binding.setTenantId(tenantId);
+            binding.setProjectId(projectId);
+            binding.setWorkerCode(workerCode);
+            binding.setEnabled(1);
+            projectWorkerBindingMapper.insert(binding);
+            return;
+        }
+        boolean changed = false;
+        if (!tenantId.equals(binding.getTenantId())) {
+            binding.setTenantId(tenantId);
+            changed = true;
+        }
+        if (binding.getEnabled() == null || binding.getEnabled().intValue() != 1) {
+            binding.setEnabled(1);
+            changed = true;
+        }
+        if (changed) {
+            projectWorkerBindingMapper.updateById(binding);
+        }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private String trimToNull(String value) {
+        return hasText(value) ? value.trim() : null;
     }
 }

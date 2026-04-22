@@ -23,6 +23,9 @@
     "../web/src/components/**/*.vue",
     "../web/src/components/**/*.ts",
     "../web/src/composables/**/*.ts",
+    "../web/src/stores/**/*.ts",
+    "../web/src/utils/**/*.ts",
+    "../web/src/api/**/*.ts",
     "../../packages/**/*.ts",
     "../../packages/**/*.vue",
     "vite.config.ts"

@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "Data Development", description = "Data development directory and script APIs")
@@ -129,3 +129,4 @@ public class DataDevelopmentController {
         return Result.success(dataDevelopmentService.execute(request));
     }
 }
+

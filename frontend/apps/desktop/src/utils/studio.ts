@@ -1,3 +1,5 @@
+import type { EntityId } from "@studio/api-sdk";
+
 export function toneFromStatus(status?: string | number | boolean) {
   const value = String(status ?? "").toUpperCase();
   if (value === "SUCCESS" || value === "PUBLISHED" || value === "TRUE" || value === "1") {
@@ -6,8 +8,11 @@ export function toneFromStatus(status?: string | number | boolean) {
   if (value === "FAILED" || value === "ERROR" || value === "FALSE" || value === "0") {
     return "danger";
   }
-  if (value === "RUNNING" || value === "QUEUED" || value === "DRAFT") {
+  if (value === "RUNNING" || value === "QUEUED" || value === "DRAFT" || value === "PENDING" || value === "STOPPING") {
     return "warning";
+  }
+  if (value === "STOPPED") {
+    return "neutral";
   }
   return "primary";
 }
@@ -36,6 +41,32 @@ export function cloneDeep<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export function sameEntityId(left: EntityId | null | undefined, right: EntityId | null | undefined) {
+  if (left == null || right == null) {
+    return false;
+  }
+  return String(left) === String(right);
+}
+
+export function resolveProjectName(
+  projects: Array<{ projectId?: EntityId; id?: EntityId; projectName?: string }>,
+  projectId: EntityId | null | undefined,
+  fallback = "-",
+) {
+  if (projectId == null) {
+    return fallback;
+  }
+  const matched = projects.find((item) => sameEntityId(item.projectId ?? item.id, projectId));
+  return matched?.projectName ?? String(projectId);
+}
+
+export function isSharedFromAnotherProject(
+  currentProjectId: EntityId | null | undefined,
+  ownerProjectId: EntityId | null | undefined,
+) {
+  return currentProjectId != null && ownerProjectId != null && !sameEntityId(currentProjectId, ownerProjectId);
+}
+
 type TranslateFn = (key: string, ...args: unknown[]) => string;
 
 function normalizeEnumValue(value?: string | number | boolean | null) {
@@ -52,7 +83,10 @@ export function formatStatusLabel(t: TranslateFn, status?: string | number | boo
     FAILED: "common.statusFailed",
     ERROR: "common.statusError",
     RUNNING: "common.statusRunning",
+    PENDING: "common.statusPending",
     QUEUED: "common.statusQueued",
+    STOPPING: "common.statusStopping",
+    STOPPED: "common.statusStopped",
     NOT_RUN: "common.statusNotRun",
     UNKNOWN: "common.unknown",
   };
@@ -85,6 +119,7 @@ export function formatNodeType(t: TranslateFn, nodeType?: string | null) {
   const value = normalizeEnumValue(nodeType);
   const mapping: Record<string, string> = {
     COLLECTION_TASK: "web.workflows.nodeTypeCollectionTask",
+    QUALITY_TASK: "routes.web.qualityTasks.title",
     DATA_SCRIPT: "web.workflows.nodeTypeDataScript",
     ETL_SINGLE: "web.workflows.nodeTypeEtlSingle",
     FUSION: "web.workflows.nodeTypeFusion",

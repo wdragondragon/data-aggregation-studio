@@ -4,7 +4,7 @@ import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,3 +36,4 @@ public class MetadataSchemaSaveRequest {
     @Schema(description = "Field definitions")
     private List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
 }
+

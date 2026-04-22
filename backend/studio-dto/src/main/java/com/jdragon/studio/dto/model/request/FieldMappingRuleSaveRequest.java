@@ -3,7 +3,7 @@ package com.jdragon.studio.dto.model.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,3 +34,4 @@ public class FieldMappingRuleSaveRequest {
     @Schema(description = "Parameter definitions")
     private List<FieldMappingRuleParamSaveRequest> params = new ArrayList<FieldMappingRuleParamSaveRequest>();
 }
+

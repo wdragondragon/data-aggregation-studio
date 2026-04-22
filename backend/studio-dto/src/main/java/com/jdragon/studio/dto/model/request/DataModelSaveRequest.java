@@ -4,8 +4,8 @@ import com.jdragon.studio.dto.enums.ModelKind;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -39,3 +39,4 @@ public class DataModelSaveRequest {
     @Schema(description = "Business metadata")
     private Map<String, Object> businessMetadata = new LinkedHashMap<String, Object>();
 }
+

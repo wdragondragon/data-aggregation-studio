@@ -4,7 +4,7 @@ import com.jdragon.studio.dto.enums.ModelSyncTaskSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,3 +21,4 @@ public class ModelSyncTaskCreateRequest {
     @Schema(description = "Task source")
     private ModelSyncTaskSource source = ModelSyncTaskSource.MANUAL;
 }
+

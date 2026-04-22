@@ -7,8 +7,8 @@ import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,3 +40,4 @@ public class CollectionTaskSaveRequest {
     @Schema(description = "Schedule")
     private CollectionTaskScheduleDefinition schedule;
 }
+

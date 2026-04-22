@@ -5,22 +5,21 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.server.web.filter.JwtAuthenticationFilter;
 import com.jdragon.studio.server.web.filter.StudioRequestContextFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
-import javax.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
 
 @Configuration
-@EnableGlobalMethodSecurity(prePostEnabled = true)
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Bean
@@ -28,33 +27,31 @@ public class SecurityConfig {
                                                    JwtAuthenticationFilter jwtAuthenticationFilter,
                                                    StudioRequestContextFilter studioRequestContextFilter,
                                                    ObjectMapper objectMapper) throws Exception {
-        http.csrf().disable()
+        http.csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
-                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                .and()
-                .exceptionHandling()
-                .authenticationEntryPoint((request, response, ex) ->
-                        writeJson(response, HttpServletResponse.SC_UNAUTHORIZED,
-                                objectMapper, Result.error(StudioErrorCode.UNAUTHORIZED, "Authentication required")))
-                .accessDeniedHandler((request, response, ex) ->
-                        writeJson(response, HttpServletResponse.SC_FORBIDDEN,
-                                objectMapper, Result.error(StudioErrorCode.FORBIDDEN, "Permission denied")))
-                .and()
-                .authorizeRequests()
-                .antMatchers(
-                        "/api/v1/auth/**",
-                        "/openapi/data-services/**",
-                        "/actuator/health/**",
-                        "/v3/api-docs/**",
-                        "/swagger-ui/**",
-                        "/swagger-ui.html",
-                        "/swagger-resources/**",
-                        "/webjars/**",
-                        "/doc.html",
-                        "/favicon.ico")
-                .permitAll()
-                .anyRequest()
-                .authenticated();
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint((request, response, ex) ->
+                                writeJson(response, HttpServletResponse.SC_UNAUTHORIZED,
+                                        objectMapper, Result.error(StudioErrorCode.UNAUTHORIZED, "Authentication required")))
+                        .accessDeniedHandler((request, response, ex) ->
+                                writeJson(response, HttpServletResponse.SC_FORBIDDEN,
+                                        objectMapper, Result.error(StudioErrorCode.FORBIDDEN, "Permission denied"))))
+                .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers(
+                                "/api/v1/auth/**",
+                                "/openapi/data-services/**",
+                                "/actuator/health/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/swagger-resources/**",
+                                "/webjars/**",
+                                "/doc.html",
+                                "/favicon.ico")
+                        .permitAll()
+                        .anyRequest()
+                        .authenticated());
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterAfter(studioRequestContextFilter, JwtAuthenticationFilter.class);
         return http.build();
@@ -79,3 +76,4 @@ public class SecurityConfig {
         }
     }
 }
+

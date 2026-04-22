@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "Quality Rules", description = "Quality rule management APIs")
@@ -105,3 +105,4 @@ public class QualityRuleController {
         return Result.success(qualityRuleService.validate(request));
     }
 }
+

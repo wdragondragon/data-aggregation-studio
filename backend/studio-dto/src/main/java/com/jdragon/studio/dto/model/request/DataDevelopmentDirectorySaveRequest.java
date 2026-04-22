@@ -3,7 +3,7 @@ package com.jdragon.studio.dto.model.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 
 @Data
 @Schema(description = "Data development directory save request")
@@ -24,3 +24,4 @@ public class DataDevelopmentDirectorySaveRequest {
     @Schema(description = "Directory description")
     private String description;
 }
+

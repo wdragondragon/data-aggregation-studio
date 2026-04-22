@@ -2,7 +2,7 @@ package com.jdragon.studio.dto.model.request;
 
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 
 @Data
 public class QualityIssueSeverityRequest {
@@ -10,3 +10,4 @@ public class QualityIssueSeverityRequest {
     private String severity;
     private String comment;
 }
+

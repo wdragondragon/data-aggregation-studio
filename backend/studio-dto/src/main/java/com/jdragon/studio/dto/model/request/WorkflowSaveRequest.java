@@ -6,7 +6,7 @@ import com.jdragon.studio.dto.model.WorkflowScheduleDefinition;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,3 +33,4 @@ public class WorkflowSaveRequest {
     @Schema(description = "Workflow edges")
     private List<WorkflowEdgeDefinition> edges = new ArrayList<WorkflowEdgeDefinition>();
 }
+

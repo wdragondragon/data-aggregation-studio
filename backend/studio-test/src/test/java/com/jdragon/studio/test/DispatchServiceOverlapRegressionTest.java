@@ -1,8 +1,10 @@
 package com.jdragon.studio.test;
 
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.CollectionTaskStatus;
+import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
+import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
-import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
@@ -27,18 +29,28 @@ class DispatchServiceOverlapRegressionTest {
     void shouldRejectWorkflowTriggerWhenPreviousRunIsStillActive() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        WorkflowDefinitionView workflow = new WorkflowDefinitionView();
+        workflow.setId(100L);
+        workflow.setTenantId("default");
+        workflow.setProjectId(1000L);
 
+        when(workflowService.get(100L)).thenReturn(workflow);
+        when(securityService.currentProjectId()).thenReturn(null);
+        when(workerAuthorizationService.hasAvailableWorker("default", 1000L)).thenReturn(true);
         when(dispatchTaskMapper.selectCount(any())).thenReturn(1L);
 
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
                 runRecordMapper,
-            mock(WorkflowDefinitionMapper.class),
-            mock(WorkflowService.class),
-            mock(CollectionTaskService.class),
-            mock(QualityTaskService.class),
-            mock(StudioSecurityService.class),
-            mock(WorkerAuthorizationService.class)
+                mock(WorkflowDefinitionMapper.class),
+                workflowService,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                securityService,
+                workerAuthorizationService
         );
 
         assertThatThrownBy(() -> dispatchService.triggerManualRun(100L))
@@ -52,19 +64,30 @@ class DispatchServiceOverlapRegressionTest {
     void shouldRejectCollectionTaskTriggerWhenPreviousRunIsStillActive() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setId(200L);
+        definition.setTenantId("default");
+        definition.setProjectId(2000L);
+        definition.setStatus(CollectionTaskStatus.ONLINE);
 
+        when(collectionTaskService.requireOnline(200L)).thenReturn(definition);
+        when(securityService.currentProjectId()).thenReturn(null);
+        when(workerAuthorizationService.hasAvailableWorker("default", 2000L)).thenReturn(true);
         when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
         when(runRecordMapper.selectCount(any())).thenReturn(1L);
 
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
                 runRecordMapper,
-            mock(WorkflowDefinitionMapper.class),
-            mock(WorkflowService.class),
-            mock(CollectionTaskService.class),
-            mock(QualityTaskService.class),
-            mock(StudioSecurityService.class),
-            mock(WorkerAuthorizationService.class)
+                mock(WorkflowDefinitionMapper.class),
+                mock(WorkflowService.class),
+                collectionTaskService,
+                mock(QualityTaskService.class),
+                securityService,
+                workerAuthorizationService
         );
 
         assertThatThrownBy(() -> dispatchService.triggerCollectionTask(200L))

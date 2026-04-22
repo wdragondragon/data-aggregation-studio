@@ -30,7 +30,7 @@ public class QualityTaskScheduleRunner {
         this.workerAuthorizationService = workerAuthorizationService;
     }
 
-    @Scheduled(fixedDelay = 30000L)
+    @Scheduled(initialDelay = 30000L, fixedDelay = 30000L)
     public void dispatchDueQualityTasks() {
         List<QualityTaskScheduleEntity> schedules = qualityTaskService.findEnabledSchedules();
         LocalDateTime now = LocalDateTime.now();
@@ -57,7 +57,6 @@ public class QualityTaskScheduleRunner {
             boolean triggered = dispatchService.triggerQualityTaskIfIdle(schedule.getQualityTaskId());
             if (!triggered) {
                 log.info("Skip quality task {} because a previous instance is still active", schedule.getQualityTaskId());
-                continue;
             }
             qualityTaskService.markScheduleTriggered(schedule.getQualityTaskId(), now);
         }

@@ -4,8 +4,8 @@ import com.jdragon.studio.dto.enums.ScriptType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @Data
 @Schema(description = "Ad-hoc SQL execution request")
@@ -25,3 +25,4 @@ public class SqlExecutionRequest {
     @Schema(description = "Maximum rows to return for query statements")
     private Integer maxRows;
 }
+

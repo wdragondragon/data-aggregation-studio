@@ -17,15 +17,14 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    InternalApiTokenFilter internalApiTokenFilter) throws Exception {
-        http.csrf().disable()
+        http.csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
-                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                .and()
-                .authorizeRequests()
-                .antMatchers("/actuator/health/**", "/actuator/info/**", "/internal/**")
-                .permitAll()
-                .anyRequest()
-                .denyAll();
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/actuator/health/**", "/actuator/info/**", "/internal/**")
+                        .permitAll()
+                        .anyRequest()
+                        .denyAll());
         http.addFilterBefore(internalApiTokenFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

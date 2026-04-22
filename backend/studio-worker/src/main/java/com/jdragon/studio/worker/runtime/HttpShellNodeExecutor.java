@@ -64,8 +64,10 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             throw new IllegalArgumentException("HTTP node url is required");
         }
         String method = resolveRuntimePlaceholders(asString(config.getOrDefault("method", "GET")), runtimeContext);
-        HttpMethod httpMethod = HttpMethod.resolve(method == null ? "GET" : method.trim().toUpperCase());
-        if (httpMethod == null) {
+        HttpMethod httpMethod;
+        try {
+            httpMethod = HttpMethod.valueOf(method == null ? "GET" : method.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("Unsupported HTTP method: " + method);
         }
         String nodeCode = definition.getNodeCode() == null ? "HTTP" : definition.getNodeCode();

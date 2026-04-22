@@ -30,7 +30,7 @@ public class CollectionTaskScheduleRunner {
         this.workerAuthorizationService = workerAuthorizationService;
     }
 
-    @Scheduled(fixedDelay = 30000L)
+    @Scheduled(initialDelay = 30000L, fixedDelay = 30000L)
     public void dispatchDueCollectionTasks() {
         List<CollectionTaskScheduleEntity> schedules = collectionTaskService.findEnabledSchedules();
         LocalDateTime now = LocalDateTime.now();
@@ -46,7 +46,6 @@ public class CollectionTaskScheduleRunner {
             boolean triggered = dispatchService.triggerCollectionTaskIfIdle(schedule.getCollectionTaskId());
             if (!triggered) {
                 log.info("Skip collection task {} because a previous instance is still active", schedule.getCollectionTaskId());
-                continue;
             }
             collectionTaskService.markScheduleTriggered(schedule.getCollectionTaskId(), now);
         }

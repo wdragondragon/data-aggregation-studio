@@ -27,7 +27,7 @@ public class WorkflowScheduleRunner {
         this.cronScheduleDueEvaluator = cronScheduleDueEvaluator;
     }
 
-    @Scheduled(fixedDelay = 30000L)
+    @Scheduled(initialDelay = 30000L, fixedDelay = 30000L)
     public void dispatchDueWorkflows() {
         List<WorkflowScheduleEntity> schedules = workflowService.findEnabledSchedules();
         LocalDateTime now = LocalDateTime.now();

@@ -3,7 +3,7 @@ package com.jdragon.studio.dto.model.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotBlank;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -36,3 +36,4 @@ public class DataSourceSaveRequest {
     @Schema(description = "Business metadata")
     private Map<String, Object> businessMetadata = new LinkedHashMap<String, Object>();
 }
+

@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "Workflows", description = "Workflow orchestration APIs")
@@ -69,3 +69,4 @@ public class WorkflowController {
         return Result.success(null);
     }
 }
+

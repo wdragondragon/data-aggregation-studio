@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "Field Mapping Rules", description = "System-level field mapping rule management APIs")
@@ -65,3 +65,4 @@ public class FieldMappingRuleController {
         return Result.success(null);
     }
 }
+

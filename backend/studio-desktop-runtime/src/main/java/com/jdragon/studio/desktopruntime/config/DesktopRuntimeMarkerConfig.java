@@ -3,7 +3,7 @@ package com.jdragon.studio.desktopruntime.config;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import org.springframework.context.annotation.Configuration;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 @Configuration
 public class DesktopRuntimeMarkerConfig {
@@ -19,3 +19,4 @@ public class DesktopRuntimeMarkerConfig {
         properties.setDesktopRuntime(true);
     }
 }
+
