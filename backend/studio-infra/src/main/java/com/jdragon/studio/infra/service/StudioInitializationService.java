@@ -1,12 +1,24 @@
 package com.jdragon.studio.infra.service;
 
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.util.Locale;
+
 @Service
 public class StudioInitializationService {
+
+    private static final String[] MYSQL_RESET_SEED_SCRIPTS = new String[]{
+            "data-mysql-base.sql",
+            "data-mysql-builtin.sql"
+    };
 
     private static final String[] RESET_TABLES = new String[]{
             "studio_resource_share",
@@ -88,6 +100,14 @@ public class StudioInitializationService {
 
     @Transactional
     public void initialize(boolean resetDatabase) {
+        if (isMySql()) {
+            initializeMySql(resetDatabase);
+            return;
+        }
+        initializeLegacy(resetDatabase);
+    }
+
+    private void initializeLegacy(boolean resetDatabase) {
         if (resetDatabase) {
             resetDatabase();
         }
@@ -95,6 +115,17 @@ public class StudioInitializationService {
         datasourceTypeCapabilityService.bootstrapDefaults();
         metadataBootstrapService.bootstrap();
         builtinRuleBootstrapService.bootstrap();
+    }
+
+    private void initializeMySql(boolean resetDatabase) {
+        if (!resetDatabase) {
+            throw new IllegalStateException("MySQL first initialization is SQL-first. Execute schema-mysql.sql, data-mysql-base.sql and data-mysql-builtin.sql before starting studio. Use init-studio-data.ps1 -ResetDatabase only after the schema already exists.");
+        }
+        ensureMySqlSchemaExists();
+        resetDatabase();
+        for (String script : MYSQL_RESET_SEED_SCRIPTS) {
+            executeSqlScript(script);
+        }
     }
 
     public void resetDatabase() {
@@ -107,6 +138,51 @@ public class StudioInitializationService {
                 }
             }
         }
+    }
+
+    private boolean isMySql() {
+        String productName = jdbcTemplate.execute((Connection connection) -> {
+            DatabaseMetaData metaData = connection.getMetaData();
+            return metaData == null ? null : metaData.getDatabaseProductName();
+        });
+        if (productName == null) {
+            return false;
+        }
+        String normalized = productName.trim().toLowerCase(Locale.ENGLISH);
+        return normalized.contains("mysql") || normalized.contains("mariadb");
+    }
+
+    private void ensureMySqlSchemaExists() {
+        if (!existsMySqlTable("sys_user")
+                || !existsMySqlTable("datasource_type_capability")
+                || !existsMySqlTable("meta_schema")) {
+            throw new IllegalStateException("MySQL reset requires an existing studio schema. Execute schema-mysql.sql first, then rerun init-studio-data.ps1 -ResetDatabase.");
+        }
+    }
+
+    private boolean existsMySqlTable(String tableName) {
+        Integer count = jdbcTemplate.queryForObject(
+                "select count(*) from information_schema.tables where table_schema = database() and table_name = ?",
+                Integer.class,
+                tableName);
+        return count != null && count.intValue() > 0;
+    }
+
+    private void executeSqlScript(String scriptName) {
+        ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
+        populator.setContinueOnError(false);
+        populator.setIgnoreFailedDrops(true);
+        populator.setSqlScriptEncoding("UTF-8");
+        populator.addScript(new ClassPathResource(scriptName));
+        populator.execute(requireDataSource());
+    }
+
+    private DataSource requireDataSource() {
+        DataSource dataSource = jdbcTemplate.getDataSource();
+        if (dataSource == null) {
+            throw new IllegalStateException("JdbcTemplate has no DataSource bound for studio initialization");
+        }
+        return dataSource;
     }
 
     private boolean isMissingTable(DataAccessException ex) {

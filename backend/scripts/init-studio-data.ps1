@@ -1,3 +1,13 @@
+<#
+MySQL first initialization is now SQL-first:
+1. Execute schema-mysql.sql
+2. Execute data-mysql-base.sql
+3. Execute data-mysql-builtin.sql
+
+Use this script with -ResetDatabase only after the schema already exists.
+SQLite/test initialization remains programmatic.
+#>
+
 param(
     [switch]$ResetDatabase = $false
 )
@@ -9,6 +19,8 @@ $serverModule = Join-Path $backendRoot "studio-server"
 $arguments = @()
 if ($ResetDatabase) {
     $arguments += "--studio.init.reset=true"
+} else {
+    Write-Host "[studio-init] MySQL first initialization is SQL-first. If the current datasource is MySQL, execute schema-mysql.sql, data-mysql-base.sql and data-mysql-builtin.sql first."
 }
 
 $execArguments = @(
