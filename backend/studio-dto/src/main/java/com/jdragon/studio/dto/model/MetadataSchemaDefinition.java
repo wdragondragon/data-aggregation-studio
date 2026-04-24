@@ -2,11 +2,13 @@ package com.jdragon.studio.dto.model;
 
 import com.jdragon.studio.dto.enums.SchemaStatus;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class MetadataSchemaDefinition extends BaseDefinition {
     private String schemaCode;
     private String schemaName;

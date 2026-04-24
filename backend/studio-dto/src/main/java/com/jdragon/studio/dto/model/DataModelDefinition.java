@@ -2,11 +2,13 @@ package com.jdragon.studio.dto.model;
 
 import com.jdragon.studio.dto.enums.ModelKind;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class DataModelDefinition extends BaseDefinition {
     private Long datasourceId;
     private String name;

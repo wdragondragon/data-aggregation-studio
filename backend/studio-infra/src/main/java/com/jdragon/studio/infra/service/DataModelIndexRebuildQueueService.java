@@ -395,7 +395,7 @@ public class DataModelIndexRebuildQueueService {
         if (orderedIds.isEmpty()) {
             return;
         }
-        List<DataModelEntity> foundModels = dataModelMapper.selectBatchIds(orderedIds);
+        List<DataModelEntity> foundModels = dataModelMapper.selectByIds(orderedIds);
         Map<Long, DataModelEntity> modelMap = new LinkedHashMap<Long, DataModelEntity>();
         if (foundModels != null) {
             for (DataModelEntity model : foundModels) {
@@ -447,7 +447,7 @@ public class DataModelIndexRebuildQueueService {
         if (datasourceIds.isEmpty()) {
             return result;
         }
-        List<DatasourceEntity> datasources = datasourceMapper.selectBatchIds(new ArrayList<Long>(datasourceIds));
+        List<DatasourceEntity> datasources = datasourceMapper.selectByIds(new ArrayList<Long>(datasourceIds));
         if (datasources == null) {
             return result;
         }

@@ -127,7 +127,7 @@ public class StudioAccessService {
         for (UserRoleEntity userRole : userRoles) {
             roleIds.add(userRole.getRoleId());
         }
-        List<RoleEntity> roles = roleMapper.selectBatchIds(roleIds);
+        List<RoleEntity> roles = roleMapper.selectByIds(roleIds);
         List<String> codes = new ArrayList<String>();
         for (RoleEntity role : roles) {
             appendUnique(codes, role.getCode());
@@ -176,7 +176,7 @@ public class StudioAccessService {
         } else if (projectIds.isEmpty()) {
             projects = Collections.emptyList();
         } else {
-            projects = projectMapper.selectBatchIds(projectIds);
+            projects = projectMapper.selectByIds(projectIds);
         }
         Map<Long, ProjectEntity> projectMap = new LinkedHashMap<Long, ProjectEntity>();
         for (ProjectEntity project : projects) {

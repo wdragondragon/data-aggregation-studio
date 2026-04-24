@@ -15,6 +15,7 @@ export default defineConfig({
     exclude: ['@antv/x6-vue-shape']
   },
   build: {
+    chunkSizeWarningLimit: 5000,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -22,10 +23,15 @@ export default defineConfig({
             if (id.includes('monaco-editor')) {
               return 'vendor-monaco';
             }
-            if (id.includes('@antv/x6')) {
-              return 'vendor-x6';
+            if (id.includes('echarts')) {
+              return 'vendor-charts';
             }
-            if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/')) {
+            if (
+              id.includes('@antv/x6') ||
+              id.includes('vue-router') ||
+              id.includes('pinia') ||
+              id.includes('/vue/')
+            ) {
               return 'vendor-vue';
             }
             if (id.includes('axios')) {

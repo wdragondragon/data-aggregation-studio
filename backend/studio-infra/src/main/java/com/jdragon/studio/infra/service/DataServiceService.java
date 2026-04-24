@@ -673,21 +673,20 @@ public class DataServiceService {
         return fieldsFromColumns(result.getColumns());
     }
 
-    @SuppressWarnings("unchecked")
     private List<DataServiceFieldView> fieldsFromModelMetadata(DataModelDefinition model) {
         List<DataServiceFieldView> result = new ArrayList<DataServiceFieldView>();
         if (model == null || model.getTechnicalMetadata() == null) {
             return result;
         }
         Object columns = model.getTechnicalMetadata().get("columns");
-        if (!(columns instanceof List)) {
+        if (!(columns instanceof List<?>)) {
             return result;
         }
         for (Object column : (List<?>) columns) {
-            if (!(column instanceof Map)) {
+            if (!(column instanceof Map<?, ?>)) {
                 continue;
             }
-            Map<String, Object> item = (Map<String, Object>) column;
+            Map<?, ?> item = (Map<?, ?>) column;
             String name = asString(firstPresent(item, "name", "columnName", "fieldName"));
             if (!hasText(name)) {
                 continue;
@@ -702,7 +701,7 @@ public class DataServiceService {
         return result;
     }
 
-    private Object firstPresent(Map<String, Object> map, String... keys) {
+    private Object firstPresent(Map<?, ?> map, String... keys) {
         if (map == null || keys == null) {
             return null;
         }

@@ -57,7 +57,7 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
         result.setScriptType(ScriptType.JAVA);
         try {
             Class<? extends JavaDataScript> scriptClass = resolveScriptClass(context);
-            JavaDataScript script = scriptClass.newInstance();
+            JavaDataScript script = scriptClass.getDeclaredConstructor().newInstance();
             DefaultJavaDataScriptContext scriptContext = new DefaultJavaDataScriptContext(
                     context.getTenantId(),
                     context.getUsername(),

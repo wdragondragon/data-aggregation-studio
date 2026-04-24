@@ -357,7 +357,7 @@ public class FieldMappingRuleService {
             return Collections.emptyMap();
         }
         Map<Long, String> result = new LinkedHashMap<Long, String>();
-        for (StudioUserEntity user : studioUserMapper.selectBatchIds(userIds)) {
+        for (StudioUserEntity user : studioUserMapper.selectByIds(userIds)) {
             result.put(user.getId(), hasText(user.getDisplayName()) ? user.getDisplayName() : user.getUsername());
         }
         return result;

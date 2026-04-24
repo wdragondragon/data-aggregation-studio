@@ -66,7 +66,7 @@ public class StudioUserDetailsService implements UserDetailsService {
 
         List<SimpleGrantedAuthority> authorities = new ArrayList<SimpleGrantedAuthority>();
         if (!permissionIds.isEmpty()) {
-            List<PermissionEntity> permissions = permissionMapper.selectBatchIds(permissionIds);
+        List<PermissionEntity> permissions = permissionMapper.selectByIds(permissionIds);
             for (PermissionEntity permission : permissions) {
                 authorities.add(new SimpleGrantedAuthority(permission.getCode()));
             }

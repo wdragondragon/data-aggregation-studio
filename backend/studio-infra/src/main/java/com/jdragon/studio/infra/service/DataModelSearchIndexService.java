@@ -569,15 +569,30 @@ public class DataModelSearchIndexService {
 
     private List<Map<String, Object>> parseRows(Object value) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-        if (!(value instanceof List)) {
+        if (!(value instanceof List<?>)) {
             return rows;
         }
         for (Object item : (List<?>) value) {
-            if (item instanceof Map) {
-                rows.add(new LinkedHashMap<String, Object>((Map<String, Object>) item));
+            Map<String, Object> row = copyObjectMap(item);
+            if (row != null) {
+                rows.add(row);
             }
         }
         return rows;
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 
     private List<MetadataFieldDefinition> searchableFields(MetadataSchemaDefinition schema) {

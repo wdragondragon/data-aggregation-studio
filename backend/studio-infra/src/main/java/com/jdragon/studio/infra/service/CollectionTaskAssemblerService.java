@@ -189,8 +189,8 @@ public class CollectionTaskAssemblerService {
             return Collections.emptyList();
         }
         Object paras = transformer.getParameters().get("paras");
-        if (paras instanceof List) {
-            return new ArrayList<Object>((List<Object>) paras);
+        if (paras instanceof List<?>) {
+            return new ArrayList<Object>((List<?>) paras);
         }
         List<Object> fallback = new ArrayList<Object>();
         for (Map.Entry<String, Object> entry : transformer.getParameters().entrySet()) {
@@ -268,19 +268,18 @@ public class CollectionTaskAssemblerService {
         return resolveModelFields(sourceModel);
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> resolveModelFields(DataModelDefinition model) {
         if (model == null || model.getTechnicalMetadata() == null) {
             return Collections.emptyList();
         }
         Object columns = model.getTechnicalMetadata().get("columns");
         List<String> fields = new ArrayList<String>();
-        if (columns instanceof List) {
-            for (Object item : (List<Object>) columns) {
-                if (!(item instanceof Map)) {
+        if (columns instanceof List<?>) {
+            for (Object item : (List<?>) columns) {
+                if (!(item instanceof Map<?, ?>)) {
                     continue;
                 }
-                Object name = ((Map<String, Object>) item).get("name");
+                Object name = ((Map<?, ?>) item).get("name");
                 if (name != null && !String.valueOf(name).trim().isEmpty()) {
                     fields.add(String.valueOf(name));
                 }
@@ -289,15 +288,14 @@ public class CollectionTaskAssemblerService {
         return fields;
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> resolveJoinKeys(CollectionTaskDefinitionView definition) {
         Map<String, Object> executionOptions = definition.getExecutionOptions() == null
                 ? new LinkedHashMap<String, Object>()
                 : definition.getExecutionOptions();
         Object keys = executionOptions.get("joinKeys");
         List<String> joinKeys = new ArrayList<String>();
-        if (keys instanceof List) {
-            for (Object item : (List<Object>) keys) {
+        if (keys instanceof List<?>) {
+            for (Object item : (List<?>) keys) {
                 if (item != null && !String.valueOf(item).trim().isEmpty()) {
                     joinKeys.add(String.valueOf(item));
                 }

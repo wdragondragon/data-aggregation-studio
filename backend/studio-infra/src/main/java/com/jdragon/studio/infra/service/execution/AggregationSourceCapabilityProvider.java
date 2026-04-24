@@ -441,8 +441,9 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         Method batchMethod = findBatchMethod(sourcePlugin.getClass(), "getTableInfos");
         if (batchMethod != null) {
             Object value = batchMethod.invoke(sourcePlugin, datasource, locators);
-            if (value instanceof Map) {
-                return (Map<String, List<TableInfo>>) value;
+            Map<String, List<TableInfo>> converted = convertTypedListMap(value, TableInfo.class);
+            if (converted != null) {
+                return converted;
             }
         }
         Map<String, List<TableInfo>> result = new LinkedHashMap<String, List<TableInfo>>();
@@ -458,8 +459,9 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         Method batchMethod = findBatchMethod(sourcePlugin.getClass(), "getColumns");
         if (batchMethod != null) {
             Object value = batchMethod.invoke(sourcePlugin, datasource, locators);
-            if (value instanceof Map) {
-                return (Map<String, List<ColumnInfo>>) value;
+            Map<String, List<ColumnInfo>> converted = convertTypedListMap(value, ColumnInfo.class);
+            if (converted != null) {
+                return converted;
             }
         }
         Map<String, List<ColumnInfo>> result = new LinkedHashMap<String, List<ColumnInfo>>();
@@ -480,6 +482,43 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private <T> Map<String, List<T>> convertTypedListMap(Object candidate, Class<T> itemType) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, List<T>> result = new LinkedHashMap<String, List<T>>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            List<T> items = convertTypedList(entry.getValue(), itemType);
+            if (items == null) {
+                return null;
+            }
+            result.put(String.valueOf(entry.getKey()), items);
+        }
+        return result;
+    }
+
+    private <T> List<T> convertTypedList(Object candidate, Class<T> itemType) {
+        if (candidate == null) {
+            return Collections.emptyList();
+        }
+        if (!(candidate instanceof List<?>)) {
+            return null;
+        }
+        List<?> source = (List<?>) candidate;
+        List<T> result = new ArrayList<T>(source.size());
+        for (Object item : source) {
+            if (!itemType.isInstance(item)) {
+                return null;
+            }
+            result.add(itemType.cast(item));
+        }
+        return result;
     }
 
     private ModelKind resolveModelKind(TableInfo tableInfo) {

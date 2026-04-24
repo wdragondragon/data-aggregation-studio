@@ -673,18 +673,33 @@ public class QualityIssueService {
         return hasText(entity.getDisplayName()) ? entity.getDisplayName().trim() : entity.getUsername();
     }
 
-    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> extractAlertDetails(Map<String, Object> payload) {
-        if (payload == null || !(payload.get("alertDetails") instanceof List)) {
+        Object alertDetails = payload == null ? null : payload.get("alertDetails");
+        if (!(alertDetails instanceof List<?>)) {
             return new ArrayList<Map<String, Object>>();
         }
         List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
-        for (Object item : (List<Object>) payload.get("alertDetails")) {
-            if (item instanceof Map) {
-                items.add(new LinkedHashMap<String, Object>((Map<String, Object>) item));
+        for (Object item : (List<?>) alertDetails) {
+            Map<String, Object> detail = copyObjectMap(item);
+            if (detail != null) {
+                items.add(detail);
             }
         }
         return items;
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 
     private String extractMessage(Map<String, Object> payload, RunRecordEntity runRecord) {

@@ -401,22 +401,21 @@ public class WorkflowService {
         return items;
     }
 
-    @SuppressWarnings("unchecked")
     private List<TransformerBinding> toTransformers(Object candidate) {
         List<TransformerBinding> result = new ArrayList<TransformerBinding>();
-        if (!(candidate instanceof List)) {
+        if (!(candidate instanceof List<?>)) {
             return result;
         }
-        for (Object item : (List<Object>) candidate) {
-            if (!(item instanceof Map)) {
+        for (Object item : (List<?>) candidate) {
+            Map<String, Object> map = copyObjectMap(item);
+            if (map == null) {
                 continue;
             }
-            Map<String, Object> map = (Map<String, Object>) item;
             TransformerBinding binding = new TransformerBinding();
             binding.setTransformerCode(asString(map.get("transformerCode")));
-            Object parameters = map.get("parameters");
-            if (parameters instanceof Map) {
-                binding.setParameters(new LinkedHashMap<String, Object>((Map<String, Object>) parameters));
+            Map<String, Object> parameters = copyObjectMap(map.get("parameters"));
+            if (parameters != null) {
+                binding.setParameters(parameters);
             }
             result.add(binding);
         }
@@ -443,6 +442,20 @@ public class WorkflowService {
         }
         String text = String.valueOf(value);
         return "null".equalsIgnoreCase(text) ? null : text;
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 
     private void validateGraph(WorkflowSaveRequest request) {

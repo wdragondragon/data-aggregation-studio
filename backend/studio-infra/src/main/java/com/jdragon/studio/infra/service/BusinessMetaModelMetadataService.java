@@ -157,36 +157,50 @@ public class BusinessMetaModelMetadataService {
             return new ArrayList<Map<String, Object>>();
         }
         Object rawEntries = metadata.get(META_MODELS_KEY);
-        if (!(rawEntries instanceof List)) {
+        if (!(rawEntries instanceof List<?>)) {
             return new ArrayList<Map<String, Object>>();
         }
         List<Map<String, Object>> entries = new ArrayList<Map<String, Object>>();
         for (Object candidate : (List<?>) rawEntries) {
-            if (candidate instanceof Map) {
-                entries.add(new LinkedHashMap<String, Object>((Map<String, Object>) candidate));
+            Map<String, Object> entry = copyObjectMap(candidate);
+            if (entry != null) {
+                entries.add(entry);
             }
         }
         return entries;
     }
 
     private Map<String, Object> parseValues(Object value) {
-        if (!(value instanceof Map)) {
-            return new LinkedHashMap<String, Object>();
-        }
-        return new LinkedHashMap<String, Object>((Map<String, Object>) value);
+        Map<String, Object> parsed = copyObjectMap(value);
+        return parsed == null ? new LinkedHashMap<String, Object>() : parsed;
     }
 
     private List<Map<String, Object>> parseRows(Object value) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-        if (!(value instanceof List)) {
+        if (!(value instanceof List<?>)) {
             return rows;
         }
         for (Object candidate : (List<?>) value) {
-            if (candidate instanceof Map) {
-                rows.add(new LinkedHashMap<String, Object>((Map<String, Object>) candidate));
+            Map<String, Object> row = copyObjectMap(candidate);
+            if (row != null) {
+                rows.add(row);
             }
         }
         return rows;
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 
     private Map<String, Object> applyDefaults(Map<String, Object> input,

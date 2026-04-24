@@ -208,7 +208,7 @@ public class UserRegistrationRequestService {
         if (userIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<StudioUserEntity> users = userMapper.selectBatchIds(userIds);
+        List<StudioUserEntity> users = userMapper.selectByIds(userIds);
         Map<Long, StudioUserEntity> userMap = new LinkedHashMap<Long, StudioUserEntity>();
         for (StudioUserEntity user : users) {
             userMap.put(user.getId(), user);

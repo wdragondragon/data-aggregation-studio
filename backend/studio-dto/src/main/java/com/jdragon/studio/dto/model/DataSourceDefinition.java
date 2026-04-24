@@ -1,11 +1,13 @@
 package com.jdragon.studio.dto.model;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class DataSourceDefinition extends BaseDefinition {
     private String name;
     private String typeCode;

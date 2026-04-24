@@ -10,7 +10,6 @@ import java.util.Map;
 @Component
 public class RunMetricSummaryMapper {
 
-    @SuppressWarnings("unchecked")
     public RunMetricSummaryView fromEntity(RunRecordEntity entity) {
         if (entity == null) {
             return null;
@@ -55,7 +54,6 @@ public class RunMetricSummaryMapper {
         entity.setTransformerFilterRecords(summary.getTransformerFilterRecords());
     }
 
-    @SuppressWarnings("unchecked")
     public RunMetricSummaryView fromPayload(Map<String, Object> payload) {
         RunMetricSummaryView summary = new RunMetricSummaryView();
         Map<String, Object> summaryMap = summaryMap(payload);
@@ -94,14 +92,14 @@ public class RunMetricSummaryMapper {
                 && entity.getTransformerFilterRecords() != null;
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> summaryMap(Map<String, Object> payload) {
         if (payload == null) {
             return new LinkedHashMap<String, Object>();
         }
         Object summary = payload.get("summary");
-        if (summary instanceof Map) {
-            return new LinkedHashMap<String, Object>((Map<String, Object>) summary);
+        Map<String, Object> copied = copyObjectMap(summary);
+        if (copied != null) {
+            return copied;
         }
         return new LinkedHashMap<String, Object>();
     }
@@ -149,5 +147,19 @@ public class RunMetricSummaryMapper {
     private Long calculateSuccessRecords(Long readSucceedRecords, Long writeFailedRecords) {
         long successRecords = safeValue(readSucceedRecords) - safeValue(writeFailedRecords);
         return Long.valueOf(Math.max(0L, successRecords));
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 }

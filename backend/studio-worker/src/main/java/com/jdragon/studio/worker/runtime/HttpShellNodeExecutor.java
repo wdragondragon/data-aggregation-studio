@@ -104,9 +104,10 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             ResponseEntity<String> responseEntity = restTemplate.exchange(requestUrl, httpMethod, new HttpEntity<Object>(body, headers), String.class);
             long durationMs = System.currentTimeMillis() - startedAt;
             String responseBody = responseEntity.getBody();
+            int httpStatus = responseEntity.getStatusCode().value();
             log.info("[HTTP:{}] Completed request httpStatus={}, durationMs={}, responseBytes={}, contentType={}",
                     nodeCode,
-                    responseEntity.getStatusCodeValue(),
+                    httpStatus,
                     durationMs,
                     utf8Bytes(responseBody),
                     responseEntity.getHeaders().getContentType());
@@ -121,7 +122,7 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             result.put("method", httpMethod.name());
             result.put("requestUrl", requestUrl);
             result.put("safeRequestUrl", safeRequestUrl);
-            result.put("httpStatus", responseEntity.getStatusCodeValue());
+            result.put("httpStatus", httpStatus);
             result.put("durationMs", durationMs);
             result.put("queryParamCount", queryParams.size());
             result.put("headerCount", headers.size());
@@ -129,14 +130,15 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             result.put("responseBytes", utf8Bytes(responseBody));
             result.put("response", responseBody);
             result.put("message", String.format("HTTP %s %s completed with %d in %d ms",
-                    httpMethod.name(), safeRequestUrl, responseEntity.getStatusCodeValue(), durationMs));
+                    httpMethod.name(), safeRequestUrl, httpStatus, durationMs));
             return result;
         } catch (RestClientResponseException e) {
             long durationMs = System.currentTimeMillis() - startedAt;
             String responseBody = e.getResponseBodyAsString();
+            int httpStatus = e.getStatusCode().value();
             log.warn("[HTTP:{}] Request failed with httpStatus={}, statusText={}, durationMs={}, responseBytes={}, responsePreview={}",
                     nodeCode,
-                    e.getRawStatusCode(),
+                    httpStatus,
                     e.getStatusText(),
                     durationMs,
                     utf8Bytes(responseBody),
@@ -149,7 +151,7 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             result.put("method", httpMethod.name());
             result.put("requestUrl", requestUrl);
             result.put("safeRequestUrl", safeRequestUrl);
-            result.put("httpStatus", e.getRawStatusCode());
+            result.put("httpStatus", httpStatus);
             result.put("durationMs", durationMs);
             result.put("queryParamCount", queryParams.size());
             result.put("headerCount", headers.size());
@@ -159,7 +161,7 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             result.put("error", e.getMessage());
             result.put("exceptionType", e.getClass().getName());
             result.put("message", String.format("HTTP %s %s failed with %d in %d ms: %s",
-                    httpMethod.name(), safeRequestUrl, e.getRawStatusCode(), durationMs, e.getStatusText()));
+                    httpMethod.name(), safeRequestUrl, httpStatus, durationMs, e.getStatusText()));
             return result;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startedAt;

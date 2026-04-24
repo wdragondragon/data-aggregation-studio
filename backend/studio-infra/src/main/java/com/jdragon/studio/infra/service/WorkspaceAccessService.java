@@ -295,7 +295,7 @@ public class WorkspaceAccessService {
         if (projectIds == null || projectIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<ProjectEntity> projects = projectMapper.selectBatchIds(projectIds);
+        List<ProjectEntity> projects = projectMapper.selectByIds(projectIds);
         Map<Long, ProjectEntity> projectMap = new LinkedHashMap<Long, ProjectEntity>();
         for (ProjectEntity project : projects) {
             projectMap.put(project.getId(), project);

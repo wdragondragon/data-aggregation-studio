@@ -51,7 +51,7 @@ public class RunLogProxyService {
         }
         int safePageSizeBytes = pageSizeBytes == null || pageSizeBytes.intValue() <= 0 ? DEFAULT_PAGE_BYTES : pageSizeBytes.intValue();
         String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
-        String url = UriComponentsBuilder.fromHttpUrl(apiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(apiBaseUrl)
                 .path("/internal/runs/{id}/log")
                 .queryParam("pageSizeBytes", safePageSizeBytes)
                 .queryParamIfPresent("pageNo", pageNo == null || pageNo.intValue() <= 0
@@ -68,7 +68,7 @@ public class RunLogProxyService {
             return runService.buildHistoricalFallback(entity);
         }
         String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
-        String url = UriComponentsBuilder.fromHttpUrl(apiBaseUrl)
+        String url = UriComponentsBuilder.fromUriString(apiBaseUrl)
                 .path("/internal/runs/{id}/log/download")
                 .buildAndExpand(runRecordId)
                 .toUriString();

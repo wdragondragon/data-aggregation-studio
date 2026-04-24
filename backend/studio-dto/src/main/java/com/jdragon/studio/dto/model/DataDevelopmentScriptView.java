@@ -2,8 +2,10 @@ package com.jdragon.studio.dto.model;
 
 import com.jdragon.studio.dto.enums.ScriptType;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class DataDevelopmentScriptView extends BaseDefinition {
     private Long directoryId;
     private String fileName;

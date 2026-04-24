@@ -171,13 +171,13 @@ public class QualitySqlTemplateService {
         List<QualityRuleOutputParamView> outputParams = new ArrayList<QualityRuleOutputParamView>();
         try {
             Select select = parseSelectStatement(normalizeForParse(logicSql), false);
-            if (!(select.getSelectBody() instanceof PlainSelect)) {
+            PlainSelect plainSelect = select.getPlainSelect();
+            if (plainSelect == null) {
                 if (warnings != null) {
                     warnings.add("当前 SQL 结构较复杂，静态结果字段解析将在任务阶段连库完成。");
                 }
                 return outputParams;
             }
-            PlainSelect plainSelect = (PlainSelect) select.getSelectBody();
             List<SelectItem<?>> items = plainSelect.getSelectItems();
             for (SelectItem<?> item : items) {
                 if (isWildcardItem(item)) {
@@ -345,8 +345,8 @@ public class QualitySqlTemplateService {
     private String appendWhereClause(String sql, String whereClause) {
         try {
             Select select = parseSelectStatement(sql, true);
-            if (select.getSelectBody() instanceof PlainSelect) {
-                PlainSelect plainSelect = (PlainSelect) select.getSelectBody();
+            PlainSelect plainSelect = select.getPlainSelect();
+            if (plainSelect != null) {
                 Expression appendedWhere = CCJSqlParserUtil.parseCondExpression(whereClause);
                 if (plainSelect.getWhere() == null) {
                     plainSelect.setWhere(appendedWhere);

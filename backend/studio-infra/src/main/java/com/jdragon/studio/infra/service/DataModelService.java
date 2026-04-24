@@ -690,14 +690,27 @@ public class DataModelService {
             return normalized;
         }
         for (Object column : columns) {
-            if (!(column instanceof Map)) {
+            Map<String, Object> item = copyObjectMap(column);
+            if (item == null) {
                 continue;
             }
-            Map<String, Object> item = new LinkedHashMap<String, Object>();
-            item.putAll((Map<String, Object>) column);
             normalized.add(applyDefaults(item, fieldSchema, MetadataScope.TECHNICAL));
         }
         return normalized;
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 
     private Set<String> resolveAllowedBusinessMetaModelCodes(String datasourceTypeCode,

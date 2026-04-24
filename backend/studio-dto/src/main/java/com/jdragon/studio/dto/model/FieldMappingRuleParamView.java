@@ -2,8 +2,10 @@ package com.jdragon.studio.dto.model;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 @Schema(description = "Field mapping rule parameter definition")
 public class FieldMappingRuleParamView extends BaseDefinition {
     @Schema(description = "Rule id")

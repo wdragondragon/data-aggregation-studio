@@ -73,16 +73,13 @@ public class RunMetricBackfillService {
         return changed;
     }
 
-    @SuppressWarnings("unchecked")
     private boolean applySuccessRecords(Map<String, Object> root, Long successRecords) {
         if (root == null) {
             return false;
         }
         Object summaryValue = root.get("summary");
-        Map<String, Object> summary;
-        if (summaryValue instanceof Map) {
-            summary = new LinkedHashMap<String, Object>((Map<String, Object>) summaryValue);
-        } else {
+        Map<String, Object> summary = copyObjectMap(summaryValue);
+        if (summary == null) {
             summary = new LinkedHashMap<String, Object>();
         }
         if (Objects.equals(asLong(summary.get("successRecords")), successRecords)) {
@@ -116,6 +113,20 @@ public class RunMetricBackfillService {
             }
         }
         return null;
+    }
+
+    private Map<String, Object> copyObjectMap(Object candidate) {
+        if (!(candidate instanceof Map<?, ?>)) {
+            return null;
+        }
+        Map<?, ?> source = (Map<?, ?>) candidate;
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                copy.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return copy;
     }
 
     private boolean assignMetric(Long currentValue, Long nextValue, java.util.function.Consumer<Long> setter) {

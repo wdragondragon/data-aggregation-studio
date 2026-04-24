@@ -639,7 +639,7 @@ public class SystemManagementService {
             return Collections.emptyMap();
         }
         Map<Long, StudioUserEntity> userMap = new LinkedHashMap<Long, StudioUserEntity>();
-        for (StudioUserEntity user : userMapper.selectBatchIds(userIds)) {
+        for (StudioUserEntity user : userMapper.selectByIds(userIds)) {
             userMap.put(user.getId(), user);
         }
         return userMap;
