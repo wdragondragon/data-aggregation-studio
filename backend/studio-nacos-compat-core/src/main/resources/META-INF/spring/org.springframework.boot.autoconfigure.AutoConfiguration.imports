@@ -1,0 +1,2 @@
+com.jdragon.studio.nacos.compat.config.NacosConfigRefreshAutoConfiguration
+com.jdragon.studio.nacos.compat.discovery.NacosCompatDiscoveryAutoConfiguration

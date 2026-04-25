@@ -16,6 +16,7 @@
         <module>studio-commons</module>
         <module>studio-dto</module>
         <module>studio-core</module>
+        <module>studio-nacos-compat-core</module>
         <module>studio-infra</module>
         <module>studio-server</module>
         <module>studio-worker</module>

@@ -39,12 +39,9 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+            <groupId>com.jdragon.studio</groupId>
+            <artifactId>studio-nacos-compat-core</artifactId>
+            <version>${project.version}</version>
         </dependency>
     </dependencies>
 

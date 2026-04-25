@@ -1,0 +1,5 @@
+org.springframework.boot.context.config.ConfigDataLocationResolver=\
+com.jdragon.studio.nacos.compat.config.NacosConfigDataLocationResolver
+
+org.springframework.boot.context.config.ConfigDataLoader=\
+com.jdragon.studio.nacos.compat.config.NacosConfigDataLoader
