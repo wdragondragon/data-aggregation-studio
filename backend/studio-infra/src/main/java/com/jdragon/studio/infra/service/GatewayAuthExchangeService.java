@@ -8,10 +8,14 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.auth.AuthProfileView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.infra.entity.RoleEntity;
 import com.jdragon.studio.infra.entity.StudioExternalUserBindingEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
+import com.jdragon.studio.infra.entity.UserRoleEntity;
+import com.jdragon.studio.infra.mapper.RoleMapper;
 import com.jdragon.studio.infra.mapper.StudioExternalUserBindingMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
+import com.jdragon.studio.infra.mapper.UserRoleMapper;
 import com.jdragon.studio.infra.security.StudioUserPrincipal;
 import lombok.Data;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -31,10 +35,14 @@ import java.util.UUID;
 @Service
 public class GatewayAuthExchangeService {
 
+    private static final String SUPER_ADMIN_ACCOUNT = "SuperAdmin";
+
     private final StudioPlatformProperties platformProperties;
     private final ObjectMapper objectMapper;
     private final StudioExternalUserBindingMapper externalUserBindingMapper;
     private final StudioUserMapper userMapper;
+    private final UserRoleMapper userRoleMapper;
+    private final RoleMapper roleMapper;
     private final PasswordEncoder passwordEncoder;
     private final StudioUserDetailsService studioUserDetailsService;
     private final JwtTokenService jwtTokenService;
@@ -44,6 +52,8 @@ public class GatewayAuthExchangeService {
                                       ObjectMapper objectMapper,
                                       StudioExternalUserBindingMapper externalUserBindingMapper,
                                       StudioUserMapper userMapper,
+                                      UserRoleMapper userRoleMapper,
+                                      RoleMapper roleMapper,
                                       PasswordEncoder passwordEncoder,
                                       StudioUserDetailsService studioUserDetailsService,
                                       JwtTokenService jwtTokenService,
@@ -52,6 +62,8 @@ public class GatewayAuthExchangeService {
         this.objectMapper = objectMapper;
         this.externalUserBindingMapper = externalUserBindingMapper;
         this.userMapper = userMapper;
+        this.userRoleMapper = userRoleMapper;
+        this.roleMapper = roleMapper;
         this.passwordEncoder = passwordEncoder;
         this.studioUserDetailsService = studioUserDetailsService;
         this.jwtTokenService = jwtTokenService;
@@ -143,10 +155,16 @@ public class GatewayAuthExchangeService {
                         .last("limit 1"));
 
         StudioUserEntity user = binding == null ? null : userMapper.selectById(binding.getStudioUserId());
+        boolean superAdminGatewayUser = isSuperAdminGatewayUser(userInfo);
+        if (user == null && superAdminGatewayUser) {
+            user = selectUserByUsername(SUPER_ADMIN_ACCOUNT);
+        }
         if (user == null) {
             user = new StudioUserEntity();
             user.setTenantId(StudioConstants.DEFAULT_TENANT_ID);
-            user.setUsername(resolveAvailableUsername(userInfo.getAccount(), userInfo.getUserId()));
+            user.setUsername(superAdminGatewayUser
+                    ? SUPER_ADMIN_ACCOUNT
+                    : resolveAvailableUsername(userInfo.getAccount(), userInfo.getUserId()));
             user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
         }
         user.setDisplayName(resolveDisplayName(userInfo));
@@ -173,8 +191,51 @@ public class GatewayAuthExchangeService {
         } else {
             externalUserBindingMapper.updateById(binding);
         }
+        if (superAdminGatewayUser) {
+            ensureSuperAdminRoles(user.getId());
+        }
         user.setExternalAccount(binding.getExternalAccount());
         return user;
+    }
+
+    private boolean isSuperAdminGatewayUser(GatewayUserInfo userInfo) {
+        return SUPER_ADMIN_ACCOUNT.equalsIgnoreCase(normalize(userInfo.getAccount()));
+    }
+
+    private StudioUserEntity selectUserByUsername(String username) {
+        return userMapper.selectOne(new LambdaQueryWrapper<StudioUserEntity>()
+                .eq(StudioUserEntity::getUsername, username)
+                .last("limit 1"));
+    }
+
+    private void ensureSuperAdminRoles(Long userId) {
+        RoleEntity adminRole = requireRole(StudioConstants.ROLE_ADMIN);
+        RoleEntity superAdminRole = requireRole(StudioConstants.ROLE_SUPER_ADMIN);
+        ensureUserRole(userId, adminRole.getId());
+        ensureUserRole(userId, superAdminRole.getId());
+    }
+
+    private RoleEntity requireRole(String code) {
+        RoleEntity role = roleMapper.selectOne(new LambdaQueryWrapper<RoleEntity>()
+                .eq(RoleEntity::getCode, code)
+                .last("limit 1"));
+        if (role == null) {
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Studio role is missing: " + code);
+        }
+        return role;
+    }
+
+    private void ensureUserRole(Long userId, Long roleId) {
+        Long count = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRoleEntity>()
+                .eq(UserRoleEntity::getUserId, userId)
+                .eq(UserRoleEntity::getRoleId, roleId));
+        if (count != null && count.longValue() > 0L) {
+            return;
+        }
+        UserRoleEntity userRole = new UserRoleEntity();
+        userRole.setUserId(userId);
+        userRole.setRoleId(roleId);
+        userRoleMapper.insert(userRole);
     }
 
     private String resolveAvailableUsername(String externalAccount, String externalUserId) {

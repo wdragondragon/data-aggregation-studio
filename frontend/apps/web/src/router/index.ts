@@ -549,9 +549,10 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const authStore = useAuthStore();
-  await authStore.bootstrap();
+  const isPublicRoute = Boolean(to.meta.public);
+  await authStore.bootstrap({ gatewayExchange: !isPublicRoute });
 
-  if (to.meta.public) {
+  if (isPublicRoute) {
     return true;
   }
 

@@ -47,6 +47,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
+      '/data-aggregation-studio': {
+        target: 'http://127.0.0.1:31649',
+        changeOrigin: true
+      },
       '/api': {
         target: 'http://127.0.0.1:18080',
         changeOrigin: true

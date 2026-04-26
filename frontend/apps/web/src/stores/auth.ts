@@ -6,6 +6,7 @@ import {
   getStoredProjectId,
   getStoredTenantId,
   getStoredToken,
+  isGatewayStudioMode,
   setStoredProjectId,
   setStoredTenantId,
   setStoredToken,
@@ -25,6 +26,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
   const systemRoleCodes = ref<string[]>([]);
   const effectiveRoleCodes = ref<string[]>([]);
   const ready = ref(false);
+  const gatewayExchangeAttempted = ref(false);
 
   const isAuthenticated = computed(() => Boolean(token.value));
   const currentTenant = computed(() => tenants.value.find((item) => item.tenantId === currentTenantId.value) ?? null);
@@ -69,15 +71,18 @@ export const useAuthStore = defineStore("studio-auth", () => {
     }
   }
 
-  async function bootstrap() {
-    if (ready.value) {
-      return;
-    }
-    if (!token.value) {
-      ready.value = true;
+  async function bootstrap(options: { gatewayExchange?: boolean } = {}) {
+    if (ready.value && (!options.gatewayExchange || token.value || gatewayExchangeAttempted.value)) {
       return;
     }
     try {
+      if (!token.value) {
+        if (options.gatewayExchange && isGatewayStudioMode() && !gatewayExchangeAttempted.value) {
+          gatewayExchangeAttempted.value = true;
+          await loginWithGateway();
+        }
+        return;
+      }
       await requestProfile(true);
     } catch {
       clearStoredToken();
@@ -90,6 +95,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
   async function login(form: { username: string; password: string }) {
     const response = await studioApi.auth.login(form);
     token.value = response.token;
+    gatewayExchangeAttempted.value = false;
     setStoredToken(response.token);
     hydrateProfile(response);
   }
@@ -97,6 +103,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
   async function loginWithGateway() {
     const response = await studioApi.auth.gatewayExchange();
     token.value = response.token;
+    gatewayExchangeAttempted.value = false;
     setStoredToken(response.token);
     hydrateProfile(response);
   }
@@ -136,6 +143,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
 
   function logout() {
     clearStoredToken();
+    gatewayExchangeAttempted.value = false;
     resetState();
   }
 

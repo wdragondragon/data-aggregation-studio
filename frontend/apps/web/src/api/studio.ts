@@ -68,7 +68,12 @@ function resolveDataServiceOpenBaseUrl() {
     return configured;
   }
 
-  const apiBaseUrl = resolveStudioApiBaseUrl();
+  const apiBaseUrl = normalizeBaseUrl(resolveStudioApiBaseUrl());
+  const gatewayStudioBaseUrl = resolveGatewayStudioBaseUrl(apiBaseUrl);
+  if (gatewayStudioBaseUrl) {
+    return gatewayStudioBaseUrl;
+  }
+
   if (/^https?:\/\//i.test(apiBaseUrl)) {
     try {
       const url = new URL(apiBaseUrl);
@@ -84,6 +89,15 @@ function resolveDataServiceOpenBaseUrl() {
   }
 
   return window.location.origin;
+}
+
+function resolveGatewayStudioBaseUrl(apiBaseUrl: string) {
+  const routePrefix = "/data-aggregation-studio";
+  const routePrefixIndex = apiBaseUrl.indexOf(routePrefix);
+  if (routePrefixIndex < 0) {
+    return "";
+  }
+  return apiBaseUrl.slice(0, routePrefixIndex + routePrefix.length);
 }
 
 function normalizeBaseUrl(value: unknown) {
