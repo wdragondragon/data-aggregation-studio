@@ -72,7 +72,7 @@
             统一登录
           </el-button>
           <p class="login__gateway-tip">
-            gateway 模式下会直接换取 `studio JWT`，直连模式下会跳转到统一入口。
+            通过平台入口访问时将自动完成身份换票；直连场景仍可使用本地账号登录。
           </p>
         </div>
 
