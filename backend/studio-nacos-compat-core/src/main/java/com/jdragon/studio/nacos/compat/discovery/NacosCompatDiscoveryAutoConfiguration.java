@@ -4,6 +4,7 @@ import com.jdragon.studio.nacos.compat.config.NacosConfigRefreshAutoConfiguratio
 import com.jdragon.studio.nacos.compat.props.NacosCompatProperties;
 import com.jdragon.studio.nacos.compat.props.NacosDiscoveryProperties;
 import com.jdragon.studio.nacos.compat.props.NacosRootProperties;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -15,12 +16,12 @@ import org.springframework.cloud.client.discovery.ReactiveDiscoveryClient;
 import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
 import org.springframework.cloud.commons.util.InetUtils;
 import org.springframework.cloud.commons.util.InetUtilsProperties;
+import org.springframework.cloud.commons.util.UtilAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
-@AutoConfiguration(after = NacosConfigRefreshAutoConfiguration.class)
-@EnableConfigurationProperties({NacosCompatProperties.class, NacosRootProperties.class, NacosDiscoveryProperties.class,
-        InetUtilsProperties.class})
+@AutoConfiguration(after = {NacosConfigRefreshAutoConfiguration.class, UtilAutoConfiguration.class})
+@EnableConfigurationProperties({NacosCompatProperties.class, NacosRootProperties.class, NacosDiscoveryProperties.class})
 @ConditionalOnProperty(prefix = "spring.cloud.nacos.discovery", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class NacosCompatDiscoveryAutoConfiguration {
 
@@ -35,7 +36,10 @@ public class NacosCompatDiscoveryAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public InetUtils nacosCompatInetUtils(InetUtilsProperties properties) {
+    public InetUtils nacosCompatInetUtils(ObjectProvider<InetUtilsProperties> propertiesProvider) {
+        InetUtilsProperties properties = propertiesProvider.orderedStream()
+                .findFirst()
+                .orElseGet(InetUtilsProperties::new);
         return new InetUtils(properties);
     }
 
