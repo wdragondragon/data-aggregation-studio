@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
 export default defineConfig({
+  base: '/dfs/data-aggregation-studio/',
   plugins: [vue()],
   resolve: {
     dedupe: ['@antv/x6'],
@@ -47,6 +48,11 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
+      '/dfs/data-aggregation-studio': {
+        target: 'http://127.0.0.1:31649',
+        changeOrigin: true,
+        rewrite: (proxyPath) => proxyPath.replace(/^\/dfs/, '')
+      },
       '/data-aggregation-studio': {
         target: 'http://127.0.0.1:31649',
         changeOrigin: true

@@ -4,6 +4,7 @@ export const STUDIO_TOKEN_KEY = "studio_token";
 export const STUDIO_USERNAME_KEY = "studio_username";
 export const STUDIO_TENANT_KEY = "studio_current_tenant";
 export const STUDIO_PROJECT_KEY = "studio_current_project";
+const DEFAULT_API_BASE_PATH = "api/v1";
 
 export function getStoredToken() {
   return window.localStorage.getItem(STUDIO_TOKEN_KEY);
@@ -45,7 +46,7 @@ export function setStoredProjectId(projectId: string | number | null | undefined
 }
 
 export function resolveStudioApiBaseUrl(path = "") {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+  const baseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
   if (!path) {
     return baseUrl;
   }
@@ -107,6 +108,24 @@ function normalizeBaseUrl(value: unknown) {
   return value.trim().replace(/\/$/, "");
 }
 
+function resolveApiBaseUrl(value: unknown) {
+  const configured = normalizeBaseUrl(value);
+  if (!configured) {
+    return resolveAppRoutePath(DEFAULT_API_BASE_PATH);
+  }
+  if (/^(https?:)?\/\//i.test(configured) || configured.startsWith("/")) {
+    return configured;
+  }
+  return resolveAppRoutePath(configured);
+}
+
+function resolveAppRoutePath(path: string) {
+  const base = import.meta.env.BASE_URL || "/";
+  const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}` || normalizedPath;
+}
+
 export function isGatewayStudioMode() {
   const baseUrl = resolveStudioApiBaseUrl();
   return baseUrl.indexOf("/data-aggregation-studio/") >= 0
@@ -147,8 +166,9 @@ export const studioApi = createStudioApi({
   getProjectId: getStoredProjectId,
   onUnauthorized: () => {
     clearStoredToken();
-    if (window.location.pathname !== "/login") {
-      window.location.assign("/login");
+    const loginPath = resolveAppRoutePath("/login");
+    if (window.location.pathname !== loginPath) {
+      window.location.assign(loginPath);
     }
   },
 });
