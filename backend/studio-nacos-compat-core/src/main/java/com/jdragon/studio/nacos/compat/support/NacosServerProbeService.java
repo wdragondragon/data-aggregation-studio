@@ -9,6 +9,7 @@ import com.jdragon.studio.nacos.compat.props.NacosCompatProperties;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +27,7 @@ public class NacosServerProbeService {
 
     private final NacosCompatProperties compatProperties;
 
-    private final Map<String, NacosServerInfo> cache = new ConcurrentHashMap<>();
+    private final Map<String, ProbeCacheEntry> cache = new ConcurrentHashMap<>();
 
     public NacosServerProbeService(NacosHttpClient httpClient, NacosCompatProperties compatProperties) {
         this.httpClient = httpClient;
@@ -34,7 +35,13 @@ public class NacosServerProbeService {
     }
 
     public NacosServerInfo probe(String serverAddr) {
-        return this.cache.computeIfAbsent(serverAddr, this::doProbe);
+        ProbeCacheEntry cached = this.cache.get(serverAddr);
+        if (cached != null && !cached.isExpired(this.compatProperties.getProbeCacheTtl())) {
+            return cached.serverInfo();
+        }
+        NacosServerInfo probed = doProbe(serverAddr);
+        this.cache.put(serverAddr, new ProbeCacheEntry(probed, Instant.now()));
+        return probed;
     }
 
     private NacosServerInfo doProbe(String serverAddr) {
@@ -83,7 +90,9 @@ public class NacosServerProbeService {
                 if (!response.is2xxSuccessful()) {
                     throw new IllegalStateException("Probe modern state endpoint failed, status=" + response.statusCode());
                 }
-                String version = NacosJsonSupport.findText(NacosJsonSupport.readTree(response.body()), "version");
+                String version = NacosJsonSupport.findText(NacosJsonSupport.readRequiredTree(response.body(),
+                        "Probe modern state endpoint returned invalid JSON, server=" + serverAddr + ", path=" + statePath),
+                        "version");
                 if (version == null || version.isBlank()) {
                     version = "3.0.0";
                 }
@@ -105,7 +114,9 @@ public class NacosServerProbeService {
         if (!response.is2xxSuccessful()) {
             throw new IllegalStateException("Probe legacy state endpoint failed, status=" + response.statusCode());
         }
-        String version = NacosJsonSupport.findText(NacosJsonSupport.readTree(response.body()), "version");
+        String version = NacosJsonSupport.findText(NacosJsonSupport.readRequiredTree(response.body(),
+                "Probe legacy state endpoint returned invalid JSON, server=" + serverAddr + ", path=" + LEGACY_STATE_PATH),
+                "version");
         if (version == null || version.isBlank()) {
             version = "1.3.2";
         }
@@ -139,6 +150,13 @@ public class NacosServerProbeService {
         result.put("version", serverInfo.version());
         result.put("stateEndpoint", serverInfo.stateEndpoint());
         return result;
+    }
+
+    private record ProbeCacheEntry(NacosServerInfo serverInfo, Instant probedAt) {
+
+        private boolean isExpired(Duration ttl) {
+            return ttl == null || ttl.isZero() || ttl.isNegative() || this.probedAt.plus(ttl).isBefore(Instant.now());
+        }
     }
 
 }

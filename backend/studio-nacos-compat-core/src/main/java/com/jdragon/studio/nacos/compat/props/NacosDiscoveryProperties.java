@@ -28,6 +28,10 @@ public class NacosDiscoveryProperties {
 
     private String ip;
 
+    private String networkInterface = "";
+
+    private String ipType;
+
     private Integer port;
 
     private double weight = 1.0D;

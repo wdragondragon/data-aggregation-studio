@@ -5,6 +5,7 @@ import com.jdragon.studio.nacos.compat.props.NacosCompatProperties;
 import com.jdragon.studio.nacos.compat.props.NacosDiscoveryProperties;
 import com.jdragon.studio.nacos.compat.props.NacosRootProperties;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -12,11 +13,14 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.cloud.client.discovery.ReactiveDiscoveryClient;
 import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
+import org.springframework.cloud.commons.util.InetUtils;
+import org.springframework.cloud.commons.util.InetUtilsProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 
 @AutoConfiguration(after = NacosConfigRefreshAutoConfiguration.class)
-@EnableConfigurationProperties({NacosCompatProperties.class, NacosRootProperties.class, NacosDiscoveryProperties.class})
+@EnableConfigurationProperties({NacosCompatProperties.class, NacosRootProperties.class, NacosDiscoveryProperties.class,
+        InetUtilsProperties.class})
 @ConditionalOnProperty(prefix = "spring.cloud.nacos.discovery", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class NacosCompatDiscoveryAutoConfiguration {
 
@@ -30,6 +34,12 @@ public class NacosCompatDiscoveryAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public InetUtils nacosCompatInetUtils(InetUtilsProperties properties) {
+        return new InetUtils(properties);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(ServiceRegistry.class)
     public ServiceRegistry<NacosRegistration> nacosCompatServiceRegistry(NacosDiscoveryAccessor accessor,
             NacosRootProperties rootProperties, NacosDiscoveryProperties discoveryProperties,
@@ -38,14 +48,15 @@ public class NacosCompatDiscoveryAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(NacosCompatDiscoveryClient.class)
+    @ConditionalOnMissingBean(DiscoveryClient.class)
     public NacosCompatDiscoveryClient nacosCompatDiscoveryClient(NacosDiscoveryAccessor accessor,
             NacosRootProperties rootProperties, NacosDiscoveryProperties discoveryProperties) {
         return new NacosCompatDiscoveryClient(accessor, rootProperties, discoveryProperties);
     }
 
     @Bean
-    @ConditionalOnMissingBean(NacosCompatReactiveDiscoveryClient.class)
+    @ConditionalOnBean(NacosCompatDiscoveryClient.class)
+    @ConditionalOnMissingBean(ReactiveDiscoveryClient.class)
     public ReactiveDiscoveryClient nacosCompatReactiveDiscoveryClient(NacosCompatDiscoveryClient discoveryClient) {
         return new NacosCompatReactiveDiscoveryClient(discoveryClient);
     }
@@ -53,8 +64,8 @@ public class NacosCompatDiscoveryAutoConfiguration {
     @Bean
     @ConditionalOnWebApplication
     public NacosRegistrationLifecycle nacosRegistrationLifecycle(ServiceRegistry<NacosRegistration> serviceRegistry,
-            NacosDiscoveryProperties discoveryProperties, Environment environment) {
-        return new NacosRegistrationLifecycle(serviceRegistry, discoveryProperties, environment);
+            NacosDiscoveryProperties discoveryProperties, Environment environment, InetUtils inetUtils) {
+        return new NacosRegistrationLifecycle(serviceRegistry, discoveryProperties, environment, inetUtils);
     }
 
 }

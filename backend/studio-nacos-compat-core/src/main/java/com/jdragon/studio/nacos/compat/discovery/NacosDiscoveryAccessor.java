@@ -120,6 +120,7 @@ public class NacosDiscoveryAccessor {
             throw new IllegalStateException("Legacy nacos heartbeat failed, status=" + response.statusCode()
                     + ", service=" + registration.getServiceId());
         }
+        validateLegacyBeatBody(response.body(), registration);
     }
 
     private NacosServerInfo resolveServerInfo(String serverAddr) {
@@ -168,7 +169,8 @@ public class NacosDiscoveryAccessor {
             throw new IllegalStateException("Query legacy nacos instances failed, status=" + response.statusCode()
                     + ", serviceId=" + serviceId);
         }
-        JsonNode jsonNode = NacosJsonSupport.readTree(response.body());
+        JsonNode jsonNode = NacosJsonSupport.readRequiredTree(response.body(),
+                "Query legacy nacos instances returned invalid JSON, serviceId=" + serviceId);
         JsonNode hosts = jsonNode.get("hosts");
         List<ServiceInstance> result = new ArrayList<>();
         if (hosts != null && hosts.isArray()) {
@@ -221,7 +223,8 @@ public class NacosDiscoveryAccessor {
             if (!response.is2xxSuccessful()) {
                 throw new IllegalStateException("Query legacy nacos services failed, status=" + response.statusCode());
             }
-            JsonNode jsonNode = NacosJsonSupport.readTree(response.body());
+            JsonNode jsonNode = NacosJsonSupport.readRequiredTree(response.body(),
+                    "Query legacy nacos services returned invalid JSON, server=" + discoveryProperties.getServerAddr());
             JsonNode arrayNode = jsonNode.get("doms");
             if (arrayNode == null || !arrayNode.isArray()) {
                 arrayNode = jsonNode.get("serviceList");
@@ -340,7 +343,7 @@ public class NacosDiscoveryAccessor {
         Map<String, String> metadata = new LinkedHashMap<>();
         JsonNode metadataNode = host.get("metadata");
         if (metadataNode != null && metadataNode.isObject()) {
-            metadataNode.fields().forEachRemaining(entry -> metadata.put(entry.getKey(), entry.getValue().asText("")));
+            metadataNode.properties().forEach(entry -> metadata.put(entry.getKey(), entry.getValue().asText("")));
         }
         metadata.put("nacos.cluster", host.path("clusterName").asText(""));
         metadata.put("nacos.weight", host.path("weight").asText("1.0"));
@@ -355,6 +358,19 @@ public class NacosDiscoveryAccessor {
         }
         catch (JsonProcessingException ex) {
             throw new IllegalStateException("Serialize nacos metadata failed", ex);
+        }
+    }
+
+    private void validateLegacyBeatBody(String body, NacosRegistration registration) {
+        if (!StringUtils.hasText(body)) {
+            return;
+        }
+        JsonNode jsonNode = NacosJsonSupport.readRequiredTree(body,
+                "Legacy nacos heartbeat returned invalid JSON, service=" + registration.getServiceId());
+        int code = jsonNode.path("code").asInt(0);
+        if (code == 20404) {
+            throw new IllegalStateException("Legacy nacos heartbeat reported missing instance, code=20404, service="
+                    + registration.getServiceId());
         }
     }
 

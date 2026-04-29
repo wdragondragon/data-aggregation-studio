@@ -22,6 +22,18 @@ public final class NacosJsonSupport {
         }
     }
 
+    public static JsonNode readRequiredTree(String content, String errorMessage) {
+        if (content == null || content.isBlank()) {
+            throw new IllegalStateException(errorMessage + ": empty response body");
+        }
+        try {
+            return OBJECT_MAPPER.readTree(content);
+        }
+        catch (Exception ex) {
+            throw new IllegalStateException(errorMessage, ex);
+        }
+    }
+
     public static String findText(JsonNode node, String fieldName) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
@@ -31,9 +43,7 @@ public final class NacosJsonSupport {
             return direct.asText();
         }
         if (node.isObject()) {
-            var iterator = node.fields();
-            while (iterator.hasNext()) {
-                var entry = iterator.next();
+            for (var entry : node.properties()) {
                 String value = findText(entry.getValue(), fieldName);
                 if (value != null) {
                     return value;

@@ -16,6 +16,8 @@ public class NacosCompatProperties {
 
     private Duration probeTimeout = Duration.ofSeconds(3);
 
+    private Duration probeCacheTtl = Duration.ofMinutes(5);
+
     private boolean logProbeDetail = true;
 
     private Duration configReadTimeout = Duration.ofSeconds(3);

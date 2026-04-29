@@ -35,10 +35,11 @@ public class NacosLegacyAuthService {
         if (!response.is2xxSuccessful()) {
             throw new IllegalStateException("Nacos auth login failed, status=" + response.statusCode() + ", server=" + serverAddr);
         }
-        JsonNode jsonNode = NacosJsonSupport.readTree(response.body());
+        JsonNode jsonNode = NacosJsonSupport.readRequiredTree(response.body(),
+                "Nacos auth login response is not valid JSON, server=" + serverAddr);
         String accessToken = NacosJsonSupport.findText(jsonNode, "accessToken");
         if (accessToken == null || accessToken.isBlank()) {
-            return null;
+            throw new IllegalStateException("Nacos auth login response missing accessToken, server=" + serverAddr);
         }
         String ttlText = NacosJsonSupport.findText(jsonNode, "tokenTtl");
         long ttlSeconds = 18000L;

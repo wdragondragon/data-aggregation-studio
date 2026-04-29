@@ -3,6 +3,7 @@ package com.jdragon.studio.nacos.compat.discovery;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.ReactiveDiscoveryClient;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 public class NacosCompatReactiveDiscoveryClient implements ReactiveDiscoveryClient {
 
@@ -19,12 +20,14 @@ public class NacosCompatReactiveDiscoveryClient implements ReactiveDiscoveryClie
 
     @Override
     public Flux<ServiceInstance> getInstances(String serviceId) {
-        return Flux.fromIterable(this.discoveryClient.getInstances(serviceId));
+        return Flux.defer(() -> Flux.fromIterable(this.discoveryClient.getInstances(serviceId)))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Flux<String> getServices() {
-        return Flux.fromIterable(this.discoveryClient.getServices());
+        return Flux.defer(() -> Flux.fromIterable(this.discoveryClient.getServices()))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
 }

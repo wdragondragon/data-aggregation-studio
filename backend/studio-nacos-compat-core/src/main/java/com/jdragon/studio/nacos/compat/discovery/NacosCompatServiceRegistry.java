@@ -3,6 +3,8 @@ package com.jdragon.studio.nacos.compat.discovery;
 import com.jdragon.studio.nacos.compat.props.NacosCompatProperties;
 import com.jdragon.studio.nacos.compat.props.NacosDiscoveryProperties;
 import com.jdragon.studio.nacos.compat.props.NacosRootProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
 
 import java.util.Map;
@@ -12,6 +14,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class NacosCompatServiceRegistry implements ServiceRegistry<NacosRegistration> {
+
+    private static final Logger log = LoggerFactory.getLogger(NacosCompatServiceRegistry.class);
 
     private final NacosDiscoveryAccessor accessor;
 
@@ -40,8 +44,7 @@ public class NacosCompatServiceRegistry implements ServiceRegistry<NacosRegistra
                 thread.setDaemon(true);
                 return thread;
             });
-            executorService.scheduleAtFixedRate(() ->
-                            this.accessor.beatLegacy(this.rootProperties, this.discoveryProperties, registration),
+            executorService.scheduleWithFixedDelay(() -> this.sendLegacyBeat(registration),
                     this.compatProperties.getLegacyBeatInterval().toSeconds(),
                     this.compatProperties.getLegacyBeatInterval().toSeconds(), TimeUnit.SECONDS);
             ScheduledExecutorService previous = this.beatExecutors.put(registration.getInstanceId(), executorService);
@@ -74,6 +77,22 @@ public class NacosCompatServiceRegistry implements ServiceRegistry<NacosRegistra
     @Override
     public <T> T getStatus(NacosRegistration registration) {
         return null;
+    }
+
+    private void sendLegacyBeat(NacosRegistration registration) {
+        try {
+            this.accessor.beatLegacy(this.rootProperties, this.discoveryProperties, registration);
+        }
+        catch (Exception ex) {
+            log.warn("Legacy nacos heartbeat failed for service {}, will try to re-register the instance.",
+                    registration.getServiceId(), ex);
+            try {
+                this.accessor.register(this.rootProperties, this.discoveryProperties, registration);
+            }
+            catch (Exception registerEx) {
+                log.error("Legacy nacos re-register failed for service {}.", registration.getServiceId(), registerEx);
+            }
+        }
     }
 
 }

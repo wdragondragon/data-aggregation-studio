@@ -1,20 +1,28 @@
 package com.jdragon.studio.nacos.compat.discovery;
 
 import com.jdragon.studio.nacos.compat.props.NacosDiscoveryProperties;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
+import org.springframework.cloud.commons.util.InetUtils;
 import org.springframework.context.ApplicationListener;
 import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 
 import jakarta.annotation.PreDestroy;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class NacosRegistrationLifecycle implements ApplicationListener<WebServerInitializedEvent> {
+
+    private static final String IPV4 = "IPv4";
+
+    private static final String IPV6 = "IPv6";
 
     private final ServiceRegistry<NacosRegistration> serviceRegistry;
 
@@ -22,15 +30,18 @@ public class NacosRegistrationLifecycle implements ApplicationListener<WebServer
 
     private final Environment environment;
 
+    private final InetUtils inetUtils;
+
     private volatile NacosRegistration registration;
 
     private volatile boolean registered;
 
     public NacosRegistrationLifecycle(ServiceRegistry<NacosRegistration> serviceRegistry,
-            NacosDiscoveryProperties discoveryProperties, Environment environment) {
+            NacosDiscoveryProperties discoveryProperties, Environment environment, InetUtils inetUtils) {
         this.serviceRegistry = serviceRegistry;
         this.discoveryProperties = discoveryProperties;
         this.environment = environment;
+        this.inetUtils = inetUtils;
     }
 
     @Override
@@ -68,11 +79,68 @@ public class NacosRegistrationLifecycle implements ApplicationListener<WebServer
     }
 
     private String resolveHost() {
+        if (StringUtils.hasText(this.discoveryProperties.getNetworkInterface())) {
+            return resolveNetworkInterfaceHost(this.discoveryProperties.getNetworkInterface());
+        }
+        String ipType = this.discoveryProperties.getIpType();
+        if (!StringUtils.hasText(ipType) || IPV4.equalsIgnoreCase(ipType)) {
+            return this.inetUtils.findFirstNonLoopbackHostInfo().getIpAddress();
+        }
+        if (IPV6.equalsIgnoreCase(ipType)) {
+            String ipv6Address = findIpv6Address();
+            if (StringUtils.hasText(ipv6Address)) {
+                return ipv6Address;
+            }
+            return this.inetUtils.findFirstNonLoopbackHostInfo().getIpAddress();
+        }
+        throw new IllegalArgumentException("please checking the type of IP " + ipType);
+    }
+
+    protected String resolveNetworkInterfaceHost(String networkInterfaceName) {
         try {
-            return InetAddress.getLocalHost().getHostAddress();
+            NetworkInterface networkInterface = NetworkInterface.getByName(networkInterfaceName);
+            if (networkInterface == null) {
+                throw new IllegalArgumentException("no such interface " + networkInterfaceName);
+            }
+            Enumeration<InetAddress> inetAddresses = networkInterface.getInetAddresses();
+            while (inetAddresses.hasMoreElements()) {
+                InetAddress currentAddress = inetAddresses.nextElement();
+                if ((currentAddress instanceof Inet4Address || currentAddress instanceof Inet6Address)
+                        && !currentAddress.isLoopbackAddress()) {
+                    return currentAddress.getHostAddress();
+                }
+            }
+            throw new IllegalStateException("cannot find available ip from network interface " + networkInterfaceName);
+        }
+        catch (IllegalArgumentException | IllegalStateException ex) {
+            throw ex;
         }
         catch (Exception ex) {
-            return "127.0.0.1";
+            throw new IllegalStateException("cannot resolve network interface " + networkInterfaceName, ex);
+        }
+    }
+
+    protected String findIpv6Address() {
+        try {
+            Enumeration<NetworkInterface> networkInterfaces = NetworkInterface.getNetworkInterfaces();
+            while (networkInterfaces != null && networkInterfaces.hasMoreElements()) {
+                NetworkInterface networkInterface = networkInterfaces.nextElement();
+                if (!networkInterface.isUp()) {
+                    continue;
+                }
+                Enumeration<InetAddress> inetAddresses = networkInterface.getInetAddresses();
+                while (inetAddresses.hasMoreElements()) {
+                    InetAddress currentAddress = inetAddresses.nextElement();
+                    if (currentAddress instanceof Inet6Address && !currentAddress.isLoopbackAddress()
+                            && !currentAddress.isLinkLocalAddress()) {
+                        return currentAddress.getHostAddress();
+                    }
+                }
+            }
+            return null;
+        }
+        catch (Exception ex) {
+            return null;
         }
     }
 
