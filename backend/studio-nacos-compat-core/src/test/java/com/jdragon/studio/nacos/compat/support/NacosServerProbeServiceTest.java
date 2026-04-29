@@ -19,6 +19,39 @@ import static org.mockito.Mockito.when;
 class NacosServerProbeServiceTest {
 
     @Test
+    void shouldDetectNacos132AsLegacyInAutoMode() {
+        NacosServerProbeService probeService = probeServiceWithLegacyStateVersion("1.3.2");
+
+        assertEquals("LEGACY", probeService.probe("127.0.0.1:8848").generation().name());
+    }
+
+    @Test
+    void shouldDetectNacos240AsLegacyInAutoMode() {
+        NacosServerProbeService probeService = probeServiceWithLegacyStateVersion("2.4.0");
+
+        assertEquals("LEGACY", probeService.probe("127.0.0.1:8848").generation().name());
+    }
+
+    @Test
+    void shouldDetectNacos251AsModernWhenOnlyLegacyStateEndpointReturnsVersion() {
+        NacosServerProbeService probeService = probeServiceWithLegacyStateVersion("2.5.1");
+
+        assertEquals("MODERN", probeService.probe("127.0.0.1:8848").generation().name());
+    }
+
+    @Test
+    void shouldDetectNacos321AsModernViaModernStateEndpoint() {
+        NacosHttpClient httpClient = mock(NacosHttpClient.class);
+        when(httpClient.get(eq("127.0.0.1:8848"), eq(NacosServerProbeService.MODERN_SERVER_STATE_PATH), any(Map.class),
+                any(Map.class), eq(Duration.ofSeconds(3))))
+                .thenReturn(new NacosHttpResponse(200, "{\"version\":\"3.2.1\"}"));
+
+        NacosServerProbeService probeService = new NacosServerProbeService(httpClient, autoCompatProperties());
+
+        assertEquals("MODERN", probeService.probe("127.0.0.1:8848").generation().name());
+    }
+
+    @Test
     void shouldRejectInvalidJsonWhenAutoDetectingModernServer() {
         NacosHttpClient httpClient = mock(NacosHttpClient.class);
         when(httpClient.get(eq("127.0.0.1:8848"), eq(NacosServerProbeService.MODERN_SERVER_STATE_PATH), any(Map.class),
@@ -63,5 +96,26 @@ class NacosServerProbeServiceTest {
 
         assertEquals("MODERN", probeService.probe("127.0.0.1:8848").generation().name());
         assertEquals("LEGACY", probeService.probe("127.0.0.1:8848").generation().name());
+    }
+
+    private NacosServerProbeService probeServiceWithLegacyStateVersion(String version) {
+        NacosHttpClient httpClient = mock(NacosHttpClient.class);
+        when(httpClient.get(eq("127.0.0.1:8848"), eq(NacosServerProbeService.MODERN_SERVER_STATE_PATH), any(Map.class),
+                any(Map.class), eq(Duration.ofSeconds(3))))
+                .thenReturn(new NacosHttpResponse(404, "not found"));
+        when(httpClient.get(eq("127.0.0.1:8848"), eq(NacosServerProbeService.MODERN_CONSOLE_STATE_PATH), any(Map.class),
+                any(Map.class), eq(Duration.ofSeconds(3))))
+                .thenReturn(new NacosHttpResponse(404, "not found"));
+        when(httpClient.get(eq("127.0.0.1:8848"), eq(NacosServerProbeService.LEGACY_STATE_PATH), any(Map.class),
+                any(Map.class), eq(Duration.ofSeconds(3))))
+                .thenReturn(new NacosHttpResponse(200, "{\"version\":\"" + version + "\"}"));
+        return new NacosServerProbeService(httpClient, autoCompatProperties());
+    }
+
+    private NacosCompatProperties autoCompatProperties() {
+        NacosCompatProperties compatProperties = new NacosCompatProperties();
+        compatProperties.setMode(NacosCompatMode.AUTO);
+        compatProperties.setProbeTimeout(Duration.ofSeconds(3));
+        return compatProperties;
     }
 }
