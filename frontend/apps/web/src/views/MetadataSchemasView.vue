@@ -121,6 +121,12 @@
             <el-descriptions-item :label="t('web.metadata.typeCode')">
               {{ selectedNode.schema?.typeCode || "-" }}
             </el-descriptions-item>
+            <el-descriptions-item :label="t('web.metadata.runtimeRole')">
+              {{ selectedNode.runtimeRole || parseNodeRuntimeConfig(selectedNode).role || "-" }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('web.metadata.pluginType')">
+              {{ selectedNode.pluginType || parseNodeRuntimeConfig(selectedNode).pluginType || "-" }}
+            </el-descriptions-item>
           </el-descriptions>
 
           <div v-if="selectedNode.kind === 'leaf' && !selectedNode.schema" class="soft-panel warning-hint">
@@ -148,10 +154,11 @@
         <SectionCard :title="t('web.metadata.basicsTitle')" :description="t('web.metadata.basicsDescription')">
           <el-form label-position="top">
             <div class="studio-form-grid">
-              <el-form-item :label="t('web.metadata.technicalMetaModel')">
+              <el-form-item :label="t('web.metadata.metaModelCategory')">
                 <el-select v-model="form.domain">
                   <el-option :label="t('web.metadata.technicalMetaModel')" value="TECHNICAL" />
                   <el-option :label="t('web.metadata.businessMetaModel')" value="BUSINESS" />
+                  <el-option :label="t('web.metadata.runtimeOptionMetaModel')" value="RUNTIME" />
                 </el-select>
               </el-form-item>
               <el-form-item v-if="form.domain === 'TECHNICAL'" :label="t('web.metadata.datasourceType')">
@@ -159,28 +166,39 @@
                   <el-option v-for="typeCode in sourceTypeOptions" :key="typeCode" :label="typeCode" :value="typeCode" />
                 </el-select>
               </el-form-item>
-              <el-form-item v-else :label="t('web.metadata.businessDirectoryCode')">
+              <el-form-item v-else-if="form.domain === 'BUSINESS'" :label="t('web.metadata.businessDirectoryCode')">
                 <el-input v-model="form.directoryCode" placeholder="sales" />
               </el-form-item>
               <el-form-item v-if="form.domain === 'BUSINESS'" :label="t('web.metadata.businessDirectoryName')">
                 <el-input v-model="form.directoryName" placeholder="Sales Domain" />
               </el-form-item>
-              <el-form-item :label="t('web.metadata.metaModelCode')">
+              <el-form-item v-if="form.domain === 'RUNTIME'" :label="t('web.metadata.runtimeRole')">
+                <el-select v-model="form.runtimeRole">
+                  <el-option :label="t('web.metadata.reader')" value="reader" />
+                  <el-option :label="t('web.metadata.writer')" value="writer" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="form.domain === 'RUNTIME'" :label="t('web.metadata.pluginType')">
+                <el-select v-model="form.pluginType" filterable allow-create default-first-option>
+                  <el-option v-for="pluginType in runtimePluginOptions(form.runtimeRole)" :key="pluginType" :label="pluginType" :value="pluginType" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="form.domain !== 'RUNTIME'" :label="t('web.metadata.metaModelCode')">
                 <el-input v-model="form.metaModelCode" placeholder="source / table / field" />
               </el-form-item>
               <el-form-item :label="t('web.metadata.schemaName')">
                 <el-input v-model="form.schemaName" :placeholder="t('web.metadata.schemaNamePlaceholder')" />
               </el-form-item>
-              <el-form-item :label="t('web.metadata.displayMode')">
+              <el-form-item v-if="form.domain !== 'RUNTIME'" :label="t('web.metadata.displayMode')">
                 <el-select v-model="form.displayMode">
                   <el-option :label="t('web.metadata.displaySingle')" value="SINGLE" />
                   <el-option :label="t('web.metadata.displayMultiple')" value="MULTIPLE" />
                 </el-select>
               </el-form-item>
-              <el-form-item :label="t('web.metadata.syncStrategy')">
+              <el-form-item v-if="form.domain !== 'RUNTIME'" :label="t('web.metadata.syncStrategy')">
                 <el-input v-model="form.syncStrategy" placeholder="OBJECT_DISCOVERY" />
               </el-form-item>
-              <el-form-item :label="t('web.metadata.requiredModel')">
+              <el-form-item v-if="form.domain !== 'RUNTIME'" :label="t('web.metadata.requiredModel')">
                 <el-switch v-model="form.required" />
               </el-form-item>
               <el-form-item :label="t('web.metadata.schemaCode')">
@@ -343,10 +361,10 @@ import type { DatasourceTypeCapabilityView, MetadataFieldDefinition, MetadataSch
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { encodeMetaModelDescription, hasExplicitMetaModelConfig, parseMetaModelSchema, sameEntityId, type MetaModelConfig, type MetaModelDisplayMode, type MetaModelDomain } from "@/utils/metaModel";
+import { encodeMetaModelDescription, hasExplicitMetaModelConfig, parseMetaModelSchema, sameEntityId, type MetaModelConfig, type MetaModelDisplayMode, type MetaModelDomain, type RuntimeOptionRole } from "@/utils/metaModel";
 import { cloneDeep, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
-type TreeNodeKind = "technical-root" | "technical-type" | "business-root" | "business-directory" | "leaf";
+type TreeNodeKind = "technical-root" | "technical-type" | "business-root" | "business-directory" | "runtime-root" | "runtime-role" | "leaf";
 
 interface MetaModelTreeNode {
   id: string;
@@ -357,6 +375,8 @@ interface MetaModelTreeNode {
   directoryCode?: string;
   directoryName?: string;
   metaModelCode?: string;
+  runtimeRole?: RuntimeOptionRole;
+  pluginType?: string;
   displayMode?: MetaModelDisplayMode;
   required?: boolean;
   syncStrategy?: string;
@@ -373,6 +393,8 @@ interface SchemaDraftForm {
   directoryCode: string;
   directoryName: string;
   metaModelCode: string;
+  runtimeRole: RuntimeOptionRole;
+  pluginType: string;
   displayMode: MetaModelDisplayMode;
   required: boolean;
   syncStrategy: string;
@@ -404,6 +426,8 @@ const form = reactive<SchemaDraftForm>({
   directoryCode: "",
   directoryName: "",
   metaModelCode: "",
+  runtimeRole: "reader",
+  pluginType: "",
   displayMode: "SINGLE",
   required: false,
   syncStrategy: "",
@@ -429,6 +453,26 @@ const sourceTypeOptions = computed(() => {
   return Array.from(options).sort((left, right) => left.localeCompare(right));
 });
 
+function runtimePluginOptions(role: RuntimeOptionRole) {
+  const options = new Set<string>();
+  for (const datasourceType of datasourceTypes.value) {
+    const plugins = role === "writer" ? datasourceType.writerPlugins : datasourceType.readerPlugins;
+    for (const plugin of plugins ?? []) {
+      const normalized = normalizeRuntimePlugin(plugin);
+      if (normalized) {
+        options.add(normalized);
+      }
+    }
+  }
+  for (const schema of schemas.value) {
+    const parsed = parseMetaModelSchema(schema).config;
+    if (parsed.domain === "RUNTIME" && parsed.role === role && parsed.pluginType) {
+      options.add(normalizeRuntimePlugin(parsed.pluginType));
+    }
+  }
+  return Array.from(options).sort((left, right) => left.localeCompare(right));
+}
+
 const treeData = computed<MetaModelTreeNode[]>(() => [
   {
     id: "technical-root",
@@ -444,9 +488,22 @@ const treeData = computed<MetaModelTreeNode[]>(() => [
     domain: "BUSINESS",
     children: buildBusinessDirectoryNodes(),
   },
+  {
+    id: "runtime-root",
+    label: t("web.metadata.runtimeRoot"),
+    kind: "runtime-root",
+    domain: "RUNTIME",
+    children: [
+      buildRuntimeRoleNode("reader"),
+      buildRuntimeRoleNode("writer"),
+    ],
+  },
 ]);
 
 const derivedSchemaCode = computed(() => {
+  if (form.domain === "RUNTIME") {
+    return `runtime:${form.runtimeRole || "reader"}:${normalizeRuntimePlugin(form.pluginType) || "plugin"}`;
+  }
   if (form.domain === "TECHNICAL") {
     return `technical:${form.datasourceType || "type"}:${form.metaModelCode || "meta-model"}`;
   }
@@ -454,6 +511,9 @@ const derivedSchemaCode = computed(() => {
 });
 
 const derivedObjectType = computed(() => {
+  if (form.domain === "RUNTIME") {
+    return "collection-runtime-option";
+  }
   if (form.domain === "BUSINESS") {
     return "business";
   }
@@ -461,6 +521,9 @@ const derivedObjectType = computed(() => {
 });
 
 const derivedTypeCode = computed(() => {
+  if (form.domain === "RUNTIME") {
+    return `${form.runtimeRole || "reader"}:${normalizeRuntimePlugin(form.pluginType) || "plugin"}`;
+  }
   if (form.domain === "BUSINESS") {
     return `${form.directoryCode || "directory"}.${form.metaModelCode || "meta-model"}`;
   }
@@ -476,6 +539,12 @@ const detailDescription = computed(() => {
   }
   if (selectedNode.value.kind === "business-root") {
     return t("web.metadata.businessGroupHint");
+  }
+  if (selectedNode.value.kind === "runtime-root") {
+    return t("web.metadata.runtimeGroupHint");
+  }
+  if (selectedNode.value.kind === "runtime-role") {
+    return selectedNode.value.runtimeRole === "writer" ? t("web.metadata.writer") : t("web.metadata.reader");
   }
   if (selectedNode.value.kind === "technical-type") {
     return selectedNode.value.datasourceType || "";
@@ -520,6 +589,28 @@ function formatDisplayMode(value?: MetaModelDisplayMode) {
     return t("web.metadata.displayMultiple");
   }
   return "-";
+}
+
+function parseNodeRuntimeConfig(node?: MetaModelTreeNode) {
+  if (!node?.schema) {
+    return {} as { role?: RuntimeOptionRole; pluginType?: string };
+  }
+  const config = parseMetaModelSchema(node.schema).config;
+  return {
+    role: config.role,
+    pluginType: config.pluginType,
+  };
+}
+
+function normalizeRuntimePlugin(value?: string) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (normalized.endsWith("reader")) {
+    return normalized.slice(0, -"reader".length);
+  }
+  if (normalized.endsWith("writer")) {
+    return normalized.slice(0, -"writer".length);
+  }
+  return normalized;
 }
 
 function buildTechnicalTypeNode(datasourceType: string): MetaModelTreeNode {
@@ -587,6 +678,35 @@ function buildBusinessDirectoryNodes() {
   return Array.from(directoryMap.values()).sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function buildRuntimeRoleNode(role: RuntimeOptionRole): MetaModelTreeNode {
+  const plugins = runtimePluginOptions(role);
+  return {
+    id: `runtime-role:${role}`,
+    label: role === "writer" ? t("web.metadata.writer") : t("web.metadata.reader"),
+    kind: "runtime-role",
+    domain: "RUNTIME",
+    runtimeRole: role,
+    children: plugins.map((pluginType) => {
+      const schema = schemas.value.find((candidate) => {
+        const config = parseMetaModelSchema(candidate).config;
+        return config.domain === "RUNTIME"
+          && config.role === role
+          && normalizeRuntimePlugin(config.pluginType) === pluginType;
+      });
+      return buildLeafNode({
+        schema,
+        domain: "RUNTIME",
+        runtimeRole: role,
+        pluginType,
+        metaModelCode: role,
+        displayMode: "SINGLE",
+        syncStrategy: "RUNTIME_OPTION",
+        label: `${pluginType}${role}`,
+      });
+    }),
+  };
+}
+
 function buildLeafNode(options: {
   schema?: MetadataSchemaDefinition;
   domain?: MetaModelDomain;
@@ -594,6 +714,8 @@ function buildLeafNode(options: {
   directoryCode?: string;
   directoryName?: string;
   metaModelCode?: string;
+  runtimeRole?: RuntimeOptionRole;
+  pluginType?: string;
   required?: boolean;
   displayMode?: MetaModelDisplayMode;
   syncStrategy?: string;
@@ -603,7 +725,7 @@ function buildLeafNode(options: {
   const metaModelCode = options.metaModelCode || parsed?.metaModelCode || "meta-model";
   const label = options.label || options.schema?.schemaName || metaModelCode;
   return {
-    id: options.schema?.id != null ? `schema:${options.schema.id}` : `placeholder:${options.domain}:${options.datasourceType || options.directoryCode}:${metaModelCode}`,
+    id: options.schema?.id != null ? `schema:${options.schema.id}` : `placeholder:${options.domain}:${options.datasourceType || options.directoryCode || options.pluginType}:${metaModelCode}`,
     label,
     kind: "leaf",
     domain: options.domain || parsed?.domain,
@@ -611,6 +733,8 @@ function buildLeafNode(options: {
     directoryCode: options.directoryCode || parsed?.directoryCode,
     directoryName: options.directoryName || parsed?.directoryName,
     metaModelCode,
+    runtimeRole: options.runtimeRole || parsed?.role,
+    pluginType: options.pluginType || parsed?.pluginType,
     displayMode: options.displayMode || parsed?.displayMode,
     required: options.required ?? parsed?.required,
     syncStrategy: options.syncStrategy || parsed?.syncStrategy,
@@ -620,6 +744,8 @@ function buildLeafNode(options: {
 
 function canCreateFromNode(node: MetaModelTreeNode) {
   return node.kind === "technical-type"
+    || node.kind === "runtime-root"
+    || node.kind === "runtime-role"
     || node.kind === "business-root"
     || node.kind === "business-directory"
     || (node.kind === "leaf" && !node.schema);
@@ -639,6 +765,8 @@ function resetForm() {
   form.directoryCode = "";
   form.directoryName = "";
   form.metaModelCode = "";
+  form.runtimeRole = "reader";
+  form.pluginType = "";
   form.displayMode = "SINGLE";
   form.required = false;
   form.syncStrategy = "";
@@ -664,6 +792,13 @@ function seedContextFromNode(node?: MetaModelTreeNode) {
   if (node.metaModelCode) {
     form.metaModelCode = node.metaModelCode;
   }
+  if (node.runtimeRole) {
+    form.runtimeRole = node.runtimeRole;
+    form.metaModelCode = node.runtimeRole;
+  }
+  if (node.pluginType) {
+    form.pluginType = normalizeRuntimePlugin(node.pluginType);
+  }
   if (node.displayMode) {
     form.displayMode = node.displayMode;
   }
@@ -684,6 +819,13 @@ function openCreateFromNode(node: MetaModelTreeNode) {
   if (node.kind === "technical-type") {
     form.domain = "TECHNICAL";
   }
+  if (node.kind === "runtime-root" || node.kind === "runtime-role" || node.domain === "RUNTIME") {
+    form.domain = "RUNTIME";
+    form.metaModelCode = form.runtimeRole;
+    form.displayMode = "SINGLE";
+    form.required = false;
+    form.syncStrategy = "RUNTIME_OPTION";
+  }
   if (!form.schemaName && node.label && node.kind === "leaf") {
     form.schemaName = node.label;
   }
@@ -702,6 +844,8 @@ function editSchema(schema: MetadataSchemaDefinition) {
   form.directoryCode = parsed.config.directoryCode ?? "";
   form.directoryName = parsed.config.directoryName ?? "";
   form.metaModelCode = parsed.config.metaModelCode;
+  form.runtimeRole = parsed.config.role ?? "reader";
+  form.pluginType = normalizeRuntimePlugin(parsed.config.pluginType);
   form.displayMode = parsed.config.displayMode ?? "SINGLE";
   form.required = Boolean(parsed.config.required);
   form.syncStrategy = parsed.config.syncStrategy ?? "";
@@ -757,16 +901,22 @@ async function loadPage() {
 async function saveDraft() {
   saving.value = true;
   try {
+    if (form.domain === "RUNTIME" && !normalizeRuntimePlugin(form.pluginType)) {
+      ElMessage.error(t("web.metadata.pluginTypeRequired"));
+      return;
+    }
     const config: MetaModelConfig = {
       domain: form.domain,
       datasourceType: form.domain === "TECHNICAL" ? form.datasourceType : undefined,
       directoryCode: form.domain === "BUSINESS" ? form.directoryCode : undefined,
       directoryName: form.domain === "BUSINESS" ? (form.directoryName || form.directoryCode) : undefined,
-      metaModelCode: form.metaModelCode,
+      metaModelCode: form.domain === "RUNTIME" ? form.runtimeRole : form.metaModelCode,
       metaModelName: form.schemaName,
-      displayMode: form.displayMode,
-      required: form.required,
-      syncStrategy: form.syncStrategy,
+      displayMode: form.domain === "RUNTIME" ? "SINGLE" : form.displayMode,
+      required: form.domain === "RUNTIME" ? false : form.required,
+      syncStrategy: form.domain === "RUNTIME" ? "RUNTIME_OPTION" : form.syncStrategy,
+      role: form.domain === "RUNTIME" ? form.runtimeRole : undefined,
+      pluginType: form.domain === "RUNTIME" ? normalizeRuntimePlugin(form.pluginType) : undefined,
     };
     await studioApi.metaSchemas.saveDraft({
       schemaId: form.schemaId,

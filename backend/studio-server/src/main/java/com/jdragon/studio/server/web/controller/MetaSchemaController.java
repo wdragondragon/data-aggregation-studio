@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.request.MetadataSchemaSaveRequest;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
+import com.jdragon.studio.infra.service.StandardRuntimeOptionSchemaBootstrapService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,9 +24,12 @@ import java.util.List;
 public class MetaSchemaController {
 
     private final MetadataSchemaService metadataSchemaService;
+    private final StandardRuntimeOptionSchemaBootstrapService runtimeOptionSchemaBootstrapService;
 
-    public MetaSchemaController(MetadataSchemaService metadataSchemaService) {
+    public MetaSchemaController(MetadataSchemaService metadataSchemaService,
+                                StandardRuntimeOptionSchemaBootstrapService runtimeOptionSchemaBootstrapService) {
         this.metadataSchemaService = metadataSchemaService;
+        this.runtimeOptionSchemaBootstrapService = runtimeOptionSchemaBootstrapService;
     }
 
     @Operation(summary = "List metadata schemas")
@@ -56,6 +60,12 @@ public class MetaSchemaController {
     @PostMapping("/technical/sync-all")
     public Result<List<MetadataSchemaDefinition>> syncAllTechnical() {
         return Result.success(metadataSchemaService.syncAllTechnicalMetaModels());
+    }
+
+    @Operation(summary = "Sync standard runtime option meta models")
+    @PostMapping("/runtime-options/sync-standard")
+    public Result<List<MetadataSchemaDefinition>> syncStandardRuntimeOptions() {
+        return Result.success(runtimeOptionSchemaBootstrapService.syncStandardRuntimeOptionSchemas());
     }
 
     @Operation(summary = "Delete metadata schema")

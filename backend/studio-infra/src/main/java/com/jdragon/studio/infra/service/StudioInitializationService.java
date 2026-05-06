@@ -17,7 +17,8 @@ public class StudioInitializationService {
 
     private static final String[] MYSQL_RESET_SEED_SCRIPTS = new String[]{
             "data-mysql-base.sql",
-            "data-mysql-builtin.sql"
+            "data-mysql-builtin.sql",
+            "data-mysql-runtime-options.sql"
     };
 
     private static final String[] RESET_TABLES = new String[]{

@@ -56,9 +56,11 @@ public class AggregationNodeExecutor implements NodeExecutor {
                 container.setRunContext(entry.getKey(), entry.getValue());
             }
         }
+        seedInitialIncrementalCursor(container, config);
         container.start();
         long endedAt = System.currentTimeMillis();
         Communication communication = resolveCommunication(container);
+        JobPointReporter reporter = container.getJobPointReporter();
         State jobState = communication == null ? null : communication.getState();
         boolean success = State.SUCCEEDED.equals(jobState);
         Throwable failure = communication == null ? null : communication.getThrowable();
@@ -75,8 +77,74 @@ public class AggregationNodeExecutor implements NodeExecutor {
             result.put("error", failure.getMessage());
             result.put("exceptionType", failure.getClass().getName());
         }
+        Map<String, Object> incrementalCursors = extractIncrementalCursors(config, reporter);
+        if (!incrementalCursors.isEmpty()) {
+            result.put("incrementalCursors", incrementalCursors);
+        }
         result.put("summary", buildSummary(config, communication, runStatus, jobState));
         return result;
+    }
+
+    private void seedInitialIncrementalCursor(JobContainer container, Map<String, Object> config) {
+        JobPointReporter reporter = container.getJobPointReporter();
+        if (reporter == null) {
+            return;
+        }
+        Map<String, Object> reader = valueAsMap(config.get("reader"));
+        if ("fusion".equalsIgnoreCase(asString(reader.get("type")))) {
+            return;
+        }
+        Map<String, Object> readerConfig = valueAsMap(reader.get("config"));
+        if (readerConfig.containsKey("incrColumn") && readerConfig.containsKey("pkValue")) {
+            reporter.put("pkValue", readerConfig.get("pkValue"));
+        }
+    }
+
+    private Map<String, Object> extractIncrementalCursors(Map<String, Object> config, JobPointReporter reporter) {
+        Map<String, Object> cursors = new LinkedHashMap<String, Object>();
+        if (reporter == null) {
+            return cursors;
+        }
+        Map<String, Object> reader = valueAsMap(config.get("reader"));
+        String readerType = asString(reader.get("type"));
+        Map<String, Object> readerConfig = valueAsMap(reader.get("config"));
+        if ("fusion".equalsIgnoreCase(readerType)) {
+            List<Map<String, Object>> sources = valueAsList(readerConfig.get("sources"));
+            for (Map<String, Object> source : sources) {
+                if (!source.containsKey("incrColumn")) {
+                    continue;
+                }
+                String sourceAlias = firstNonBlank(source.get("id"), source.get("sourceAlias"), source.get("name"));
+                if (sourceAlias == null) {
+                    continue;
+                }
+                Object pkValue = reporter.get("pkValue_" + sourceAlias, null);
+                if (isBlankValue(pkValue)) {
+                    continue;
+                }
+                cursors.put(sourceAlias, buildCursor(sourceAlias, source, pkValue));
+            }
+            return cursors;
+        }
+        if (!readerConfig.containsKey("incrColumn")) {
+            return cursors;
+        }
+        Object pkValue = reporter.get("pkValue", null);
+        if (isBlankValue(pkValue)) {
+            return cursors;
+        }
+        String sourceAlias = firstNonBlank(readerConfig.get("sourceAlias"), "src1");
+        cursors.put(sourceAlias, buildCursor(sourceAlias, readerConfig, pkValue));
+        return cursors;
+    }
+
+    private Map<String, Object> buildCursor(String sourceAlias, Map<String, Object> config, Object pkValue) {
+        Map<String, Object> cursor = new LinkedHashMap<String, Object>();
+        cursor.put("sourceAlias", sourceAlias);
+        cursor.put("incrColumn", config.get("incrColumn"));
+        cursor.put("incrModel", config.get("incrModel"));
+        cursor.put("pkValue", pkValue);
+        return cursor;
     }
 
     private void validateDatasourceCapabilities(Map<String, Object> config) {
@@ -235,6 +303,20 @@ public class AggregationNodeExecutor implements NodeExecutor {
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? null : text;
+    }
+
+    private String firstNonBlank(Object... values) {
+        for (Object value : values) {
+            String text = asString(value);
+            if (text != null) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private boolean isBlankValue(Object value) {
+        return value == null || String.valueOf(value).trim().isEmpty();
     }
 
     protected JobContainer createJobContainer(Map<String, Object> config) {

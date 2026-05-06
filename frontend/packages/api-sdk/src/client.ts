@@ -64,6 +64,7 @@ import type {
   NotificationView,
   PermissionEntity,
   PageResult,
+  PluginRuntimeOptionSchemaView,
   QualityRuleParseRequest,
   QualityRuleParseResult,
   QualityRuleSaveRequest,
@@ -245,6 +246,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       datasourceTypes() {
         return request<DatasourceTypeCapabilityView[]>({ url: "/catalog/datasource-types", method: "GET" });
       },
+      runtimeOptionSchema(params: { role: string; datasourceType: string }) {
+        return request<PluginRuntimeOptionSchemaView>({ url: "/catalog/runtime-option-schemas", method: "GET", params });
+      },
     },
     fieldMappingRules: {
       list(params?: {
@@ -326,6 +330,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       syncAllTechnical() {
         return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas/technical/sync-all", method: "POST" });
+      },
+      syncStandardRuntimeOptions() {
+        return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas/runtime-options/sync-standard", method: "POST" });
       },
       saveDraft(payload: Record<string, unknown>) {
         return request<MetadataSchemaDefinition>({ url: "/meta-schemas/draft", method: "POST", data: payload });
@@ -685,6 +692,17 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       saveSchedule(id: EntityId, payload: CollectionTaskScheduleDefinition) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/schedule`, method: "POST", data: payload });
+      },
+      resetIncrementalCursor(id: EntityId, sourceAlias?: string, scope?: { incrColumn?: string; incrModel?: string }) {
+        return request<CollectionTaskDefinitionView>({
+          url: `/collection-tasks/${id}/incremental-cursors/reset`,
+          method: "POST",
+          params: {
+            ...(sourceAlias ? { sourceAlias } : {}),
+            ...(scope?.incrColumn ? { incrColumn: scope.incrColumn } : {}),
+            ...(scope?.incrModel ? { incrModel: scope.incrModel } : {}),
+          },
+        });
       },
       trigger(id: EntityId) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/trigger`, method: "POST" });

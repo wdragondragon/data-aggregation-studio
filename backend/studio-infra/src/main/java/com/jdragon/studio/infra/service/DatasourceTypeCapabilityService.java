@@ -34,11 +34,11 @@ public class DatasourceTypeCapabilityService {
     private static final List<DefaultCapability> DEFAULT_CAPABILITIES = Collections.unmodifiableList(Arrays.asList(
             capability("mysql8", "MySQL 8", CATEGORY_DATABASE, true, true, true, true, true, "mysql8", list("mysql8"), list("mysql8"), 10, "MySQL 数据库"),
             capability("oracle", "Oracle", CATEGORY_DATABASE, true, true, false, true, true, "oracle", list("oracle"), list(), 20, "Oracle 数据库"),
-            capability("postgres", "PostgreSQL", CATEGORY_DATABASE, true, true, false, true, true, "postgres", list("postgres"), list(), 30, "PostgreSQL 数据库"),
+            capability("postgres", "PostgreSQL", CATEGORY_DATABASE, true, true, true, true, true, "postgres", list("postgresql"), list("postgresql"), 30, "PostgreSQL 数据库"),
             capability("dm", "达梦数据库", CATEGORY_DATABASE, true, true, true, true, true, "dm", list("dm"), list("dm"), 40, "达梦数据库"),
-            capability("ftp", "FTP", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "ftp", list(), list(), 50, "FTP 文件数据源"),
-            capability("sftp", "SFTP", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "sftp", list(), list(), 60, "SFTP 文件数据源"),
-            capability("minio", "MinIO", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "minio", list(), list(), 70, "MinIO 对象存储"),
+            capability("ftp", "FTP", CATEGORY_FILE_SYSTEM, true, true, false, true, false, "ftp", list("ftp"), list(), 50, "FTP 文件数据源"),
+            capability("sftp", "SFTP", CATEGORY_FILE_SYSTEM, true, true, false, true, false, "sftp", list("sftp"), list(), 60, "SFTP 文件数据源"),
+            capability("minio", "MinIO", CATEGORY_FILE_SYSTEM, true, true, false, true, false, "minio", list("minio"), list(), 70, "MinIO / OSS 对象存储"),
             capability("kafka", "Kafka", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "kafka", list("kafka"), list("kafka"), 80, "Kafka 消息队列"),
             capability("rocketmq", "RocketMQ", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "rocketmq", list("rocketmq"), list("rocketmq"), 90, "RocketMQ 消息队列"),
             capability("rabbitmq", "RabbitMQ", CATEGORY_MESSAGE_QUEUE, true, false, false, true, false, "rabbitmq", list(), list(), 100, "RabbitMQ 消息队列"),
@@ -88,6 +88,14 @@ public class DatasourceTypeCapabilityService {
             entity.setDescription(capability.description);
             mapper.insert(entity);
         }
+    }
+
+    @Transactional
+    public void syncStandardRuntimePluginCapabilities() {
+        syncDefaultCapability("postgres");
+        syncDefaultCapability("ftp");
+        syncDefaultCapability("sftp");
+        syncDefaultCapability("minio");
     }
 
     public List<DatasourceTypeCapabilityView> listEnabled() {
@@ -153,11 +161,17 @@ public class DatasourceTypeCapabilityService {
 
     public boolean isReadable(String typeCode) {
         DatasourceTypeCapabilityEntity entity = findEnabledEntity(typeCode);
+        if (entity == null) {
+            entity = findEnabledEntityByRuntimePlugin(typeCode, "reader");
+        }
         return entity != null && enabled(entity.getReadable());
     }
 
     public boolean isWritable(String typeCode) {
         DatasourceTypeCapabilityEntity entity = findEnabledEntity(typeCode);
+        if (entity == null) {
+            entity = findEnabledEntityByRuntimePlugin(typeCode, "writer");
+        }
         return entity != null && enabled(entity.getWritable());
     }
 
@@ -221,6 +235,45 @@ public class DatasourceTypeCapabilityService {
         return new ArrayList<String>(types);
     }
 
+    private void syncDefaultCapability(String typeCode) {
+        DefaultCapability capability = findDefaultCapability(typeCode);
+        if (capability == null) {
+            return;
+        }
+        DatasourceTypeCapabilityEntity existing = mapper.selectOne(baseCapabilityQuery()
+                .eq("tenant_id", "default")
+                .eq("type_code", capability.typeCode)
+                .last("limit 1"));
+        if (existing == null) {
+            bootstrapDefaults();
+            return;
+        }
+        boolean changed = false;
+        if (!sameStringList(existing.getReaderPluginsJson(), capability.readerPlugins)) {
+            existing.setReaderPluginsJson(new ArrayList<String>(capability.readerPlugins));
+            changed = true;
+        }
+        if (!sameStringList(existing.getWriterPluginsJson(), capability.writerPlugins)) {
+            existing.setWriterPluginsJson(new ArrayList<String>(capability.writerPlugins));
+            changed = true;
+        }
+        if (!Integer.valueOf(flag(capability.readable)).equals(existing.getReadable())) {
+            existing.setReadable(flag(capability.readable));
+            changed = true;
+        }
+        if (!Integer.valueOf(flag(capability.writable)).equals(existing.getWritable())) {
+            existing.setWritable(flag(capability.writable));
+            changed = true;
+        }
+        if (hasSourceCategoryColumn() && !capability.sourceCategory.equalsIgnoreCase(resolveSourceCategory(existing.getTypeCode(), existing.getSourceCategory()))) {
+            existing.setSourceCategory(capability.sourceCategory);
+            changed = true;
+        }
+        if (changed) {
+            mapper.updateById(existing);
+        }
+    }
+
     private DatasourceTypeCapabilityEntity findEnabledEntity(String typeCode) {
         String normalized = normalize(typeCode);
         if (normalized.isEmpty()) {
@@ -231,6 +284,27 @@ public class DatasourceTypeCapabilityService {
                 .eq("type_code", normalized)
                 .eq("enabled", Integer.valueOf(1))
                 .last("limit 1"));
+    }
+
+    private DatasourceTypeCapabilityEntity findEnabledEntityByRuntimePlugin(String pluginType, String role) {
+        String normalized = normalizePlugin(pluginType);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        List<DatasourceTypeCapabilityEntity> entities = mapper.selectList(baseCapabilityQuery()
+                .eq("tenant_id", "default")
+                .eq("enabled", Integer.valueOf(1)));
+        for (DatasourceTypeCapabilityEntity entity : entities) {
+            List<String> plugins = "writer".equalsIgnoreCase(role)
+                    ? entity.getWriterPluginsJson()
+                    : entity.getReaderPluginsJson();
+            for (String plugin : safeList(plugins)) {
+                if (normalized.equals(normalizePlugin(plugin))) {
+                    return entity;
+                }
+            }
+        }
+        return null;
     }
 
     private DatasourceTypeCapabilityView toView(DatasourceTypeCapabilityEntity entity) {
@@ -264,6 +338,20 @@ public class DatasourceTypeCapabilityService {
         return value != null && value.intValue() == 1;
     }
 
+    private boolean sameStringList(List<String> actual, List<String> expected) {
+        List<String> left = safeList(actual);
+        List<String> right = safeList(expected);
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int index = 0; index < left.size(); index++) {
+            if (!left.get(index).equalsIgnoreCase(right.get(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private List<String> safeList(List<String> source) {
         List<String> result = new ArrayList<String>();
         if (source == null) {
@@ -290,6 +378,17 @@ public class DatasourceTypeCapabilityService {
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+    }
+
+    private static String normalizePlugin(String value) {
+        String normalized = normalize(value);
+        if (normalized.endsWith("reader")) {
+            return normalized.substring(0, normalized.length() - "reader".length());
+        }
+        if (normalized.endsWith("writer")) {
+            return normalized.substring(0, normalized.length() - "writer".length());
+        }
+        return normalized;
     }
 
     private static String normalizeSourceCategory(String value) {
@@ -370,6 +469,16 @@ public class DatasourceTypeCapabilityService {
             }
         }
         return result;
+    }
+
+    private static DefaultCapability findDefaultCapability(String typeCode) {
+        String normalizedTypeCode = normalize(typeCode);
+        for (DefaultCapability capability : DEFAULT_CAPABILITIES) {
+            if (capability.typeCode.equalsIgnoreCase(normalizedTypeCode)) {
+                return capability;
+            }
+        }
+        return null;
     }
 
     private static DefaultCapability capability(String typeCode,

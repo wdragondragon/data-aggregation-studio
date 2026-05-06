@@ -321,6 +321,7 @@ const props = withDefaults(
     sourceAliases?: string[];
     sourceFieldOptionsByAlias?: Record<string, string[]>;
     ruleOptions?: FieldMappingRuleView[];
+    showSourceAlias?: boolean;
     showExpression?: boolean;
   }>(),
   {
@@ -330,6 +331,7 @@ const props = withDefaults(
     sourceAliases: () => [],
     sourceFieldOptionsByAlias: () => ({}),
     ruleOptions: () => [],
+    showSourceAlias: true,
     showExpression: true,
   },
 );
@@ -340,7 +342,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const rows = computed(() => props.modelValue ?? []);
-const showSourceAlias = computed(() => props.sourceAliases.length > 0);
+const showSourceAlias = computed(() => props.showSourceAlias && props.sourceAliases.length > 0);
 const transformerDialogVisible = ref(false);
 const editingRowIndex = ref<number | null>(null);
 const transformerDrafts = ref<TransformerRuleDraft[]>([]);
@@ -386,8 +388,9 @@ function removeRow(index: number) {
 }
 
 function resolveSourceFieldOptions(row: FieldMappingDefinition) {
-  if (row.sourceAlias && props.sourceFieldOptionsByAlias[row.sourceAlias]?.length) {
-    return props.sourceFieldOptionsByAlias[row.sourceAlias];
+  const sourceAlias = row.sourceAlias || props.sourceAliases[0];
+  if (sourceAlias && props.sourceFieldOptionsByAlias[sourceAlias]?.length) {
+    return props.sourceFieldOptionsByAlias[sourceAlias];
   }
   return props.sourceFields;
 }

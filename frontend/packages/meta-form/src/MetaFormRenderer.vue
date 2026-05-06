@@ -18,21 +18,32 @@
             :label="field.fieldName"
             :required="field.required"
           >
+            <el-select
+              v-if="field.componentType === 'SELECT'"
+              :key="`${field.fieldKey}:${field.valueType}`"
+              :model-value="fieldValue(field.fieldKey)"
+              :multiple="isArraySelectField(field)"
+              :collapse-tags="isArraySelectField(field)"
+              :collapse-tags-tooltip="isArraySelectField(field)"
+              clearable
+              filterable
+              :placeholder="field.placeholder ?? t('metaForm.selectField', { fieldName: field.fieldName })"
+              @update:model-value="updateSelectField(field, $event)"
+            >
+              <el-option
+                v-for="option in field.options ?? []"
+                :key="option"
+                :label="option"
+                :value="option"
+              />
+            </el-select>
             <component
+              v-else
               :is="resolveComponent(field)"
               v-bind="resolveProps(field)"
               :model-value="fieldValue(field.fieldKey)"
               @update:model-value="updateField(field.fieldKey, $event)"
-            >
-              <template v-if="field.componentType === 'SELECT'">
-                <el-option
-                  v-for="option in field.options ?? []"
-                  :key="option"
-                  :label="option"
-                  :value="option"
-                />
-              </template>
-            </component>
+            />
           </el-form-item>
         </div>
       </el-form>
@@ -80,8 +91,43 @@ function updateField(fieldKey: string, value: unknown) {
   });
 }
 
+function updateSelectField(field: MetadataFieldDefinition, value: unknown) {
+  updateField(field.fieldKey, isArraySelectField(field) ? normalizeArrayValue(value) : value);
+}
+
 function fieldValue(fieldKey: string) {
-  return localValue.value[fieldKey] as string | number | boolean | Record<string, unknown> | undefined;
+  const field = props.fields.find((item) => item.fieldKey === fieldKey);
+  const value = localValue.value[fieldKey];
+  if (field && isArraySelectField(field)) {
+    return normalizeArrayValue(value);
+  }
+  return value as string | number | boolean | Record<string, unknown> | string[] | undefined;
+}
+
+function isArraySelectField(field: MetadataFieldDefinition) {
+  return field.componentType === "SELECT" && field.valueType === "ARRAY";
+}
+
+function normalizeArrayValue(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean);
+  }
+  if (value === undefined || value === null) {
+    return [];
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item)).filter(Boolean);
+    }
+  } catch (error) {
+    // Legacy values may be stored as a plain field name instead of JSON.
+  }
+  return [text];
 }
 
 function resolveComponent(field: MetadataFieldDefinition) {
@@ -113,12 +159,6 @@ function resolveProps(field: MetadataFieldDefinition) {
         type: "textarea",
         rows: 5,
         placeholder: field.placeholder ?? t("metaForm.enterField", { fieldName: field.fieldName }),
-      };
-    case "SELECT":
-      return {
-        clearable: true,
-        filterable: true,
-        placeholder: field.placeholder ?? t("metaForm.selectField", { fieldName: field.fieldName }),
       };
     case "SWITCH":
       return {

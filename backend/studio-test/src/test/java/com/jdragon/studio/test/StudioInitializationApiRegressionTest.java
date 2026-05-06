@@ -126,6 +126,81 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
     }
 
     @Test
+    void runtimeOptionSchemaShouldBeDrivenByMetaSchemaDefinitionsOnly() throws Exception {
+        String authorization = adminAuthorizationHeader();
+
+        MvcResult mysqlReaderResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "reader")
+                        .param("datasourceType", "mysql8")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("mysql8"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andExpect(jsonPath("$.data.fields", hasSize(2)))
+                .andReturn();
+
+        JsonNode mysqlReaderSchema = readBody(mysqlReaderResult).path("data");
+        assertThat(extractFieldKeys(mysqlReaderSchema)).containsExactly("selectSql", "mandatoryEncoding");
+
+        MvcResult mysqlWriterResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "writer")
+                        .param("datasourceType", "mysql8")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("mysql8"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andReturn();
+        JsonNode mysqlWriterSchema = readBody(mysqlWriterResult).path("data");
+        assertThat(extractFieldKeys(mysqlWriterSchema)).containsExactly("writeMode", "pkColumn", "batchSize", "emptyAsNull");
+        JsonNode pkColumnField = fieldByKey(mysqlWriterSchema, "pkColumn");
+        assertThat(pkColumnField.path("valueType").asText()).isEqualTo("ARRAY");
+        assertThat(pkColumnField.path("componentType").asText()).isEqualTo("SELECT");
+        assertThat(pkColumnField.path("defaultValue").asText()).isEqualTo("[]");
+
+        mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "writer")
+                        .param("datasourceType", "postgres")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("postgresql"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andExpect(jsonPath("$.data.fields[*].fieldKey", hasItem("writeMode")));
+
+        MvcResult fusionReaderResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "reader")
+                        .param("datasourceType", "fusion")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("fusion"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andReturn();
+        JsonNode fusionReaderSchema = readBody(fusionReaderResult).path("data");
+        assertThat(extractFieldKeys(fusionReaderSchema))
+                .contains("defaultStrategy", "errorMode", "performance.parallelSourceCount",
+                        "performance.memoryLimitMB", "cache.partitionCount", "adaptiveMerge.enabled",
+                        "adaptiveMerge.pendingKeyThreshold", "adaptiveMerge.pendingMemoryMB",
+                        "adaptiveMerge.overflowSpillPath");
+
+        mockMvc.perform(post("/api/v1/meta-schemas/runtime-options/sync-standard")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data", hasSize(13)))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:ftp")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:sftp")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")));
+    }
+
+    @Test
     void bootstrapSecurityDataShouldBeVisibleThroughManagementApis() throws Exception {
         String authorization = adminAuthorizationHeader();
 
@@ -231,5 +306,19 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
             keys.add(iterator.next().path("fieldKey").asText());
         }
         return keys;
+    }
+
+    private JsonNode fieldByKey(JsonNode schema, String fieldKey) {
+        if (schema == null || !schema.has("fields") || !schema.get("fields").isArray()) {
+            return null;
+        }
+        Iterator<JsonNode> iterator = schema.get("fields").elements();
+        while (iterator.hasNext()) {
+            JsonNode field = iterator.next();
+            if (fieldKey.equals(field.path("fieldKey").asText())) {
+                return field;
+            }
+        }
+        return null;
     }
 }

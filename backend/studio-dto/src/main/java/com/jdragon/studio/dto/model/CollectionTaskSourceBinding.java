@@ -3,6 +3,9 @@ package com.jdragon.studio.dto.model;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Data
 @Schema(description = "Collection task source binding")
 public class CollectionTaskSourceBinding {
@@ -26,4 +29,10 @@ public class CollectionTaskSourceBinding {
 
     @Schema(description = "Model locator")
     private String modelPhysicalLocator;
+
+    @Schema(description = "Reader advanced options")
+    private Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+
+    @Schema(description = "Incremental cursor definition")
+    private CollectionIncrementalDefinition incremental;
 }

@@ -80,6 +80,15 @@ public class CollectionTaskController {
         return Result.success(collectionTaskService.updateSchedule(id, request));
     }
 
+    @Operation(summary = "Reset collection task incremental cursor")
+    @PostMapping("/{id}/incremental-cursors/reset")
+    public Result<CollectionTaskDefinitionView> resetIncrementalCursor(@PathVariable("id") Long id,
+                                                                       @RequestParam(value = "sourceAlias", required = false) String sourceAlias,
+                                                                       @RequestParam(value = "incrColumn", required = false) String incrColumn,
+                                                                       @RequestParam(value = "incrModel", required = false) String incrModel) {
+        return Result.success(collectionTaskService.resetIncrementalCursor(id, sourceAlias, incrColumn, incrModel));
+    }
+
     @Operation(summary = "Trigger collection task")
     @PostMapping("/{id}/trigger")
     public Result<CollectionTaskDefinitionView> trigger(@PathVariable("id") Long id) {

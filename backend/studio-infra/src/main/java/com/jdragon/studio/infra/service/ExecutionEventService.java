@@ -23,6 +23,9 @@ import java.util.Set;
 @Service
 public class ExecutionEventService implements ExecutionEventPublisher {
 
+    private static final int RUN_RECORD_MESSAGE_MAX_LENGTH = 2000;
+    private static final String TRUNCATED_MESSAGE_SUFFIX = "...";
+
     private final RunRecordMapper runRecordMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
     private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
@@ -33,6 +36,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private final NotificationService notificationService;
     private final DataModelLineageService dataModelLineageService;
     private final QualityIssueService qualityIssueService;
+    private final CollectionTaskIncrementalStateService collectionTaskIncrementalStateService;
 
     public ExecutionEventService(RunRecordMapper runRecordMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
@@ -43,7 +47,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                                  FollowSubscriptionService followSubscriptionService,
                                  NotificationService notificationService,
                                  DataModelLineageService dataModelLineageService,
-                                 QualityIssueService qualityIssueService) {
+                                 QualityIssueService qualityIssueService,
+                                 CollectionTaskIncrementalStateService collectionTaskIncrementalStateService) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
@@ -54,6 +59,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         this.notificationService = notificationService;
         this.dataModelLineageService = dataModelLineageService;
         this.qualityIssueService = qualityIssueService;
+        this.collectionTaskIncrementalStateService = collectionTaskIncrementalStateService;
     }
 
     @Override
@@ -86,7 +92,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setLogFilePath(event.getLogFilePath());
         entity.setLogSizeBytes(event.getLogSizeBytes());
         entity.setLogCharset(event.getLogCharset());
-        entity.setMessage(resolveMessage(event));
+        entity.setMessage(truncateRunRecordMessage(resolveMessage(event)));
         runMetricSummaryMapper.applyToEntity(entity, event.getPayload());
         if (entity.getId() == null) {
             runRecordMapper.insert(entity);
@@ -95,9 +101,20 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         }
         dispatchService.continueWorkflowRun(event);
         dataModelLineageService.updateCollectionTaskRunStatus(event);
+        maybeUpdateCollectionIncrementalState(entity, event);
         qualityIssueService.handleExecutionEvent(event, entity);
         maybeNotifyCollectionTaskRun(entity, event);
         maybeNotifyWorkflowRun(entity, event);
+    }
+
+    private void maybeUpdateCollectionIncrementalState(RunRecordEntity entity, ExecutionEvent event) {
+        if (entity == null
+                || event == null
+                || !"SUCCESS".equalsIgnoreCase(event.getEventType())
+                || entity.getCollectionTaskId() == null) {
+            return;
+        }
+        collectionTaskIncrementalStateService.updateFromExecutionResult(entity.getCollectionTaskId(), entity.getId(), event.getPayload());
     }
 
     private String resolveMessage(ExecutionEvent event) {
@@ -112,6 +129,14 @@ public class ExecutionEventService implements ExecutionEventPublisher {
             }
         }
         return event.getEventType();
+    }
+
+    private String truncateRunRecordMessage(String message) {
+        if (message == null || message.length() <= RUN_RECORD_MESSAGE_MAX_LENGTH) {
+            return message;
+        }
+        return message.substring(0, RUN_RECORD_MESSAGE_MAX_LENGTH - TRUNCATED_MESSAGE_SUFFIX.length())
+                + TRUNCATED_MESSAGE_SUFFIX;
     }
 
     private void maybeNotifyCollectionTaskRun(RunRecordEntity entity, ExecutionEvent event) {

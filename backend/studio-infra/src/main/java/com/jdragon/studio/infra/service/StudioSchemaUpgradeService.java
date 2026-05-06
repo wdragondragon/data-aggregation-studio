@@ -1667,7 +1667,7 @@ public class StudioSchemaUpgradeService {
     private void seedDatasourceTypeCapabilitiesMysql() {
         insertDatasourceTypeCapabilityMysql("mysql8", "MySQL 8", "DATABASE", 1, 1, 1, 1, 1, "mysql8", "[\"mysql8\"]", "[\"mysql8\"]", 10, "MySQL 数据库");
         insertDatasourceTypeCapabilityMysql("oracle", "Oracle", "DATABASE", 1, 1, 0, 1, 1, "oracle", "[\"oracle\"]", "[]", 20, "Oracle 数据库");
-        insertDatasourceTypeCapabilityMysql("postgres", "PostgreSQL", "DATABASE", 1, 1, 0, 1, 1, "postgres", "[\"postgres\"]", "[]", 30, "PostgreSQL 数据库");
+        insertDatasourceTypeCapabilityMysql("postgres", "PostgreSQL", "DATABASE", 1, 1, 1, 1, 1, "postgres", "[\"postgresql\"]", "[\"postgresql\"]", 30, "PostgreSQL 数据库");
         insertDatasourceTypeCapabilityMysql("dm", "达梦数据库", "DATABASE", 1, 1, 1, 1, 1, "dm", "[\"dm\"]", "[\"dm\"]", 40, "达梦数据库");
         insertDatasourceTypeCapabilityMysql("ftp", "FTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "ftp", "[]", "[]", 50, "FTP 文件数据源");
         insertDatasourceTypeCapabilityMysql("sftp", "SFTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "sftp", "[]", "[]", 60, "SFTP 文件数据源");
@@ -1782,7 +1782,7 @@ public class StudioSchemaUpgradeService {
     private void seedDatasourceTypeCapabilitiesSqlite() {
         insertDatasourceTypeCapabilitySqlite("mysql8", "MySQL 8", "DATABASE", 1, 1, 1, 1, 1, "mysql8", "[\"mysql8\"]", "[\"mysql8\"]", 10, "MySQL 数据库");
         insertDatasourceTypeCapabilitySqlite("oracle", "Oracle", "DATABASE", 1, 1, 0, 1, 1, "oracle", "[\"oracle\"]", "[]", 20, "Oracle 数据库");
-        insertDatasourceTypeCapabilitySqlite("postgres", "PostgreSQL", "DATABASE", 1, 1, 0, 1, 1, "postgres", "[\"postgres\"]", "[]", 30, "PostgreSQL 数据库");
+        insertDatasourceTypeCapabilitySqlite("postgres", "PostgreSQL", "DATABASE", 1, 1, 1, 1, 1, "postgres", "[\"postgresql\"]", "[\"postgresql\"]", 30, "PostgreSQL 数据库");
         insertDatasourceTypeCapabilitySqlite("dm", "达梦数据库", "DATABASE", 1, 1, 1, 1, 1, "dm", "[\"dm\"]", "[\"dm\"]", 40, "达梦数据库");
         insertDatasourceTypeCapabilitySqlite("ftp", "FTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "ftp", "[]", "[]", 50, "FTP 文件数据源");
         insertDatasourceTypeCapabilitySqlite("sftp", "SFTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "sftp", "[]", "[]", 60, "SFTP 文件数据源");

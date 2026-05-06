@@ -4,8 +4,9 @@ export const META_MODEL_CONFIG_PREFIX = "META_MODEL_CONFIG:";
 export const BUSINESS_META_MODELS_KEY = "__metaModels";
 export const BUSINESS_SCHEMA_VERSION_KEY = "__businessSchemaVersionId";
 
-export type MetaModelDomain = "TECHNICAL" | "BUSINESS";
+export type MetaModelDomain = "TECHNICAL" | "BUSINESS" | "RUNTIME";
 export type MetaModelDisplayMode = "SINGLE" | "MULTIPLE";
+export type RuntimeOptionRole = "reader" | "writer";
 
 export interface MetaModelConfig {
   domain: MetaModelDomain;
@@ -17,6 +18,8 @@ export interface MetaModelConfig {
   displayMode?: MetaModelDisplayMode;
   required?: boolean;
   syncStrategy?: string;
+  role?: RuntimeOptionRole;
+  pluginType?: string;
 }
 
 export interface ParsedMetaModelSchema {
@@ -88,6 +91,8 @@ export function normalizeConfig(config: Partial<MetaModelConfig>, schema?: Metad
     displayMode: (config.displayMode ?? inferred?.displayMode ?? "SINGLE") as MetaModelDisplayMode,
     required: config.required ?? inferred?.required ?? false,
     syncStrategy: config.syncStrategy ?? inferred?.syncStrategy,
+    role: (config.role ?? inferred?.role) as RuntimeOptionRole | undefined,
+    pluginType: config.pluginType ?? inferred?.pluginType,
   };
 }
 
@@ -108,6 +113,23 @@ export function inferConfigFromSchema(schema: MetadataSchemaDefinition): MetaMod
       metaModelName: schema.schemaName,
       displayMode: "SINGLE",
       required: false,
+    };
+  }
+
+  if (schemaCode.startsWith("runtime:") || objectType === "collection-runtime-option") {
+    const codeParts = schemaCode.split(":");
+    const typeParts = typeCode.split(":");
+    const role = (codeParts[1] || typeParts[0] || "reader") as RuntimeOptionRole;
+    const pluginType = codeParts[2] || typeParts[1] || schema.typeCode || "plugin";
+    return {
+      domain: "RUNTIME",
+      metaModelCode: role,
+      metaModelName: schema.schemaName,
+      displayMode: "SINGLE",
+      required: false,
+      syncStrategy: "RUNTIME_OPTION",
+      role,
+      pluginType,
     };
   }
 

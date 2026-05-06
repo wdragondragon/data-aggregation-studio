@@ -1,8 +1,11 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.aggregation.commons.util.Configuration;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
+import com.jdragon.studio.dto.model.CollectionIncrementalDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
 import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
@@ -17,22 +20,29 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 @Service
 public class CollectionTaskAssemblerService {
 
+    private static final ObjectMapper RUNTIME_OPTION_OBJECT_MAPPER = new ObjectMapper();
+    private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
+
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
     private final EncryptionService encryptionService;
+    private final PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService;
 
     public CollectionTaskAssemblerService(DataSourceService dataSourceService,
                                           DataModelService dataModelService,
-                                          EncryptionService encryptionService) {
+                                          EncryptionService encryptionService,
+                                          PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService) {
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.encryptionService = encryptionService;
+        this.pluginRuntimeOptionSchemaService = pluginRuntimeOptionSchemaService;
     }
 
     public Map<String, Object> assemble(CollectionTaskDefinitionView definition) {
@@ -57,12 +67,12 @@ public class CollectionTaskAssemblerService {
         List<String> sourceFields = resolveSingleSourceFields(definition.getFieldMappings(), sourceModel);
 
         Map<String, Object> config = new LinkedHashMap<String, Object>();
-        config.put("reader", buildStandardReader(sourceDatasource, sourceModel, sourceFields));
+        config.put("reader", buildStandardReader(sourceBinding, sourceDatasource, sourceModel, sourceFields, definition.getExecutionOptions()));
         List<Map<String, Object>> transformers = buildTransformers(definition.getFieldMappings(), targetFields);
         if (!transformers.isEmpty()) {
             config.put("transformer", transformers);
         }
-        config.put("writer", buildStandardWriter(targetDatasource, targetModel, targetFields, definition.getExecutionOptions()));
+        config.put("writer", buildStandardWriter(targetBinding, targetDatasource, targetModel, targetFields));
         return config;
     }
 
@@ -80,11 +90,15 @@ public class CollectionTaskAssemblerService {
             DataSourceDefinition sourceDatasource = requiredDatasource(sourceBinding.getDatasourceId());
             DataModelDefinition sourceModel = requiredModel(sourceBinding.getModelId());
             List<String> sourceFields = resolveSourceFieldsByAlias(definition.getFieldMappings(), sourceBinding.getSourceAlias(), sourceModel);
+            String pluginType = resolvePluginType(sourceDatasource.getTypeCode(), "reader");
             Map<String, Object> item = new LinkedHashMap<String, Object>();
             item.put("id", sourceBinding.getSourceAlias());
-            item.put("type", sourceDatasource.getTypeCode());
-            item.put("config", buildConnectionConfig(sourceDatasource));
-            item.put("querySql", buildQuerySql(sourceModel.getPhysicalLocator(), sourceFields));
+            item.put("type", pluginType);
+            item.putAll(buildReaderConfig(sourceBinding, sourceDatasource, sourceModel, sourceFields, pluginType));
+            mergeRuntimeOptions(item, sourceBinding.getReaderOptions(), "reader");
+            if (!isFileReader(sourceDatasource.getTypeCode(), pluginType)) {
+                applyIncrementalOptions(item, sourceBinding, executionOptions);
+            }
             sources.add(item);
         }
 
@@ -115,6 +129,7 @@ public class CollectionTaskAssemblerService {
         readerConfig.put("sources", sources);
         readerConfig.put("join", join);
         readerConfig.put("fieldMappings", fieldMappings);
+        mergeRuntimeOptions(readerConfig, runtimeOptionMap(executionOptions.get("fusionReaderOptions")), "reader");
         reader.put("config", readerConfig);
 
         Map<String, Object> config = new LinkedHashMap<String, Object>();
@@ -123,36 +138,392 @@ public class CollectionTaskAssemblerService {
         if (!transformers.isEmpty()) {
             config.put("transformer", transformers);
         }
-        config.put("writer", buildStandardWriter(targetDatasource, targetModel, targetFields, executionOptions));
+        config.put("writer", buildStandardWriter(targetBinding, targetDatasource, targetModel, targetFields));
         return config;
     }
 
-    private Map<String, Object> buildStandardReader(DataSourceDefinition datasource,
+    private Map<String, Object> buildStandardReader(CollectionTaskSourceBinding binding,
+                                                    DataSourceDefinition datasource,
                                                     DataModelDefinition model,
-                                                    List<String> sourceFields) {
+                                                    List<String> sourceFields,
+                                                    Map<String, Object> executionOptions) {
         Map<String, Object> reader = new LinkedHashMap<String, Object>();
-        reader.put("type", datasource.getTypeCode());
-        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
-        readerConfig.put("connect", buildConnectionConfig(datasource));
-        readerConfig.put("table", model.getPhysicalLocator());
-        readerConfig.put("columns", sourceFields);
+        String pluginType = resolvePluginType(datasource.getTypeCode(), "reader");
+        reader.put("type", pluginType);
+        Map<String, Object> readerConfig = buildReaderConfig(binding, datasource, model, sourceFields, pluginType);
+        mergeRuntimeOptions(readerConfig, binding.getReaderOptions(), "reader");
+        if (!isFileReader(datasource.getTypeCode(), pluginType)) {
+            applyIncrementalOptions(readerConfig, binding, executionOptions);
+        }
         reader.put("config", readerConfig);
         return reader;
     }
 
-    private Map<String, Object> buildStandardWriter(DataSourceDefinition datasource,
+    private Map<String, Object> buildStandardWriter(CollectionTaskTargetBinding binding,
+                                                    DataSourceDefinition datasource,
                                                     DataModelDefinition model,
-                                                    List<String> targetFields,
-                                                    Map<String, Object> executionOptions) {
+                                                    List<String> targetFields) {
         Map<String, Object> writer = new LinkedHashMap<String, Object>();
-        writer.put("type", datasource.getTypeCode());
+        String pluginType = resolvePluginType(datasource.getTypeCode(), "writer");
+        writer.put("type", pluginType);
+        Map<String, Object> writerConfig = buildWriterConfig(datasource, model, targetFields, pluginType);
+        mergeRuntimeOptions(writerConfig, binding.getWriterOptions(), "writer");
+        applyDefaultWriteMode(writerConfig, pluginType);
+        writer.put("config", writerConfig);
+        return writer;
+    }
+
+    private Map<String, Object> buildReaderConfig(CollectionTaskSourceBinding binding,
+                                                  DataSourceDefinition datasource,
+                                                  DataModelDefinition model,
+                                                  List<String> sourceFields,
+                                                  String pluginType) {
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        readerConfig.put("sourceAlias", binding.getSourceAlias());
+        if ("kafka".equalsIgnoreCase(pluginType)) {
+            readerConfig.putAll(buildConnectionConfig(datasource));
+            readerConfig.put("topic", resolveQueueTopic(model, readerConfig));
+            readerConfig.put("columns", resolveColumnEntries(model, sourceFields, false));
+            return readerConfig;
+        }
+        if ("rocketmq".equalsIgnoreCase(pluginType)) {
+            Map<String, Object> connect = buildConnectionConfig(datasource);
+            if (!connect.containsKey("topic")) {
+                connect.put("topic", model.getPhysicalLocator());
+            }
+            readerConfig.put("connect", connect);
+            readerConfig.put("columns", resolveColumnEntries(model, sourceFields, false));
+            return readerConfig;
+        }
+        if ("influxdbv1".equalsIgnoreCase(pluginType)) {
+            readerConfig.put("connect", buildConnectionConfig(datasource));
+            readerConfig.put("measurement", model.getPhysicalLocator());
+            readerConfig.put("columns", sourceFields);
+            return readerConfig;
+        }
+        if (isFileReader(datasource.getTypeCode(), pluginType)) {
+            readerConfig.putAll(buildFileReaderConfig(datasource, model, sourceFields));
+            return readerConfig;
+        }
+        readerConfig.put("connect", buildConnectionConfig(datasource));
+        readerConfig.put("table", model.getPhysicalLocator());
+        readerConfig.put("columns", sourceFields);
+        return readerConfig;
+    }
+
+    private Map<String, Object> buildFileReaderConfig(DataSourceDefinition datasource,
+                                                      DataModelDefinition model,
+                                                      List<String> sourceFields) {
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        readerConfig.put("connect", buildConnectionConfig(datasource));
+        Map<String, Object> metadata = model == null || model.getTechnicalMetadata() == null
+                ? Collections.<String, Object>emptyMap()
+                : model.getTechnicalMetadata();
+        Object rootPath = firstPresent(metadata, "rootPath");
+        if (isBlankValue(rootPath) && model != null) {
+            rootPath = model.getPhysicalLocator();
+        }
+        putIfPresent(readerConfig, "rootPath", rootPath, "/");
+        putIfPresent(readerConfig, "partitionType", metadata.get("partitionType"), "glob");
+        putIfPresent(readerConfig, "partition", firstPresent(metadata, "partition", "pattern"), "*");
+        putIfPresent(readerConfig, "fileType", metadata.get("fileType"), "csv");
+        putIfPresent(readerConfig, "encoding", metadata.get("encoding"), "UTF-8");
+        putIfPresent(readerConfig, "delimiter", metadata.get("delimiter"), null);
+        readerConfig.put("columns", resolveFileColumnEntries(model, sourceFields));
+        return readerConfig;
+    }
+
+    private Map<String, Object> buildWriterConfig(DataSourceDefinition datasource,
+                                                  DataModelDefinition model,
+                                                  List<String> targetFields,
+                                                  String pluginType) {
         Map<String, Object> writerConfig = new LinkedHashMap<String, Object>();
+        if ("kafka".equalsIgnoreCase(pluginType)) {
+            writerConfig.putAll(buildConnectionConfig(datasource));
+            writerConfig.put("topic", resolveQueueTopic(model, writerConfig));
+            writerConfig.put("columns", resolveColumnEntries(model, targetFields, false));
+            return writerConfig;
+        }
+        if ("rocketmq".equalsIgnoreCase(pluginType)) {
+            Map<String, Object> connect = buildConnectionConfig(datasource);
+            if (!connect.containsKey("topic")) {
+                connect.put("topic", model.getPhysicalLocator());
+            }
+            writerConfig.put("connect", connect);
+            writerConfig.put("columns", resolveColumnEntries(model, targetFields, false));
+            return writerConfig;
+        }
+        if ("influxdbv1".equalsIgnoreCase(pluginType)) {
+            writerConfig.put("connect", buildConnectionConfig(datasource));
+            writerConfig.put("measurement", model.getPhysicalLocator());
+            writerConfig.put("columns", resolveColumnEntries(model, targetFields, true));
+            return writerConfig;
+        }
         writerConfig.put("connect", buildConnectionConfig(datasource));
         writerConfig.put("table", model.getPhysicalLocator());
         writerConfig.put("columns", targetFields);
-        writerConfig.put("writeMode", executionOptions == null ? "insert" : String.valueOf(executionOptions.getOrDefault("writeMode", "insert")));
-        writer.put("config", writerConfig);
-        return writer;
+        return writerConfig;
+    }
+
+    private void applyIncrementalOptions(Map<String, Object> config,
+                                         CollectionTaskSourceBinding sourceBinding,
+                                         Map<String, Object> executionOptions) {
+        CollectionIncrementalDefinition incremental = sourceBinding.getIncremental();
+        if (incremental == null) {
+            return;
+        }
+        Object collectionMode = executionOptions == null ? null : executionOptions.get("collectionMode");
+        if (!isBlankValue(collectionMode) && !"INCREMENTAL".equalsIgnoreCase(String.valueOf(collectionMode))) {
+            return;
+        }
+        boolean globalIncremental = !isBlankValue(collectionMode)
+                && "INCREMENTAL".equalsIgnoreCase(String.valueOf(collectionMode));
+        boolean sourceIncremental = Boolean.TRUE.equals(incremental.getEnabled());
+        if (!globalIncremental && !sourceIncremental) {
+            return;
+        }
+        if (isBlank(incremental.getIncrColumn())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Incremental column is required for source " + sourceBinding.getSourceAlias());
+        }
+        config.put("incrColumn", incremental.getIncrColumn());
+        config.put("incrModel", isBlank(incremental.getIncrModel()) ? ">" : incremental.getIncrModel());
+        if (incremental.getPkValue() != null && !String.valueOf(incremental.getPkValue()).trim().isEmpty()) {
+            config.put("pkValue", incremental.getPkValue());
+        }
+    }
+
+    private void mergeRuntimeOptions(Map<String, Object> config,
+                                     Map<String, Object> runtimeOptions,
+                                     String role) {
+        if (runtimeOptions == null || runtimeOptions.isEmpty()) {
+            return;
+        }
+        Set<String> reserved = new LinkedHashSet<String>();
+        for (String reservedKey : reservedKeys(role)) {
+            if (reservedKey != null) {
+                reserved.add(reservedKey.trim().toLowerCase(Locale.ENGLISH));
+            }
+        }
+        Configuration configuration = Configuration.from(config);
+        for (Map.Entry<String, Object> entry : runtimeOptions.entrySet()) {
+            String key = entry.getKey();
+            if (isBlank(key) || isReservedRuntimeOptionKey(key, reserved)) {
+                continue;
+            }
+            Object value = normalizeRuntimeOptionValue(entry.getValue());
+            if (value == null) {
+                continue;
+            }
+            configuration.set(key.trim(), value);
+        }
+        config.clear();
+        config.putAll(configuration.getMap("", Collections.<String, Object>emptyMap()));
+    }
+
+    private void applyDefaultWriteMode(Map<String, Object> writerConfig, String pluginType) {
+        if (!isRdbmsWriter(pluginType) || !isBlankValue(writerConfig.get("writeMode"))) {
+            return;
+        }
+        writerConfig.put("writeMode", "insert");
+    }
+
+    private boolean isRdbmsWriter(String pluginType) {
+        return "mysql8".equalsIgnoreCase(pluginType)
+                || "dm".equalsIgnoreCase(pluginType)
+                || "postgresql".equalsIgnoreCase(pluginType);
+    }
+
+    private Map<String, Object> runtimeOptionMap(Object value) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (!(value instanceof Map<?, ?>)) {
+            return result;
+        }
+        Map<?, ?> source = (Map<?, ?>) value;
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private boolean isReservedRuntimeOptionKey(String key, Set<String> reserved) {
+        String normalized = key.trim().toLowerCase(Locale.ENGLISH);
+        if (reserved.contains(normalized)) {
+            return true;
+        }
+        int dotIndex = normalized.indexOf('.');
+        return dotIndex > 0 && reserved.contains(normalized.substring(0, dotIndex));
+    }
+
+    private Object normalizeRuntimeOptionValue(Object value) {
+        if (!(value instanceof String)) {
+            return value;
+        }
+        String text = ((String) value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        if (!(text.startsWith("{") || text.startsWith("["))) {
+            return value;
+        }
+        try {
+            return RUNTIME_OPTION_OBJECT_MAPPER.readValue(text, Object.class);
+        } catch (Exception ignored) {
+            return value;
+        }
+    }
+
+    private List<String> reservedKeys(String role) {
+        return pluginRuntimeOptionSchemaService.reservedKeys(role);
+    }
+
+    private String resolvePluginType(String datasourceTypeCode, String role) {
+        return pluginRuntimeOptionSchemaService.resolvePluginType(datasourceTypeCode, role);
+    }
+
+    private boolean isFileReader(String datasourceTypeCode, String pluginType) {
+        String sourceCategory = pluginRuntimeOptionSchemaService.sourceCategory(datasourceTypeCode);
+        return CATEGORY_FILE_SYSTEM.equalsIgnoreCase(sourceCategory)
+                || "ftp".equalsIgnoreCase(pluginType)
+                || "sftp".equalsIgnoreCase(pluginType)
+                || "minio".equalsIgnoreCase(pluginType);
+    }
+
+    private String resolveQueueTopic(DataModelDefinition model, Map<String, Object> config) {
+        Object topic = config.get("topic");
+        if (topic != null && !String.valueOf(topic).trim().isEmpty()) {
+            return String.valueOf(topic);
+        }
+        return model.getPhysicalLocator();
+    }
+
+    private List<Map<String, Object>> resolveColumnEntries(DataModelDefinition model,
+                                                           List<String> fields,
+                                                           boolean influxTypes) {
+        List<String> selectedFields = fields == null || fields.isEmpty() ? resolveModelFields(model) : fields;
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        Map<String, Map<String, Object>> metadata = resolveModelFieldMetadata(model);
+        for (int i = 0; i < selectedFields.size(); i++) {
+            String fieldName = selectedFields.get(i);
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("name", fieldName);
+            item.put("index", Integer.valueOf(i));
+            item.put("type", influxTypes ? resolveInfluxColumnType(fieldName, metadata.get(fieldName)) : resolveGenericColumnType(metadata.get(fieldName)));
+            result.add(item);
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> resolveFileColumnEntries(DataModelDefinition model, List<String> fields) {
+        List<String> selectedFields = fields == null || fields.isEmpty() ? resolveModelFields(model) : fields;
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        Map<String, Map<String, Object>> metadata = resolveModelFieldMetadata(model);
+        Map<String, Integer> fieldOrder = resolveModelFieldOrder(model);
+        for (int i = 0; i < selectedFields.size(); i++) {
+            String fieldName = selectedFields.get(i);
+            Map<String, Object> fieldMetadata = metadata.get(fieldName);
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("name", fieldName);
+            item.put("index", resolveFileColumnIndex(fieldName, fieldMetadata, fieldOrder, Integer.valueOf(i)));
+            item.put("type", resolveGenericColumnType(fieldMetadata));
+            result.add(item);
+        }
+        return result;
+    }
+
+    private Integer resolveFileColumnIndex(String fieldName,
+                                           Map<String, Object> metadata,
+                                           Map<String, Integer> fieldOrder,
+                                           Integer fallback) {
+        if (metadata != null) {
+            Object index = metadata.get("index");
+            if (index instanceof Number) {
+                return Integer.valueOf(((Number) index).intValue());
+            }
+            if (index != null && !String.valueOf(index).trim().isEmpty()) {
+                try {
+                    return Integer.valueOf(String.valueOf(index).trim());
+                } catch (NumberFormatException ignored) {
+                    // Fall through to model order.
+                }
+            }
+        }
+        Integer modelOrder = fieldOrder.get(fieldName);
+        return modelOrder == null ? fallback : modelOrder;
+    }
+
+    private Map<String, Integer> resolveModelFieldOrder(DataModelDefinition model) {
+        Map<String, Integer> result = new LinkedHashMap<String, Integer>();
+        if (model == null || model.getTechnicalMetadata() == null) {
+            return result;
+        }
+        Object columns = model.getTechnicalMetadata().get("columns");
+        if (columns instanceof List<?>) {
+            int index = 0;
+            for (Object item : (List<?>) columns) {
+                if (item instanceof Map<?, ?>) {
+                    Object name = ((Map<?, ?>) item).get("name");
+                    if (name != null && !String.valueOf(name).trim().isEmpty()) {
+                        result.put(String.valueOf(name), Integer.valueOf(index));
+                    }
+                }
+                index++;
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Map<String, Object>> resolveModelFieldMetadata(DataModelDefinition model) {
+        Map<String, Map<String, Object>> result = new LinkedHashMap<String, Map<String, Object>>();
+        if (model == null || model.getTechnicalMetadata() == null) {
+            return result;
+        }
+        Object columns = model.getTechnicalMetadata().get("columns");
+        if (columns instanceof List<?>) {
+            for (Object item : (List<?>) columns) {
+                if (!(item instanceof Map<?, ?>)) {
+                    continue;
+                }
+                Map<?, ?> source = (Map<?, ?>) item;
+                Object name = source.get("name");
+                if (name == null || String.valueOf(name).trim().isEmpty()) {
+                    continue;
+                }
+                Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+                for (Map.Entry<?, ?> entry : source.entrySet()) {
+                    if (entry.getKey() != null) {
+                        metadata.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                }
+                result.put(String.valueOf(name), metadata);
+            }
+        }
+        return result;
+    }
+
+    private String resolveGenericColumnType(Map<String, Object> metadata) {
+        if (metadata == null) {
+            return "string";
+        }
+        Object type = metadata.get("type");
+        return type == null || String.valueOf(type).trim().isEmpty() ? "string" : String.valueOf(type);
+    }
+
+    private String resolveInfluxColumnType(String fieldName, Map<String, Object> metadata) {
+        if ("time".equalsIgnoreCase(fieldName)) {
+            return "time";
+        }
+        if (metadata != null) {
+            Object type = metadata.get("type");
+            if (type != null) {
+                String normalized = String.valueOf(type).trim().toLowerCase();
+                if ("time".equals(normalized) || "tag".equals(normalized) || "field".equals(normalized)) {
+                    return normalized;
+                }
+            }
+        }
+        return "field";
     }
 
     private List<Map<String, Object>> buildTransformers(List<FieldMappingDefinition> mappings, List<String> targetFields) {
@@ -216,6 +587,27 @@ public class CollectionTaskAssemblerService {
             }
         }
         return config;
+    }
+
+    private Object firstPresent(Map<String, Object> metadata, String... keys) {
+        if (metadata == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = metadata.get(key);
+            if (!isBlankValue(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value, Object defaultValue) {
+        if (!isBlankValue(value)) {
+            target.put(key, value);
+        } else if (defaultValue != null) {
+            target.put(key, defaultValue);
+        }
     }
 
     private List<String> resolveTargetFields(List<FieldMappingDefinition> fieldMappings, DataModelDefinition targetModel) {
@@ -333,6 +725,14 @@ public class CollectionTaskAssemblerService {
 
     private String decrypt(String value) {
         return encryptionService.decrypt(value.substring(4, value.length() - 1));
+    }
+
+    private boolean isBlankValue(Object value) {
+        return value == null || String.valueOf(value).trim().isEmpty();
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private DataSourceDefinition requiredDatasource(Long datasourceId) {

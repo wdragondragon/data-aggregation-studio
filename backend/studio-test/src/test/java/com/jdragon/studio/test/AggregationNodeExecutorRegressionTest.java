@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,6 +41,47 @@ class AggregationNodeExecutorRegressionTest {
         assertThat(result.get("status")).isEqualTo("FAILED");
         assertThat(result.get("jobState")).isEqualTo("FAILED");
         assertThat(String.valueOf(result.get("message"))).contains("failed");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldSeedInitialIncrementalCursorAndExposeUpdatedCursor() {
+        AtomicReference<Object> seededValue = new AtomicReference<Object>();
+        AggregationNodeExecutor executor = new AggregationNodeExecutor() {
+            @Override
+            protected JobContainer createJobContainer(Map<String, Object> config) {
+                return new StubJobContainer(State.SUCCEEDED, null) {
+                    @Override
+                    public void start() {
+                        seededValue.set(getJobPointReporter().get("pkValue", null));
+                        getJobPointReporter().put("pkValue", Long.valueOf(108L));
+                    }
+                };
+            }
+        };
+
+        WorkflowNodeDefinition node = new WorkflowNodeDefinition();
+        node.setNodeType(NodeType.COLLECTION_TASK);
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        readerConfig.put("sourceAlias", "src1");
+        readerConfig.put("incrColumn", "id");
+        readerConfig.put("incrModel", ">");
+        readerConfig.put("pkValue", Long.valueOf(42L));
+        Map<String, Object> reader = new LinkedHashMap<String, Object>();
+        reader.put("type", "mysql8");
+        reader.put("config", readerConfig);
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("reader", reader);
+        config.put("writer", Collections.singletonMap("type", "mysql8"));
+        node.setConfig(config);
+
+        Map<String, Object> result = executor.execute(node, new LinkedHashMap<String, Object>());
+
+        assertThat(seededValue.get()).isEqualTo(Long.valueOf(42L));
+        Map<String, Object> cursors = (Map<String, Object>) result.get("incrementalCursors");
+        Map<String, Object> cursor = (Map<String, Object>) cursors.get("src1");
+        assertThat(cursor.get("incrColumn")).isEqualTo("id");
+        assertThat(cursor.get("pkValue")).isEqualTo(Long.valueOf(108L));
     }
 
     private static class StubJobContainer extends JobContainer {

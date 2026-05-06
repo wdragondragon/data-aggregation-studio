@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -257,6 +258,39 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         return null;
     }
 
+    public MetadataSchemaDefinition findRuntimeOptionSchema(String role, String pluginType) {
+        String normalizedRole = normalize(role);
+        String normalizedPluginType = normalize(pluginType);
+        if (normalizedRole.isEmpty() || normalizedPluginType.isEmpty()) {
+            return null;
+        }
+        String expectedTypeCode = normalizedRole + ":" + normalizedPluginType;
+        String expectedSchemaCode = "runtime:" + normalizedRole + ":" + normalizedPluginType;
+        for (MetadataSchemaDefinition schema : listSchemas()) {
+            if (schema == null) {
+                continue;
+            }
+            String schemaCode = normalize(schema.getSchemaCode());
+            String objectType = normalize(schema.getObjectType());
+            String typeCode = normalize(schema.getTypeCode());
+            if (expectedSchemaCode.equals(schemaCode)) {
+                return schema;
+            }
+            if ("collection-runtime-option".equals(objectType) && expectedTypeCode.equals(typeCode)) {
+                return schema;
+            }
+            JSONObject config = extractMetaModelConfig(schema);
+            if (config == null || !"RUNTIME".equalsIgnoreCase(config.getString("domain"))) {
+                continue;
+            }
+            if (normalizedRole.equals(normalize(config.getString("role")))
+                    && normalizedPluginType.equals(normalize(config.getString("pluginType")))) {
+                return schema;
+            }
+        }
+        return null;
+    }
+
     private int nextVersion(Long schemaId) {
         List<MetaSchemaVersionEntity> versions = versionMapper.selectList(new LambdaQueryWrapper<MetaSchemaVersionEntity>()
                 .eq(MetaSchemaVersionEntity::getSchemaId, schemaId));
@@ -401,7 +435,6 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             fields.add(field("ftpTLS", "TLS 模式", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, "none"));
             fields.add(field("connectMode", "连接模式", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, "PASV"));
             fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 70, "60000"));
-            appendFileDiscoveryFields(fields, 80);
             return fields;
         }
         if ("sftp".equals(normalized)) {
@@ -410,14 +443,15 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
             fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
             fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 50, "60000"));
-            appendFileDiscoveryFields(fields, 60);
             return fields;
         }
         if ("minio".equals(normalized) || "oss".equals(normalized)) {
-            fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
-            fields.add(field("accessKey", "访问密钥", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
-            fields.add(field("secretKey", "密钥", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 30, null));
-            fields.add(field("bucket", "存储桶", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 40, null));
+            fields.add(field("storageProvider", "存储类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 10,
+                    "oss", Arrays.asList("oss", "minio")));
+            fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("accessKey", "访问密钥", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("secretKey", "密钥", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("bucket", "存储桶", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 50, null));
             return fields;
         }
         if ("tbds-hdfs".equals(normalized) || "tbds-hdfs3".equals(normalized)) {
@@ -518,16 +552,33 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             fields.add(field("tag", "标签", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
             return fields;
         }
-        if (isFileType(normalized)) {
-            fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
-            fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, "/"));
-            fields.add(field("pattern", "匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, ".*"));
-            fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
-            fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
-            fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
-            fields.add(field("bucket", "存储桶", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
-            fields.add(field("accessKey", "访问密钥", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
-            fields.add(field("secretKey", "密钥", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 90, null));
+        if (isFtpType(normalized)) {
+            fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "21"));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("ftpTLS", "TLS 模式", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 50,
+                    "none", Arrays.asList("none", "implicit", "explicit")));
+            fields.add(field("connectMode", "连接模式", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 60,
+                    "PASV", Arrays.asList("PASV", "PORT")));
+            fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 70, "60000"));
+            return fields;
+        }
+        if (isSftpType(normalized)) {
+            fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "22"));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 50, "60000"));
+            return fields;
+        }
+        if (isMinioType(normalized)) {
+            fields.add(field("storageProvider", "存储类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 10,
+                    "oss", Arrays.asList("oss", "minio")));
+            fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 20, null));
+            fields.add(field("accessKey", "访问密钥", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("secretKey", "密钥", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
+            fields.add(field("bucket", "存储桶", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 50, null));
             return fields;
         }
         fields.add(field("endpoint", "访问地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
@@ -538,10 +589,13 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     private void appendFileDiscoveryFields(List<MetadataFieldDefinition> fields, int startOrder) {
         fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder, "/"));
-        fields.add(field("pattern", "匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 10, ".*"));
-        fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 20, null));
-        fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 30, null));
-        fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 40, null));
+        fields.add(field("partitionType", "分区匹配类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, startOrder + 10,
+                "glob", Arrays.asList("glob", "regex")));
+        fields.add(field("partition", "分区匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 20, "*"));
+        fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, startOrder + 30,
+                "csv", Arrays.asList("csv", "efile")));
+        fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 40, "UTF-8"));
+        fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 50, ","));
     }
 
     private List<MetadataFieldDefinition> buildTableFields(String datasourceType) {
@@ -562,11 +616,13 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         }
         if (isFileType(datasourceType)) {
             fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
-            fields.add(field("pattern", "匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
-            fields.add(field("fileName", "文件名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
-            fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
-            fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
-            fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
+            fields.add(field("partitionType", "分区匹配类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 50,
+                    "glob", Arrays.asList("glob", "regex")));
+            fields.add(field("partition", "分区匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 70,
+                    "csv", Arrays.asList("csv", "efile")));
+            fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, "UTF-8"));
+            fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, ","));
             return fields;
         }
         if (isQueueType(datasourceType)) {
@@ -585,6 +641,9 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
         fields.add(field("name", "字段名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
         fields.add(field("type", "字段类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+        if (isFileType(datasourceType)) {
+            fields.add(field("index", "字段下标", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 25, null));
+        }
         fields.add(field("size", "长度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 30, null));
         fields.add(field("scale", "精度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 40, null));
         fields.add(field("nullable", "是否可空", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
@@ -606,6 +665,19 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                                           boolean sensitive,
                                           int sortOrder,
                                           String defaultValue) {
+        return field(fieldKey, fieldName, valueType, componentType, required, sensitive, sortOrder, defaultValue,
+                new ArrayList<String>());
+    }
+
+    private MetadataFieldDefinition field(String fieldKey,
+                                          String fieldName,
+                                          FieldValueType valueType,
+                                          FieldComponentType componentType,
+                                          boolean required,
+                                          boolean sensitive,
+                                          int sortOrder,
+                                          String defaultValue,
+                                          List<String> options) {
         MetadataFieldDefinition field = new MetadataFieldDefinition();
         field.setFieldKey(fieldKey);
         field.setFieldName(fieldName);
@@ -617,6 +689,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         field.setSortOrder(sortOrder);
         field.setDescription(fieldName);
         field.setDefaultValue(defaultValue);
+        field.setOptions(options == null ? new ArrayList<String>() : new ArrayList<String>(options));
         applyQueryCapabilities(field);
         return field;
     }
@@ -737,6 +810,18 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     private boolean isQueueType(String typeCode) {
         return containsAny(normalize(typeCode), "kafka", "rocketmq", "rabbitmq");
+    }
+
+    private boolean isFtpType(String typeCode) {
+        return "ftp".equals(normalize(typeCode));
+    }
+
+    private boolean isSftpType(String typeCode) {
+        return "sftp".equals(normalize(typeCode));
+    }
+
+    private boolean isMinioType(String typeCode) {
+        return "minio".equals(normalize(typeCode));
     }
 
     private boolean isFileType(String typeCode) {

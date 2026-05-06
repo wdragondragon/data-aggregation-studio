@@ -241,6 +241,18 @@ export interface DatasourceTypeCapabilityView extends BaseRecord {
   description?: string;
 }
 
+export interface PluginRuntimeOptionSchemaView {
+  role: string;
+  datasourceType: string;
+  sourceCategory?: string;
+  pluginType?: string;
+  runtimeSupported?: boolean;
+  incrementalSupported?: boolean;
+  fields: MetadataFieldDefinition[];
+  reservedKeys: string[];
+  description?: string;
+}
+
 export interface CapabilityMatrix {
   executableSourceTypes: string[];
   executableTargetTypes?: string[];
@@ -880,6 +892,26 @@ export interface FieldMappingDefinition {
   transformers: TransformerBinding[];
 }
 
+export interface CollectionIncrementalDefinition {
+  enabled?: boolean;
+  incrColumn?: string;
+  incrModel?: string;
+  pkValue?: unknown;
+  valueType?: string;
+  lastRunRecordId?: EntityId;
+  lastUpdatedAt?: string;
+  cursorStates?: CollectionIncrementalCursorState[];
+}
+
+export interface CollectionIncrementalCursorState {
+  incrColumn?: string;
+  incrModel?: string;
+  pkValue?: unknown;
+  valueType?: string;
+  lastRunRecordId?: EntityId;
+  lastUpdatedAt?: string;
+}
+
 export interface CollectionTaskSourceBinding {
   sourceAlias: string;
   datasourceId: EntityId;
@@ -888,6 +920,8 @@ export interface CollectionTaskSourceBinding {
   modelId: EntityId;
   modelName?: string;
   modelPhysicalLocator?: string;
+  readerOptions?: Record<string, unknown>;
+  incremental?: CollectionIncrementalDefinition;
 }
 
 export interface CollectionTaskTargetBinding {
@@ -897,6 +931,7 @@ export interface CollectionTaskTargetBinding {
   modelId: EntityId;
   modelName?: string;
   modelPhysicalLocator?: string;
+  writerOptions?: Record<string, unknown>;
 }
 
 export interface CollectionTaskScheduleDefinition {
