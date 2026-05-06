@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -778,29 +779,43 @@ public class DataModelLineageService {
             return Collections.emptyMap();
         }
         Set<Long> taskIds = new LinkedHashSet<Long>();
+        Map<Long, Set<Long>> projectIdsByTaskId = new LinkedHashMap<Long, Set<Long>>();
         for (DataModelLineageRelationEntity relation : relations) {
             if (relation != null && relation.getCollectionTaskId() != null) {
                 taskIds.add(relation.getCollectionTaskId());
+                if (relation.getProjectId() != null) {
+                    projectIdsByTaskId.computeIfAbsent(relation.getCollectionTaskId(), key -> new LinkedHashSet<Long>())
+                            .add(relation.getProjectId());
+                }
             }
         }
         if (taskIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<RunRecordEntity> runs = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
-                .in(RunRecordEntity::getCollectionTaskId, taskIds)
-                .in(RunRecordEntity::getStatus, "RUNNING", "SUCCESS", "FAILED")
-                .orderByDesc(RunRecordEntity::getEndedAt)
-                .orderByDesc(RunRecordEntity::getStartedAt)
-                .orderByDesc(RunRecordEntity::getCreatedAt)
-                .orderByDesc(RunRecordEntity::getId));
-        if (runs.isEmpty()) {
-            return Collections.emptyMap();
-        }
         Map<Long, RunRecordEntity> latestByTaskId = new LinkedHashMap<Long, RunRecordEntity>();
-        for (RunRecordEntity run : runs) {
-            if (run.getCollectionTaskId() != null && !latestByTaskId.containsKey(run.getCollectionTaskId())) {
-                latestByTaskId.put(run.getCollectionTaskId(), run);
+        for (Long taskId : taskIds) {
+            LambdaQueryWrapper<RunRecordEntity> query = new LambdaQueryWrapper<RunRecordEntity>()
+                    .select(RunRecordEntity::getId,
+                            RunRecordEntity::getCollectionTaskId,
+                            RunRecordEntity::getStatus,
+                            RunRecordEntity::getStartedAt,
+                            RunRecordEntity::getEndedAt,
+                            RunRecordEntity::getCreatedAt)
+                    .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
+                    .eq(RunRecordEntity::getCollectionTaskId, taskId);
+            Set<Long> projectIds = projectIdsByTaskId.get(taskId);
+            if (projectIds != null && !projectIds.isEmpty()) {
+                query.in(RunRecordEntity::getProjectId, projectIds);
+            }
+            query.in(RunRecordEntity::getStatus, "RUNNING", "SUCCESS", "FAILED")
+                    .orderByDesc(RunRecordEntity::getEndedAt)
+                    .orderByDesc(RunRecordEntity::getStartedAt)
+                    .orderByDesc(RunRecordEntity::getCreatedAt)
+                    .orderByDesc(RunRecordEntity::getId);
+            Page<RunRecordEntity> page = new Page<RunRecordEntity>(1, 1, false);
+            Page<RunRecordEntity> result = runRecordMapper.selectPage(page, query);
+            if (!result.getRecords().isEmpty()) {
+                latestByTaskId.put(taskId, result.getRecords().get(0));
             }
         }
         return latestByTaskId;
