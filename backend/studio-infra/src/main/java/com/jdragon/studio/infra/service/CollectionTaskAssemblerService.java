@@ -268,9 +268,44 @@ public class CollectionTaskAssemblerService {
             writerConfig.put("columns", resolveColumnEntries(model, targetFields, true));
             return writerConfig;
         }
+        if (isFileWriter(datasource.getTypeCode(), pluginType)) {
+            writerConfig.putAll(buildFileWriterConfig(datasource, model, targetFields));
+            return writerConfig;
+        }
         writerConfig.put("connect", buildConnectionConfig(datasource));
         writerConfig.put("table", model.getPhysicalLocator());
         writerConfig.put("columns", targetFields);
+        return writerConfig;
+    }
+
+    private Map<String, Object> buildFileWriterConfig(DataSourceDefinition datasource,
+                                                      DataModelDefinition model,
+                                                      List<String> targetFields) {
+        Map<String, Object> writerConfig = new LinkedHashMap<String, Object>();
+        writerConfig.put("connect", buildConnectionConfig(datasource));
+        Map<String, Object> metadata = model == null || model.getTechnicalMetadata() == null
+                ? Collections.<String, Object>emptyMap()
+                : model.getTechnicalMetadata();
+        Object rootPath = firstPresent(metadata, "rootPath");
+        putIfPresent(writerConfig, "rootPath", rootPath, "/");
+        Object fileName = firstPresent(metadata, "fileName");
+        if (isBlankValue(fileName) && model != null) {
+            fileName = model.getPhysicalLocator();
+        }
+        putIfPresent(writerConfig, "fileName", fileName, null);
+        String fileType = resolveFileType(metadata.get("fileType"));
+        putIfPresent(writerConfig, "fileType", fileType, "csv");
+        putIfPresent(writerConfig, "encoding", metadata.get("encoding"), "UTF-8");
+        putIfPresent(writerConfig, "delimiter", metadata.get("delimiter"), null);
+        Map<String, Object> efileOptions = resolveEFileOptions(metadata);
+        if (!efileOptions.isEmpty()) {
+            writerConfig.put("efile", efileOptions);
+        }
+        List<Map<String, Object>> columns = resolveFileWriterColumnEntries(model, targetFields);
+        if (hasTagFileField(columns) && !isEFileType(fileType)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "File model sourceKind=TAG is only supported for efile fileType");
+        }
+        writerConfig.put("columns", columns);
         return writerConfig;
     }
 
@@ -399,6 +434,10 @@ public class CollectionTaskAssemblerService {
                 || "minio".equalsIgnoreCase(pluginType);
     }
 
+    private boolean isFileWriter(String datasourceTypeCode, String pluginType) {
+        return isFileReader(datasourceTypeCode, pluginType);
+    }
+
     private String resolveQueueTopic(DataModelDefinition model, Map<String, Object> config) {
         Object topic = config.get("topic");
         if (topic != null && !String.valueOf(topic).trim().isEmpty()) {
@@ -443,6 +482,38 @@ public class CollectionTaskAssemblerService {
             result.add(item);
         }
         return result;
+    }
+
+    private List<Map<String, Object>> resolveFileWriterColumnEntries(DataModelDefinition model,
+                                                                     List<String> fields) {
+        List<String> selectedFields = fields == null || fields.isEmpty() ? resolveModelFields(model) : fields;
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        Map<String, Map<String, Object>> metadata = resolveModelFieldMetadata(model);
+        for (int i = 0; i < selectedFields.size(); i++) {
+            String fieldName = selectedFields.get(i);
+            Map<String, Object> fieldMetadata = metadata.get(fieldName);
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("name", fieldName);
+            item.put("index", Integer.valueOf(i));
+            item.put("type", resolveGenericColumnType(fieldMetadata));
+            if (isTagFileField(fieldMetadata)) {
+                item.put("sourceKind", FILE_FIELD_SOURCE_KIND_TAG);
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
+    private boolean hasTagFileField(List<Map<String, Object>> columns) {
+        if (columns == null) {
+            return false;
+        }
+        for (Map<String, Object> column : columns) {
+            if (isTagFileField(column)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Integer resolveFileColumnIndex(String fieldName,
@@ -521,6 +592,30 @@ public class CollectionTaskAssemblerService {
     private boolean isTagFileField(Map<?, ?> metadata) {
         Object sourceKind = metadata == null ? null : metadata.get("sourceKind");
         return sourceKind != null && FILE_FIELD_SOURCE_KIND_TAG.equalsIgnoreCase(String.valueOf(sourceKind).trim());
+    }
+
+    private Map<String, Object> resolveEFileOptions(Map<String, Object> metadata) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (metadata == null || metadata.isEmpty()) {
+            return result;
+        }
+        Object nested = metadata.get("efile");
+        if (nested instanceof Map<?, ?>) {
+            Map<?, ?> nestedMap = (Map<?, ?>) nested;
+            putIfPresent(result, "entity", nestedMap.get("entity"), null);
+            putIfPresent(result, "type", nestedMap.get("type"), null);
+            putIfPresent(result, "dataTime", nestedMap.get("dataTime"), null);
+            putIfPresent(result, "tableName", nestedMap.get("tableName"), null);
+            putIfPresent(result, "tableCode", nestedMap.get("tableCode"), null);
+            putIfPresent(result, "planDate", nestedMap.get("planDate"), null);
+        }
+        putIfPresent(result, "entity", firstPresent(metadata, "efile.entity"), result.get("entity"));
+        putIfPresent(result, "type", firstPresent(metadata, "efile.type"), result.get("type"));
+        putIfPresent(result, "dataTime", firstPresent(metadata, "efile.dataTime"), result.get("dataTime"));
+        putIfPresent(result, "tableName", firstPresent(metadata, "efile.tableName"), result.get("tableName"));
+        putIfPresent(result, "tableCode", firstPresent(metadata, "efile.tableCode"), result.get("tableCode"));
+        putIfPresent(result, "planDate", firstPresent(metadata, "efile.planDate"), result.get("planDate"));
+        return result;
     }
 
     private Map<String, Integer> resolveModelFieldOrder(DataModelDefinition model) {

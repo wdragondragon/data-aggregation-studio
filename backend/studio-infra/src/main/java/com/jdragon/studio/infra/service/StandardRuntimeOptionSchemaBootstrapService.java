@@ -51,6 +51,9 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("writer", "postgresql", "PostgreSQL Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "update", "copy"))));
         result.add(ensureRuntimeOptionSchema("writer", "influxdbv1", "InfluxDB v1 Writer 参数", Collections.singletonList(
                 field("batchSize", "批量写入大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 10, "500"))));
+        result.add(ensureRuntimeOptionSchema("writer", "ftp", "FTP Writer 参数", buildFileTableWriterFields()));
+        result.add(ensureRuntimeOptionSchema("writer", "sftp", "SFTP Writer 参数", buildFileTableWriterFields()));
+        result.add(ensureRuntimeOptionSchema("writer", "minio", "MinIO Writer 参数", buildFileTableWriterFields()));
         return result;
     }
 
@@ -118,6 +121,17 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         fields.add(field("pkColumn", "主键字段", FieldValueType.ARRAY, FieldComponentType.SELECT, false, false, 20, "[]"));
         fields.add(field("batchSize", "批量写入大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 30, "1024"));
         fields.add(field("emptyAsNull", "空字符串写入 NULL", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 40, "false"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildFileTableWriterFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("writeMode", "写入模式", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 10,
+                "overwrite", Arrays.asList("overwrite", "append", "failIfExists")));
+        fields.add(field("hasHeader", "CSV/Excel 写入表头", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 20, "true"));
+        fields.add(field("nullFormat", "CSV 空值标记", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, "\\N"));
+        fields.add(field("fieldQuote", "CSV 引号字符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, "\""));
+        fields.add(field("sheetName", "Excel Sheet 名称", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, "Sheet1"));
         return fields;
     }
 

@@ -43,6 +43,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     private final DataModelScopedIndexRefreshService dataModelScopedIndexRefreshService;
 
     private static final String META_MODEL_CONFIG_PREFIX = "META_MODEL_CONFIG:";
+    private static final List<String> FILE_TABLE_TYPE_OPTIONS = Arrays.asList("csv", "json", "jsonl", "efile", "excel");
 
     public MetadataSchemaService(MetaSchemaMapper schemaMapper,
                                  MetaSchemaVersionMapper versionMapper,
@@ -593,7 +594,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                 "glob", Arrays.asList("glob", "regex")));
         fields.add(field("partition", "分区匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 20, "*"));
         fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, startOrder + 30,
-                "csv", Arrays.asList("csv", "efile")));
+                "csv", FILE_TABLE_TYPE_OPTIONS));
         fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 40, "UTF-8"));
         fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, startOrder + 50, ","));
     }
@@ -616,13 +617,20 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         }
         if (isFileType(datasourceType)) {
             fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
-            fields.add(field("partitionType", "分区匹配类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 50,
+            fields.add(field("fileName", "文件名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            fields.add(field("partitionType", "分区匹配类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 60,
                     "glob", Arrays.asList("glob", "regex")));
-            fields.add(field("partition", "分区匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
-            fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 70,
-                    "csv", Arrays.asList("csv", "efile")));
-            fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, "UTF-8"));
-            fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, ","));
+            fields.add(field("partition", "分区匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 80,
+                    "csv", FILE_TABLE_TYPE_OPTIONS));
+            fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, "UTF-8"));
+            fields.add(field("delimiter", "分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, ","));
+            fields.add(field("efile.entity", "EFILE 实体标识", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 110, null));
+            fields.add(field("efile.type", "EFILE 类型标识", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 120, null));
+            fields.add(field("efile.dataTime", "EFILE 数据时间", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 130, null));
+            fields.add(field("efile.tableName", "EFILE 表名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 140, null));
+            fields.add(field("efile.tableCode", "EFILE 表编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 150, null));
+            fields.add(field("efile.planDate", "EFILE 计划日期", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 160, null));
             return fields;
         }
         if (isQueueType(datasourceType)) {

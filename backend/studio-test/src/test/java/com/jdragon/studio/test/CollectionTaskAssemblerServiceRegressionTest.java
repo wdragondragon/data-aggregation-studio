@@ -302,6 +302,77 @@ class CollectionTaskAssemblerServiceRegressionTest {
         assertThrows(StudioException.class, () -> assemblerService.assemble(buildFileDefinition(32L, "id", "planDate")));
     }
 
+    @Test
+    void fileWriterConfigShouldUseTargetModelOptionsAndDynamicWriterOptions() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.SINGLE_TABLE);
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setDatasourceId(1L);
+        sourceBinding.setModelId(10L);
+        sourceBinding.setSourceAlias("src1");
+        definition.setSourceBindings(Collections.singletonList(sourceBinding));
+
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(3L);
+        targetBinding.setModelId(33L);
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("writeMode", "overwrite");
+        writerOptions.put("hasHeader", Boolean.FALSE);
+        writerOptions.put("rootPath", "/runtime-ignored");
+        targetBinding.setWriterOptions(writerOptions);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition idMapping = new FieldMappingDefinition();
+        idMapping.setSourceAlias("src1");
+        idMapping.setSourceField("id");
+        idMapping.setTargetField("id");
+        FieldMappingDefinition tagMapping = new FieldMappingDefinition();
+        tagMapping.setSourceAlias("src1");
+        tagMapping.setSourceField("planDate");
+        tagMapping.setTargetField("planDate");
+        definition.setFieldMappings(Arrays.asList(idMapping, tagMapping));
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        assertEquals("minio", writer.get("type"));
+        assertEquals("/target-root", writerConfig.get("rootPath"));
+        assertEquals("result.efile", writerConfig.get("fileName"));
+        assertEquals("efile", writerConfig.get("fileType"));
+        assertEquals("UTF-8", writerConfig.get("encoding"));
+        assertEquals("|", writerConfig.get("delimiter"));
+        assertEquals("overwrite", writerConfig.get("writeMode"));
+        assertEquals(Boolean.FALSE, writerConfig.get("hasHeader"));
+        assertFalse(writerConfig.containsKey("table"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> efile = (Map<String, Object>) writerConfig.get("efile");
+        assertEquals("demo", efile.get("entity"));
+        assertEquals("test", efile.get("type"));
+        assertEquals("$getCurrentTime(yyyyMMdd_HH:mm:ss)", efile.get("dataTime"));
+        assertEquals("T01", efile.get("tableName"));
+        assertEquals("Demo", efile.get("tableCode"));
+        assertEquals("$getCurrentTime(yyyyMMdd)", efile.get("planDate"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> columns = (List<Map<String, Object>>) writerConfig.get("columns");
+        assertEquals("id", columns.get(0).get("name"));
+        assertEquals(Integer.valueOf(0), columns.get(0).get("index"));
+        assertEquals("LONG", columns.get(0).get("type"));
+        assertEquals("planDate", columns.get(1).get("name"));
+        assertEquals(Integer.valueOf(1), columns.get(1).get("index"));
+        assertEquals("TAG", columns.get(1).get("sourceKind"));
+    }
+
     private DataSourceService mockDataSourceService() {
         DataSourceService service = mock(DataSourceService.class);
         DataSourceDefinition datasource = new DataSourceDefinition();
@@ -329,13 +400,14 @@ class CollectionTaskAssemblerServiceRegressionTest {
         when(service.resolvePluginType("mysql8", "reader")).thenReturn("mysql8");
         when(service.resolvePluginType("mysql8", "writer")).thenReturn("mysql8");
         when(service.resolvePluginType("minio", "reader")).thenReturn("minio");
+        when(service.resolvePluginType("minio", "writer")).thenReturn("minio");
         when(service.sourceCategory("mysql8")).thenReturn("DATABASE");
         when(service.sourceCategory("minio")).thenReturn("FILE_SYSTEM");
         when(service.reservedKeys("reader")).thenReturn(Arrays.asList("connect", "config", "table", "topic",
                 "measurement", "columns", "sourceAlias", "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
                 "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter"));
         when(service.reservedKeys("writer")).thenReturn(Arrays.asList("connect", "table", "topic", "measurement",
-                "columns", "sourceAlias"));
+                "columns", "sourceAlias", "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile"));
         return service;
     }
 
@@ -347,12 +419,14 @@ class CollectionTaskAssemblerServiceRegressionTest {
         DataModelDefinition fileModel = buildFileModel();
         DataModelDefinition efileModel = buildEFileModel("efile");
         DataModelDefinition invalidTagFileModel = buildEFileModel("csv");
+        DataModelDefinition fileWriterModel = buildFileWriterModel();
         when(service.get(10L)).thenReturn(sourceModel);
         when(service.get(11L)).thenReturn(sourceModel2);
         when(service.get(20L)).thenReturn(targetModel);
         when(service.get(30L)).thenReturn(fileModel);
         when(service.get(31L)).thenReturn(efileModel);
         when(service.get(32L)).thenReturn(invalidTagFileModel);
+        when(service.get(33L)).thenReturn(fileWriterModel);
         return service;
     }
 
@@ -422,6 +496,34 @@ class CollectionTaskAssemblerServiceRegressionTest {
         Map<String, Object> dataTime = column("dataTime");
         dataTime.put("sourceKind", "TAG");
         columns.add(dataTime);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    private DataModelDefinition buildFileWriterModel() {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(33L);
+        model.setPhysicalLocator("result.efile");
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("rootPath", "/target-root");
+        technicalMetadata.put("fileName", "result.efile");
+        technicalMetadata.put("fileType", "efile");
+        technicalMetadata.put("encoding", "UTF-8");
+        technicalMetadata.put("delimiter", "|");
+        technicalMetadata.put("efile.entity", "demo");
+        technicalMetadata.put("efile.type", "test");
+        technicalMetadata.put("efile.dataTime", "$getCurrentTime(yyyyMMdd_HH:mm:ss)");
+        technicalMetadata.put("efile.tableName", "T01");
+        technicalMetadata.put("efile.tableCode", "Demo");
+        technicalMetadata.put("efile.planDate", "$getCurrentTime(yyyyMMdd)");
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> id = column("id");
+        id.put("type", "LONG");
+        columns.add(id);
+        Map<String, Object> planDate = column("planDate");
+        planDate.put("sourceKind", "TAG");
+        columns.add(planDate);
         technicalMetadata.put("columns", columns);
         model.setTechnicalMetadata(technicalMetadata);
         return model;

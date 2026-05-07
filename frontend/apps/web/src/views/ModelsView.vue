@@ -881,7 +881,7 @@ const syncTaskForm = reactive<SyncTaskFormState>({
   datasourceType: "",
   selectedLocators: [],
 });
-const fileModelDynamicFunctionFields = ["rootPath", "partition"];
+const fileModelDynamicFunctionFields = ["rootPath", "partition", "fileName", "efile.dataTime", "efile.planDate"];
 
 const detailModelId = computed(() => {
   const value = route.params.modelId;

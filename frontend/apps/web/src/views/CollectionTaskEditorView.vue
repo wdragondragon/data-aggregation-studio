@@ -227,6 +227,7 @@
             v-if="writerAdvancedFields.length"
             :fields="writerAdvancedFields"
             :model-value="form.targetBinding.writerOptions ?? {}"
+            :dynamic-function-fields="writerDynamicFunctionFields()"
             @update:model-value="form.targetBinding.writerOptions = $event"
           />
           <el-alert
@@ -405,6 +406,8 @@ type RuntimeOptionRole = "reader" | "writer";
 
 const fileReaderDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
 const fileReaderDynamicFunctionFields = ["rootPath", "partition"];
+const fileWriterDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
+const fileWriterDynamicFunctionFields = ["rootPath", "fileName", "efile.dataTime", "efile.planDate"];
 
 const { t } = useI18n();
 const route = useRoute();
@@ -862,6 +865,12 @@ function readerAdvancedFields(source: CollectionTaskSourceBinding): MetadataFiel
 function readerDynamicFunctionFields(source: CollectionTaskSourceBinding) {
   return fileReaderDatasourceTypes.has(resolveDatasourceTypeCode(source.datasourceId))
     ? fileReaderDynamicFunctionFields
+    : [];
+}
+
+function writerDynamicFunctionFields() {
+  return fileWriterDatasourceTypes.has(resolveDatasourceTypeCode(form.targetBinding.datasourceId))
+    ? fileWriterDynamicFunctionFields
     : [];
 }
 

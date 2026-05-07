@@ -45,6 +45,10 @@ public class CollectionTaskService {
     private static final String[] FILE_MODEL_READER_OPTION_KEYS = new String[]{
             "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter", "dataTag"
     };
+    private static final String[] FILE_MODEL_WRITER_OPTION_KEYS = new String[]{
+            "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile",
+            "efile.entity", "efile.type", "efile.dataTime", "efile.tableName", "efile.tableCode", "efile.planDate"
+    };
 
     private final CollectionTaskDefinitionMapper definitionMapper;
     private final CollectionTaskScheduleMapper scheduleMapper;
@@ -721,7 +725,7 @@ public class CollectionTaskService {
         enriched.setModelId(model.getId());
         enriched.setModelName(model.getName());
         enriched.setModelPhysicalLocator(model.getPhysicalLocator());
-        enriched.setWriterOptions(copyOptionMap(binding.getWriterOptions()));
+        enriched.setWriterOptions(sanitizeFileWriterOptions(datasource.getTypeCode(), binding.getWriterOptions()));
         migrateLegacyWriteMode(enriched, executionOptions);
         return enriched;
     }
@@ -762,6 +766,17 @@ public class CollectionTaskService {
             return result;
         }
         for (String key : FILE_MODEL_READER_OPTION_KEYS) {
+            result.remove(key);
+        }
+        return result;
+    }
+
+    private Map<String, Object> sanitizeFileWriterOptions(String datasourceTypeCode, Map<String, Object> options) {
+        Map<String, Object> result = copyOptionMap(options);
+        if (!isFileDatasourceType(datasourceTypeCode)) {
+            return result;
+        }
+        for (String key : FILE_MODEL_WRITER_OPTION_KEYS) {
             result.remove(key);
         }
         return result;

@@ -84,7 +84,8 @@ public class PluginRuntimeOptionSchemaService {
 
     public List<String> reservedKeys(String role) {
         if (ROLE_WRITER.equals(normalizeRole(role))) {
-            return Arrays.asList("connect", "table", "topic", "measurement", "columns", "sourceAlias");
+            return Arrays.asList("connect", "table", "topic", "measurement", "columns", "sourceAlias",
+                    "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile");
         }
         return Arrays.asList("connect", "config", "table", "topic", "measurement", "columns", "sourceAlias",
                 "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",

@@ -55,6 +55,7 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.executableSourceTypes", hasItem("mysql8")))
                 .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("minio")))
                 .andExpect(jsonPath("$.data.executableDatasourceTypes", hasItem("mysql8")))
                 .andExpect(jsonPath("$.data.sourceCapabilities", hasSize(org.hamcrest.Matchers.greaterThan(0))))
                 .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("mysql8")));
@@ -187,6 +188,21 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .containsExactly("hasHeader", "nullFormat", "fieldQuote", "dataType")
                 .doesNotContain("rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter");
 
+        MvcResult minioWriterResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "writer")
+                        .param("datasourceType", "minio")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("minio"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andReturn();
+        JsonNode minioWriterSchema = readBody(minioWriterResult).path("data");
+        assertThat(extractFieldKeys(minioWriterSchema))
+                .containsExactly("writeMode", "hasHeader", "nullFormat", "fieldQuote", "sheetName")
+                .doesNotContain("rootPath", "fileName", "fileType", "encoding", "delimiter", "efile");
+
         MvcResult fusionReaderResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
                         .param("role", "reader")
                         .param("datasourceType", "fusion")
@@ -209,10 +225,13 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(13)))
+                .andExpect(jsonPath("$.data", hasSize(16)))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:sftp")))
-                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")));
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:ftp")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:sftp")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:minio")));
     }
 
     @Test
