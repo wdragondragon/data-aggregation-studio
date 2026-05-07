@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import com.jdragon.studio.dto.model.TransformerBinding;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
@@ -26,6 +27,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -184,7 +186,7 @@ class CollectionTaskAssemblerServiceRegressionTest {
     }
 
     @Test
-    void fileReaderConfigShouldUseRuntimePathOptionsAndModelColumnIndexesWithoutIncremental() {
+    void fileReaderConfigShouldUseModelPathOptionsAndModelColumnIndexesWithoutIncremental() {
         CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
                 mockDataSourceService(),
                 mockDataModelService(),
@@ -199,9 +201,13 @@ class CollectionTaskAssemblerServiceRegressionTest {
         sourceBinding.setModelId(30L);
         sourceBinding.setSourceAlias("src1");
         Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
-        readerOptions.put("rootPath", "/runtime/{dyn_timestamp}");
+        readerOptions.put("rootPath", "/runtime/$getCurrentTime(yyyyMMdd,0)");
         readerOptions.put("partitionType", "regex");
         readerOptions.put("partition", "dt=.*/.*\\.csv");
+        readerOptions.put("fileType", "efile");
+        readerOptions.put("encoding", "GBK");
+        readerOptions.put("delimiter", "|");
+        readerOptions.put("hasHeader", Boolean.FALSE);
         sourceBinding.setReaderOptions(readerOptions);
         CollectionIncrementalDefinition incremental = new CollectionIncrementalDefinition();
         incremental.setEnabled(Boolean.TRUE);
@@ -235,9 +241,13 @@ class CollectionTaskAssemblerServiceRegressionTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
         assertEquals("minio", reader.get("type"));
-        assertEquals("/runtime/{dyn_timestamp}", readerConfig.get("rootPath"));
-        assertEquals("regex", readerConfig.get("partitionType"));
-        assertEquals("dt=.*/.*\\.csv", readerConfig.get("partition"));
+        assertEquals("/model-root", readerConfig.get("rootPath"));
+        assertEquals("glob", readerConfig.get("partitionType"));
+        assertEquals("*.csv", readerConfig.get("partition"));
+        assertEquals("csv", readerConfig.get("fileType"));
+        assertEquals("UTF-8", readerConfig.get("encoding"));
+        assertEquals(",", readerConfig.get("delimiter"));
+        assertEquals(Boolean.FALSE, readerConfig.get("hasHeader"));
         assertFalse(readerConfig.containsKey("table"));
         assertFalse(readerConfig.containsKey("incrColumn"));
         assertFalse(readerConfig.containsKey("pkValue"));
@@ -249,6 +259,47 @@ class CollectionTaskAssemblerServiceRegressionTest {
         List<Map<String, Object>> columns = (List<Map<String, Object>>) readerConfig.get("columns");
         assertEquals(Integer.valueOf(2), columns.get(0).get("index"));
         assertEquals(Integer.valueOf(1), columns.get(1).get("index"));
+    }
+
+    @Test
+    void efileReaderConfigShouldGenerateDataTagsFromSourceModelFields() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildFileDefinition(31L, "id", "planDate");
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("dataTag", Collections.singletonList("ignored"));
+        definition.getSourceBindings().get(0).setReaderOptions(readerOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        assertEquals("efile", readerConfig.get("fileType"));
+        assertIterableEquals(Arrays.asList("planDate", "dataTime"), castList(readerConfig.get("dataTag")));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> columns = (List<Map<String, Object>>) readerConfig.get("columns");
+        assertEquals("id", columns.get(0).get("name"));
+        assertEquals(Integer.valueOf(0), columns.get(0).get("index"));
+        assertEquals("planDate", columns.get(1).get("name"));
+        assertEquals(Integer.valueOf(2), columns.get(1).get("index"));
+    }
+
+    @Test
+    void nonEfileFileReaderShouldRejectTagSourceFields() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        assertThrows(StudioException.class, () -> assemblerService.assemble(buildFileDefinition(32L, "id", "planDate")));
     }
 
     private DataSourceService mockDataSourceService() {
@@ -281,7 +332,8 @@ class CollectionTaskAssemblerServiceRegressionTest {
         when(service.sourceCategory("mysql8")).thenReturn("DATABASE");
         when(service.sourceCategory("minio")).thenReturn("FILE_SYSTEM");
         when(service.reservedKeys("reader")).thenReturn(Arrays.asList("connect", "config", "table", "topic",
-                "measurement", "columns", "sourceAlias", "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue"));
+                "measurement", "columns", "sourceAlias", "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
+                "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter"));
         when(service.reservedKeys("writer")).thenReturn(Arrays.asList("connect", "table", "topic", "measurement",
                 "columns", "sourceAlias"));
         return service;
@@ -293,10 +345,14 @@ class CollectionTaskAssemblerServiceRegressionTest {
         DataModelDefinition sourceModel2 = buildModel(11L, "source_table_2");
         DataModelDefinition targetModel = buildModel(20L, "target_table");
         DataModelDefinition fileModel = buildFileModel();
+        DataModelDefinition efileModel = buildEFileModel("efile");
+        DataModelDefinition invalidTagFileModel = buildEFileModel("csv");
         when(service.get(10L)).thenReturn(sourceModel);
         when(service.get(11L)).thenReturn(sourceModel2);
         when(service.get(20L)).thenReturn(targetModel);
         when(service.get(30L)).thenReturn(fileModel);
+        when(service.get(31L)).thenReturn(efileModel);
+        when(service.get(32L)).thenReturn(invalidTagFileModel);
         return service;
     }
 
@@ -328,6 +384,7 @@ class CollectionTaskAssemblerServiceRegressionTest {
         technicalMetadata.put("partition", "*.csv");
         technicalMetadata.put("fileType", "csv");
         technicalMetadata.put("encoding", "UTF-8");
+        technicalMetadata.put("delimiter", ",");
         List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
         Map<String, Object> id = column("id");
         id.put("index", Integer.valueOf(2));
@@ -339,6 +396,62 @@ class CollectionTaskAssemblerServiceRegressionTest {
         technicalMetadata.put("columns", columns);
         model.setTechnicalMetadata(technicalMetadata);
         return model;
+    }
+
+    private DataModelDefinition buildEFileModel(String fileType) {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId("efile".equals(fileType) ? 31L : 32L);
+        model.setPhysicalLocator("/efile-root");
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("rootPath", "/efile-root");
+        technicalMetadata.put("partitionType", "glob");
+        technicalMetadata.put("partition", "*.efile");
+        technicalMetadata.put("fileType", fileType);
+        technicalMetadata.put("encoding", "UTF-8");
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> id = column("id");
+        id.put("index", Integer.valueOf(0));
+        id.put("type", "LONG");
+        columns.add(id);
+        Map<String, Object> name = column("name");
+        name.put("index", Integer.valueOf(1));
+        columns.add(name);
+        Map<String, Object> planDate = column("planDate");
+        planDate.put("sourceKind", "TAG");
+        columns.add(planDate);
+        Map<String, Object> dataTime = column("dataTime");
+        dataTime.put("sourceKind", "TAG");
+        columns.add(dataTime);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    private CollectionTaskDefinitionView buildFileDefinition(Long modelId, String firstSourceField, String secondSourceField) {
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.SINGLE_TABLE);
+
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setDatasourceId(3L);
+        sourceBinding.setModelId(modelId);
+        sourceBinding.setSourceAlias("src1");
+        definition.setSourceBindings(Collections.singletonList(sourceBinding));
+
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(2L);
+        targetBinding.setModelId(20L);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition firstMapping = new FieldMappingDefinition();
+        firstMapping.setSourceAlias("src1");
+        firstMapping.setSourceField(firstSourceField);
+        firstMapping.setTargetField("target_col");
+        FieldMappingDefinition secondMapping = new FieldMappingDefinition();
+        secondMapping.setSourceAlias("src1");
+        secondMapping.setSourceField(secondSourceField);
+        secondMapping.setTargetField("tag_value");
+        definition.setFieldMappings(Arrays.asList(firstMapping, secondMapping));
+        return definition;
     }
 
     private CollectionTaskDefinitionView buildDefinition(TransformerBinding transformer) {

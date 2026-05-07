@@ -26,6 +26,7 @@ import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.aggregation.pluginloader.spi.AbstractPlugin;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -73,8 +74,21 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                                                BusinessMetaModelMetadataService businessMetaModelMetadataService) {
         this.encryptionService = encryptionService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
-        System.setProperty("aggregation.home", properties.getAggregationHome());
-        SystemConstants.HOME = properties.getAggregationHome();
+        configureAggregationHome(properties.getAggregationHome());
+    }
+
+    private void configureAggregationHome(String aggregationHome) {
+        if (aggregationHome == null || aggregationHome.trim().isEmpty()) {
+            aggregationHome = System.getProperty("aggregation.home");
+        }
+        if (aggregationHome == null || aggregationHome.trim().isEmpty()) {
+            return;
+        }
+        String normalizedHome = new File(aggregationHome.trim()).getAbsolutePath();
+        System.setProperty("aggregation.home", normalizedHome);
+        SystemConstants.HOME = normalizedHome;
+        SystemConstants.PLUGIN_HOME = new File(normalizedHome, "plugin").getPath();
+        SystemConstants.CORE_CONFIG = new File(new File(normalizedHome, "conf"), "core.json").getPath();
     }
 
     @Override

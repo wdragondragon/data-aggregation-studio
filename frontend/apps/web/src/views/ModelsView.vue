@@ -705,6 +705,7 @@
             v-else
             :fields="section.fields"
             :model-value="sectionModelValue(section, true)"
+            :dynamic-function-fields="fileModelDynamicFunctionFields"
             @update:model-value="updateSectionModelValue(section, $event)"
           />
         </SectionCard>
@@ -880,6 +881,7 @@ const syncTaskForm = reactive<SyncTaskFormState>({
   datasourceType: "",
   selectedLocators: [],
 });
+const fileModelDynamicFunctionFields = ["rootPath", "partition"];
 
 const detailModelId = computed(() => {
   const value = route.params.modelId;
@@ -1389,13 +1391,55 @@ function mergeMetadataDefaults(current: Record<string, unknown> | undefined, fie
   };
 }
 
-function parseFieldRows(value: unknown) {
+function parseFieldRows(value: unknown, fields: MetadataFieldDefinition[] = []) {
   if (!Array.isArray(value)) {
     return [] as Record<string, unknown>[];
   }
+  const defaults = buildDefaultMetadata(fields);
   return value
     .filter((item) => item && typeof item === "object" && !Array.isArray(item))
-    .map((item) => ({ ...(item as Record<string, unknown>) }));
+    .map((item) => normalizeFieldRow({ ...defaults, ...(item as Record<string, unknown>) }, fields));
+}
+
+function normalizeFieldRow(row: Record<string, unknown>, fields: MetadataFieldDefinition[]) {
+  if (fields.length === 0) {
+    return row;
+  }
+  const normalized = { ...row };
+  for (const field of fields) {
+    if (!field.fieldKey || normalized[field.fieldKey] === undefined || normalized[field.fieldKey] === null) {
+      continue;
+    }
+    normalized[field.fieldKey] = normalizeMetadataValue(normalized[field.fieldKey], field);
+  }
+  return normalized;
+}
+
+function normalizeMetadataValue(value: unknown, field: MetadataFieldDefinition) {
+  if (field.valueType === "BOOLEAN") {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    return String(value).trim().toLowerCase() === "true";
+  }
+  if (field.valueType === "INTEGER" || field.valueType === "LONG" || field.valueType === "DECIMAL") {
+    if (typeof value === "number") {
+      return value;
+    }
+    if (typeof value === "string" && value.trim() === "") {
+      return undefined;
+    }
+    const numberValue = Number(value);
+    return Number.isNaN(numberValue) ? value : numberValue;
+  }
+  if ((field.valueType === "JSON" || field.valueType === "OBJECT" || field.valueType === "ARRAY") && typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return value;
+    }
+  }
+  return value;
 }
 
 function sectionValue(section: ModelMetaSection, fieldKey?: string, editor = false) {
@@ -1421,14 +1465,14 @@ function previewSectionRows(section: ModelMetaSection) {
   if (section.binding === "BUSINESS") {
     return getBusinessMetaModelRows(selectedModel.value?.businessMetadata, section.schema);
   }
-  return parseFieldRows(sectionValue(section, section.collectionKey, false));
+  return parseFieldRows(sectionValue(section, section.collectionKey, false), section.fields);
 }
 
 function editorSectionRows(section: ModelMetaSection) {
   if (section.binding === "BUSINESS") {
     return getBusinessMetaModelRows(modelForm.businessMetadata, section.schema);
   }
-  return parseFieldRows(sectionValue(section, section.collectionKey, true));
+  return parseFieldRows(sectionValue(section, section.collectionKey, true), section.fields);
 }
 
 function updateSectionModelValue(section: ModelMetaSection, value: Record<string, unknown>) {

@@ -162,6 +162,7 @@
             v-if="readerAdvancedFields(source).length"
             :fields="readerAdvancedFields(source)"
             :model-value="source.readerOptions ?? {}"
+            :dynamic-function-fields="readerDynamicFunctionFields(source)"
             @update:model-value="source.readerOptions = $event"
           />
           <el-alert
@@ -401,6 +402,9 @@ interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "sche
 }
 
 type RuntimeOptionRole = "reader" | "writer";
+
+const fileReaderDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
+const fileReaderDynamicFunctionFields = ["rootPath", "partition"];
 
 const { t } = useI18n();
 const route = useRoute();
@@ -853,6 +857,12 @@ function sourceIncrementalVisible(source: CollectionTaskSourceBinding) {
 
 function readerAdvancedFields(source: CollectionTaskSourceBinding): MetadataFieldDefinition[] {
   return runtimeSchemaFor("reader", source.datasourceId)?.fields ?? [];
+}
+
+function readerDynamicFunctionFields(source: CollectionTaskSourceBinding) {
+  return fileReaderDatasourceTypes.has(resolveDatasourceTypeCode(source.datasourceId))
+    ? fileReaderDynamicFunctionFields
+    : [];
 }
 
 function updateFusionReaderOptions(value: Record<string, unknown>) {

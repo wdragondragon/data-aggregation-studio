@@ -640,15 +640,26 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     private List<MetadataFieldDefinition> buildFieldFields(String datasourceType) {
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
         fields.add(field("name", "字段名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
-        fields.add(field("type", "字段类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
         if (isFileType(datasourceType)) {
+            fields.add(field("type", "字段类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 20,
+                    "STRING", Arrays.asList("STRING", "TEXT", "LONG", "INT", "INTEGER", "NUMBER", "DOUBLE", "FLOAT", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP")));
             fields.add(field("index", "字段下标", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 25, null));
+            fields.add(field("sourceKind", "字段来源", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 26,
+                    "DATA", Arrays.asList("DATA", "TAG")));
+        } else {
+            fields.add(field("type", "字段类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
         }
         fields.add(field("size", "长度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 30, null));
         fields.add(field("scale", "精度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 40, null));
-        fields.add(field("nullable", "是否可空", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
-        fields.add(field("primaryKey", "是否主键", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
-        fields.add(field("autoIncrement", "是否自增", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+        if (isFileType(datasourceType)) {
+            fields.add(field("nullable", "是否可空", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 50, "true"));
+            fields.add(field("primaryKey", "是否主键", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "false"));
+            fields.add(field("autoIncrement", "是否自增", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 70, "false"));
+        } else {
+            fields.add(field("nullable", "是否可空", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            fields.add(field("primaryKey", "是否主键", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            fields.add(field("autoIncrement", "是否自增", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+        }
         fields.add(field("remarks", "备注", FieldValueType.STRING, FieldComponentType.TEXTAREA, false, false, 80, null));
         fields.add(field("defaultValue", "默认值", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
         if (!isDatabaseType(datasourceType)) {

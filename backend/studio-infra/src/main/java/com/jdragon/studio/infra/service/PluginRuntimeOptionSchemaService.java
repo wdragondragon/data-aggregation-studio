@@ -87,7 +87,8 @@ public class PluginRuntimeOptionSchemaService {
             return Arrays.asList("connect", "table", "topic", "measurement", "columns", "sourceAlias");
         }
         return Arrays.asList("connect", "config", "table", "topic", "measurement", "columns", "sourceAlias",
-                "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue");
+                "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
+                "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter");
     }
 
     public boolean runtimeSupported(String role, DatasourceTypeCapabilityView capability, String pluginType) {

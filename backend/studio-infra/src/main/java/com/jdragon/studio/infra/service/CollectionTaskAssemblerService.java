@@ -29,6 +29,7 @@ public class CollectionTaskAssemblerService {
 
     private static final ObjectMapper RUNTIME_OPTION_OBJECT_MAPPER = new ObjectMapper();
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
+    private static final String FILE_FIELD_SOURCE_KIND_TAG = "TAG";
 
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
@@ -226,10 +227,18 @@ public class CollectionTaskAssemblerService {
         putIfPresent(readerConfig, "rootPath", rootPath, "/");
         putIfPresent(readerConfig, "partitionType", metadata.get("partitionType"), "glob");
         putIfPresent(readerConfig, "partition", firstPresent(metadata, "partition", "pattern"), "*");
-        putIfPresent(readerConfig, "fileType", metadata.get("fileType"), "csv");
+        String fileType = resolveFileType(metadata.get("fileType"));
+        putIfPresent(readerConfig, "fileType", fileType, "csv");
         putIfPresent(readerConfig, "encoding", metadata.get("encoding"), "UTF-8");
         putIfPresent(readerConfig, "delimiter", metadata.get("delimiter"), null);
-        readerConfig.put("columns", resolveFileColumnEntries(model, sourceFields));
+        List<String> dataTags = resolveFileDataTags(model);
+        if (!dataTags.isEmpty()) {
+            if (!isEFileType(fileType)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "File model sourceKind=TAG is only supported for efile fileType");
+            }
+            readerConfig.put("dataTag", dataTags);
+        }
+        readerConfig.put("columns", resolveFileColumnEntries(model, sourceFields, dataTags));
         return readerConfig;
     }
 
@@ -415,17 +424,21 @@ public class CollectionTaskAssemblerService {
         return result;
     }
 
-    private List<Map<String, Object>> resolveFileColumnEntries(DataModelDefinition model, List<String> fields) {
+    private List<Map<String, Object>> resolveFileColumnEntries(DataModelDefinition model,
+                                                               List<String> fields,
+                                                               List<String> dataTags) {
         List<String> selectedFields = fields == null || fields.isEmpty() ? resolveModelFields(model) : fields;
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         Map<String, Map<String, Object>> metadata = resolveModelFieldMetadata(model);
         Map<String, Integer> fieldOrder = resolveModelFieldOrder(model);
+        Map<String, Integer> tagOrder = resolveTagFieldOrder(dataTags);
+        int dataColumnCount = resolveDataColumnCount(model);
         for (int i = 0; i < selectedFields.size(); i++) {
             String fieldName = selectedFields.get(i);
             Map<String, Object> fieldMetadata = metadata.get(fieldName);
             Map<String, Object> item = new LinkedHashMap<String, Object>();
             item.put("name", fieldName);
-            item.put("index", resolveFileColumnIndex(fieldName, fieldMetadata, fieldOrder, Integer.valueOf(i)));
+            item.put("index", resolveFileColumnIndex(fieldName, fieldMetadata, fieldOrder, tagOrder, dataColumnCount, Integer.valueOf(i)));
             item.put("type", resolveGenericColumnType(fieldMetadata));
             result.add(item);
         }
@@ -435,7 +448,13 @@ public class CollectionTaskAssemblerService {
     private Integer resolveFileColumnIndex(String fieldName,
                                            Map<String, Object> metadata,
                                            Map<String, Integer> fieldOrder,
+                                           Map<String, Integer> tagOrder,
+                                           int dataColumnCount,
                                            Integer fallback) {
+        Integer tagIndex = tagOrder.get(fieldName);
+        if (tagIndex != null) {
+            return Integer.valueOf(dataColumnCount + tagIndex.intValue());
+        }
         if (metadata != null) {
             Object index = metadata.get("index");
             if (index instanceof Number) {
@@ -451,6 +470,57 @@ public class CollectionTaskAssemblerService {
         }
         Integer modelOrder = fieldOrder.get(fieldName);
         return modelOrder == null ? fallback : modelOrder;
+    }
+
+    private List<String> resolveFileDataTags(DataModelDefinition model) {
+        List<String> result = new ArrayList<String>();
+        for (Map<String, Object> metadata : resolveModelFieldMetadata(model).values()) {
+            Object name = metadata.get("name");
+            if (name != null && isTagFileField(metadata)) {
+                result.add(String.valueOf(name));
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Integer> resolveTagFieldOrder(List<String> dataTags) {
+        Map<String, Integer> result = new LinkedHashMap<String, Integer>();
+        if (dataTags == null) {
+            return result;
+        }
+        for (int i = 0; i < dataTags.size(); i++) {
+            String tag = dataTags.get(i);
+            if (tag != null && !tag.trim().isEmpty()) {
+                result.put(tag, Integer.valueOf(i));
+            }
+        }
+        return result;
+    }
+
+    private int resolveDataColumnCount(DataModelDefinition model) {
+        if (model == null || model.getTechnicalMetadata() == null) {
+            return 0;
+        }
+        Object columns = model.getTechnicalMetadata().get("columns");
+        int count = 0;
+        if (columns instanceof List<?>) {
+            for (Object item : (List<?>) columns) {
+                if (!(item instanceof Map<?, ?>)) {
+                    continue;
+                }
+                Map<?, ?> source = (Map<?, ?>) item;
+                Object name = source.get("name");
+                if (name != null && !String.valueOf(name).trim().isEmpty() && !isTagFileField(source)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private boolean isTagFileField(Map<?, ?> metadata) {
+        Object sourceKind = metadata == null ? null : metadata.get("sourceKind");
+        return sourceKind != null && FILE_FIELD_SOURCE_KIND_TAG.equalsIgnoreCase(String.valueOf(sourceKind).trim());
     }
 
     private Map<String, Integer> resolveModelFieldOrder(DataModelDefinition model) {
@@ -733,6 +803,14 @@ public class CollectionTaskAssemblerService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String resolveFileType(Object value) {
+        return isBlankValue(value) ? "csv" : String.valueOf(value).trim().toLowerCase(Locale.ENGLISH);
+    }
+
+    private boolean isEFileType(String fileType) {
+        return "efile".equalsIgnoreCase(fileType);
     }
 
     private DataSourceDefinition requiredDatasource(Long datasourceId) {

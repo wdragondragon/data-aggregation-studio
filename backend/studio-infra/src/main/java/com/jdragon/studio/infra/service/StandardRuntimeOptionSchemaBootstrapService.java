@@ -105,19 +105,10 @@ public class StandardRuntimeOptionSchemaBootstrapService {
 
     private List<MetadataFieldDefinition> buildFileTableReaderFields() {
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
-        fields.add(field("rootPath", "根路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, "/"));
-        fields.add(field("partitionType", "分区匹配类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 20,
-                "glob", Arrays.asList("glob", "regex")));
-        fields.add(field("partition", "分区匹配规则", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, "*"));
-        fields.add(field("fileType", "文件类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 40,
-                "csv", Arrays.asList("csv", "efile")));
-        fields.add(field("encoding", "编码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, "UTF-8"));
-        fields.add(field("hasHeader", "CSV 跳过表头", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "true"));
-        fields.add(field("delimiter", "CSV 分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, ","));
-        fields.add(field("nullFormat", "CSV 空值标记", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, "\\N"));
-        fields.add(field("fieldQuote", "CSV 引号字符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, "\""));
-        fields.add(field("dataType", "EFILE 数据类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, null));
-        fields.add(field("dataTag", "EFILE 数据标签", FieldValueType.ARRAY, FieldComponentType.JSON_EDITOR, false, false, 110, "[]"));
+        fields.add(field("hasHeader", "CSV 跳过表头", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 10, "true"));
+        fields.add(field("nullFormat", "CSV 空值标记", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, "\\N"));
+        fields.add(field("fieldQuote", "CSV 引号字符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, "\""));
+        fields.add(field("dataType", "EFILE 数据类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
         return fields;
     }
 

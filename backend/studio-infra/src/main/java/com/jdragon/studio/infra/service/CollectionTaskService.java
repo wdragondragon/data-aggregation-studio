@@ -42,6 +42,9 @@ import java.util.Locale;
 public class CollectionTaskService {
 
     private static final DateTimeFormatter JSON_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String[] FILE_MODEL_READER_OPTION_KEYS = new String[]{
+            "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter", "dataTag"
+    };
 
     private final CollectionTaskDefinitionMapper definitionMapper;
     private final CollectionTaskScheduleMapper scheduleMapper;
@@ -451,7 +454,7 @@ public class CollectionTaskService {
             enriched.setModelId(model.getId());
             enriched.setModelName(model.getName());
             enriched.setModelPhysicalLocator(model.getPhysicalLocator());
-            enriched.setReaderOptions(copyOptionMap(binding.getReaderOptions()));
+            enriched.setReaderOptions(sanitizeFileReaderOptions(datasource.getTypeCode(), binding.getReaderOptions()));
             enriched.setIncremental(binding.getIncremental());
             result.add(enriched);
         }
@@ -502,7 +505,11 @@ public class CollectionTaskService {
             return;
         }
         for (CollectionTaskSourceBinding sourceBinding : sourceBindings) {
-            if (sourceBinding == null || sourceBinding.getIncremental() == null) {
+            if (sourceBinding == null) {
+                continue;
+            }
+            sourceBinding.setReaderOptions(sanitizeFileReaderOptions(sourceBinding.getDatasourceTypeCode(), sourceBinding.getReaderOptions()));
+            if (sourceBinding.getIncremental() == null) {
                 continue;
             }
             CollectionIncrementalDefinition incremental = sourceBinding.getIncremental();
@@ -747,6 +754,23 @@ public class CollectionTaskService {
             return new LinkedHashMap<String, Object>();
         }
         return new LinkedHashMap<String, Object>(options);
+    }
+
+    private Map<String, Object> sanitizeFileReaderOptions(String datasourceTypeCode, Map<String, Object> options) {
+        Map<String, Object> result = copyOptionMap(options);
+        if (!isFileDatasourceType(datasourceTypeCode)) {
+            return result;
+        }
+        for (String key : FILE_MODEL_READER_OPTION_KEYS) {
+            result.remove(key);
+        }
+        return result;
+    }
+
+    private boolean isFileDatasourceType(String datasourceTypeCode) {
+        return "ftp".equalsIgnoreCase(datasourceTypeCode)
+                || "sftp".equalsIgnoreCase(datasourceTypeCode)
+                || "minio".equalsIgnoreCase(datasourceTypeCode);
     }
 
     private void ensureModelBelongsToDatasource(DataModelDefinition model, DataSourceDefinition datasource) {
