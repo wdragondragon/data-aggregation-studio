@@ -21,6 +21,7 @@ public class StudioPlatformProperties {
     private GatewayProperties gateway = new GatewayProperties();
     private PythonProperties python = new PythonProperties();
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
+    private DispatchProperties dispatch = new DispatchProperties();
 
     @Data
     public static class PythonProperties {
@@ -33,6 +34,13 @@ public class StudioPlatformProperties {
     @Data
     public static class ModelSyncTaskProperties {
         private Integer maxConcurrency = 1;
+    }
+
+    @Data
+    public static class DispatchProperties {
+        private Long workerOfflineGraceMinutes = 120L;
+        private Long dispatchLeaseMinutes = 10L;
+        private Integer workerSchedulerPoolSize = 4;
     }
 
     @Data

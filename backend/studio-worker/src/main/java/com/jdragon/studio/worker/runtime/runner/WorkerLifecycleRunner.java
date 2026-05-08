@@ -106,6 +106,7 @@ public class WorkerLifecycleRunner {
         capabilities.put("apiBaseUrl", properties.getWorkerApiBaseUrl());
         lease.setCapabilitiesJson(capabilities);
         workerLeaseMapper.updateById(lease);
+        renewRunningTaskLeases();
     }
 
     @Scheduled(fixedDelay = 3000L)
@@ -116,7 +117,7 @@ public class WorkerLifecycleRunner {
         for (DispatchTaskEntity task : queued) {
             task.setStatus("RUNNING");
             task.setLeaseOwner(properties.getWorkerCode());
-            task.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(10));
+            task.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(dispatchLeaseMinutes()));
             LocalDateTime startedAt = LocalDateTime.now();
             RunRecordEntity runRecord = null;
             RunLogFileService.PreparedRunLog preparedRunLog = null;
@@ -180,6 +181,17 @@ public class WorkerLifecycleRunner {
                     runLogScope.close();
                 }
             }
+        }
+    }
+
+    private void renewRunningTaskLeases() {
+        LocalDateTime leaseExpiresAt = LocalDateTime.now().plusMinutes(dispatchLeaseMinutes());
+        List<DispatchTaskEntity> runningTasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getStatus, "RUNNING")
+                .eq(DispatchTaskEntity::getLeaseOwner, properties.getWorkerCode()));
+        for (DispatchTaskEntity task : runningTasks) {
+            task.setLeaseExpiresAt(leaseExpiresAt);
+            dispatchTaskMapper.updateById(task);
         }
     }
 
@@ -378,6 +390,11 @@ public class WorkerLifecycleRunner {
         }
         Object status = result.get("status");
         return status == null ? "SUCCESS" : String.valueOf(status);
+    }
+
+    private long dispatchLeaseMinutes() {
+        Long minutes = properties.getDispatch() == null ? null : properties.getDispatch().getDispatchLeaseMinutes();
+        return Math.max(1L, minutes == null ? 10L : minutes.longValue());
     }
 }
 

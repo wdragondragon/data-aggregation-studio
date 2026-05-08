@@ -40,6 +40,7 @@ public class DispatchService implements WorkflowDispatcher {
     private final QualityTaskService qualityTaskService;
     private final StudioSecurityService securityService;
     private final WorkerAuthorizationService workerAuthorizationService;
+    private final StaleExecutionRecoveryService staleExecutionRecoveryService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
@@ -48,7 +49,8 @@ public class DispatchService implements WorkflowDispatcher {
                            CollectionTaskService collectionTaskService,
                            QualityTaskService qualityTaskService,
                            StudioSecurityService securityService,
-                           WorkerAuthorizationService workerAuthorizationService) {
+                           WorkerAuthorizationService workerAuthorizationService,
+                           StaleExecutionRecoveryService staleExecutionRecoveryService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
@@ -57,6 +59,7 @@ public class DispatchService implements WorkflowDispatcher {
         this.qualityTaskService = qualityTaskService;
         this.securityService = securityService;
         this.workerAuthorizationService = workerAuthorizationService;
+        this.staleExecutionRecoveryService = staleExecutionRecoveryService;
     }
 
     @Override
@@ -77,6 +80,7 @@ public class DispatchService implements WorkflowDispatcher {
         WorkflowDefinitionView workflow = requireWorkflow(workflowDefinitionId);
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), workflow.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), runtimeProjectId);
+        staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), runtimeProjectId, workflow.getId());
         if (!triggerWorkflowIfIdle(workflow, runtimeProjectId, true)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
         }
@@ -97,6 +101,7 @@ public class DispatchService implements WorkflowDispatcher {
         CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
+        staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), runtimeProjectId, definition.getId());
         if (!triggerCollectionTaskIfIdle(definition, runtimeProjectId, true)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
         }
@@ -117,6 +122,7 @@ public class DispatchService implements WorkflowDispatcher {
         QualityTaskDefinitionView definition = qualityTaskService.requireOnline(qualityTaskId);
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
+        staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), runtimeProjectId, definition.getId());
         if (!triggerQualityTaskIfIdle(definition, runtimeProjectId, true)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task already has an active run");
         }
@@ -152,6 +158,7 @@ public class DispatchService implements WorkflowDispatcher {
             }
             return false;
         }
+        staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), resolvedProjectId, workflow.getId());
         if (hasActiveWorkflowRun(workflow.getTenantId(), workflow.getId(), resolvedProjectId)) {
             return false;
         }
@@ -235,6 +242,7 @@ public class DispatchService implements WorkflowDispatcher {
             }
             return false;
         }
+        staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), resolvedProjectId, definition.getId());
         if (hasActiveCollectionTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
             return false;
         }
@@ -268,6 +276,7 @@ public class DispatchService implements WorkflowDispatcher {
             }
             return false;
         }
+        staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), resolvedProjectId, definition.getId());
         if (hasActiveQualityTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
             return false;
         }
@@ -411,63 +420,15 @@ public class DispatchService implements WorkflowDispatcher {
     }
 
     private boolean hasActiveWorkflowRun(String tenantId, Long workflowDefinitionId, Long projectId) {
-        if (workflowDefinitionId == null || tenantId == null) {
-            return false;
-        }
-        Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getTenantId, tenantId)
-                .eq(DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
-                .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
-                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
-        if (activeTasks != null && activeTasks > 0) {
-            return true;
-        }
-        Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, tenantId)
-                .eq(RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
-                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
-                .eq(RunRecordEntity::getStatus, "RUNNING"));
-        return activeRecords != null && activeRecords > 0;
+        return staleExecutionRecoveryService.hasActiveWorkflowRun(tenantId, projectId, workflowDefinitionId);
     }
 
     private boolean hasActiveCollectionTaskRun(String tenantId, Long collectionTaskId, Long projectId) {
-        if (collectionTaskId == null || tenantId == null) {
-            return false;
-        }
-        Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getTenantId, tenantId)
-                .eq(DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
-                .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
-                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
-        if (activeTasks != null && activeTasks > 0) {
-            return true;
-        }
-        Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, tenantId)
-                .eq(RunRecordEntity::getCollectionTaskId, collectionTaskId)
-                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
-                .eq(RunRecordEntity::getStatus, "RUNNING"));
-        return activeRecords != null && activeRecords > 0;
+        return staleExecutionRecoveryService.hasActiveCollectionTaskRun(tenantId, projectId, collectionTaskId);
     }
 
     private boolean hasActiveQualityTaskRun(String tenantId, Long qualityTaskId, Long projectId) {
-        if (qualityTaskId == null || tenantId == null) {
-            return false;
-        }
-        Long activeTasks = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getTenantId, tenantId)
-                .eq(DispatchTaskEntity::getQualityTaskId, qualityTaskId)
-                .eq(projectId != null, DispatchTaskEntity::getProjectId, projectId)
-                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
-        if (activeTasks != null && activeTasks > 0L) {
-            return true;
-        }
-        Long activeRecords = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, tenantId)
-                .eq(RunRecordEntity::getQualityTaskId, qualityTaskId)
-                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
-                .eq(RunRecordEntity::getStatus, "RUNNING"));
-        return activeRecords != null && activeRecords > 0L;
+        return staleExecutionRecoveryService.hasActiveQualityTaskRun(tenantId, projectId, qualityTaskId);
     }
 
     private WorkflowDefinitionView requireWorkflow(Long workflowDefinitionId) {

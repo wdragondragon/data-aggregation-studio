@@ -37,6 +37,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private final DataModelLineageService dataModelLineageService;
     private final QualityIssueService qualityIssueService;
     private final CollectionTaskIncrementalStateService collectionTaskIncrementalStateService;
+    private final StaleExecutionRecoveryService staleExecutionRecoveryService;
 
     public ExecutionEventService(RunRecordMapper runRecordMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
@@ -48,7 +49,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                                  NotificationService notificationService,
                                  DataModelLineageService dataModelLineageService,
                                  QualityIssueService qualityIssueService,
-                                 CollectionTaskIncrementalStateService collectionTaskIncrementalStateService) {
+                                 CollectionTaskIncrementalStateService collectionTaskIncrementalStateService,
+                                 StaleExecutionRecoveryService staleExecutionRecoveryService) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
@@ -60,6 +62,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         this.dataModelLineageService = dataModelLineageService;
         this.qualityIssueService = qualityIssueService;
         this.collectionTaskIncrementalStateService = collectionTaskIncrementalStateService;
+        this.staleExecutionRecoveryService = staleExecutionRecoveryService;
     }
 
     @Override
@@ -184,20 +187,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                 || !isTerminalStatus(entity.getStatus())) {
             return;
         }
-        Long activeTaskCount = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getTenantId, entity.getTenantId())
-                .eq(DispatchTaskEntity::getProjectId, entity.getProjectId())
-                .eq(DispatchTaskEntity::getWorkflowRunId, entity.getWorkflowRunId())
-                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
-        if (activeTaskCount != null && activeTaskCount.longValue() > 0L) {
-            return;
-        }
-        Long activeRunCount = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, entity.getTenantId())
-                .eq(RunRecordEntity::getProjectId, entity.getProjectId())
-                .eq(RunRecordEntity::getWorkflowRunId, entity.getWorkflowRunId())
-                .eq(RunRecordEntity::getStatus, "RUNNING"));
-        if (activeRunCount != null && activeRunCount.longValue() > 0L) {
+        if (staleExecutionRecoveryService.hasActiveWorkflowRunInstance(entity.getTenantId(), entity.getProjectId(), entity.getWorkflowRunId())) {
             return;
         }
         Long failedRunCount = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()

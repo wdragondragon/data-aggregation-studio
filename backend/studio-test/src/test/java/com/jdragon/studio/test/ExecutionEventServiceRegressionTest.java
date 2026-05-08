@@ -14,6 +14,7 @@ import com.jdragon.studio.infra.service.FollowSubscriptionService;
 import com.jdragon.studio.infra.service.NotificationService;
 import com.jdragon.studio.infra.service.QualityIssueService;
 import com.jdragon.studio.infra.service.RunMetricSummaryMapper;
+import com.jdragon.studio.infra.service.StaleExecutionRecoveryService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -48,7 +49,8 @@ class ExecutionEventServiceRegressionTest {
                 mock(NotificationService.class),
                 mock(DataModelLineageService.class),
                 mock(QualityIssueService.class),
-                mock(CollectionTaskIncrementalStateService.class));
+                mock(CollectionTaskIncrementalStateService.class),
+                mock(StaleExecutionRecoveryService.class));
 
         ExecutionEvent event = new ExecutionEvent();
         event.setRunRecordId(100L);

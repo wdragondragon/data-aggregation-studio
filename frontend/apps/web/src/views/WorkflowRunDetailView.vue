@@ -8,6 +8,9 @@
       <div class="studio-toolbar-actions">
         <el-button @click="goBack">{{ t("common.backToList") }}</el-button>
         <el-button plain @click="loadDetail">{{ t("common.refresh") }}</el-button>
+        <el-button v-if="canTerminateRun" plain type="danger" :loading="terminating" @click="terminateRun">
+          {{ t("web.runs.terminateRun") }}
+        </el-button>
         <FollowToggleButton v-if="route.params.workflowRunId" target-type="WORKFLOW_RUN" :target-id="String(route.params.workflowRunId)" />
       </div>
     </div>
@@ -109,7 +112,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowRunDetail } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
@@ -128,9 +131,15 @@ const authStore = useAuthStore();
 const runDetail = ref<WorkflowRunDetail | null>(null);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logVisible = ref(false);
+const terminating = ref(false);
 const isSharedRunDetail = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, runDetail.value?.projectId),
 );
+
+const canTerminateRun = computed(() => {
+  const status = String(runDetail.value?.status ?? "").toUpperCase();
+  return status === "QUEUED" || status === "RUNNING";
+});
 
 const nodeStatuses = computed<Record<string, string>>(() => {
   const result: Record<string, string> = {};
@@ -178,6 +187,25 @@ function goBack() {
     return;
   }
   router.push("/runs");
+}
+
+async function terminateRun() {
+  const workflowRunId = route.params.workflowRunId;
+  if (!workflowRunId) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(t("web.runs.terminateRunConfirm"), t("common.confirm"), { type: "warning" });
+    terminating.value = true;
+    runDetail.value = await studioApi.workflowRuns.terminate(String(workflowRunId));
+    ElMessage.success(t("web.runs.terminateRunSuccess"));
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : t("web.runs.terminateRunFailed"));
+    }
+  } finally {
+    terminating.value = false;
+  }
 }
 
 function resolveProjectLabel(projectId?: string | number | null) {

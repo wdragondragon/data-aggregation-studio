@@ -162,7 +162,8 @@ async function triggerWorkflow(workflow: WorkflowDefinitionView) {
     await studioApi.workflows.trigger(workflow.id);
     ElMessage.success(t("web.workflows.triggerSuccess"));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.triggerFailed"));
+    const message = error instanceof Error ? error.message : "";
+    ElMessage.error(message.includes("Workflow already has an active run") ? t("web.workflows.activeRunTriggerHint") : message || t("web.workflows.triggerFailed"));
   }
 }
 

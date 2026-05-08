@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,5 +44,11 @@ public class WorkflowRunController {
     @GetMapping("/{workflowRunId}")
     public Result<WorkflowRunDetailView> get(@PathVariable("workflowRunId") Long workflowRunId) {
         return Result.success(workflowRunService.get(workflowRunId));
+    }
+
+    @Operation(summary = "Terminate workflow run")
+    @PostMapping("/{workflowRunId}/terminate")
+    public Result<WorkflowRunDetailView> terminate(@PathVariable("workflowRunId") Long workflowRunId) {
+        return Result.success(workflowRunService.terminate(workflowRunId));
     }
 }

@@ -12,6 +12,7 @@ import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
+import com.jdragon.studio.infra.service.StaleExecutionRecoveryService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.service.WorkflowService;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class DispatchServiceOverlapRegressionTest {
         WorkflowService workflowService = mock(WorkflowService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        StaleExecutionRecoveryService staleExecutionRecoveryService = mock(StaleExecutionRecoveryService.class);
         WorkflowDefinitionView workflow = new WorkflowDefinitionView();
         workflow.setId(100L);
         workflow.setTenantId("default");
@@ -40,7 +42,7 @@ class DispatchServiceOverlapRegressionTest {
         when(workflowService.get(100L)).thenReturn(workflow);
         when(securityService.currentProjectId()).thenReturn(null);
         when(workerAuthorizationService.hasAvailableWorker("default", 1000L)).thenReturn(true);
-        when(dispatchTaskMapper.selectCount(any())).thenReturn(1L);
+        when(staleExecutionRecoveryService.hasActiveWorkflowRun("default", 1000L, 100L)).thenReturn(true);
 
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
@@ -50,7 +52,8 @@ class DispatchServiceOverlapRegressionTest {
                 mock(CollectionTaskService.class),
                 mock(QualityTaskService.class),
                 securityService,
-                workerAuthorizationService
+                workerAuthorizationService,
+                staleExecutionRecoveryService
         );
 
         assertThatThrownBy(() -> dispatchService.triggerManualRun(100L))
@@ -67,6 +70,7 @@ class DispatchServiceOverlapRegressionTest {
         CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        StaleExecutionRecoveryService staleExecutionRecoveryService = mock(StaleExecutionRecoveryService.class);
         CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
         definition.setId(200L);
         definition.setTenantId("default");
@@ -76,8 +80,7 @@ class DispatchServiceOverlapRegressionTest {
         when(collectionTaskService.requireOnline(200L)).thenReturn(definition);
         when(securityService.currentProjectId()).thenReturn(null);
         when(workerAuthorizationService.hasAvailableWorker("default", 2000L)).thenReturn(true);
-        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
-        when(runRecordMapper.selectCount(any())).thenReturn(1L);
+        when(staleExecutionRecoveryService.hasActiveCollectionTaskRun("default", 2000L, 200L)).thenReturn(true);
 
         DispatchService dispatchService = new DispatchService(
                 dispatchTaskMapper,
@@ -87,7 +90,8 @@ class DispatchServiceOverlapRegressionTest {
                 collectionTaskService,
                 mock(QualityTaskService.class),
                 securityService,
-                workerAuthorizationService
+                workerAuthorizationService,
+                staleExecutionRecoveryService
         );
 
         assertThatThrownBy(() -> dispatchService.triggerCollectionTask(200L))

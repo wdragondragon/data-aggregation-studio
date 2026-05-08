@@ -39,19 +39,22 @@ public class WorkflowRunService {
     private final WorkflowService workflowService;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final StudioSecurityService securityService;
+    private final StaleExecutionRecoveryService staleExecutionRecoveryService;
 
     public WorkflowRunService(RunRecordMapper runRecordMapper,
                               DispatchTaskMapper dispatchTaskMapper,
                               WorkflowDefinitionMapper workflowDefinitionMapper,
                               WorkflowService workflowService,
                               NamedParameterJdbcTemplate namedParameterJdbcTemplate,
-                              StudioSecurityService securityService) {
+                              StudioSecurityService securityService,
+                              StaleExecutionRecoveryService staleExecutionRecoveryService) {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowService = workflowService;
         this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
         this.securityService = securityService;
+        this.staleExecutionRecoveryService = staleExecutionRecoveryService;
     }
 
     public PageView<WorkflowRunSummaryView> list(Long workflowDefinitionId,
@@ -241,6 +244,15 @@ public class WorkflowRunService {
         });
         detail.setNodeRuns(nodeRuns);
         return detail;
+    }
+
+    public WorkflowRunDetailView terminate(Long workflowRunId) {
+        get(workflowRunId);
+        staleExecutionRecoveryService.terminateWorkflowRun(
+                securityService.currentTenantId(),
+                securityService.currentProjectId(),
+                workflowRunId);
+        return get(workflowRunId);
     }
 
     private Map<Long, String> workflowNames(Set<Long> workflowDefinitionIds) {

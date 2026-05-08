@@ -944,6 +944,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       get(workflowRunId: EntityId) {
         return request<WorkflowRunDetail>({ url: `/workflow-runs/${workflowRunId}`, method: "GET" });
       },
+      terminate(workflowRunId: EntityId) {
+        return request<WorkflowRunDetail>({ url: `/workflow-runs/${workflowRunId}/terminate`, method: "POST" });
+      },
     },
     users: {
       list() {
