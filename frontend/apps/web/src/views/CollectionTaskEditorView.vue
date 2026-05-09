@@ -121,7 +121,7 @@
                     :placeholder="t('web.collectionTasks.incrementalColumn')"
                     @change="syncCurrentIncrementalCursor(source)"
                   >
-                <el-option v-for="field in resolveFieldsByModelId(source.modelId)" :key="field" :label="field" :value="field" />
+                <el-option v-for="field in sourceFieldOptions(source)" :key="field" :label="field" :value="field" />
               </el-select>
             </el-form-item>
             <el-form-item :label="t('web.collectionTasks.incrementalModel')">
@@ -163,7 +163,7 @@
             :fields="readerAdvancedFields(source)"
             :model-value="source.readerOptions ?? {}"
             :dynamic-function-fields="readerDynamicFunctionFields(source)"
-            @update:model-value="source.readerOptions = $event"
+            @update:model-value="updateSourceReaderOptions(source, $event)"
           />
           <el-alert
             v-else-if="runtimeSchemaFor('reader', source.datasourceId) && !runtimeSchemaFor('reader', source.datasourceId)?.runtimeSupported"
@@ -374,7 +374,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -425,6 +425,14 @@ const previewLoading = ref(false);
 const previewDirty = ref(true);
 const previewConfig = ref<JobContainerConfig | null>(null);
 const resettingIncrementalCursor = ref<Record<string, boolean>>({});
+const customSqlFieldCache = ref<Record<string, {
+  datasourceId: string;
+  sql: string;
+  fields: string[];
+  loading: boolean;
+  error?: string;
+}>>({});
+const customSqlResolveTimers = new Map<string, number>();
 
 const form = reactive<CollectionTaskEditorForm>({
   name: "",
@@ -477,14 +485,14 @@ const sourceFieldOptionsByAlias = computed<Record<string, string[]>>(() => {
   const options: Record<string, string[]> = {};
   for (const source of form.sourceBindings) {
     if (source.sourceAlias) {
-      options[source.sourceAlias] = resolveFieldsByModelId(source.modelId);
+      options[source.sourceAlias] = sourceFieldOptions(source);
     }
   }
   return options;
 });
 const commonJoinKeyOptions = computed(() => {
   const sourceFields = form.sourceBindings
-    .map((item) => resolveFieldsByModelId(item.modelId))
+    .map((item) => sourceFieldOptions(item))
     .filter((item) => item.length > 0);
   if (!sourceFields.length) {
     return [];
@@ -555,6 +563,7 @@ async function loadReferenceData() {
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
     await ensureModels(form.targetBinding.datasourceId);
     await ensureRuntimeSchemas();
+    await resolveCustomSqlFieldsForActiveStep();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }
@@ -570,6 +579,7 @@ async function loadTask() {
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
     await ensureModels(form.targetBinding.datasourceId);
     await ensureRuntimeSchemas();
+    await resolveCustomSqlFieldsForActiveStep();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }
@@ -632,6 +642,20 @@ function resolveModelById(modelId: unknown) {
 
 function resolveFieldsByModelId(modelId: unknown) {
   return resolveFieldsByModel(resolveModelById(modelId));
+}
+
+function sourceFieldOptions(source: CollectionTaskSourceBinding) {
+  const customFields = resolveCustomSqlCachedFields(source);
+  return customFields.length ? customFields : resolveFieldsByModelId(source.modelId);
+}
+
+function resolveCustomSqlCachedFields(source: CollectionTaskSourceBinding) {
+  const cacheKey = customSqlFieldCacheKey(source);
+  if (!cacheKey) {
+    return [];
+  }
+  const cache = customSqlFieldCache.value[cacheKey];
+  return cache?.fields ?? [];
 }
 
 function resolveFieldsByModel(model: DataModelDefinition | undefined) {
@@ -862,6 +886,15 @@ function readerAdvancedFields(source: CollectionTaskSourceBinding): MetadataFiel
   return runtimeSchemaFor("reader", source.datasourceId)?.fields ?? [];
 }
 
+function updateSourceReaderOptions(source: CollectionTaskSourceBinding, value: Record<string, unknown>) {
+  const previousSql = selectSqlText(source);
+  source.readerOptions = value ?? {};
+  const nextSql = selectSqlText(source);
+  if (previousSql !== nextSql) {
+    scheduleResolveCustomSqlFields(source);
+  }
+}
+
 function readerDynamicFunctionFields(source: CollectionTaskSourceBinding) {
   return fileReaderDatasourceTypes.has(resolveDatasourceTypeCode(source.datasourceId))
     ? fileReaderDynamicFunctionFields
@@ -944,6 +977,132 @@ async function handleSourceDatasourceChange(row: CollectionTaskSourceBinding, va
 
 function handleSourceModelChange(row: CollectionTaskSourceBinding, value: string) {
   row.modelId = value;
+}
+
+function selectSqlText(source: CollectionTaskSourceBinding) {
+  const value = source.readerOptions?.selectSql;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function supportsCustomSqlFields(source: CollectionTaskSourceBinding) {
+  return Boolean(source.datasourceId)
+    && Boolean(selectSqlText(source))
+    && readerAdvancedFields(source).some((field) => field.fieldKey === "selectSql");
+}
+
+function customSqlFieldCacheKey(source: CollectionTaskSourceBinding) {
+  const datasourceId = String(source.datasourceId ?? "").trim();
+  const sql = selectSqlText(source);
+  if (!datasourceId || !sql) {
+    return "";
+  }
+  return `${datasourceId}:${sql.length}:${hashText(sql)}`;
+}
+
+function customSqlSourceKey(source: CollectionTaskSourceBinding) {
+  const index = form.sourceBindings.indexOf(source);
+  return `${source.sourceAlias?.trim() || "source"}:${index}`;
+}
+
+function hashText(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index++) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return String(hash >>> 0);
+}
+
+function scheduleResolveCustomSqlFields(source: CollectionTaskSourceBinding) {
+  const timerKey = customSqlSourceKey(source);
+  const existingTimer = customSqlResolveTimers.get(timerKey);
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
+  }
+  customSqlResolveTimers.set(timerKey, window.setTimeout(() => {
+    customSqlResolveTimers.delete(timerKey);
+    void resolveCustomSqlFields(source);
+  }, 600));
+}
+
+async function resolveAllCustomSqlFields(showError = false) {
+  await Promise.all(form.sourceBindings.map((source) => resolveCustomSqlFields(source, showError)));
+}
+
+async function resolveCustomSqlFieldsForActiveStep(showError = false) {
+  if (activeStep.value === 2) {
+    await resolveAllCustomSqlFields(showError);
+  }
+}
+
+async function resolveCustomSqlFields(source: CollectionTaskSourceBinding, showError = false) {
+  if (!supportsCustomSqlFields(source)) {
+    return;
+  }
+  const datasourceId = String(source.datasourceId ?? "").trim();
+  const sql = selectSqlText(source);
+  const cacheKey = customSqlFieldCacheKey(source);
+  if (!cacheKey) {
+    return;
+  }
+  const current = customSqlFieldCache.value[cacheKey];
+  if (current?.loading || (current?.sql === sql && current.fields.length)) {
+    return;
+  }
+  customSqlFieldCache.value = {
+    ...customSqlFieldCache.value,
+    [cacheKey]: {
+      datasourceId,
+      sql,
+      fields: current?.fields ?? [],
+      loading: true,
+    },
+  };
+  try {
+    const result = await studioApi.dataDevelopment.executeSql({
+      datasourceId,
+      scriptType: "SQL",
+      content: sql,
+      maxRows: 1,
+    });
+    customSqlFieldCache.value = {
+      ...customSqlFieldCache.value,
+      [cacheKey]: {
+        datasourceId,
+        sql,
+        fields: uniqueFieldNames(result.columns),
+        loading: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t("web.collectionTasks.loadFailed");
+    customSqlFieldCache.value = {
+      ...customSqlFieldCache.value,
+      [cacheKey]: {
+        datasourceId,
+        sql,
+        fields: current?.fields ?? [],
+        loading: false,
+        error: message,
+      },
+    };
+    if (showError) {
+      ElMessage.error(message);
+    }
+  }
+}
+
+function uniqueFieldNames(fields: string[] | undefined) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const field of fields ?? []) {
+    const name = String(field ?? "").trim();
+    if (!name || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    result.push(name);
+  }
+  return result;
 }
 
 async function handleTargetDatasourceChange(value: string) {
@@ -1202,6 +1361,9 @@ watch(
 );
 
 watch(activeStep, async (value) => {
+  if (value === 2) {
+    await resolveCustomSqlFieldsForActiveStep(true);
+  }
   if (value === 4 && previewDirty.value) {
     await loadPreviewConfig();
   }
@@ -1222,6 +1384,10 @@ watch(collectionModeVisible, (visible) => {
 });
 
 onMounted(loadReferenceData);
+onBeforeUnmount(() => {
+  customSqlResolveTimers.forEach((timer) => window.clearTimeout(timer));
+  customSqlResolveTimers.clear();
+});
 </script>
 
 <style scoped>
