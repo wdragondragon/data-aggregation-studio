@@ -487,3 +487,44 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
   - 本步骤尚未做浏览器手工验证 HTTP 弹窗交互；后续收口前需要在 nginx 页面上抽查 Header/Query/Raw 插入。
 - 下一步：提交 HTTP 动态函数弹窗拆分批次，然后继续前端大页面治理或后端剩余大类拆分。
+
+## Step 023 - Batch 6 浏览器 smoke 验证
+
+- 执行时间：2026-05-25 02:02:41 +08:00
+- 目标问题：确认 HTTP 动态函数弹窗拆分后的 Studio 构建产物仍能通过 nginx 代理加载，基础页面无新增前端运行错误。
+- 修改范围：无代码修改；只执行浏览器验证并记录结果。
+- 涉及文件：
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：本步骤不改运行行为。
+- 验证命令与结果：
+  - 打开 `http://localhost:8000/dfs/data-aggregation-studio/`：成功加载登录页。
+  - 使用默认账号登录：成功进入总览页。
+  - 点击“新建采集任务”：成功进入 `/collection-tasks/new`。
+  - 浏览器 console error：无。
+- 失败、阻塞或残余风险：
+  - 当前环境页面显示数据源、任务等统计为 0，采集任务编辑页没有可选数据源/模型，因此本次只能验证页面加载和无 console error，未能直接打开 HTTP 参数弹窗做完整交互。
+  - 浏览器自动化侧出现一次 Statsig 外部初始化超时日志，来源于 Codex 浏览器插件外部遥测请求，不是 Studio 页面 console error。
+- 下一步：继续处理剩余前端大页面或后端大类；如需完整 HTTP 弹窗交互 smoke，需要先准备本地 HTTP 数据源和模型。
+
+## Step 024 - Batch 7 拆分 source capability 元数据组装
+
+- 执行时间：2026-05-25 02:07:28 +08:00
+- 目标问题：`AggregationSourceCapabilityProvider` 同时负责插件加载、连接测试、模型发现、水合、预览、数据源 DTO 转换和模型技术元数据 Map 组装，类体超过 800 行。
+- 修改范围：新增 `AggregationModelMetadataSupport` 承载关系表、文件、队列模型技术元数据 Map 组装和字段元数据转换；`AggregationSourceCapabilityProvider` 保留插件调用、发现/预览编排和数据源 DTO 转换职责；后端大文件门禁从 5 收紧到 4。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/execution/AggregationSourceCapabilityProvider.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/execution/AggregationModelMetadataSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：数据源连接测试、模型发现、模型水合、预览、技术元数据字段名和值组装逻辑保持不变；只是把原私有元数据构造方法移动到同包 helper。`AggregationSourceCapabilityProvider` 从 875 行降到 771 行。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - 后端大 Java 文件扫描：超过 800 行的文件从 5 个降到 4 个。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
+  - 后端剩余大类仍有 `StudioSchemaUpgradeService`、`DataModelLineageService`、`SystemManagementService`、`CollectionTaskService`，后续拆分风险高于本步骤。
+- 下一步：提交 Batch 7，然后评估 `CollectionTaskService` 或 `SystemManagementService` 的低风险拆分点。

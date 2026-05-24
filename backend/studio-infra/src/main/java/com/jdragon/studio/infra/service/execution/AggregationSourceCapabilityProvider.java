@@ -38,7 +38,11 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+
+import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildFileMetadata;
+import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildLightweightRelationalMetadata;
+import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildQueueMetadata;
+import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildRelationalMetadata;
 
 @Service
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
@@ -611,116 +615,8 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         return ModelKind.TABLE;
     }
 
-    private Map<String, Object> buildRelationalMetadata(DataSourceDefinition definition,
-                                                        String tableName,
-                                                        TableInfo tableInfo,
-                                                        List<ColumnInfo> columns) {
-        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        metadata.put("sourceType", definition.getTypeCode());
-        metadata.put("discoveryMode", "AUTO");
-        metadata.put("physicalName", tableName);
-        metadata.put("columnCount", columns == null ? 0 : columns.size());
-        metadata.put("columns", toColumnMetadata(columns));
-        if (tableInfo != null) {
-            putIfPresent(metadata, "catalog", tableInfo.getTableCat());
-            putIfPresent(metadata, "schema", tableInfo.getTableSchem());
-            putIfPresent(metadata, "tableType", tableInfo.getTableType());
-            putIfPresent(metadata, "remarks", tableInfo.getRemarks());
-            metadata.put("partitioned", tableInfo.isPartitioned());
-            if (tableInfo.getExternalTable() != null) {
-                metadata.put("externalTable", tableInfo.getExternalTable());
-            }
-        }
-        return metadata;
-    }
-
-    private Map<String, Object> buildLightweightRelationalMetadata(DataSourceDefinition definition, String tableName) {
-        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        metadata.put("sourceType", definition.getTypeCode());
-        metadata.put("discoveryMode", "AUTO");
-        metadata.put("physicalName", tableName);
-        return metadata;
-    }
-
-    private List<Map<String, Object>> toColumnMetadata(List<ColumnInfo> columns) {
-        List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
-        if (columns == null) {
-            return items;
-        }
-        for (ColumnInfo column : columns) {
-            Map<String, Object> item = new LinkedHashMap<String, Object>();
-            putIfPresent(item, "name", column.getColumnName());
-            putIfPresent(item, "type", column.getTypeName());
-            if (column.getColumnSize() > 0) {
-                item.put("size", column.getColumnSize());
-            }
-            if (column.getDecimalDigits() > 0) {
-                item.put("scale", column.getDecimalDigits());
-            }
-            putIfPresent(item, "nullable", column.getIsNullable());
-            putIfPresent(item, "primaryKey", column.getIsPrimaryKey());
-            putIfPresent(item, "autoIncrement", column.getIsAutoincrement());
-            putIfPresent(item, "remarks", column.getRemarks());
-            putIfPresent(item, "defaultValue", column.getColumnDef());
-            if (!item.isEmpty()) {
-                items.add(item);
-            }
-        }
-        return items;
-    }
-
-    private Map<String, Object> buildFileMetadata(DataSourceDefinition definition,
-                                                  Map<String, Object> datasourceMetadata,
-                                                  String rootPath,
-                                                  String regex,
-                                                  String fileName) {
-        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        metadata.put("sourceType", definition.getTypeCode());
-        metadata.put("discoveryMode", "AUTO");
-        putIfPresent(metadata, "physicalName", fileName);
-        putIfPresent(metadata, "rootPath", rootPath);
-        putIfPresent(metadata, "pattern", regex);
-        putIfPresent(metadata, "fileName", fileName);
-        putIfPresent(metadata, "fileType", datasourceMetadata.get("fileType"));
-        putIfPresent(metadata, "encoding", datasourceMetadata.get("encoding"));
-        putIfPresent(metadata, "delimiter", datasourceMetadata.get("delimiter"));
-        return metadata;
-    }
-
-    private Map<String, Object> buildQueueMetadata(DataSourceDefinition definition,
-                                                   Map<String, Object> datasourceMetadata,
-                                                   String queueName) {
-        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        metadata.put("sourceType", definition.getTypeCode());
-        metadata.put("discoveryMode", "AUTO");
-        putIfPresent(metadata, "physicalName", queueName);
-        putIfPresent(metadata, "queueName", queueName);
-        putIfPresent(metadata, "topic", datasourceMetadata.get("topic"));
-        putIfPresent(metadata, "queue", datasourceMetadata.get("queue"));
-        putIfPresent(metadata, "brokers", datasourceMetadata.get("brokers"));
-        putIfPresent(metadata, "consumerGroup", datasourceMetadata.get("consumerGroup"));
-        putIfPresent(metadata, "tag", datasourceMetadata.get("tag"));
-        return metadata;
-    }
-
     private Map<String, Object> buildEmptyBusinessMetadata() {
         return businessMetaModelMetadataService.emptyMetadata();
-    }
-
-    private void putIfPresent(Map<String, Object> target, String key, Object value) {
-        if (value == null) {
-            return;
-        }
-        if (value instanceof String && ((String) value).trim().isEmpty()) {
-            return;
-        }
-        if (value instanceof Set && ((Set<?>) value).isEmpty()) {
-            return;
-        }
-        if (value instanceof List && ((List<?>) value).isEmpty()) {
-            return;
-        }
-        target.put(key, value);
     }
 
     private BaseDataSourceDTO toBaseDataSource(DataSourceDefinition definition) {
