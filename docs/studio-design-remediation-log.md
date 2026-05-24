@@ -633,3 +633,24 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 本步骤只迁移模型统计页异步边界，尚未拆分图表构造、查询条件构造和展示 section。
 - 下一步：执行 `git diff --check` 并提交 Batch 12；继续评估 `QualityMetricsView` 或 `ModelsView` 的低风险拆分点。
+
+## Step 030 - Batch 13 拆分模型中心动态筛选与同步任务区块
+
+- 执行时间：2026-05-25 03:36:49 +08:00
+- 目标问题：`ModelsView.vue` 同时承载模型列表、动态筛选条件编辑、同步任务列表、详情预览、编辑抽屉和同步弹窗，文件超过 2600 行；其中动态筛选面板和同步任务列表属于清晰 UI 区块，适合优先拆分。
+- 修改范围：新增 `components/models/modelViewTypes.ts` 承载模型动态筛选共享类型；新增 `ModelDynamicFilterPanel.vue` 承载动态筛选表单、条件值输入和响应式样式；新增 `ModelSyncTaskSection.vue` 承载同步任务筛选、列表、分页和任务操作按钮。`ModelsView.vue` 保留数据加载、查询构造、同步任务业务动作和路由状态编排。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/modelViewTypes.ts`
+  - `frontend/apps/web/src/components/models/ModelDynamicFilterPanel.vue`
+  - `frontend/apps/web/src/components/models/ModelSyncTaskSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型列表查询 payload、动态筛选条件构造、同步任务筛选/分页/停止/删除/详情跳转语义保持不变；子组件只接管展示层和局部样式。`ModelsView.vue` 从 2601 行降到 2282 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是父页面动态行编辑仍需要 `ElInput/ElInputNumber`，拆动态筛选时误删 import。
+  - 修复后 `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - `ModelsView.vue` 仍超过 1000 行，后续还需继续拆详情预览、编辑抽屉和元模型字段 section。
+- 下一步：执行 `git diff --check` 并提交 Batch 13；随后继续拆 `ModelsView.vue` 的详情预览或编辑抽屉。

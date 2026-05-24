@@ -69,148 +69,12 @@
           <el-button plain @click="refreshModels">{{ t("common.refresh") }}</el-button>
         </div>
 
-        <div class="soft-panel model-query-panel">
-          <div class="model-query-panel__header">
-            <div>
-              <strong>{{ t("web.models.dynamicFiltersTitle") }}</strong>
-              <p>{{ t("web.models.dynamicFiltersDescription") }}</p>
-            </div>
-            <div class="model-query-panel__actions">
-              <el-button plain :disabled="!activeQueryDatasourceType" @click="appendQueryGroup">{{ t("common.addFilter") }}</el-button>
-              <el-button type="primary" @click="searchModels">{{ t("common.search") }}</el-button>
-              <el-button plain @click="resetQueryFilters">{{ t("common.reset") }}</el-button>
-            </div>
-          </div>
-
-          <div v-if="queryGroups.length === 0" class="soft-panel empty-hint section-empty">
-            {{ t("web.models.dynamicFiltersEmpty") }}
-          </div>
-
-          <div
-            v-for="group in queryGroups"
-            :key="group.key"
-            class="soft-panel model-query-group"
-          >
-            <div class="model-query-group__header">
-              <div class="model-query-group__meta">
-                <el-select
-                  v-model="group.metaSchemaCode"
-                  clearable
-                  :placeholder="t('web.models.filterMetaModelPlaceholder')"
-                  @change="handleQuerySchemaChange(group)"
-                >
-                  <el-option
-                    v-for="schema in querySchemaOptions"
-                    :key="schema.id ?? schema.schemaCode"
-                    :label="querySchemaLabel(schema)"
-                    :value="schema.schemaCode"
-                  />
-                </el-select>
-              </div>
-              <div v-if="isMultipleQuerySchema(group)" class="model-query-group__meta model-query-group__meta--compact">
-                <el-select v-model="group.rowMatchMode" :placeholder="t('web.models.filterRowMatchMode')">
-                  <el-option :label="t('web.models.filterRowMatchSameItem')" value="SAME_ITEM" />
-                  <el-option :label="t('web.models.filterRowMatchAnyItem')" value="ANY_ITEM" />
-                </el-select>
-              </div>
-              <div class="model-query-group__actions">
-                <el-button type="primary" plain @click="appendQueryCondition(group)">{{ t("common.addCondition") }}</el-button>
-                <el-button link type="danger" @click="removeQueryGroup(group.key)">{{ t("common.remove") }}</el-button>
-              </div>
-            </div>
-
-            <div v-if="group.conditions.length === 0" class="soft-panel empty-hint section-empty">
-              {{ t("web.models.dynamicFiltersEmpty") }}
-            </div>
-
-            <div v-else class="model-query-group__conditions">
-              <div
-                v-for="(row, index) in group.conditions"
-                :key="`${group.key}-${index}`"
-                class="soft-panel model-query-condition"
-              >
-                <div class="model-query-condition__line">
-                  <div class="model-query-condition__segment">
-                    <el-select
-                      v-model="row.fieldKey"
-                      clearable
-                      :placeholder="t('web.models.filterFieldPlaceholder')"
-                      @change="handleQueryFieldChange(group, row)"
-                    >
-                      <el-option
-                        v-for="field in querySchemaFields(group)"
-                        :key="field.fieldKey"
-                        :label="field.fieldName"
-                        :value="field.fieldKey"
-                      />
-                    </el-select>
-                  </div>
-                  <div class="model-query-condition__segment model-query-condition__segment--operator">
-                    <el-select
-                      v-model="row.operator"
-                      clearable
-                      :placeholder="t('web.models.filterOperatorPlaceholder')"
-                    >
-                      <el-option
-                        v-for="operator in queryConditionOperators(group, row)"
-                        :key="operator"
-                        :label="operator"
-                        :value="operator"
-                      />
-                    </el-select>
-                  </div>
-                  <div class="model-query-condition__segment model-query-condition__segment--value">
-                    <div class="query-condition-value">
-                      <el-input
-                        v-if="row.operator === 'IN'"
-                        v-model="row.multiValueText"
-                        :placeholder="t('web.models.filterValuesPlaceholder')"
-                      />
-                      <template v-else-if="row.operator === 'BETWEEN'">
-                        <component
-                          :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                          :model-value="queryConditionInputValue(row.value)"
-                          class="query-condition-value__input"
-                          :placeholder="t('web.models.filterValuePlaceholder')"
-                          @update:model-value="setQueryConditionValue(row, $event)"
-                        />
-                        <span class="query-condition-value__divider">-</span>
-                        <component
-                          :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                          :model-value="queryConditionInputValue(row.valueTo)"
-                          class="query-condition-value__input"
-                          :placeholder="t('web.models.filterValueToPlaceholder')"
-                          @update:model-value="setQueryConditionValueTo(row, $event)"
-                        />
-                      </template>
-                      <el-select
-                        v-else-if="queryConditionField(group, row)?.valueType === 'BOOLEAN'"
-                        :model-value="queryConditionBooleanValue(row.value)"
-                        clearable
-                        :placeholder="t('web.models.filterValuePlaceholder')"
-                        @update:model-value="setQueryConditionValue(row, $event)"
-                      >
-                        <el-option :label="t('common.yes')" :value="true" />
-                        <el-option :label="t('common.no')" :value="false" />
-                      </el-select>
-                      <component
-                        :is="isNumericQueryField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                        v-else
-                        :model-value="queryConditionInputValue(row.value)"
-                        class="query-condition-value__input"
-                        :placeholder="t('web.models.filterValuePlaceholder')"
-                        @update:model-value="setQueryConditionValue(row, $event)"
-                      />
-                    </div>
-                  </div>
-                  <el-button link type="danger" class="model-query-condition__remove" @click="removeQueryCondition(group, index)">
-                    {{ t("common.remove") }}
-                  </el-button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ModelDynamicFilterPanel
+          :groups="queryGroups"
+          :active-query-datasource-type="activeQueryDatasourceType"
+          :query-schema-options="querySchemaOptions"
+          :actions="dynamicFilterActions"
+        />
 
         <StudioTableShell min-width="1120px">
           <el-table :data="models" border :empty-text="modelTableEmptyText">
@@ -266,111 +130,18 @@
         </el-tab-pane>
 
         <el-tab-pane label="模型同步任务" name="sync-tasks">
-          <SectionCard title="模型同步任务" description="大批量表同步会自动转入后台任务执行，避免页面长时间等待。">
-            <div class="models-toolbar">
-              <el-select
-                v-model="syncTaskFilters.datasourceType"
-                clearable
-                placeholder="按数据源类型筛选"
-                class="models-toolbar__filter"
-                @change="handleSyncTaskDatasourceTypeChange"
-              >
-                <el-option
-                  v-for="typeCode in queryDatasourceTypes"
-                  :key="typeCode"
-                  :label="typeCode"
-                  :value="typeCode"
-                />
-              </el-select>
-              <el-select
-                v-model="syncTaskFilters.datasourceId"
-                clearable
-                placeholder="按数据源筛选"
-                class="models-toolbar__filter"
-                @change="loadSyncTasks"
-              >
-                <el-option
-                  v-for="item in syncTaskFilterDatasourceOptions"
-                  :key="item.id"
-                  :label="`${item.name} (${item.typeCode})`"
-                  :value="item.id"
-                />
-              </el-select>
-              <el-select
-                v-model="syncTaskFilters.status"
-                clearable
-                placeholder="按状态筛选"
-                class="models-toolbar__filter"
-                @change="loadSyncTasks"
-              >
-                <el-option v-for="status in syncTaskStatusOptions" :key="status" :label="formatStatusLabel(t, status)" :value="status" />
-              </el-select>
-              <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openCreateSyncTaskDialog">新建同步任务</el-button>
-              <el-button plain @click="loadSyncTasks">刷新任务</el-button>
-            </div>
-
-            <StudioTableShell min-width="1180px">
-              <el-table :data="syncTasks" border v-loading="loadingSyncTasksPage">
-              <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
-                <template #default="{ $index }">
-                  {{ (syncTaskPagination.page - 1) * syncTaskPagination.pageSize + $index + 1 }}
-                </template>
-              </el-table-column>
-              <el-table-column label="同步名称" min-width="220">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="openSyncTaskDetail(row)">{{ row.name }}</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="同步进度" min-width="220">
-                <template #default="{ row }">
-                  <div class="sync-task-progress">
-                    <el-progress :percentage="Number(row.progressPercent || 0)" :stroke-width="10" />
-                    <span class="cell-subtle">
-                      {{ Number(row.successCount || 0) }}/{{ Number(row.totalCount || 0) }} 成功，失败 {{ Number(row.failedCount || 0) }}，停止 {{ Number(row.stoppedCount || 0) }}
-                    </span>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="创建时间" min-width="180">
-                <template #default="{ row }">
-                  {{ row.createdAt || t("common.none") }}
-                </template>
-              </el-table-column>
-              <el-table-column label="持续时间" min-width="140">
-                <template #default="{ row }">
-                  {{ formatDurationMs(row.durationMs) }}
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="120" align="center" header-align="center">
-                <template #default="{ row }">
-                  <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
-                </template>
-              </el-table-column>
-          <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
-                <template #default="{ row }">
-                  <div class="sync-task-actions">
-                    <el-button link type="primary" @click="openSyncTaskDetail(row)">查看</el-button>
-                    <el-button link type="warning" :disabled="!canStopSyncTask(row)" @click="stopSyncTask(row)">停止</el-button>
-                    <el-button link type="danger" :disabled="!canDeleteSyncTask(row)" @click="deleteSyncTask(row)">删除</el-button>
-                  </div>
-                </template>
-              </el-table-column>
-              </el-table>
-            </StudioTableShell>
-
-            <div class="table-pagination">
-              <el-pagination
-                v-model:current-page="syncTaskPagination.page"
-                v-model:page-size="syncTaskPagination.pageSize"
-                background
-                layout="total, sizes, prev, pager, next"
-                :page-sizes="[10, 20, 50, 100]"
-                :total="syncTaskTotal"
-                @current-change="loadSyncTasks"
-                @size-change="handleSyncTaskPageSizeChange"
-              />
-            </div>
-          </SectionCard>
+          <ModelSyncTaskSection
+            :datasource-types="queryDatasourceTypes"
+            :datasource-options="syncTaskFilterDatasourceOptions"
+            :status-options="syncTaskStatusOptions"
+            :filters="syncTaskFilters"
+            :tasks="syncTasks"
+            :loading="loadingSyncTasksPage"
+            :pagination="syncTaskPagination"
+            :total="syncTaskTotal"
+            :current-project-id="authStore.currentProjectId"
+            :actions="syncTaskSectionActions"
+          />
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -746,6 +517,9 @@ import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
+import ModelDynamicFilterPanel from "@/components/models/ModelDynamicFilterPanel.vue";
+import type { ModelDynamicFilterActions, ModelQueryConditionState, ModelQueryGroupState } from "@/components/models/modelViewTypes";
+import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
 import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
@@ -793,21 +567,6 @@ interface ModelMetaSection {
   metaModelCode: string;
   fields: MetadataFieldDefinition[];
   collectionKey?: string;
-}
-
-interface ModelQueryConditionState {
-  fieldKey: string;
-  operator: string;
-  value?: unknown;
-  valueTo?: unknown;
-  multiValueText: string;
-}
-
-interface ModelQueryGroupState {
-  key: string;
-  metaSchemaCode: string;
-  rowMatchMode: "SAME_ITEM" | "ANY_ITEM";
-  conditions: ModelQueryConditionState[];
 }
 
 const DATABASE_TYPE_HINTS = [
@@ -968,6 +727,38 @@ const physicalLocatorEditorPlaceholder = computed(() => isHttpModelEditor.value 
 const isSharedSelectedModel = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, selectedModel.value?.projectId),
 );
+const dynamicFilterActions: ModelDynamicFilterActions = {
+  appendQueryGroup,
+  searchModels,
+  resetQueryFilters,
+  handleQuerySchemaChange,
+  appendQueryCondition,
+  removeQueryGroup,
+  querySchemaLabel,
+  querySchemaFields,
+  isMultipleQuerySchema,
+  handleQueryFieldChange,
+  queryConditionField,
+  queryConditionOperators,
+  queryConditionInputValue,
+  queryConditionBooleanValue,
+  setQueryConditionValue,
+  setQueryConditionValueTo,
+  isNumericQueryField,
+  removeQueryCondition,
+};
+const syncTaskSectionActions = {
+  handleDatasourceTypeChange: handleSyncTaskDatasourceTypeChange,
+  loadSyncTasks,
+  openCreateSyncTaskDialog,
+  openSyncTaskDetail,
+  canStopSyncTask,
+  canDeleteSyncTask,
+  stopSyncTask,
+  deleteSyncTask,
+  handlePageSizeChange: handleSyncTaskPageSizeChange,
+  formatDurationMs,
+};
 
 function normalizeModelPagePayload(payload: unknown) {
   if (Array.isArray(payload)) {
@@ -2456,129 +2247,8 @@ p {
   min-width: 280px;
 }
 
-.sync-task-progress {
-  display: grid;
-  gap: 6px;
-}
-
-.sync-task-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.model-query-panel {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.model-query-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.model-query-panel__header p,
 .model-meta-section__header p {
   display: none;
-}
-
-.model-query-panel__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.model-query-group {
-  display: grid;
-  gap: 12px;
-}
-
-.model-query-group__header {
-  display: grid;
-  grid-template-columns: minmax(280px, 1.4fr) minmax(220px, 0.9fr) auto;
-  align-items: end;
-  gap: 10px;
-}
-
-.model-query-group__meta {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.model-query-group__meta--compact {
-  max-width: 320px;
-}
-
-.model-query-group__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.model-query-group__conditions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
-  gap: 10px;
-}
-
-.model-query-condition {
-  min-width: 0;
-}
-
-.model-query-condition__line {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(130px, 0.8fr) minmax(220px, 1.5fr) auto;
-  align-items: end;
-  gap: 10px;
-}
-
-.model-query-condition__segment {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.model-query-condition__segment--operator {
-  max-width: 180px;
-}
-
-.model-query-condition__segment--value {
-  min-width: 0;
-}
-
-.model-query-condition__remove {
-  align-self: end;
-  white-space: nowrap;
-}
-
-.query-condition-value {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.query-condition-value__input {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-.query-condition-value__divider {
-  flex: 0 0 auto;
-  color: var(--studio-text-soft);
-}
-
-.model-query-condition :deep(.el-select),
-.model-query-condition :deep(.el-input),
-.model-query-condition :deep(.el-input-number) {
-  width: 100%;
 }
 
 .detail-toolbar {
@@ -2784,30 +2454,6 @@ p {
 
   .index-queue-card__header {
     flex-direction: column;
-  }
-
-  .model-query-panel__header {
-    flex-direction: column;
-  }
-
-  .model-query-group__header {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-query-group__actions {
-    justify-content: flex-start;
-  }
-
-  .model-query-group__conditions {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-query-condition__line {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-query-condition__segment--operator {
-    max-width: none;
   }
 
   .detail-toolbar {
