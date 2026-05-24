@@ -378,6 +378,7 @@ import type {
 import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
 import { studioApi } from "@/api/studio";
+import { useAsyncAction } from "@/composables/useAsyncAction";
 import { useAuthStore } from "@/stores/auth";
 
 interface QueryConditionState {
@@ -409,8 +410,10 @@ const authStore = useAuthStore();
 const chartTypes: StatisticsChartType[] = ["TREND", "BAR", "PIE", "TOPN"];
 
 const datasources = ref<DataSourceDefinition[]>([]);
-const workspaceLoading = ref(false);
-const runningAnalysis = ref(false);
+const workspaceAction = useAsyncAction();
+const analysisAction = useAsyncAction();
+const workspaceLoading = workspaceAction.loading;
+const runningAnalysis = analysisAction.loading;
 const setupExpanded = ref(true);
 const selectedDatasourceType = ref("");
 const selectedDatasourceId = ref<EntityId>();
@@ -1113,19 +1116,20 @@ async function loadWorkspace() {
     normalizeTargetSelection();
     return;
   }
-  workspaceLoading.value = true;
   try {
-    workspaceOptions.value = await studioApi.statistics.options({
-      datasourceId: selectedDatasourceId.value,
-      datasourceType: activeDatasourceType.value,
-      targetScope: selectedTargetScope.value,
+    await workspaceAction.run(async () => {
+      workspaceOptions.value = await studioApi.statistics.options({
+        datasourceId: selectedDatasourceId.value,
+        datasourceType: activeDatasourceType.value,
+        targetScope: selectedTargetScope.value,
+      });
+      sanitizeQueryGroups();
+      normalizeTargetSelection();
+    }, {
+      errorMessage: (error) => `${t("web.statistics.loadFailed")}: ${resolveErrorMessage(error)}`,
     });
-    sanitizeQueryGroups();
-    normalizeTargetSelection();
-  } catch (error) {
-    ElMessage.error(`${t("web.statistics.loadFailed")}: ${resolveErrorMessage(error)}`);
-  } finally {
-    workspaceLoading.value = false;
+  } catch {
+    // useAsyncAction has already shown the message; keep filter changes resilient.
   }
 }
 
@@ -1165,21 +1169,22 @@ async function runAnalysis() {
     ElMessage.warning(t("web.statistics.noTarget"));
     return;
   }
-  runningAnalysis.value = true;
   try {
-    const [statistics, ...charts] = await Promise.all([
-      studioApi.models.statistics(buildRawStatisticsRequest()),
-      ...chartTypes.map((chartType) => studioApi.statistics.queryChart(buildChartRequest(chartType))),
-    ]);
-    rawStatistics.value = statistics;
-    chartTypes.forEach((chartType, index) => {
-      chartResults[chartType] = charts[index];
+    await analysisAction.run(async () => {
+      const [statistics, ...charts] = await Promise.all([
+        studioApi.models.statistics(buildRawStatisticsRequest()),
+        ...chartTypes.map((chartType) => studioApi.statistics.queryChart(buildChartRequest(chartType))),
+      ]);
+      rawStatistics.value = statistics;
+      chartTypes.forEach((chartType, index) => {
+        chartResults[chartType] = charts[index];
+      });
+      setupExpanded.value = false;
+    }, {
+      errorMessage: (error) => `${t("web.statistics.runFailed")}: ${resolveErrorMessage(error)}`,
     });
-    setupExpanded.value = false;
-  } catch (error) {
-    ElMessage.error(`${t("web.statistics.runFailed")}: ${resolveErrorMessage(error)}`);
-  } finally {
-    runningAnalysis.value = false;
+  } catch {
+    // Message handled by useAsyncAction.
   }
 }
 

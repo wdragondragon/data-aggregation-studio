@@ -615,3 +615,21 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 本步骤只迁移元模型页面，采集任务编辑、质量任务编辑、工作流编辑、模型中心等大页面仍需后续分批拆分。
 - 下一步：执行 `git diff --check` 并提交 Batch 11；后续优先处理模型中心或采集任务编辑页的组件拆分。
+
+## Step 029 - Batch 12 模型统计页接入异步动作 composable
+
+- 执行时间：2026-05-25 03:12:02 +08:00
+- 目标问题：`ModelStatisticsView.vue` 单独维护 workspace 加载和分析运行的 loading、错误消息拼接与 finally 收口，和 `useAsyncAction` 的页面异步动作模式不一致；同时统计页需要保留后端响应错误详情。
+- 修改范围：扩展 `useAsyncAction`，允许 `errorMessage` 传入函数以按错误对象生成提示；模型统计页的 workspace 加载和分析运行改用 `useAsyncAction`，保留原有“操作失败前缀 + 后端错误详情”提示。
+- 涉及文件：
+  - `frontend/apps/web/src/composables/useAsyncAction.ts`
+  - `frontend/apps/web/src/views/ModelStatisticsView.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型统计 datasource/workspace 选择、统计请求 payload、图表请求、分析结果赋值、展开面板状态和错误提示文案保持不变；`useAsyncAction` 对旧 string `errorMessage` 用法保持兼容。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 本步骤只迁移模型统计页异步边界，尚未拆分图表构造、查询条件构造和展示 section。
+- 下一步：执行 `git diff --check` 并提交 Batch 12；继续评估 `QualityMetricsView` 或 `ModelsView` 的低风险拆分点。

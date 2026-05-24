@@ -1,8 +1,17 @@
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 
+type AsyncActionErrorMessage = string | ((error: unknown) => string);
+
 export function resolveErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function resolveActionErrorMessage(error: unknown, message?: AsyncActionErrorMessage) {
+  if (typeof message === "function") {
+    return message(error);
+  }
+  return resolveErrorMessage(error, message || "操作失败");
 }
 
 export function useAsyncAction() {
@@ -12,7 +21,7 @@ export function useAsyncAction() {
     action: () => Promise<T>,
     options: {
       successMessage?: string;
-      errorMessage?: string;
+      errorMessage?: AsyncActionErrorMessage;
       ignoreCancel?: boolean;
     } = {},
   ) {
@@ -25,7 +34,7 @@ export function useAsyncAction() {
       return result;
     } catch (error) {
       if (!(options.ignoreCancel && error === "cancel")) {
-        ElMessage.error(resolveErrorMessage(error, options.errorMessage || "操作失败"));
+        ElMessage.error(resolveActionErrorMessage(error, options.errorMessage));
       }
       throw error;
     } finally {
