@@ -32,101 +32,21 @@
     <template v-if="!isDetailPage">
       <el-tabs v-model="activeListTab" class="models-tabs">
         <el-tab-pane label="模型列表" name="models">
-          <SectionCard :title="t('web.models.tableTitle')" :description="t('web.models.tableDescription')">
-        <div class="models-toolbar">
-          <el-select
-            v-model="selectedDatasourceType"
-            clearable
-            :placeholder="t('web.models.datasourceTypePlaceholder')"
-            class="models-toolbar__filter"
-            @change="handleDatasourceTypeChange"
-          >
-            <el-option
-              v-for="typeCode in queryDatasourceTypes"
-              :key="typeCode"
-              :label="typeCode"
-              :value="typeCode"
-            />
-          </el-select>
-          <el-select
-            v-model="selectedDatasourceId"
-            clearable
-            :placeholder="t('web.models.datasourcePlaceholder')"
-            class="models-toolbar__filter"
-            @change="handleDatasourceChange"
-          >
-            <el-option
-              v-for="item in filteredDatasourceOptions"
-              :key="item.id"
-              :label="`${item.name} (${item.typeCode})`"
-              :value="item.id"
-            />
-          </el-select>
-          <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openCreateDialog">{{ t("common.newModel") }}</el-button>
-          <el-button plain :disabled="!authStore.currentProjectId" @click="openSyncDialog">{{ t("common.sync") }}</el-button>
-          <el-button plain @click="rebuildQueryIndex">{{ t("common.rebuild") }}</el-button>
-          <el-button plain @click="openStatisticsWorkspace()">{{ t("common.statistics") }}</el-button>
-          <el-button plain @click="refreshModels">{{ t("common.refresh") }}</el-button>
-        </div>
-
-        <ModelDynamicFilterPanel
-          :groups="queryGroups"
-          :active-query-datasource-type="activeQueryDatasourceType"
-          :query-schema-options="querySchemaOptions"
-          :actions="dynamicFilterActions"
-        />
-
-        <StudioTableShell min-width="1120px">
-          <el-table :data="models" border :empty-text="modelTableEmptyText">
-          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
-            <template #default="{ $index }">
-              {{ getPaginatedRowNumber(modelPagination, $index) }}
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('web.models.modelName')" min-width="180">
-            <template #default="{ row }">
-              <el-button link type="primary" @click.stop="openModelDetail(row)">{{ row.name }}</el-button>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('web.models.datasourceLabel')" min-width="180" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ resolveDatasourceLabel(row.datasourceId) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="所属项目" min-width="170">
-            <template #default="{ row }">
-              <div class="stack-cell">
-                <span>{{ resolveProjectLabel(row.projectId) }}</span>
-                <span class="cell-subtle">{{ isSharedModel(row) ? "共享来源" : "当前项目" }}</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('web.models.kind')" width="120" align="center" header-align="center">
-            <template #default="{ row }">
-              {{ formatModelKind(t, row.modelKind) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="physicalLocator" :label="t('web.models.physicalLocator')" min-width="220" show-overflow-tooltip />
-        <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
-            <template #default="{ row }">
-              <OverflowActionGroup :items="buildModelActions(row)" />
-            </template>
-          </el-table-column>
-          </el-table>
-        </StudioTableShell>
-        <div class="table-pagination">
-          <el-pagination
-            v-model:current-page="modelPagination.page"
-            v-model:page-size="modelPagination.pageSize"
-            background
-            layout="total, sizes, prev, pager, next"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="modelPagination.total"
-            @current-change="handleModelPageChange"
-            @size-change="handleModelPageSizeChange"
+          <ModelListPanel
+            v-model:datasource-type="selectedDatasourceType"
+            v-model:datasource-id="selectedDatasourceId"
+            :query-datasource-types="queryDatasourceTypes"
+            :datasource-options="filteredDatasourceOptions"
+            :current-project-id="authStore.currentProjectId"
+            :query-groups="queryGroups"
+            :active-query-datasource-type="activeQueryDatasourceType"
+            :query-schema-options="querySchemaOptions"
+            :dynamic-filter-actions="dynamicFilterActions"
+            :models="models"
+            :pagination="modelPagination"
+            :empty-text="modelTableEmptyText"
+            :actions="modelListActions"
           />
-        </div>
-          </SectionCard>
         </el-tab-pane>
 
         <el-tab-pane label="模型同步任务" name="sync-tasks">
@@ -232,17 +152,16 @@ import type {
   ModelKind,
   ModelSyncTaskView,
 } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
+import { StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import ModelDetailOverview from "@/components/models/ModelDetailOverview.vue";
-import ModelDynamicFilterPanel from "@/components/models/ModelDynamicFilterPanel.vue";
 import ModelEditorDrawer from "@/components/models/ModelEditorDrawer.vue";
+import ModelListPanel from "@/components/models/ModelListPanel.vue";
 import ModelSyncDialogs from "@/components/models/ModelSyncDialogs.vue";
 import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState, ModelSyncFormState, ModelSyncTaskFormState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
-import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
   getBusinessMetaModelRows,
@@ -251,7 +170,7 @@ import {
   setBusinessMetaModelRows,
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
-import { cloneDeep, formatModelKind, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { cloneDeep, isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const DATABASE_TYPE_HINTS = [
   "mysql",
@@ -430,6 +349,22 @@ const dynamicFilterActions: ModelDynamicFilterActions = {
   setQueryConditionValueTo,
   isNumericQueryField,
   removeQueryCondition,
+};
+const modelListActions = {
+  handleDatasourceTypeChange,
+  handleDatasourceChange,
+  openCreateDialog,
+  openSyncDialog,
+  rebuildQueryIndex,
+  openStatisticsWorkspace: () => openStatisticsWorkspace(),
+  refreshModels,
+  openModelDetail,
+  resolveDatasourceLabel,
+  resolveProjectLabel,
+  isSharedModel,
+  buildModelActions,
+  handleModelPageChange,
+  handleModelPageSizeChange,
 };
 const syncTaskSectionActions = {
   handleDatasourceTypeChange: handleSyncTaskDatasourceTypeChange,
@@ -1895,14 +1830,6 @@ p {
   color: var(--studio-text-soft);
 }
 
-.models-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
 .index-queue-card {
   min-width: 280px;
   max-width: 360px;
@@ -1948,10 +1875,6 @@ p {
   gap: 12px;
 }
 
-.models-toolbar__filter {
-  min-width: 280px;
-}
-
 .detail-toolbar {
   display: flex;
   align-items: center;
@@ -1966,23 +1889,6 @@ p {
   gap: 8px;
 }
 
-.stack-cell {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.cell-subtle {
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
-.table-pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
 .model-detail-tabs :deep(.el-tabs__header) {
   margin-bottom: 18px;
 }
@@ -1992,10 +1898,6 @@ p {
 }
 
 @media (max-width: 980px) {
-  .models-toolbar__filter {
-    min-width: 100%;
-  }
-
   .index-queue-card {
     min-width: 100%;
     max-width: none;
@@ -2011,10 +1913,6 @@ p {
   }
 
   .detail-toolbar__actions {
-    justify-content: flex-start;
-  }
-
-  .table-pagination {
     justify-content: flex-start;
   }
 

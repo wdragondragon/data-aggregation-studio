@@ -714,3 +714,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - `ModelsView.vue` 仍有列表表格、查询组装、schema/元数据 helper、详情路由和保存逻辑，后续应继续按职责拆分，避免按 800 行做机械切割。
 - 下一步：提交 Batch 16；继续处理模型列表面板或转向下一个大页面的清晰 section。
+
+## Step 034 - Batch 17 拆分模型列表面板
+
+- 执行时间：2026-05-25 04:04:36 +08:00
+- 目标问题：`ModelsView.vue` 的模型列表页签仍同时承载筛选工具条、动态筛选面板、表格列、分页和动作渲染，列表展示职责与查询构造、详情路由、编辑保存逻辑混在同一文件。
+- 修改范围：新增 `ModelListPanel.vue` 承载模型列表工具条、动态筛选面板挂载、模型表格、分页和列表局部样式；父页面保留查询条件归一、数据加载、动作实现和路由跳转，并通过 `modelListActions` 注入；从父页面移除列表表格相关 UI import 和样式。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/ModelListPanel.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型列表数据、数据源筛选、动态筛选条件、序号、模型名称跳转、数据源/项目/类型/物理位置列、操作下拉和分页行为保持不变；本步骤只迁移展示组件。`ModelsView.vue` 从 1864 行降到 1771 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 模型中心父页面还保留大量 schema/元数据 helper 和详情路由编排；这些更偏业务组合逻辑，后续应优先抽 composable，而不是继续只拆模板。
+- 下一步：提交 Batch 17；继续评估模型中心 schema/元数据 helper 是否适合抽 composable，或转向质量/工作流编辑器大页面。
