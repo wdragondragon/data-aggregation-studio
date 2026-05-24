@@ -13,6 +13,7 @@ import java.util.Set;
 class CollectionTaskRuntimeOptionMerger {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Object SKIP_VALUE = new Object();
 
     void merge(Map<String, Object> config,
                Map<String, Object> runtimeOptions,
@@ -42,7 +43,7 @@ class CollectionTaskRuntimeOptionMerger {
                 continue;
             }
             Object value = normalizeRuntimeOptionValue(key, entry.getValue(), preserveStringKeys);
-            if (value == null) {
+            if (value == SKIP_VALUE) {
                 continue;
             }
             configuration.set(key.trim(), value);
@@ -83,14 +84,14 @@ class CollectionTaskRuntimeOptionMerger {
         }
         String text = ((String) value).trim();
         if (text.isEmpty()) {
-            return null;
+            return SKIP_VALUE;
         }
         if (!(text.startsWith("{") || text.startsWith("["))) {
             return value;
         }
         try {
             return OBJECT_MAPPER.readValue(text, Object.class);
-        } catch (Exception ignored) {
+        } catch (Exception parseFailure) {
             return value;
         }
     }

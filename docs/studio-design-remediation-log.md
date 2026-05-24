@@ -235,3 +235,23 @@
   - Surefire 结束时仍提示 fork JVM 退出超时，但 Maven 构建成功。
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断测试。
 - 下一步：暂存 Studio 范围改动并提交 Batch 0 基线，然后进入 Batch 1 静态债务门禁下降。
+
+## Step 012 - Batch 1 收紧静态设计债务门禁
+
+- 执行时间：2026-05-24 19:24:20 +08:00
+- 目标问题：将设计债务门禁从“不可增加”推进到当前实际值，并清理本轮新增/触达代码中的无语义空值和 ignored catch。
+- 修改范围：`CollectionTaskRuntimeOptionMerger` 使用内部 sentinel 表达“跳过空白运行参数值”，避免新增 `return null;`；JSON 解析失败 catch 改为带语义变量名；`StudioDesignDebtRegressionTest` 阈值收紧到当前实际计数。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskRuntimeOptionMerger.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：空白运行参数仍会被跳过，非法 JSON 字符串仍按原字符串保留；reader/writer config 输出语义不变。
+- 验证命令与结果：
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
+  - 静态实际计数：backend `catch ignored` 24，backend `return null;` 221，旧表格 wrapper 0；大 Java 文件 14，大 Vue 文件 13。
+- 失败、阻塞或残余风险：
+  - 历史 `return null;` 和 `catch ignored` 仍存在，本批仅降低并锁住当前可验证基线。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断测试。
+- 下一步：提交 Batch 1，然后进入采集任务装配服务策略拆分。

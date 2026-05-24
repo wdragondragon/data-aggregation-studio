@@ -12,6 +12,7 @@
 - 拆分采集任务装配运行参数合并逻辑：新增 `CollectionTaskRuntimeOptionMerger`，从 `CollectionTaskAssemblerService` 中抽离运行参数合并、点路径写入、保留字段过滤和 JSON 字符串保留逻辑，`assemble` 对外入口和任务 JSON 输出不变。
 - 抽取元模型配置 description 工具：新增 `MetaModelConfigDescriptions`，让 `MetadataSchemaService` 和 `StandardRuntimeOptionSchemaBootstrapService` 复用 `META_MODEL_CONFIG:` 编解码逻辑，保持原 description 格式兼容。
 - 清理新增代码中的错误/空值坏味道：修复元模型配置工具首版新增的 `return null;` 静态债务，并将 `catch ignored` 改为带语义变量和降级说明的写法。
+- Batch 1 继续降低静态债务门禁：`catch ignored` 阈值收紧到 24，`return null;` 阈值收紧到 221，旧表格 wrapper 阈值收紧到 0。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -30,6 +31,7 @@
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=StudioSchemaDriftRegressionTest,StudioInitializationApiRegressionTest,StudioDesignDebtRegressionTest" test`：最终通过，18 tests，0 failures，0 errors；中间曾因新增 `return null;` 触发设计债务门禁失败，已记录并修复。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" test`：通过，4 tests，0 failures，0 errors。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
 - 旧表格 wrapper 搜索：无命中。
 - 前端硬编码 `target-type="..."` 搜索：无命中。
