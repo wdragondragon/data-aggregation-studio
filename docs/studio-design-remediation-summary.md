@@ -15,13 +15,17 @@
 - Batch 1 继续降低静态债务门禁：`catch ignored` 阈值收紧到 24，`return null;` 阈值收紧到 221，旧表格 wrapper 阈值收紧到 0。
 - Batch 2 拆分采集任务装配策略：`CollectionTaskAssemblerService` 保留 facade，对内拆出 `CollectionTaskFieldMappingResolver`、`CollectionTaskFileConfigSupport`、`CollectionTaskHttpConfigSupport`，主类从 1150 行降到 418 行，reader/writer 任务 JSON 契约不变。
 - Batch 3 拆分 schema/metadata 结构：新增 `StudioDatabaseDialectDetector`、`StudioSchemaIntrospector`、`StudioDatasourceCapabilityUpgradeSupport`、`TechnicalMetadataFieldBuilder`，`MetadataSchemaService` 从 1063 行降到 624 行，`StudioSchemaUpgradeService` 从 2401 行降到 2050 行。
-- 静态门禁继续下降：后端大 Java 文件阈值从 14 收紧到 12。
+- Batch 4 拆分 DataService 内部支撑：新增 `DataServiceInvocationSupport`、`DataServiceParamSupport`、`DataServiceAccessLogSupport`、`DataServiceTokenSupport`，`DataServiceService` 从约 1097 行降到 719 行。
+- Batch 4 降低边缘大文件：抽出 `QualityIssueSeveritySupport`、`DataModelDefaultValueSupport`、`WorkflowRunStatusSupport`，`QualityIssueService`、`DataModelService`、`WorkflowRunService` 均移出 800 行大文件清单。
+- Batch 4 拆分指标支撑：新增 `DataServiceMetricViewSupport` 和 `QualityMetricCalculationSupport`，`DataServiceMetricsService` 降到 763 行，`QualityMetricsService` 降到 698 行。
+- Batch 4 拆分模型统计支撑：新增 `DataModelStatisticsSupport`，`DataModelStatisticsService` 降到 776 行。
+- 静态门禁继续下降：后端大 Java 文件阈值从 14 收紧到 5，后端 main `return null;` 阈值从 221 收紧到 218，后端 `catch ignored` 阈值从 24 收紧到 23。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
 
 - 安全问题按用户要求暂不处理，包括认证、越权、SSRF、密钥泄露、文件路径安全等。
-- 巨型 Service 和巨型 Vue 页面没有一次性完全拆完。本轮优先拆了风险较低、测试保护较强的运行参数合并器、采集任务装配策略、schema/metadata helper、HTTP 编辑器子组件和元模型 description 工具；`StudioSchemaUpgradeService` 剩余建表块、`DataServiceService`、`DataModelLineageService`、质量服务、采集任务编辑页等仍建议后续按测试保护分批拆。
+- 巨型 Service 和巨型 Vue 页面没有一次性完全拆完。本轮优先拆了风险较低、测试保护较强的运行参数合并器、采集任务装配策略、schema/metadata helper、DataService 支撑组件、HTTP 编辑器子组件和元模型 description 工具；`StudioSchemaUpgradeService` 剩余建表块、`DataModelLineageService`、质量服务、采集任务编辑页等仍建议后续按测试保护分批拆。
 - 后端历史 `catch ignored`、`return null;`、大文件数量仍存在，本轮通过静态门禁确保不再增加，并清理本轮新增代码的坏味道；历史债务建议单独排期。
 - 前端 composable 体系如 `usePageQuery`、`useAsyncAction`、`useTableSelection`、`useDialogForm` 尚未全面落地，当前以表格壳、常量收敛和局部组件拆分为主。
 - 数据质量动态函数、HTTP 动态函数弹窗本体仍可继续拆为独立 dialog 组件；本轮先拆出键值表、Raw 编辑区和 Token 子表。
@@ -34,6 +38,10 @@
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=StudioSchemaDriftRegressionTest,StudioInitializationApiRegressionTest,StudioDesignDebtRegressionTest" test`：最终通过，18 tests，0 failures，0 errors；中间曾因新增 `return null;` 触发设计债务门禁失败，已记录并修复。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" test`：通过，4 tests，0 failures，0 errors。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors；Batch 4 后门禁收紧到后端大 Java 文件 11、后端 main `return null;` 218。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,WorkflowRunPaginationRegressionTest,DataModelStatisticsRegressionTest,QualityTaskScheduleRunnerRegressionTest" "-DforkCount=0" test`：通过，18 tests，0 failures，0 errors；边缘大文件拆分后门禁收紧到后端大 Java 文件 8、后端 `catch ignored` 23。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,RunMetricsApiRegressionTest,DataModelStatisticsRegressionTest" "-DforkCount=0" test`：通过，16 tests，0 failures，0 errors；指标支撑拆分后后端大 Java 文件实际数量为 6。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,DataModelStatisticsRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors；模型统计拆分后后端大 Java 文件实际数量为 5。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -50,6 +58,6 @@
 - Batch 1：继续把设计债务门禁从“不可增加”推进到“逐步下降”，每批清理一类历史 `catch ignored` 或 `return null;`，并为业务链路补明确异常/空集合/Optional 语义。
 - Batch 2：已完成采集任务装配策略拆分；后续若新增源端/目标端，优先在现有 helper/strategy 边界扩展，不再回填到 facade。
 - Batch 3：已完成方言探测、schema introspector、datasource capability 升级 support 和技术元模型字段 builder 拆分；后续可继续把 `StudioSchemaUpgradeService` 的质量表、数据服务表 MySQL/SQLite 建表块拆出。
-- Batch 4：拆 `DataServiceService`、`DataModelLineageService` 和质量服务的查询、聚合、DTO 组装逻辑；每拆一组先补回归测试。
+- Batch 4：`DataServiceService`、`QualityIssueService`、`DataModelService`、`WorkflowRunService`、`QualityMetricsService`、`DataServiceMetricsService`、`DataModelStatisticsService` 已降到 800 行以下；继续拆 `DataModelLineageService`、`CollectionTaskService`、`SystemManagementService` 等剩余大类时，每拆一组先补回归测试。
 - Batch 5：继续前端大页面治理，优先拆采集任务编辑、质量任务编辑、工作流编辑、模型中心为 composable + section components，并推广 `usePageQuery`、`useAsyncAction`、`useDialogForm`。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

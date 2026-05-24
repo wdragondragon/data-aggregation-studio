@@ -313,3 +313,116 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
   - `StudioSchemaUpgradeService` 仍有 2050 行，质量表和数据服务表建表块尚未进一步拆分，留到后续批次继续降债。
 - 下一步：提交 Batch 3，然后进入 DataService、Lineage、Quality 服务内部拆分。
+
+## Step 015 - Batch 4 修复 DataService 调用支撑拆分编译
+
+- 执行时间：2026-05-24 23:23:39 +08:00
+- 目标问题：继续拆分 `DataServiceService`，将数据服务调用计划、分页归一化、参数校验、响应拼装等低层逻辑从 facade 中移出，同时修复中途掉线留下的半成品编译问题。
+- 修改范围：新增 `DataServiceInvocationSupport` 承载调用计划和通用校验/转换逻辑；`DataServiceService` 接入 support 字段，移除已迁移的正则和分页常量；恢复 `DataServiceExecutionResult` 内部结果对象。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceInvocationSupport.java`
+  - `docs/studio-design-remediation-log.md`
+- 行为兼容说明：`DataServiceService` 对外方法、公开 DTO、openapi 返回结构、缓存命中语义、访问日志和任务 JSON 均不改变；本步骤只移动内部实现位置。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：第一次失败，`DataServiceExecutionResult` 内部类型在拆分中丢失。
+  - 修复后重跑 `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+- 失败、阻塞或残余风险：
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译。
+  - 本步骤只恢复 DataService 拆分后的编译，尚未运行 DataService 定向回归。
+  - `DataServiceService` 仍超过 800 行，后续需要继续抽取订阅/日志/视图组装等内部组件。
+- 下一步：继续拆 DataService 剩余职责并运行 DataService/设计债务定向测试。
+
+## Step 016 - Batch 4 拆分 DataService 参数、日志和 token 支撑
+
+- 执行时间：2026-05-24 23:59:43 +08:00
+- 目标问题：`DataServiceService` 仍混合参数默认值/归一化/持久化、访问日志计数、token 生成与脱敏，单类超过 800 行，后续修改数据服务定义或调用统计时容易互相影响。
+- 修改范围：新增 `DataServiceParamSupport`、`DataServiceAccessLogSupport`、`DataServiceTokenSupport`；`DataServiceService` 保留 facade 和事务边界，内部改为委托参数、日志、token support；设计债务门禁同步收紧。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceParamSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceAccessLogSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceTokenSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+- 行为兼容说明：数据服务保存、发布、订阅 token、openapi 调用、缓存、访问日志和计数器的字段与返回结构保持不变；仅移动内部职责边界。`DataServiceService` 从约 1097 行降到 719 行。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors。
+  - 后端大 Java 文件实际数量：11，门禁从 12 收紧到 11。
+  - 后端 main `return null;` 实际数量：218，门禁从 221 收紧到 218。
+- 失败、阻塞或残余风险：
+  - 目前没有单独的数据服务保存/调用回归测试类，本步骤先以编译和静态门禁兜底；后续如继续拆 DataService 指标/调用链，建议补专用 API 回归。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+- 下一步：继续 Batch 4，优先处理 `DataModelLineageService`、`QualityMetricsService`、`QualityIssueService` 中可低风险抽出的查询/DTO 组装逻辑。
+
+## Step 017 - Batch 4 降低边缘大文件并收紧门禁
+
+- 执行时间：2026-05-25 00:27:28 +08:00
+- 目标问题：部分 Service 只是略超 800 行，但长期留在“大文件”清单中会稀释门禁信号；优先用低风险 helper 抽取把边缘文件移出清单。
+- 修改范围：抽出质量问题严重度排序、模型默认值解析、工作流运行状态归一化 helper；`QualityIssueService`、`DataModelService`、`WorkflowRunService` 不再超过 800 行；设计债务门禁继续收紧。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/QualityIssueService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/QualityIssueSeveritySupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelDefaultValueSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowRunService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowRunStatusSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+- 行为兼容说明：质量问题排序权重、模型元数据默认值转换、工作流运行状态过滤仍沿用原逻辑；只移动内部 helper，不改接口和返回字段。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,WorkflowRunPaginationRegressionTest,DataModelStatisticsRegressionTest,QualityTaskScheduleRunnerRegressionTest" "-DforkCount=0" test`：通过，18 tests，0 failures，0 errors。
+  - 后端大 Java 文件实际数量：8，门禁从 11 收紧到 8。
+  - 后端 main `catch ignored` 实际数量：23，门禁从 24 收紧到 23。
+- 失败、阻塞或残余风险：
+  - Redis 不可达仍触发现有本地缓存降级日志，未造成测试失败。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+  - 本步骤只处理边缘大文件；`DataModelLineageService`、`QualityMetricsService`、`DataServiceMetricsService` 等核心大类仍在清单中。
+- 下一步：继续 Batch 4，处理质量指标或血缘服务中测试保护较强的内部组装逻辑。
+
+## Step 018 - Batch 4 拆分指标计算和视图支撑
+
+- 执行时间：2026-05-25 01:01:18 +08:00
+- 目标问题：`DataServiceMetricsService` 与 `QualityMetricsService` 同时承载指标查询、统计计算、分页/排行和 DTO 转换，类体偏大且计算逻辑分散。
+- 修改范围：新增 `DataServiceMetricViewSupport` 承载数据服务指标分页、排行截断、百分位/比例计算、访问日志视图转换和服务快照取值；新增 `QualityMetricCalculationSupport` 承载质量指标健康分、治理风险、活跃问题、资产 key、严重度和最新记录等计算。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceMetricsService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceMetricViewSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/QualityMetricsService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/QualityMetricCalculationSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+- 行为兼容说明：数据服务指标 API、运行指标 API、质量看板计算口径、返回字段和分页语义保持不变；仅将原私有 helper 移入包内支撑类。`DataServiceMetricsService` 降到 763 行，`QualityMetricsService` 降到 698 行。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,RunMetricsApiRegressionTest,DataModelStatisticsRegressionTest" "-DforkCount=0" test`：通过，16 tests，0 failures，0 errors。
+  - 后端大 Java 文件实际数量：6，门禁保持 6。
+  - 后端 main `catch ignored` 实际数量：23，`return null;` 实际数量：218，门禁保持当前值。
+- 失败、阻塞或残余风险：
+  - Redis 不可达仍触发现有本地缓存降级日志，未造成测试失败。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+  - 仍有 6 个后端大文件，其中 `StudioSchemaUpgradeService` 与 `DataModelLineageService` 体量最大，需要更强测试保护再继续深拆。
+- 下一步：继续 Batch 4，评估 `DataModelStatisticsService` 或 `CollectionTaskService` 的低风险拆分点，随后提交 Batch 4。
+
+## Step 019 - Batch 4 拆分模型统计请求和值处理支撑
+
+- 执行时间：2026-05-25 01:18:43 +08:00
+- 目标问题：`DataModelStatisticsService` 同时处理统计请求归一化、目标 schema 判断、桶值转换和统计聚合，类体略超 800 行。
+- 修改范围：新增 `DataModelStatisticsSupport` 承载统计请求归一化、目标 schema group 判断、桶值解析和数字格式归一化；`DataModelStatisticsService` 保留统计编排和 bucket 计算主体。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelStatisticsService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelStatisticsSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+- 行为兼容说明：模型统计 API、目标字段校验、bucket 输出、summaryMetrics 字段和自动分桶口径保持不变；只移动请求和值处理 helper。`DataModelStatisticsService` 降到 776 行。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,DataModelStatisticsRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
+  - 后端大 Java 文件实际数量：5，门禁从 6 收紧到 5。
+- 失败、阻塞或残余风险：
+  - Redis 不可达仍触发现有本地缓存降级日志，未造成测试失败。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+  - 剩余大文件为 schema 升级、血缘、系统管理、采集任务 Service 和 source capability provider，后续需要按领域继续分批处理。
+- 下一步：对 Batch 4 当前稳定改动执行 `git diff --check` 并提交，再进入后续前端 composable/HTTP 编辑器收口或继续后端剩余大类拆分。

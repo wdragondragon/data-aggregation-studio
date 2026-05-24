@@ -40,6 +40,7 @@ public class WorkflowRunService {
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final StudioSecurityService securityService;
     private final StaleExecutionRecoveryService staleExecutionRecoveryService;
+    private final WorkflowRunStatusSupport statusSupport = new WorkflowRunStatusSupport();
 
     public WorkflowRunService(RunRecordMapper runRecordMapper,
                               DispatchTaskMapper dispatchTaskMapper,
@@ -71,7 +72,7 @@ public class WorkflowRunService {
         if (safePageSize > 200) {
             safePageSize = 200;
         }
-        String normalizedStatus = normalizeSummaryStatus(status);
+        String normalizedStatus = statusSupport.normalizeSummaryStatus(status);
         if (normalizedStatus != null) {
             return listBySummaryStatus(workflowDefinitionId, normalizedStatus, startTime, endTime, safePageNo, safePageSize);
         }
@@ -772,17 +773,6 @@ public class WorkflowRunService {
             return summary.getSuccessNodes() + "/" + summary.getTotalNodes() + " node(s) completed";
         }
         return "No node execution records";
-    }
-
-    private String normalizeSummaryStatus(String status) {
-        if (!hasText(status)) {
-            return null;
-        }
-        return status.trim().toUpperCase();
-    }
-
-    private boolean hasText(String value) {
-        return value != null && value.trim().length() > 0;
     }
 
     private String extractNodeType(RunRecordEntity record) {

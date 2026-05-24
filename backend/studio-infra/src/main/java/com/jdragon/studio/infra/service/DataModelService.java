@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
-import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataModelDefinition;
@@ -24,7 +23,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -54,6 +52,7 @@ public class DataModelService {
     private final ProjectResourceAccessService projectResourceAccessService;
     private final DataModelAccessScopeService dataModelAccessScopeService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+    private final DataModelDefaultValueSupport defaultValueSupport = new DataModelDefaultValueSupport();
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
@@ -772,7 +771,7 @@ public class DataModelService {
             if (output.containsKey(field.getFieldKey())) {
                 continue;
             }
-            Object defaultValue = parseDefaultValue(field);
+            Object defaultValue = defaultValueSupport.parseDefaultValue(field);
             if (defaultValue != null) {
                 output.put(field.getFieldKey(), defaultValue);
             }
@@ -780,31 +779,5 @@ public class DataModelService {
         return output;
     }
 
-    private Object parseDefaultValue(MetadataFieldDefinition field) {
-        String defaultValue = field.getDefaultValue();
-        if (defaultValue == null || defaultValue.trim().isEmpty()) {
-            return null;
-        }
-        FieldValueType valueType = field.getValueType();
-        if (valueType == null) {
-            return defaultValue;
-        }
-        try {
-            switch (valueType) {
-                case BOOLEAN:
-                    return Boolean.parseBoolean(defaultValue);
-                case INTEGER:
-                    return Integer.parseInt(defaultValue);
-                case LONG:
-                    return Long.parseLong(defaultValue);
-                case DECIMAL:
-                    return new BigDecimal(defaultValue);
-                default:
-                    return defaultValue;
-            }
-        } catch (Exception ignored) {
-            return defaultValue;
-        }
-    }
 }
 

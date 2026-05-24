@@ -9,7 +9,6 @@ import com.jdragon.studio.dto.model.DataModelStatisticsBucketView;
 import com.jdragon.studio.dto.model.DataModelStatisticsView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
-import com.jdragon.studio.dto.model.request.DataModelQueryCondition;
 import com.jdragon.studio.dto.model.request.DataModelQueryGroup;
 import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsBucketConfig;
@@ -45,6 +44,7 @@ public class DataModelStatisticsService {
     private final DataModelSearchIndexService dataModelSearchIndexService;
     private final DataModelAccessScopeService dataModelAccessScopeService;
     private final StudioSecurityService securityService;
+    private final DataModelStatisticsSupport statisticsSupport = new DataModelStatisticsSupport();
 
     public DataModelStatisticsService(DataModelAttrIndexMapper indexMapper,
                                       MetadataSchemaService metadataSchemaService,
@@ -77,12 +77,12 @@ public class DataModelStatisticsService {
         requireSupportedTargetField(targetSchema, targetField, targetScope);
         String statType = resolveStatType(targetField, request.getStatType());
 
-        DataModelQueryRequest normalizedRequest = normalizeRequest(request);
+        DataModelQueryRequest normalizedRequest = statisticsSupport.normalizeRequest(request);
         List<DataModelQueryGroup> groups = normalizedRequest.getGroups();
 
         Set<Long> matchedModelIds;
         Set<DataModelMatchUnit> matchedUnits = new LinkedHashSet<DataModelMatchUnit>();
-        boolean hasTargetSchemaGroup = hasTargetSchemaGroup(groups, targetSchema.getSchemaCode());
+        boolean hasTargetSchemaGroup = statisticsSupport.hasTargetSchemaGroup(groups, targetSchema.getSchemaCode());
         if (groups.isEmpty()) {
             matchedModelIds = dataModelAccessScopeService.listAccessibleModelIds(request.getDatasourceId(), request.getModelKind());
         } else {
@@ -285,7 +285,7 @@ public class DataModelStatisticsService {
         Set<String> distinctValues = new LinkedHashSet<String>();
         if (rows != null) {
             for (DataModelAttrIndexEntity row : rows) {
-                String bucketValue = resolveBucketValue(row);
+                String bucketValue = statisticsSupport.resolveBucketValue(row);
                 if (!bucketValue.isEmpty()) {
                     distinctValues.add(bucketValue);
                 }
@@ -335,7 +335,7 @@ public class DataModelStatisticsService {
         Map<String, Long> counters = new LinkedHashMap<String, Long>();
         if (rows != null) {
             for (DataModelAttrIndexEntity row : rows) {
-                String value = resolveBucketValue(row);
+                String value = statisticsSupport.resolveBucketValue(row);
                 if (value.isEmpty()) {
                     continue;
                 }
@@ -525,7 +525,7 @@ public class DataModelStatisticsService {
                     max = value;
                 }
                 count++;
-                distinctValues.add(normalizeNumber(value));
+                distinctValues.add(statisticsSupport.normalizeNumber(value));
             }
         }
         return new NumericValueStats(min, max, count, distinctValues.size());
@@ -676,65 +676,6 @@ public class DataModelStatisticsService {
         summaryMetrics.put("effectiveBucketCount", (long) bucketPlan.bucketCount);
     }
 
-    private DataModelQueryRequest normalizeRequest(DataModelStatisticsRequest request) {
-        DataModelQueryRequest normalized = new DataModelQueryRequest();
-        normalized.setDatasourceId(request.getDatasourceId());
-        normalized.setModelKind(request.getModelKind());
-        normalized.setGroups(normalizeQueryGroups(request.getGroups()));
-        return normalized;
-    }
-
-    private List<DataModelQueryGroup> normalizeQueryGroups(List<DataModelQueryGroup> groups) {
-        List<DataModelQueryGroup> normalized = new ArrayList<DataModelQueryGroup>();
-        if (groups == null) {
-            return normalized;
-        }
-        for (DataModelQueryGroup group : groups) {
-            if (group == null || group.getMetaSchemaCode() == null || group.getMetaSchemaCode().trim().isEmpty()) {
-                continue;
-            }
-            DataModelQueryGroup copied = new DataModelQueryGroup();
-            copied.setScope(group.getScope());
-            copied.setMetaSchemaCode(group.getMetaSchemaCode().trim());
-            copied.setRowMatchMode(group.getRowMatchMode());
-            List<DataModelQueryCondition> conditions = new ArrayList<DataModelQueryCondition>();
-            if (group.getConditions() != null) {
-                for (DataModelQueryCondition condition : group.getConditions()) {
-                    if (condition == null || condition.getFieldKey() == null || condition.getFieldKey().trim().isEmpty()) {
-                        continue;
-                    }
-                    if ((condition.getValue() == null || String.valueOf(condition.getValue()).trim().isEmpty())
-                            && (condition.getValues() == null || condition.getValues().isEmpty())) {
-                        continue;
-                    }
-                    DataModelQueryCondition copiedCondition = new DataModelQueryCondition();
-                    copiedCondition.setFieldKey(condition.getFieldKey().trim());
-                    copiedCondition.setOperator(condition.getOperator());
-                    copiedCondition.setValue(condition.getValue());
-                    copiedCondition.setValues(condition.getValues());
-                    conditions.add(copiedCondition);
-                }
-            }
-            if (!conditions.isEmpty()) {
-                copied.setConditions(conditions);
-                normalized.add(copied);
-            }
-        }
-        return normalized;
-    }
-
-    private boolean hasTargetSchemaGroup(List<DataModelQueryGroup> groups, String targetMetaSchemaCode) {
-        if (groups == null || groups.isEmpty() || targetMetaSchemaCode == null || targetMetaSchemaCode.trim().isEmpty()) {
-            return false;
-        }
-        for (DataModelQueryGroup group : groups) {
-            if (group != null && targetMetaSchemaCode.equalsIgnoreCase(group.getMetaSchemaCode())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private String defaultStatType(MetadataFieldDefinition targetField) {
         return isNumericField(targetField) ? STAT_SUMMARY : STAT_COUNT_BY_VALUE;
     }
@@ -745,36 +686,6 @@ public class DataModelStatisticsService {
                 || valueType == FieldValueType.INTEGER
                 || valueType == FieldValueType.LONG
                 || valueType == FieldValueType.DECIMAL;
-    }
-
-    private String resolveBucketValue(DataModelAttrIndexEntity row) {
-        if (row == null) {
-            return "";
-        }
-        if (row.getNumberValue() != null) {
-            return normalizeNumber(row.getNumberValue());
-        }
-        if (row.getBoolValue() != null) {
-            return row.getBoolValue().intValue() == 0 ? "false" : "true";
-        }
-        if (row.getKeywordValue() != null && !row.getKeywordValue().trim().isEmpty()) {
-            return row.getKeywordValue().trim();
-        }
-        if (row.getRawValue() != null && !row.getRawValue().trim().isEmpty()) {
-            return row.getRawValue().trim();
-        }
-        return "";
-    }
-
-    private String normalizeNumber(BigDecimal value) {
-        if (value == null) {
-            return "";
-        }
-        BigDecimal normalized = value.stripTrailingZeros();
-        if (normalized.scale() < 0) {
-            normalized = normalized.setScale(0, RoundingMode.UNNECESSARY);
-        }
-        return normalized.toPlainString();
     }
 
     private static class NumericBucketPlan {

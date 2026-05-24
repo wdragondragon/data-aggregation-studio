@@ -27,7 +27,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,6 +50,7 @@ public class DataServiceMetricsService {
     private final DataServiceSubscriptionMapper subscriptionMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final DataServiceMetricViewSupport metricViewSupport = new DataServiceMetricViewSupport();
 
     public DataServiceMetricsService(DataServiceAccessLogMapper accessLogMapper,
                                      DataServiceAccessCounterMapper accessCounterMapper,
@@ -95,7 +95,7 @@ public class DataServiceMetricsService {
                 .in(DataServiceSubscriptionEntity::getServiceId, serviceIds)
                 .orderByAsc(DataServiceSubscriptionEntity::getSubscriptionName)
                 .orderByDesc(DataServiceSubscriptionEntity::getId));
-        Map<Long, DataServiceDefinitionEntity> serviceMap = toServiceMap(services);
+        Map<Long, DataServiceDefinitionEntity> serviceMap = metricViewSupport.toServiceMap(services);
         for (DataServiceSubscriptionEntity subscription : subscriptions) {
             DataServiceDefinitionEntity service = serviceMap.get(subscription.getServiceId());
             DataServiceMetricOptionView item = new DataServiceMetricOptionView();
@@ -131,13 +131,13 @@ public class DataServiceMetricsService {
         apiMetrics.sort(Comparator.comparing(DataServiceApiMetricView::getP95ResponseTimeMs, Comparator.nullsFirst(Long::compareTo))
                 .thenComparing(DataServiceApiMetricView::getMaxResponseTimeMs, Comparator.nullsFirst(Long::compareTo))
                 .reversed());
-        view.setTopSlowApis(limit(apiMetrics, context.topN));
+        view.setTopSlowApis(metricViewSupport.limit(apiMetrics, context.topN));
         List<DataServiceApiMetricView> failedMetrics = new ArrayList<DataServiceApiMetricView>(apiMetrics);
         failedMetrics.sort(Comparator.comparing(DataServiceApiMetricView::getFailureCount, Comparator.nullsFirst(Long::compareTo))
                 .thenComparing(DataServiceApiMetricView::getSuccessRate, Comparator.nullsLast(Double::compareTo))
                 .reversed());
-        view.setTopFailedApis(limit(failedMetrics, context.topN));
-        view.setSubscriptionRank(limit(buildSubscriptionMetrics(context.logs), context.topN));
+        view.setTopFailedApis(metricViewSupport.limit(failedMetrics, context.topN));
+        view.setSubscriptionRank(metricViewSupport.limit(buildSubscriptionMetrics(context.logs), context.topN));
         return view;
     }
 
@@ -147,7 +147,7 @@ public class DataServiceMetricsService {
         metrics.sort(Comparator.comparing(DataServiceApiMetricView::getAccessCount, Comparator.nullsFirst(Long::compareTo))
                 .thenComparing(DataServiceApiMetricView::getLastAccessAt, Comparator.nullsFirst(LocalDateTime::compareTo))
                 .reversed());
-        return pageList(metrics, context.pageNo, context.pageSize);
+        return metricViewSupport.pageList(metrics, context.pageNo, context.pageSize);
     }
 
     public PageView<DataServiceAccessLogView> queryAccessLogs(DataServiceMetricQueryRequest request) {
@@ -161,7 +161,7 @@ public class DataServiceMetricsService {
                 .orderByDesc(DataServiceAccessLogEntity::getId));
         List<DataServiceAccessLogView> items = new ArrayList<DataServiceAccessLogView>();
         for (DataServiceAccessLogEntity entity : entityPage.getRecords()) {
-            items.add(toAccessLogView(entity));
+            items.add(metricViewSupport.toAccessLogView(entity));
         }
         return PageView.of(context.pageNo, context.pageSize, entityPage.getTotal(), items);
     }
@@ -192,7 +192,7 @@ public class DataServiceMetricsService {
         }
         List<DataServiceDefinitionEntity> services = queryServices(safeRequest, context);
         context.services.addAll(services);
-        context.serviceMap.putAll(toServiceMap(services));
+        context.serviceMap.putAll(metricViewSupport.toServiceMap(services));
         for (DataServiceDefinitionEntity service : services) {
             context.serviceIds.add(service.getId());
         }
@@ -302,18 +302,18 @@ public class DataServiceMetricsService {
         summary.setAccessCount(Long.valueOf(total));
         summary.setSuccessCount(Long.valueOf(success));
         summary.setFailureCount(Long.valueOf(total - success));
-        summary.setSuccessRate(rate(success, total));
+        summary.setSuccessRate(metricViewSupport.rate(success, total));
         summary.setMinResponseTimeMs(minDuration == null ? Long.valueOf(0L) : minDuration);
         summary.setMaxResponseTimeMs(maxDuration == null ? Long.valueOf(0L) : maxDuration);
         summary.setAvgResponseTimeMs(total == 0 ? Long.valueOf(0L) : Long.valueOf(Math.round(sumDuration * 1.0D / total)));
-        summary.setP95ResponseTimeMs(percentile(durations, 95));
-        summary.setP99ResponseTimeMs(percentile(durations, 99));
+        summary.setP95ResponseTimeMs(metricViewSupport.percentile(durations, 95));
+        summary.setP99ResponseTimeMs(metricViewSupport.percentile(durations, 99));
         summary.setLastAccessAt(lastAccessAt);
         summary.setCacheEnabledCount(Long.valueOf(cacheEnabled));
         summary.setCacheHitCount(Long.valueOf(cacheHit));
         summary.setCacheMissCount(Long.valueOf(cacheMiss));
         summary.setCacheDisabledCount(Long.valueOf(cacheDisabled));
-        summary.setCacheHitRate(rate(cacheHit, cacheEnabled));
+        summary.setCacheHitRate(metricViewSupport.rate(cacheHit, cacheEnabled));
         summary.setCounterBacked(Boolean.FALSE);
         return summary;
     }
@@ -329,7 +329,7 @@ public class DataServiceMetricsService {
         summary.setAccessCount(Long.valueOf(total));
         summary.setSuccessCount(Long.valueOf(success));
         summary.setFailureCount(Long.valueOf(safeLong(counterSummary.getFailureCount())));
-        summary.setSuccessRate(rate(success, total));
+        summary.setSuccessRate(metricViewSupport.rate(success, total));
         summary.setMinResponseTimeMs(logSummary == null ? Long.valueOf(0L) : logSummary.getMinResponseTimeMs());
         summary.setMaxResponseTimeMs(logSummary == null ? Long.valueOf(0L) : logSummary.getMaxResponseTimeMs());
         summary.setAvgResponseTimeMs(logSummary == null ? Long.valueOf(0L) : logSummary.getAvgResponseTimeMs());
@@ -340,7 +340,7 @@ public class DataServiceMetricsService {
         summary.setCacheHitCount(Long.valueOf(cacheHit));
         summary.setCacheMissCount(Long.valueOf(safeLong(counterSummary.getCacheMissCount())));
         summary.setCacheDisabledCount(Long.valueOf(safeLong(counterSummary.getCacheDisabledCount())));
-        summary.setCacheHitRate(rate(cacheHit, cacheEnabled));
+        summary.setCacheHitRate(metricViewSupport.rate(cacheHit, cacheEnabled));
         summary.setCounterBacked(Boolean.TRUE);
         return summary;
     }
@@ -364,9 +364,9 @@ public class DataServiceMetricsService {
             DataServiceDefinitionEntity service = serviceMap.get(entry.getKey());
             DataServiceApiMetricView metric = buildApiMetric(entry.getValue());
             metric.setServiceId(entry.getKey());
-            metric.setServiceName(service == null ? firstString(entry.getValue(), true) : service.getServiceName());
-            metric.setServiceCode(service == null ? firstCode(entry.getValue()) : service.getServiceCode());
-            metric.setStatus(service == null ? firstStatus(entry.getValue()) : service.getStatus());
+            metric.setServiceName(service == null ? metricViewSupport.firstString(entry.getValue(), true) : service.getServiceName());
+            metric.setServiceCode(service == null ? metricViewSupport.firstCode(entry.getValue()) : service.getServiceCode());
+            metric.setStatus(service == null ? metricViewSupport.firstStatus(entry.getValue()) : service.getStatus());
             result.add(metric);
         }
         return result;
@@ -558,8 +558,8 @@ public class DataServiceMetricsService {
             }
             avgSeries.getData().add(durations.isEmpty() ? Long.valueOf(0L) : Long.valueOf(Math.round(sum * 1.0D / durations.size())));
             maxSeries.getData().add(Long.valueOf(max));
-            p95Series.getData().add(percentile(durations, 95));
-            p99Series.getData().add(percentile(durations, 99));
+            p95Series.getData().add(metricViewSupport.percentile(durations, 95));
+            p99Series.getData().add(metricViewSupport.percentile(durations, 99));
         }
         trend.getSeries().add(avgSeries);
         trend.getSeries().add(maxSeries);
@@ -592,7 +592,7 @@ public class DataServiceMetricsService {
                     }
                 }
             }
-            rateSeries.getData().add(Long.valueOf(Math.round(rate(success, total))));
+            rateSeries.getData().add(Long.valueOf(Math.round(metricViewSupport.rate(success, total))));
         }
         trend.getSeries().add(rateSeries);
         return trend;
@@ -663,78 +663,6 @@ public class DataServiceMetricsService {
         return series;
     }
 
-    private DataServiceAccessLogView toAccessLogView(DataServiceAccessLogEntity entity) {
-        DataServiceAccessLogView view = new DataServiceAccessLogView();
-        view.setId(entity.getId());
-        view.setTenantId(entity.getTenantId());
-        view.setProjectId(entity.getProjectId());
-        view.setDeleted(Integer.valueOf(1).equals(entity.getDeleted()));
-        view.setCreatedAt(entity.getCreatedAt());
-        view.setUpdatedAt(entity.getUpdatedAt());
-        view.setServiceId(entity.getServiceId());
-        view.setServiceCode(entity.getServiceCodeSnapshot());
-        view.setServiceName(entity.getServiceNameSnapshot());
-        view.setServiceStatus(entity.getServiceStatusSnapshot());
-        view.setSubscriptionId(entity.getSubscriptionId());
-        view.setSubscriptionName(entity.getSubscriptionNameSnapshot());
-        view.setRequestMethod(entity.getRequestMethod());
-        view.setOccurredAt(entity.getOccurredAt());
-        view.setDurationMs(entity.getDurationMs());
-        view.setSuccess(Integer.valueOf(1).equals(entity.getSuccess()));
-        view.setHttpStatus(entity.getHttpStatus());
-        view.setErrorCode(entity.getErrorCode());
-        view.setErrorMessage(entity.getErrorMessage());
-        view.setClientIp(entity.getClientIp());
-        view.setUserAgent(entity.getUserAgent());
-        view.setCacheEnabled(Integer.valueOf(1).equals(entity.getCacheEnabled()));
-        view.setCacheHit(Integer.valueOf(1).equals(entity.getCacheHit()));
-        view.setRowCount(entity.getRowCount());
-        return view;
-    }
-
-    private Map<Long, DataServiceDefinitionEntity> toServiceMap(List<DataServiceDefinitionEntity> services) {
-        Map<Long, DataServiceDefinitionEntity> map = new LinkedHashMap<Long, DataServiceDefinitionEntity>();
-        for (DataServiceDefinitionEntity service : services) {
-            if (service.getId() != null) {
-                map.put(service.getId(), service);
-            }
-        }
-        return map;
-    }
-
-    private <T> PageView<T> pageList(List<T> items, int pageNo, int pageSize) {
-        int total = items == null ? 0 : items.size();
-        int start = Math.max(0, (pageNo - 1) * pageSize);
-        int end = Math.min(total, start + pageSize);
-        List<T> pageItems = start >= total ? new ArrayList<T>() : new ArrayList<T>(items.subList(start, end));
-        return PageView.of(pageNo, pageSize, total, pageItems);
-    }
-
-    private <T> List<T> limit(List<T> items, int limit) {
-        if (items == null || items.isEmpty()) {
-            return new ArrayList<T>();
-        }
-        return new ArrayList<T>(items.subList(0, Math.min(items.size(), Math.max(1, limit))));
-    }
-
-    private Long percentile(List<Long> values, int percentile) {
-        if (values == null || values.isEmpty()) {
-            return Long.valueOf(0L);
-        }
-        List<Long> sorted = new ArrayList<Long>(values);
-        Collections.sort(sorted);
-        int index = (int) Math.ceil(percentile / 100.0D * sorted.size()) - 1;
-        index = Math.max(0, Math.min(sorted.size() - 1, index));
-        return sorted.get(index);
-    }
-
-    private Double rate(long numerator, long denominator) {
-        if (denominator <= 0L) {
-            return Double.valueOf(0D);
-        }
-        return Double.valueOf(Math.round(numerator * 10000.0D / denominator) / 100.0D);
-    }
-
     private long safeLong(Long value) {
         return value == null ? 0L : value.longValue();
     }
@@ -803,43 +731,6 @@ public class DataServiceMetricsService {
         return hourGranularity
                 ? safeTime.withMinute(0).withSecond(0).withNano(0)
                 : safeTime.withHour(0).withMinute(0).withSecond(0).withNano(0);
-    }
-
-    private String firstString(List<DataServiceAccessLogEntity> logs, boolean serviceName) {
-        if (logs == null) {
-            return null;
-        }
-        for (DataServiceAccessLogEntity log : logs) {
-            String value = serviceName ? log.getServiceNameSnapshot() : log.getSubscriptionNameSnapshot();
-            if (hasText(value)) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private String firstCode(List<DataServiceAccessLogEntity> logs) {
-        if (logs == null) {
-            return null;
-        }
-        for (DataServiceAccessLogEntity log : logs) {
-            if (hasText(log.getServiceCodeSnapshot())) {
-                return log.getServiceCodeSnapshot();
-            }
-        }
-        return null;
-    }
-
-    private String firstStatus(List<DataServiceAccessLogEntity> logs) {
-        if (logs == null) {
-            return null;
-        }
-        for (DataServiceAccessLogEntity log : logs) {
-            if (hasText(log.getServiceStatusSnapshot())) {
-                return log.getServiceStatusSnapshot();
-            }
-        }
-        return null;
     }
 
     private static class MetricContext {

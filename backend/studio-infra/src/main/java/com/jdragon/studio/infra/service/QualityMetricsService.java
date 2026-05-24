@@ -30,7 +30,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,6 +44,7 @@ public class QualityMetricsService {
     private final QualityMetricSnapshotMapper snapshotMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final QualityMetricCalculationSupport calculationSupport = new QualityMetricCalculationSupport();
 
     public QualityMetricsService(DataSourceService dataSourceService,
                                  DataModelService dataModelService,
@@ -101,10 +101,10 @@ public class QualityMetricsService {
             return view;
         }
         List<QualityAssetRiskView> assets = buildAssetViews(context, null, null);
-        long executionHealth = executionHealth(context.runRecords, context.activeIssues);
-        long governanceRisk = governanceRisk(context.activeIssues);
-        long overdueCount = overdueCount(context.activeIssues);
-        long affectedAssetCount = affectedAssetCount(context.activeIssues);
+        long executionHealth = calculationSupport.executionHealth(context.runRecords, context.activeIssues);
+        long governanceRisk = calculationSupport.governanceRisk(context.activeIssues);
+        long overdueCount = calculationSupport.overdueCount(context.activeIssues);
+        long affectedAssetCount = calculationSupport.affectedAssetCount(context.activeIssues);
         view.getSummaryMetrics().put("executionHealthScore", Long.valueOf(executionHealth));
         view.getSummaryMetrics().put("governanceRiskScore", Long.valueOf(governanceRisk));
         view.getSummaryMetrics().put("activeIssueCount", Long.valueOf(context.activeIssues.size()));
@@ -115,8 +115,8 @@ public class QualityMetricsService {
         view.setIssueTrend(buildIssueTrend(context));
         view.setDimensionDistribution(buildDimensionDistribution(context));
         view.setCoverageMatrix(buildCoverageMatrix(context));
-        view.setRiskyAssets(limitAssets(assets, normalizeTopN(request == null ? null : request.getTopN())));
-        view.setNoisyTargets(buildNoisyTargets(context, normalizeTopN(request == null ? null : request.getTopN())));
+        view.setRiskyAssets(limitAssets(assets, calculationSupport.normalizeTopN(request == null ? null : request.getTopN())));
+        view.setNoisyTargets(buildNoisyTargets(context, calculationSupport.normalizeTopN(request == null ? null : request.getTopN())));
         persistSnapshots(context, assets, view);
         return view;
     }
@@ -138,8 +138,8 @@ public class QualityMetricsService {
     }
 
     public QualityAssetDetailView getAssetDetail(String assetId, LocalDateTime startTime, LocalDateTime endTime) {
-        Long datasourceId = parseAssetPart(assetId, 0);
-        Long modelId = parseAssetPart(assetId, 1);
+        Long datasourceId = calculationSupport.parseAssetPart(assetId, 0);
+        Long modelId = calculationSupport.parseAssetPart(assetId, 1);
         MetricsContext context = buildContext(datasourceId, modelId, null, null, null, startTime, endTime);
         QualityAssetDetailView detail = new QualityAssetDetailView();
         if (!context.available) {
@@ -203,7 +203,7 @@ public class QualityMetricsService {
                 context.taskById.put(task.getId(), task);
                 context.taskIds.add(task.getId());
             }
-            context.coveredAssetKeys.add(assetKey(task.getDatasourceId(), task.getModelId()));
+            context.coveredAssetKeys.add(calculationSupport.assetKey(task.getDatasourceId(), task.getModelId()));
         }
         if (!context.taskIds.isEmpty()) {
             context.runRecords = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
@@ -217,16 +217,16 @@ public class QualityMetricsService {
                     .orderByDesc(RunRecordEntity::getId));
         }
         for (QualityIssueEntity issue : qualityIssueService.listProjectIssues()) {
-            if (!matchesIssue(issue, datasourceId, modelId, ruleDimension, granularity, context.taskIds)) {
+            if (!calculationSupport.matchesIssue(issue, datasourceId, modelId, ruleDimension, granularity, context.taskIds)) {
                 continue;
             }
             context.issues.add(issue);
-            if (isActive(issue)) {
+            if (calculationSupport.isActive(issue)) {
                 context.activeIssues.add(issue);
             }
         }
         for (QualityIssueEventEntity event : qualityIssueService.listProjectIssueEvents(context.startTime, context.endTime)) {
-            QualityIssueEntity issue = findIssue(context.issues, event.getIssueId());
+            QualityIssueEntity issue = calculationSupport.findIssue(context.issues, event.getIssueId());
             if (issue != null) {
                 context.issueEvents.add(event);
             }
@@ -258,10 +258,10 @@ public class QualityMetricsService {
         for (QualityIssueEntity issue : context.issues) {
             AssetState state = ensureAssetState(assetStates, issue.getDatasourceId(), issue.getModelId());
             state.issues.add(issue);
-            if (isActive(issue)) {
+            if (calculationSupport.isActive(issue)) {
                 state.activeIssues.add(issue);
             }
-            if (hasText(issue.getRuleDimension())) {
+            if (calculationSupport.hasText(issue.getRuleDimension())) {
                 state.riskDimensions.add(issue.getRuleDimension());
             }
         }
@@ -279,22 +279,22 @@ public class QualityMetricsService {
         Collections.sort(views, new Comparator<QualityAssetRiskView>() {
             @Override
             public int compare(QualityAssetRiskView left, QualityAssetRiskView right) {
-                int riskCompare = Long.compare(safeLong(right.getGovernanceRiskScore()), safeLong(left.getGovernanceRiskScore()));
+                int riskCompare = Long.compare(calculationSupport.safeLong(right.getGovernanceRiskScore()), calculationSupport.safeLong(left.getGovernanceRiskScore()));
                 if (riskCompare != 0) {
                     return riskCompare;
                 }
-                int issueCompare = Long.compare(safeLong(right.getActiveIssueCount()), safeLong(left.getActiveIssueCount()));
+                int issueCompare = Long.compare(calculationSupport.safeLong(right.getActiveIssueCount()), calculationSupport.safeLong(left.getActiveIssueCount()));
                 if (issueCompare != 0) {
                     return issueCompare;
                 }
-                return compareTimeDesc(left.getLatestRunAt(), right.getLatestRunAt());
+                return calculationSupport.compareTimeDesc(left.getLatestRunAt(), right.getLatestRunAt());
             }
         });
         return views;
     }
 
     private AssetState ensureAssetState(Map<String, AssetState> states, Long datasourceId, Long modelId) {
-        String key = assetKey(datasourceId, modelId);
+        String key = calculationSupport.assetKey(datasourceId, modelId);
         AssetState state = states.get(key);
         if (state != null) {
             return state;
@@ -316,21 +316,21 @@ public class QualityMetricsService {
         view.setModelId(state.modelId);
         view.setModelName(state.model != null ? state.model.getName() : (state.tasks.isEmpty() ? null : state.tasks.get(0).getModelName()));
         view.setModelPhysicalLocator(state.model != null ? state.model.getPhysicalLocator() : (state.tasks.isEmpty() ? null : state.tasks.get(0).getModelPhysicalLocator()));
-        long coverageRate = coverageRate(state.coverageDimensions.size(), 6);
+        long coverageRate = calculationSupport.coverageRate(state.coverageDimensions.size(), 6);
         view.setCoverageRate(Long.valueOf(coverageRate));
         view.setCoverageDimensions(new ArrayList<String>(state.coverageDimensions));
         view.setRiskDimensions(new ArrayList<String>(state.riskDimensions));
         view.setActiveIssueCount(Long.valueOf(state.activeIssues.size()));
-        view.setOverdueIssueCount(Long.valueOf(overdueCount(state.activeIssues)));
-        view.setExecutionHealthScore(Long.valueOf(executionHealth(state.runRecords, state.activeIssues)));
-        view.setGovernanceRiskScore(Long.valueOf(governanceRisk(state.activeIssues)));
-        RunRecordEntity latest = latestRecord(state.runRecords);
+        view.setOverdueIssueCount(Long.valueOf(calculationSupport.overdueCount(state.activeIssues)));
+        view.setExecutionHealthScore(Long.valueOf(calculationSupport.executionHealth(state.runRecords, state.activeIssues)));
+        view.setGovernanceRiskScore(Long.valueOf(calculationSupport.governanceRisk(state.activeIssues)));
+        RunRecordEntity latest = calculationSupport.latestRecord(state.runRecords);
         if (latest != null) {
             view.setLatestRunAt(latest.getEndedAt());
-            view.setLatestRunStatus(isFailureOrAlert(latest) ? "FAILED" : latest.getStatus());
+            view.setLatestRunStatus(calculationSupport.isFailureOrAlert(latest) ? "FAILED" : latest.getStatus());
             view.setLatestEvidence(latest.getMessage());
         } else if (!state.activeIssues.isEmpty()) {
-            QualityIssueEntity latestIssue = latestIssue(state.activeIssues);
+            QualityIssueEntity latestIssue = calculationSupport.latestIssue(state.activeIssues);
             view.setLatestEvidence(latestIssue == null ? null : latestIssue.getLatestMessage());
         }
         return view;
@@ -354,8 +354,8 @@ public class QualityMetricsService {
         for (Map.Entry<LocalDate, List<RunRecordEntity>> entry : runsByDay.entrySet()) {
             QualityScoreTrendPoint point = new QualityScoreTrendPoint();
             point.setDateLabel(entry.getKey().toString());
-            point.setExecutionHealthScore(Long.valueOf(executionHealth(entry.getValue(), context.activeIssues)));
-            point.setGovernanceRiskScore(Long.valueOf(governanceRisk(context.activeIssues)));
+            point.setExecutionHealthScore(Long.valueOf(calculationSupport.executionHealth(entry.getValue(), context.activeIssues)));
+            point.setGovernanceRiskScore(Long.valueOf(calculationSupport.governanceRisk(context.activeIssues)));
             trend.add(point);
         }
         return trend;
@@ -368,7 +368,7 @@ public class QualityMetricsService {
             if (createdAt == null) {
                 continue;
             }
-            QualityIssueEntity issue = findIssue(context.issues, event.getIssueId());
+            QualityIssueEntity issue = calculationSupport.findIssue(context.issues, event.getIssueId());
             String date = createdAt.toLocalDate().toString();
             Map<String, Long> metrics = bucket.containsKey(date) ? bucket.get(date) : new LinkedHashMap<String, Long>();
             if (!bucket.containsKey(date)) {
@@ -382,15 +382,15 @@ public class QualityMetricsService {
                 metrics.put("resolvedHigh", Long.valueOf(0L));
                 metrics.put("resolvedCritical", Long.valueOf(0L));
             }
-            String severityKey = severityKey(issue == null ? null : issue.getSeverity());
+            String severityKey = calculationSupport.severityKey(issue == null ? null : issue.getSeverity());
             if ("CREATED".equalsIgnoreCase(event.getEventType()) || "REOPENED".equalsIgnoreCase(event.getEventType()) || "DETECTED".equalsIgnoreCase(event.getEventType())) {
-                metrics.put("new" + severityKey, Long.valueOf(safeLong(metrics.get("new" + severityKey)) + 1L));
+                metrics.put("new" + severityKey, Long.valueOf(calculationSupport.safeLong(metrics.get("new" + severityKey)) + 1L));
             }
             if ("STATUS_CHANGED".equalsIgnoreCase(event.getEventType())
                     && event.getMetadataJson() != null
                     && ("RESOLVED".equalsIgnoreCase(String.valueOf(event.getMetadataJson().get("currentStatus")))
                     || "FALSE_POSITIVE".equalsIgnoreCase(String.valueOf(event.getMetadataJson().get("currentStatus"))))) {
-                metrics.put("resolved" + severityKey, Long.valueOf(safeLong(metrics.get("resolved" + severityKey)) + 1L));
+                metrics.put("resolved" + severityKey, Long.valueOf(calculationSupport.safeLong(metrics.get("resolved" + severityKey)) + 1L));
             }
         }
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
@@ -418,7 +418,7 @@ public class QualityMetricsService {
                 continue;
             }
             metrics.get(dimension)[0]++;
-            if (isFailureOrAlert(record)) {
+            if (calculationSupport.isFailureOrAlert(record)) {
                 metrics.get(dimension)[1]++;
             }
         }
@@ -437,7 +437,7 @@ public class QualityMetricsService {
     private List<Map<String, Object>> buildCoverageMatrix(MetricsContext context) {
         Map<String, Set<Long>> matrix = new LinkedHashMap<String, Set<Long>>();
         for (QualityTaskDefinitionView task : context.tasks) {
-            String key = safeText(task.getDatasourceTypeCode(), "UNKNOWN") + "|" + safeText(task.getRuleDimension() == null ? null : task.getRuleDimension().name(), "UNKNOWN");
+            String key = calculationSupport.safeText(task.getDatasourceTypeCode(), "UNKNOWN") + "|" + calculationSupport.safeText(task.getRuleDimension() == null ? null : task.getRuleDimension().name(), "UNKNOWN");
             Set<Long> modelIds = matrix.containsKey(key) ? matrix.get(key) : new LinkedHashSet<Long>();
             if (!matrix.containsKey(key)) {
                 matrix.put(key, modelIds);
@@ -468,7 +468,7 @@ public class QualityMetricsService {
     private List<Map<String, Object>> buildNoisyTargets(MetricsContext context, int topN) {
         Map<String, Map<String, Object>> noisy = new LinkedHashMap<String, Map<String, Object>>();
         for (RunRecordEntity record : context.runRecords) {
-            if (!isFailureOrAlert(record)) {
+            if (!calculationSupport.isFailureOrAlert(record)) {
                 continue;
             }
             QualityTaskDefinitionView task = context.taskById.get(record.getQualityTaskId());
@@ -491,11 +491,11 @@ public class QualityMetricsService {
         Collections.sort(rows, new Comparator<Map<String, Object>>() {
             @Override
             public int compare(Map<String, Object> left, Map<String, Object> right) {
-                int failCompare = Long.compare(safeLong(right.get("failureCount")), safeLong(left.get("failureCount")));
+                int failCompare = Long.compare(calculationSupport.safeLong(right.get("failureCount")), calculationSupport.safeLong(left.get("failureCount")));
                 if (failCompare != 0) {
                     return failCompare;
                 }
-                return Long.compare(safeLong(right.get("reopenCount")), safeLong(left.get("reopenCount")));
+                return Long.compare(calculationSupport.safeLong(right.get("reopenCount")), calculationSupport.safeLong(left.get("reopenCount")));
             }
         });
         if (rows.size() > topN) {
@@ -521,7 +521,7 @@ public class QualityMetricsService {
             row.put("failureCount", Long.valueOf(0L));
             row.put("reopenCount", Long.valueOf(0L));
         }
-        row.put("failureCount", Long.valueOf(safeLong(row.get("failureCount")) + 1L));
+        row.put("failureCount", Long.valueOf(calculationSupport.safeLong(row.get("failureCount")) + 1L));
         row.put("lastSeenAt", time);
     }
 
@@ -530,7 +530,7 @@ public class QualityMetricsService {
         if (!noisy.containsKey(key)) {
             return;
         }
-        noisy.get(key).put("reopenCount", Long.valueOf(safeLong(noisy.get(key).get("reopenCount")) + safeLong(reopenCount)));
+        noisy.get(key).put("reopenCount", Long.valueOf(calculationSupport.safeLong(noisy.get(key).get("reopenCount")) + calculationSupport.safeLong(reopenCount)));
     }
 
     private List<Map<String, Object>> buildRelatedTasks(MetricsContext context) {
@@ -544,8 +544,8 @@ public class QualityMetricsService {
             row.put("ruleDimension", task.getRuleDimension() == null ? null : task.getRuleDimension().name());
             row.put("granularity", task.getGranularity() == null ? null : task.getGranularity().name());
             row.put("status", task.getStatus() == null ? null : task.getStatus().name());
-            RunRecordEntity latest = latestTaskRecord(context.runRecords, task.getId());
-            row.put("latestRunStatus", latest == null ? null : (isFailureOrAlert(latest) ? "FAILED" : latest.getStatus()));
+            RunRecordEntity latest = calculationSupport.latestTaskRecord(context.runRecords, task.getId());
+            row.put("latestRunStatus", latest == null ? null : (calculationSupport.isFailureOrAlert(latest) ? "FAILED" : latest.getStatus()));
             row.put("latestRunAt", latest == null ? null : latest.getEndedAt());
             row.put("latestRunRecordId", latest == null ? null : latest.getId());
             rows.add(row);
@@ -556,7 +556,7 @@ public class QualityMetricsService {
     private List<Map<String, Object>> buildLatestFailures(MetricsContext context) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         for (RunRecordEntity record : context.runRecords) {
-            if (!isFailureOrAlert(record)) {
+            if (!calculationSupport.isFailureOrAlert(record)) {
                 continue;
             }
             QualityTaskDefinitionView task = context.taskById.get(record.getQualityTaskId());
@@ -580,7 +580,7 @@ public class QualityMetricsService {
     private List<Map<String, Object>> buildFieldIssueGroups(MetricsContext context) {
         Map<String, List<QualityIssueEntity>> grouped = new LinkedHashMap<String, List<QualityIssueEntity>>();
         for (QualityIssueEntity issue : context.activeIssues) {
-            if (!hasText(issue.getColumnName())) {
+            if (!calculationSupport.hasText(issue.getColumnName())) {
                 continue;
             }
             if (!grouped.containsKey(issue.getColumnName())) {
@@ -662,239 +662,6 @@ public class QualityMetricsService {
             assetSnapshot.setCoverageRate(asset.getCoverageRate());
             snapshotMapper.insert(assetSnapshot);
         }
-    }
-
-    private long executionHealth(List<RunRecordEntity> runRecords, List<QualityIssueEntity> activeIssues) {
-        long totalRuns = runRecords == null ? 0L : runRecords.size();
-        long failureRuns = 0L;
-        long alertRuns = 0L;
-        if (runRecords != null) {
-            for (RunRecordEntity record : runRecords) {
-                if ("FAILED".equalsIgnoreCase(record.getStatus())) {
-                    failureRuns++;
-                }
-                if (isAlertRun(record)) {
-                    alertRuns++;
-                }
-            }
-        }
-        long passRate = totalRuns <= 0L ? 100L : Math.max(0L, 100L - Math.round((failureRuns * 100.0d) / totalRuns));
-        long alertFreeRate = totalRuns <= 0L ? 100L : Math.max(0L, 100L - Math.round((alertRuns * 100.0d) / totalRuns));
-        long stability = Math.max(0L, 100L - Math.min(100L, penalty(activeIssues)));
-        return Math.round(passRate * 0.45d + alertFreeRate * 0.30d + stability * 0.25d);
-    }
-
-    private long governanceRisk(List<QualityIssueEntity> issues) {
-        if (issues == null || issues.isEmpty()) {
-            return 0L;
-        }
-        long weighted = 0L;
-        long overdue = 0L;
-        long ageHours = 0L;
-        long reopen = 0L;
-        for (QualityIssueEntity issue : issues) {
-            weighted += severityWeight(issue.getSeverity());
-            if (issue.getSlaDueAt() != null && issue.getSlaDueAt().isBefore(LocalDateTime.now())) {
-                overdue++;
-            }
-            if (issue.getFirstSeenAt() != null) {
-                ageHours += Math.max(0L, java.time.Duration.between(issue.getFirstSeenAt(), LocalDateTime.now()).toHours());
-            }
-            reopen += safeLong(issue.getReopenCount());
-        }
-        long weightedScore = Math.min(100L, weighted * 8L);
-        long overdueScore = Math.min(100L, Math.round((overdue * 100.0d) / Math.max(1, issues.size())));
-        long ageScore = Math.min(100L, Math.round((ageHours / Math.max(1.0d, issues.size())) / 72.0d * 100.0d));
-        long reopenScore = Math.min(100L, Math.round((reopen * 100.0d) / Math.max(1, issues.size())));
-        return Math.round(weightedScore * 0.50d + overdueScore * 0.25d + ageScore * 0.15d + reopenScore * 0.10d);
-    }
-
-    private long coverageRate(int numerator, int denominator) {
-        if (denominator <= 0) {
-            return numerator <= 0 ? 0L : 100L;
-        }
-        return Math.round((numerator * 100.0d) / denominator);
-    }
-
-    private long overdueCount(List<QualityIssueEntity> issues) {
-        long total = 0L;
-        for (QualityIssueEntity issue : issues) {
-            if (issue.getSlaDueAt() != null && issue.getSlaDueAt().isBefore(LocalDateTime.now())) {
-                total++;
-            }
-        }
-        return total;
-    }
-
-    private long affectedAssetCount(List<QualityIssueEntity> issues) {
-        Set<String> assets = new LinkedHashSet<String>();
-        for (QualityIssueEntity issue : issues) {
-            assets.add(assetKey(issue.getDatasourceId(), issue.getModelId()));
-        }
-        return assets.size();
-    }
-
-    private long penalty(List<QualityIssueEntity> issues) {
-        long total = 0L;
-        for (QualityIssueEntity issue : issues) {
-            total += safeLong(issue.getConsecutiveFailureCount()) * 8L;
-            total += safeLong(issue.getReopenCount()) * 5L;
-        }
-        return total;
-    }
-
-    private long severityWeight(String severity) {
-        String normalized = safeText(severity, "MEDIUM").toUpperCase(Locale.ROOT);
-        if ("CRITICAL".equals(normalized)) {
-            return 10L;
-        }
-        if ("HIGH".equals(normalized)) {
-            return 6L;
-        }
-        if ("LOW".equals(normalized)) {
-            return 1L;
-        }
-        return 3L;
-    }
-
-    private boolean matchesIssue(QualityIssueEntity issue, Long datasourceId, Long modelId, String ruleDimension, String granularity, Set<Long> taskIds) {
-        if (issue == null) {
-            return false;
-        }
-        if (datasourceId != null && !datasourceId.equals(issue.getDatasourceId())) {
-            return false;
-        }
-        if (modelId != null && !modelId.equals(issue.getModelId())) {
-            return false;
-        }
-        if (hasText(ruleDimension) && !safeText(issue.getRuleDimension(), "").equalsIgnoreCase(ruleDimension)) {
-            return false;
-        }
-        if (hasText(granularity) && !safeText(issue.getGranularity(), "").equalsIgnoreCase(granularity)) {
-            return false;
-        }
-        return taskIds != null && taskIds.contains(issue.getQualityTaskId());
-    }
-
-    private QualityIssueEntity findIssue(List<QualityIssueEntity> issues, Long issueId) {
-        for (QualityIssueEntity issue : issues) {
-            if (issueId != null && issueId.equals(issue.getId())) {
-                return issue;
-            }
-        }
-        return null;
-    }
-
-    private RunRecordEntity latestRecord(List<RunRecordEntity> records) {
-        return records == null || records.isEmpty() ? null : records.get(0);
-    }
-
-    private RunRecordEntity latestTaskRecord(List<RunRecordEntity> records, Long taskId) {
-        for (RunRecordEntity record : records) {
-            if (taskId != null && taskId.equals(record.getQualityTaskId())) {
-                return record;
-            }
-        }
-        return null;
-    }
-
-    private QualityIssueEntity latestIssue(List<QualityIssueEntity> issues) {
-        QualityIssueEntity latest = null;
-        for (QualityIssueEntity issue : issues) {
-            if (latest == null || compareTimeDesc(latest.getLastSeenAt(), issue.getLastSeenAt()) > 0) {
-                latest = issue;
-            }
-        }
-        return latest;
-    }
-
-    private boolean isActive(QualityIssueEntity issue) {
-        String status = issue == null ? null : issue.getStatus();
-        return status != null && !"RESOLVED".equalsIgnoreCase(status) && !"FALSE_POSITIVE".equalsIgnoreCase(status);
-    }
-
-    private boolean isAlertRun(RunRecordEntity record) {
-        return safeLong(record == null || record.getResultJson() == null ? null : record.getResultJson().get("alertCount")) > 0L;
-    }
-
-    private boolean isFailureOrAlert(RunRecordEntity record) {
-        return record != null && ("FAILED".equalsIgnoreCase(record.getStatus()) || isAlertRun(record));
-    }
-
-    private int normalizeTopN(Integer topN) {
-        if (topN == null || topN.intValue() <= 0) {
-            return 10;
-        }
-        return Math.min(50, topN.intValue());
-    }
-
-    private Long parseAssetPart(String assetId, int index) {
-        if (!hasText(assetId)) {
-            return null;
-        }
-        String[] parts = assetId.split(":", -1);
-        if (index >= parts.length || !hasText(parts[index])) {
-            return null;
-        }
-        try {
-            Long value = Long.valueOf(parts[index]);
-            return value.longValue() <= 0L ? null : value;
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-
-    private String assetKey(Long datasourceId, Long modelId) {
-        return String.valueOf(datasourceId == null ? 0L : datasourceId) + ":" + String.valueOf(modelId == null ? 0L : modelId);
-    }
-
-    private String severityKey(String severity) {
-        String normalized = safeText(severity, "MEDIUM").toUpperCase(Locale.ROOT);
-        if ("LOW".equals(normalized)) {
-            return "Low";
-        }
-        if ("HIGH".equals(normalized)) {
-            return "High";
-        }
-        if ("CRITICAL".equals(normalized)) {
-            return "Critical";
-        }
-        return "Medium";
-    }
-
-    private int compareTimeDesc(LocalDateTime left, LocalDateTime right) {
-        if (left == null && right == null) {
-            return 0;
-        }
-        if (left == null) {
-            return 1;
-        }
-        if (right == null) {
-            return -1;
-        }
-        return right.compareTo(left);
-    }
-
-    private long safeLong(Object value) {
-        if (value instanceof Number) {
-            return ((Number) value).longValue();
-        }
-        if (value instanceof String && ((String) value).trim().length() > 0) {
-            try {
-                return Long.parseLong(((String) value).trim());
-            } catch (Exception ex) {
-                return 0L;
-            }
-        }
-        return 0L;
-    }
-
-    private boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
-    }
-
-    private String safeText(String value, String fallback) {
-        return hasText(value) ? value : fallback;
     }
 
     private static class MetricsContext {

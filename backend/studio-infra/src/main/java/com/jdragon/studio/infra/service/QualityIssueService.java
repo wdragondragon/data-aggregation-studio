@@ -58,6 +58,7 @@ public class QualityIssueService {
     private final StudioUserMapper userMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final QualityIssueSeveritySupport severitySupport = new QualityIssueSeveritySupport();
 
     public QualityIssueService(QualityIssueMapper issueMapper,
                                QualityIssueCommentMapper commentMapper,
@@ -135,7 +136,7 @@ public class QualityIssueService {
                 if (activeCompare != 0) {
                     return activeCompare;
                 }
-                int severityCompare = Integer.compare(severityRank(right.getSeverity()), severityRank(left.getSeverity()));
+                int severityCompare = Integer.compare(severitySupport.severityRank(right.getSeverity()), severitySupport.severityRank(left.getSeverity()));
                 if (severityCompare != 0) {
                     return severityCompare;
                 }
@@ -796,19 +797,4 @@ public class QualityIssueService {
         }
     }
 
-    private int severityRank(QualityIssueSeverity severity) {
-        if (severity == QualityIssueSeverity.LOW) {
-            return 1;
-        }
-        if (severity == QualityIssueSeverity.MEDIUM) {
-            return 2;
-        }
-        if (severity == QualityIssueSeverity.HIGH) {
-            return 3;
-        }
-        if (severity == QualityIssueSeverity.CRITICAL) {
-            return 4;
-        }
-        return 0;
-    }
 }
