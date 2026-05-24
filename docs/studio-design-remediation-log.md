@@ -674,3 +674,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - `ModelsView.vue` 仍超过 1000 行，下一步需要继续拆编辑抽屉或模型元数据 section 操作。
 - 下一步：执行 `git diff --check` 并提交 Batch 14；随后继续拆 `ModelsView.vue` 的编辑抽屉。
+
+## Step 032 - Batch 15 拆分模型编辑抽屉
+
+- 执行时间：2026-05-25 03:50:32 +08:00
+- 目标问题：`ModelsView.vue` 的新增/编辑模型抽屉同时包含数据源选择、schema 绑定、元数据表单、多行字段编辑和保存动作，继续留在父页面会让列表、详情、同步和编辑职责混杂。
+- 修改范围：新增 `ModelEditorDrawer.vue` 承载模型编辑抽屉 UI、元数据 section 渲染、多行元数据表格和抽屉样式；将 `ModelFormState` 移入共享 `modelViewTypes.ts`；`ModelsView.vue` 保留表单状态、schema 切换、保存 payload 和元数据更新函数，并通过 `modelEditorActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/ModelEditorDrawer.vue`
+  - `frontend/apps/web/src/components/models/modelViewTypes.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型新增/编辑抽屉标题、数据源选择、schema 绑定、模型名称/物理位置输入、技术/业务元数据编辑、多行 section 增删、动态函数字段传递和保存动作保持不变；本步骤只迁移展示结构和局部样式。`ModelsView.vue` 从 2105 行降到 1990 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - `ModelsView.vue` 仍接近 2000 行，剩余的列表查询、同步弹窗、详情页签编排和字段展示 helper 仍适合继续分批拆分；不建议为了 800 行阈值做机械拆分。
+- 下一步：提交 Batch 15；随后继续拆 `ModelsView.vue` 剩余清晰 UI 区块，优先处理同步弹窗或字段明细展示。

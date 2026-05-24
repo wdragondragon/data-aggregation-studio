@@ -271,128 +271,25 @@
       </template>
     </el-dialog>
 
-    <el-drawer
+    <ModelEditorDrawer
       v-model="editorOpen"
-      size="72%"
-      :title="isEditingModel ? t('web.models.editDialogTitle') : t('web.models.addDialogTitle')"
-    >
-      <div class="editor-description">
-        {{ isEditingModel ? t("web.models.editDialogDescription") : t("web.models.addDialogDescription") }}
-      </div>
-
-      <SectionCard :title="editorPanelTitle" :description="editorPanelDescription">
-        <div class="studio-form-grid">
-          <el-form-item :label="t('web.models.datasourceLabel')">
-            <el-select
-              v-model="modelForm.datasourceId"
-              :disabled="isEditingModel"
-              clearable
-              :placeholder="t('web.models.manualDatasourcePlaceholder')"
-              @change="handleModelDatasourceChange"
-            >
-              <el-option
-                v-for="item in manualDatasourceOptions"
-                :key="item.id"
-                :label="`${item.name} (${item.typeCode})`"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('web.models.schemaBinding')">
-            <el-select
-              v-model="modelForm.schemaVersionId"
-              clearable
-              :placeholder="t('web.models.schemaBindingPlaceholder')"
-              @change="handleModelSchemaChange"
-            >
-              <el-option
-                v-for="schema in availableModelSchemas"
-                :key="schema.id"
-                :label="`${schema.schemaName} v${schema.versionNumber ?? 1}`"
-                :value="schema.currentVersionId ?? schema.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('web.models.modelKindLabel')">
-            <el-input :model-value="modelForm.modelKind" readonly />
-          </el-form-item>
-          <el-form-item :label="modelNameEditorLabel">
-            <el-input v-model="modelForm.name" :placeholder="modelNameEditorPlaceholder" />
-          </el-form-item>
-          <el-form-item :label="physicalLocatorEditorLabel">
-            <el-input v-model="modelForm.physicalLocator" :placeholder="physicalLocatorEditorPlaceholder" />
-          </el-form-item>
-        </div>
-
-        <div v-if="showManualDatasourceHint" class="soft-panel warning-hint">
-          {{ t("web.models.manualDatasourceOnly") }}
-        </div>
-        <div v-if="!selectedModelSchema" class="soft-panel empty-hint">
-          {{ t("web.models.noModelSchema") }}
-        </div>
-      </SectionCard>
-
-      <template v-for="section in editorSections" :key="section.key">
-        <SectionCard :title="section.title" :description="section.description">
-          <template #actions>
-            <StatusPill
-              :label="section.binding === 'TECHNICAL' ? t('metaForm.technicalTitle') : t('metaForm.businessTitle')"
-              :tone="section.binding === 'TECHNICAL' ? 'primary' : 'success'"
-            />
-          </template>
-
-          <template v-if="section.displayMode === 'MULTIPLE'">
-            <div class="multiple-section-actions">
-              <el-button type="primary" plain @click="appendSectionRow(section)">{{ t("common.addRow") }}</el-button>
-            </div>
-            <el-table :data="editorSectionRows(section)" border>
-              <el-table-column
-                v-for="field in section.fields"
-                :key="field.fieldKey"
-                :label="field.fieldName"
-                min-width="150"
-              >
-                <template #default="{ row, $index }">
-                  <component
-                    :is="resolveRowEditorComponent(field)"
-                    v-bind="resolveRowEditorProps(field)"
-                    :model-value="row[field.fieldKey]"
-                    @update:model-value="updateSectionRowField(section, $index, field.fieldKey, $event)"
-                  >
-                    <template v-if="field.componentType === 'SELECT'">
-                      <el-option
-                        v-for="option in field.options ?? []"
-                        :key="option"
-                        :label="option"
-                        :value="option"
-                      />
-                    </template>
-                  </component>
-                </template>
-              </el-table-column>
-            <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
-                <template #default="{ $index }">
-                  <el-button link type="danger" @click="removeSectionRow(section, $index)">{{ t("common.remove") }}</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </template>
-
-          <MetaFormRenderer
-            v-else
-            :fields="section.fields"
-            :model-value="sectionModelValue(section, true)"
-            :dynamic-function-fields="fileModelDynamicFunctionFields"
-            @update:model-value="updateSectionModelValue(section, $event)"
-          />
-        </SectionCard>
-      </template>
-
-      <div class="drawer-actions">
-        <el-button @click="editorOpen = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" :loading="saving" @click="saveModel">{{ t("common.save") }}</el-button>
-      </div>
-    </el-drawer>
+      :is-editing-model="isEditingModel"
+      :panel-title="editorPanelTitle"
+      :panel-description="editorPanelDescription"
+      :form="modelForm"
+      :saving="saving"
+      :datasource-options="manualDatasourceOptions"
+      :model-schemas="availableModelSchemas"
+      :has-selected-model-schema="Boolean(selectedModelSchema)"
+      :show-manual-datasource-hint="showManualDatasourceHint"
+      :model-name-label="modelNameEditorLabel"
+      :model-name-placeholder="modelNameEditorPlaceholder"
+      :physical-locator-label="physicalLocatorEditorLabel"
+      :physical-locator-placeholder="physicalLocatorEditorPlaceholder"
+      :sections="editorSections"
+      :dynamic-function-fields="fileModelDynamicFunctionFields"
+      :actions="modelEditorActions"
+    />
   </div>
 </template>
 
@@ -415,13 +312,13 @@ import type {
   ModelKind,
   ModelSyncTaskView,
 } from "@studio/api-sdk";
-import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import ModelDetailOverview from "@/components/models/ModelDetailOverview.vue";
 import ModelDynamicFilterPanel from "@/components/models/ModelDynamicFilterPanel.vue";
-import type { MetaSectionBinding, ModelDynamicFilterActions, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState } from "@/components/models/modelViewTypes";
+import ModelEditorDrawer from "@/components/models/ModelEditorDrawer.vue";
+import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
 import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
@@ -435,17 +332,6 @@ import {
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
 import { cloneDeep, formatModelKind, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
-
-interface ModelFormState {
-  id?: EntityId;
-  datasourceId?: EntityId;
-  name: string;
-  physicalLocator: string;
-  modelKind?: ModelKind;
-  schemaVersionId?: EntityId;
-  technicalMetadata: Record<string, unknown>;
-  businessMetadata: Record<string, unknown>;
-}
 
 interface SyncFormState {
   datasourceType: string;
@@ -647,6 +533,19 @@ const syncTaskSectionActions = {
   deleteSyncTask,
   handlePageSizeChange: handleSyncTaskPageSizeChange,
   formatDurationMs,
+};
+const modelEditorActions = {
+  handleModelDatasourceChange,
+  handleModelSchemaChange,
+  appendSectionRow,
+  editorSectionRows,
+  resolveRowEditorComponent,
+  resolveRowEditorProps,
+  updateSectionRowField,
+  removeSectionRow,
+  sectionModelValue,
+  updateSectionModelValue,
+  saveModel,
 };
 
 function normalizeModelPagePayload(payload: unknown) {
@@ -2161,20 +2060,8 @@ p {
   font-size: 12px;
 }
 
-.empty-hint,
-.warning-hint,
-.editor-description,
 .dialog-description {
   margin-bottom: 12px;
-}
-
-.section-empty {
-  margin-bottom: 0;
-}
-
-.warning-hint {
-  border-color: rgba(36, 99, 235, 0.2);
-  background: rgba(219, 234, 254, 0.7);
 }
 
 .sync-table-panel {
@@ -2217,19 +2104,6 @@ p {
 
 .sync-table-panel__search-action {
   min-width: 96px;
-}
-
-.multiple-section-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 10px;
-}
-
-.drawer-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
 }
 
 .business-schema-selector {

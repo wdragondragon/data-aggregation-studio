@@ -1,4 +1,4 @@
-import type { MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
+import type { EntityId, MetadataFieldDefinition, MetadataSchemaDefinition, ModelKind } from "@studio/api-sdk";
 
 export type MetaSectionBinding = "TECHNICAL" | "BUSINESS";
 
@@ -12,6 +12,17 @@ export interface ModelMetaSection {
   metaModelCode: string;
   fields: MetadataFieldDefinition[];
   collectionKey?: string;
+}
+
+export interface ModelFormState {
+  id?: EntityId;
+  datasourceId?: EntityId;
+  name: string;
+  physicalLocator: string;
+  modelKind?: ModelKind;
+  schemaVersionId?: EntityId;
+  technicalMetadata: Record<string, unknown>;
+  businessMetadata: Record<string, unknown>;
 }
 
 export interface ModelQueryConditionState {
