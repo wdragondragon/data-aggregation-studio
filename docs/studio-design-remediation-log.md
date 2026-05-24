@@ -281,3 +281,35 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断最终验证。
   - 本批只拆采集任务装配内部结构，不处理安全策略、不改变 API/DTO/任务 JSON。
 - 下一步：提交 Batch 2，然后进入 schema/metadata 结构拆分。
+
+## Step 014 - Batch 3 拆分 schema 升级与元模型字段构建
+
+- 执行时间：2026-05-24 22:48:22 +08:00
+- 目标问题：`StudioSchemaUpgradeService` 和 `MetadataSchemaService` 同时承载流程编排、数据库元数据探测、内置数据源能力升级和技术元模型字段构建，修改 schema 或新增数据源时容易造成多处漂移。
+- 修改范围：拆出数据库方言探测、schema 元数据 introspector、数据源能力升级 support、技术元模型字段 builder；同步更新 schema drift 测试的源码位置断言，并将后端大文件门禁从 14 收紧到 12。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioDatabaseDialect.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioDatabaseDialectDetector.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaIntrospector.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioDatasourceCapabilityUpgradeSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/MetadataSchemaService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/TechnicalMetadataFieldBuilder.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioSchemaDriftRegressionTest.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：`StudioSchemaUpgradeService.upgrade()` 仍按数据库类型分派 MySQL/SQLite 升级，DDL 与 datasource capability 种子数据保持原 SQL 语义；`MetadataSchemaService` 仍生成同一批技术元模型字段，schema code、description 配置和字段定义不改变。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - `mvn -pl studio-test "-Dtest=StudioSchemaDriftRegressionTest,StudioInitializationApiRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：第一次失败，原因是 schema drift 测试仍断言 `buildSourceFields/buildTableFields/buildFieldFields` 位于 `MetadataSchemaService`；已改为检查 `TechnicalMetadataFieldBuilder`。
+  - `mvn -pl studio-test "-Dtest=StudioSchemaDriftRegressionTest,StudioInitializationApiRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，18 tests，0 failures，0 errors。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+  - 后端大 Java 文件扫描：实际 12 个超过 800 行，门禁已收紧到 12。
+- 失败、阻塞或残余风险：
+  - 非 fork 模式用于规避本机页文件不足导致的 Surefire fork JVM 问题；测试本身通过。
+  - Redis 不可达仍触发现有本地缓存降级日志，未造成测试失败。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+  - `StudioSchemaUpgradeService` 仍有 2050 行，质量表和数据服务表建表块尚未进一步拆分，留到后续批次继续降债。
+- 下一步：提交 Batch 3，然后进入 DataService、Lineage、Quality 服务内部拆分。

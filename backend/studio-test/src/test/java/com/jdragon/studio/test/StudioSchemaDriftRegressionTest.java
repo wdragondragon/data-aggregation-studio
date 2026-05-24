@@ -114,11 +114,15 @@ class StudioSchemaDriftRegressionTest {
     @Test
     void technicalMetadataSchemasShouldStayAlignedAcrossBootstrapAndMysqlSql() throws Exception {
         String metadataBootstrap = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/MetadataSchemaService.java");
+        String technicalFieldBuilder = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/TechnicalMetadataFieldBuilder.java");
         String mysqlBuiltin = readBackendFile("studio-server/src/main/resources/data-mysql-builtin.sql");
 
         assertThat(metadataBootstrap)
                 .as("Java technical metadata bootstrap")
-                .contains("buildTechnicalMetaModelDraft", "buildSourceFields", "buildTableFields", "buildFieldFields");
+                .contains("buildTechnicalMetaModelDraft", "technicalFieldBuilder.buildTechnicalFields");
+        assertThat(technicalFieldBuilder)
+                .as("Java technical metadata field builder")
+                .contains("buildTechnicalFields", "buildSourceFields", "buildTableFields", "buildFieldFields");
         assertThat(extractTechnicalSchemaCodes(mysqlBuiltin))
                 .as("MySQL builtin technical metadata schemas")
                 .containsExactlyInAnyOrderElementsOf(technicalSchemaCodes());
@@ -157,18 +161,18 @@ class StudioSchemaDriftRegressionTest {
 
     @Test
     void httpTechnicalMetadataSchemasShouldStayAlignedAcrossBootstrapMysqlAndDeltaScripts() throws Exception {
-        String metadataBootstrap = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/MetadataSchemaService.java");
+        String technicalFieldBuilder = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/TechnicalMetadataFieldBuilder.java");
         String mysqlBuiltin = readBackendFile("studio-server/src/main/resources/data-mysql-builtin.sql");
         String httpDelta = readBackendFile("studio-server/src/main/resources/update/20260524/20260508-to-20260524-http-reader-writer-delta.sql");
 
-        assertThat(metadataBootstrap).contains("http", "businessStatusPath", "parentNode");
+        assertThat(technicalFieldBuilder).contains("http", "businessStatusPath", "parentNode");
         assertThat(mysqlBuiltin).contains("technical:http:source", "technical:http:table", "technical:http:field");
         assertThat(httpDelta).contains("technical:http:source", "technical:http:table", "technical:http:field");
 
-        assertFieldsPresent("Java HTTP table metadata fields", metadataBootstrap, HTTP_TABLE_FIELDS);
+        assertFieldsPresent("Java HTTP table metadata fields", technicalFieldBuilder, HTTP_TABLE_FIELDS);
         assertFieldsPresent("MySQL HTTP table metadata fields", mysqlBuiltin, HTTP_TABLE_FIELDS);
         assertFieldsPresent("Delta HTTP table metadata fields", httpDelta, HTTP_TABLE_FIELDS);
-        assertFieldsPresent("Java HTTP field metadata fields", metadataBootstrap, HTTP_FIELD_FIELDS);
+        assertFieldsPresent("Java HTTP field metadata fields", technicalFieldBuilder, HTTP_FIELD_FIELDS);
         assertFieldsPresent("MySQL HTTP field metadata fields", mysqlBuiltin, HTTP_FIELD_FIELDS);
         assertFieldsPresent("Delta HTTP field metadata fields", httpDelta, HTTP_FIELD_FIELDS);
     }
