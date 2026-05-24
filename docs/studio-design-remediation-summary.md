@@ -21,6 +21,7 @@
 - Batch 4 拆分模型统计支撑：新增 `DataModelStatisticsSupport`，`DataModelStatisticsService` 降到 776 行。
 - 静态门禁继续下降：后端大 Java 文件阈值从 14 收紧到 5，后端 main `return null;` 阈值从 221 收紧到 218，后端 `catch ignored` 阈值从 24 收紧到 23。
 - Batch 5 建立前端页面状态 composable：新增 `useAsyncAction`、`usePageQuery`、`useDialogForm`、`useTableSelection`，并先将运行列表分页状态迁移到 `usePageQuery`。
+- Batch 6 拆分 HTTP 动态函数弹窗：新增 `HttpDynamicFunctionDialog.vue` 和 `httpDynamicFunctions.ts`，`HttpReaderOptionsEditor.vue` 从约 1457 行降到 770 行，reader/writer 的 HTTP 参数保存格式不变。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -29,7 +30,7 @@
 - 巨型 Service 和巨型 Vue 页面没有一次性完全拆完。本轮优先拆了风险较低、测试保护较强的运行参数合并器、采集任务装配策略、schema/metadata helper、DataService 支撑组件、HTTP 编辑器子组件和元模型 description 工具；`StudioSchemaUpgradeService` 剩余建表块、`DataModelLineageService`、质量服务、采集任务编辑页等仍建议后续按测试保护分批拆。
 - 后端历史 `catch ignored`、`return null;`、大文件数量仍存在，本轮通过静态门禁确保不再增加，并清理本轮新增代码的坏味道；历史债务建议单独排期。
 - 前端 composable 体系如 `usePageQuery`、`useAsyncAction`、`useTableSelection`、`useDialogForm` 已开始落地，但尚未全面迁移到采集任务、质量任务、工作流、系统管理、模型中心等大页面。
-- 数据质量动态函数、HTTP 动态函数弹窗本体仍可继续拆为独立 dialog 组件；本轮先拆出键值表、Raw 编辑区和 Token 子表。
+- 数据质量动态函数弹窗仍可继续拆为独立 dialog 组件；HTTP 动态函数弹窗已独立，但后续仍可继续沉淀更通用的动态函数弹窗框架。
 
 ## 测试结果
 
@@ -45,6 +46,8 @@
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,RunMetricsApiRegressionTest,DataModelStatisticsRegressionTest" "-DforkCount=0" test`：通过，16 tests，0 failures，0 errors；指标支撑拆分后后端大 Java 文件实际数量为 6。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,DataModelStatisticsRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors；模型统计拆分后后端大 Java 文件实际数量为 5。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors；Batch 5 前端 composable 检查点后门禁保持通过。
+- `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 6 HTTP 动态函数弹窗拆分后验证。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors；Batch 6 HTTP 动态函数弹窗拆分后门禁保持通过。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。

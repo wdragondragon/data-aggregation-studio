@@ -465,3 +465,25 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
   - 本步骤只验证设计债务门禁，未运行后端全量测试。
 - 下一步：提交 Batch 5 当前小检查点，然后继续 HTTP 动态函数弹窗拆分或更多前端页面迁移。
+
+## Step 022 - Batch 6 拆分 HTTP 动态函数弹窗
+
+- 执行时间：2026-05-25 02:00:12 +08:00
+- 目标问题：`HttpReaderOptionsEditor.vue` 仍承载 HTTP 参数编辑、函数目录、Token 函数表单、弹窗状态、校验和样式，导致 reader/writer 共用入口难以继续维护。
+- 修改范围：新增 `HttpDynamicFunctionDialog.vue` 承载 HTTP 动态函数弹窗、Token 强表单和校验；新增 `httpDynamicFunctions.ts` 承载函数目录、类型和 Token 键值串生成；`HttpReaderOptionsEditor.vue` 只保留打开弹窗、计算插入位置、接收表达式并写回当前输入框。
+- 涉及文件：
+  - `frontend/apps/web/src/components/HttpReaderOptionsEditor.vue`
+  - `frontend/apps/web/src/components/http-request/HttpDynamicFunctionDialog.vue`
+  - `frontend/apps/web/src/components/http-request/httpDynamicFunctions.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：动态函数保存格式、Token 函数参数顺序、Header/Query/Body 字符串保存契约、Raw/Table 插入光标逻辑保持不变；本步骤只拆分组件与函数目录。`HttpReaderOptionsEditor.vue` 从约 1457 行降到 770 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+  - 本步骤尚未做浏览器手工验证 HTTP 弹窗交互；后续收口前需要在 nginx 页面上抽查 Header/Query/Raw 插入。
+- 下一步：提交 HTTP 动态函数弹窗拆分批次，然后继续前端大页面治理或后端剩余大类拆分。
