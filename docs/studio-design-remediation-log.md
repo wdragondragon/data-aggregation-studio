@@ -550,3 +550,26 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
   - 当前没有专门覆盖 `CollectionTaskService.resetIncrementalCursor` 的集成测试；本步骤以编译、设计门禁、装配回归和调度 runner 回归兜底，后续建议补增量 cursor 保存/重置用例。
 - 下一步：提交 Batch 8，然后继续评估 `SystemManagementService` 或 `DataModelLineageService` 的可拆低风险区域。
+
+## Step 026 - Batch 9 拆分系统管理视图与共享资源支撑
+
+- 执行时间：2026-05-25 02:22:36 +08:00
+- 目标问题：`SystemManagementService` 同时承载租户/项目/成员/Worker/共享资源保存删除、DTO 组装、共享资源目标校验、共享通知文案和跳转路径解析，类体超过 800 行。
+- 修改范围：新增 `SystemManagementViewAssembler` 承载系统管理 DTO 组装；新增 `SystemResourceShareSupport` 承载共享资源校验、共享通知、共享资源标签和目标路径解析；`SystemManagementService` 保留权限判断、保存删除、mapper 查询和事务边界；后端大文件门禁从 3 收紧到 2。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/SystemManagementService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/SystemManagementViewAssembler.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/SystemResourceShareSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：租户、项目、成员申请、Worker 绑定、资源共享 API 的返回字段、共享校验规则、通知 category/target/path/dedupeKey 保持不变；`SystemManagementService` 从 982 行降到 771 行。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - 后端大 Java 文件扫描：超过 800 行的文件从 3 个降到 2 个。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
+  - 当前缺少系统管理资源共享的专用回归测试；本步骤以编译和设计门禁兜底，后续建议补共享资源校验和通知目标路径用例。
+- 下一步：提交 Batch 9，然后继续评估 `DataModelLineageService` 或 `StudioSchemaUpgradeService` 的可拆区域。

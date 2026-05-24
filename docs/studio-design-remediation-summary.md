@@ -24,6 +24,7 @@
 - Batch 6 拆分 HTTP 动态函数弹窗：新增 `HttpDynamicFunctionDialog.vue` 和 `httpDynamicFunctions.ts`，`HttpReaderOptionsEditor.vue` 从约 1457 行降到 770 行，reader/writer 的 HTTP 参数保存格式不变。
 - Batch 7 拆分 source capability 元数据组装：新增 `AggregationModelMetadataSupport`，`AggregationSourceCapabilityProvider` 从 875 行降到 771 行，后端大文件门禁收紧到 4。
 - Batch 8 拆分采集任务增量游标支撑：新增 `CollectionTaskIncrementalCursorSupport`，`CollectionTaskService` 从 892 行降到 618 行，后端大文件门禁收紧到 3。
+- Batch 9 拆分系统管理视图与共享资源支撑：新增 `SystemManagementViewAssembler`、`SystemResourceShareSupport`，`SystemManagementService` 从 982 行降到 771 行，后端大文件门禁收紧到 2。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -54,6 +55,8 @@
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors；Batch 7 后端大文件门禁收紧到 4。
 - `mvn -pl studio-infra -am -DskipTests compile`：通过；Batch 8 采集任务增量游标支撑拆分后 `studio-infra` 及上游模块重新编译成功。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest,CollectionTaskScheduleRunnerRegressionTest" "-DforkCount=0" test`：通过，16 tests，0 failures，0 errors；Batch 8 后端大文件门禁收紧到 3。
+- `mvn -pl studio-infra -am -DskipTests compile`：通过；Batch 9 系统管理视图与共享资源支撑拆分后 `studio-infra` 及上游模块重新编译成功。
+- `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors；Batch 9 后端大文件门禁收紧到 2。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -71,6 +74,6 @@
 - Batch 1：继续把设计债务门禁从“不可增加”推进到“逐步下降”，每批清理一类历史 `catch ignored` 或 `return null;`，并为业务链路补明确异常/空集合/Optional 语义。
 - Batch 2：已完成采集任务装配策略拆分；后续若新增源端/目标端，优先在现有 helper/strategy 边界扩展，不再回填到 facade。
 - Batch 3：已完成方言探测、schema introspector、datasource capability 升级 support 和技术元模型字段 builder 拆分；后续可继续把 `StudioSchemaUpgradeService` 的质量表、数据服务表 MySQL/SQLite 建表块拆出。
-- Batch 4/7/8：`DataServiceService`、`QualityIssueService`、`DataModelService`、`WorkflowRunService`、`QualityMetricsService`、`DataServiceMetricsService`、`DataModelStatisticsService`、`AggregationSourceCapabilityProvider`、`CollectionTaskService` 已降到 800 行以下；继续拆 `DataModelLineageService`、`SystemManagementService` 等剩余大类时，每拆一组先补回归测试。
+- Batch 4/7/8/9：`DataServiceService`、`QualityIssueService`、`DataModelService`、`WorkflowRunService`、`QualityMetricsService`、`DataServiceMetricsService`、`DataModelStatisticsService`、`AggregationSourceCapabilityProvider`、`CollectionTaskService`、`SystemManagementService` 已降到 800 行以下；继续拆 `DataModelLineageService`、`StudioSchemaUpgradeService` 等剩余大类时，每拆一组先补回归测试。
 - Batch 5：继续前端大页面治理，优先拆采集任务编辑、质量任务编辑、工作流编辑、模型中心为 composable + section components，并推广 `usePageQuery`、`useAsyncAction`、`useDialogForm`。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

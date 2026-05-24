@@ -49,6 +49,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectMemberRequestView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectMemberView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectWorkerView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toTenantMemberView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toTenantView;
+
 @Service
 public class SystemManagementService {
 
@@ -68,6 +75,7 @@ public class SystemManagementService {
     private final DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
     private final StudioSecurityService securityService;
     private final NotificationService notificationService;
+    private final SystemResourceShareSupport resourceShareSupport;
 
     public SystemManagementService(TenantMapper tenantMapper,
                                    ProjectMapper projectMapper,
@@ -101,6 +109,13 @@ public class SystemManagementService {
         this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
         this.securityService = securityService;
         this.notificationService = notificationService;
+        this.resourceShareSupport = new SystemResourceShareSupport(
+                datasourceMapper,
+                dataModelMapper,
+                collectionTaskDefinitionMapper,
+                workflowDefinitionMapper,
+                dataDevelopmentScriptMapper,
+                notificationService);
     }
 
     public List<SystemTenantView> listTenants() {
@@ -466,7 +481,7 @@ public class SystemManagementService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Resource share target, type and resource id are required");
         }
         String normalizedResourceType = entity.getResourceType().trim().toUpperCase();
-        validateShareableResource(project.getTenantId(), project.getId(), normalizedResourceType, entity.getResourceId());
+        resourceShareSupport.validateShareableResource(project.getTenantId(), project.getId(), normalizedResourceType, entity.getResourceId());
         ProjectEntity targetProject = requireProject(entity.getTargetProjectId(), project.getTenantId());
         if (project.getId().equals(targetProject.getId())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Source and target project cannot be the same");
@@ -493,7 +508,7 @@ public class SystemManagementService {
             resourceShareMapper.updateById(target);
         }
         if (target.getEnabled() != null && target.getEnabled().intValue() == 1) {
-            notifyResourceShare(target, targetProject);
+            resourceShareSupport.notifyResourceShare(target, targetProject);
         }
         return target;
     }
@@ -523,115 +538,6 @@ public class SystemManagementService {
     public ProjectEntity requireTenantManagedProject(Long projectId) {
         requireAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN);
         return requireProject(projectId != null ? projectId : securityService.currentProjectId(), requireCurrentTenantId());
-    }
-
-    private SystemTenantView toTenantView(TenantEntity entity) {
-        SystemTenantView view = new SystemTenantView();
-        view.setId(entity.getId());
-        view.setTenantId(entity.getTenantId());
-        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
-        view.setCreatedAt(entity.getCreatedAt());
-        view.setUpdatedAt(entity.getUpdatedAt());
-        view.setTenantCode(entity.getTenantCode());
-        view.setTenantName(entity.getTenantName());
-        view.setDescription(entity.getDescription());
-        view.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
-        return view;
-    }
-
-    private SystemProjectView toProjectView(ProjectEntity entity) {
-        SystemProjectView view = new SystemProjectView();
-        view.setId(entity.getId());
-        view.setTenantId(entity.getTenantId());
-        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
-        view.setCreatedAt(entity.getCreatedAt());
-        view.setUpdatedAt(entity.getUpdatedAt());
-        view.setProjectCode(entity.getProjectCode());
-        view.setProjectName(entity.getProjectName());
-        view.setDescription(entity.getDescription());
-        view.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
-        view.setDefaultProject(entity.getDefaultProject() != null && entity.getDefaultProject() == 1);
-        return view;
-    }
-
-    private SystemTenantMemberView toTenantMemberView(TenantMemberEntity member, StudioUserEntity user) {
-        SystemTenantMemberView view = new SystemTenantMemberView();
-        view.setId(member.getId());
-        view.setTenantId(member.getTenantId());
-        view.setDeleted(member.getDeleted() != null && member.getDeleted() == 1);
-        view.setCreatedAt(member.getCreatedAt());
-        view.setUpdatedAt(member.getUpdatedAt());
-        view.setUserId(member.getUserId());
-        view.setUsername(user == null ? null : user.getUsername());
-        view.setDisplayName(user == null ? null : user.getDisplayName());
-        view.setRoleCode(member.getRoleCode());
-        view.setStatus(member.getStatus());
-        return view;
-    }
-
-    private SystemProjectMemberView toProjectMemberView(ProjectMemberEntity member, ProjectEntity project, StudioUserEntity user) {
-        SystemProjectMemberView view = new SystemProjectMemberView();
-        view.setId(member.getId());
-        view.setTenantId(member.getTenantId());
-        view.setProjectId(member.getProjectId());
-        view.setDeleted(member.getDeleted() != null && member.getDeleted() == 1);
-        view.setCreatedAt(member.getCreatedAt());
-        view.setUpdatedAt(member.getUpdatedAt());
-        view.setUserId(member.getUserId());
-        view.setUsername(user == null ? null : user.getUsername());
-        view.setDisplayName(user == null ? null : user.getDisplayName());
-        view.setProjectName(project == null ? null : project.getProjectName());
-        view.setRoleCode(member.getRoleCode());
-        view.setStatus(member.getStatus());
-        return view;
-    }
-
-    private SystemProjectMemberRequestView toProjectMemberRequestView(ProjectMemberRequestEntity request,
-                                                                      ProjectEntity project,
-                                                                      StudioUserEntity user,
-                                                                      StudioUserEntity inviter,
-                                                                      StudioUserEntity reviewer) {
-        SystemProjectMemberRequestView view = new SystemProjectMemberRequestView();
-        view.setId(request.getId());
-        view.setTenantId(request.getTenantId());
-        view.setProjectId(request.getProjectId());
-        view.setDeleted(request.getDeleted() != null && request.getDeleted() == 1);
-        view.setCreatedAt(request.getCreatedAt());
-        view.setUpdatedAt(request.getUpdatedAt());
-        view.setUserId(request.getUserId());
-        view.setUsername(user == null ? null : user.getUsername());
-        view.setDisplayName(user == null ? null : user.getDisplayName());
-        view.setProjectName(project == null ? null : project.getProjectName());
-        view.setRequestType(request.getRequestType());
-        view.setStatus(request.getStatus());
-        view.setInviterUserId(request.getInviterUserId());
-        view.setInviterUsername(inviter == null ? null : inviter.getUsername());
-        view.setReviewerUserId(request.getReviewerUserId());
-        view.setReviewerUsername(reviewer == null ? null : reviewer.getUsername());
-        view.setReason(request.getReason());
-        view.setReviewComment(request.getReviewComment());
-        return view;
-    }
-
-    private SystemProjectWorkerView toProjectWorkerView(Long projectId,
-                                                        String tenantId,
-                                                        WorkerLeaseEntity lease,
-                                                        ProjectWorkerBindingEntity binding) {
-        SystemProjectWorkerView view = new SystemProjectWorkerView();
-        view.setId(binding == null ? null : binding.getId());
-        view.setTenantId(tenantId);
-        view.setProjectId(projectId);
-        view.setDeleted(Boolean.FALSE);
-        view.setCreatedAt(binding == null ? null : binding.getCreatedAt());
-        view.setUpdatedAt(binding == null ? null : binding.getUpdatedAt());
-        view.setWorkerCode(lease != null ? lease.getWorkerCode() : binding == null ? null : binding.getWorkerCode());
-        view.setWorkerKind(lease == null ? null : lease.getWorkerKind());
-        view.setHostName(lease == null ? null : lease.getHostName());
-        view.setStatus(lease == null ? "OFFLINE" : lease.getStatus());
-        view.setLastHeartbeatAt(lease == null ? null : lease.getLastHeartbeatAt());
-        view.setBoundToProject(binding != null && binding.getEnabled() != null && binding.getEnabled() == 1);
-        view.setEnabled(binding != null && binding.getEnabled() != null && binding.getEnabled() == 1);
-        return view;
     }
 
     private Map<Long, StudioUserEntity> loadUserMap(Set<Long> userIds) {
@@ -826,123 +732,6 @@ public class SystemManagementService {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Resource share not found");
         }
         return share;
-    }
-
-    private void validateShareableResource(String tenantId, Long sourceProjectId, String resourceType, Long resourceId) {
-        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
-            DatasourceEntity entity = datasourceMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Datasource");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
-            DataModelEntity entity = dataModelMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Model");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
-            CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Collection task");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
-            WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Workflow");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
-            DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data development script");
-            return;
-        }
-        throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
-    }
-
-    private void ensureShareableResource(String resourceTenantId,
-                                         Long resourceProjectId,
-                                         Long resourceId,
-                                         Long sourceProjectId,
-                                         String tenantId,
-                                         String resourceName) {
-        if (!tenantId.equals(resourceTenantId) || resourceProjectId == null || !resourceProjectId.equals(sourceProjectId)) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, resourceName + " not found: " + resourceId);
-        }
-    }
-
-    private void notifyResourceShare(ResourceShareEntity share, ProjectEntity targetProject) {
-        if (share == null || targetProject == null) {
-            return;
-        }
-        List<Long> recipientUserIds = notificationService.activeProjectMemberUserIds(targetProject.getTenantId(), targetProject.getId());
-        if (recipientUserIds.isEmpty()) {
-            return;
-        }
-        notificationService.notifyUsers(recipientUserIds,
-                new NotificationCommand()
-                        .setCategory(StudioConstants.NOTIFICATION_CATEGORY_RESOURCE_SHARE)
-                        .setTitle("收到新的共享资源")
-                        .setContent("项目 " + targetProject.getProjectName() + " 收到了共享资源：" + resolveSharedResourceLabel(share) + "。")
-                        .setTargetType(share.getResourceType())
-                        .setTargetId(share.getResourceId())
-                        .setTargetPath(resolveShareTargetPath(share))
-                        .setTargetTenantId(targetProject.getTenantId())
-                        .setTargetProjectId(targetProject.getId())
-                        .setDedupeKey("resource-share:" + share.getId() + ":" + targetProject.getId() + ":" + (share.getUpdatedAt() == null ? "0" : share.getUpdatedAt().toString())));
-    }
-
-    private String resolveSharedResourceLabel(ResourceShareEntity share) {
-        if (share == null || !hasText(share.getResourceType()) || share.getResourceId() == null) {
-            return "未知资源";
-        }
-        String resourceType = share.getResourceType().trim().toUpperCase();
-        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
-            DatasourceEntity entity = datasourceMapper.selectById(share.getResourceId());
-            return entity == null ? "数据源#" + share.getResourceId() : "数据源 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
-            DataModelEntity entity = dataModelMapper.selectById(share.getResourceId());
-            return entity == null ? "模型#" + share.getResourceId() : "模型 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
-            CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(share.getResourceId());
-            return entity == null ? "采集任务#" + share.getResourceId() : "采集任务 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
-            WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(share.getResourceId());
-            return entity == null ? "工作流#" + share.getResourceId() : "工作流 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
-            DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(share.getResourceId());
-            return entity == null ? "数据开发脚本#" + share.getResourceId() : "数据开发脚本 " + entity.getFileName();
-        }
-        return share.getResourceType() + "#" + share.getResourceId();
-    }
-
-    private String resolveShareTargetPath(ResourceShareEntity share) {
-        if (share == null || !hasText(share.getResourceType()) || share.getResourceId() == null) {
-            return "/dashboard";
-        }
-        String resourceType = share.getResourceType().trim().toUpperCase();
-        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
-            return "/datasources";
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
-            return "/models/" + share.getResourceId();
-        }
-        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
-            return "/collection-tasks";
-        }
-        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
-            return "/workflows/" + share.getResourceId();
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
-            return "/data-development";
-        }
-        return "/dashboard";
     }
 
     private String requireCurrentTenantId() {
