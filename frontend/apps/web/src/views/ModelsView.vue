@@ -177,99 +177,19 @@
       </el-tabs>
     </template>
 
-    <el-dialog v-model="syncDialogOpen" :title="t('web.models.syncDialogTitle')" width="72%">
-      <p class="dialog-description">{{ t("web.models.syncDialogDescription") }}</p>
-      <div class="studio-form-grid">
-        <el-form-item :label="t('web.models.syncDatasourceType')">
-          <el-select
-            v-model="syncForm.datasourceType"
-            clearable
-            :placeholder="t('web.models.syncTypePlaceholder')"
-            @change="handleSyncDatasourceTypeChange"
-          >
-            <el-option
-              v-for="typeCode in databaseDatasourceTypes"
-              :key="typeCode"
-              :label="typeCode"
-              :value="typeCode"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('web.models.syncDatasource')">
-          <el-select
-            v-model="syncForm.datasourceId"
-            clearable
-            :placeholder="t('web.models.syncDatasourcePlaceholder')"
-            @change="handleSyncDatasourceChange"
-          >
-            <el-option
-              v-for="item in syncDatasourceOptions"
-              :key="item.id"
-              :label="`${item.name} (${item.typeCode})`"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
-      </div>
-
-      <ModelSyncTableSelector
-        v-model="syncSelectedLocators"
-        :datasource-id="syncForm.datasourceId"
-        :disabled="syncing"
-      />
-
-      <template #footer>
-        <el-button @click="syncDialogOpen = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" :loading="syncing" @click="submitSync">{{ t("common.sync") }}</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="syncTaskDialogOpen" title="新建模型同步任务" width="76%">
-      <p class="dialog-description">选择数据源与需要同步的表，提交后会立即在后台创建并执行同步任务。</p>
-      <div class="studio-form-grid">
-        <el-form-item label="数据源类型">
-          <el-select
-            v-model="syncTaskForm.datasourceType"
-            clearable
-            placeholder="选择数据源类型"
-            @change="handleSyncTaskFormDatasourceTypeChange"
-          >
-            <el-option
-              v-for="typeCode in databaseDatasourceTypes"
-              :key="typeCode"
-              :label="typeCode"
-              :value="typeCode"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="数据源">
-          <el-select
-            v-model="syncTaskForm.datasourceId"
-            clearable
-            placeholder="选择数据源"
-            @change="handleSyncTaskFormDatasourceChange"
-          >
-            <el-option
-              v-for="item in syncTaskDatasourceOptions"
-              :key="item.id"
-              :label="`${item.name} (${item.typeCode})`"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
-      </div>
-
-      <ModelSyncTableSelector
-        v-model="syncTaskForm.selectedLocators"
-        :datasource-id="syncTaskForm.datasourceId"
-        :disabled="creatingSyncTask"
-      />
-
-      <template #footer>
-        <el-button @click="syncTaskDialogOpen = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" :loading="creatingSyncTask" @click="submitSyncTaskCreate">创建并执行</el-button>
-      </template>
-    </el-dialog>
+    <ModelSyncDialogs
+      v-model:sync-dialog-open="syncDialogOpen"
+      v-model:sync-task-dialog-open="syncTaskDialogOpen"
+      v-model:selected-locators="syncSelectedLocators"
+      :sync-form="syncForm"
+      :sync-task-form="syncTaskForm"
+      :syncing="syncing"
+      :creating-sync-task="creatingSyncTask"
+      :database-datasource-types="databaseDatasourceTypes"
+      :sync-datasource-options="syncDatasourceOptions"
+      :sync-task-datasource-options="syncTaskDatasourceOptions"
+      :actions="syncDialogActions"
+    />
 
     <ModelEditorDrawer
       v-model="editorOpen"
@@ -318,10 +238,10 @@ import { useAuthStore } from "@/stores/auth";
 import ModelDetailOverview from "@/components/models/ModelDetailOverview.vue";
 import ModelDynamicFilterPanel from "@/components/models/ModelDynamicFilterPanel.vue";
 import ModelEditorDrawer from "@/components/models/ModelEditorDrawer.vue";
-import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState } from "@/components/models/modelViewTypes";
+import ModelSyncDialogs from "@/components/models/ModelSyncDialogs.vue";
+import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState, ModelSyncFormState, ModelSyncTaskFormState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
-import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
@@ -332,17 +252,6 @@ import {
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
 import { cloneDeep, formatModelKind, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
-
-interface SyncFormState {
-  datasourceType: string;
-  datasourceId?: EntityId;
-}
-
-interface SyncTaskFormState {
-  datasourceType: string;
-  datasourceId?: EntityId;
-  selectedLocators: string[];
-}
 
 const DATABASE_TYPE_HINTS = [
   "mysql",
@@ -411,11 +320,11 @@ const modelForm = reactive<ModelFormState>({
   businessMetadata: {},
 });
 
-const syncForm = reactive<SyncFormState>({
+const syncForm = reactive<ModelSyncFormState>({
   datasourceType: "",
 });
 
-const syncTaskForm = reactive<SyncTaskFormState>({
+const syncTaskForm = reactive<ModelSyncTaskFormState>({
   datasourceType: "",
   selectedLocators: [],
 });
@@ -533,6 +442,14 @@ const syncTaskSectionActions = {
   deleteSyncTask,
   handlePageSizeChange: handleSyncTaskPageSizeChange,
   formatDurationMs,
+};
+const syncDialogActions = {
+  handleSyncDatasourceTypeChange,
+  handleSyncDatasourceChange,
+  handleSyncTaskFormDatasourceTypeChange,
+  handleSyncTaskFormDatasourceChange,
+  submitSync,
+  submitSyncTaskCreate,
 };
 const modelEditorActions = {
   handleModelDatasourceChange,
@@ -2060,56 +1977,6 @@ p {
   font-size: 12px;
 }
 
-.dialog-description {
-  margin-bottom: 12px;
-}
-
-.sync-table-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.sync-table-panel__header {
-  display: grid;
-  gap: 8px;
-}
-
-.sync-table-panel__title {
-  color: var(--studio-text);
-}
-
-.sync-table-panel__title strong {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.sync-table-panel__search {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--studio-border);
-  border-radius: 14px;
-  background: rgba(248, 250, 252, 0.92);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-
-.sync-table-panel__search-input {
-  width: 100%;
-}
-
-.sync-table-panel__search-action {
-  min-width: 96px;
-}
-
-.business-schema-selector {
-  margin-bottom: 0;
-}
-
 .table-pagination {
   display: flex;
   justify-content: flex-end;
@@ -2151,16 +2018,5 @@ p {
     justify-content: flex-start;
   }
 
-  .sync-table-panel__search {
-    grid-template-columns: 1fr;
-  }
-
-  .sync-table-panel__search-input {
-    width: 100%;
-  }
-
-  .sync-table-panel__search-action {
-    width: 100%;
-  }
 }
 </style>

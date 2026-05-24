@@ -694,3 +694,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - `ModelsView.vue` 仍接近 2000 行，剩余的列表查询、同步弹窗、详情页签编排和字段展示 helper 仍适合继续分批拆分；不建议为了 800 行阈值做机械拆分。
 - 下一步：提交 Batch 15；随后继续拆 `ModelsView.vue` 剩余清晰 UI 区块，优先处理同步弹窗或字段明细展示。
+
+## Step 033 - Batch 16 拆分模型同步弹窗
+
+- 执行时间：2026-05-25 03:58:19 +08:00
+- 目标问题：`ModelsView.vue` 同时维护页面同步弹窗、后台同步任务创建弹窗和表选择器展示，两个弹窗结构相近但占据父页面大量模板和样式，影响列表/详情/编辑逻辑阅读。
+- 修改范围：新增 `ModelSyncDialogs.vue` 承载页面同步与同步任务创建两个弹窗；将 `ModelSyncFormState`、`ModelSyncTaskFormState` 移入共享 `modelViewTypes.ts`；父页面保留打开、校验、提交、任务跳转和刷新逻辑，并通过 `syncDialogActions` 注入；清理 `ModelsView.vue` 中已无引用的旧同步表选择样式。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/ModelSyncDialogs.vue`
+  - `frontend/apps/web/src/components/models/modelViewTypes.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：页面同步弹窗标题/说明、数据源类型与数据源选择、表选择器、超过 20 张表时转后台任务、同步任务创建弹窗、按钮 loading 和提交动作保持不变；父页面仍负责所有 API 调用和路由跳转。`ModelsView.vue` 从 1990 行降到 1864 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - `ModelsView.vue` 仍有列表表格、查询组装、schema/元数据 helper、详情路由和保存逻辑，后续应继续按职责拆分，避免按 800 行做机械切割。
+- 下一步：提交 Batch 16；继续处理模型列表面板或转向下一个大页面的清晰 section。

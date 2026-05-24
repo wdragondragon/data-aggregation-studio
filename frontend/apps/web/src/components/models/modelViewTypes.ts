@@ -25,6 +25,17 @@ export interface ModelFormState {
   businessMetadata: Record<string, unknown>;
 }
 
+export interface ModelSyncFormState {
+  datasourceType: string;
+  datasourceId?: EntityId;
+}
+
+export interface ModelSyncTaskFormState {
+  datasourceType: string;
+  datasourceId?: EntityId;
+  selectedLocators: string[];
+}
+
 export interface ModelQueryConditionState {
   fieldKey: string;
   operator: string;
