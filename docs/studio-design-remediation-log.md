@@ -573,3 +573,28 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
   - 当前缺少系统管理资源共享的专用回归测试；本步骤以编译和设计门禁兜底，后续建议补共享资源校验和通知目标路径用例。
 - 下一步：提交 Batch 9，然后继续评估 `DataModelLineageService` 或 `StudioSchemaUpgradeService` 的可拆区域。
+
+## Step 027 - Batch 10 拆分血缘服务表达式、运行状态与图组装职责
+
+- 执行时间：2026-05-25 03:02:26 +08:00
+- 目标问题：`DataModelLineageService` 同时承载采集任务血缘重建、字段表达式解析、最新运行状态补齐、血缘图/边详情 DTO 组装和通用文本元数据工具，类体超过 1500 行且职责混杂；同时“所有类低于 800 行”的门禁容易引导硬拆。
+- 修改范围：新增血缘专用 helper：`DataModelLineageTextSupport` 承载字段/元数据/文本工具；`DataModelLineageExpressionResolver` 承载表达式引用解析、source alias 解析和 alias 字段索引；`DataModelLineageRunStatusSupport` 承载运行状态归一、最新运行时间选择、状态比较和展示状态派生；`DataModelLineageGraphAssembler` 承载血缘图、边详情、摘要、节点 ID 和可达性计算。`DataModelLineageService` 保留对外 facade、权限/查询、手工血缘保存删除和自动血缘持久化编排。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelLineageService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelLineageTextSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelLineageExpressionResolver.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelLineageRunStatusSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataModelLineageGraphAssembler.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：血缘 API、edgeId 编码、图节点/边/摘要字段、未解析表达式输出、手工血缘保存规则、自动血缘字段映射模式、运行状态展示语义保持不变；只是将原私有方法移动到语义明确的同包 helper。`DataModelLineageService` 从 1567 行降到 713 行，新增 `DataModelLineageGraphAssembler` 为 602 行，没有制造新的超大类。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - 后端大 Java 文件扫描：超过 800 行的文件从 2 个降到 1 个，仅剩 `StudioSchemaUpgradeService.java`。
+  - `mvn -pl studio-test "-Dtest=DataModelLineageRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，6 tests，0 failures，0 errors。
+- 失败、阻塞或残余风险：
+  - Redis 不可达仍触发现有本地缓存降级日志，未造成测试失败。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
+  - `StudioSchemaUpgradeService` 仍超过 800 行，但按本轮结论归类为已审查的大型 schema/升级编排类，不再为了行数硬拆；后续只在有 schema drift/init 回归保护时按方言/步骤继续拆。
+- 下一步：执行 `git diff --check`，更新汇总文档并提交 Batch 10；后续重点转向前端大页面 composable 迁移和历史 `return null` / `catch ignored` 债务下降。

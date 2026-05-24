@@ -7,6 +7,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -18,10 +21,11 @@ class StudioDesignDebtRegressionTest {
     private static final int MAX_BACKEND_CATCH_IGNORED = 23;
     private static final int MAX_BACKEND_RETURN_NULL = 218;
     private static final int MAX_LEGACY_TABLE_WRAPPER_REFERENCES = 0;
-    private static final int MAX_LARGE_BACKEND_JAVA_FILES = 2;
     private static final int MAX_LARGE_WEB_VUE_FILES = 13;
     private static final int BACKEND_LARGE_FILE_LINE_THRESHOLD = 800;
     private static final int WEB_LARGE_FILE_LINE_THRESHOLD = 1000;
+    private static final Set<String> REVIEWED_LARGE_BACKEND_JAVA_FILES = Set.of(
+            "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java");
 
     @Test
     void backendIgnoredCatchesShouldNotIncrease() throws Exception {
@@ -55,12 +59,13 @@ class StudioDesignDebtRegressionTest {
     void giantSourceFilesShouldNotIncrease() throws Exception {
         Path root = resolveProjectRoot();
 
-        long backendLargeFiles = countLargeFiles(root.resolve("backend/studio-infra/src/main/java"), ".java", BACKEND_LARGE_FILE_LINE_THRESHOLD);
+        List<String> backendLargeFiles = listLargeFiles(root, root.resolve("backend/studio-infra/src/main/java"),
+                ".java", BACKEND_LARGE_FILE_LINE_THRESHOLD);
         long frontendLargeFiles = countLargeFiles(root.resolve("frontend/apps/web/src"), ".vue", WEB_LARGE_FILE_LINE_THRESHOLD);
 
         assertThat(backendLargeFiles)
                 .as("backend Java files over " + BACKEND_LARGE_FILE_LINE_THRESHOLD + " lines")
-                .isLessThanOrEqualTo(MAX_LARGE_BACKEND_JAVA_FILES);
+                .containsExactlyInAnyOrderElementsOf(REVIEWED_LARGE_BACKEND_JAVA_FILES);
         assertThat(frontendLargeFiles)
                 .as("web Vue files over " + WEB_LARGE_FILE_LINE_THRESHOLD + " lines")
                 .isLessThanOrEqualTo(MAX_LARGE_WEB_VUE_FILES);
@@ -116,6 +121,27 @@ class StudioDesignDebtRegressionTest {
             }
         }
         return count;
+    }
+
+    private List<String> listLargeFiles(Path root, Path start, String suffix, int threshold) throws IOException {
+        List<String> result = new ArrayList<>();
+        if (!Files.exists(start)) {
+            return result;
+        }
+        try (Stream<Path> paths = Files.walk(start)) {
+            for (Path path : (Iterable<Path>) paths::iterator) {
+                if (!Files.isRegularFile(path) || !path.toString().endsWith(suffix)) {
+                    continue;
+                }
+                if (suffix.endsWith(".java") && isExcludedBackendPath(path)) {
+                    continue;
+                }
+                if (Files.readAllLines(path, StandardCharsets.UTF_8).size() > threshold) {
+                    result.add(root.relativize(path).toString().replace('\\', '/'));
+                }
+            }
+        }
+        return result;
     }
 
     private int countMatches(String content, Pattern pattern) {

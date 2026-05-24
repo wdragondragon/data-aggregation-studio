@@ -39,25 +39,26 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.blankToNull;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.containsIgnoreCase;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.extractModelFields;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.firstNonBlank;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.isBlank;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.resolveDatabaseName;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.resolveStringMetadata;
+import static com.jdragon.studio.infra.service.DataModelLineageTextSupport.safeText;
 
 @Service
 public class DataModelLineageService {
@@ -67,28 +68,6 @@ public class DataModelLineageService {
     private static final String MAPPING_MODE_DIRECT = "DIRECT";
     private static final String MAPPING_MODE_EXPRESSION = "EXPRESSION";
     private static final String MAPPING_MODE_UNRESOLVED_EXPRESSION = "UNRESOLVED_EXPRESSION";
-    private static final String RUN_STATUS_NOT_RUN = "NOT_RUN";
-    private static final String DISPLAY_STATUS_NOT_RUN = "NOT_RUN";
-    private static final String DISPLAY_STATUS_RUNNING = "RUNNING";
-    private static final String DISPLAY_STATUS_NORMAL = "NORMAL";
-    private static final String DISPLAY_STATUS_EXCEPTION = "EXCEPTION";
-    private static final String SOURCE_TYPE_LABEL_AUTOMATIC = "AUTOMATIC";
-    private static final String SOURCE_TYPE_LABEL_MANUAL = "MANUAL";
-    private static final String SOURCE_TYPE_LABEL_MIXED = "MIXED";
-    private static final String VISUAL_PLATFORM_MODEL = "PLATFORM_MODEL";
-    private static final String VISUAL_EXTERNAL_ACCESS = "EXTERNAL_ACCESS";
-    private static final Pattern QUALIFIED_FIELD_PATTERN = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)\\.([A-Za-z_][A-Za-z0-9_]*)");
-    private static final Pattern IDENTIFIER_PATTERN = Pattern.compile("(?<![A-Za-z0-9_\\.])([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])");
-    private static final Set<String> EXPRESSION_KEYWORDS = new LinkedHashSet<String>();
-
-    static {
-        Collections.addAll(EXPRESSION_KEYWORDS,
-                "case", "when", "then", "else", "end", "null", "and", "or", "not", "as",
-                "if", "cast", "concat", "sum", "max", "min", "avg", "count", "coalesce",
-                "substr", "substring", "trim", "replace", "lower", "upper", "round", "floor",
-                "ceil", "ceiling", "abs", "year", "month", "day", "hour", "minute", "second",
-                "date", "now", "current_date", "current_timestamp", "true", "false", "distinct");
-    }
 
     private final DataModelLineageRelationMapper relationMapper;
     private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
@@ -101,6 +80,8 @@ public class DataModelLineageService {
     private final ObjectMapper objectMapper;
     private final Executor lineageRebuildExecutor;
     private final TransactionTemplate transactionTemplate;
+    private final DataModelLineageExpressionResolver expressionResolver = new DataModelLineageExpressionResolver();
+    private final DataModelLineageGraphAssembler graphAssembler;
 
     public DataModelLineageService(DataModelLineageRelationMapper relationMapper,
                                    CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
@@ -124,6 +105,7 @@ public class DataModelLineageService {
         this.objectMapper = objectMapper;
         this.lineageRebuildExecutor = lineageRebuildExecutor;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.graphAssembler = new DataModelLineageGraphAssembler(datasourceMapper);
     }
 
     public void scheduleTaskRebuildAfterCommit(final Long taskId) {
@@ -178,7 +160,7 @@ public class DataModelLineageService {
 
         Map<Long, DatasourceEntity> datasourceMap = loadDatasourceMap(sourceBindings, targetBinding);
         Map<Long, DataModelEntity> modelMap = loadModelMap(sourceBindings, targetBinding);
-        Map<String, Set<String>> aliasFields = buildAliasFields(sourceBindings, modelMap);
+        Map<String, Set<String>> aliasFields = expressionResolver.buildAliasFields(sourceBindings, modelMap);
         Set<String> uniqueKeys = new LinkedHashSet<String>();
         List<DataModelLineageRelationEntity> relations = new ArrayList<DataModelLineageRelationEntity>();
 
@@ -217,11 +199,11 @@ public class DataModelLineageService {
         if (event == null || event.getCollectionTaskId() == null) {
             return;
         }
-        String status = normalizeStatus(event.getEventType());
+        String status = DataModelLineageRunStatusSupport.normalizeStatus(event.getEventType());
         if (isBlank(status)) {
             return;
         }
-        LocalDateTime eventTime = resolveEventTime(event);
+        LocalDateTime eventTime = DataModelLineageRunStatusSupport.resolveEventTime(event);
         LambdaQueryWrapper<DataModelLineageRelationEntity> query = new LambdaQueryWrapper<DataModelLineageRelationEntity>()
                 .eq(DataModelLineageRelationEntity::getCollectionTaskId, event.getCollectionTaskId());
         if (event.getProjectId() != null) {
@@ -229,7 +211,7 @@ public class DataModelLineageService {
         }
         List<DataModelLineageRelationEntity> relations = relationMapper.selectList(query);
         for (DataModelLineageRelationEntity relation : relations) {
-            if (shouldUpdateRunStatus(relation, event, eventTime)) {
+            if (DataModelLineageRunStatusSupport.shouldUpdateRunStatus(relation, event, eventTime)) {
                 relation.setLatestRunId(event.getRunRecordId());
                 relation.setLatestRunStatus(status);
                 relation.setLatestRunAt(eventTime);
@@ -242,10 +224,10 @@ public class DataModelLineageService {
         DataModelEntity focusModel = requireReadableModel(modelId);
         List<DataModelLineageRelationEntity> relations = filterVisibleRelations(loadAccessibleRelations(level));
         enrichLatestRunStatus(relations);
-        LineageQueryContext context = buildLineageContext(focusModel, relations, level);
+        DataModelLineageGraphAssembler.LineageQueryContext context = graphAssembler.buildContext(focusModel, relations, level);
         DataModelLineageView view = new DataModelLineageView();
         view.setEditable(Boolean.valueOf(isLineageEditable(focusModel, level)));
-        view.setSummary(buildSummary(context));
+        view.setSummary(graphAssembler.buildSummary(context));
         view.setNodes(context.nodes);
         view.setEdges(context.edges);
         view.setUnresolvedExpressions(context.unresolvedExpressions);
@@ -254,29 +236,29 @@ public class DataModelLineageService {
 
     public DataModelLineageEdgeDetailView getEdgeDetail(Long modelId, LineageLevel level, String edgeId) {
         DataModelEntity focusModel = requireReadableModel(modelId);
-        EdgeKey edgeKey = decodeEdgeKey(edgeId);
+        DataModelLineageGraphAssembler.EdgeKey edgeKey = graphAssembler.decodeEdgeKey(edgeId);
         if (edgeKey == null || !Objects.equals(edgeKey.level, level.name())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Lineage edge not found: " + edgeId);
         }
         DatasourceEntity focusDatasource = focusModel.getDatasourceId() == null ? null : datasourceMapper.selectById(focusModel.getDatasourceId());
-        String focusNodeId = resolveFocusNodeId(level, focusModel, focusDatasource);
+        String focusNodeId = graphAssembler.resolveFocusNodeId(level, focusModel, focusDatasource);
         List<DataModelLineageRelationEntity> relations = filterVisibleRelations(loadAccessibleRelations(level));
         enrichLatestRunStatus(relations);
-        Set<String> reachableNodeIds = traverseReachableNodeIds(relations, focusNodeId, level);
+        Set<String> reachableNodeIds = graphAssembler.traverseReachableNodeIds(relations, focusNodeId, level);
         List<DataModelLineageRelationEntity> matched = new ArrayList<DataModelLineageRelationEntity>();
         for (DataModelLineageRelationEntity relation : relations) {
-            if (!reachableNodeIds.contains(relationSourceNodeId(relation, level))
-                    || !reachableNodeIds.contains(relationTargetNodeId(relation, level))) {
+            if (!reachableNodeIds.contains(graphAssembler.relationSourceNodeId(relation, level))
+                    || !reachableNodeIds.contains(graphAssembler.relationTargetNodeId(relation, level))) {
                 continue;
             }
-            if (matchesEdgeKey(edgeKey, relation, level)) {
+            if (graphAssembler.matchesEdgeKey(edgeKey, relation, level)) {
                 matched.add(relation);
             }
         }
         if (matched.isEmpty()) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Lineage edge not found: " + edgeId);
         }
-        return buildEdgeDetail(edgeId, level, matched);
+        return graphAssembler.buildEdgeDetail(edgeId, level, matched);
     }
 
     public void saveManualLineage(Long focusModelId, Long relationId, DataModelManualLineageSaveRequest request) {
@@ -359,7 +341,7 @@ public class DataModelLineageService {
             return;
         }
         if (!isBlank(mapping.getSourceField())) {
-            CollectionTaskSourceBinding source = findSourceBinding(sourceBindings, mapping.getSourceAlias());
+            CollectionTaskSourceBinding source = expressionResolver.findSourceBinding(sourceBindings, mapping.getSourceAlias());
             if (source != null) {
                 appendDirectFieldRelation(relations, uniqueKeys, task, source, targetBinding, datasourceMap, modelMap,
                         mapping.getSourceField(), mapping.getTargetField(), null, MAPPING_MODE_DIRECT);
@@ -369,15 +351,15 @@ public class DataModelLineageService {
         if (isBlank(mapping.getExpression())) {
             return;
         }
-        ExpressionResolution resolution = resolveExpressionMappings(mapping, sourceBindings, aliasFields);
+        DataModelLineageExpressionResolver.ExpressionResolution resolution = expressionResolver.resolveExpressionMappings(mapping, sourceBindings, aliasFields);
         if (resolution.references.isEmpty()) {
             CollectionTaskSourceBinding source = sourceBindings.get(0);
             appendDirectFieldRelation(relations, uniqueKeys, task, source, targetBinding, datasourceMap, modelMap,
                     null, mapping.getTargetField(), mapping.getExpression(), MAPPING_MODE_UNRESOLVED_EXPRESSION);
             return;
         }
-        for (FieldReference reference : resolution.references) {
-            CollectionTaskSourceBinding source = findSourceBinding(sourceBindings, reference.sourceAlias);
+        for (DataModelLineageExpressionResolver.FieldReference reference : resolution.references) {
+            CollectionTaskSourceBinding source = expressionResolver.findSourceBinding(sourceBindings, reference.sourceAlias);
             if (source == null) {
                 continue;
             }
@@ -442,7 +424,7 @@ public class DataModelLineageService {
         relation.setTargetModelId(target.getModelId());
         relation.setTargetModelNameSnapshot(firstNonBlank(target.getModelName(), targetModel == null ? null : targetModel.getName()));
         relation.setTargetModelLocatorSnapshot(firstNonBlank(target.getModelPhysicalLocator(), targetModel == null ? null : targetModel.getPhysicalLocator()));
-        relation.setLatestRunStatus(RUN_STATUS_NOT_RUN);
+        relation.setLatestRunStatus(DataModelLineageRunStatusSupport.RUN_STATUS_NOT_RUN);
         return relation;
     }
 
@@ -516,128 +498,6 @@ public class DataModelLineageService {
             result.put(item.getId(), item);
         }
         return result;
-    }
-
-    private Map<String, Set<String>> buildAliasFields(List<CollectionTaskSourceBinding> sourceBindings,
-                                                      Map<Long, DataModelEntity> modelMap) {
-        Map<String, Set<String>> result = new LinkedHashMap<String, Set<String>>();
-        for (CollectionTaskSourceBinding binding : sourceBindings) {
-            String alias = firstNonBlank(binding.getSourceAlias(), binding.getDatasourceName(), String.valueOf(binding.getModelId()));
-            result.put(alias, extractModelFields(modelMap.get(binding.getModelId())));
-        }
-        return result;
-    }
-
-    private Set<String> extractModelFields(DataModelEntity model) {
-        Set<String> fields = new LinkedHashSet<String>();
-        if (model == null || model.getTechnicalMetadata() == null) {
-            return fields;
-        }
-        Object rawColumns = model.getTechnicalMetadata().get("columns");
-        if (!(rawColumns instanceof List)) {
-            return fields;
-        }
-        for (Object candidate : (List<?>) rawColumns) {
-            if (!(candidate instanceof Map)) {
-                continue;
-            }
-            Object name = ((Map<?, ?>) candidate).get("name");
-            if (name != null && !String.valueOf(name).trim().isEmpty()) {
-                fields.add(String.valueOf(name));
-            }
-        }
-        return fields;
-    }
-
-    private ExpressionResolution resolveExpressionMappings(FieldMappingDefinition mapping,
-                                                           List<CollectionTaskSourceBinding> sourceBindings,
-                                                           Map<String, Set<String>> aliasFields) {
-        ExpressionResolution resolution = new ExpressionResolution();
-        if (mapping == null || isBlank(mapping.getExpression())) {
-            return resolution;
-        }
-        Set<String> seen = new LinkedHashSet<String>();
-        Matcher qualifiedMatcher = QUALIFIED_FIELD_PATTERN.matcher(mapping.getExpression());
-        while (qualifiedMatcher.find()) {
-            String alias = qualifiedMatcher.group(1);
-            String field = qualifiedMatcher.group(2);
-            Set<String> fields = aliasFields.get(alias);
-            if (fields != null && containsIgnoreCase(fields, field) && seen.add(alias + "." + field.toLowerCase(Locale.ENGLISH))) {
-                resolution.references.add(new FieldReference(alias, findOriginalField(fields, field)));
-            }
-        }
-        if (!resolution.references.isEmpty()) {
-            return resolution;
-        }
-        Matcher identifierMatcher = IDENTIFIER_PATTERN.matcher(mapping.getExpression());
-        while (identifierMatcher.find()) {
-            String identifier = identifierMatcher.group(1);
-            if (EXPRESSION_KEYWORDS.contains(identifier.toLowerCase(Locale.ENGLISH))) {
-                continue;
-            }
-            FieldReference uniqueMatch = resolveUniqueBareField(identifier, sourceBindings, aliasFields);
-            if (uniqueMatch != null && seen.add(uniqueMatch.sourceAlias + "." + uniqueMatch.fieldName.toLowerCase(Locale.ENGLISH))) {
-                resolution.references.add(uniqueMatch);
-            }
-        }
-        return resolution;
-    }
-
-    private FieldReference resolveUniqueBareField(String identifier,
-                                                  List<CollectionTaskSourceBinding> sourceBindings,
-                                                  Map<String, Set<String>> aliasFields) {
-        FieldReference result = null;
-        for (CollectionTaskSourceBinding binding : sourceBindings) {
-            String alias = firstNonBlank(binding.getSourceAlias(), binding.getDatasourceName(), String.valueOf(binding.getModelId()));
-            Set<String> fields = aliasFields.get(alias);
-            if (fields == null || !containsIgnoreCase(fields, identifier)) {
-                continue;
-            }
-            if (result != null) {
-                return null;
-            }
-            result = new FieldReference(alias, findOriginalField(fields, identifier));
-        }
-        return result;
-    }
-
-    private boolean containsIgnoreCase(Collection<String> fields, String expected) {
-        if (fields == null || expected == null) {
-            return false;
-        }
-        for (String field : fields) {
-            if (field != null && field.equalsIgnoreCase(expected)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String findOriginalField(Collection<String> fields, String expected) {
-        if (fields == null) {
-            return expected;
-        }
-        for (String field : fields) {
-            if (field != null && field.equalsIgnoreCase(expected)) {
-                return field;
-            }
-        }
-        return expected;
-    }
-
-    private CollectionTaskSourceBinding findSourceBinding(List<CollectionTaskSourceBinding> sourceBindings, String sourceAlias) {
-        if (sourceBindings == null || sourceBindings.isEmpty()) {
-            return null;
-        }
-        if (isBlank(sourceAlias)) {
-            return sourceBindings.get(0);
-        }
-        for (CollectionTaskSourceBinding binding : sourceBindings) {
-            if (sourceAlias.equalsIgnoreCase(firstNonBlank(binding.getSourceAlias(), binding.getDatasourceName(), String.valueOf(binding.getModelId())))) {
-                return binding;
-            }
-        }
-        return sourceBindings.get(0);
     }
 
     private DataModelEntity requireReadableModel(Long modelId) {
@@ -764,8 +624,8 @@ public class DataModelLineageService {
             if (latestRun == null) {
                 continue;
             }
-            LocalDateTime latestRunTime = resolveRunTime(latestRun);
-            if (!shouldApplyLatestRun(relation, latestRun, latestRunTime)) {
+            LocalDateTime latestRunTime = DataModelLineageRunStatusSupport.resolveRunTime(latestRun);
+            if (!DataModelLineageRunStatusSupport.shouldApplyLatestRun(relation, latestRun, latestRunTime)) {
                 continue;
             }
             relation.setLatestRunId(latestRun.getId());
@@ -868,692 +728,6 @@ public class DataModelLineageService {
         return true;
     }
 
-    private LineageQueryContext buildLineageContext(DataModelEntity focusModel,
-                                                    List<DataModelLineageRelationEntity> relations,
-                                                    LineageLevel level) {
-        LineageQueryContext context = new LineageQueryContext();
-        DatasourceEntity focusDatasource = focusModel.getDatasourceId() == null ? null : datasourceMapper.selectById(focusModel.getDatasourceId());
-        String focusNodeId = resolveFocusNodeId(level, focusModel, focusDatasource);
-        Set<String> reachableNodeIds = traverseReachableNodeIds(relations, focusNodeId, level);
-        reachableNodeIds.add(focusNodeId);
-        Map<String, List<DataModelLineageRelationEntity>> groupedEdges = new LinkedHashMap<String, List<DataModelLineageRelationEntity>>();
-        for (DataModelLineageRelationEntity relation : relations) {
-            String sourceNodeId = relationSourceNodeId(relation, level);
-            String targetNodeId = relationTargetNodeId(relation, level);
-            if (!reachableNodeIds.contains(sourceNodeId) || !reachableNodeIds.contains(targetNodeId)) {
-                continue;
-            }
-            String edgeId = encodeEdgeKey(buildEdgeKey(level, relation));
-            groupedEdges.computeIfAbsent(edgeId, key -> new ArrayList<DataModelLineageRelationEntity>()).add(relation);
-        }
-
-        Map<String, DataModelLineageNodeView> nodes = new LinkedHashMap<String, DataModelLineageNodeView>();
-        ensureFocusNode(nodes, focusModel, focusDatasource, focusNodeId, level);
-        Map<String, NodeRelationRole> roles = classifyNodeRoles(groupedEdges, focusNodeId, level);
-
-        Set<String> unresolvedKeys = new LinkedHashSet<String>();
-        for (Map.Entry<String, List<DataModelLineageRelationEntity>> entry : groupedEdges.entrySet()) {
-            List<DataModelLineageRelationEntity> contributors = entry.getValue();
-            contributors.sort(runStatusComparator());
-            DataModelLineageRelationEntity latest = contributors.get(0);
-            DataModelLineageRelationEntity preferred = resolvePreferredEdgeRelation(contributors);
-            String sourceNodeId = relationSourceNodeId(latest, level);
-            String targetNodeId = relationTargetNodeId(latest, level);
-            nodes.putIfAbsent(sourceNodeId, buildNodeView(latest, true, level, roles.get(sourceNodeId), sourceNodeId.equals(focusNodeId)));
-            nodes.putIfAbsent(targetNodeId, buildNodeView(latest, false, level, roles.get(targetNodeId), targetNodeId.equals(focusNodeId)));
-            if (level == LineageLevel.FIELD) {
-                appendFieldToNode(nodes.get(sourceNodeId), latest.getSourceFieldKey());
-                appendFieldToNode(nodes.get(targetNodeId), latest.getTargetFieldKey());
-            }
-
-            DataModelLineageEdgeView edge = new DataModelLineageEdgeView();
-            edge.setEdgeId(entry.getKey());
-            edge.setSourceNodeId(sourceNodeId);
-            edge.setTargetNodeId(targetNodeId);
-            edge.setSelfLoop(Boolean.valueOf(Objects.equals(sourceNodeId, targetNodeId)));
-            edge.setSourceField(level == LineageLevel.FIELD ? latest.getSourceFieldKey() : null);
-            edge.setTargetField(level == LineageLevel.FIELD ? latest.getTargetFieldKey() : null);
-            edge.setLabel(level == LineageLevel.FIELD
-                    ? safeText(latest.getSourceFieldKey()) + " -> " + safeText(latest.getTargetFieldKey())
-                    : null);
-            edge.setSourceType(preferred == null ? null : preferred.getSourceType());
-            edge.setSourceTypeLabel(resolveAggregatedSourceTypeLabel(contributors));
-            edge.setLatestRunId(preferred == null ? null : preferred.getLatestRunId());
-            edge.setLatestRunStatus(preferred == null ? RUN_STATUS_NOT_RUN : defaultRunStatus(preferred.getLatestRunStatus()));
-            edge.setDisplayStatus(resolveDisplayStatus(preferred));
-            edge.setLatestRunAt(preferred == null ? null : preferred.getLatestRunAt());
-            edge.setContributorCount(Integer.valueOf(contributors.size()));
-            context.edges.add(edge);
-
-            if (level == LineageLevel.FIELD) {
-                for (DataModelLineageRelationEntity relation : contributors) {
-                    if (!MAPPING_MODE_UNRESOLVED_EXPRESSION.equalsIgnoreCase(relation.getMappingMode())) {
-                        continue;
-                    }
-                    String unresolvedKey = relation.getCollectionTaskId() + "|" + safeText(relation.getTargetFieldKey()) + "|" + safeText(relation.getExpressionSnapshot());
-                    if (!unresolvedKeys.add(unresolvedKey)) {
-                        continue;
-                    }
-                    DataModelLineageUnresolvedExpressionView unresolved = new DataModelLineageUnresolvedExpressionView();
-                    unresolved.setCollectionTaskId(relation.getCollectionTaskId());
-                    unresolved.setCollectionTaskName(relation.getCollectionTaskNameSnapshot());
-                    unresolved.setSourceAlias(null);
-                    unresolved.setTargetField(relation.getTargetFieldKey());
-                    unresolved.setExpression(relation.getExpressionSnapshot());
-                    unresolved.setLatestRunAt(relation.getLatestRunAt());
-                    unresolved.setLatestRunStatus(defaultRunStatus(relation.getLatestRunStatus()));
-                    context.unresolvedExpressions.add(unresolved);
-                }
-            }
-        }
-
-        context.level = level == null ? null : level.name();
-        context.focusNodeId = focusNodeId;
-        context.nodes.addAll(nodes.values());
-        return context;
-    }
-
-    private DataModelLineageEdgeDetailView buildEdgeDetail(String edgeId,
-                                                           LineageLevel level,
-                                                           List<DataModelLineageRelationEntity> contributors) {
-        contributors.sort(runStatusComparator());
-        DataModelLineageRelationEntity latest = contributors.get(0);
-        DataModelLineageRelationEntity preferred = resolvePreferredEdgeRelation(contributors);
-        DataModelLineageEdgeDetailView detail = new DataModelLineageEdgeDetailView();
-        detail.setEdgeId(edgeId);
-        detail.setSourceNodeTitle(resolveNodeTitle(latest, true, level));
-        detail.setTargetNodeTitle(resolveNodeTitle(latest, false, level));
-        detail.setSourceField(level == LineageLevel.FIELD ? latest.getSourceFieldKey() : null);
-        detail.setTargetField(level == LineageLevel.FIELD ? latest.getTargetFieldKey() : null);
-        detail.setSourceType(preferred == null ? null : preferred.getSourceType());
-        detail.setSourceTypeLabel(resolveAggregatedSourceTypeLabel(contributors));
-        detail.setLatestRunId(preferred == null ? null : preferred.getLatestRunId());
-        detail.setLatestRunStatus(preferred == null ? RUN_STATUS_NOT_RUN : defaultRunStatus(preferred.getLatestRunStatus()));
-        detail.setDisplayStatus(resolveDisplayStatus(preferred));
-        detail.setLatestRunAt(preferred == null ? null : preferred.getLatestRunAt());
-        for (DataModelLineageRelationEntity relation : contributors) {
-            DataModelLineageContributorView contributor = new DataModelLineageContributorView();
-            contributor.setRelationId(relation.getId());
-            contributor.setSourceType(relation.getSourceType());
-            contributor.setSourceTypeLabel(resolveSourceTypeLabel(relation.getSourceType()));
-            contributor.setDisplayStatus(resolveDisplayStatus(relation));
-            contributor.setSourceModelId(relation.getSourceModelId());
-            contributor.setTargetModelId(relation.getTargetModelId());
-            contributor.setSourceField(relation.getSourceFieldKey());
-            contributor.setTargetField(relation.getTargetFieldKey());
-            contributor.setCollectionTaskId(relation.getCollectionTaskId());
-            contributor.setCollectionTaskName(relation.getCollectionTaskNameSnapshot());
-            contributor.setLatestRunId(relation.getLatestRunId());
-            contributor.setLatestRunStatus(defaultRunStatus(relation.getLatestRunStatus()));
-            contributor.setLatestRunAt(relation.getLatestRunAt());
-            contributor.setTaskPath(relation.getCollectionTaskId() == null ? null : "/collection-tasks/" + relation.getCollectionTaskId() + "/edit");
-            contributor.setRunPath(relation.getCollectionTaskId() == null || relation.getLatestRunId() == null
-                    ? null
-                    : "/collection-task-runs?collectionTaskId=" + relation.getCollectionTaskId() + "&runRecordId=" + relation.getLatestRunId());
-            contributor.setMappingMode(relation.getMappingMode());
-            contributor.setExpression(relation.getExpressionSnapshot());
-            contributor.setMaintainerUserId(relation.getManualMaintainerUserId());
-            contributor.setMaintainer(relation.getManualMaintainerNameSnapshot());
-            contributor.setUpdatedAt(relation.getUpdatedAt());
-            contributor.setEditable(Boolean.valueOf(SOURCE_TYPE_MANUAL.equalsIgnoreCase(relation.getSourceType())));
-            detail.getContributors().add(contributor);
-        }
-        return detail;
-    }
-
-    private Map<String, NodeRelationRole> classifyNodeRoles(Map<String, List<DataModelLineageRelationEntity>> groupedEdges,
-                                                            String focusNodeId,
-                                                            LineageLevel level) {
-        Map<String, Set<String>> incoming = new LinkedHashMap<String, Set<String>>();
-        Map<String, Set<String>> outgoing = new LinkedHashMap<String, Set<String>>();
-        for (List<DataModelLineageRelationEntity> contributors : groupedEdges.values()) {
-            if (contributors.isEmpty()) {
-                continue;
-            }
-            DataModelLineageRelationEntity latest = contributors.get(0);
-            String sourceNodeId = relationSourceNodeId(latest, level);
-            String targetNodeId = relationTargetNodeId(latest, level);
-            incoming.computeIfAbsent(targetNodeId, key -> new LinkedHashSet<String>()).add(sourceNodeId);
-            outgoing.computeIfAbsent(sourceNodeId, key -> new LinkedHashSet<String>()).add(targetNodeId);
-        }
-        Set<String> upstream = traverse(incoming, focusNodeId);
-        Set<String> downstream = traverse(outgoing, focusNodeId);
-        Set<String> allNodes = new LinkedHashSet<String>();
-        allNodes.addAll(incoming.keySet());
-        allNodes.addAll(outgoing.keySet());
-        Map<String, NodeRelationRole> result = new LinkedHashMap<String, NodeRelationRole>();
-        for (String nodeId : allNodes) {
-            if (Objects.equals(nodeId, focusNodeId)) {
-                result.put(nodeId, NodeRelationRole.FOCUS);
-            } else if (upstream.contains(nodeId)) {
-                result.put(nodeId, NodeRelationRole.UPSTREAM);
-            } else if (downstream.contains(nodeId)) {
-                result.put(nodeId, NodeRelationRole.DOWNSTREAM);
-            } else {
-                result.put(nodeId, NodeRelationRole.UNRELATED);
-            }
-        }
-        return result;
-    }
-
-    private DataModelLineageSummaryView buildSummary(LineageQueryContext context) {
-        DataModelLineageSummaryView summary = new DataModelLineageSummaryView();
-        if (context == null) {
-            return summary;
-        }
-        if (LineageLevel.FIELD.name().equalsIgnoreCase(context.level)) {
-            buildFieldLevelSummary(summary, context);
-            return summary;
-        }
-        Map<String, Set<String>> incoming = new LinkedHashMap<String, Set<String>>();
-        Map<String, Set<String>> outgoing = new LinkedHashMap<String, Set<String>>();
-        for (DataModelLineageEdgeView edge : context.edges) {
-            incoming.computeIfAbsent(edge.getTargetNodeId(), key -> new LinkedHashSet<String>()).add(edge.getSourceNodeId());
-            outgoing.computeIfAbsent(edge.getSourceNodeId(), key -> new LinkedHashSet<String>()).add(edge.getTargetNodeId());
-        }
-        Set<String> directUpstream = new LinkedHashSet<String>(incoming.getOrDefault(context.focusNodeId, Collections.<String>emptySet()));
-        directUpstream.remove(context.focusNodeId);
-        summary.setDirectUpstreamCount(Integer.valueOf(directUpstream.size()));
-        Set<String> allUpstream = traverse(incoming, context.focusNodeId);
-        summary.setTotalUpstreamCount(Integer.valueOf(allUpstream.size()));
-        summary.setUpstreamDepth(Integer.valueOf(maxDepth(incoming, context.focusNodeId)));
-        Set<String> directDownstream = new LinkedHashSet<String>(outgoing.getOrDefault(context.focusNodeId, Collections.<String>emptySet()));
-        directDownstream.remove(context.focusNodeId);
-        summary.setDirectDownstreamCount(Integer.valueOf(directDownstream.size()));
-        Set<String> allDownstream = traverse(outgoing, context.focusNodeId);
-        summary.setTotalDownstreamCount(Integer.valueOf(allDownstream.size()));
-        summary.setDownstreamDepth(Integer.valueOf(maxDepth(outgoing, context.focusNodeId)));
-        return summary;
-    }
-
-    private void buildFieldLevelSummary(DataModelLineageSummaryView summary, LineageQueryContext context) {
-        Map<String, Set<String>> incoming = new LinkedHashMap<String, Set<String>>();
-        Map<String, Set<String>> outgoing = new LinkedHashMap<String, Set<String>>();
-        Set<String> focusFieldNodeIds = new LinkedHashSet<String>();
-        for (DataModelLineageEdgeView edge : context.edges) {
-            if (isBlank(edge.getSourceField()) || isBlank(edge.getTargetField())) {
-                continue;
-            }
-            String sourceFieldNodeId = fieldVertexId(edge.getSourceNodeId(), edge.getSourceField());
-            String targetFieldNodeId = fieldVertexId(edge.getTargetNodeId(), edge.getTargetField());
-            incoming.computeIfAbsent(targetFieldNodeId, key -> new LinkedHashSet<String>()).add(sourceFieldNodeId);
-            outgoing.computeIfAbsent(sourceFieldNodeId, key -> new LinkedHashSet<String>()).add(targetFieldNodeId);
-            if (Objects.equals(edge.getSourceNodeId(), context.focusNodeId)) {
-                focusFieldNodeIds.add(sourceFieldNodeId);
-            }
-            if (Objects.equals(edge.getTargetNodeId(), context.focusNodeId)) {
-                focusFieldNodeIds.add(targetFieldNodeId);
-            }
-        }
-        if (focusFieldNodeIds.isEmpty()) {
-            summary.setUpstreamDepth(Integer.valueOf(0));
-            summary.setTotalUpstreamCount(Integer.valueOf(0));
-            summary.setDirectUpstreamCount(Integer.valueOf(0));
-            summary.setDownstreamDepth(Integer.valueOf(0));
-            summary.setTotalDownstreamCount(Integer.valueOf(0));
-            summary.setDirectDownstreamCount(Integer.valueOf(0));
-            return;
-        }
-        Set<String> directUpstream = new LinkedHashSet<String>();
-        Set<String> directDownstream = new LinkedHashSet<String>();
-        for (String focusFieldNodeId : focusFieldNodeIds) {
-            directUpstream.addAll(incoming.getOrDefault(focusFieldNodeId, Collections.<String>emptySet()));
-            directDownstream.addAll(outgoing.getOrDefault(focusFieldNodeId, Collections.<String>emptySet()));
-        }
-        directUpstream.removeAll(focusFieldNodeIds);
-        directDownstream.removeAll(focusFieldNodeIds);
-        summary.setDirectUpstreamCount(Integer.valueOf(directUpstream.size()));
-        summary.setDirectDownstreamCount(Integer.valueOf(directDownstream.size()));
-        summary.setTotalUpstreamCount(Integer.valueOf(traverseAll(incoming, focusFieldNodeIds).size()));
-        summary.setTotalDownstreamCount(Integer.valueOf(traverseAll(outgoing, focusFieldNodeIds).size()));
-        summary.setUpstreamDepth(Integer.valueOf(maxDepth(incoming, focusFieldNodeIds)));
-        summary.setDownstreamDepth(Integer.valueOf(maxDepth(outgoing, focusFieldNodeIds)));
-    }
-
-    private void ensureFocusNode(Map<String, DataModelLineageNodeView> nodes,
-                                 DataModelEntity focusModel,
-                                 DatasourceEntity focusDatasource,
-                                 String focusNodeId,
-                                 LineageLevel level) {
-        if (nodes.containsKey(focusNodeId)) {
-            return;
-        }
-        DataModelLineageNodeView node = new DataModelLineageNodeView();
-        node.setNodeId(focusNodeId);
-        node.setFocus(Boolean.TRUE);
-        node.setVisualType(VISUAL_PLATFORM_MODEL);
-        node.setDatasourceId(focusDatasource == null ? null : focusDatasource.getId());
-        node.setModelId(focusModel.getId());
-        node.setDatasourceName(focusDatasource == null ? null : focusDatasource.getName());
-        node.setDatasourceType(focusDatasource == null ? null : focusDatasource.getTypeCode());
-        node.setDatabaseName(resolveDatabaseName(focusDatasource));
-        node.setPhysicalLocator(focusModel.getPhysicalLocator());
-        node.setHost(resolveStringMetadata(focusDatasource, "host", "endpoint"));
-        node.setPort(resolveStringMetadata(focusDatasource, "port"));
-        node.setDailyIncrement("--");
-        node.setTotalCount("--");
-        node.setTitle(level == LineageLevel.DATABASE
-                ? firstNonBlank(node.getDatasourceName(), node.getDatabaseName(), focusModel.getName())
-                : focusModel.getName());
-        node.setSubtitle(level == LineageLevel.DATABASE ? node.getDatabaseName() : node.getPhysicalLocator());
-        nodes.put(focusNodeId, node);
-    }
-
-    private DataModelLineageNodeView buildNodeView(DataModelLineageRelationEntity relation,
-                                                   boolean sourceSide,
-                                                   LineageLevel level,
-                                                   NodeRelationRole role,
-                                                   boolean focus) {
-        DataModelLineageNodeView node = new DataModelLineageNodeView();
-        node.setNodeId(sourceSide ? relationSourceNodeId(relation, level) : relationTargetNodeId(relation, level));
-        node.setFocus(Boolean.valueOf(focus));
-        node.setVisualType(resolveVisualType(level, role, focus));
-        node.setDatasourceId(sourceSide ? relation.getSourceDatasourceId() : relation.getTargetDatasourceId());
-        node.setModelId(sourceSide ? relation.getSourceModelId() : relation.getTargetModelId());
-        node.setDatasourceName(sourceSide ? relation.getSourceDatasourceNameSnapshot() : relation.getTargetDatasourceNameSnapshot());
-        node.setDatasourceType(sourceSide ? relation.getSourceDatasourceTypeSnapshot() : relation.getTargetDatasourceTypeSnapshot());
-        node.setDatabaseName(sourceSide ? relation.getSourceDatabaseNameSnapshot() : relation.getTargetDatabaseNameSnapshot());
-        node.setPhysicalLocator(sourceSide ? relation.getSourceModelLocatorSnapshot() : relation.getTargetModelLocatorSnapshot());
-        node.setHost(sourceSide ? relation.getSourceHostSnapshot() : relation.getTargetHostSnapshot());
-        node.setPort(sourceSide ? relation.getSourcePortSnapshot() : relation.getTargetPortSnapshot());
-        node.setDailyIncrement("--");
-        node.setTotalCount("--");
-        node.setTitle(level == LineageLevel.DATABASE
-                ? firstNonBlank(node.getDatasourceName(), node.getDatabaseName(), sourceSide ? relation.getSourceModelNameSnapshot() : relation.getTargetModelNameSnapshot())
-                : sourceSide ? relation.getSourceModelNameSnapshot() : relation.getTargetModelNameSnapshot());
-        node.setSubtitle(level == LineageLevel.DATABASE ? node.getDatabaseName() : node.getPhysicalLocator());
-        return node;
-    }
-
-    private void appendFieldToNode(DataModelLineageNodeView node, String fieldName) {
-        if (node == null || isBlank(fieldName)) {
-            return;
-        }
-        for (DataModelLineageNodeFieldView field : node.getFields()) {
-            if (fieldName.equalsIgnoreCase(field.getFieldKey())) {
-                return;
-            }
-        }
-        DataModelLineageNodeFieldView field = new DataModelLineageNodeFieldView();
-        field.setFieldKey(fieldName);
-        field.setFieldName(fieldName);
-        node.getFields().add(field);
-    }
-
-    private Set<String> traverseReachableNodeIds(List<DataModelLineageRelationEntity> relations,
-                                                 String focusNodeId,
-                                                 LineageLevel level) {
-        Map<String, Set<String>> adjacency = new LinkedHashMap<String, Set<String>>();
-        for (DataModelLineageRelationEntity relation : relations) {
-            String sourceNodeId = relationSourceNodeId(relation, level);
-            String targetNodeId = relationTargetNodeId(relation, level);
-            adjacency.computeIfAbsent(sourceNodeId, key -> new LinkedHashSet<String>()).add(targetNodeId);
-            adjacency.computeIfAbsent(targetNodeId, key -> new LinkedHashSet<String>()).add(sourceNodeId);
-        }
-        Set<String> visited = new LinkedHashSet<String>();
-        Deque<String> queue = new ArrayDeque<String>();
-        queue.add(focusNodeId);
-        visited.add(focusNodeId);
-        while (!queue.isEmpty()) {
-            String current = queue.removeFirst();
-            for (String next : adjacency.getOrDefault(current, Collections.<String>emptySet())) {
-                if (visited.add(next)) {
-                    queue.addLast(next);
-                }
-            }
-        }
-        return visited;
-    }
-
-    private Set<String> traverse(Map<String, Set<String>> adjacency, String startNodeId) {
-        Set<String> visited = new LinkedHashSet<String>();
-        Deque<String> queue = new ArrayDeque<String>();
-        queue.add(startNodeId);
-        while (!queue.isEmpty()) {
-            String current = queue.removeFirst();
-            for (String next : adjacency.getOrDefault(current, Collections.<String>emptySet())) {
-                if (visited.add(next)) {
-                    queue.addLast(next);
-                }
-            }
-        }
-        visited.remove(startNodeId);
-        return visited;
-    }
-
-    private Set<String> traverseAll(Map<String, Set<String>> adjacency, Set<String> startNodeIds) {
-        Set<String> visited = new LinkedHashSet<String>();
-        if (startNodeIds == null || startNodeIds.isEmpty()) {
-            return visited;
-        }
-        Deque<String> queue = new ArrayDeque<String>(startNodeIds);
-        while (!queue.isEmpty()) {
-            String current = queue.removeFirst();
-            for (String next : adjacency.getOrDefault(current, Collections.<String>emptySet())) {
-                if (startNodeIds.contains(next)) {
-                    continue;
-                }
-                if (visited.add(next)) {
-                    queue.addLast(next);
-                }
-            }
-        }
-        return visited;
-    }
-
-    private int maxDepth(Map<String, Set<String>> incoming, String nodeId) {
-        return maxDepth(incoming, nodeId, new LinkedHashSet<String>());
-    }
-
-    private int maxDepth(Map<String, Set<String>> incoming, Set<String> nodeIds) {
-        int maxDepth = 0;
-        if (nodeIds == null) {
-            return maxDepth;
-        }
-        for (String nodeId : nodeIds) {
-            if (nodeId == null) {
-                continue;
-            }
-            maxDepth = Math.max(maxDepth, maxDepth(incoming, nodeId, new LinkedHashSet<String>()));
-        }
-        return maxDepth;
-    }
-
-    private int maxDepth(Map<String, Set<String>> incoming, String nodeId, Set<String> path) {
-        if (!path.add(nodeId)) {
-            return 0;
-        }
-        Set<String> direct = incoming.getOrDefault(nodeId, Collections.<String>emptySet());
-        if (direct.isEmpty()) {
-            path.remove(nodeId);
-            return 0;
-        }
-        int maxDepth = 0;
-        for (String parentNodeId : direct) {
-            if (Objects.equals(parentNodeId, nodeId)) {
-                continue;
-            }
-            maxDepth = Math.max(maxDepth, 1 + maxDepth(incoming, parentNodeId, path));
-        }
-        path.remove(nodeId);
-        return maxDepth;
-    }
-
-    private String relationSourceNodeId(DataModelLineageRelationEntity relation, LineageLevel level) {
-        if (level == LineageLevel.DATABASE) {
-            return datasourceNodeId(relation.getSourceDatasourceId(), relation.getSourceDatasourceNameSnapshot(), relation.getSourceDatabaseNameSnapshot());
-        }
-        return modelNodeId(relation.getSourceModelId(), relation.getSourceModelLocatorSnapshot(), relation.getSourceModelNameSnapshot());
-    }
-
-    private String relationTargetNodeId(DataModelLineageRelationEntity relation, LineageLevel level) {
-        if (level == LineageLevel.DATABASE) {
-            return datasourceNodeId(relation.getTargetDatasourceId(), relation.getTargetDatasourceNameSnapshot(), relation.getTargetDatabaseNameSnapshot());
-        }
-        return modelNodeId(relation.getTargetModelId(), relation.getTargetModelLocatorSnapshot(), relation.getTargetModelNameSnapshot());
-    }
-
-    private String resolveFocusNodeId(LineageLevel level, DataModelEntity focusModel, DatasourceEntity focusDatasource) {
-        if (level == LineageLevel.DATABASE) {
-            return datasourceNodeId(focusDatasource == null ? null : focusDatasource.getId(),
-                    focusDatasource == null ? null : focusDatasource.getName(),
-                    resolveDatabaseName(focusDatasource));
-        }
-        return modelNodeId(focusModel.getId(), focusModel.getPhysicalLocator(), focusModel.getName());
-    }
-
-    private String datasourceNodeId(Long datasourceId, String datasourceName, String databaseName) {
-        if (datasourceId != null) {
-            return "datasource:" + datasourceId + ":" + safeText(normalizeText(firstNonBlank(databaseName, "_")));
-        }
-        return "datasource-snapshot:" + safeText(normalizeText(firstNonBlank(databaseName, datasourceName, "unknown")));
-    }
-
-    private String modelNodeId(Long modelId, String physicalLocator, String modelName) {
-        if (modelId != null) {
-            return "model:" + modelId;
-        }
-        return "model-snapshot:" + firstNonBlank(physicalLocator, modelName, "unknown");
-    }
-
-    private String fieldVertexId(String nodeId, String fieldKey) {
-        return safeText(nodeId) + "#" + normalizeText(fieldKey);
-    }
-
-    private EdgeKey buildEdgeKey(LineageLevel level, DataModelLineageRelationEntity relation) {
-        EdgeKey edgeKey = new EdgeKey();
-        edgeKey.level = level.name();
-        edgeKey.sourceNodeId = relationSourceNodeId(relation, level);
-        edgeKey.targetNodeId = relationTargetNodeId(relation, level);
-        edgeKey.sourceField = level == LineageLevel.FIELD ? normalizeText(relation.getSourceFieldKey()) : null;
-        edgeKey.targetField = level == LineageLevel.FIELD ? normalizeText(relation.getTargetFieldKey()) : null;
-        return edgeKey;
-    }
-
-    private boolean matchesEdgeKey(EdgeKey edgeKey, DataModelLineageRelationEntity relation, LineageLevel level) {
-        EdgeKey candidate = buildEdgeKey(level, relation);
-        return Objects.equals(edgeKey.level, candidate.level)
-                && Objects.equals(edgeKey.sourceNodeId, candidate.sourceNodeId)
-                && Objects.equals(edgeKey.targetNodeId, candidate.targetNodeId)
-                && Objects.equals(normalizeText(edgeKey.sourceField), normalizeText(candidate.sourceField))
-                && Objects.equals(normalizeText(edgeKey.targetField), normalizeText(candidate.targetField));
-    }
-
-    private String encodeEdgeKey(EdgeKey edgeKey) {
-        String raw = edgeKey.level + "|" + edgeKey.sourceNodeId + "|" + edgeKey.targetNodeId + "|" + safeText(edgeKey.sourceField) + "|" + safeText(edgeKey.targetField);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private EdgeKey decodeEdgeKey(String edgeId) {
-        if (isBlank(edgeId)) {
-            return null;
-        }
-        try {
-            String raw = new String(Base64.getUrlDecoder().decode(edgeId), StandardCharsets.UTF_8);
-            String[] parts = raw.split("\\|", -1);
-            if (parts.length < 5) {
-                return null;
-            }
-            EdgeKey edgeKey = new EdgeKey();
-            edgeKey.level = parts[0];
-            edgeKey.sourceNodeId = parts[1];
-            edgeKey.targetNodeId = parts[2];
-            edgeKey.sourceField = blankToNull(parts[3]);
-            edgeKey.targetField = blankToNull(parts[4]);
-            return edgeKey;
-        } catch (IllegalArgumentException ignored) {
-            return null;
-        }
-    }
-
-    private Comparator<DataModelLineageRelationEntity> runStatusComparator() {
-        return new Comparator<DataModelLineageRelationEntity>() {
-            @Override
-            public int compare(DataModelLineageRelationEntity left, DataModelLineageRelationEntity right) {
-                LocalDateTime leftTime = left == null ? null : left.getLatestRunAt();
-                LocalDateTime rightTime = right == null ? null : right.getLatestRunAt();
-                if (leftTime == null && rightTime == null) {
-                    return compareNullableLong(right == null ? null : right.getLatestRunId(),
-                            left == null ? null : left.getLatestRunId());
-                }
-                if (leftTime == null) {
-                    return 1;
-                }
-                if (rightTime == null) {
-                    return -1;
-                }
-                int compared = rightTime.compareTo(leftTime);
-                if (compared != 0) {
-                    return compared;
-                }
-                return compareNullableLong(right == null ? null : right.getLatestRunId(),
-                        left == null ? null : left.getLatestRunId());
-            }
-        };
-    }
-
-    private int compareNullableLong(Long left, Long right) {
-        if (left == null && right == null) {
-            return 0;
-        }
-        if (left == null) {
-            return -1;
-        }
-        if (right == null) {
-            return 1;
-        }
-        return left.compareTo(right);
-    }
-
-    private String resolveNodeTitle(DataModelLineageRelationEntity relation, boolean sourceSide, LineageLevel level) {
-        if (level == LineageLevel.DATABASE) {
-            return sourceSide
-                    ? firstNonBlank(relation.getSourceDatasourceNameSnapshot(), relation.getSourceDatabaseNameSnapshot(), relation.getSourceModelNameSnapshot())
-                    : firstNonBlank(relation.getTargetDatasourceNameSnapshot(), relation.getTargetDatabaseNameSnapshot(), relation.getTargetModelNameSnapshot());
-        }
-        return sourceSide ? relation.getSourceModelNameSnapshot() : relation.getTargetModelNameSnapshot();
-    }
-
-    private String resolveVisualType(LineageLevel level, NodeRelationRole role, boolean focus) {
-        if (focus) {
-            return VISUAL_PLATFORM_MODEL;
-        }
-        if (role == NodeRelationRole.UPSTREAM) {
-            return VISUAL_EXTERNAL_ACCESS;
-        }
-        return VISUAL_PLATFORM_MODEL;
-    }
-
-    private DataModelLineageRelationEntity resolvePreferredEdgeRelation(List<DataModelLineageRelationEntity> contributors) {
-        if (contributors == null || contributors.isEmpty()) {
-            return null;
-        }
-        List<DataModelLineageRelationEntity> automatic = new ArrayList<DataModelLineageRelationEntity>();
-        for (DataModelLineageRelationEntity contributor : contributors) {
-            if (contributor != null && SOURCE_TYPE_COLLECTION_TASK.equalsIgnoreCase(contributor.getSourceType())) {
-                automatic.add(contributor);
-            }
-        }
-        if (!automatic.isEmpty()) {
-            automatic.sort(runStatusComparator());
-            return automatic.get(0);
-        }
-        return contributors.get(0);
-    }
-
-    private String resolveSourceTypeLabel(String sourceType) {
-        if (SOURCE_TYPE_MANUAL.equalsIgnoreCase(sourceType)) {
-            return SOURCE_TYPE_LABEL_MANUAL;
-        }
-        return SOURCE_TYPE_LABEL_AUTOMATIC;
-    }
-
-    private String resolveAggregatedSourceTypeLabel(List<DataModelLineageRelationEntity> contributors) {
-        if (contributors == null || contributors.isEmpty()) {
-            return SOURCE_TYPE_LABEL_AUTOMATIC;
-        }
-        boolean hasAutomatic = false;
-        boolean hasManual = false;
-        for (DataModelLineageRelationEntity contributor : contributors) {
-            if (contributor == null) {
-                continue;
-            }
-            if (SOURCE_TYPE_MANUAL.equalsIgnoreCase(contributor.getSourceType())) {
-                hasManual = true;
-            } else {
-                hasAutomatic = true;
-            }
-        }
-        if (hasAutomatic && hasManual) {
-            return SOURCE_TYPE_LABEL_MIXED;
-        }
-        if (hasManual) {
-            return SOURCE_TYPE_LABEL_MANUAL;
-        }
-        return SOURCE_TYPE_LABEL_AUTOMATIC;
-    }
-
-    private String resolveDisplayStatus(DataModelLineageRelationEntity relation) {
-        if (relation == null) {
-            return DISPLAY_STATUS_NOT_RUN;
-        }
-        if (SOURCE_TYPE_MANUAL.equalsIgnoreCase(relation.getSourceType())) {
-            return DISPLAY_STATUS_NORMAL;
-        }
-        String status = defaultRunStatus(relation.getLatestRunStatus());
-        if ("RUNNING".equalsIgnoreCase(status)) {
-            return DISPLAY_STATUS_RUNNING;
-        }
-        if ("SUCCESS".equalsIgnoreCase(status)) {
-            return DISPLAY_STATUS_NORMAL;
-        }
-        if ("FAILED".equalsIgnoreCase(status) || "ERROR".equalsIgnoreCase(status)) {
-            return DISPLAY_STATUS_EXCEPTION;
-        }
-        return DISPLAY_STATUS_NOT_RUN;
-    }
-
-    private boolean shouldUpdateRunStatus(DataModelLineageRelationEntity relation,
-                                          ExecutionEvent event,
-                                          LocalDateTime eventTime) {
-        if (relation == null || event == null) {
-            return false;
-        }
-        if (Objects.equals(relation.getLatestRunId(), event.getRunRecordId())) {
-            return true;
-        }
-        if (relation.getLatestRunAt() == null) {
-            return true;
-        }
-        return eventTime != null && !eventTime.isBefore(relation.getLatestRunAt());
-    }
-
-    private boolean shouldApplyLatestRun(DataModelLineageRelationEntity relation,
-                                         RunRecordEntity run,
-                                         LocalDateTime runTime) {
-        if (relation == null || run == null) {
-            return false;
-        }
-        if (Objects.equals(relation.getLatestRunId(), run.getId())
-                && Objects.equals(defaultRunStatus(relation.getLatestRunStatus()), defaultRunStatus(run.getStatus()))
-                && Objects.equals(relation.getLatestRunAt(), runTime)) {
-            return false;
-        }
-        if (relation.getLatestRunAt() == null) {
-            return true;
-        }
-        if (runTime == null) {
-            return false;
-        }
-        return !runTime.isBefore(relation.getLatestRunAt());
-    }
-
-    private LocalDateTime resolveEventTime(ExecutionEvent event) {
-        if (event == null) {
-            return null;
-        }
-        if (event.getEndedAt() != null) {
-            return event.getEndedAt();
-        }
-        if (event.getOccurredAt() != null) {
-            return event.getOccurredAt();
-        }
-        return event.getStartedAt();
-    }
-
-    private LocalDateTime resolveRunTime(RunRecordEntity run) {
-        if (run == null) {
-            return null;
-        }
-        if (run.getEndedAt() != null) {
-            return run.getEndedAt();
-        }
-        if (run.getStartedAt() != null) {
-            return run.getStartedAt();
-        }
-        return run.getCreatedAt();
-    }
-
     private void scheduleAfterCommit(final Runnable runnable) {
         if (runnable == null) {
             return;
@@ -1584,96 +758,5 @@ public class DataModelLineageService {
             return null;
         }
         return objectMapper.convertValue(source, type);
-    }
-
-    private String resolveDatabaseName(DatasourceEntity datasource) {
-        return firstNonBlank(resolveStringMetadata(datasource, "database", "schema", "catalog"),
-                resolveStringMetadata(datasource, "dbName"));
-    }
-
-    private String resolveStringMetadata(DatasourceEntity datasource, String... keys) {
-        if (datasource == null || datasource.getTechnicalMetadata() == null || keys == null) {
-            return null;
-        }
-        for (String key : keys) {
-            Object value = datasource.getTechnicalMetadata().get(key);
-            if (value != null && !String.valueOf(value).trim().isEmpty()) {
-                return String.valueOf(value);
-            }
-        }
-        return null;
-    }
-
-    private String normalizeStatus(String status) {
-        return isBlank(status) ? null : status.trim().toUpperCase(Locale.ENGLISH);
-    }
-
-    private String defaultRunStatus(String status) {
-        return isBlank(status) ? RUN_STATUS_NOT_RUN : status;
-    }
-
-    private String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (!isBlank(value)) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
-
-    private String safeText(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private String blankToNull(String value) {
-        return isBlank(value) ? null : value;
-    }
-
-    private String normalizeText(String value) {
-        return blankToNull(value == null ? null : value.trim().toLowerCase(Locale.ENGLISH));
-    }
-
-    private boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    private enum NodeRelationRole {
-        FOCUS,
-        UPSTREAM,
-        DOWNSTREAM,
-        UNRELATED
-    }
-
-    private static final class FieldReference {
-        private final String sourceAlias;
-        private final String fieldName;
-
-        private FieldReference(String sourceAlias, String fieldName) {
-            this.sourceAlias = sourceAlias;
-            this.fieldName = fieldName;
-        }
-    }
-
-    private static final class ExpressionResolution {
-        private final List<FieldReference> references = new ArrayList<FieldReference>();
-    }
-
-    private static final class EdgeKey {
-        private String level;
-        private String sourceNodeId;
-        private String targetNodeId;
-        private String sourceField;
-        private String targetField;
-    }
-
-    private static final class LineageQueryContext {
-        private String level;
-        private String focusNodeId;
-        private List<DataModelLineageNodeView> nodes = new ArrayList<DataModelLineageNodeView>();
-        private List<DataModelLineageEdgeView> edges = new ArrayList<DataModelLineageEdgeView>();
-        private List<DataModelLineageUnresolvedExpressionView> unresolvedExpressions = new ArrayList<DataModelLineageUnresolvedExpressionView>();
     }
 }
