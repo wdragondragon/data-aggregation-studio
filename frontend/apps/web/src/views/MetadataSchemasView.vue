@@ -7,7 +7,7 @@
       </div>
       <div class="studio-toolbar-actions">
         <el-button plain @click="syncAllTechnical">{{ t("common.syncAll") }}</el-button>
-        <el-button plain @click="loadPage">{{ t("common.refresh") }}</el-button>
+        <el-button plain :loading="pageLoading" @click="loadPage">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
 
@@ -363,6 +363,7 @@ import type { DatasourceTypeCapabilityView, MetadataFieldDefinition, MetadataSch
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAsyncAction } from "@/composables/useAsyncAction";
 import { encodeMetaModelDescription, hasExplicitMetaModelConfig, parseMetaModelSchema, sameEntityId, type MetaModelConfig, type MetaModelDisplayMode, type MetaModelDomain, type RuntimeOptionRole } from "@/utils/metaModel";
 import { cloneDeep, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
@@ -418,8 +419,12 @@ const schemas = ref<MetadataSchemaDefinition[]>([]);
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
 const selectedNode = ref<MetaModelTreeNode>();
 const drawerOpen = ref(false);
-const saving = ref(false);
 const previewModel = ref<Record<string, unknown>>({});
+const pageAction = useAsyncAction();
+const saveAction = useAsyncAction();
+const schemaAction = useAsyncAction();
+const pageLoading = pageAction.loading;
+const saving = saveAction.loading;
 const form = reactive<SchemaDraftForm>({
   schemaName: "",
   plainDescription: "",
@@ -887,55 +892,58 @@ function normalizeFieldDraft(field: MetadataFieldDefinition) {
 
 async function loadPage() {
   try {
-    const [schemaData, datasourceTypeData] = await Promise.all([
-      studioApi.metaSchemas.list(),
-      studioApi.catalog.datasourceTypes(),
-    ]);
-    schemas.value = schemaData;
-    datasourceTypes.value = datasourceTypeData;
-    const matchedNode = selectedNode.value ? findNodeById(treeData.value, selectedNode.value.id) : undefined;
-    selectedNode.value = matchedNode ?? treeData.value[0];
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.metadata.loadFailed"));
+    await pageAction.run(async () => {
+      const [schemaData, datasourceTypeData] = await Promise.all([
+        studioApi.metaSchemas.list(),
+        studioApi.catalog.datasourceTypes(),
+      ]);
+      schemas.value = schemaData;
+      datasourceTypes.value = datasourceTypeData;
+      const matchedNode = selectedNode.value ? findNodeById(treeData.value, selectedNode.value.id) : undefined;
+      selectedNode.value = matchedNode ?? treeData.value[0];
+    }, { errorMessage: t("web.metadata.loadFailed") });
+  } catch {
+    // useAsyncAction has already shown the message; keep page loading resilient.
   }
 }
 
 async function saveDraft() {
-  saving.value = true;
+  if (form.domain === "RUNTIME" && !normalizeRuntimePlugin(form.pluginType)) {
+    ElMessage.error(t("web.metadata.pluginTypeRequired"));
+    return;
+  }
   try {
-    if (form.domain === "RUNTIME" && !normalizeRuntimePlugin(form.pluginType)) {
-      ElMessage.error(t("web.metadata.pluginTypeRequired"));
-      return;
-    }
-    const config: MetaModelConfig = {
-      domain: form.domain,
-      datasourceType: form.domain === "TECHNICAL" ? form.datasourceType : undefined,
-      directoryCode: form.domain === "BUSINESS" ? form.directoryCode : undefined,
-      directoryName: form.domain === "BUSINESS" ? (form.directoryName || form.directoryCode) : undefined,
-      metaModelCode: form.domain === "RUNTIME" ? form.runtimeRole : form.metaModelCode,
-      metaModelName: form.schemaName,
-      displayMode: form.domain === "RUNTIME" ? "SINGLE" : form.displayMode,
-      required: form.domain === "RUNTIME" ? false : form.required,
-      syncStrategy: form.domain === "RUNTIME" ? "RUNTIME_OPTION" : form.syncStrategy,
-      role: form.domain === "RUNTIME" ? form.runtimeRole : undefined,
-      pluginType: form.domain === "RUNTIME" ? normalizeRuntimePlugin(form.pluginType) : undefined,
-    };
-    await studioApi.metaSchemas.saveDraft({
-      schemaId: form.schemaId,
-      schemaCode: derivedSchemaCode.value,
-      schemaName: form.schemaName,
-      objectType: derivedObjectType.value,
-      typeCode: derivedTypeCode.value,
-      description: encodeMetaModelDescription(config, form.plainDescription),
-      fields: cloneDeep(form.fields),
+    await saveAction.run(async () => {
+      const config: MetaModelConfig = {
+        domain: form.domain,
+        datasourceType: form.domain === "TECHNICAL" ? form.datasourceType : undefined,
+        directoryCode: form.domain === "BUSINESS" ? form.directoryCode : undefined,
+        directoryName: form.domain === "BUSINESS" ? (form.directoryName || form.directoryCode) : undefined,
+        metaModelCode: form.domain === "RUNTIME" ? form.runtimeRole : form.metaModelCode,
+        metaModelName: form.schemaName,
+        displayMode: form.domain === "RUNTIME" ? "SINGLE" : form.displayMode,
+        required: form.domain === "RUNTIME" ? false : form.required,
+        syncStrategy: form.domain === "RUNTIME" ? "RUNTIME_OPTION" : form.syncStrategy,
+        role: form.domain === "RUNTIME" ? form.runtimeRole : undefined,
+        pluginType: form.domain === "RUNTIME" ? normalizeRuntimePlugin(form.pluginType) : undefined,
+      };
+      await studioApi.metaSchemas.saveDraft({
+        schemaId: form.schemaId,
+        schemaCode: derivedSchemaCode.value,
+        schemaName: form.schemaName,
+        objectType: derivedObjectType.value,
+        typeCode: derivedTypeCode.value,
+        description: encodeMetaModelDescription(config, form.plainDescription),
+        fields: cloneDeep(form.fields),
+      });
+      drawerOpen.value = false;
+      await loadPage();
+    }, {
+      successMessage: t("web.metadata.saveSuccess"),
+      errorMessage: t("web.metadata.saveFailed"),
     });
-    ElMessage.success(t("web.metadata.saveSuccess"));
-    drawerOpen.value = false;
-    await loadPage();
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.metadata.saveFailed"));
-  } finally {
-    saving.value = false;
+  } catch {
+    // Message handled by useAsyncAction.
   }
 }
 
@@ -944,14 +952,17 @@ async function publishSchema(schema: MetadataSchemaDefinition) {
     return;
   }
   try {
-    await ElMessageBox.confirm(t("web.metadata.publishConfirmMessage", { schemaCode: schema.schemaCode }), t("common.confirm"));
-    await studioApi.metaSchemas.publish(schema.id);
-    ElMessage.success(t("web.metadata.publishSuccess"));
-    await loadPage();
-  } catch (error) {
-    if (error !== "cancel") {
-      ElMessage.error(error instanceof Error ? error.message : t("web.metadata.publishFailed"));
-    }
+    await schemaAction.run(async () => {
+      await ElMessageBox.confirm(t("web.metadata.publishConfirmMessage", { schemaCode: schema.schemaCode }), t("common.confirm"));
+      await studioApi.metaSchemas.publish(schema.id!);
+      await loadPage();
+    }, {
+      successMessage: t("web.metadata.publishSuccess"),
+      errorMessage: t("web.metadata.publishFailed"),
+      ignoreCancel: true,
+    });
+  } catch {
+    // Message handled by useAsyncAction.
   }
 }
 
@@ -960,22 +971,25 @@ async function deleteSchema(schema: MetadataSchemaDefinition) {
     return;
   }
   try {
-    await ElMessageBox.confirm(
-      t("web.metadata.deleteConfirmMessage", { schemaCode: schema.schemaCode }),
-      t("common.confirm"),
-      { type: "warning" },
-    );
-    await studioApi.metaSchemas.delete(schema.id);
-    if (form.schemaId != null && sameEntityId(form.schemaId, schema.id)) {
-      drawerOpen.value = false;
-      resetForm();
-    }
-    ElMessage.success(t("web.metadata.deleteSuccess"));
-    await loadPage();
-  } catch (error) {
-    if (error !== "cancel") {
-      ElMessage.error(error instanceof Error ? error.message : t("web.metadata.deleteFailed"));
-    }
+    await schemaAction.run(async () => {
+      await ElMessageBox.confirm(
+        t("web.metadata.deleteConfirmMessage", { schemaCode: schema.schemaCode }),
+        t("common.confirm"),
+        { type: "warning" },
+      );
+      await studioApi.metaSchemas.delete(schema.id!);
+      if (form.schemaId != null && sameEntityId(form.schemaId, schema.id)) {
+        drawerOpen.value = false;
+        resetForm();
+      }
+      await loadPage();
+    }, {
+      successMessage: t("web.metadata.deleteSuccess"),
+      errorMessage: t("web.metadata.deleteFailed"),
+      ignoreCancel: true,
+    });
+  } catch {
+    // Message handled by useAsyncAction.
   }
 }
 
@@ -984,21 +998,29 @@ async function syncTechnical(datasourceType?: string) {
     return;
   }
   try {
-    await studioApi.metaSchemas.syncTechnical(datasourceType);
-    ElMessage.success(t("web.metadata.syncTechnicalSuccess"));
-    await loadPage();
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.metadata.syncTechnicalFailed"));
+    await schemaAction.run(async () => {
+      await studioApi.metaSchemas.syncTechnical(datasourceType);
+      await loadPage();
+    }, {
+      successMessage: t("web.metadata.syncTechnicalSuccess"),
+      errorMessage: t("web.metadata.syncTechnicalFailed"),
+    });
+  } catch {
+    // Message handled by useAsyncAction.
   }
 }
 
 async function syncAllTechnical() {
   try {
-    await studioApi.metaSchemas.syncAllTechnical();
-    ElMessage.success(t("web.metadata.syncTechnicalSuccess"));
-    await loadPage();
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.metadata.syncTechnicalFailed"));
+    await schemaAction.run(async () => {
+      await studioApi.metaSchemas.syncAllTechnical();
+      await loadPage();
+    }, {
+      successMessage: t("web.metadata.syncTechnicalSuccess"),
+      errorMessage: t("web.metadata.syncTechnicalFailed"),
+    });
+  } catch {
+    // Message handled by useAsyncAction.
   }
 }
 

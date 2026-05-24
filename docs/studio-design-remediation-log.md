@@ -598,3 +598,20 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
   - `StudioSchemaUpgradeService` 仍超过 800 行，但按本轮结论归类为已审查的大型 schema/升级编排类，不再为了行数硬拆；后续只在有 schema drift/init 回归保护时按方言/步骤继续拆。
 - 下一步：执行 `git diff --check`，更新汇总文档并提交 Batch 10；后续重点转向前端大页面 composable 迁移和历史 `return null` / `catch ignored` 债务下降。
+
+## Step 028 - Batch 11 元模型页面接入异步动作 composable
+
+- 执行时间：2026-05-25 03:08:24 +08:00
+- 目标问题：`MetadataSchemasView.vue` 的刷新、保存、发布、删除、同步操作各自维护 loading、成功提示、失败提示和取消确认处理，和本轮新增的前端异步动作 composable 没有形成复用。
+- 修改范围：将元模型页面的刷新、保存、发布、删除、同步动作接入 `useAsyncAction`；新增刷新按钮 loading；保留插件类型校验和抽屉状态处理；确认框取消统一走 `ignoreCancel`，避免误报错误。
+- 涉及文件：
+  - `frontend/apps/web/src/views/MetadataSchemasView.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：元模型列表加载、草稿保存 payload、发布/删除/同步接口调用、成功/失败文案和确认框语义保持不变；本步骤只收敛 loading 与错误提示处理。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 本步骤只迁移元模型页面，采集任务编辑、质量任务编辑、工作流编辑、模型中心等大页面仍需后续分批拆分。
+- 下一步：执行 `git diff --check` 并提交 Batch 11；后续优先处理模型中心或采集任务编辑页的组件拆分。
