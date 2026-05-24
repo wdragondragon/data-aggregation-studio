@@ -25,24 +25,32 @@
 
     <SectionCard :title="t('web.collectionTasks.listTitle')" :description="t('web.collectionTasks.listDescription')">
       <div class="task-table-wrap">
-        <el-table :data="pagedTasks" border size="small" table-layout="fixed" class="task-table">
+        <el-table
+          :data="pagedTasks"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="calc(100vh - 340px)"
+          class="task-table"
+        >
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(taskPagination, $index) }}
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.collectionTasks.name')" min-width="180">
-          <template #default="{ row }">
-            <div class="task-primary-cell">
-              <el-button v-if="!isSharedTask(row)" link type="primary" class="task-name-link" @click="viewTask(row)">
-                {{ row.name }}
-              </el-button>
-              <strong v-else>{{ row.name }}</strong>
-              <FollowToggleButton v-if="row.id" target-type="COLLECTION_TASK" :target-id="row.id" />
-              <span v-if="isSharedTask(row)" class="cell-subtle">共享任务只读</span>
-            </div>
-          </template>
-        </el-table-column>
+          <el-table-column :label="t('web.collectionTasks.name')" min-width="260">
+            <template #default="{ row }">
+              <div class="task-primary-cell">
+                <el-button v-if="!isSharedTask(row)" link type="primary" class="task-name-link" @click="viewTask(row)">
+                  {{ row.name }}
+                </el-button>
+                <strong v-else>{{ row.name }}</strong>
+                <FollowToggleButton v-if="row.id" target-type="COLLECTION_TASK" :target-id="row.id" />
+                <span v-if="isSharedTask(row)" class="cell-subtle">共享任务只读</span>
+              </div>
+            </template>
+          </el-table-column>
         <el-table-column :label="`${t('web.collectionTasks.targetDatasource')} / ${t('web.collectionTasks.targetModel')}`" min-width="200">
           <template #default="{ row }">
             <div class="stack-cell">
@@ -102,7 +110,15 @@
     <el-drawer v-model="logsVisible" :title="t('web.collectionTasks.logsTitle', { name: activeTask?.name || '' })" size="68%">
       <template v-if="activeTask">
         <SectionCard :title="t('web.collectionTasks.logsListTitle')" :description="t('web.collectionTasks.logsListDescription')">
-          <el-table :data="pagedTaskRunRecords" border size="small" table-layout="fixed" class="task-run-table">
+          <el-table
+            :data="pagedTaskRunRecords"
+            border
+            size="small"
+            table-layout="fixed"
+            scrollbar-always-on
+            max-height="460px"
+            class="task-run-table"
+          >
             <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
               <template #default="{ $index }">
                 {{ getPaginatedRowNumber(taskRunPagination, $index) }}
@@ -144,7 +160,7 @@
                 <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
               </template>
             </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
+            <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                   {{ t("web.runs.viewLog") }}
@@ -402,8 +418,23 @@ p {
 }
 
 .task-name-link {
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: auto;
+  max-width: 100%;
   padding: 0;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+}
+
+.task-name-link :deep(span) {
+  display: inline;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .task-table :deep(.cell),
@@ -425,7 +456,7 @@ p {
 }
 
 .task-table-wrap {
-  overflow: visible;
+  overflow: hidden;
   width: 100%;
   max-width: 100%;
   min-width: 0;

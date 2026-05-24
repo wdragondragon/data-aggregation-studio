@@ -311,6 +311,11 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
       { fieldKey: "password", fieldName: t("web.login.passwordLabel"), scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
     ];
   }
+  if (form.typeCode === "http") {
+    return [
+      { fieldKey: "url", fieldName: "URL", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
+    ];
+  }
   if (["minio", "ftp", "sftp"].includes(form.typeCode)) {
     return [
       { fieldKey: "endpoint", fieldName: "Endpoint", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },

@@ -373,6 +373,143 @@ class CollectionTaskAssemblerServiceRegressionTest {
         assertEquals("TAG", columns.get(1).get("sourceKind"));
     }
 
+    @Test
+    void httpReaderConfigShouldAssembleModelAndRuntimeOptionsWithoutIncremental() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpDefinition(40L);
+        CollectionTaskSourceBinding sourceBinding = definition.getSourceBindings().get(0);
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("url", "http://evil.example.com/ignored");
+        readerOptions.put("header", "{\"token\":\"{dyn_from_http_token(get,http://auth.example.com,,,msg)}\"}");
+        readerOptions.put("params", "{\"pageNum\":\"{dyn_page}\",\"pageSize\":\"{dyn_pageSize}\"}");
+        readerOptions.put("requestBody", "{\"active\":true}");
+        readerOptions.put("pageRead", Boolean.TRUE);
+        readerOptions.put("pageSize", Integer.valueOf(200));
+        sourceBinding.setReaderOptions(readerOptions);
+        CollectionIncrementalDefinition incremental = new CollectionIncrementalDefinition();
+        incremental.setEnabled(Boolean.TRUE);
+        incremental.setIncrColumn("id");
+        incremental.setPkValue(Long.valueOf(99L));
+        sourceBinding.setIncremental(incremental);
+        Map<String, Object> executionOptions = new LinkedHashMap<String, Object>();
+        executionOptions.put("collectionMode", "INCREMENTAL");
+        definition.setExecutionOptions(executionOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        assertEquals("http", reader.get("type"));
+        assertEquals("http://api.example.com/base/users", readerConfig.get("url"));
+        assertEquals("GET", readerConfig.get("mode"));
+        assertEquals("json", readerConfig.get("resultType"));
+        assertEquals("data.total", readerConfig.get("totalCodePath"));
+        assertEquals(Boolean.TRUE, readerConfig.get("pageRead"));
+        assertEquals(Integer.valueOf(200), readerConfig.get("pageSize"));
+        assertEquals("{\"token\":\"{dyn_from_http_token(get,http://auth.example.com,,,msg)}\"}", readerConfig.get("header"));
+        assertEquals("{\"pageNum\":\"{dyn_page}\",\"pageSize\":\"{dyn_pageSize}\"}", readerConfig.get("params"));
+        assertEquals("{\"active\":true}", readerConfig.get("requestBody"));
+        assertFalse(readerConfig.containsKey("incrColumn"));
+        assertFalse(readerConfig.containsKey("pkValue"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> responseStatus = (Map<String, Object>) readerConfig.get("responseStatus");
+        assertEquals("code", responseStatus.get("path"));
+        assertEquals("200", responseStatus.get("code"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> columns = (List<Map<String, Object>>) readerConfig.get("columns");
+        assertEquals(1, columns.size());
+        assertEquals("data.items", columns.get(0).get("parentNode"));
+        assertEquals("id", columns.get(0).get("name"));
+        assertEquals("STRING", columns.get(0).get("type"));
+    }
+
+    @Test
+    void httpReaderConfigShouldRejectPartialBusinessStatusAndInvalidJsonObjectOptions() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        assertThrows(StudioException.class, () -> assemblerService.assemble(buildHttpDefinition(41L)));
+
+        CollectionTaskDefinitionView definition = buildHttpDefinition(40L);
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("header", "[]");
+        definition.getSourceBindings().get(0).setReaderOptions(readerOptions);
+
+        assertThrows(StudioException.class, () -> assemblerService.assemble(definition));
+    }
+
+    @Test
+    void httpWriterConfigShouldAssembleModelRuntimeOptionsAndPreserveJsonStrings() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpWriterDefinition();
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("url", "http://evil.example.com/ignored");
+        writerOptions.put("mode", "DELETE");
+        writerOptions.put("header", "{\"Authorization\":\"Bearer {dyn_from_http_token(GET,http://auth.example.com,,,data.token)}\"}");
+        writerOptions.put("params", "{\"page\":\"{dyn_page}\"}");
+        writerOptions.put("requestBody", "{\"meta\":{\"source\":\"studio\"}}");
+        writerOptions.put("payloadMode", "array");
+        writerOptions.put("dataNodePath", "data.items");
+        writerOptions.put("includeTotal", Boolean.TRUE);
+        writerOptions.put("totalNodePath", "data.total");
+        writerOptions.put("batchSize", Integer.valueOf(200));
+        writerOptions.put("responseStatus.path", "code");
+        writerOptions.put("responseStatus.code", "0");
+        definition.getTargetBinding().setWriterOptions(writerOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        assertEquals("http", writer.get("type"));
+        assertEquals("http://api.example.com/base/orders", writerConfig.get("url"));
+        assertEquals("POST", writerConfig.get("mode"));
+        assertEquals("{\"Authorization\":\"Bearer {dyn_from_http_token(GET,http://auth.example.com,,,data.token)}\"}", writerConfig.get("header"));
+        assertEquals("{\"page\":\"{dyn_page}\"}", writerConfig.get("params"));
+        assertEquals("{\"meta\":{\"source\":\"studio\"}}", writerConfig.get("requestBody"));
+        assertEquals("array", writerConfig.get("payloadMode"));
+        assertEquals("data.items", writerConfig.get("dataNodePath"));
+        assertEquals(Boolean.TRUE, writerConfig.get("includeTotal"));
+        assertEquals("data.total", writerConfig.get("totalNodePath"));
+        assertEquals(Integer.valueOf(200), writerConfig.get("batchSize"));
+        assertFalse(writerConfig.containsKey("connect"));
+        assertFalse(writerConfig.containsKey("table"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> responseStatus = (Map<String, Object>) writerConfig.get("responseStatus");
+        assertEquals("code", responseStatus.get("path"));
+        assertEquals("0", responseStatus.get("code"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> columns = (List<Map<String, Object>>) writerConfig.get("columns");
+        assertEquals(2, columns.size());
+        assertEquals(Integer.valueOf(0), columns.get(0).get("index"));
+        assertEquals("id", columns.get(0).get("name"));
+        assertEquals("LONG", columns.get(0).get("type"));
+        assertEquals(Integer.valueOf(1), columns.get(1).get("index"));
+        assertEquals("name", columns.get(1).get("name"));
+        assertEquals("TEXT", columns.get(1).get("type"));
+    }
+
     private DataSourceService mockDataSourceService() {
         DataSourceService service = mock(DataSourceService.class);
         DataSourceDefinition datasource = new DataSourceDefinition();
@@ -389,9 +526,16 @@ class CollectionTaskAssemblerServiceRegressionTest {
         minioMetadata.put("secretKey", "secret");
         minioMetadata.put("bucket", "bucket");
         minioDatasource.setTechnicalMetadata(minioMetadata);
+        DataSourceDefinition httpDatasource = new DataSourceDefinition();
+        httpDatasource.setId(4L);
+        httpDatasource.setTypeCode("http");
+        Map<String, Object> httpMetadata = new LinkedHashMap<String, Object>();
+        httpMetadata.put("url", "http://api.example.com/base");
+        httpDatasource.setTechnicalMetadata(httpMetadata);
         when(service.getInternal(1L)).thenReturn(datasource);
         when(service.getInternal(2L)).thenReturn(datasource);
         when(service.getInternal(3L)).thenReturn(minioDatasource);
+        when(service.getInternal(4L)).thenReturn(httpDatasource);
         return service;
     }
 
@@ -401,13 +545,18 @@ class CollectionTaskAssemblerServiceRegressionTest {
         when(service.resolvePluginType("mysql8", "writer")).thenReturn("mysql8");
         when(service.resolvePluginType("minio", "reader")).thenReturn("minio");
         when(service.resolvePluginType("minio", "writer")).thenReturn("minio");
+        when(service.resolvePluginType("http", "reader")).thenReturn("http");
+        when(service.resolvePluginType("http", "writer")).thenReturn("http");
         when(service.sourceCategory("mysql8")).thenReturn("DATABASE");
         when(service.sourceCategory("minio")).thenReturn("FILE_SYSTEM");
+        when(service.sourceCategory("http")).thenReturn("HTTP_API");
         when(service.reservedKeys("reader")).thenReturn(Arrays.asList("connect", "config", "table", "topic",
                 "measurement", "columns", "sourceAlias", "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
-                "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter"));
+                "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter",
+                "url", "mode", "resultType", "responseStatus", "totalCodePath"));
         when(service.reservedKeys("writer")).thenReturn(Arrays.asList("connect", "table", "topic", "measurement",
-                "columns", "sourceAlias", "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile"));
+                "columns", "sourceAlias", "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile",
+                "url", "mode"));
         return service;
     }
 
@@ -420,6 +569,9 @@ class CollectionTaskAssemblerServiceRegressionTest {
         DataModelDefinition efileModel = buildEFileModel("efile");
         DataModelDefinition invalidTagFileModel = buildEFileModel("csv");
         DataModelDefinition fileWriterModel = buildFileWriterModel();
+        DataModelDefinition httpModel = buildHttpModel(false);
+        DataModelDefinition invalidHttpModel = buildHttpModel(true);
+        DataModelDefinition httpWriterModel = buildHttpWriterModel();
         when(service.get(10L)).thenReturn(sourceModel);
         when(service.get(11L)).thenReturn(sourceModel2);
         when(service.get(20L)).thenReturn(targetModel);
@@ -427,6 +579,9 @@ class CollectionTaskAssemblerServiceRegressionTest {
         when(service.get(31L)).thenReturn(efileModel);
         when(service.get(32L)).thenReturn(invalidTagFileModel);
         when(service.get(33L)).thenReturn(fileWriterModel);
+        when(service.get(40L)).thenReturn(httpModel);
+        when(service.get(41L)).thenReturn(invalidHttpModel);
+        when(service.get(42L)).thenReturn(httpWriterModel);
         return service;
     }
 
@@ -466,6 +621,49 @@ class CollectionTaskAssemblerServiceRegressionTest {
         columns.add(id);
         Map<String, Object> name = column("name");
         name.put("type", "STRING");
+        columns.add(name);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    private DataModelDefinition buildHttpModel(boolean partialBusinessStatus) {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(partialBusinessStatus ? 41L : 40L);
+        model.setPhysicalLocator("/users");
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("mode", "GET");
+        technicalMetadata.put("resultType", "json");
+        technicalMetadata.put("businessStatusPath", "code");
+        if (!partialBusinessStatus) {
+            technicalMetadata.put("businessStatusCode", "200");
+        }
+        technicalMetadata.put("totalCodePath", "data.total");
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> id = column("id");
+        id.put("parentNode", "data.items");
+        columns.add(id);
+        Map<String, Object> name = column("name");
+        name.put("parentNode", "data.items");
+        name.put("type", "TEXT");
+        columns.add(name);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    private DataModelDefinition buildHttpWriterModel() {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(42L);
+        model.setPhysicalLocator("/orders");
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("mode", "POST");
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> id = column("id");
+        id.put("type", "LONG");
+        columns.add(id);
+        Map<String, Object> name = column("name");
+        name.put("type", "TEXT");
         columns.add(name);
         technicalMetadata.put("columns", columns);
         model.setTechnicalMetadata(technicalMetadata);
@@ -609,6 +807,56 @@ class CollectionTaskAssemblerServiceRegressionTest {
         mapping.setTargetField("target_col");
         mapping.setTransformers(Collections.<TransformerBinding>emptyList());
         definition.setFieldMappings(Collections.singletonList(mapping));
+        return definition;
+    }
+
+    private CollectionTaskDefinitionView buildHttpDefinition(Long modelId) {
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.SINGLE_TABLE);
+
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setDatasourceId(4L);
+        sourceBinding.setModelId(modelId);
+        sourceBinding.setSourceAlias("src1");
+        definition.setSourceBindings(Collections.singletonList(sourceBinding));
+
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(2L);
+        targetBinding.setModelId(20L);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition mapping = new FieldMappingDefinition();
+        mapping.setSourceAlias("src1");
+        mapping.setSourceField("id");
+        mapping.setTargetField("target_col");
+        definition.setFieldMappings(Collections.singletonList(mapping));
+        return definition;
+    }
+
+    private CollectionTaskDefinitionView buildHttpWriterDefinition() {
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.SINGLE_TABLE);
+
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setDatasourceId(1L);
+        sourceBinding.setModelId(10L);
+        sourceBinding.setSourceAlias("src1");
+        definition.setSourceBindings(Collections.singletonList(sourceBinding));
+
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(4L);
+        targetBinding.setModelId(42L);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition idMapping = new FieldMappingDefinition();
+        idMapping.setSourceAlias("src1");
+        idMapping.setSourceField("source_col");
+        idMapping.setTargetField("id");
+        FieldMappingDefinition nameMapping = new FieldMappingDefinition();
+        nameMapping.setSourceAlias("src1");
+        nameMapping.setSourceField("source_col");
+        nameMapping.setTargetField("name");
+        definition.setFieldMappings(Arrays.asList(idMapping, nameMapping));
         return definition;
     }
 

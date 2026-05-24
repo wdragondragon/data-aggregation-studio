@@ -30,6 +30,7 @@ public class DatasourceTypeCapabilityService {
     private static final String CATEGORY_DATABASE = "DATABASE";
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
     private static final String CATEGORY_MESSAGE_QUEUE = "MESSAGE_QUEUE";
+    private static final String CATEGORY_HTTP_API = "HTTP_API";
 
     private static final List<DefaultCapability> DEFAULT_CAPABILITIES = Collections.unmodifiableList(Arrays.asList(
             capability("mysql8", "MySQL 8", CATEGORY_DATABASE, true, true, true, true, true, "mysql8", list("mysql8"), list("mysql8"), 10, "MySQL 数据库"),
@@ -41,6 +42,7 @@ public class DatasourceTypeCapabilityService {
             capability("minio", "MinIO", CATEGORY_FILE_SYSTEM, true, true, true, true, false, "minio", list("minio"), list("minio"), 70, "MinIO / OSS 对象存储"),
             capability("kafka", "Kafka", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "kafka", list("kafka"), list("kafka"), 80, "Kafka 消息队列"),
             capability("rocketmq", "RocketMQ", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "rocketmq", list("rocketmq"), list("rocketmq"), 90, "RocketMQ 消息队列"),
+            capability("http", "HTTP", CATEGORY_HTTP_API, true, true, true, true, false, "http", list("httpreader"), list("httpwriter"), 95, "HTTP 接口数据源"),
             capability("rabbitmq", "RabbitMQ", CATEGORY_MESSAGE_QUEUE, true, false, false, true, false, "rabbitmq", list(), list(), 100, "RabbitMQ 消息队列"),
             capability("odps", "ODPS", CATEGORY_DATABASE, true, false, false, true, true, "odps", list(), list(), 110, "ODPS / MaxCompute 数据源"),
             capability("tbds-hdfs", "TBDS HDFS", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "tbds-hdfs", list(), list(), 120, "TBDS HDFS 文件系统"),
@@ -96,6 +98,7 @@ public class DatasourceTypeCapabilityService {
         syncDefaultCapability("ftp");
         syncDefaultCapability("sftp");
         syncDefaultCapability("minio");
+        syncDefaultCapability("http");
     }
 
     public List<DatasourceTypeCapabilityView> listEnabled() {

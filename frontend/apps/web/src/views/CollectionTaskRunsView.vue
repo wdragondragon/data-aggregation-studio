@@ -79,13 +79,21 @@
 
     <SectionCard :title="t('web.collectionTaskRuns.runtimeTitle')" :description="t('web.collectionTaskRuns.runtimeDescription')">
       <div class="table-scroll-shell">
-        <el-table :data="pagedRunRecords" border size="small" table-layout="fixed" class="task-run-table">
+        <el-table
+          :data="pagedRunRecords"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="calc(100vh - 360px)"
+          class="task-run-table"
+        >
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(pagination, $index) }}
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.collectionTask')" min-width="180" show-overflow-tooltip>
+          <el-table-column :label="t('web.runs.collectionTask')" min-width="260">
             <template #default="{ row }">
               <div class="stack-cell">
                 <el-button
@@ -135,7 +143,7 @@
               <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
             </template>
           </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
+          <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                 {{ t("web.runs.viewLog") }}
@@ -443,20 +451,34 @@ p {
 }
 
 .run-link {
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: auto;
+  max-width: 100%;
   padding: 0;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+}
+
+.run-link :deep(span) {
+  display: inline;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .table-scroll-shell {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: hidden;
 }
 
 .task-run-table {
   width: 100%;
-  min-width: 1410px;
+  min-width: 0;
 }
 
 .task-run-table :deep(.cell) {

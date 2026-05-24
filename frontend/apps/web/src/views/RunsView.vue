@@ -73,20 +73,28 @@
 
     <SectionCard :title="t('web.runs.runtimeTitle')" :description="t('web.runs.runtimeDescription')">
       <div class="table-scroll-shell">
-        <el-table :data="workflowRuns" border size="small" table-layout="auto" class="workflow-run-table">
+        <el-table
+          :data="workflowRuns"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="calc(100vh - 360px)"
+          class="workflow-run-table"
+        >
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(pagination, $index) }}
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.workflow')" min-width="180" show-overflow-tooltip>
+          <el-table-column :label="t('web.runs.workflow')" min-width="260">
             <template #default="{ row }">
               <el-button link type="primary" class="run-link" @click="openRunDetail(row)">
                 {{ row.workflowName || "--" }}
               </el-button>
             </template>
           </el-table-column>
-          <el-table-column label="所属项目" min-width="150" show-overflow-tooltip>
+          <el-table-column label="所属项目" min-width="170">
             <template #default="{ row }">
               <div class="stack-cell">
                 <span>{{ resolveProjectLabel(row.projectId) }}</span>
@@ -115,7 +123,7 @@
               </div>
             </template>
           </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="112" align="center" header-align="center" fixed="right">
+          <el-table-column :label="t('web.runs.actions')" width="112" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openRunDetail(row)">{{ t("web.runs.viewRunDetail") }}</el-button>
             </template>
@@ -411,14 +419,29 @@ p {
 }
 
 .run-link {
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: auto;
+  max-width: 100%;
   padding: 0;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+}
+
+.run-link :deep(span) {
+  display: inline;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .table-scroll-shell {
   width: 100%;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .workflow-run-table {

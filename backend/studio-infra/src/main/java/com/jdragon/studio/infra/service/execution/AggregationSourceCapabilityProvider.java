@@ -28,6 +28,11 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.lang.reflect.Method;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -99,6 +104,9 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
     @Override
     public ConnectionTestResult testConnection(DataSourceDefinition definition) {
         ConnectionTestResult result = new ConnectionTestResult();
+        if (isHttpDatasource(definition)) {
+            return testHttpConnection(definition);
+        }
         try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
             AbstractPlugin plugin = loader.loadPlugin();
             if (plugin instanceof AbstractDataSourcePlugin) {
@@ -146,6 +154,14 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                                                Integer pageNo,
                                                Integer pageSize) {
         ModelDiscoveryResult result = new ModelDiscoveryResult();
+        if (isHttpDatasource(definition)) {
+            result.setPageNo(resolvePageNo(pageNo));
+            result.setPageSize(resolvePageSize(pageSize, 1));
+            result.setTotal(0L);
+            result.setHasMore(false);
+            result.setMessage("HTTP models are maintained manually");
+            return result;
+        }
         try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
             AbstractPlugin plugin = loader.loadPlugin();
             if (plugin instanceof AbstractDataSourcePlugin) {
@@ -361,6 +377,9 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
     @Override
     public List<Map<String, Object>> preview(DataSourceDefinition datasource, DataModelDefinition model, int limit) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        if (isHttpDatasource(datasource)) {
+            return rows;
+        }
         try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
             AbstractPlugin plugin = loader.loadPlugin();
             if (plugin instanceof AbstractDataSourcePlugin) {
@@ -385,6 +404,52 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         } catch (Exception ignored) {
         }
         return rows;
+    }
+
+    private ConnectionTestResult testHttpConnection(DataSourceDefinition definition) {
+        ConnectionTestResult result = new ConnectionTestResult();
+        String url = httpConnectionUrl(definition);
+        if (url == null || url.trim().isEmpty()) {
+            result.setSuccess(false);
+            result.setMessage("HTTP datasource url is required");
+            return result;
+        }
+        try {
+            URI uri = URI.create(url.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                result.setSuccess(false);
+                result.setMessage("HTTP datasource url must start with http:// or https://");
+                return result;
+            }
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(3))
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            int statusCode = response.statusCode();
+            result.setSuccess(statusCode == 200);
+            result.setMessage("HTTP status " + statusCode);
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setMessage(e.getMessage());
+        }
+        return result;
+    }
+
+    private String httpConnectionUrl(DataSourceDefinition definition) {
+        if (definition == null) {
+            return null;
+        }
+        Map<String, Object> metadata = decryptMetadata(definition.getTechnicalMetadata());
+        return asString(metadata.get("url"));
+    }
+
+    private boolean isHttpDatasource(DataSourceDefinition definition) {
+        return definition != null && "http".equalsIgnoreCase(definition.getTypeCode());
     }
 
     private TableInfo firstTableInfo(List<TableInfo> tableInfos, String tableName) {

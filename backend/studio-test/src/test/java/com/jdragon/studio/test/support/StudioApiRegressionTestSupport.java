@@ -39,7 +39,8 @@ public abstract class StudioApiRegressionTestSupport {
             .resolve("backend")
             .resolve("studio-test")
             .resolve("target")
-            .resolve("test-runtime");
+            .resolve("test-runtime")
+            .resolve("run-" + Long.toUnsignedString(System.nanoTime()));
     private static final Path SQLITE_DB = TEST_RUNTIME_DIR.resolve("studio-regression.db");
     private static final Path SQLITE_SCHEMA = WORKSPACE_ROOT
             .resolve("data-aggregation-studio")

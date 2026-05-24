@@ -51,6 +51,7 @@ insert into datasource_type_capability (id, tenant_id, deleted, created_at, upda
 (2047489207961673732, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'minio', 'MinIO', 1, 1, 1, 1, 0, 'FILE_SYSTEM', 'minio', '["minio"]', '["minio"]', 70, 'MinIO / OSS 对象存储'),
 (2047489207961673733, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'kafka', 'Kafka', 1, 1, 1, 1, 0, 'MESSAGE_QUEUE', 'kafka', '["kafka"]', '["kafka"]', 80, 'Kafka 消息队列'),
 (2047489207961673734, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'rocketmq', 'RocketMQ', 1, 1, 1, 1, 0, 'MESSAGE_QUEUE', 'rocketmq', '["rocketmq"]', '["rocketmq"]', 90, 'RocketMQ 消息队列'),
+(2047489207961673736, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'http', 'HTTP', 1, 1, 1, 1, 0, 'HTTP_API', 'http', '["httpreader"]', '["httpwriter"]', 95, 'HTTP 接口数据源'),
 (2047489207961673735, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'rabbitmq', 'RabbitMQ', 1, 0, 0, 1, 0, 'MESSAGE_QUEUE', 'rabbitmq', '[]', '[]', 100, 'RabbitMQ 消息队列'),
 (2047489208028782594, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'odps', 'ODPS', 1, 0, 0, 1, 1, 'DATABASE', 'odps', '[]', '[]', 110, 'ODPS / MaxCompute 数据源'),
 (2047489208028782595, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'tbds-hdfs', 'TBDS HDFS', 1, 0, 0, 1, 0, 'FILE_SYSTEM', 'tbds-hdfs', '[]', '[]', 120, 'TBDS HDFS 文件系统'),

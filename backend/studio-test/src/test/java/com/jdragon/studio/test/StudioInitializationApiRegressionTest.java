@@ -46,7 +46,8 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data", hasSize(org.hamcrest.Matchers.greaterThan(0))))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("mysql8")))
-                .andExpect(jsonPath("$.data[*].typeCode", hasItem("odps")));
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("odps")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("http")));
 
         mockMvc.perform(get("/api/v1/catalog/capabilities")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
@@ -57,8 +58,10 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("mysql8")))
                 .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("minio")))
                 .andExpect(jsonPath("$.data.executableDatasourceTypes", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.executableDatasourceTypes", hasItem("http")))
                 .andExpect(jsonPath("$.data.sourceCapabilities", hasSize(org.hamcrest.Matchers.greaterThan(0))))
-                .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("mysql8")));
+                .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("http")));
     }
 
     @Test
@@ -84,6 +87,36 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
         assertThat(extractFieldKeys(mysqlSource)).contains("host", "port", "database", "userName", "password");
         assertThat(extractFieldKeys(mysqlTable)).contains("physicalName", "tableType", "columnCount", "columns");
         assertThat(extractFieldKeys(mysqlField)).contains("name", "type", "size", "scale", "nullable", "primaryKey", "autoIncrement");
+    }
+
+    @Test
+    void metadataSchemasShouldContainHttpTechnicalMetaModelsAndFieldDefinitions() throws Exception {
+        String authorization = adminAuthorizationHeader();
+
+        MvcResult result = mockMvc.perform(get("/api/v1/meta-schemas")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+
+        JsonNode schemas = readBody(result).path("data");
+        JsonNode httpSource = findSchema(schemas, "technical:http:source");
+        JsonNode httpTable = findSchema(schemas, "technical:http:table");
+        JsonNode httpField = findSchema(schemas, "technical:http:field");
+
+        assertThat(httpSource).as("http source metamodel").isNotNull();
+        assertThat(httpTable).as("http table metamodel").isNotNull();
+        assertThat(httpField).as("http field metamodel").isNotNull();
+
+        assertThat(extractFieldKeys(httpSource)).containsExactly("url");
+        assertThat(extractFieldKeys(httpTable))
+                .containsExactly("physicalName", "description", "mode", "resultType",
+                        "businessStatusPath", "businessStatusCode", "totalCodePath");
+        assertThat(fieldByKey(httpTable, "physicalName").path("fieldName").asText()).isEqualTo("请求路径");
+        assertThat(extractFieldKeys(httpField))
+                .containsExactly("name", "cnName", "parentNode", "remarks", "primaryKey", "nullable", "type", "size", "scale");
+        assertThat(fieldByKey(httpField, "parentNode").path("required").asBoolean()).isTrue();
     }
 
     @Test
@@ -220,18 +253,63 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                         "adaptiveMerge.pendingKeyThreshold", "adaptiveMerge.pendingMemoryMB",
                         "adaptiveMerge.overflowSpillPath");
 
+        MvcResult httpReaderResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "reader")
+                        .param("datasourceType", "http")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("http"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andExpect(jsonPath("$.data.incrementalSupported").value(false))
+                .andExpect(jsonPath("$.data.fields", hasSize(6)))
+                .andReturn();
+        JsonNode httpReaderSchema = readBody(httpReaderResult).path("data");
+        assertThat(extractFieldKeys(httpReaderSchema))
+                .containsExactly("contentType", "header", "params", "requestBody", "pageRead", "pageSize")
+                .doesNotContain("url", "mode", "resultType", "responseStatus", "totalCodePath", "columns");
+        assertThat(fieldByKey(httpReaderSchema, "header").path("componentType").asText()).isEqualTo("JSON_EDITOR");
+        assertThat(fieldByKey(httpReaderSchema, "params").path("defaultValue").asText()).isEqualTo("{}");
+        assertThat(fieldByKey(httpReaderSchema, "requestBody").path("defaultValue").asText()).isEqualTo("");
+
+        MvcResult httpWriterResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "writer")
+                        .param("datasourceType", "http")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("http"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andExpect(jsonPath("$.data.incrementalSupported").value(false))
+                .andExpect(jsonPath("$.data.fields", hasSize(15)))
+                .andReturn();
+        JsonNode httpWriterSchema = readBody(httpWriterResult).path("data");
+        assertThat(extractFieldKeys(httpWriterSchema))
+                .containsExactly("contentType", "header", "params", "requestBody", "payloadMode",
+                        "dataNodePath", "includeTotal", "totalNodePath", "batchSize",
+                        "responseStatus.path", "responseStatus.code", "retryTimes", "retryIntervalMs",
+                        "connectTimeoutMs", "socketTimeoutMs")
+                .doesNotContain("url", "mode", "columns");
+        assertThat(fieldByKey(httpWriterSchema, "header").path("componentType").asText()).isEqualTo("JSON_EDITOR");
+        assertThat(fieldByKey(httpWriterSchema, "payloadMode").path("defaultValue").asText()).isEqualTo("object");
+        assertThat(fieldByKey(httpWriterSchema, "batchSize").path("defaultValue").asText()).isEqualTo("500");
+
         mockMvc.perform(post("/api/v1/meta-schemas/runtime-options/sync-standard")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(16)))
+                .andExpect(jsonPath("$.data", hasSize(18)))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:http")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:sftp")))
-                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:minio")));
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:minio")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http")));
     }
 
     @Test

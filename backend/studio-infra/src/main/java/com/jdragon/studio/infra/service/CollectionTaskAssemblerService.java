@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.jdragon.aggregation.commons.util.Configuration;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -96,8 +97,9 @@ public class CollectionTaskAssemblerService {
             item.put("id", sourceBinding.getSourceAlias());
             item.put("type", pluginType);
             item.putAll(buildReaderConfig(sourceBinding, sourceDatasource, sourceModel, sourceFields, pluginType));
-            mergeRuntimeOptions(item, sourceBinding.getReaderOptions(), "reader");
-            if (!isFileReader(sourceDatasource.getTypeCode(), pluginType)) {
+            mergeRuntimeOptions(item, sourceBinding.getReaderOptions(), "reader", runtimeStringKeys(sourceDatasource.getTypeCode(), pluginType));
+            normalizeReaderRuntimeConfig(item, sourceDatasource.getTypeCode(), pluginType);
+            if (!isFileReader(sourceDatasource.getTypeCode(), pluginType) && !isHttpReader(sourceDatasource.getTypeCode(), pluginType)) {
                 applyIncrementalOptions(item, sourceBinding, executionOptions);
             }
             sources.add(item);
@@ -152,8 +154,9 @@ public class CollectionTaskAssemblerService {
         String pluginType = resolvePluginType(datasource.getTypeCode(), "reader");
         reader.put("type", pluginType);
         Map<String, Object> readerConfig = buildReaderConfig(binding, datasource, model, sourceFields, pluginType);
-        mergeRuntimeOptions(readerConfig, binding.getReaderOptions(), "reader");
-        if (!isFileReader(datasource.getTypeCode(), pluginType)) {
+        mergeRuntimeOptions(readerConfig, binding.getReaderOptions(), "reader", runtimeStringKeys(datasource.getTypeCode(), pluginType));
+        normalizeReaderRuntimeConfig(readerConfig, datasource.getTypeCode(), pluginType);
+        if (!isFileReader(datasource.getTypeCode(), pluginType) && !isHttpReader(datasource.getTypeCode(), pluginType)) {
             applyIncrementalOptions(readerConfig, binding, executionOptions);
         }
         reader.put("config", readerConfig);
@@ -168,7 +171,8 @@ public class CollectionTaskAssemblerService {
         String pluginType = resolvePluginType(datasource.getTypeCode(), "writer");
         writer.put("type", pluginType);
         Map<String, Object> writerConfig = buildWriterConfig(datasource, model, targetFields, pluginType);
-        mergeRuntimeOptions(writerConfig, binding.getWriterOptions(), "writer");
+        mergeRuntimeOptions(writerConfig, binding.getWriterOptions(), "writer", runtimeStringKeys(datasource.getTypeCode(), pluginType));
+        normalizeWriterRuntimeConfig(writerConfig, datasource.getTypeCode(), pluginType);
         applyDefaultWriteMode(writerConfig, pluginType);
         writer.put("config", writerConfig);
         return writer;
@@ -200,6 +204,10 @@ public class CollectionTaskAssemblerService {
             readerConfig.put("connect", buildConnectionConfig(datasource));
             readerConfig.put("measurement", model.getPhysicalLocator());
             readerConfig.put("columns", sourceFields);
+            return readerConfig;
+        }
+        if (isHttpReader(datasource.getTypeCode(), pluginType)) {
+            readerConfig.putAll(buildHttpReaderConfig(datasource, model, sourceFields));
             return readerConfig;
         }
         if (isFileReader(datasource.getTypeCode(), pluginType)) {
@@ -242,6 +250,28 @@ public class CollectionTaskAssemblerService {
         return readerConfig;
     }
 
+    private Map<String, Object> buildHttpReaderConfig(DataSourceDefinition datasource,
+                                                      DataModelDefinition model,
+                                                      List<String> sourceFields) {
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        Map<String, Object> metadata = model == null || model.getTechnicalMetadata() == null
+                ? Collections.<String, Object>emptyMap()
+                : model.getTechnicalMetadata();
+        readerConfig.put("url", resolveHttpUrl(datasource, model, metadata));
+        readerConfig.put("mode", resolveHttpMode(metadata));
+        readerConfig.put("contentType", "application/json;charset=utf-8");
+        readerConfig.put("header", "{}");
+        readerConfig.put("params", "{}");
+        readerConfig.put("requestBody", "");
+        readerConfig.put("resultType", resolveHttpResultType(metadata));
+        putIfPresent(readerConfig, "totalCodePath", metadata.get("totalCodePath"), null);
+        putIfPresent(readerConfig, "responseStatus", resolveHttpResponseStatus(metadata), null);
+        readerConfig.put("pageRead", Boolean.FALSE);
+        readerConfig.put("pageSize", Integer.valueOf(500));
+        readerConfig.put("columns", resolveHttpColumnEntries(model, sourceFields));
+        return readerConfig;
+    }
+
     private Map<String, Object> buildWriterConfig(DataSourceDefinition datasource,
                                                   DataModelDefinition model,
                                                   List<String> targetFields,
@@ -270,6 +300,10 @@ public class CollectionTaskAssemblerService {
         }
         if (isFileWriter(datasource.getTypeCode(), pluginType)) {
             writerConfig.putAll(buildFileWriterConfig(datasource, model, targetFields));
+            return writerConfig;
+        }
+        if (isHttpWriter(datasource.getTypeCode(), pluginType)) {
+            writerConfig.putAll(buildHttpWriterConfig(datasource, model, targetFields));
             return writerConfig;
         }
         writerConfig.put("connect", buildConnectionConfig(datasource));
@@ -309,6 +343,30 @@ public class CollectionTaskAssemblerService {
         return writerConfig;
     }
 
+    private Map<String, Object> buildHttpWriterConfig(DataSourceDefinition datasource,
+                                                       DataModelDefinition model,
+                                                       List<String> targetFields) {
+        Map<String, Object> writerConfig = new LinkedHashMap<String, Object>();
+        Map<String, Object> metadata = model == null || model.getTechnicalMetadata() == null
+                ? Collections.<String, Object>emptyMap()
+                : model.getTechnicalMetadata();
+        writerConfig.put("url", resolveHttpUrl(datasource, model, metadata));
+        writerConfig.put("mode", resolveHttpWriterMode(metadata));
+        writerConfig.put("contentType", "application/json;charset=utf-8");
+        writerConfig.put("header", "{}");
+        writerConfig.put("params", "{}");
+        writerConfig.put("requestBody", "");
+        writerConfig.put("payloadMode", "object");
+        writerConfig.put("includeTotal", Boolean.FALSE);
+        writerConfig.put("batchSize", Integer.valueOf(500));
+        writerConfig.put("retryTimes", Integer.valueOf(3));
+        writerConfig.put("retryIntervalMs", Long.valueOf(1000L));
+        writerConfig.put("connectTimeoutMs", Integer.valueOf(3000));
+        writerConfig.put("socketTimeoutMs", Integer.valueOf(3000));
+        writerConfig.put("columns", resolveHttpWriterColumnEntries(model, targetFields));
+        return writerConfig;
+    }
+
     private void applyIncrementalOptions(Map<String, Object> config,
                                          CollectionTaskSourceBinding sourceBinding,
                                          Map<String, Object> executionOptions) {
@@ -339,6 +397,13 @@ public class CollectionTaskAssemblerService {
     private void mergeRuntimeOptions(Map<String, Object> config,
                                      Map<String, Object> runtimeOptions,
                                      String role) {
+        mergeRuntimeOptions(config, runtimeOptions, role, Collections.<String>emptySet());
+    }
+
+    private void mergeRuntimeOptions(Map<String, Object> config,
+                                     Map<String, Object> runtimeOptions,
+                                     String role,
+                                     Set<String> preserveStringKeys) {
         if (runtimeOptions == null || runtimeOptions.isEmpty()) {
             return;
         }
@@ -354,7 +419,7 @@ public class CollectionTaskAssemblerService {
             if (isBlank(key) || isReservedRuntimeOptionKey(key, reserved)) {
                 continue;
             }
-            Object value = normalizeRuntimeOptionValue(entry.getValue());
+            Object value = normalizeRuntimeOptionValue(key, entry.getValue(), preserveStringKeys);
             if (value == null) {
                 continue;
             }
@@ -400,7 +465,10 @@ public class CollectionTaskAssemblerService {
         return dotIndex > 0 && reserved.contains(normalized.substring(0, dotIndex));
     }
 
-    private Object normalizeRuntimeOptionValue(Object value) {
+    private Object normalizeRuntimeOptionValue(String key, Object value, Set<String> preserveStringKeys) {
+        if (preserveStringKeys != null && preserveStringKeys.contains(normalizeKey(key))) {
+            return value;
+        }
         if (!(value instanceof String)) {
             return value;
         }
@@ -418,6 +486,102 @@ public class CollectionTaskAssemblerService {
         }
     }
 
+    private void normalizeReaderRuntimeConfig(Map<String, Object> config, String datasourceTypeCode, String pluginType) {
+        if (isHttpReader(datasourceTypeCode, pluginType)) {
+            normalizeHttpReaderRuntimeConfig(config);
+        }
+    }
+
+    private void normalizeWriterRuntimeConfig(Map<String, Object> config, String datasourceTypeCode, String pluginType) {
+        if (isHttpWriter(datasourceTypeCode, pluginType)) {
+            normalizeHttpWriterRuntimeConfig(config);
+        }
+    }
+
+    private void normalizeHttpReaderRuntimeConfig(Map<String, Object> config) {
+        normalizeHttpStringOption(config, "contentType", "application/json;charset=utf-8");
+        normalizeHttpJsonObjectString(config, "header", "HTTP reader");
+        normalizeHttpJsonObjectString(config, "params", "HTTP reader");
+        normalizeHttpStringOption(config, "requestBody", "");
+    }
+
+    private void normalizeHttpWriterRuntimeConfig(Map<String, Object> config) {
+        normalizeHttpStringOption(config, "contentType", "application/json;charset=utf-8");
+        normalizeHttpJsonObjectString(config, "header", "HTTP writer");
+        normalizeHttpJsonObjectString(config, "params", "HTTP writer");
+        normalizeHttpStringOption(config, "requestBody", "");
+        if (isBlankValue(config.get("payloadMode"))) {
+            config.put("payloadMode", "object");
+        }
+        if (isBlankValue(config.get("batchSize"))) {
+            config.put("batchSize", Integer.valueOf(500));
+        }
+        boolean includeTotal = booleanValue(config.get("includeTotal"));
+        config.put("includeTotal", Boolean.valueOf(includeTotal));
+        if (includeTotal && isBlankValue(config.get("totalNodePath"))) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP writer totalNodePath is required when includeTotal is true");
+        }
+    }
+
+    private void normalizeHttpStringOption(Map<String, Object> config, String key, String defaultValue) {
+        Object value = config.get(key);
+        if (isBlankValue(value)) {
+            config.put(key, defaultValue);
+            return;
+        }
+        if (value instanceof String) {
+            config.put(key, value);
+            return;
+        }
+        try {
+            config.put(key, RUNTIME_OPTION_OBJECT_MAPPER.writeValueAsString(value));
+        } catch (Exception e) {
+            config.put(key, String.valueOf(value));
+        }
+    }
+
+    private void normalizeHttpJsonObjectString(Map<String, Object> config, String key, String label) {
+        Object value = config.get(key);
+        String text;
+        if (isBlankValue(value)) {
+            text = "{}";
+        } else if (value instanceof String) {
+            text = ((String) value).trim();
+        } else {
+            try {
+                text = RUNTIME_OPTION_OBJECT_MAPPER.writeValueAsString(value);
+            } catch (Exception e) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, label + " " + key + " must be a JSON object string");
+            }
+        }
+        try {
+            JsonNode node = RUNTIME_OPTION_OBJECT_MAPPER.readTree(text);
+            if (node == null || !node.isObject()) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, label + " " + key + " must be a JSON object string");
+            }
+        } catch (StudioException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, label + " " + key + " must be a JSON object string");
+        }
+        config.put(key, text);
+    }
+
+    private Set<String> runtimeStringKeys(String datasourceTypeCode, String pluginType) {
+        if (!isHttpReader(datasourceTypeCode, pluginType) && !isHttpWriter(datasourceTypeCode, pluginType)) {
+            return Collections.emptySet();
+        }
+        Set<String> keys = new LinkedHashSet<String>();
+        keys.add("header");
+        keys.add("params");
+        keys.add("requestbody");
+        return keys;
+    }
+
+    private String normalizeKey(String key) {
+        return key == null ? "" : key.trim().toLowerCase(Locale.ENGLISH);
+    }
+
     private List<String> reservedKeys(String role) {
         return pluginRuntimeOptionSchemaService.reservedKeys(role);
     }
@@ -432,6 +596,14 @@ public class CollectionTaskAssemblerService {
                 || "ftp".equalsIgnoreCase(pluginType)
                 || "sftp".equalsIgnoreCase(pluginType)
                 || "minio".equalsIgnoreCase(pluginType);
+    }
+
+    private boolean isHttpReader(String datasourceTypeCode, String pluginType) {
+        return "http".equalsIgnoreCase(pluginType) || "http".equalsIgnoreCase(datasourceTypeCode);
+    }
+
+    private boolean isHttpWriter(String datasourceTypeCode, String pluginType) {
+        return "http".equalsIgnoreCase(pluginType) || "http".equalsIgnoreCase(datasourceTypeCode);
     }
 
     private boolean isFileWriter(String datasourceTypeCode, String pluginType) {
@@ -502,6 +674,125 @@ public class CollectionTaskAssemblerService {
             result.add(item);
         }
         return result;
+    }
+
+    private List<Map<String, Object>> resolveHttpColumnEntries(DataModelDefinition model,
+                                                                List<String> fields) {
+        List<String> selectedFields = fields == null || fields.isEmpty() ? resolveModelFields(model) : fields;
+        if (selectedFields.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP response fields are required");
+        }
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        Map<String, Map<String, Object>> metadata = resolveModelFieldMetadata(model);
+        for (String fieldName : selectedFields) {
+            Map<String, Object> fieldMetadata = metadata.get(fieldName);
+            Object parentNode = fieldMetadata == null ? null : fieldMetadata.get("parentNode");
+            if (isBlankValue(parentNode)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP response field parentNode is required for field " + fieldName);
+            }
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("parentNode", String.valueOf(parentNode).trim());
+            item.put("name", fieldName);
+            item.put("type", resolveHttpColumnType(fieldMetadata));
+            result.add(item);
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> resolveHttpWriterColumnEntries(DataModelDefinition model,
+                                                                      List<String> fields) {
+        List<String> selectedFields = fields == null || fields.isEmpty() ? resolveModelFields(model) : fields;
+        if (selectedFields.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP request fields are required");
+        }
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        Map<String, Map<String, Object>> metadata = resolveModelFieldMetadata(model);
+        for (int i = 0; i < selectedFields.size(); i++) {
+            String fieldName = selectedFields.get(i);
+            Map<String, Object> fieldMetadata = metadata.get(fieldName);
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("index", Integer.valueOf(i));
+            item.put("name", fieldName);
+            item.put("type", resolveHttpColumnType(fieldMetadata));
+            result.add(item);
+        }
+        return result;
+    }
+
+    private String resolveHttpColumnType(Map<String, Object> metadata) {
+        Object type = metadata == null ? null : metadata.get("type");
+        return isBlankValue(type) ? "STRING" : String.valueOf(type).trim();
+    }
+
+    private String resolveHttpUrl(DataSourceDefinition datasource,
+                                  DataModelDefinition model,
+                                  Map<String, Object> metadata) {
+        Object requestPathValue = firstPresent(metadata, "physicalName", "requestPath");
+        String requestPath = model == null ? null : model.getPhysicalLocator();
+        if (isBlank(requestPath) && !isBlankValue(requestPathValue)) {
+            requestPath = String.valueOf(requestPathValue).trim();
+        }
+        if (!isBlank(requestPath) && isAbsoluteHttpUrl(requestPath)) {
+            return requestPath.trim();
+        }
+        Map<String, Object> connect = buildConnectionConfig(datasource);
+        String baseUrl = connect.get("url") == null ? null : String.valueOf(connect.get("url")).trim();
+        if (isBlank(baseUrl)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP datasource url is required");
+        }
+        if (isBlank(requestPath)) {
+            return baseUrl;
+        }
+        return joinHttpUrl(baseUrl, requestPath.trim());
+    }
+
+    private String joinHttpUrl(String baseUrl, String requestPath) {
+        boolean baseEndsWithSlash = baseUrl.endsWith("/");
+        boolean pathStartsWithSlash = requestPath.startsWith("/");
+        if (baseEndsWithSlash && pathStartsWithSlash) {
+            return baseUrl + requestPath.substring(1);
+        }
+        if (!baseEndsWithSlash && !pathStartsWithSlash) {
+            return baseUrl + "/" + requestPath;
+        }
+        return baseUrl + requestPath;
+    }
+
+    private boolean isAbsoluteHttpUrl(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
+    private String resolveHttpMode(Map<String, Object> metadata) {
+        Object mode = metadata == null ? null : metadata.get("mode");
+        return isBlankValue(mode) ? "GET" : String.valueOf(mode).trim().toUpperCase(Locale.ENGLISH);
+    }
+
+    private String resolveHttpWriterMode(Map<String, Object> metadata) {
+        Object mode = metadata == null ? null : metadata.get("mode");
+        return isBlankValue(mode) ? "POST" : String.valueOf(mode).trim().toUpperCase(Locale.ENGLISH);
+    }
+
+    private String resolveHttpResultType(Map<String, Object> metadata) {
+        Object resultType = metadata == null ? null : metadata.get("resultType");
+        return isBlankValue(resultType) ? "json" : String.valueOf(resultType).trim().toLowerCase(Locale.ENGLISH);
+    }
+
+    private Map<String, Object> resolveHttpResponseStatus(Map<String, Object> metadata) {
+        Object statusPath = metadata == null ? null : metadata.get("businessStatusPath");
+        Object statusCode = metadata == null ? null : metadata.get("businessStatusCode");
+        boolean hasPath = !isBlankValue(statusPath);
+        boolean hasCode = !isBlankValue(statusCode);
+        if (!hasPath && !hasCode) {
+            return null;
+        }
+        if (!hasPath || !hasCode) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP business status path and code must be configured together");
+        }
+        Map<String, Object> responseStatus = new LinkedHashMap<String, Object>();
+        responseStatus.put("path", String.valueOf(statusPath).trim());
+        responseStatus.put("code", String.valueOf(statusCode).trim());
+        return responseStatus;
     }
 
     private boolean hasTagFileField(List<Map<String, Object>> columns) {
@@ -894,6 +1185,13 @@ public class CollectionTaskAssemblerService {
 
     private boolean isBlankValue(Object value) {
         return value == null || String.valueOf(value).trim().isEmpty();
+    }
+
+    private boolean booleanValue(Object value) {
+        if (value instanceof Boolean) {
+            return Boolean.TRUE.equals(value);
+        }
+        return value != null && "true".equalsIgnoreCase(String.valueOf(value).trim());
     }
 
     private boolean isBlank(String value) {

@@ -1,0 +1,72 @@
+package com.jdragon.studio.test;
+
+import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
+import com.jdragon.studio.infra.service.EncryptionService;
+import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.Test;
+
+import java.net.InetSocketAddress;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+class AggregationSourceCapabilityProviderRegressionTest {
+
+    @Test
+    void httpDatasourceConnectionTestShouldSucceedOnlyWhenStatusIs200() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/ok", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.createContext("/missing", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        server.createContext("/error", exchange -> {
+            exchange.sendResponseHeaders(500, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            AggregationSourceCapabilityProvider provider = httpProvider();
+
+            ConnectionTestResult success = provider.testConnection(httpDatasource(baseUrl + "/ok"));
+            ConnectionTestResult failure = provider.testConnection(httpDatasource(baseUrl + "/missing"));
+            ConnectionTestResult serverError = provider.testConnection(httpDatasource(baseUrl + "/error"));
+
+            assertThat(success.isSuccess()).isTrue();
+            assertThat(success.getMessage()).isEqualTo("HTTP status 200");
+            assertThat(failure.isSuccess()).isFalse();
+            assertThat(failure.getMessage()).isEqualTo("HTTP status 404");
+            assertThat(serverError.isSuccess()).isFalse();
+            assertThat(serverError.getMessage()).isEqualTo("HTTP status 500");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private AggregationSourceCapabilityProvider httpProvider() {
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        return new AggregationSourceCapabilityProvider(
+                properties,
+                new EncryptionService(properties),
+                mock(BusinessMetaModelMetadataService.class));
+    }
+
+    private DataSourceDefinition httpDatasource(String url) {
+        DataSourceDefinition definition = new DataSourceDefinition();
+        definition.setTypeCode("http");
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("url", url);
+        definition.setTechnicalMetadata(metadata);
+        return definition;
+    }
+}

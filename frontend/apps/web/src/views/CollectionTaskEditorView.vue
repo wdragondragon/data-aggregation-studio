@@ -158,8 +158,15 @@
             </el-form-item>
           </div>
 
+          <HttpReaderOptionsEditor
+            v-if="readerAdvancedFields(source).length && isHttpReaderSource(source)"
+            :fields="readerAdvancedFields(source)"
+            :model-value="source.readerOptions ?? {}"
+            :dynamic-function-fields="readerDynamicFunctionFields(source)"
+            @update:model-value="updateSourceReaderOptions(source, $event)"
+          />
           <MetaFormRenderer
-            v-if="readerAdvancedFields(source).length"
+            v-else-if="readerAdvancedFields(source).length"
             :fields="readerAdvancedFields(source)"
             :model-value="source.readerOptions ?? {}"
             :dynamic-function-fields="readerDynamicFunctionFields(source)"
@@ -223,8 +230,15 @@
               {{ runtimeStatusLabel("writer", form.targetBinding.datasourceId) }}
             </el-tag>
           </div>
+          <HttpReaderOptionsEditor
+            v-if="writerAdvancedFields.length && isHttpWriterTarget()"
+            :fields="writerAdvancedFields"
+            :model-value="form.targetBinding.writerOptions ?? {}"
+            :dynamic-function-fields="writerDynamicFunctionFields()"
+            @update:model-value="form.targetBinding.writerOptions = $event"
+          />
           <MetaFormRenderer
-            v-if="writerAdvancedFields.length"
+            v-else-if="writerAdvancedFields.length"
             :fields="writerAdvancedFields"
             :model-value="form.targetBinding.writerOptions ?? {}"
             :dynamic-function-fields="writerDynamicFunctionFields()"
@@ -396,6 +410,7 @@ import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
 import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
+import HttpReaderOptionsEditor from "@web/components/HttpReaderOptionsEditor.vue";
 import { cloneDeep, prettyJson } from "@/utils/studio";
 
 interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
@@ -406,6 +421,8 @@ type RuntimeOptionRole = "reader" | "writer";
 
 const fileReaderDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
 const fileReaderDynamicFunctionFields = ["rootPath", "partition"];
+const httpReaderDynamicFunctionFields = ["header", "params", "requestBody"];
+const httpWriterDynamicFunctionFields = ["header", "params", "requestBody"];
 const fileWriterDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
 const fileWriterDynamicFunctionFields = ["rootPath", "fileName", "efile.dataTime", "efile.planDate"];
 
@@ -896,15 +913,33 @@ function updateSourceReaderOptions(source: CollectionTaskSourceBinding, value: R
 }
 
 function readerDynamicFunctionFields(source: CollectionTaskSourceBinding) {
-  return fileReaderDatasourceTypes.has(resolveDatasourceTypeCode(source.datasourceId))
-    ? fileReaderDynamicFunctionFields
-    : [];
+  const datasourceType = resolveDatasourceTypeCode(source.datasourceId);
+  if (fileReaderDatasourceTypes.has(datasourceType)) {
+    return fileReaderDynamicFunctionFields;
+  }
+  if (datasourceType === "http") {
+    return httpReaderDynamicFunctionFields;
+  }
+  return [];
+}
+
+function isHttpReaderSource(source: CollectionTaskSourceBinding) {
+  return resolveDatasourceTypeCode(source.datasourceId) === "http";
 }
 
 function writerDynamicFunctionFields() {
-  return fileWriterDatasourceTypes.has(resolveDatasourceTypeCode(form.targetBinding.datasourceId))
-    ? fileWriterDynamicFunctionFields
-    : [];
+  const datasourceType = resolveDatasourceTypeCode(form.targetBinding.datasourceId);
+  if (fileWriterDatasourceTypes.has(datasourceType)) {
+    return fileWriterDynamicFunctionFields;
+  }
+  if (datasourceType === "http") {
+    return httpWriterDynamicFunctionFields;
+  }
+  return [];
+}
+
+function isHttpWriterTarget() {
+  return resolveDatasourceTypeCode(form.targetBinding.datasourceId) === "http";
 }
 
 function updateFusionReaderOptions(value: Record<string, unknown>) {

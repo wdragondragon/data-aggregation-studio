@@ -13,14 +13,27 @@
 
     <SectionCard :title="t('web.workflows.registryTitle')" :description="t('web.workflows.registryDescription')">
       <template v-if="workflows.length">
-        <el-table :data="pagedWorkflows" border>
+        <div class="workflow-table-wrap">
+          <el-table
+            :data="pagedWorkflows"
+            border
+            size="small"
+            table-layout="fixed"
+            scrollbar-always-on
+            max-height="calc(100vh - 320px)"
+            class="workflow-table"
+          >
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(workflowPagination, $index) }}
             </template>
           </el-table-column>
-          <el-table-column prop="code" :label="t('web.workflows.code')" min-width="150" />
-          <el-table-column :label="t('web.workflows.name')" min-width="220">
+          <el-table-column :label="t('web.workflows.code')" min-width="190">
+            <template #default="{ row }">
+              <span class="workflow-code-text">{{ row.code || t("common.none") }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.workflows.name')" min-width="260">
             <template #default="{ row }">
               <div class="stack-cell">
                 <el-button link type="primary" class="workflow-name-link" @click="viewWorkflow(row)">
@@ -52,12 +65,13 @@
               />
             </template>
           </el-table-column>
-        <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
+          <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <OverflowActionGroup :items="buildWorkflowActions(row)" />
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </div>
         <div class="table-pagination">
           <el-pagination
             v-model:current-page="workflowPagination.page"
@@ -216,8 +230,46 @@ p {
 }
 
 .workflow-name-link {
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: auto;
+  max-width: 100%;
   padding: 0;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+}
+
+.workflow-name-link :deep(span) {
+  display: inline;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.workflow-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workflow-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.workflow-table :deep(.cell) {
+  white-space: normal;
+}
+
+.workflow-code-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .stack-cell {

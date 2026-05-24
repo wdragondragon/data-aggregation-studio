@@ -209,6 +209,7 @@ insert or ignore into datasource_type_capability (id, tenant_id, deleted, create
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'minio', 'MinIO', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'minio', '[]', '[]', 70, 'MinIO 对象存储'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'kafka', 'Kafka', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'kafka', '["kafka"]', '["kafka"]', 80, 'Kafka 消息队列'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'rocketmq', 'RocketMQ', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'rocketmq', '["rocketmq"]', '["rocketmq"]', 90, 'RocketMQ 消息队列'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'http', 'HTTP', 'HTTP_API', 1, 1, 1, 1, 0, 'http', '["httpreader"]', '["httpwriter"]', 95, 'HTTP 接口数据源'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'rabbitmq', 'RabbitMQ', 'MESSAGE_QUEUE', 1, 0, 0, 1, 0, 'rabbitmq', '[]', '[]', 100, 'RabbitMQ 消息队列'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'odps', 'ODPS', 'DATABASE', 1, 0, 0, 1, 1, 'odps', '[]', '[]', 110, 'ODPS / MaxCompute 数据源'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'tbds-hdfs', 'TBDS HDFS', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'tbds-hdfs', '[]', '[]', 120, 'TBDS HDFS 文件系统'),

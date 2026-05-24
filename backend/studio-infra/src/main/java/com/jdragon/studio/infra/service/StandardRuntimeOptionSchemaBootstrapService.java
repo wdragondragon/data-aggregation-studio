@@ -45,6 +45,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("reader", "ftp", "FTP Reader 参数", buildFileTableReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "sftp", "SFTP Reader 参数", buildFileTableReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "minio", "MinIO Reader 参数", buildFileTableReaderFields()));
+        result.add(ensureRuntimeOptionSchema("reader", "http", "HTTP Reader 参数", buildHttpReaderFields()));
 
         result.add(ensureRuntimeOptionSchema("writer", "mysql8", "MYSQL8 Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace", "update"))));
         result.add(ensureRuntimeOptionSchema("writer", "dm", "DM Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace"))));
@@ -54,6 +55,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("writer", "ftp", "FTP Writer 参数", buildFileTableWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "sftp", "SFTP Writer 参数", buildFileTableWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "minio", "MinIO Writer 参数", buildFileTableWriterFields()));
+        result.add(ensureRuntimeOptionSchema("writer", "http", "HTTP Writer 参数", buildHttpWriterFields()));
         return result;
     }
 
@@ -112,6 +114,40 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         fields.add(field("nullFormat", "CSV 空值标记", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, "\\N"));
         fields.add(field("fieldQuote", "CSV 引号字符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, "\""));
         fields.add(field("dataType", "EFILE 数据类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildHttpReaderFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("contentType", "Content-Type", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10,
+                "application/json;charset=utf-8"));
+        fields.add(field("header", "请求头", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 20, "{}"));
+        fields.add(field("params", "请求参数", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 30, "{}"));
+        fields.add(field("requestBody", "请求体", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 40, ""));
+        fields.add(field("pageRead", "启用分页读取", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 50, "false"));
+        fields.add(field("pageSize", "分页大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 60, "500"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildHttpWriterFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("contentType", "Content-Type", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10,
+                "application/json;charset=utf-8"));
+        fields.add(field("header", "请求头", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 20, "{}"));
+        fields.add(field("params", "请求参数", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 30, "{}"));
+        fields.add(field("requestBody", "请求体模板", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 40, ""));
+        fields.add(field("payloadMode", "发送数据形态", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 50,
+                "object", Arrays.asList("object", "array")));
+        fields.add(field("dataNodePath", "发送数据节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+        fields.add(field("includeTotal", "携带发送总数", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 70, "false"));
+        fields.add(field("totalNodePath", "发送总数节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
+        fields.add(field("batchSize", "数组批量大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 90, "500"));
+        fields.add(field("responseStatus.path", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, null));
+        fields.add(field("responseStatus.code", "业务成功状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 110, "200"));
+        fields.add(field("retryTimes", "重试次数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 120, "3"));
+        fields.add(field("retryIntervalMs", "重试间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 130, "1000"));
+        fields.add(field("connectTimeoutMs", "连接超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 140, "3000"));
+        fields.add(field("socketTimeoutMs", "响应超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 150, "3000"));
         return fields;
     }
 

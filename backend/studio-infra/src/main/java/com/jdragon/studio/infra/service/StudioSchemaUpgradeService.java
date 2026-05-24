@@ -1674,6 +1674,7 @@ public class StudioSchemaUpgradeService {
         insertDatasourceTypeCapabilityMysql("minio", "MinIO", "FILE_SYSTEM", 1, 0, 0, 1, 0, "minio", "[]", "[]", 70, "MinIO 对象存储");
         insertDatasourceTypeCapabilityMysql("kafka", "Kafka", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "kafka", "[\"kafka\"]", "[\"kafka\"]", 80, "Kafka 消息队列");
         insertDatasourceTypeCapabilityMysql("rocketmq", "RocketMQ", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "rocketmq", "[\"rocketmq\"]", "[\"rocketmq\"]", 90, "RocketMQ 消息队列");
+        insertDatasourceTypeCapabilityMysql("http", "HTTP", "HTTP_API", 1, 1, 1, 1, 0, "http", "[\"httpreader\"]", "[\"httpwriter\"]", 95, "HTTP 接口数据源");
         insertDatasourceTypeCapabilityMysql("rabbitmq", "RabbitMQ", "MESSAGE_QUEUE", 1, 0, 0, 1, 0, "rabbitmq", "[]", "[]", 100, "RabbitMQ 消息队列");
         insertDatasourceTypeCapabilityMysql("odps", "ODPS", "DATABASE", 1, 0, 0, 1, 1, "odps", "[]", "[]", 110, "ODPS / MaxCompute 数据源");
         insertDatasourceTypeCapabilityMysql("tbds-hdfs", "TBDS HDFS", "FILE_SYSTEM", 1, 0, 0, 1, 0, "tbds-hdfs", "[]", "[]", 120, "TBDS HDFS 文件系统");
@@ -1719,6 +1720,8 @@ public class StudioSchemaUpgradeService {
     private void backfillDatasourceTypeCapabilityCategoriesMysql() {
         jdbcTemplate.update("update datasource_type_capability set source_category = 'FILE_SYSTEM' where type_code in ('ftp', 'sftp', 'minio', 'tbds-hdfs', 'tbds-hdfs3')");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'MESSAGE_QUEUE' where type_code in ('kafka', 'rocketmq', 'rabbitmq')");
+        jdbcTemplate.update("update datasource_type_capability set source_category = 'HTTP_API' where type_code = 'http'");
+        jdbcTemplate.update("update datasource_type_capability set writable = 1, writer_plugins_json = '[\"httpwriter\"]' where type_code = 'http'");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'DATABASE' where source_category is null or source_category = ''");
     }
 
@@ -1732,6 +1735,7 @@ public class StudioSchemaUpgradeService {
         normalizeDatasourceTypeCapabilityMetadataMysql("minio", "MinIO", "FILE_SYSTEM", "MinIO 对象存储");
         normalizeDatasourceTypeCapabilityMetadataMysql("kafka", "Kafka", "MESSAGE_QUEUE", "Kafka 消息队列");
         normalizeDatasourceTypeCapabilityMetadataMysql("rocketmq", "RocketMQ", "MESSAGE_QUEUE", "RocketMQ 消息队列");
+        normalizeDatasourceTypeCapabilityMetadataMysql("http", "HTTP", "HTTP_API", "HTTP 接口数据源");
         normalizeDatasourceTypeCapabilityMetadataMysql("rabbitmq", "RabbitMQ", "MESSAGE_QUEUE", "RabbitMQ 消息队列");
         normalizeDatasourceTypeCapabilityMetadataMysql("odps", "ODPS", "DATABASE", "ODPS / MaxCompute 数据源");
         normalizeDatasourceTypeCapabilityMetadataMysql("tbds-hdfs", "TBDS HDFS", "FILE_SYSTEM", "TBDS HDFS 文件系统");
@@ -1789,6 +1793,7 @@ public class StudioSchemaUpgradeService {
         insertDatasourceTypeCapabilitySqlite("minio", "MinIO", "FILE_SYSTEM", 1, 0, 0, 1, 0, "minio", "[]", "[]", 70, "MinIO 对象存储");
         insertDatasourceTypeCapabilitySqlite("kafka", "Kafka", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "kafka", "[\"kafka\"]", "[\"kafka\"]", 80, "Kafka 消息队列");
         insertDatasourceTypeCapabilitySqlite("rocketmq", "RocketMQ", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "rocketmq", "[\"rocketmq\"]", "[\"rocketmq\"]", 90, "RocketMQ 消息队列");
+        insertDatasourceTypeCapabilitySqlite("http", "HTTP", "HTTP_API", 1, 1, 1, 1, 0, "http", "[\"httpreader\"]", "[\"httpwriter\"]", 95, "HTTP 接口数据源");
         insertDatasourceTypeCapabilitySqlite("rabbitmq", "RabbitMQ", "MESSAGE_QUEUE", 1, 0, 0, 1, 0, "rabbitmq", "[]", "[]", 100, "RabbitMQ 消息队列");
         insertDatasourceTypeCapabilitySqlite("odps", "ODPS", "DATABASE", 1, 0, 0, 1, 1, "odps", "[]", "[]", 110, "ODPS / MaxCompute 数据源");
         insertDatasourceTypeCapabilitySqlite("tbds-hdfs", "TBDS HDFS", "FILE_SYSTEM", 1, 0, 0, 1, 0, "tbds-hdfs", "[]", "[]", 120, "TBDS HDFS 文件系统");
@@ -1833,6 +1838,8 @@ public class StudioSchemaUpgradeService {
     private void backfillDatasourceTypeCapabilityCategoriesSqlite() {
         jdbcTemplate.update("update datasource_type_capability set source_category = 'FILE_SYSTEM' where type_code in ('ftp', 'sftp', 'minio', 'tbds-hdfs', 'tbds-hdfs3')");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'MESSAGE_QUEUE' where type_code in ('kafka', 'rocketmq', 'rabbitmq')");
+        jdbcTemplate.update("update datasource_type_capability set source_category = 'HTTP_API' where type_code = 'http'");
+        jdbcTemplate.update("update datasource_type_capability set writable = 1, writer_plugins_json = '[\"httpwriter\"]' where type_code = 'http'");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'DATABASE' where source_category is null or source_category = ''");
     }
 
@@ -1846,6 +1853,7 @@ public class StudioSchemaUpgradeService {
         normalizeDatasourceTypeCapabilityMetadataSqlite("minio", "MinIO", "FILE_SYSTEM", "MinIO 对象存储");
         normalizeDatasourceTypeCapabilityMetadataSqlite("kafka", "Kafka", "MESSAGE_QUEUE", "Kafka 消息队列");
         normalizeDatasourceTypeCapabilityMetadataSqlite("rocketmq", "RocketMQ", "MESSAGE_QUEUE", "RocketMQ 消息队列");
+        normalizeDatasourceTypeCapabilityMetadataSqlite("http", "HTTP", "HTTP_API", "HTTP 接口数据源");
         normalizeDatasourceTypeCapabilityMetadataSqlite("rabbitmq", "RabbitMQ", "MESSAGE_QUEUE", "RabbitMQ 消息队列");
         normalizeDatasourceTypeCapabilityMetadataSqlite("odps", "ODPS", "DATABASE", "ODPS / MaxCompute 数据源");
         normalizeDatasourceTypeCapabilityMetadataSqlite("tbds-hdfs", "TBDS HDFS", "FILE_SYSTEM", "TBDS HDFS 文件系统");

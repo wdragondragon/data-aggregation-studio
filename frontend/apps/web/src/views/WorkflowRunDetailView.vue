@@ -68,41 +68,51 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.detailNodesTitle')" :description="t('web.runs.detailNodesDescription')">
-      <el-table :data="runDetail?.nodeRuns || []" border table-layout="fixed" class="workflow-node-run-table">
-        <el-table-column :label="t('web.runs.node')" min-width="220">
-          <template #default="{ row }">
-            <div class="stack-cell">
-              <strong>{{ row.nodeName || t("common.none") }}</strong>
-              <span class="cell-subtle">{{ formatNodeType(t, row.nodeType) }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
-          <template #default="{ row }">
-            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
-          </template>
-        </el-table-column>
-        <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
-          <template #default="{ row }">
-            <div class="stack-cell">
-              <span>{{ row.startedAt || t("common.none") }}</span>
-              <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.message')" min-width="280">
-          <template #default="{ row }">
-            <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" :disabled="!row.runRecordId" @click="activeRunRecordId = row.runRecordId">
-              {{ t("web.runs.viewLog") }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="table-scroll-shell">
+        <el-table
+          :data="runDetail?.nodeRuns || []"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="420px"
+          class="workflow-node-run-table"
+        >
+          <el-table-column :label="t('web.runs.node')" min-width="220">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <strong>{{ row.nodeName || t("common.none") }}</strong>
+                <span class="cell-subtle">{{ formatNodeType(t, row.nodeType) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
+            <template #default="{ row }">
+              <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ row.startedAt || t("common.none") }}</span>
+                <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.message')" min-width="280">
+            <template #default="{ row }">
+              <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" :disabled="!row.runRecordId" @click="activeRunRecordId = row.runRecordId">
+                {{ t("web.runs.viewLog") }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </SectionCard>
 
     <RunLogDrawer v-model="logVisible" :run-record-id="activeRunRecordId" variant="workflow" />
@@ -312,13 +322,19 @@ p {
   background: rgba(148, 163, 184, 0.12);
 }
 
+.table-scroll-shell {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .workflow-node-run-table :deep(.cell) {
   white-space: normal;
 }
 
 .workflow-node-run-table {
   width: 100%;
-  max-width: 100%;
+  min-width: 0;
 }
 
 .stack-cell,

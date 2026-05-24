@@ -34,14 +34,31 @@
     </SectionCard>
 
     <SectionCard title="任务列表" description="可在列表中直接发布、执行任务，并跳转到质量任务运行日志页面。">
-      <el-table :data="tasks" border>
+      <div class="task-table-wrap">
+        <el-table
+          :data="tasks"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="calc(100vh - 340px)"
+          class="quality-task-table"
+        >
         <el-table-column label="序号" width="78" align="center" header-align="center">
           <template #default="{ $index }">
             {{ getPaginatedRowNumber(taskPagination, $index) }}
           </template>
         </el-table-column>
-        <el-table-column prop="taskName" label="任务名称" min-width="180" />
-        <el-table-column prop="taskCode" label="任务编码" min-width="170" />
+        <el-table-column label="任务名称" min-width="260">
+          <template #default="{ row }">
+            <strong class="task-name-text">{{ row.taskName || "-" }}</strong>
+          </template>
+        </el-table-column>
+        <el-table-column label="任务编码" min-width="220">
+          <template #default="{ row }">
+            <span class="task-code-text">{{ row.taskCode || "-" }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="规则信息" min-width="210">
           <template #default="{ row }">
             <div class="table-entity-cell">
@@ -76,7 +93,8 @@
             <OverflowActionGroup :items="buildActions(row)" />
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </div>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="taskPagination.page"
@@ -263,6 +281,30 @@ onMounted(loadTasks);
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
+}
+
+.task-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.quality-task-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.quality-task-table :deep(.cell) {
+  white-space: normal;
+}
+
+.task-name-text,
+.task-code-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 @media (max-width: 760px) {

@@ -72,13 +72,21 @@
 
     <SectionCard title="运行列表" description="每一行代表一次质量任务运行，点击“查看日志”按统一抽屉方式打开日志详情。">
       <div class="table-scroll-shell">
-        <el-table :data="pagedRunRecords" border size="small" table-layout="auto" class="task-run-table">
+        <el-table
+          :data="pagedRunRecords"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="calc(100vh - 360px)"
+          class="task-run-table"
+        >
           <el-table-column label="序号" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(pagination, $index) }}
             </template>
           </el-table-column>
-          <el-table-column label="质量任务" min-width="220" show-overflow-tooltip>
+          <el-table-column label="质量任务" min-width="260">
             <template #default="{ row }">
               <div class="table-entity-cell">
                 <el-button
@@ -119,7 +127,7 @@
               <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
             </template>
           </el-table-column>
-        <el-table-column label="操作" width="120" align="center" header-align="center" fixed="right">
+          <el-table-column label="操作" width="120" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                 查看日志
@@ -459,7 +467,7 @@ p {
 .table-scroll-shell {
   width: 100%;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .task-run-table {
@@ -472,8 +480,23 @@ p {
 }
 
 .run-link {
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: auto;
+  max-width: 100%;
   padding: 0;
   font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+}
+
+.run-link :deep(span) {
+  display: inline;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .stack-cell,

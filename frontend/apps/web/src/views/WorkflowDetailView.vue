@@ -72,41 +72,51 @@
     </SectionCard>
 
     <SectionCard :title="t('web.workflows.detailLogsTitle')" :description="t('web.workflows.detailLogsDescription')">
-      <el-table :data="workflowRuns" border size="small" table-layout="auto" class="workflow-run-table">
-        <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
-          <template #default="{ $index }">
-            {{ getPaginatedRowNumber(workflowRunPagination, $index) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
-          <template #default="{ row }">
-            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
-          </template>
-        </el-table-column>
-        <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
-          <template #default="{ row }">
-            <div class="stack-cell">
-              <span>{{ row.startedAt || t("common.none") }}</span>
-              <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="`${t('web.runs.detailNodeStats')} / ${t('web.runs.summaryMessage')}`" min-width="320">
-          <template #default="{ row }">
-            <div class="stats-cell">
-              <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
-              <MessagePreviewText class="cell-subtle" :text="row.summaryMessage" :empty-text="t('common.none')" />
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openRunDetail(row)">
-              {{ t("web.runs.viewRunDetail") }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="table-scroll-shell">
+        <el-table
+          :data="workflowRuns"
+          border
+          size="small"
+          table-layout="fixed"
+          scrollbar-always-on
+          max-height="420px"
+          class="workflow-run-table"
+        >
+          <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
+            <template #default="{ $index }">
+              {{ getPaginatedRowNumber(workflowRunPagination, $index) }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.status')" width="120" align="center" header-align="center">
+            <template #default="{ row }">
+              <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="220">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ row.startedAt || t("common.none") }}</span>
+                <span class="cell-subtle">{{ row.endedAt || t("common.none") }} · {{ formatDurationMs(row.durationMs) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="`${t('web.runs.detailNodeStats')} / ${t('web.runs.summaryMessage')}`" min-width="320">
+            <template #default="{ row }">
+              <div class="stats-cell">
+                <span v-for="item in formatNodeStats(row)" :key="item">{{ item }}</span>
+                <MessagePreviewText class="cell-subtle" :text="row.summaryMessage" :empty-text="t('common.none')" />
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openRunDetail(row)">
+                {{ t("web.runs.viewRunDetail") }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="workflowRunPagination.page"
@@ -321,6 +331,17 @@ p {
 
 .workflow-readonly-hint {
   margin-top: 12px;
+}
+
+.table-scroll-shell {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workflow-run-table {
+  width: 100%;
+  min-width: 0;
 }
 
 .workflow-run-table :deep(.cell) {

@@ -85,11 +85,13 @@ public class PluginRuntimeOptionSchemaService {
     public List<String> reservedKeys(String role) {
         if (ROLE_WRITER.equals(normalizeRole(role))) {
             return Arrays.asList("connect", "table", "topic", "measurement", "columns", "sourceAlias",
-                    "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile");
+                    "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile",
+                    "url", "mode");
         }
         return Arrays.asList("connect", "config", "table", "topic", "measurement", "columns", "sourceAlias",
                 "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
-                "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter");
+                "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter",
+                "url", "mode", "resultType", "responseStatus", "totalCodePath");
     }
 
     public boolean runtimeSupported(String role, DatasourceTypeCapabilityView capability, String pluginType) {

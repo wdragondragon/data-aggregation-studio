@@ -309,8 +309,12 @@
         v-loading="collectionTasksLoading"
         :data="pagedCollectionTasks"
         border
+        size="small"
+        table-layout="fixed"
+        scrollbar-always-on
         height="420"
         highlight-current-row
+        class="workflow-resource-table"
         @row-click="pendingCollectionTaskId = String($event.id)"
       >
         <el-table-column width="52" align="center">
@@ -323,7 +327,11 @@
             {{ getDialogRowIndex(collectionTaskPagination, $index) }}
           </template>
         </el-table-column>
-        <el-table-column prop="name" :label="t('web.workflows.collectionTaskNameColumn')" min-width="220" show-overflow-tooltip />
+        <el-table-column :label="t('web.workflows.collectionTaskNameColumn')" min-width="260">
+          <template #default="{ row }">
+            <span class="resource-task-name">{{ row.name || t("common.none") }}</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('web.workflows.collectionTaskTypeColumn')" min-width="120">
           <template #default="{ row }">
             {{ formatCollectionTaskType(t, row.taskType) }}
@@ -379,8 +387,12 @@
         v-loading="qualityTasksLoading"
         :data="onlineQualityTasks"
         border
+        size="small"
+        table-layout="fixed"
+        scrollbar-always-on
         height="420"
         highlight-current-row
+        class="workflow-resource-table"
         @row-click="pendingQualityTaskId = String($event.id)"
       >
         <el-table-column width="52" align="center">
@@ -393,7 +405,11 @@
             {{ getDialogRowIndex(qualityTaskPagination, $index) }}
           </template>
         </el-table-column>
-        <el-table-column prop="taskName" :label="t('web.workflows.qualityTaskNameColumn')" min-width="210" show-overflow-tooltip />
+        <el-table-column :label="t('web.workflows.qualityTaskNameColumn')" min-width="260">
+          <template #default="{ row }">
+            <span class="resource-task-name">{{ row.taskName || t("common.none") }}</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('web.workflows.qualityTaskRuleSummary')" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.ruleName || t("common.none") }} · {{ formatQualityDimension(t, row.ruleDimension) }} · {{ formatQualityGranularity(t, row.granularity) }}
@@ -1501,6 +1517,17 @@ p {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.workflow-resource-table :deep(.cell) {
+  white-space: normal;
+}
+
+.resource-task-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .script-selector-layout {

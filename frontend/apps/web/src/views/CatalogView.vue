@@ -128,6 +128,9 @@ function sourceCategoryLabel(category?: string) {
   if (normalized === "MESSAGE_QUEUE") {
     return t("web.catalog.sourceCategoryMessageQueue");
   }
+  if (normalized === "HTTP_API") {
+    return t("web.catalog.sourceCategoryHttpApi");
+  }
   if (normalized === "DATABASE") {
     return t("web.catalog.sourceCategoryDatabase");
   }
@@ -141,6 +144,9 @@ function sourceCategoryTone(category?: string): "primary" | "success" | "warning
   }
   if (normalized === "MESSAGE_QUEUE") {
     return "warning";
+  }
+  if (normalized === "HTTP_API") {
+    return "primary";
   }
   if (normalized === "DATABASE") {
     return "success";

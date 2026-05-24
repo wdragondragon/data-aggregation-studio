@@ -639,11 +639,11 @@
           <el-form-item :label="t('web.models.modelKindLabel')">
             <el-input :model-value="modelForm.modelKind" readonly />
           </el-form-item>
-          <el-form-item :label="t('web.models.modelNameLabel')">
-            <el-input v-model="modelForm.name" :placeholder="t('web.models.modelNamePlaceholder')" />
+          <el-form-item :label="modelNameEditorLabel">
+            <el-input v-model="modelForm.name" :placeholder="modelNameEditorPlaceholder" />
           </el-form-item>
-          <el-form-item :label="t('web.models.physicalLocatorLabel')">
-            <el-input v-model="modelForm.physicalLocator" :placeholder="t('web.models.physicalLocatorPlaceholder')" />
+          <el-form-item :label="physicalLocatorEditorLabel">
+            <el-input v-model="modelForm.physicalLocator" :placeholder="physicalLocatorEditorPlaceholder" />
           </el-form-item>
         </div>
 
@@ -956,6 +956,11 @@ const previewSections = computed(() => buildOrderedSections(previewTechnicalSect
 const showManualDatasourceHint = computed(
   () => Boolean(editorDatasource.value && isDatabaseDatasourceType(editorDatasource.value.typeCode) && !isEditingModel.value),
 );
+const isHttpModelEditor = computed(() => normalizeTypeCode(editorDatasource.value?.typeCode) === "http");
+const modelNameEditorLabel = computed(() => isHttpModelEditor.value ? t("web.models.interfaceNameLabel") : t("web.models.modelNameLabel"));
+const modelNameEditorPlaceholder = computed(() => isHttpModelEditor.value ? t("web.models.interfaceNamePlaceholder") : t("web.models.modelNamePlaceholder"));
+const physicalLocatorEditorLabel = computed(() => isHttpModelEditor.value ? t("web.models.requestPathLabel") : t("web.models.physicalLocatorLabel"));
+const physicalLocatorEditorPlaceholder = computed(() => isHttpModelEditor.value ? t("web.models.requestPathPlaceholder") : t("web.models.physicalLocatorPlaceholder"));
 const isSharedSelectedModel = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, selectedModel.value?.projectId),
 );

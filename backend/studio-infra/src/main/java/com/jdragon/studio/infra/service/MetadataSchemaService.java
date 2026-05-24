@@ -428,6 +428,10 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     private List<MetadataFieldDefinition> buildSourceFields(String datasourceType) {
         String normalized = normalize(datasourceType);
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        if ("http".equals(normalized)) {
+            fields.add(field("url", "URL", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            return fields;
+        }
         if ("ftp".equals(normalized)) {
             fields.add(field("host", "主机地址", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
             fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "21"));
@@ -600,7 +604,20 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     }
 
     private List<MetadataFieldDefinition> buildTableFields(String datasourceType) {
+        String normalized = normalize(datasourceType);
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        if ("http".equals(normalized)) {
+            fields.add(field("physicalName", "请求路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("description", "描述", FieldValueType.STRING, FieldComponentType.TEXTAREA, false, false, 20, null));
+            fields.add(field("mode", "请求类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 30,
+                    "GET", Arrays.asList("GET", "POST")));
+            fields.add(field("resultType", "返回数据类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 40,
+                    "json", Arrays.asList("json", "xml", "soap")));
+            fields.add(field("businessStatusPath", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            fields.add(field("businessStatusCode", "业务状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            fields.add(field("totalCodePath", "总量节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            return fields;
+        }
         fields.add(field("sourceType", "数据源类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10, datasourceType));
         fields.add(field("discoveryMode", "发现方式", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, "AUTO"));
         fields.add(field("physicalName", "物理名称", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
@@ -646,7 +663,21 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     }
 
     private List<MetadataFieldDefinition> buildFieldFields(String datasourceType) {
+        String normalized = normalize(datasourceType);
         List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        if ("http".equals(normalized)) {
+            fields.add(field("name", "字段名称", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
+            fields.add(field("cnName", "字段中文名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+            fields.add(field("parentNode", "父节点名称", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
+            fields.add(field("remarks", "字段备注", FieldValueType.STRING, FieldComponentType.TEXTAREA, false, false, 40, null));
+            fields.add(field("primaryKey", "是否主键", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 50, "false"));
+            fields.add(field("nullable", "能否为空", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "true"));
+            fields.add(field("type", "类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 70,
+                    null, Arrays.asList("STRING", "TEXT", "LONG", "INT", "INTEGER", "NUMBER", "DOUBLE", "FLOAT", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP")));
+            fields.add(field("size", "长度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 80, null));
+            fields.add(field("scale", "精度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 90, null));
+            return fields;
+        }
         fields.add(field("name", "字段名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
         if (isFileType(datasourceType)) {
             fields.add(field("type", "字段类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 20,
