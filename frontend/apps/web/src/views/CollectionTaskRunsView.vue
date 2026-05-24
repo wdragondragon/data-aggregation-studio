@@ -8,7 +8,7 @@
       <div class="studio-toolbar-actions">
         <FollowToggleButton
           v-if="selectedCollectionTask?.id"
-          target-type="COLLECTION_TASK"
+          :target-type="STUDIO_RESOURCE_TYPE.COLLECTION_TASK"
           :target-id="selectedCollectionTask.id"
         />
         <el-button type="primary" plain @click="loadTaskRuns">{{ t("common.refresh") }}</el-button>
@@ -37,9 +37,9 @@
             :placeholder="t('web.collectionTaskRuns.statusFilterPlaceholder')"
           >
             <el-option :label="t('web.collectionTaskRuns.statusFilterAll')" value="" />
-            <el-option :label="formatStatusLabel(t, 'RUNNING')" value="RUNNING" />
-            <el-option :label="formatStatusLabel(t, 'SUCCESS')" value="SUCCESS" />
-            <el-option :label="formatStatusLabel(t, 'FAILED')" value="FAILED" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.RUNNING)" :value="STUDIO_RUN_STATUS.RUNNING" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.SUCCESS)" :value="STUDIO_RUN_STATUS.SUCCESS" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.FAILED)" :value="STUDIO_RUN_STATUS.FAILED" />
           </el-select>
           <el-date-picker
             v-model="filters.timeRange"
@@ -78,7 +78,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTaskRuns.runtimeTitle')" :description="t('web.collectionTaskRuns.runtimeDescription')">
-      <div class="table-scroll-shell">
+      <StudioTableShell min-width="1280px">
         <el-table
           :data="pagedRunRecords"
           border
@@ -151,7 +151,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </div>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="pagination.page"
@@ -174,13 +174,14 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { CollectionTaskDefinitionView, RunRecord } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { STUDIO_RESOURCE_TYPE, STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, resolveProjectName, toneFromStatus } from "@/utils/studio";
 import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/runMetrics";
 
@@ -470,15 +471,8 @@ p {
   white-space: normal;
 }
 
-.table-scroll-shell {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .task-run-table {
   width: 100%;
-  min-width: 0;
 }
 
 .task-run-table :deep(.cell) {

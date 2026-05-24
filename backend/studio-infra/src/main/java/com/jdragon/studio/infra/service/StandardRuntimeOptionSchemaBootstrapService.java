@@ -19,7 +19,6 @@ import java.util.Objects;
 @Service
 public class StandardRuntimeOptionSchemaBootstrapService {
 
-    private static final String META_MODEL_CONFIG_PREFIX = "META_MODEL_CONFIG:";
     private static final String OBJECT_TYPE = "collection-runtime-option";
 
     private final MetadataSchemaService metadataSchemaService;
@@ -88,7 +87,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         config.put("displayMode", "SINGLE");
         config.put("required", false);
         config.put("syncStrategy", "RUNTIME_OPTION");
-        return META_MODEL_CONFIG_PREFIX + config.toJSONString() + "\n" + schemaName + " runtime options.";
+        return MetaModelConfigDescriptions.encode(config, schemaName + " runtime options.");
     }
 
     private List<MetadataFieldDefinition> buildRdbmsReaderFields() {

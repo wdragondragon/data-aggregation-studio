@@ -31,7 +31,8 @@
     </SectionCard>
 
     <SectionCard title="服务列表" description="服务发布后，需要创建订阅 Token 才能开放调用。">
-      <el-table :data="services" border>
+      <StudioTableShell min-width="1320px">
+        <el-table :data="services" border>
         <el-table-column label="序号" width="76" align="center" header-align="center">
           <template #default="{ $index }">{{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}</template>
         </el-table-column>
@@ -71,7 +72,8 @@
             <OverflowActionGroup :items="buildActions(row)" />
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="pagination.page"
@@ -107,7 +109,8 @@
         </div>
         <el-input :model-value="newToken" readonly />
       </div>
-      <el-table :data="subscriptions" border>
+      <StudioTableShell min-width="760px">
+        <el-table :data="subscriptions" border>
         <el-table-column prop="subscriptionName" label="订阅名称" min-width="180" />
         <el-table-column prop="tokenMasked" label="Token" min-width="220" />
         <el-table-column label="状态" width="100" align="center" header-align="center">
@@ -122,7 +125,8 @@
             <el-button v-else link type="primary" @click="enableSubscription(row.id)">启用</el-button>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
     </el-dialog>
   </div>
 </template>
@@ -132,7 +136,7 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { DataServiceDefinitionView, DataServiceSubscriptionView, EntityId } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 
 const router = useRouter();

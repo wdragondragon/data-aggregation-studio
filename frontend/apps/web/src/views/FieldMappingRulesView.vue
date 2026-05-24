@@ -29,7 +29,8 @@
     </SectionCard>
 
     <SectionCard :title="t('web.fieldMappingRules.listTitle')" :description="t('web.fieldMappingRules.listDescription')">
-      <el-table :data="page.items" border>
+      <StudioTableShell min-width="1120px">
+        <el-table :data="page.items" border>
         <el-table-column :label="t('common.sequence')" width="78" align="center" header-align="center">
           <template #default="{ $index }">
             {{ (page.pageNo - 1) * page.pageSize + $index + 1 }}
@@ -50,7 +51,8 @@
             <OverflowActionGroup :items="buildRuleActions(row)" />
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
 
       <div class="table-pagination">
         <el-pagination
@@ -74,7 +76,7 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { FieldMappingRuleView } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
 const { t } = useI18n();

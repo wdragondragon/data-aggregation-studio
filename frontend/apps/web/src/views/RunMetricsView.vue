@@ -94,7 +94,8 @@
 
     <div class="run-metrics-grid">
       <SectionCard :title="t('web.runMetrics.sourceDatasourceTopNTitle')" :description="t('web.runMetrics.sourceDatasourceTopNDescription')">
-        <el-table v-if="sourceDatasourceRows.length" :data="sourceDatasourceRows" size="small" border>
+        <StudioTableShell v-if="sourceDatasourceRows.length" min-width="420px">
+          <el-table :data="sourceDatasourceRows" size="small" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
@@ -104,12 +105,14 @@
           <el-table-column :label="t('web.runMetrics.metricSuccess')" min-width="120" align="right" header-align="right">
             <template #default="{ row }">{{ formatMetricNumber(row.count) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
         <div v-else class="soft-panel run-metrics-empty run-metrics-empty--compact">{{ t("web.runMetrics.emptyTopN") }}</div>
       </SectionCard>
 
       <SectionCard :title="t('web.runMetrics.targetDatasourceTopNTitle')" :description="t('web.runMetrics.targetDatasourceTopNDescription')">
-        <el-table v-if="targetDatasourceRows.length" :data="targetDatasourceRows" size="small" border>
+        <StudioTableShell v-if="targetDatasourceRows.length" min-width="420px">
+          <el-table :data="targetDatasourceRows" size="small" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
@@ -119,12 +122,14 @@
           <el-table-column :label="t('web.runMetrics.metricSuccess')" min-width="120" align="right" header-align="right">
             <template #default="{ row }">{{ formatMetricNumber(row.count) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
         <div v-else class="soft-panel run-metrics-empty run-metrics-empty--compact">{{ t("web.runMetrics.emptyTopN") }}</div>
       </SectionCard>
 
       <SectionCard :title="t('web.runMetrics.sourceModelTopNTitle')" :description="t('web.runMetrics.sourceModelTopNDescription')">
-        <el-table v-if="sourceModelRows.length" :data="sourceModelRows" size="small" border>
+        <StudioTableShell v-if="sourceModelRows.length" min-width="420px">
+          <el-table :data="sourceModelRows" size="small" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
@@ -134,12 +139,14 @@
           <el-table-column :label="t('web.runMetrics.metricSuccess')" min-width="120" align="right" header-align="right">
             <template #default="{ row }">{{ formatMetricNumber(row.count) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
         <div v-else class="soft-panel run-metrics-empty run-metrics-empty--compact">{{ t("web.runMetrics.emptyTopN") }}</div>
       </SectionCard>
 
       <SectionCard :title="t('web.runMetrics.targetModelTopNTitle')" :description="t('web.runMetrics.targetModelTopNDescription')">
-        <el-table v-if="targetModelRows.length" :data="targetModelRows" size="small" border>
+        <StudioTableShell v-if="targetModelRows.length" min-width="420px">
+          <el-table :data="targetModelRows" size="small" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
@@ -149,7 +156,8 @@
           <el-table-column :label="t('web.runMetrics.metricSuccess')" min-width="120" align="right" header-align="right">
             <template #default="{ row }">{{ formatMetricNumber(row.count) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
         <div v-else class="soft-panel run-metrics-empty run-metrics-empty--compact">{{ t("web.runMetrics.emptyTopN") }}</div>
       </SectionCard>
     </div>
@@ -162,7 +170,7 @@ import { ElMessage } from "element-plus";
 import type { EChartsOption } from "echarts";
 import { useI18n } from "vue-i18n";
 import type { RunMetricDashboardResponse, RunMetricTopNItem, StatisticsChartType } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";

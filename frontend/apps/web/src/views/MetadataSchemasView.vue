@@ -227,7 +227,8 @@
           <el-button type="primary" plain @click="appendField">{{ t("common.addField") }}</el-button>
         </template>
 
-        <el-table :data="form.fields" border>
+        <StudioTableShell min-width="1840px">
+          <el-table :data="form.fields" border>
           <el-table-column :label="t('web.metadata.fieldKey')" min-width="150">
             <template #default="{ row }">
               <el-input v-model="row.fieldKey" placeholder="host" />
@@ -342,7 +343,8 @@
               <el-button link type="danger" @click="removeField($index)">{{ t("common.remove") }}</el-button>
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
       </SectionCard>
 
       <div class="drawer-actions">
@@ -359,7 +361,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { DatasourceTypeCapabilityView, MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { encodeMetaModelDescription, hasExplicitMetaModelConfig, parseMetaModelSchema, sameEntityId, type MetaModelConfig, type MetaModelDisplayMode, type MetaModelDomain, type RuntimeOptionRole } from "@/utils/metaModel";
 import { cloneDeep, formatStatusLabel, toneFromStatus } from "@/utils/studio";

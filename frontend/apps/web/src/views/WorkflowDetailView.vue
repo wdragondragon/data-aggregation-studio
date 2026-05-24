@@ -8,7 +8,7 @@
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/workflows')">{{ t("common.backToList") }}</el-button>
         <el-button plain @click="loadWorkflow">{{ t("common.refresh") }}</el-button>
-        <FollowToggleButton v-if="workflow?.id" target-type="WORKFLOW" :target-id="workflow.id" />
+        <FollowToggleButton v-if="workflow?.id" :target-type="STUDIO_RESOURCE_TYPE.WORKFLOW" :target-id="workflow.id" />
         <el-button type="primary" plain :disabled="!workflow?.id" @click="openLogs">{{ t("web.workflows.logsEntry") }}</el-button>
         <el-button type="primary" :disabled="!workflow?.id || isSharedWorkflow" @click="openEditor">{{ t("common.edit") }}</el-button>
       </div>
@@ -72,7 +72,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.workflows.detailLogsTitle')" :description="t('web.workflows.detailLogsDescription')">
-      <div class="table-scroll-shell">
+      <StudioTableShell min-width="920px">
         <el-table
           :data="workflowRuns"
           border
@@ -116,7 +116,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </div>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="workflowRunPagination.page"
@@ -139,13 +139,14 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -331,17 +332,6 @@ p {
 
 .workflow-readonly-hint {
   margin-top: 12px;
-}
-
-.table-scroll-shell {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.workflow-run-table {
-  width: 100%;
-  min-width: 0;
 }
 
 .workflow-run-table :deep(.cell) {

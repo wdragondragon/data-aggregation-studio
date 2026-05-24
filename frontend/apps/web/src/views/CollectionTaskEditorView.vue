@@ -158,7 +158,7 @@
             </el-form-item>
           </div>
 
-          <HttpReaderOptionsEditor
+          <HttpRequestOptionsEditor
             v-if="readerAdvancedFields(source).length && isHttpReaderSource(source)"
             :fields="readerAdvancedFields(source)"
             :model-value="source.readerOptions ?? {}"
@@ -230,7 +230,7 @@
               {{ runtimeStatusLabel("writer", form.targetBinding.datasourceId) }}
             </el-tag>
           </div>
-          <HttpReaderOptionsEditor
+          <HttpRequestOptionsEditor
             v-if="writerAdvancedFields.length && isHttpWriterTarget()"
             :fields="writerAdvancedFields"
             :model-value="form.targetBinding.writerOptions ?? {}"
@@ -410,7 +410,7 @@ import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
 import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
-import HttpReaderOptionsEditor from "@web/components/HttpReaderOptionsEditor.vue";
+import HttpRequestOptionsEditor from "@web/components/HttpRequestOptionsEditor.vue";
 import { cloneDeep, prettyJson } from "@/utils/studio";
 
 interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {

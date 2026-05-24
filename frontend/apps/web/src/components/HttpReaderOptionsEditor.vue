@@ -57,71 +57,31 @@
 
         <div class="http-reader-option__body">
           <template v-if="editorModes[key] === 'table'">
-            <el-table :data="optionRows[key]" border size="small" table-layout="fixed" class="http-reader-option__table">
-              <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
-                <template #default="{ $index }">{{ $index + 1 }}</template>
-              </el-table-column>
-              <el-table-column :label="t('web.collectionTasks.httpOptionKey')" min-width="180">
-                <template #default="{ row, $index }">
-                  <el-input
-                    :model-value="row.name"
-                    :placeholder="keyPlaceholder(key)"
-                    @update:model-value="updateRow(key, $index, 'name', $event)"
-                  />
-                </template>
-              </el-table-column>
-            <el-table-column :label="t('web.collectionTasks.httpOptionValue')" min-width="260">
-              <template #default="{ row, $index }">
-                <div class="http-reader-option__value-input">
-                  <el-input
-                    :ref="(element: unknown) => registerRowValueInputRef(key, $index, element)"
-                    :model-value="row.value"
-                    :placeholder="valuePlaceholder(key)"
-                    @update:model-value="updateRow(key, $index, 'value', $event)"
-                    @click="syncRowValueSelection(key, $index, $event)"
-                    @focus="syncRowValueSelection(key, $index, $event)"
-                    @keyup="syncRowValueSelection(key, $index, $event)"
-                    @select="syncRowValueSelection(key, $index, $event)"
-                  />
-                  <el-button plain size="small" @click="openRowDynamicFunctionDialog(key, $index)">
-                    {{ t("web.collectionTasks.httpDynamicFunctionButton") }}
-                  </el-button>
-                </div>
-              </template>
-            </el-table-column>
-              <el-table-column :label="t('common.actions')" width="86" align="center" header-align="center" fixed="right">
-                <template #default="{ $index }">
-                  <el-button
-                    link
-                    type="danger"
-                    :icon="Delete"
-                    :aria-label="t('common.delete')"
-                    @click="removeRow(key, $index)"
-                  />
-                </template>
-              </el-table-column>
-            </el-table>
+            <HttpOptionKeyValueTable
+              :rows="optionRows[key]"
+              :key-placeholder="keyPlaceholder(key)"
+              :value-placeholder="valuePlaceholder(key)"
+              @update-row="(index, field, value) => updateRow(key, index, field, value)"
+              @remove-row="(index) => removeRow(key, index)"
+              @open-dynamic-function="(index) => openRowDynamicFunctionDialog(key, index)"
+              @register-value-input-ref="(index, element) => registerRowValueInputRef(key, index, element)"
+              @sync-value-selection="(index, event) => syncRowValueSelection(key, index, event)"
+            />
             <p v-if="optionRows[key].length === 0" class="http-reader-option__empty">
               {{ t("web.collectionTasks.httpOptionEmpty") }}
             </p>
           </template>
 
           <template v-else>
-            <el-input
-              :ref="(element: unknown) => registerRawInputRef(key, element)"
+            <HttpRawOptionEditor
               :model-value="rawText[key]"
-              type="textarea"
               :rows="key === 'requestBody' ? 8 : 5"
               :placeholder="rawPlaceholder(key)"
+              :parse-error="parseErrors[key]"
               @update:model-value="updateRawText(key, $event)"
-              @click="syncRawSelection(key, $event)"
-              @focus="syncRawSelection(key, $event)"
-              @keyup="syncRawSelection(key, $event)"
-              @select="syncRawSelection(key, $event)"
+              @register-input-ref="(element) => registerRawInputRef(key, element)"
+              @sync-selection="(event) => syncRawSelection(key, event)"
             />
-            <p v-if="parseErrors[key]" class="http-reader-option__error">
-              {{ parseErrors[key] }}
-            </p>
           </template>
         </div>
       </section>
@@ -195,91 +155,29 @@
               </el-form-item>
             </div>
 
-            <div class="http-token-pair-group">
-              <div class="http-token-pair-group__header">
-                <div>
-                  <strong>{{ t("web.collectionTasks.httpTokenHeaderTitle") }}</strong>
-                  <p>{{ t("web.collectionTasks.httpTokenHeaderDescription") }}</p>
-                </div>
-                <el-button size="small" plain :icon="Plus" @click="appendTokenPairRow('header')">
-                  {{ t("web.collectionTasks.httpTokenAddHeader") }}
-                </el-button>
-              </div>
-              <el-table :data="tokenHeaderRows" border size="small" table-layout="fixed">
-                <el-table-column :label="t('web.collectionTasks.httpOptionKey')" min-width="160">
-                  <template #default="{ row, $index }">
-                    <el-input
-                      :model-value="row.name"
-                      placeholder="Authorization"
-                      @update:model-value="updateTokenPairRow('header', $index, 'name', $event)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column :label="t('web.collectionTasks.httpOptionValue')" min-width="220">
-                  <template #default="{ row, $index }">
-                    <el-input
-                      :model-value="row.value"
-                      placeholder="Bearer xxx"
-                      @update:model-value="updateTokenPairRow('header', $index, 'value', $event)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column :label="t('common.actions')" width="72" align="center" header-align="center">
-                  <template #default="{ $index }">
-                    <el-button
-                      link
-                      type="danger"
-                      :icon="Delete"
-                      :aria-label="t('common.delete')"
-                      @click="removeTokenPairRow('header', $index)"
-                    />
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
+            <HttpTokenPairTable
+              :rows="tokenHeaderRows"
+              :title="t('web.collectionTasks.httpTokenHeaderTitle')"
+              :description="t('web.collectionTasks.httpTokenHeaderDescription')"
+              :add-label="t('web.collectionTasks.httpTokenAddHeader')"
+              key-placeholder="Authorization"
+              value-placeholder="Bearer xxx"
+              @append="appendTokenPairRow('header')"
+              @update-row="(index, field, value) => updateTokenPairRow('header', index, field, value)"
+              @remove-row="(index) => removeTokenPairRow('header', index)"
+            />
 
-            <div class="http-token-pair-group">
-              <div class="http-token-pair-group__header">
-                <div>
-                  <strong>{{ t("web.collectionTasks.httpTokenBodyTitle") }}</strong>
-                  <p>{{ t("web.collectionTasks.httpTokenBodyDescription") }}</p>
-                </div>
-                <el-button size="small" plain :icon="Plus" @click="appendTokenPairRow('body')">
-                  {{ t("web.collectionTasks.httpTokenAddBody") }}
-                </el-button>
-              </div>
-              <el-table :data="tokenBodyRows" border size="small" table-layout="fixed">
-                <el-table-column :label="t('web.collectionTasks.httpOptionKey')" min-width="160">
-                  <template #default="{ row, $index }">
-                    <el-input
-                      :model-value="row.name"
-                      placeholder="username"
-                      @update:model-value="updateTokenPairRow('body', $index, 'name', $event)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column :label="t('web.collectionTasks.httpOptionValue')" min-width="220">
-                  <template #default="{ row, $index }">
-                    <el-input
-                      :model-value="row.value"
-                      placeholder="admin"
-                      @update:model-value="updateTokenPairRow('body', $index, 'value', $event)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column :label="t('common.actions')" width="72" align="center" header-align="center">
-                  <template #default="{ $index }">
-                    <el-button
-                      link
-                      type="danger"
-                      :icon="Delete"
-                      :aria-label="t('common.delete')"
-                      @click="removeTokenPairRow('body', $index)"
-                    />
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
+            <HttpTokenPairTable
+              :rows="tokenBodyRows"
+              :title="t('web.collectionTasks.httpTokenBodyTitle')"
+              :description="t('web.collectionTasks.httpTokenBodyDescription')"
+              :add-label="t('web.collectionTasks.httpTokenAddBody')"
+              key-placeholder="username"
+              value-placeholder="admin"
+              @append="appendTokenPairRow('body')"
+              @update-row="(index, field, value) => updateTokenPairRow('body', index, field, value)"
+              @remove-row="(index) => removeTokenPairRow('body', index)"
+            />
           </div>
 
           <div v-else-if="selectedHttpFunction.params.length" class="http-dynamic-function-args">
@@ -328,10 +226,13 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { Delete, Plus } from "@element-plus/icons-vue";
+import { Plus } from "@element-plus/icons-vue";
 import { useI18n } from "vue-i18n";
 import type { MetadataFieldDefinition } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
+import HttpOptionKeyValueTable from "@/components/http-request/HttpOptionKeyValueTable.vue";
+import HttpRawOptionEditor from "@/components/http-request/HttpRawOptionEditor.vue";
+import HttpTokenPairTable from "@/components/http-request/HttpTokenPairTable.vue";
 
 type HttpOptionKey = "header" | "params" | "requestBody";
 type EditorMode = "table" | "raw";

@@ -11,7 +11,11 @@
         <el-button v-if="canTerminateRun" plain type="danger" :loading="terminating" @click="terminateRun">
           {{ t("web.runs.terminateRun") }}
         </el-button>
-        <FollowToggleButton v-if="route.params.workflowRunId" target-type="WORKFLOW_RUN" :target-id="String(route.params.workflowRunId)" />
+        <FollowToggleButton
+          v-if="route.params.workflowRunId"
+          :target-type="STUDIO_RESOURCE_TYPE.WORKFLOW_RUN"
+          :target-id="String(route.params.workflowRunId)"
+        />
       </div>
     </div>
 
@@ -68,7 +72,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.detailNodesTitle')" :description="t('web.runs.detailNodesDescription')">
-      <div class="table-scroll-shell">
+      <StudioTableShell min-width="920px">
         <el-table
           :data="runDetail?.nodeRuns || []"
           border
@@ -112,7 +116,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </div>
+      </StudioTableShell>
     </SectionCard>
 
     <RunLogDrawer v-model="logVisible" :run-record-id="activeRunRecordId" variant="workflow" />
@@ -125,13 +129,14 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowRunDetail } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { WorkflowCanvas } from "@studio/workflow-designer";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
+import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { formatNodeType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -322,19 +327,8 @@ p {
   background: rgba(148, 163, 184, 0.12);
 }
 
-.table-scroll-shell {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .workflow-node-run-table :deep(.cell) {
   white-space: normal;
-}
-
-.workflow-node-run-table {
-  width: 100%;
-  min-width: 0;
 }
 
 .stack-cell,

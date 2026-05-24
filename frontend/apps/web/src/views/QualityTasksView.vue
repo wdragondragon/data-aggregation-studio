@@ -17,7 +17,7 @@
         <el-input v-model="filters.keyword" class="task-filter-keyword" clearable placeholder="任务名称、任务编码、规则名称" />
         <el-select v-model="filters.status" class="task-filter-select" clearable placeholder="任务状态">
           <el-option label="草稿" value="DRAFT" />
-          <el-option label="已发布" value="ONLINE" />
+          <el-option label="已发布" :value="STUDIO_RUN_STATUS.ONLINE" />
         </el-select>
         <el-select v-model="filters.ruleDimension" class="task-filter-select" clearable placeholder="规则维度">
           <el-option v-for="option in dimensionOptions" :key="option.value" :label="option.label" :value="option.value" />
@@ -34,7 +34,7 @@
     </SectionCard>
 
     <SectionCard title="任务列表" description="可在列表中直接发布、执行任务，并跳转到质量任务运行日志页面。">
-      <div class="task-table-wrap">
+      <StudioTableShell min-width="1280px">
         <el-table
           :data="tasks"
           border
@@ -84,7 +84,7 @@
         </el-table-column>
         <el-table-column label="状态" width="110" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="row.status === 'ONLINE' ? '已发布' : '草稿'" :tone="row.status === 'ONLINE' ? 'success' : 'neutral'" />
+            <StatusPill :label="row.status === STUDIO_RUN_STATUS.ONLINE ? '已发布' : '草稿'" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
@@ -94,7 +94,7 @@
           </template>
         </el-table-column>
         </el-table>
-      </div>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="taskPagination.page"
@@ -116,9 +116,10 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { QualityTaskDefinitionView } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { getPaginatedRowNumber, type ClientPaginationState } from "@/composables/useClientPagination";
+import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 
 const router = useRouter();
 
@@ -203,7 +204,7 @@ function resolveDimensionLabel(value?: string) {
 function buildActions(row: QualityTaskDefinitionView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/quality-tasks/${row.id}/edit`); } },
-    { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", onClick: () => publishTask(row) },
+    { key: "publish", label: row.status === STUDIO_RUN_STATUS.ONLINE ? "重新发布" : "发布", onClick: () => publishTask(row) },
     { key: "trigger", label: "手动执行", onClick: () => triggerTask(row) },
     { key: "runs", label: "运行日志", onClick: () => viewTaskRuns(row) },
     { key: "delete", label: "删除", type: "danger", onClick: () => deleteTask(row) },
@@ -283,16 +284,8 @@ onMounted(loadTasks);
   gap: 8px;
 }
 
-.task-table-wrap {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .quality-task-table {
   width: 100%;
-  min-width: 0;
 }
 
 .quality-task-table :deep(.cell) {

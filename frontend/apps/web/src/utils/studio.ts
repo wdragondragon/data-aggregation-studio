@@ -1,20 +1,29 @@
 import type { EntityId } from "@studio/api-sdk";
+import { RUNNING_STATUSES, STUDIO_NODE_TYPE, STUDIO_RUN_STATUS, TERMINAL_STATUSES } from "@/constants/studioDomain";
 
 export function toneFromStatus(status?: string | number | boolean) {
   const value = String(status ?? "").toUpperCase();
-  if (value === "SUCCESS" || value === "PUBLISHED" || value === "TRUE" || value === "1") {
+  if (value === STUDIO_RUN_STATUS.SUCCESS || value === STUDIO_RUN_STATUS.PUBLISHED || value === "TRUE" || value === "1") {
     return "success";
   }
-  if (value === "FAILED" || value === "ERROR" || value === "FALSE" || value === "0") {
+  if (value === STUDIO_RUN_STATUS.FAILED || value === STUDIO_RUN_STATUS.ERROR || value === "FALSE" || value === "0") {
     return "danger";
   }
-  if (value === "RUNNING" || value === "QUEUED" || value === "DRAFT" || value === "PENDING" || value === "STOPPING") {
+  if (RUNNING_STATUSES.has(value) || value === STUDIO_RUN_STATUS.DRAFT) {
     return "warning";
   }
-  if (value === "STOPPED") {
+  if (value === STUDIO_RUN_STATUS.STOPPED) {
     return "neutral";
   }
   return "primary";
+}
+
+export function isRunningStatus(status?: string | number | boolean | null) {
+  return RUNNING_STATUSES.has(normalizeEnumValue(status));
+}
+
+export function isTerminalStatus(status?: string | number | boolean | null) {
+  return TERMINAL_STATUSES.has(normalizeEnumValue(status));
 }
 
 export function prettyJson(value: unknown) {
@@ -76,19 +85,19 @@ function normalizeEnumValue(value?: string | number | boolean | null) {
 export function formatStatusLabel(t: TranslateFn, status?: string | number | boolean | null) {
   const value = normalizeEnumValue(status);
   const mapping: Record<string, string> = {
-    DRAFT: "common.statusDraft",
-    ONLINE: "common.statusOnline",
-    PUBLISHED: "common.statusPublished",
-    SUCCESS: "common.statusSuccess",
-    FAILED: "common.statusFailed",
-    ERROR: "common.statusError",
-    RUNNING: "common.statusRunning",
-    PENDING: "common.statusPending",
-    QUEUED: "common.statusQueued",
-    STOPPING: "common.statusStopping",
-    STOPPED: "common.statusStopped",
-    NOT_RUN: "common.statusNotRun",
-    UNKNOWN: "common.unknown",
+    [STUDIO_RUN_STATUS.DRAFT]: "common.statusDraft",
+    [STUDIO_RUN_STATUS.ONLINE]: "common.statusOnline",
+    [STUDIO_RUN_STATUS.PUBLISHED]: "common.statusPublished",
+    [STUDIO_RUN_STATUS.SUCCESS]: "common.statusSuccess",
+    [STUDIO_RUN_STATUS.FAILED]: "common.statusFailed",
+    [STUDIO_RUN_STATUS.ERROR]: "common.statusError",
+    [STUDIO_RUN_STATUS.RUNNING]: "common.statusRunning",
+    [STUDIO_RUN_STATUS.PENDING]: "common.statusPending",
+    [STUDIO_RUN_STATUS.QUEUED]: "common.statusQueued",
+    [STUDIO_RUN_STATUS.STOPPING]: "common.statusStopping",
+    [STUDIO_RUN_STATUS.STOPPED]: "common.statusStopped",
+    [STUDIO_RUN_STATUS.NOT_RUN]: "common.statusNotRun",
+    [STUDIO_RUN_STATUS.UNKNOWN]: "common.unknown",
   };
   return mapping[value] ? t(mapping[value]) : String(status ?? t("common.none"));
 }
@@ -118,14 +127,14 @@ export function formatModelKind(t: TranslateFn, modelKind?: string | null) {
 export function formatNodeType(t: TranslateFn, nodeType?: string | null) {
   const value = normalizeEnumValue(nodeType);
   const mapping: Record<string, string> = {
-    COLLECTION_TASK: "web.workflows.nodeTypeCollectionTask",
-    QUALITY_TASK: "routes.web.qualityTasks.title",
-    DATA_SCRIPT: "web.workflows.nodeTypeDataScript",
-    ETL_SINGLE: "web.workflows.nodeTypeEtlSingle",
-    FUSION: "web.workflows.nodeTypeFusion",
-    CONSISTENCY: "web.workflows.nodeTypeConsistency",
-    HTTP: "web.workflows.nodeTypeHttp",
-    SHELL: "web.workflows.nodeTypeShell",
+    [STUDIO_NODE_TYPE.COLLECTION_TASK]: "web.workflows.nodeTypeCollectionTask",
+    [STUDIO_NODE_TYPE.QUALITY_TASK]: "routes.web.qualityTasks.title",
+    [STUDIO_NODE_TYPE.DATA_SCRIPT]: "web.workflows.nodeTypeDataScript",
+    [STUDIO_NODE_TYPE.ETL_SINGLE]: "web.workflows.nodeTypeEtlSingle",
+    [STUDIO_NODE_TYPE.FUSION]: "web.workflows.nodeTypeFusion",
+    [STUDIO_NODE_TYPE.CONSISTENCY]: "web.workflows.nodeTypeConsistency",
+    [STUDIO_NODE_TYPE.HTTP]: "web.workflows.nodeTypeHttp",
+    [STUDIO_NODE_TYPE.SHELL]: "web.workflows.nodeTypeShell",
   };
   return mapping[value] ? t(mapping[value]) : String(nodeType ?? t("common.none"));
 }

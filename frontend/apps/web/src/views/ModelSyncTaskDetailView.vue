@@ -8,7 +8,7 @@
       <div class="studio-toolbar-actions">
         <el-button @click="goBack">返回列表</el-button>
         <el-button plain @click="loadDetail">刷新</el-button>
-        <FollowToggleButton v-if="task?.id" target-type="MODEL_SYNC_TASK" :target-id="task.id" />
+        <FollowToggleButton v-if="task?.id" :target-type="STUDIO_RESOURCE_TYPE.MODEL_SYNC_TASK" :target-id="task.id" />
         <el-button plain type="warning" :disabled="!canStop" @click="stopTask">停止</el-button>
         <el-button plain type="danger" :disabled="!canDelete" @click="deleteTask">删除</el-button>
       </div>
@@ -87,7 +87,8 @@
         </div>
       </div>
 
-      <el-table :data="items" border v-loading="loadingItems">
+      <StudioTableShell min-width="960px">
+        <el-table :data="items" border v-loading="loadingItems">
         <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
           <template #default="{ $index }">
             {{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}
@@ -116,7 +117,8 @@
             <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
 
       <div class="table-pagination">
         <el-pagination
@@ -140,10 +142,11 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { ModelSyncTaskItemView, ModelSyncTaskView } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
+import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
 const route = useRoute();

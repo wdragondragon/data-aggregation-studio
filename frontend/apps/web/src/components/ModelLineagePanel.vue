@@ -70,7 +70,8 @@
       :title="t('web.models.lineageUnresolvedTitle')"
       :description="t('web.models.lineageUnresolvedDescription')"
     >
-      <el-table :data="currentLineage.unresolvedExpressions" border>
+      <StudioTableShell min-width="820px">
+        <el-table :data="currentLineage.unresolvedExpressions" border>
         <el-table-column prop="collectionTaskName" :label="t('web.models.lineageUnresolvedTask')" min-width="180" />
         <el-table-column prop="targetField" :label="t('web.models.lineageUnresolvedTargetField')" min-width="160" />
         <el-table-column prop="expression" :label="t('web.models.lineageUnresolvedExpression')" min-width="260" show-overflow-tooltip />
@@ -79,7 +80,8 @@
             <StatusPill :label="formatDisplayStatus(row.latestRunStatus)" :tone="displayStatusTone(row.latestRunStatus)" />
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
     </SectionCard>
 
     <el-drawer
@@ -259,7 +261,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import type { DataModelDefinition, DataModelLineageContributorView, DataModelLineageEdgeDetailView, DataModelLineageLevel, DataModelLineageView, DataModelManualLineageSaveRequest, EntityId } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import ModelLineageGraph from "@/components/ModelLineageGraph.vue";
 import { studioApi } from "@/api/studio";
 

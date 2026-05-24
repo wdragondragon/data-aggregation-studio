@@ -12,6 +12,7 @@
     </div>
 
     <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
+      <StudioTableShell min-width="1120px">
         <el-table :data="pagedDatasources" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
@@ -45,6 +46,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="datasourcePagination.page"
@@ -231,7 +233,7 @@ import type {
   ModelDiscoveryResult,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";

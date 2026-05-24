@@ -13,7 +13,7 @@
 
     <SectionCard :title="t('web.workflows.registryTitle')" :description="t('web.workflows.registryDescription')">
       <template v-if="workflows.length">
-        <div class="workflow-table-wrap">
+        <StudioTableShell min-width="1120px">
           <el-table
             :data="pagedWorkflows"
             border
@@ -39,7 +39,7 @@
                 <el-button link type="primary" class="workflow-name-link" @click="viewWorkflow(row)">
                   {{ row.name }}
                 </el-button>
-                <FollowToggleButton v-if="row.id" target-type="WORKFLOW" :target-id="row.id" />
+                <FollowToggleButton v-if="row.id" :target-type="STUDIO_RESOURCE_TYPE.WORKFLOW" :target-id="row.id" />
                 <span v-if="isSharedWorkflow(row)" class="cell-subtle">共享工作流只读</span>
               </div>
             </template>
@@ -71,7 +71,7 @@
             </template>
           </el-table-column>
           </el-table>
-        </div>
+        </StudioTableShell>
         <div class="table-pagination">
           <el-pagination
             v-model:current-page="workflowPagination.page"
@@ -97,11 +97,12 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -249,16 +250,8 @@ p {
   white-space: normal;
 }
 
-.workflow-table-wrap {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .workflow-table {
   width: 100%;
-  min-width: 0;
 }
 
 .workflow-table :deep(.cell) {

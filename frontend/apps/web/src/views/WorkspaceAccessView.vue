@@ -20,7 +20,8 @@
     />
 
     <SectionCard :title="t('web.accessCenter.pendingTitle')" :description="t('web.accessCenter.pendingDescription')">
-      <el-table v-if="requests.length" :data="requests" border size="small">
+      <StudioTableShell v-if="requests.length" min-width="1230px">
+        <el-table :data="requests" border size="small">
         <el-table-column prop="tenantName" :label="t('common.tenant')" min-width="160" />
         <el-table-column prop="projectName" :label="t('common.project')" min-width="180" />
         <el-table-column prop="status" :label="t('common.status')" width="130" align="center" />
@@ -40,7 +41,8 @@
             <span v-else class="cell-subtle">{{ t("web.accessCenter.requestCompleted") }}</span>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
       <el-empty v-else :description="t('web.accessCenter.pendingEmpty')" />
     </SectionCard>
 
@@ -116,7 +118,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type { WorkspaceAccessOverviewView, WorkspaceAccessProjectView, WorkspaceAccessRequestView } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 

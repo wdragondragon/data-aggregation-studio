@@ -165,7 +165,8 @@
             <el-button link type="danger" @click="removeQueryGroup(group.key)">{{ t("common.remove") }}</el-button>
           </div>
 
-          <el-table :data="group.conditions" border>
+          <StudioTableShell min-width="760px">
+            <el-table :data="group.conditions" border>
             <el-table-column :label="t('web.models.filterField')" min-width="160">
               <template #default="{ row }">
                 <el-select
@@ -245,7 +246,8 @@
                 <el-button link type="danger" @click="removeQueryCondition(group, $index)">{{ t("common.remove") }}</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </StudioTableShell>
         </div>
       </div>
     </SectionCard>
@@ -373,7 +375,7 @@ import type {
   EntityId,
   StatisticsChartType,
 } from "@studio/api-sdk";
-import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
+import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";

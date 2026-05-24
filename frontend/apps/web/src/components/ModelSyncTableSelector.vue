@@ -24,20 +24,22 @@
 
     <div class="sync-selector__body">
       <div class="sync-selector__table">
-        <el-table
-          ref="tableRef"
-          v-loading="loading"
-          :data="rows"
-          :empty-text="emptyText"
-          border
-          row-key="physicalLocator"
-          @select="handleRowSelect"
-          @select-all="handleSelectAll"
-        >
-          <el-table-column type="selection" width="52" />
-          <el-table-column prop="name" :label="t('web.models.syncTableName')" min-width="180" />
-          <el-table-column prop="physicalLocator" :label="t('web.models.syncTableLocator')" min-width="220" show-overflow-tooltip />
-        </el-table>
+        <StudioTableShell min-width="520px">
+          <el-table
+            ref="tableRef"
+            v-loading="loading"
+            :data="rows"
+            :empty-text="emptyText"
+            border
+            row-key="physicalLocator"
+            @select="handleRowSelect"
+            @select-all="handleSelectAll"
+          >
+            <el-table-column type="selection" width="52" />
+            <el-table-column prop="name" :label="t('web.models.syncTableName')" min-width="180" />
+            <el-table-column prop="physicalLocator" :label="t('web.models.syncTableLocator')" min-width="220" show-overflow-tooltip />
+          </el-table>
+        </StudioTableShell>
         <div class="table-pagination">
           <el-pagination
             v-model:current-page="pageNo"
@@ -79,6 +81,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { DataModelDefinition, EntityId } from "@studio/api-sdk";
+import { StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
 const props = withDefaults(defineProps<{

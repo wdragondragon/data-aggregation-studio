@@ -51,7 +51,8 @@
         </div>
       </div>
 
-      <el-table :data="capabilityRows" border size="small" style="margin-top: 12px">
+      <StudioTableShell min-width="980px" style="margin-top: 12px">
+        <el-table :data="capabilityRows" border size="small">
         <el-table-column :label="t('web.catalog.sourceTypeColumn')" min-width="150">
           <template #default="{ row }">
             <div class="source-type-cell">
@@ -96,7 +97,8 @@
             </div>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
     </SectionCard>
   </div>
 </template>
@@ -106,7 +108,7 @@ import { computed, onMounted, reactive } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { CapabilityMatrix, SourceCapabilityEntry } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
 const { t } = useI18n();

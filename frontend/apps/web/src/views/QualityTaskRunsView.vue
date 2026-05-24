@@ -30,9 +30,9 @@
           </el-select>
           <el-select v-model="filters.status" clearable placeholder="选择状态">
             <el-option label="全部状态" value="" />
-            <el-option :label="formatStatusLabel(t, 'RUNNING')" value="RUNNING" />
-            <el-option :label="formatStatusLabel(t, 'SUCCESS')" value="SUCCESS" />
-            <el-option :label="formatStatusLabel(t, 'FAILED')" value="FAILED" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.RUNNING)" :value="STUDIO_RUN_STATUS.RUNNING" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.SUCCESS)" :value="STUDIO_RUN_STATUS.SUCCESS" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.FAILED)" :value="STUDIO_RUN_STATUS.FAILED" />
           </el-select>
           <el-date-picker
             v-model="filters.timeRange"
@@ -71,7 +71,7 @@
     </SectionCard>
 
     <SectionCard title="运行列表" description="每一行代表一次质量任务运行，点击“查看日志”按统一抽屉方式打开日志详情。">
-      <div class="table-scroll-shell">
+      <StudioTableShell min-width="1180px">
         <el-table
           :data="pagedRunRecords"
           border
@@ -135,7 +135,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </div>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="pagination.page"
@@ -158,12 +158,13 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { QualityTaskDefinitionView, RunRecord } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -224,7 +225,7 @@ const runningCount = computed(() =>
   filteredRunRecords.value.filter((item) => String(item.status ?? "").toUpperCase().includes("RUN")).length,
 );
 const successCount = computed(() =>
-  filteredRunRecords.value.filter((item) => String(item.status ?? "").toUpperCase() === "SUCCESS").length,
+  filteredRunRecords.value.filter((item) => String(item.status ?? "").toUpperCase() === STUDIO_RUN_STATUS.SUCCESS).length,
 );
 
 function syncFiltersFromRoute() {
@@ -464,15 +465,8 @@ p {
   background: rgba(37, 99, 235, 0.08);
 }
 
-.table-scroll-shell {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .task-run-table {
   width: 100%;
-  min-width: 0;
 }
 
 .task-run-table :deep(.cell) {

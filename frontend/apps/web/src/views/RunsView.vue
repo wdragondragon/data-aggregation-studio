@@ -32,8 +32,8 @@
             :placeholder="t('web.runs.statusFilterPlaceholder')"
           >
             <el-option :label="t('web.runs.statusFilterAll')" value="" />
-            <el-option :label="formatStatusLabel(t, 'SUCCESS')" value="SUCCESS" />
-            <el-option :label="formatStatusLabel(t, 'FAILED')" value="FAILED" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.SUCCESS)" :value="STUDIO_RUN_STATUS.SUCCESS" />
+            <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.FAILED)" :value="STUDIO_RUN_STATUS.FAILED" />
           </el-select>
           <el-date-picker
             v-model="filters.timeRange"
@@ -72,7 +72,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.runtimeTitle')" :description="t('web.runs.runtimeDescription')">
-      <div class="table-scroll-shell">
+      <StudioTableShell min-width="1280px">
         <el-table
           :data="workflowRuns"
           border
@@ -129,7 +129,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </div>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="pagination.page"
@@ -152,11 +152,12 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { WorkflowDefinitionView, WorkflowRunSummary } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
+import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -438,15 +439,8 @@ p {
   white-space: normal;
 }
 
-.table-scroll-shell {
-  width: 100%;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .workflow-run-table {
   width: 100%;
-  min-width: 0;
 }
 
 .workflow-run-table :deep(.cell) {

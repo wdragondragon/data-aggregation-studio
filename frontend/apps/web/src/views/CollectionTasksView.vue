@@ -24,7 +24,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTasks.listTitle')" :description="t('web.collectionTasks.listDescription')">
-      <div class="task-table-wrap">
+      <StudioTableShell min-width="1280px">
         <el-table
           :data="pagedTasks"
           border
@@ -46,7 +46,7 @@
                   {{ row.name }}
                 </el-button>
                 <strong v-else>{{ row.name }}</strong>
-                <FollowToggleButton v-if="row.id" target-type="COLLECTION_TASK" :target-id="row.id" />
+                <FollowToggleButton v-if="row.id" :target-type="STUDIO_RESOURCE_TYPE.COLLECTION_TASK" :target-id="row.id" />
                 <span v-if="isSharedTask(row)" class="cell-subtle">共享任务只读</span>
               </div>
             </template>
@@ -85,7 +85,7 @@
         </el-table-column>
         <el-table-column :label="t('web.collectionTasks.status')" width="100" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="row.status === 'ONLINE' ? 'success' : 'warning'" />
+            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'warning'" />
           </template>
         </el-table-column>
         <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
@@ -93,8 +93,8 @@
             <OverflowActionGroup :items="buildTaskActions(row)" />
           </template>
         </el-table-column>
-      </el-table>
-      </div>
+        </el-table>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="taskPagination.page"
@@ -110,6 +110,7 @@
     <el-drawer v-model="logsVisible" :title="t('web.collectionTasks.logsTitle', { name: activeTask?.name || '' })" size="68%">
       <template v-if="activeTask">
         <SectionCard :title="t('web.collectionTasks.logsListTitle')" :description="t('web.collectionTasks.logsListDescription')">
+          <StudioTableShell min-width="1280px">
           <el-table
             :data="pagedTaskRunRecords"
             border
@@ -168,6 +169,7 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
           <div class="table-pagination">
             <el-pagination
               v-model:current-page="taskRunPagination.page"
@@ -192,13 +194,14 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { CollectionTaskDefinitionView, CollectionTaskListQuery, RunRecord } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { STUDIO_RESOURCE_TYPE, STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatCollectionTaskType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/runMetrics";
 
@@ -445,21 +448,6 @@ p {
 .task-table,
 .task-run-table {
   width: 100%;
-}
-
-.task-table {
-  min-width: 0;
-}
-
-.task-run-table {
-  min-width: 1280px;
-}
-
-.task-table-wrap {
-  overflow: hidden;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
 }
 
 .task-primary-cell,

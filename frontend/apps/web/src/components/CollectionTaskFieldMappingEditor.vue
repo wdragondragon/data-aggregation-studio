@@ -5,7 +5,8 @@
       <el-button type="primary" plain @click="appendRow">{{ t("common.addMapping") }}</el-button>
     </div>
 
-    <el-table :data="rows" border>
+    <StudioTableShell min-width="1120px">
+      <el-table :data="rows" border>
       <el-table-column v-if="showSourceAlias" :label="t('fieldMapping.sourceAlias')" min-width="150">
         <template #default="{ row, $index }">
           <el-select
@@ -72,7 +73,8 @@
           <el-button type="danger" link @click="removeRow($index)">{{ t("common.remove") }}</el-button>
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+    </StudioTableShell>
 
     <el-dialog
       v-model="transformerDialogVisible"
@@ -295,6 +297,7 @@ import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { EntityId, FieldMappingDefinition, FieldMappingRuleParamView, FieldMappingRuleView, TransformerBinding } from "@studio/api-sdk";
+import { StudioTableShell } from "@studio/ui";
 import { cloneDeep, prettyJson, sameEntityId } from "@/utils/studio";
 
 interface ParameterOption {

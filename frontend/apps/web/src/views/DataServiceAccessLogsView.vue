@@ -66,7 +66,8 @@
     </SectionCard>
 
     <SectionCard title="访问日志明细" description="表格重点展示异常摘要、响应耗时、调用方和服务上下文。">
-      <el-table :data="logs" border size="small">
+      <StudioTableShell min-width="1680px">
+        <el-table :data="logs" border size="small">
         <el-table-column prop="occurredAt" label="调用时间" min-width="170">
           <template #default="{ row }">{{ formatDateTime(row.occurredAt) }}</template>
         </el-table-column>
@@ -112,7 +113,8 @@
             <el-button link type="primary" @click="openLogDetail(row)">详情</el-button>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="pagination.page"
@@ -199,7 +201,7 @@ import type {
   DataServiceMetricQueryRequest,
   EntityId,
 } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 

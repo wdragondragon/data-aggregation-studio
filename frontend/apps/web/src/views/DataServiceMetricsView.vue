@@ -108,7 +108,8 @@
     </div>
 
     <SectionCard title="API 统计" description="按服务聚合访问次数、成功率、响应时间和缓存命中率。">
-      <el-table :data="apiStats" border size="small">
+      <StudioTableShell min-width="1540px">
+        <el-table :data="apiStats" border size="small">
         <el-table-column label="服务" min-width="220">
           <template #default="{ row }">
             <div class="table-entity-cell">
@@ -155,7 +156,8 @@
             <el-button link type="primary" @click="viewLogs(row.serviceId)">访问日志</el-button>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
       <div class="table-pagination">
         <el-pagination
           v-model:current-page="apiStatsPagination.page"
@@ -172,7 +174,8 @@
 
     <div class="metrics-table-grid">
       <SectionCard title="Top 慢 API" description="按 P95 和最大响应时间排序。">
-        <el-table :data="dashboard.topSlowApis || []" border size="small">
+        <StudioTableShell min-width="440px">
+          <el-table :data="dashboard.topSlowApis || []" border size="small">
           <el-table-column prop="serviceName" label="服务" min-width="180" />
           <el-table-column label="P95" width="90" align="right" header-align="right">
             <template #default="{ row }">{{ formatMs(row.p95ResponseTimeMs) }}</template>
@@ -180,10 +183,12 @@
           <el-table-column label="最大" width="90" align="right" header-align="right">
             <template #default="{ row }">{{ formatMs(row.maxResponseTimeMs) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
       </SectionCard>
       <SectionCard title="Top 失败 API" description="按失败次数和失败率排序。">
-        <el-table :data="dashboard.topFailedApis || []" border size="small">
+        <StudioTableShell min-width="460px">
+          <el-table :data="dashboard.topFailedApis || []" border size="small">
           <el-table-column prop="serviceName" label="服务" min-width="180" />
           <el-table-column label="失败" width="90" align="right" header-align="right">
             <template #default="{ row }">{{ formatNumber(row.failureCount) }}</template>
@@ -191,10 +196,12 @@
           <el-table-column label="成功率" width="100" align="right" header-align="right">
             <template #default="{ row }">{{ formatRate(row.successRate) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
       </SectionCard>
       <SectionCard title="订阅方排行" description="按订阅 Token 调用量聚合。">
-        <el-table :data="dashboard.subscriptionRank || []" border size="small">
+        <StudioTableShell min-width="620px">
+          <el-table :data="dashboard.subscriptionRank || []" border size="small">
           <el-table-column prop="subscriptionName" label="订阅方" min-width="170" />
           <el-table-column prop="serviceName" label="服务" min-width="150" />
           <el-table-column label="访问" width="90" align="right" header-align="right">
@@ -203,7 +210,8 @@
           <el-table-column label="成功率" width="100" align="right" header-align="right">
             <template #default="{ row }">{{ formatRate(row.successRate) }}</template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
       </SectionCard>
     </div>
   </div>
@@ -222,7 +230,7 @@ import type {
   EntityId,
   RunMetricTrendView,
 } from "@studio/api-sdk";
-import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
+import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
 import { studioApi } from "@/api/studio";
 

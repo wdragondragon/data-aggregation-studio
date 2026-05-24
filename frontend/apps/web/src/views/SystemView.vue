@@ -20,6 +20,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openUserDialog()">新建用户</el-button>
           </div>
+          <StudioTableShell min-width="940px">
           <el-table :data="users" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
@@ -35,9 +36,11 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane v-if="isSuperAdmin" label="注册登记" name="registrationRequests">
+          <StudioTableShell min-width="1220px">
           <el-table :data="registrationRequests" border size="small">
             <el-table-column prop="status" label="状态" width="110" align="center" />
             <el-table-column prop="username" label="用户名" min-width="160" />
@@ -58,12 +61,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="租户" name="tenants">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openTenantDialog()">新建租户</el-button>
           </div>
+          <StudioTableShell min-width="980px">
           <el-table :data="tenants" border size="small">
             <el-table-column prop="tenantCode" label="租户编码" min-width="160" />
             <el-table-column prop="tenantName" label="租户名称" min-width="180" />
@@ -79,12 +84,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="项目" name="projects">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openProjectDialog()">新建项目</el-button>
           </div>
+          <StudioTableShell min-width="1080px">
           <el-table :data="projects" border size="small">
             <el-table-column prop="projectCode" label="项目编码" min-width="160" />
             <el-table-column prop="projectName" label="项目名称" min-width="180" />
@@ -105,12 +112,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="租户成员" name="tenantMembers">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openTenantMemberDialog()">新增成员</el-button>
           </div>
+          <StudioTableShell min-width="880px">
           <el-table :data="tenantMembers" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
@@ -122,12 +131,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="项目成员" name="projectMembers">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openProjectMemberDialog()">新增项目成员</el-button>
           </div>
+          <StudioTableShell min-width="1060px">
           <el-table :data="projectMembers" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
@@ -140,12 +151,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="申请 / 邀请" name="requests">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openRequestDialog()">新增邀请</el-button>
           </div>
+          <StudioTableShell min-width="1260px">
           <el-table :data="projectMemberRequests" border size="small">
             <el-table-column prop="username" label="用户" min-width="160" />
             <el-table-column prop="projectName" label="项目" min-width="180" />
@@ -160,12 +173,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="Worker 下发" name="workers">
           <div class="tab-toolbar">
             <el-button type="primary" @click="openWorkerDialog()">绑定 Worker</el-button>
           </div>
+          <StudioTableShell min-width="1180px">
           <el-table :data="projectWorkers" border size="small">
             <el-table-column prop="workerCode" label="Worker 编码" min-width="180" />
             <el-table-column prop="workerKind" label="类型" width="110" align="center" />
@@ -183,12 +198,14 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
 
         <el-tab-pane label="资源共享" name="shares">
           <div class="tab-toolbar">
             <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openShareDialog()">共享资源</el-button>
           </div>
+          <StudioTableShell min-width="980px">
           <el-table :data="resourceShares" border size="small">
             <el-table-column label="资源类型" width="150" align="center">
               <template #default="{ row }">
@@ -219,6 +236,7 @@
               </template>
             </el-table-column>
           </el-table>
+          </StudioTableShell>
         </el-tab-pane>
       </el-tabs>
     </SectionCard>
@@ -421,7 +439,7 @@ import type {
   SystemTenantMember,
   UserRegistrationRequestView,
 } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { resolveProjectName, sameEntityId } from "@/utils/studio";

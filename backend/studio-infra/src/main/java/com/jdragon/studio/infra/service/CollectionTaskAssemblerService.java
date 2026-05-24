@@ -1,6 +1,5 @@
 package com.jdragon.studio.infra.service;
 
-import com.jdragon.aggregation.commons.util.Configuration;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -29,6 +28,7 @@ import java.util.Set;
 public class CollectionTaskAssemblerService {
 
     private static final ObjectMapper RUNTIME_OPTION_OBJECT_MAPPER = new ObjectMapper();
+    private static final CollectionTaskRuntimeOptionMerger RUNTIME_OPTION_MERGER = new CollectionTaskRuntimeOptionMerger();
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
     private static final String FILE_FIELD_SOURCE_KIND_TAG = "TAG";
 
@@ -132,7 +132,7 @@ public class CollectionTaskAssemblerService {
         readerConfig.put("sources", sources);
         readerConfig.put("join", join);
         readerConfig.put("fieldMappings", fieldMappings);
-        mergeRuntimeOptions(readerConfig, runtimeOptionMap(executionOptions.get("fusionReaderOptions")), "reader");
+        mergeRuntimeOptions(readerConfig, RUNTIME_OPTION_MERGER.toMap(executionOptions.get("fusionReaderOptions")), "reader");
         reader.put("config", readerConfig);
 
         Map<String, Object> config = new LinkedHashMap<String, Object>();
@@ -397,36 +397,14 @@ public class CollectionTaskAssemblerService {
     private void mergeRuntimeOptions(Map<String, Object> config,
                                      Map<String, Object> runtimeOptions,
                                      String role) {
-        mergeRuntimeOptions(config, runtimeOptions, role, Collections.<String>emptySet());
+        RUNTIME_OPTION_MERGER.merge(config, runtimeOptions, role, reservedKeys(role));
     }
 
     private void mergeRuntimeOptions(Map<String, Object> config,
                                      Map<String, Object> runtimeOptions,
                                      String role,
                                      Set<String> preserveStringKeys) {
-        if (runtimeOptions == null || runtimeOptions.isEmpty()) {
-            return;
-        }
-        Set<String> reserved = new LinkedHashSet<String>();
-        for (String reservedKey : reservedKeys(role)) {
-            if (reservedKey != null) {
-                reserved.add(reservedKey.trim().toLowerCase(Locale.ENGLISH));
-            }
-        }
-        Configuration configuration = Configuration.from(config);
-        for (Map.Entry<String, Object> entry : runtimeOptions.entrySet()) {
-            String key = entry.getKey();
-            if (isBlank(key) || isReservedRuntimeOptionKey(key, reserved)) {
-                continue;
-            }
-            Object value = normalizeRuntimeOptionValue(key, entry.getValue(), preserveStringKeys);
-            if (value == null) {
-                continue;
-            }
-            configuration.set(key.trim(), value);
-        }
-        config.clear();
-        config.putAll(configuration.getMap("", Collections.<String, Object>emptyMap()));
+        RUNTIME_OPTION_MERGER.merge(config, runtimeOptions, role, preserveStringKeys, reservedKeys(role));
     }
 
     private void applyDefaultWriteMode(Map<String, Object> writerConfig, String pluginType) {
@@ -440,50 +418,6 @@ public class CollectionTaskAssemblerService {
         return "mysql8".equalsIgnoreCase(pluginType)
                 || "dm".equalsIgnoreCase(pluginType)
                 || "postgresql".equalsIgnoreCase(pluginType);
-    }
-
-    private Map<String, Object> runtimeOptionMap(Object value) {
-        Map<String, Object> result = new LinkedHashMap<String, Object>();
-        if (!(value instanceof Map<?, ?>)) {
-            return result;
-        }
-        Map<?, ?> source = (Map<?, ?>) value;
-        for (Map.Entry<?, ?> entry : source.entrySet()) {
-            if (entry.getKey() != null) {
-                result.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-        }
-        return result;
-    }
-
-    private boolean isReservedRuntimeOptionKey(String key, Set<String> reserved) {
-        String normalized = key.trim().toLowerCase(Locale.ENGLISH);
-        if (reserved.contains(normalized)) {
-            return true;
-        }
-        int dotIndex = normalized.indexOf('.');
-        return dotIndex > 0 && reserved.contains(normalized.substring(0, dotIndex));
-    }
-
-    private Object normalizeRuntimeOptionValue(String key, Object value, Set<String> preserveStringKeys) {
-        if (preserveStringKeys != null && preserveStringKeys.contains(normalizeKey(key))) {
-            return value;
-        }
-        if (!(value instanceof String)) {
-            return value;
-        }
-        String text = ((String) value).trim();
-        if (text.isEmpty()) {
-            return null;
-        }
-        if (!(text.startsWith("{") || text.startsWith("["))) {
-            return value;
-        }
-        try {
-            return RUNTIME_OPTION_OBJECT_MAPPER.readValue(text, Object.class);
-        } catch (Exception ignored) {
-            return value;
-        }
     }
 
     private void normalizeReaderRuntimeConfig(Map<String, Object> config, String datasourceTypeCode, String pluginType) {
@@ -576,10 +510,6 @@ public class CollectionTaskAssemblerService {
         keys.add("params");
         keys.add("requestbody");
         return keys;
-    }
-
-    private String normalizeKey(String key) {
-        return key == null ? "" : key.trim().toLowerCase(Locale.ENGLISH);
     }
 
     private List<String> reservedKeys(String role) {

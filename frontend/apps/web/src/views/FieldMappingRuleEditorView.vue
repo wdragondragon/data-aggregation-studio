@@ -43,7 +43,8 @@
         <el-button type="primary" plain @click="appendParam">{{ t("web.fieldMappingRules.addParam") }}</el-button>
       </div>
 
-      <el-table :data="form.params" border>
+      <StudioTableShell min-width="1180px">
+        <el-table :data="form.params" border>
         <el-table-column :label="t('web.fieldMappingRules.paramName')" min-width="180">
           <template #default="{ row }">
             <el-input v-model="row.paramName" :placeholder="t('web.fieldMappingRules.paramNamePlaceholder')" />
@@ -112,7 +113,8 @@
             <el-button link type="danger" @click="removeParam($index)">{{ t("common.remove") }}</el-button>
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
     </SectionCard>
   </div>
 </template>
@@ -123,7 +125,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { FieldMappingRuleParamSaveRequest, FieldMappingRuleSaveRequest } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
 const componentTypeOptions = [

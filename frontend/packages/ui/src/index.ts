@@ -6,4 +6,5 @@ export { default as OverflowActionGroup } from "./OverflowActionGroup.vue";
 export { default as SectionCard } from "./SectionCard.vue";
 export { default as StatusPill } from "./StatusPill.vue";
 export { default as StudioShell } from "./StudioShell.vue";
+export { default as StudioTableShell } from "./StudioTableShell.vue";
 export type { OverflowActionItem, StudioLocaleOption, StudioNavItem } from "./types";

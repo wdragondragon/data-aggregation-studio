@@ -212,7 +212,8 @@
           </div>
         </div>
 
-        <el-table :data="models" border :empty-text="modelTableEmptyText">
+        <StudioTableShell min-width="1120px">
+          <el-table :data="models" border :empty-text="modelTableEmptyText">
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(modelPagination, $index) }}
@@ -247,7 +248,8 @@
               <OverflowActionGroup :items="buildModelActions(row)" />
             </template>
           </el-table-column>
-        </el-table>
+          </el-table>
+        </StudioTableShell>
         <div class="table-pagination">
           <el-pagination
             v-model:current-page="modelPagination.page"
@@ -307,7 +309,8 @@
               <el-button plain @click="loadSyncTasks">刷新任务</el-button>
             </div>
 
-            <el-table :data="syncTasks" border v-loading="loadingSyncTasksPage">
+            <StudioTableShell min-width="1180px">
+              <el-table :data="syncTasks" border v-loading="loadingSyncTasksPage">
               <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
                 <template #default="{ $index }">
                   {{ (syncTaskPagination.page - 1) * syncTaskPagination.pageSize + $index + 1 }}
@@ -352,7 +355,8 @@
                   </div>
                 </template>
               </el-table-column>
-            </el-table>
+              </el-table>
+            </StudioTableShell>
 
             <div class="table-pagination">
               <el-pagination
@@ -739,7 +743,7 @@ import type {
   ModelSyncTaskView,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";

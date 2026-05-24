@@ -169,7 +169,8 @@
 
         <div class="quality-table-grid">
           <SectionCard title="高风险资产 TopN" description="按治理风险指数排序，支持下钻资产详情。">
-            <el-table :data="dashboard.riskyAssets" border size="small">
+            <StudioTableShell min-width="760px">
+              <el-table :data="dashboard.riskyAssets" border size="small">
               <el-table-column label="资产" min-width="220">
                 <template #default="{ row }">
                   <div class="table-entity-cell">
@@ -190,11 +191,13 @@
               <el-table-column label="最后执行" min-width="170">
                 <template #default="{ row }">{{ row.latestRunAt || "-" }}</template>
               </el-table-column>
-            </el-table>
+              </el-table>
+            </StudioTableShell>
           </SectionCard>
 
           <SectionCard title="高噪声任务/规则 TopN" description="按失败次数和 reopen 次数排序，辅助识别噪声来源。">
-            <el-table :data="dashboard.noisyTargets" border size="small">
+            <StudioTableShell min-width="620px">
+              <el-table :data="dashboard.noisyTargets" border size="small">
               <el-table-column label="对象" min-width="220">
                 <template #default="{ row }">
                   <div class="table-entity-cell">
@@ -212,7 +215,8 @@
               <el-table-column label="最近出现" min-width="170">
                 <template #default="{ row }">{{ recordText(row, "lastSeenAt") || "-" }}</template>
               </el-table-column>
-            </el-table>
+              </el-table>
+            </StudioTableShell>
           </SectionCard>
         </div>
       </el-tab-pane>
@@ -222,7 +226,8 @@
             <el-checkbox v-model="assetFilters.onlyProblemAssets" @change="loadAssets">仅看有问题资产</el-checkbox>
             <el-checkbox v-model="assetFilters.onlyLowCoverageAssets" @change="loadAssets">仅看低覆盖资产</el-checkbox>
           </div>
-          <el-table :data="pagedAssets" border size="small">
+          <StudioTableShell min-width="1300px">
+            <el-table :data="pagedAssets" border size="small">
             <el-table-column label="资产名称" min-width="240">
               <template #default="{ row }">
                 <div class="table-entity-cell">
@@ -265,7 +270,8 @@
                 </div>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </StudioTableShell>
           <div class="table-pagination">
             <el-pagination
               v-model:current-page="assetPagination.page"
@@ -281,7 +287,8 @@
 
       <el-tab-pane label="问题中心" name="issues">
         <SectionCard title="问题列表" description="同一问题签名会聚合为一条记录，状态处置和评论在右侧抽屉中完成。">
-          <el-table :data="pagedIssues" border size="small" table-layout="auto">
+          <StudioTableShell min-width="1720px">
+            <el-table :data="pagedIssues" border size="small" table-layout="auto">
             <el-table-column label="问题编号" min-width="140">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openIssueDrawer(row)">{{ row.issueCode || row.id || "-" }}</el-button>
@@ -341,7 +348,8 @@
                 <el-button link type="primary" :disabled="!row.lastRunRecordId" @click="openRunLog(row.lastRunRecordId)">日志</el-button>
               </template>
             </el-table-column>
-          </el-table>
+            </el-table>
+          </StudioTableShell>
           <div class="table-pagination">
             <el-pagination
               v-model:current-page="issuePagination.page"
@@ -579,7 +587,7 @@ import type {
   QualityMetricOptionsView,
   SystemProjectMember,
 } from "@studio/api-sdk";
-import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
+import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";

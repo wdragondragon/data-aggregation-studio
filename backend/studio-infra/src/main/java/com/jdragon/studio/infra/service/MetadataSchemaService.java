@@ -42,7 +42,6 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final DataModelScopedIndexRefreshService dataModelScopedIndexRefreshService;
 
-    private static final String META_MODEL_CONFIG_PREFIX = "META_MODEL_CONFIG:";
     private static final List<String> FILE_TABLE_TYPE_OPTIONS = Arrays.asList("csv", "json", "jsonl", "efile", "excel");
 
     public MetadataSchemaService(MetaSchemaMapper schemaMapper,
@@ -411,8 +410,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         config.put("displayMode", displayMode);
         config.put("required", required);
         config.put("syncStrategy", syncStrategy);
-        String description = plainDescription == null ? "" : plainDescription;
-        return META_MODEL_CONFIG_PREFIX + config.toJSONString() + "\n" + description;
+        return MetaModelConfigDescriptions.encode(config, plainDescription);
     }
 
     private List<MetadataFieldDefinition> buildTechnicalFields(String datasourceType, String metaModelCode) {
@@ -1010,15 +1008,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         if (schema == null || schema.getDescription() == null) {
             return null;
         }
-        String[] lines = schema.getDescription().split("\\r?\\n", 2);
-        if (lines.length == 0 || !lines[0].startsWith(META_MODEL_CONFIG_PREFIX)) {
-            return null;
-        }
-        try {
-            return JSONObject.parseObject(lines[0].substring(META_MODEL_CONFIG_PREFIX.length()).trim());
-        } catch (Exception ignored) {
-            return null;
-        }
+        return MetaModelConfigDescriptions.decode(schema.getDescription());
     }
 
     private MetadataSchemaDefinition toDefinition(MetaSchemaEntity schema) {

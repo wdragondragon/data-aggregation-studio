@@ -34,7 +34,8 @@
     </SectionCard>
 
     <SectionCard title="规则列表" description="规则详情页支持查看 SQL 模板、输入参数和输出定义。">
-      <el-table :data="page.items" border @selection-change="handleSelectionChange">
+      <StudioTableShell min-width="1320px">
+        <el-table :data="page.items" border @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="48" />
         <el-table-column label="序号" width="78" align="center" header-align="center">
           <template #default="{ $index }">
@@ -64,7 +65,8 @@
             <OverflowActionGroup :items="buildActions(row)" />
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+      </StudioTableShell>
 
       <div class="table-pagination">
         <el-pagination
@@ -87,7 +89,7 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { QualityRuleView } from "@studio/api-sdk";
-import { OverflowActionGroup, SectionCard, StatusPill } from "@studio/ui";
+import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
 const router = useRouter();
