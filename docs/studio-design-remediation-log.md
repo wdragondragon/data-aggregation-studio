@@ -528,3 +528,25 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
   - 后端剩余大类仍有 `StudioSchemaUpgradeService`、`DataModelLineageService`、`SystemManagementService`、`CollectionTaskService`，后续拆分风险高于本步骤。
 - 下一步：提交 Batch 7，然后评估 `CollectionTaskService` 或 `SystemManagementService` 的低风险拆分点。
+
+## Step 025 - Batch 8 拆分采集任务增量游标支撑
+
+- 执行时间：2026-05-25 02:15:19 +08:00
+- 目标问题：`CollectionTaskService` 同时负责任务保存/发布/调度、绑定 enrich、视图组装、文件源参数清洗、增量游标保护和重置，类体超过 800 行。
+- 修改范围：新增 `CollectionTaskIncrementalCursorSupport` 承载增量游标保护、重置、cursorStates 归一化和旧 projection 刷新；`CollectionTaskService` 保留业务编排、权限/唯一性校验、保存/调度持久化和文件源 reader/writer 参数清洗；后端大文件门禁从 4 收紧到 3。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskIncrementalCursorSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/StudioDesignDebtRegressionTest.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：采集任务保存、预览、发布、调度、增量游标重置、文件源 readerOptions/writerOptions 清洗和任务 JSON 装配契约保持不变；`CollectionTaskService` 从 892 行降到 618 行。
+- 验证命令与结果：
+  - `mvn -pl studio-infra -am -DskipTests compile`：通过，`studio-infra` 及上游模块重新编译成功。
+  - 后端大 Java 文件扫描：超过 800 行的文件从 4 个降到 3 个。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest,CollectionTaskScheduleRunnerRegressionTest" "-DforkCount=0" test`：通过，16 tests，0 failures，0 errors。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断编译和测试。
+  - 当前没有专门覆盖 `CollectionTaskService.resetIncrementalCursor` 的集成测试；本步骤以编译、设计门禁、装配回归和调度 runner 回归兜底，后续建议补增量 cursor 保存/重置用例。
+- 下一步：提交 Batch 8，然后继续评估 `SystemManagementService` 或 `DataModelLineageService` 的可拆低风险区域。

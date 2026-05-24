@@ -18,7 +18,7 @@ class StudioDesignDebtRegressionTest {
     private static final int MAX_BACKEND_CATCH_IGNORED = 23;
     private static final int MAX_BACKEND_RETURN_NULL = 218;
     private static final int MAX_LEGACY_TABLE_WRAPPER_REFERENCES = 0;
-    private static final int MAX_LARGE_BACKEND_JAVA_FILES = 4;
+    private static final int MAX_LARGE_BACKEND_JAVA_FILES = 3;
     private static final int MAX_LARGE_WEB_VUE_FILES = 13;
     private static final int BACKEND_LARGE_FILE_LINE_THRESHOLD = 800;
     private static final int WEB_LARGE_FILE_LINE_THRESHOLD = 1000;
