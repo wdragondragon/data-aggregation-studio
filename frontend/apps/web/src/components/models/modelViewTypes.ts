@@ -1,5 +1,19 @@
 import type { MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
 
+export type MetaSectionBinding = "TECHNICAL" | "BUSINESS";
+
+export interface ModelMetaSection {
+  key: string;
+  schema: MetadataSchemaDefinition;
+  title: string;
+  description: string;
+  binding: MetaSectionBinding;
+  displayMode: "SINGLE" | "MULTIPLE";
+  metaModelCode: string;
+  fields: MetadataFieldDefinition[];
+  collectionKey?: string;
+}
+
 export interface ModelQueryConditionState {
   fieldKey: string;
   operator: string;

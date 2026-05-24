@@ -654,3 +654,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - `ModelsView.vue` 仍超过 1000 行，后续还需继续拆详情预览、编辑抽屉和元模型字段 section。
 - 下一步：执行 `git diff --check` 并提交 Batch 13；随后继续拆 `ModelsView.vue` 的详情预览或编辑抽屉。
+
+## Step 031 - Batch 14 拆分模型详情概览区块
+
+- 执行时间：2026-05-25 03:42:20 +08:00
+- 目标问题：`ModelsView.vue` 的详情概览页签包含模型摘要、共享提示、技术/业务元数据展示和样例行表格，属于展示型区块，继续留在父页面会扩大详情与列表/编辑/同步职责混杂。
+- 修改范围：新增 `ModelDetailOverview.vue` 承载详情概览 UI 与响应式样式；将 `ModelMetaSection` 和 `MetaSectionBinding` 移入共享 `modelViewTypes.ts`，供父页面和详情组件共用；父页面只保留数据来源和展示 helper。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/ModelDetailOverview.vue`
+  - `frontend/apps/web/src/components/models/modelViewTypes.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型详情页的项目标签、共享来源提示、技术/业务元数据展示、MULTIPLE 表格展示、样例行展示和格式化逻辑保持不变；只是将展示模板迁移到子组件。`ModelsView.vue` 从 2282 行降到 2105 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是父页面仍引用已迁出的 `MetaSectionBinding` 类型。
+  - 修复后 `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - `ModelsView.vue` 仍超过 1000 行，下一步需要继续拆编辑抽屉或模型元数据 section 操作。
+- 下一步：执行 `git diff --check` 并提交 Batch 14；随后继续拆 `ModelsView.vue` 的编辑抽屉。

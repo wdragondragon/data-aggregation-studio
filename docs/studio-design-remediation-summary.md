@@ -29,6 +29,7 @@
 - Batch 11 推广前端异步动作 composable：`MetadataSchemasView.vue` 的刷新、保存、发布、删除、同步动作接入 `useAsyncAction`，统一 loading、成功/失败提示和确认框取消处理。
 - Batch 12 扩展前端异步动作 composable：`useAsyncAction` 支持函数式错误消息，`ModelStatisticsView.vue` 的 workspace 加载和分析运行接入统一异步动作，同时保留后端错误详情。
 - Batch 13 拆分模型中心展示区块：新增 `ModelDynamicFilterPanel.vue`、`ModelSyncTaskSection.vue` 和共享 `modelViewTypes.ts`，将动态筛选表单与同步任务列表从 `ModelsView.vue` 移出，`ModelsView.vue` 从 2601 行降到 2282 行。
+- Batch 14 继续拆分模型中心详情区块：新增 `ModelDetailOverview.vue`，将模型详情概览、元数据展示和样例行表格从 `ModelsView.vue` 移出，`ModelsView.vue` 降到 2105 行。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -66,6 +67,7 @@
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 11 元模型页面接入 `useAsyncAction` 后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 12 模型统计页接入 `useAsyncAction` 后验证。
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 13 模型中心动态筛选与同步任务区块拆分后验证，中间曾因误删 `ElInput/ElInputNumber` import 失败并已修复。
+- `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 14 模型详情概览区块拆分后验证，中间曾因 `MetaSectionBinding` 类型迁移未导入失败并已修复。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -84,5 +86,5 @@
 - Batch 2：已完成采集任务装配策略拆分；后续若新增源端/目标端，优先在现有 helper/strategy 边界扩展，不再回填到 facade。
 - Batch 3：已完成方言探测、schema introspector、datasource capability 升级 support 和技术元模型字段 builder 拆分；后续可继续把 `StudioSchemaUpgradeService` 的质量表、数据服务表 MySQL/SQLite 建表块拆出。
 - Batch 4/7/8/9/10：`DataServiceService`、`QualityIssueService`、`DataModelService`、`WorkflowRunService`、`QualityMetricsService`、`DataServiceMetricsService`、`DataModelStatisticsService`、`AggregationSourceCapabilityProvider`、`CollectionTaskService`、`SystemManagementService`、`DataModelLineageService` 已降到 800 行以下；`StudioSchemaUpgradeService` 作为已审查 schema/升级编排类暂留，后续只在 schema drift/init 回归保护下继续拆具体步骤。
-- Batch 5/11/12/13：继续前端大页面治理，`RunsView` 已接入 `usePageQuery`，`MetadataSchemasView` 和 `ModelStatisticsView` 已接入 `useAsyncAction`，`ModelsView` 已拆出动态筛选和同步任务区块；后续优先拆采集任务编辑、质量任务编辑、工作流编辑和模型中心剩余详情/编辑区块。
+- Batch 5/11/12/13/14：继续前端大页面治理，`RunsView` 已接入 `usePageQuery`，`MetadataSchemasView` 和 `ModelStatisticsView` 已接入 `useAsyncAction`，`ModelsView` 已拆出动态筛选、同步任务和详情概览区块；后续优先拆采集任务编辑、质量任务编辑、工作流编辑和模型中心剩余编辑区块。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

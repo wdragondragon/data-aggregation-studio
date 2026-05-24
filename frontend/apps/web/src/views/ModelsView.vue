@@ -158,115 +158,17 @@
 
       <el-tabs v-model="activeDetailTab" class="model-detail-tabs">
         <el-tab-pane :label="t('web.models.detailTabOverview')" name="overview">
-          <SectionCard :title="t('web.models.previewTitle')" :description="t('web.models.previewDescription')">
-            <div v-if="selectedModel" class="soft-panel preview-head">
-              <div>
-                <strong>{{ selectedModel.name }}</strong>
-                <p>{{ selectedModel.physicalLocator }}</p>
-                <p>所属项目：{{ resolveProjectLabel(selectedModel.projectId) }}</p>
-              </div>
-              <div class="preview-head__tags">
-                <StatusPill :label="formatModelKind(t, selectedModel.modelKind)" tone="primary" />
-                <StatusPill
-                  :label="isSharedSelectedModel ? '共享来源' : '当前项目'"
-                  :tone="isSharedSelectedModel ? 'warning' : 'success'"
-                />
-              </div>
-            </div>
-            <div v-else class="soft-panel empty-hint">
-              {{ t("web.models.previewEmpty") }}
-            </div>
-
-            <template v-if="selectedModel">
-              <div v-if="isSharedSelectedModel" class="soft-panel warning-hint">
-                当前模型来自其他项目共享，支持查看与引用，但不能在此项目中编辑或删除。
-              </div>
-              <div class="model-section-stack">
-                <div
-                  v-for="section in previewSections"
-                  :key="section.key"
-                  class="soft-panel model-meta-section"
-                >
-                  <div class="model-meta-section__header">
-                    <div>
-                      <strong>{{ section.title }}</strong>
-                      <p>{{ section.description }}</p>
-                    </div>
-                    <div class="model-meta-section__tags">
-                      <StatusPill
-                        :label="section.binding === 'TECHNICAL' ? t('metaForm.technicalTitle') : t('metaForm.businessTitle')"
-                        :tone="section.binding === 'TECHNICAL' ? 'primary' : 'success'"
-                      />
-                      <StatusPill
-                        :label="section.displayMode === 'MULTIPLE' ? t('web.metadata.displayMultiple') : t('web.metadata.displaySingle')"
-                        tone="neutral"
-                      />
-                    </div>
-                  </div>
-
-                  <div v-if="section.displayMode === 'MULTIPLE'">
-                    <div v-if="previewSectionRows(section).length === 0" class="soft-panel empty-hint section-empty">
-                      {{ t("web.models.metaSectionEmpty") }}
-                    </div>
-                    <el-table v-else :data="previewSectionRows(section)" border>
-                      <el-table-column
-                        v-for="field in section.fields"
-                        :key="field.fieldKey"
-                        :prop="field.fieldKey"
-                        :label="field.fieldName"
-                        min-width="140"
-                        show-overflow-tooltip
-                      >
-                        <template #default="{ row }">
-                          {{ formatDisplayValue(row[field.fieldKey]) }}
-                        </template>
-                      </el-table-column>
-                    </el-table>
-                  </div>
-
-                  <div v-else class="model-field-grid">
-                    <div
-                      v-for="field in section.fields"
-                      :key="field.fieldKey"
-                      class="model-field-grid__item"
-                    >
-                      <span class="model-field-grid__label">{{ field.fieldName }}</span>
-                      <div class="model-field-grid__value">
-                        {{ formatDisplayValue(sectionValue(section, field.fieldKey, false)) }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="previewSections.length === 0" class="soft-panel empty-hint">
-                  {{ t("web.models.metaSectionEmpty") }}
-                </div>
-              </div>
-
-              <div class="soft-panel sample-panel">
-                <div class="model-meta-section__header">
-                  <div>
-                    <strong>{{ t("web.models.sampleRowsTitle") }}</strong>
-                    <p>{{ t("web.models.sampleRowsDescription") }}</p>
-                  </div>
-                </div>
-
-                <div v-if="previewRows.length === 0" class="soft-panel empty-hint section-empty">
-                  {{ t("web.models.sampleRowsEmpty") }}
-                </div>
-                <el-table v-else :data="previewRows" border>
-                  <el-table-column
-                    v-for="column in previewColumns"
-                    :key="column"
-                    :prop="column"
-                    :label="column"
-                    min-width="140"
-                    show-overflow-tooltip
-                  />
-                </el-table>
-              </div>
-            </template>
-          </SectionCard>
+          <ModelDetailOverview
+            :model="selectedModel"
+            :shared="isSharedSelectedModel"
+            :sections="previewSections"
+            :preview-rows="previewRows"
+            :preview-columns="previewColumns"
+            :resolve-project-label="resolveProjectLabel"
+            :preview-section-rows="previewSectionRows"
+            :section-value="sectionValue"
+            :format-display-value="formatDisplayValue"
+          />
         </el-tab-pane>
 
         <el-tab-pane :label="t('web.models.detailTabLineage')" name="lineage">
@@ -517,8 +419,9 @@ import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
+import ModelDetailOverview from "@/components/models/ModelDetailOverview.vue";
 import ModelDynamicFilterPanel from "@/components/models/ModelDynamicFilterPanel.vue";
-import type { ModelDynamicFilterActions, ModelQueryConditionState, ModelQueryGroupState } from "@/components/models/modelViewTypes";
+import type { MetaSectionBinding, ModelDynamicFilterActions, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
 import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
@@ -532,8 +435,6 @@ import {
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
 import { cloneDeep, formatModelKind, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
-
-type MetaSectionBinding = "TECHNICAL" | "BUSINESS";
 
 interface ModelFormState {
   id?: EntityId;
@@ -555,18 +456,6 @@ interface SyncTaskFormState {
   datasourceType: string;
   datasourceId?: EntityId;
   selectedLocators: string[];
-}
-
-interface ModelMetaSection {
-  key: string;
-  schema: MetadataSchemaDefinition;
-  title: string;
-  description: string;
-  binding: MetaSectionBinding;
-  displayMode: "SINGLE" | "MULTIPLE";
-  metaModelCode: string;
-  fields: MetadataFieldDefinition[];
-  collectionKey?: string;
 }
 
 const DATABASE_TYPE_HINTS = [
@@ -2247,10 +2136,6 @@ p {
   min-width: 280px;
 }
 
-.model-meta-section__header p {
-  display: none;
-}
-
 .detail-toolbar {
   display: flex;
   align-items: center;
@@ -2265,26 +2150,6 @@ p {
   gap: 8px;
 }
 
-.preview-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.preview-head p {
-  margin: 4px 0 0;
-  display: block;
-}
-
-.preview-head__tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .stack-cell {
   display: grid;
   gap: 4px;
@@ -2294,59 +2159,6 @@ p {
 .cell-subtle {
   color: var(--studio-text-soft);
   font-size: 12px;
-}
-
-.model-section-stack {
-  display: grid;
-  gap: 10px;
-}
-
-.model-meta-section,
-.sample-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.model-meta-section__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.model-meta-section__tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.model-field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.model-field-grid__item {
-  border: 1px solid var(--studio-border);
-  border-radius: 14px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.model-field-grid__label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--studio-text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.model-field-grid__value {
-  color: var(--studio-text);
-  word-break: break-word;
 }
 
 .empty-hint,
@@ -2439,10 +2251,6 @@ p {
 }
 
 @media (max-width: 980px) {
-  .model-field-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .models-toolbar__filter {
     min-width: 100%;
   }
@@ -2462,14 +2270,6 @@ p {
   }
 
   .detail-toolbar__actions {
-    justify-content: flex-start;
-  }
-
-  .model-meta-section__header {
-    flex-direction: column;
-  }
-
-  .model-meta-section__tags {
     justify-content: flex-start;
   }
 
