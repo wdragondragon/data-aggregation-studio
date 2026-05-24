@@ -13,12 +13,13 @@
 - 抽取元模型配置 description 工具：新增 `MetaModelConfigDescriptions`，让 `MetadataSchemaService` 和 `StandardRuntimeOptionSchemaBootstrapService` 复用 `META_MODEL_CONFIG:` 编解码逻辑，保持原 description 格式兼容。
 - 清理新增代码中的错误/空值坏味道：修复元模型配置工具首版新增的 `return null;` 静态债务，并将 `catch ignored` 改为带语义变量和降级说明的写法。
 - Batch 1 继续降低静态债务门禁：`catch ignored` 阈值收紧到 24，`return null;` 阈值收紧到 221，旧表格 wrapper 阈值收紧到 0。
+- Batch 2 拆分采集任务装配策略：`CollectionTaskAssemblerService` 保留 facade，对内拆出 `CollectionTaskFieldMappingResolver`、`CollectionTaskFileConfigSupport`、`CollectionTaskHttpConfigSupport`，主类从 1150 行降到 418 行，reader/writer 任务 JSON 契约不变。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
 
 - 安全问题按用户要求暂不处理，包括认证、越权、SSRF、密钥泄露、文件路径安全等。
-- 巨型 Service 和巨型 Vue 页面没有一次性完全拆完。本轮优先拆了风险较低、测试保护较强的运行参数合并器、HTTP 编辑器子组件和元模型 description 工具；`StudioSchemaUpgradeService`、`DataServiceService`、`DataModelLineageService`、质量服务、采集任务编辑页等仍建议后续按测试保护分批拆。
+- 巨型 Service 和巨型 Vue 页面没有一次性完全拆完。本轮优先拆了风险较低、测试保护较强的运行参数合并器、采集任务装配策略、HTTP 编辑器子组件和元模型 description 工具；`StudioSchemaUpgradeService`、`DataServiceService`、`DataModelLineageService`、质量服务、采集任务编辑页等仍建议后续按测试保护分批拆。
 - 后端历史 `catch ignored`、`return null;`、大文件数量仍存在，本轮通过静态门禁确保不再增加，并清理本轮新增代码的坏味道；历史债务建议单独排期。
 - 前端 composable 体系如 `usePageQuery`、`useAsyncAction`、`useTableSelection`、`useDialogForm` 尚未全面落地，当前以表格壳、常量收敛和局部组件拆分为主。
 - 数据质量动态函数、HTTP 动态函数弹窗本体仍可继续拆为独立 dialog 组件；本轮先拆出键值表、Raw 编辑区和 Token 子表。
@@ -32,6 +33,8 @@
 - `mvn -pl studio-test "-Dtest=StudioSchemaDriftRegressionTest,StudioInitializationApiRegressionTest,StudioDesignDebtRegressionTest" test`：最终通过，18 tests，0 failures，0 errors；中间曾因新增 `return null;` 触发设计债务门禁失败，已记录并修复。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" test`：通过，4 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
+- `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
+- `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
 - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
 - 旧表格 wrapper 搜索：无命中。
 - 前端硬编码 `target-type="..."` 搜索：无命中。
@@ -41,7 +44,7 @@
 ## 建议后续批次
 
 - Batch 1：继续把设计债务门禁从“不可增加”推进到“逐步下降”，每批清理一类历史 `catch ignored` 或 `return null;`，并为业务链路补明确异常/空集合/Optional 语义。
-- Batch 2：拆 `CollectionTaskAssemblerService` 的 reader/writer 策略层，保持 facade 不变，分别为 RDBMS、File、HTTP writer/reader 增加策略测试。
+- Batch 2：已完成采集任务装配策略拆分；后续若新增源端/目标端，优先在现有 helper/strategy 边界扩展，不再回填到 facade。
 - Batch 3：拆 `StudioSchemaUpgradeService` 为方言、MySQL 步骤、SQLite 步骤、内置数据升级步骤和升级编排器，并让 schema drift test 覆盖新增 datasource/plugin 的准入。
 - Batch 4：拆 `DataServiceService`、`DataModelLineageService` 和质量服务的查询、聚合、DTO 组装逻辑；每拆一组先补回归测试。
 - Batch 5：继续前端大页面治理，优先拆采集任务编辑、质量任务编辑、工作流编辑、模型中心为 composable + section components，并推广 `usePageQuery`、`useAsyncAction`、`useDialogForm`。

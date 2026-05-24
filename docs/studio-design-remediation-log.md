@@ -255,3 +255,29 @@
   - 历史 `return null;` 和 `catch ignored` 仍存在，本批仅降低并锁住当前可验证基线。
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断测试。
 - 下一步：提交 Batch 1，然后进入采集任务装配服务策略拆分。
+
+## Step 013 - Batch 2 拆分采集任务装配策略
+
+- 执行时间：2026-05-24 20:22:23 +08:00
+- 目标问题：`CollectionTaskAssemblerService` 同时承担任务装配流程、字段映射、File/HTTP 特殊配置和运行参数规范化，单类过大且后续 reader/writer 扩展容易互相影响。
+- 修改范围：保留 `CollectionTaskAssemblerService.assemble(...)` facade 和任务 JSON 契约不变；新增包内 helper 分别承载字段映射/列定义、File reader/writer 配置、HTTP reader/writer 配置与 HTTP 运行参数规范化。
+- 涉及文件：
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskAssemblerService.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskFieldMappingResolver.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskFileConfigSupport.java`
+  - `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskHttpConfigSupport.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：reader/writer `type`、`connect`、`columns`、HTTP `header/params/requestBody` 字符串保留规则、File TAG 字段校验、HTTP URL 拼接和业务状态校验均沿用原逻辑；`CollectionTaskAssemblerService` 从 1150 行降到 418 行。
+- 验证命令与结果：
+  - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" test`：第一次在 Studio 仓库根目录执行失败，原因是当前根目录没有 Maven reactor POM，无法识别 `studio-test`。
+  - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" test`（在 `backend` 目录）：第一次失败，`return null;` 静态计数从 221 增至 223；随后将新 helper 的无值返回改为命名空值常量。
+  - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" test`（在 `backend` 目录）：通过，15 tests，0 failures，0 errors。
+  - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：`studio-infra`、`studio-server`、`studio-worker`、`studio-test` 均重新编译通过；测试 fork 启动阶段因 Windows 页文件不足失败，0 个测试执行。
+  - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - `-am` reactor 验证受本机页文件不足影响，fork JVM 未能启动；已用非 fork 模式完成同一目标测试，并记录该环境阻塞。
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断最终验证。
+  - 本批只拆采集任务装配内部结构，不处理安全策略、不改变 API/DTO/任务 JSON。
+- 下一步：提交 Batch 2，然后进入 schema/metadata 结构拆分。
