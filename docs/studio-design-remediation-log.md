@@ -733,3 +733,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 模型中心父页面还保留大量 schema/元数据 helper 和详情路由编排；这些更偏业务组合逻辑，后续应优先抽 composable，而不是继续只拆模板。
 - 下一步：提交 Batch 17；继续评估模型中心 schema/元数据 helper 是否适合抽 composable，或转向质量/工作流编辑器大页面。
+
+## Step 035 - Batch 18 拆分质量任务动态函数弹窗与函数目录
+
+- 执行时间：2026-05-25 04:12:30 +08:00
+- 目标问题：`QualityTaskEditorView.vue` 内联维护动态函数目录、函数参数 schema、弹窗模板和弹窗样式，导致质量任务保存/校验主流程与动态函数 UI 耦合，新增函数时容易修改巨型页面。
+- 修改范围：新增 `qualityTaskDynamicFunctions.ts` 承载质量任务动态函数类型和固定目录；新增 `QualityDynamicFunctionDialog.vue` 承载函数列表、参数表单、选中内容提示、表达式预览和弹窗样式；父页面保留插入位置追踪、表达式生成、必填校验和插入动作。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityTaskEditorView.vue`
+  - `frontend/apps/web/src/components/quality/QualityDynamicFunctionDialog.vue`
+  - `frontend/apps/web/src/components/quality/qualityTaskDynamicFunctions.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：质量动态函数名称、参数默认值、表达式预览、必填校验、where 子句插入、参数绑定输入框插入和保存 payload 保持不变；只是将函数目录和弹窗展示层移出编辑页。`QualityTaskEditorView.vue` 从 1578 行降到 1179 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 质量任务编辑页仍超过 1000 行，剩余可拆点包括基本信息/绑定/规则选择 section、参数绑定表、SQL 预览区和告警/校验结果区。
+- 下一步：提交 Batch 18；继续拆质量任务编辑页的表单 section，或转向工作流编辑器/采集任务编辑器。

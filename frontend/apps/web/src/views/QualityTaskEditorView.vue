@@ -298,81 +298,16 @@
       </div>
     </SectionCard>
 
-    <el-dialog
+    <QualityDynamicFunctionDialog
       v-model="dynamicFunctionDialogVisible"
-      title="插入动态函数"
-      width="880px"
-      destroy-on-close
-      class="dynamic-function-dialog"
-    >
-      <div class="dynamic-function-dialog__layout">
-        <div class="dynamic-function-dialog__sidebar">
-          <div class="dynamic-function-dialog__sidebar-title">函数列表</div>
-          <div class="dynamic-function-list">
-            <button
-              v-for="item in dynamicFunctionCatalog"
-              :key="item.name"
-              type="button"
-              class="dynamic-function-item"
-              :class="{ 'dynamic-function-item--active': selectedDynamicFunctionName === item.name }"
-              @click="selectedDynamicFunctionName = item.name"
-            >
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.summary }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="dynamic-function-dialog__content">
-          <div class="dynamic-function-card">
-            <div class="dynamic-function-card__header">
-              <div>
-                <h4>{{ selectedDynamicFunction.label }}</h4>
-                <p>{{ selectedDynamicFunction.summary }}</p>
-              </div>
-              <code>{{ selectedDynamicFunction.signature }}</code>
-            </div>
-            <p class="dynamic-function-card__description">{{ selectedDynamicFunction.description }}</p>
-            <div class="dynamic-function-card__meta">
-              <span>返回值：{{ selectedDynamicFunction.returnDescription }}</span>
-              <span>示例：{{ selectedDynamicFunction.example }}</span>
-            </div>
-          </div>
-
-          <div v-if="selectedInputSnippet" class="dynamic-function-selection-tip">
-            当前选中内容：<code>{{ selectedInputSnippet }}</code>
-          </div>
-
-          <div class="dynamic-function-args">
-            <el-form-item
-              v-for="param in selectedDynamicFunction.params"
-              :key="param.key"
-              :label="param.label"
-              class="dynamic-function-args__item"
-            >
-              <el-input v-model="dynamicFunctionArgs[param.key]" :placeholder="param.placeholder" />
-              <div class="field-hint">
-                {{ param.description }}
-                <span v-if="!param.required"> 可留空。</span>
-              </div>
-            </el-form-item>
-          </div>
-
-          <div class="dynamic-function-preview">
-            <span class="logic-sql-actions__label">表达式预览</span>
-            <pre>{{ dynamicFunctionPreview }}</pre>
-            <div class="field-hint">文本参数默认自动补单引号；如果要传占位符或其他表达式，可以直接输入完整内容。</div>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="studio-toolbar-actions">
-          <el-button @click="dynamicFunctionDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmDynamicFunctionInsert">插入到当前输入框</el-button>
-        </div>
-      </template>
-    </el-dialog>
+      v-model:selected-name="selectedDynamicFunctionName"
+      :catalog="dynamicFunctionCatalog"
+      :selected-function="selectedDynamicFunction"
+      :selected-input-snippet="selectedInputSnippet"
+      :args="dynamicFunctionArgs"
+      :preview="dynamicFunctionPreview"
+      @confirm="confirmDynamicFunctionInsert"
+    />
   </div>
 </template>
 
@@ -399,6 +334,9 @@ import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { prettyJson } from "@/utils/studio";
 import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
+import QualityDynamicFunctionDialog from "@/components/quality/QualityDynamicFunctionDialog.vue";
+import { dynamicFunctionCatalog } from "@/components/quality/qualityTaskDynamicFunctions";
+import type { DynamicFunctionInsertTarget, DynamicFunctionParamSchema } from "@/components/quality/qualityTaskDynamicFunctions";
 
 interface QualityTaskEditorForm {
   id?: string | number;
@@ -420,32 +358,6 @@ interface QualityTaskEditorForm {
     timezone: string;
   };
 }
-
-interface DynamicFunctionParamSchema {
-  key: string;
-  label: string;
-  placeholder: string;
-  description: string;
-  required?: boolean;
-  autoQuote?: boolean;
-  defaultValue?: string;
-  useSelectedSnippet?: boolean;
-}
-
-interface DynamicFunctionSchema {
-  name: string;
-  label: string;
-  summary: string;
-  description: string;
-  signature: string;
-  returnDescription: string;
-  example: string;
-  params: DynamicFunctionParamSchema[];
-}
-
-type DynamicFunctionInsertTarget =
-  | { type: "whereClause" }
-  | { type: "binding"; key: string };
 
 const route = useRoute();
 const router = useRouter();
@@ -499,181 +411,6 @@ const rangeOperators: Array<{ label: string; value: QualityTaskAlertOperator }> 
   { label: "< R ≤ 大于最小值，小于等于最大值", value: "LT_R_LE" },
   { label: "≤ R < 大于等于最小值，小于最大值", value: "LE_R_LT" },
   { label: "≤ R ≤ 大于等于最小值，小于等于最大值", value: "LE_R_LE" },
-];
-
-const dynamicFunctionCatalog: DynamicFunctionSchema[] = [
-  {
-    name: "getCurrentTime",
-    label: "getCurrentTime",
-    summary: "按格式输出当前时间，并支持偏移量。",
-    description: "常用于生成按天、按小时、按批次的运行条件值。",
-    signature: "$getCurrentTime(pattern, offset)",
-    returnDescription: "格式化后的时间字符串",
-    example: "$getCurrentTime('yyyy-MM-dd', '-1d')",
-    params: [
-      {
-        key: "pattern",
-        label: "时间格式",
-        placeholder: "例如：yyyy-MM-dd HH:mm:ss",
-        description: "Java 时间格式模板。",
-        defaultValue: "yyyy-MM-dd",
-      },
-      {
-        key: "offset",
-        label: "偏移量",
-        placeholder: "例如：-1d、+2h、-30mi",
-        description: "支持 y、m、w、d、h、mi、s，也支持秒数表达式。",
-        defaultValue: "",
-        required: false,
-      },
-    ],
-  },
-  {
-    name: "getTheMonthLastDay",
-    label: "getTheMonthLastDay",
-    summary: "计算指定时间所在月份的最后一天。",
-    description: "可用于月末分区、账期或对账周期类校验逻辑。",
-    signature: "$getTheMonthLastDay(dateTime?)",
-    returnDescription: "月份最后一天的数字字符串",
-    example: "$getTheMonthLastDay('2026-04-15 00:00:00')",
-    params: [
-      {
-        key: "dateTime",
-        label: "时间值",
-        placeholder: "例如：2026-04-15 00:00:00",
-        description: "可填写日期时间字符串、时间戳或其他动态函数表达式。",
-        required: false,
-      },
-    ],
-  },
-  {
-    name: "getTimeUnitValue",
-    label: "getTimeUnitValue",
-    summary: "提取时间中的年、月、日、时、分、秒或星期。",
-    description: "适合把时间字段拆成多个维度参与参数赋值或 where 条件。",
-    signature: "$getTimeUnitValue(dateTime, unit)",
-    returnDescription: "指定时间单位的字符串值",
-    example: "$getTimeUnitValue('2026-04-15 13:30:00', 'd')",
-    params: [
-      {
-        key: "dateTime",
-        label: "时间值",
-        placeholder: "例如：2026-04-15 13:30:00",
-        description: "支持常见日期时间字符串、时间戳或其他动态函数表达式。",
-      },
-      {
-        key: "unit",
-        label: "时间单位",
-        placeholder: "y / m / d / h / mi / s / day",
-        description: "分别表示年、月、日、时、分、秒、星期。",
-        defaultValue: "d",
-      },
-    ],
-  },
-  {
-    name: "subStr",
-    label: "subStr",
-    summary: "按起始位置和长度截取字符串。",
-    description: "适合处理编码、日期串、业务前缀等固定长度片段。",
-    signature: "$subStr(source, start, length)",
-    returnDescription: "截取后的字符串",
-    example: "$subStr('ABC123', 0, 3)",
-    params: [
-      {
-        key: "source",
-        label: "原始字符串",
-        placeholder: "例如：order_20260415",
-        description: "可直接输入文本，也可以用当前选中内容自动带入。",
-        useSelectedSnippet: true,
-      },
-      {
-        key: "start",
-        label: "起始位置",
-        placeholder: "例如：0",
-        description: "从 0 开始计数。",
-        autoQuote: false,
-        defaultValue: "0",
-      },
-      {
-        key: "length",
-        label: "截取长度",
-        placeholder: "例如：8",
-        description: "需要截取的字符数量。",
-        autoQuote: false,
-        defaultValue: "1",
-      },
-    ],
-  },
-  {
-    name: "subString",
-    label: "subString",
-    summary: "按起始和结束位置截取字符串。",
-    description: "适合明确知道开始、结束下标的截取场景。",
-    signature: "$subString(source, start, end)",
-    returnDescription: "截取后的字符串",
-    example: "$subString('ABC123', 1, 4)",
-    params: [
-      {
-        key: "source",
-        label: "原始字符串",
-        placeholder: "例如：order_20260415",
-        description: "可直接输入文本，也可以用当前选中内容自动带入。",
-        useSelectedSnippet: true,
-      },
-      {
-        key: "start",
-        label: "起始位置",
-        placeholder: "例如：0",
-        description: "从 0 开始计数。",
-        autoQuote: false,
-        defaultValue: "0",
-      },
-      {
-        key: "end",
-        label: "结束位置",
-        placeholder: "例如：8",
-        description: "结束位置本身不包含在结果中。",
-        autoQuote: false,
-        defaultValue: "1",
-      },
-    ],
-  },
-  {
-    name: "toLower",
-    label: "toLower",
-    summary: "把字符串转成小写。",
-    description: "适合做大小写归一化条件。",
-    signature: "$toLower(source)",
-    returnDescription: "小写字符串",
-    example: "$toLower('ABC123')",
-    params: [
-      {
-        key: "source",
-        label: "原始字符串",
-        placeholder: "例如：USER_NAME",
-        description: "可直接输入文本，也可以用当前选中内容自动带入。",
-        useSelectedSnippet: true,
-      },
-    ],
-  },
-  {
-    name: "toUpper",
-    label: "toUpper",
-    summary: "把字符串转成大写。",
-    description: "适合做大小写归一化条件。",
-    signature: "$toUpper(source)",
-    returnDescription: "大写字符串",
-    example: "$toUpper('abc123')",
-    params: [
-      {
-        key: "source",
-        label: "原始字符串",
-        placeholder: "例如：user_name",
-        description: "可直接输入文本，也可以用当前选中内容自动带入。",
-        useSelectedSnippet: true,
-      },
-    ],
-  },
 ];
 
 const form = reactive<QualityTaskEditorForm>({
@@ -1417,21 +1154,9 @@ watch(selectedDynamicFunctionName, () => {
   gap: 12px;
 }
 
-.logic-sql-actions__label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--studio-text-soft);
-}
-
 .cell-subtle {
   color: var(--studio-text-soft);
   font-size: 12px;
-}
-
-.field-hint {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--studio-text-soft);
 }
 
 .task-binding-input {
@@ -1468,152 +1193,6 @@ watch(selectedDynamicFunctionName, () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-}
-
-.dynamic-function-dialog__layout {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 20px;
-}
-
-.dynamic-function-dialog__sidebar {
-  border-right: 1px solid var(--studio-border);
-  padding-right: 16px;
-}
-
-.dynamic-function-dialog__sidebar-title {
-  margin-bottom: 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--studio-text-soft);
-}
-
-.dynamic-function-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.dynamic-function-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 12px 14px;
-  border: 1px solid var(--studio-border);
-  border-radius: 12px;
-  background: #fff;
-  color: var(--studio-text);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-}
-
-.dynamic-function-item strong {
-  font-size: 14px;
-}
-
-.dynamic-function-item span {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--studio-text-soft);
-}
-
-.dynamic-function-item:hover,
-.dynamic-function-item--active {
-  border-color: var(--studio-primary);
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
-  transform: translateY(-1px);
-}
-
-.dynamic-function-dialog__content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-.dynamic-function-card {
-  padding: 16px 18px;
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(219, 234, 254, 0.7), rgba(239, 246, 255, 0.9));
-}
-
-.dynamic-function-card__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.dynamic-function-card__header h4 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--studio-text);
-}
-
-.dynamic-function-card__header p,
-.dynamic-function-card__description {
-  margin: 6px 0 0;
-  color: var(--studio-text-soft);
-  line-height: 1.6;
-}
-
-.dynamic-function-card__header code,
-.dynamic-function-selection-tip code {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--studio-primary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.dynamic-function-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-  margin-top: 14px;
-  font-size: 12px;
-  color: var(--studio-text-soft);
-}
-
-.dynamic-function-selection-tip {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.04);
-  color: var(--studio-text-soft);
-  font-size: 13px;
-}
-
-.dynamic-function-args {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
-}
-
-.dynamic-function-args__item {
-  margin-bottom: 0;
-}
-
-.dynamic-function-preview {
-  padding: 14px 16px;
-  border: 1px dashed var(--studio-border);
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.02);
-}
-
-.dynamic-function-preview pre {
-  margin: 10px 0 0;
-  padding: 14px 16px;
-  overflow: auto;
-  border-radius: 12px;
-  background: #0f172a;
-  color: #dbeafe;
-  font: 13px/1.65 "Cascadia Code", "Consolas", monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .inline-message {
@@ -1682,17 +1261,6 @@ watch(selectedDynamicFunctionName, () => {
 }
 
 @media (max-width: 960px) {
-  .dynamic-function-dialog__layout,
-  .dynamic-function-args {
-    grid-template-columns: 1fr;
-  }
-
-  .dynamic-function-dialog__sidebar {
-    border-right: none;
-    padding-right: 0;
-  }
-
-  .dynamic-function-card__header,
   .task-binding-input {
     flex-direction: column;
     align-items: stretch;
