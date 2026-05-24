@@ -426,3 +426,42 @@
   - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
   - 剩余大文件为 schema 升级、血缘、系统管理、采集任务 Service 和 source capability provider，后续需要按领域继续分批处理。
 - 下一步：对 Batch 4 当前稳定改动执行 `git diff --check` 并提交，再进入后续前端 composable/HTTP 编辑器收口或继续后端剩余大类拆分。
+
+## Step 020 - Batch 5 建立前端页面状态 composable 并迁移运行列表
+
+- 执行时间：2026-05-25 01:36:47 +08:00
+- 目标问题：前端页面中的分页、异步动作、弹窗表单和表格选择状态散落在各大页面内，导致列表页重复样板代码较多，后续拆大页面缺少统一的状态边界。
+- 修改范围：新增 `useAsyncAction`、`usePageQuery`、`useDialogForm`、`useTableSelection` 四个 composable；将 `RunsView.vue` 的分页状态迁移到 `usePageQuery`，错误消息提取改为复用 `resolveErrorMessage`。
+- 涉及文件：
+  - `frontend/apps/web/src/composables/useAsyncAction.ts`
+  - `frontend/apps/web/src/composables/usePageQuery.ts`
+  - `frontend/apps/web/src/composables/useDialogForm.ts`
+  - `frontend/apps/web/src/composables/useTableSelection.ts`
+  - `frontend/apps/web/src/views/RunsView.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：运行列表的路由 query、分页参数、查询参数、表格结构和详情跳转保持不变；本步骤只收敛页面内部状态管理和错误消息提取。
+- 验证命令与结果：
+  - `npm run build:web`（Studio 根目录）：失败，根目录没有 `package.json`，属于命令工作目录错误。
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 目前只迁移了运行列表，采集任务、质量任务、工作流、系统管理、模型中心等大页面还未全面使用这些 composable。
+- 下一步：继续迁移低风险列表页，或进入 HTTP 动态函数弹窗独立组件拆分，并在批次结束前运行 `git diff --check` 和后端设计债务门禁。
+
+## Step 021 - Batch 5 前端 composable 检查点验证
+
+- 执行时间：2026-05-25 01:38:01 +08:00
+- 目标问题：确认新增前端 composable 和运行列表迁移没有引入空白错误或突破后端静态设计债务门禁。
+- 修改范围：无新增业务修改；只执行检查并记录结果。
+- 涉及文件：
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：本步骤不改运行行为。
+- 验证命令与结果：
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+  - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，4 tests，0 failures，0 errors。
+- 失败、阻塞或残余风险：
+  - Maven settings 仍有 `Unrecognised tag: 'release'` 警告，未阻断验证。
+  - 本步骤只验证设计债务门禁，未运行后端全量测试。
+- 下一步：提交 Batch 5 当前小检查点，然后继续 HTTP 动态函数弹窗拆分或更多前端页面迁移。

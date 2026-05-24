@@ -147,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -157,6 +157,8 @@ import { studioApi } from "@/api/studio";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
+import { usePageQuery } from "@/composables/usePageQuery";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
@@ -167,10 +169,7 @@ const authStore = useAuthStore();
 const workflows = ref<WorkflowDefinitionView[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 const workflowRunTotal = ref(0);
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-});
+const { pagination, resetPage, setPage, setPageSize, ensureValidPage } = usePageQuery(10);
 const filters = ref<{
   workflowDefinitionId: string;
   status: string;
@@ -207,7 +206,7 @@ async function loadWorkflows() {
   try {
     workflows.value = await studioApi.workflows.list();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    ElMessage.error(resolveErrorMessage(error, t("web.workflows.loadFailed")));
   }
 }
 
@@ -223,13 +222,11 @@ async function loadWorkflowRuns() {
     });
     workflowRuns.value = response.items;
     workflowRunTotal.value = Number(response.total ?? 0);
-    const maxPage = Math.max(1, Math.ceil(workflowRunTotal.value / pagination.pageSize));
-    if (pagination.page > maxPage) {
-      pagination.page = maxPage;
+    if (ensureValidPage(workflowRunTotal.value)) {
       return void loadWorkflowRuns();
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
+    ElMessage.error(resolveErrorMessage(error, t("web.runs.loadFailed")));
   }
 }
 
@@ -245,7 +242,7 @@ function applyFilters() {
     query.startTime = filters.value.timeRange[0];
     query.endTime = filters.value.timeRange[1];
   }
-  pagination.page = 1;
+  resetPage();
   router.push({ path: "/runs", query });
 }
 
@@ -253,18 +250,17 @@ function resetFilters() {
   filters.value.workflowDefinitionId = "";
   filters.value.status = "";
   filters.value.timeRange = [];
-  pagination.page = 1;
+  resetPage();
   router.push({ path: "/runs" });
 }
 
 function handleCurrentPageChange(page: number) {
-  pagination.page = page;
+  setPage(page);
   void loadWorkflowRuns();
 }
 
 function handlePageSizeChange(pageSize: number) {
-  pagination.pageSize = pageSize;
-  pagination.page = 1;
+  setPageSize(pageSize);
   void loadWorkflowRuns();
 }
 
@@ -322,14 +318,14 @@ watch(
   () => route.fullPath,
   () => {
     syncFiltersFromRoute();
-    pagination.page = 1;
+    resetPage();
     void loadWorkflowRuns();
   },
 );
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
-    pagination.page = 1;
+    resetPage();
     await Promise.all([loadWorkflows(), loadWorkflowRuns()]);
   }
 });
