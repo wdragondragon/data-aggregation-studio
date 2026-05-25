@@ -36,6 +36,7 @@
 - Batch 18 拆分质量任务动态函数能力：新增 `QualityDynamicFunctionDialog.vue` 和 `qualityTaskDynamicFunctions.ts`，将质量动态函数弹窗和函数目录从 `QualityTaskEditorView.vue` 移出，页面降到 1179 行。
 - Batch 19 继续拆分质量任务编辑页：新增参数绑定、告警配置、调度配置和校验结果 section 组件，`QualityTaskEditorView.vue` 降到 1016 行。
 - Batch 20 继续拆分质量任务编辑页：新增基本信息、任务绑定、规则选择和 SQL 预览 section 组件，`QualityTaskEditorView.vue` 降到 884 行。
+- Batch 21 拆分工作流资源选择弹窗：新增 `WorkflowResourceDialogs.vue`，将采集任务、质量任务和脚本选择/预览弹窗从 `WorkflowEditorView.vue` 移出，页面降到 1234 行。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -81,6 +82,7 @@
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 19 质量任务参数、告警、调度和校验结果 section 拆分后验证。
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 20 质量任务基础表单、绑定、规则选择和 SQL 预览 section 拆分后验证，中间曾因 Vue ref 回调类型过窄失败并已修复。
 - `git diff --check`：Batch 20 首次失败，原因是 `QualityTaskEditorView.vue` 文件末尾多余空行；修复后通过，仅有 Windows 工作区 LF/CRLF 替换提示。
+- `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 21 工作流资源选择弹窗拆分后验证。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -103,4 +105,5 @@
 - Batch 18：质量任务动态函数目录和弹窗已独立，后续新增质量函数应优先修改 `qualityTaskDynamicFunctions.ts`，不要回填到编辑页。
 - Batch 19：质量任务编辑页主要表格/结果 section 已独立；后续可继续拆基本信息、绑定、规则选择和 SQL 预览区，或转向工作流/采集任务编辑器。
 - Batch 20：质量任务编辑页已降到 1000 行以下，后续不建议继续为行数硬拆；若继续治理，应抽保存/预览/校验 composable 或转向工作流、采集任务、模型中心等仍较大的页面。
+- Batch 21：工作流资源选择弹窗已独立；工作流编辑页剩余主要债务在节点配置面板，后续可拆 HTTP 节点参数表与不同节点类型配置区块。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

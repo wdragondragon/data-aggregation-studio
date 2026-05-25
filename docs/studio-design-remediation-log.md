@@ -798,3 +798,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - 质量任务编辑页已降到 1000 行以下，但父页面仍持有较多业务函数；后续更适合抽 composable，而不是继续拆纯模板。
 - 下一步：提交 Batch 20；转向下一个大页面，优先工作流编辑器或采集任务编辑器。
+
+## Step 038 - Batch 21 拆分工作流资源选择弹窗
+
+- 执行时间：2026-05-25 09:09:55 +08:00
+- 目标问题：`WorkflowEditorView.vue` 内联采集任务、质量任务、数据开发脚本三个资源选择弹窗，模板、分页、脚本树和脚本预览占据大量篇幅，掩盖工作流节点编辑主流程。
+- 修改范围：新增 `WorkflowResourceDialogs.vue` 承载采集任务选择、质量任务选择和脚本选择/预览三个弹窗；父页面保留任务/脚本加载、分页、确认绑定、脚本预览内容更新和格式化函数，通过 `resourceDialogActions` 注入子组件；移除父页面资源弹窗相关局部样式。
+- 涉及文件：
+  - `frontend/apps/web/src/views/WorkflowEditorView.vue`
+  - `frontend/apps/web/src/components/workflow/WorkflowResourceDialogs.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：采集任务弹窗、质量任务弹窗、脚本目录树、脚本预览、分页、搜索、刷新、单选、确认绑定和取消关闭行为保持不变；本步骤只迁移资源选择弹窗展示层。`WorkflowEditorView.vue` 从 1495 行降到 1234 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 工作流编辑页仍超过 1000 行，后续可继续拆节点配置面板，尤其 HTTP 节点参数表和绑定任务/脚本节点区块。
+- 下一步：提交 Batch 21；继续拆工作流节点配置面板或转向采集任务编辑器。
