@@ -775,3 +775,26 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 质量任务编辑页还略超过 1000 行，剩余的基本信息、任务绑定、规则选择、SQL 预览与校验 section 可继续抽取；但主要动态函数和表格 section 已完成隔离。
 - 下一步：提交 Batch 19；继续拆质量任务编辑页剩余 section，使其降到 1000 行以下。
+
+## Step 037 - Batch 20 拆分质量任务基础表单、绑定、规则选择与 SQL 预览区块
+
+- 执行时间：2026-05-25 08:44:26 +08:00
+- 目标问题：`QualityTaskEditorView.vue` 剩余模板仍包含基本信息、任务绑定、规则选择和 SQL 预览/校验四个大 section，页面已完成主要表格拆分后仍超过 1000 行。
+- 修改范围：新增 `QualityTaskBasicInfoSection.vue`、`QualityTaskBindingSection.vue`、`QualityRuleSelectionSection.vue`、`QualitySqlPreviewSection.vue`；父页面继续持有 form、数据加载、规则变更、where 光标追踪、SQL 预览和语义校验逻辑，通过 actions 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityTaskEditorView.vue`
+  - `frontend/apps/web/src/components/quality/QualityTaskBasicInfoSection.vue`
+  - `frontend/apps/web/src/components/quality/QualityTaskBindingSection.vue`
+  - `frontend/apps/web/src/components/quality/QualityRuleSelectionSection.vue`
+  - `frontend/apps/web/src/components/quality/QualitySqlPreviewSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：任务名称/编码/状态、规则维度、校验粒度、数据源/模型/字段绑定、规则选择、规则 SQL 展示、where 子句动态函数插入、SQL 预览和语义校验行为保持不变；本步骤只迁移 section 展示和局部样式。`QualityTaskEditorView.vue` 从 1016 行降到 884 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是 Vue 模板 ref 回调类型比 `Element | null` 更宽，`QualitySqlPreviewSection.vue` 的 `registerWhereClauseTextareaRef` 类型过窄。
+  - 修复后 `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：首次失败，原因是 `QualityTaskEditorView.vue` 文件末尾多余空行；修复后通过，仅有 Windows 工作区 LF/CRLF 替换提示。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - 质量任务编辑页已降到 1000 行以下，但父页面仍持有较多业务函数；后续更适合抽 composable，而不是继续拆纯模板。
+- 下一步：提交 Batch 20；转向下一个大页面，优先工作流编辑器或采集任务编辑器。

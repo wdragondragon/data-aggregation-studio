@@ -17,153 +17,43 @@
       </div>
     </div>
 
-    <SectionCard title="基本信息" description="先确定任务编码、规则维度与校验粒度，后续规则会按条件过滤。">
-      <div class="studio-form-grid">
-        <el-form-item label="任务名称">
-          <el-input v-model="form.taskName" placeholder="例如：订单表主键唯一性巡检" />
-        </el-form-item>
-        <el-form-item label="任务编码">
-          <el-input v-model="form.taskCode" placeholder="例如：DQ_TASK_ORDER_PK" />
-        </el-form-item>
-        <el-form-item label="任务状态">
-          <el-input :model-value="form.id ? (taskStatus === 'ONLINE' ? '已发布' : '草稿') : '未保存'" disabled />
-        </el-form-item>
-        <el-form-item label="规则维度">
-          <el-select v-model="form.ruleDimension" @change="handleRuleDimensionChange">
-            <el-option v-for="option in dimensionOptions" :key="option.value" :label="option.label" :value="option.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="校验粒度">
-          <el-select v-model="form.granularity" @change="handleGranularityChange">
-            <el-option label="表级" value="TABLE" />
-            <el-option label="字段级" value="COLUMN" />
-          </el-select>
-        </el-form-item>
-      </div>
-    </SectionCard>
+    <QualityTaskBasicInfoSection
+      :form="form"
+      :task-status="taskStatus"
+      :dimension-options="dimensionOptions"
+      :actions="basicInfoActions"
+    />
 
-    <SectionCard title="任务绑定" description="质量任务需要明确目标数据源、模型；字段级任务还需要绑定具体字段。">
-      <div class="studio-form-grid">
-        <el-form-item label="数据源">
-          <el-select
-            :model-value="String(form.datasourceId || '')"
-            filterable
-            clearable
-            placeholder="请选择支持 SQL 执行的数据源"
-            @update:model-value="handleDatasourceChange"
-          >
-            <el-option v-for="datasource in datasources" :key="String(datasource.id)" :label="datasource.name" :value="String(datasource.id)" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="模型">
-          <el-select
-            :model-value="String(form.modelId || '')"
-            filterable
-            clearable
-            placeholder="请选择目标模型"
-            @update:model-value="handleModelChange"
-          >
-            <el-option
-              v-for="model in currentDatasourceModels"
-              :key="String(model.id)"
-              :label="`${model.name}${model.physicalLocator ? ` / ${model.physicalLocator}` : ''}`"
-              :value="String(model.id)"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="form.granularity === 'COLUMN'" label="字段">
-          <el-select v-model="form.columnName" filterable clearable placeholder="请选择目标字段" @change="handleColumnChange">
-            <el-option v-for="column in currentColumnOptions" :key="column" :label="column" :value="column" />
-          </el-select>
-        </el-form-item>
-      </div>
-    </SectionCard>
+    <QualityTaskBindingSection
+      :form="form"
+      :datasources="datasources"
+      :models="currentDatasourceModels"
+      :columns="currentColumnOptions"
+      :actions="bindingActions"
+    />
 
-    <SectionCard title="规则选择" description="仅展示当前维度、粒度和数据源类型下可用的已启用质量规则。">
-      <div class="section-toolbar">
-        <div>
-          <strong>匹配规则</strong>
-          <p>选中规则后会自动加载 SQL 模板、输入参数和输出参数。</p>
-        </div>
-        <el-button plain :loading="rulesLoading" @click="loadRuleOptions">刷新规则</el-button>
-      </div>
-      <div class="studio-form-grid">
-        <el-form-item label="质量规则">
-          <el-select
-            :model-value="String(form.ruleId || '')"
-            filterable
-            clearable
-            placeholder="请选择质量规则"
-            @update:model-value="handleRuleChange"
-          >
-            <el-option
-              v-for="rule in ruleOptions"
-              :key="String(rule.id)"
-              :label="`${rule.ruleName} / ${rule.ruleCode}`"
-              :value="String(rule.id)"
-            >
-              <div class="rule-option">
-                <span>{{ rule.ruleName }}</span>
-                <span class="cell-subtle">{{ rule.scopeType === "SYSTEM" ? "系统级" : "项目级" }} / {{ resolveDimensionLabel(rule.ruleDimension) }}</span>
-              </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="规则来源">
-          <el-input :model-value="selectedRuleDetail ? (selectedRuleDetail.scopeType === 'SYSTEM' ? '系统级规则' : '项目级规则') : '-'" disabled />
-        </el-form-item>
-        <el-form-item label="适配类型">
-          <el-input :model-value="resolveSupportedDatasourceTypesLabel(selectedRuleDetail)" disabled />
-        </el-form-item>
-      </div>
-      <el-form-item label="定义逻辑 SQL">
-        <el-input :model-value="selectedRuleDetail?.logicSql || ''" type="textarea" :rows="8" readonly placeholder="选择规则后展示定义逻辑 SQL" />
-      </el-form-item>
-    </SectionCard>
+    <QualityRuleSelectionSection
+      :form="form"
+      :rule-options="ruleOptions"
+      :selected-rule="selectedRuleDetail"
+      :rules-loading="rulesLoading"
+      :actions="ruleSelectionActions"
+    />
 
     <QualityParameterBindingsSection
       :bindings="form.parameterBindings"
       :actions="parameterBindingActions"
     />
 
-    <SectionCard title="SQL 预览与校验" description="where 子句支持动态函数；SQL 预览会替换参数与函数后生成当前时刻可执行语句。">
-      <div class="section-toolbar">
-        <div>
-          <strong>执行约束</strong>
-          <p>where 子句会拼接到规则 SQL 外层，最终 SQL 可直接用于执行校验。</p>
-        </div>
-        <div class="studio-toolbar-actions">
-          <el-button plain @click="openDynamicFunctionDialog({ type: 'whereClause' })">插入动态函数</el-button>
-          <el-button plain :loading="previewLoading" @click="previewSql">SQL 预览</el-button>
-          <el-button type="primary" plain :loading="validateLoading" @click="validateTask">语义校验</el-button>
-        </div>
-      </div>
-      <el-form-item label="Where 子句">
-        <textarea
-          ref="whereClauseTextareaRef"
-          v-model="form.whereClause"
-          class="task-where-textarea"
-          placeholder="例如：dt = $getCurrentTime('yyyy-MM-dd', '-1d') 或 status = 'VALID'"
-          spellcheck="false"
-          @click="syncWhereClauseSelection"
-          @focus="syncWhereClauseSelection"
-          @keyup="syncWhereClauseSelection"
-          @select="syncWhereClauseSelection"
-        />
-      </el-form-item>
-      <el-form-item label="最终执行 SQL">
-        <el-input v-model="form.resolvedSqlPreview" type="textarea" :rows="10" readonly placeholder="点击 SQL 预览后生成实际语句" />
-      </el-form-item>
-      <div v-if="previewWarnings.length" class="inline-message warning">
-        <div v-for="(warning, index) in previewWarnings" :key="`preview-${index}`">{{ warning }}</div>
-      </div>
-      <div v-if="validationResult?.message" class="inline-message" :class="validationResult.valid ? 'success' : 'danger'">
-        {{ validationResult.message }}
-      </div>
-      <div v-if="validationWarnings.length" class="inline-message warning">
-        <div v-for="(warning, index) in validationWarnings" :key="`validate-${index}`">{{ warning }}</div>
-      </div>
-    </SectionCard>
+    <QualitySqlPreviewSection
+      :form="form"
+      :preview-loading="previewLoading"
+      :validate-loading="validateLoading"
+      :preview-warnings="previewWarnings"
+      :validation-warnings="validationWarnings"
+      :validation-result="validationResult"
+      :actions="sqlPreviewActions"
+    />
 
     <QualityAlertConfigsSection
       :configs="form.alertConfigs"
@@ -206,12 +96,15 @@ import type {
   QualityTaskParamBinding,
   QualityTaskSaveRequest,
 } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import QualityAlertConfigsSection from "@/components/quality/QualityAlertConfigsSection.vue";
 import QualityDynamicFunctionDialog from "@/components/quality/QualityDynamicFunctionDialog.vue";
 import QualityParameterBindingsSection from "@/components/quality/QualityParameterBindingsSection.vue";
+import QualityRuleSelectionSection from "@/components/quality/QualityRuleSelectionSection.vue";
 import QualityScheduleSection from "@/components/quality/QualityScheduleSection.vue";
+import QualitySqlPreviewSection from "@/components/quality/QualitySqlPreviewSection.vue";
+import QualityTaskBasicInfoSection from "@/components/quality/QualityTaskBasicInfoSection.vue";
+import QualityTaskBindingSection from "@/components/quality/QualityTaskBindingSection.vue";
 import QualityValidationResultSection from "@/components/quality/QualityValidationResultSection.vue";
 import { dynamicFunctionCatalog } from "@/components/quality/qualityTaskDynamicFunctions";
 import type { DynamicFunctionInsertTarget, DynamicFunctionParamSchema } from "@/components/quality/qualityTaskDynamicFunctions";
@@ -326,11 +219,33 @@ const selectedDynamicFunction = computed(() =>
   dynamicFunctionCatalog.find((item) => item.name === selectedDynamicFunctionName.value) ?? dynamicFunctionCatalog[0],
 );
 const dynamicFunctionPreview = computed(() => buildDynamicFunctionExpression());
+const basicInfoActions = {
+  handleRuleDimensionChange,
+  handleGranularityChange,
+};
+const bindingActions = {
+  handleDatasourceChange,
+  handleModelChange,
+  handleColumnChange,
+};
+const ruleSelectionActions = {
+  loadRuleOptions,
+  handleRuleChange,
+  resolveDimensionLabel,
+  resolveSupportedDatasourceTypesLabel,
+};
 const parameterBindingActions = {
   resolveParamTypeLabel,
   registerBindingInputRef,
   syncBindingSelection,
   openBindingFunction: (key: string) => openDynamicFunctionDialog({ type: "binding", key }),
+};
+const sqlPreviewActions = {
+  registerWhereClauseTextareaRef,
+  syncWhereClauseSelection,
+  openWhereClauseFunction: () => openDynamicFunctionDialog({ type: "whereClause" }),
+  previewSql,
+  validateTask,
 };
 const alertConfigActions = {
   resolveAlertOperators,
@@ -554,6 +469,10 @@ function syncWhereClauseSelection() {
     start: textarea.selectionStart ?? form.whereClause.length,
     end: textarea.selectionEnd ?? form.whereClause.length,
   };
+}
+
+function registerWhereClauseTextareaRef(element: unknown) {
+  whereClauseTextareaRef.value = element instanceof HTMLTextAreaElement ? element : null;
 }
 
 function resolveBindingValue(key: string) {
@@ -1034,63 +953,3 @@ watch(selectedDynamicFunctionName, () => {
   resetDynamicFunctionArgs();
 });
 </script>
-
-<style scoped>
-.rule-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.cell-subtle {
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
-.task-where-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--studio-border);
-  border-radius: 12px;
-  background: #fff;
-  color: var(--studio-text);
-  font: 13px/1.6 "Cascadia Code", "Consolas", monospace;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.task-where-textarea:focus {
-  border-color: var(--studio-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-
-.task-where-textarea {
-  min-height: 108px;
-  resize: vertical;
-}
-
-.inline-message {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.04);
-  color: var(--studio-text-soft);
-}
-
-.inline-message.success {
-  background: rgba(34, 197, 94, 0.12);
-  color: #166534;
-}
-
-.inline-message.warning {
-  background: rgba(245, 158, 11, 0.12);
-  color: #92400e;
-}
-
-.inline-message.danger {
-  background: rgba(239, 68, 68, 0.12);
-  color: #991b1b;
-}
-
-</style>

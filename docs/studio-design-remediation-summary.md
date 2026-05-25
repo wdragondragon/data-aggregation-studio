@@ -35,6 +35,7 @@
 - Batch 17 继续拆分模型中心列表面板：新增 `ModelListPanel.vue`，将模型列表工具条、动态筛选挂载、模型表格和分页从 `ModelsView.vue` 移出，`ModelsView.vue` 降到 1771 行。
 - Batch 18 拆分质量任务动态函数能力：新增 `QualityDynamicFunctionDialog.vue` 和 `qualityTaskDynamicFunctions.ts`，将质量动态函数弹窗和函数目录从 `QualityTaskEditorView.vue` 移出，页面降到 1179 行。
 - Batch 19 继续拆分质量任务编辑页：新增参数绑定、告警配置、调度配置和校验结果 section 组件，`QualityTaskEditorView.vue` 降到 1016 行。
+- Batch 20 继续拆分质量任务编辑页：新增基本信息、任务绑定、规则选择和 SQL 预览 section 组件，`QualityTaskEditorView.vue` 降到 884 行。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -78,6 +79,8 @@
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 17 模型列表面板拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 18 质量任务动态函数弹窗与函数目录拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 19 质量任务参数、告警、调度和校验结果 section 拆分后验证。
+- `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 20 质量任务基础表单、绑定、规则选择和 SQL 预览 section 拆分后验证，中间曾因 Vue ref 回调类型过窄失败并已修复。
+- `git diff --check`：Batch 20 首次失败，原因是 `QualityTaskEditorView.vue` 文件末尾多余空行；修复后通过，仅有 Windows 工作区 LF/CRLF 替换提示。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -99,4 +102,5 @@
 - Batch 5/11/12/13/14/15/16/17：继续前端大页面治理，`RunsView` 已接入 `usePageQuery`，`MetadataSchemasView` 和 `ModelStatisticsView` 已接入 `useAsyncAction`，`ModelsView` 已拆出动态筛选、同步任务、详情概览、编辑抽屉、同步弹窗和列表面板区块；后续优先拆采集任务编辑、质量任务编辑、工作流编辑和模型中心 schema/元数据 composable。
 - Batch 18：质量任务动态函数目录和弹窗已独立，后续新增质量函数应优先修改 `qualityTaskDynamicFunctions.ts`，不要回填到编辑页。
 - Batch 19：质量任务编辑页主要表格/结果 section 已独立；后续可继续拆基本信息、绑定、规则选择和 SQL 预览区，或转向工作流/采集任务编辑器。
+- Batch 20：质量任务编辑页已降到 1000 行以下，后续不建议继续为行数硬拆；若继续治理，应抽保存/预览/校验 composable 或转向工作流、采集任务、模型中心等仍较大的页面。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。
