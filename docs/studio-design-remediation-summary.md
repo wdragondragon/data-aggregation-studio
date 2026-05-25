@@ -100,6 +100,7 @@
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 28 模型血缘边详情抽屉拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 29 元模型字段定义表拆分后验证。
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 30 模型统计配置区块拆分后验证，中间曾因 `StatusPill` tone 类型过宽失败并已修复。
+- `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 31 模型统计图表展示区拆分后验证。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -132,4 +133,5 @@
 - Batch 28：模型血缘边详情抽屉已独立，血缘面板已降到 1000 行以下；后续优先级低于模型中心、质量指标和模型统计页面。
 - Batch 29：元模型字段定义表已独立，元模型页面已降到 1000 行以下；后续优先处理模型中心、质量指标和模型统计页面。
 - Batch 30：模型统计配置 section 已独立，父页面保留统计请求和图表数据处理；后续继续治理时优先拆图表展示区和 TopN 排名区，或者抽统计请求/chart option composable。
+- Batch 31：模型统计图表展示 section 已独立，`ModelStatisticsView.vue` 已降到 1000 行以下；后续不建议继续为行数拆模板，可转向统计请求/chart option composable 或其他大页面。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

@@ -992,3 +992,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - 模型统计父页面仍约 1204 行；剩余较清晰的展示债务在图表展示区和 TopN 排名区，适合继续拆分。
 - 下一步：提交 Batch 30；继续拆模型统计图表/排名展示区，或转向质量指标、模型中心剩余大页面。
+
+## Step 048 - Batch 31 拆分模型统计图表展示区
+
+- 执行时间：2026-05-25 15:04:26 +08:00
+- 目标问题：`ModelStatisticsView.vue` 在配置区拆出后仍约 1204 行，指标总览、趋势/柱状/饼图和 TopN 排名是可独立维护的展示层。
+- 修改范围：新增 `ModelStatisticsChartsSection.vue` 承载指标卡片、图表卡片、趋势天数和 TopN 控件、排名列表；父页面保留统计请求、图表 option 构造、格式化函数和结果状态，通过 `chartSectionActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelStatisticsView.vue`
+  - `frontend/apps/web/src/components/model-statistics/ModelStatisticsChartsSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：指标卡片、图表空态/禁用提示、趋势天数选择、TopN 数量选择、排名条宽度和格式化展示保持不变；本步骤只迁移展示层。`ModelStatisticsView.vue` 从 1204 行降到 971 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 模型统计父页面已降到 1000 行以下；继续治理时应优先抽统计请求/chart option composable，而不是继续拆模板。
+- 下一步：提交 Batch 31；继续处理质量指标页、模型中心页、采集任务编辑页或统计回归测试类。
