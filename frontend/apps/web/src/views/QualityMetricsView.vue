@@ -12,84 +12,19 @@
       </div>
     </div>
 
-    <SectionCard title="全局筛选" description="时间范围、数据源、模型、规则维度、校验粒度和任务状态会同步影响三个视图。">
-      <div class="quality-filter-grid">
-        <el-form-item class="quality-time-filter">
-          <div class="time-filter-shell">
-            <el-radio-group v-model="timePreset" size="small" @change="changeTimePreset">
-              <el-radio-button value="24h">24 小时</el-radio-button>
-              <el-radio-button value="7d">7 天</el-radio-button>
-              <el-radio-button value="30d">30 天</el-radio-button>
-              <el-radio-button value="custom">自定义</el-radio-button>
-            </el-radio-group>
-            <el-date-picker
-              v-model="timeRange"
-              type="datetimerange"
-              unlink-panels
-              value-format="YYYY-MM-DD HH:mm:ss"
-              range-separator="~"
-              start-placeholder="开始时间"
-              end-placeholder="结束时间"
-              @change="timePreset = 'custom'"
-            />
-          </div>
-        </el-form-item>
-
-        <el-form-item>
-          <el-select v-model="filters.datasourceId" clearable filterable placeholder="全部数据源">
-            <el-option v-for="item in options.datasources" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item>
-          <el-select v-model="filters.modelId" clearable filterable placeholder="全部模型">
-            <el-option v-for="item in options.models" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item>
-          <el-select v-model="filters.ruleDimension" clearable placeholder="全部维度">
-            <el-option v-for="item in dimensionOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item>
-          <el-select v-model="filters.granularity" clearable placeholder="全部粒度">
-            <el-option label="表级" value="TABLE" />
-            <el-option label="字段级" value="COLUMN" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item>
-          <el-select v-model="filters.taskStatus" clearable placeholder="全部状态">
-            <el-option label="草稿" value="DRAFT" />
-            <el-option label="已发布" value="ONLINE" />
-          </el-select>
-        </el-form-item>
-
-        <template v-if="activeTab === 'issues'">
-          <el-form-item>
-            <el-select v-model="filters.severity" clearable placeholder="全部级别">
-              <el-option v-for="item in severityOptions" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-select v-model="filters.issueStatus" clearable placeholder="全部状态">
-              <el-option v-for="item in issueStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-select v-model="filters.assigneeUserId" clearable filterable placeholder="全部负责人">
-              <el-option v-for="item in assigneeOptions" :key="String(item.value)" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-        </template>
-      </div>
-      <div class="quality-filter-actions">
-        <el-button type="primary" :loading="isLoading" @click="reloadAll">查询</el-button>
-        <el-button plain @click="resetFilters">重置</el-button>
-      </div>
-    </SectionCard>
+    <QualityMetricsFilterSection
+      v-model:time-preset="timePreset"
+      v-model:time-range="timeRange"
+      :active-tab="activeTab"
+      :is-loading="isLoading"
+      :filters="filters"
+      :options="options"
+      :dimension-options="dimensionOptions"
+      :severity-options="severityOptions"
+      :issue-status-options="issueStatusOptions"
+      :assignee-options="assigneeOptions"
+      :filter-actions="filterSectionActions"
+    />
 
     <el-tabs v-model="activeTab" class="quality-tabs">
       <el-tab-pane label="总览" name="overview">
@@ -590,6 +525,7 @@ import type {
 import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
+import QualityMetricsFilterSection from "@/components/quality-metrics/QualityMetricsFilterSection.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -694,6 +630,12 @@ const issueTrendOption = computed<EChartsOption>(() => buildIssueTrendOption(das
 const dimensionDistributionOption = computed<EChartsOption>(() => buildDimensionDistributionOption(dashboard.value.dimensionDistribution ?? []));
 const coverageMatrixOption = computed<EChartsOption>(() => buildCoverageMatrixOption(dashboard.value.coverageMatrix ?? []));
 const assetScoreTrendOption = computed<EChartsOption>(() => buildScoreTrendOption(assetDetail.value?.scoreTrend ?? []));
+
+const filterSectionActions = {
+  changeTimePreset,
+  reloadAll,
+  resetFilters,
+};
 
 async function loadOptions() {
   loading.options = true;
@@ -1263,28 +1205,6 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
   gap: 20px;
 }
 
-.quality-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px 16px;
-}
-
-.quality-time-filter {
-  grid-column: 1 / -1;
-}
-
-.time-filter-shell {
-  display: grid;
-  grid-template-columns: auto minmax(280px, 1fr);
-  gap: 12px;
-  width: 100%;
-}
-
-.time-filter-shell :deep(.el-date-editor) {
-  width: 100%;
-}
-
-.quality-filter-actions,
 .quality-section-actions,
 .quality-form-actions {
   display: flex;
@@ -1614,14 +1534,12 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
 }
 
 @media (max-width: 760px) {
-  .time-filter-shell,
   .issue-summary-grid,
   .metric-grid--secondary,
   .drawer-metric-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .quality-filter-actions,
   .quality-form-actions {
     justify-content: flex-start;
     flex-wrap: wrap;

@@ -1011,3 +1011,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 模型统计父页面已降到 1000 行以下；继续治理时应优先抽统计请求/chart option composable，而不是继续拆模板。
 - 下一步：提交 Batch 31；继续处理质量指标页、模型中心页、采集任务编辑页或统计回归测试类。
+
+## Step 049 - Batch 32 拆分质量指标全局筛选区
+
+- 执行时间：2026-05-25 15:46:48 +08:00
+- 目标问题：`QualityMetricsView.vue` 仍超过 1000 行，顶部全局筛选把时间范围、数据源、模型、规则维度、粒度、任务状态和问题筛选条件都放在父页面模板中。
+- 修改范围：新增 `QualityMetricsFilterSection.vue` 承载全局筛选控件和查询/重置按钮；父页面继续持有 `filters`、`timePreset`、`timeRange` 和加载动作，通过 `filterSectionActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityMetricsView.vue`
+  - `frontend/apps/web/src/components/quality-metrics/QualityMetricsFilterSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：筛选字段、时间预设切换、自定义时间、问题中心专属筛选、查询和重置行为保持不变；本步骤只迁移筛选展示层。`QualityMetricsView.vue` 从 1483 行降到 1410 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 质量指标页仍约 1410 行；后续优先拆总览 tab、资产/问题列表或两个详情抽屉。
+- 下一步：提交 Batch 32；继续拆质量指标总览 tab 或详情抽屉。
