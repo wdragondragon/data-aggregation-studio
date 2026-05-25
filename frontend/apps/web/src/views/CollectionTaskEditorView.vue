@@ -34,73 +34,21 @@
       :binding-actions="bindingSectionActions"
     />
 
-    <SectionCard v-else-if="activeStep === 2" :title="t('web.collectionTasks.mappingTitle')" :description="t('web.collectionTasks.mappingDescription')">
-      <div class="section-toolbar">
-        <div>
-          <strong>{{ t("web.collectionTasks.mappingToolbarTitle") }}</strong>
-          <p>{{ t("web.collectionTasks.mappingToolbarDescription") }}</p>
-        </div>
-        <el-button type="primary" plain @click="initializeMappings">{{ t("web.collectionTasks.initializeMappings") }}</el-button>
-      </div>
-
-      <div v-if="isFusionTask" class="studio-form-grid fusion-options">
-        <el-form-item :label="t('web.collectionTasks.joinKeys')">
-          <el-select v-model="joinKeys" multiple filterable :placeholder="t('web.collectionTasks.joinKeysPlaceholder')">
-            <el-option v-for="field in commonJoinKeyOptions" :key="field" :label="field" :value="field" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.joinType')">
-          <el-select v-model="joinType">
-            <el-option label="LEFT" value="LEFT" />
-            <el-option label="INNER" value="INNER" />
-            <el-option label="RIGHT" value="RIGHT" />
-          </el-select>
-        </el-form-item>
-      </div>
-
-      <div v-if="isFusionTask" class="runtime-option-block runtime-option-block--fusion">
-        <div class="runtime-option-header">
-          <div>
-            <strong>{{ t("web.collectionTasks.fusionReaderAdvancedOptions") }}</strong>
-            <p>{{ runtimeSchemaTitleByType("reader", "fusion") }}</p>
-          </div>
-          <el-tag v-if="runtimeSchemaForType('reader', 'fusion')" :type="runtimeStatusTypeByType('reader', 'fusion')">
-            {{ runtimeStatusLabelByType("reader", "fusion") }}
-          </el-tag>
-        </div>
-        <MetaFormRenderer
-          v-if="fusionReaderAdvancedFields.length"
-          :fields="fusionReaderAdvancedFields"
-          :model-value="fusionReaderOptions"
-          @update:model-value="updateFusionReaderOptions"
-        />
-        <el-alert
-          v-else-if="runtimeSchemaForType('reader', 'fusion') && !runtimeSchemaForType('reader', 'fusion')?.runtimeSupported"
-          type="warning"
-          :closable="false"
-          show-icon
-          :title="t('web.collectionTasks.runtimeUnsupported')"
-        />
-        <el-alert
-          v-else-if="runtimeSchemaForType('reader', 'fusion')"
-          type="info"
-          :closable="false"
-          show-icon
-          :title="t('web.collectionTasks.runtimeSchemaMissing')"
-        />
-      </div>
-
-      <CollectionTaskFieldMappingEditor
-        :model-value="form.fieldMappings"
-        :source-aliases="sourceAliasOptions"
-        :source-field-options-by-alias="sourceFieldOptionsByAlias"
-        :target-fields="targetFieldOptions"
-        :rule-options="fieldMappingRules"
-        :show-source-alias="isFusionTask"
-        :show-expression="isFusionTask"
-        @update:model-value="form.fieldMappings = $event"
-      />
-    </SectionCard>
+    <CollectionTaskMappingSection
+      v-else-if="activeStep === 2"
+      v-model:join-keys="joinKeys"
+      v-model:join-type="joinType"
+      :form="form"
+      :is-fusion-task="isFusionTask"
+      :common-join-key-options="commonJoinKeyOptions"
+      :fusion-reader-advanced-fields="fusionReaderAdvancedFields"
+      :fusion-reader-options="fusionReaderOptions"
+      :source-alias-options="sourceAliasOptions"
+      :source-field-options-by-alias="sourceFieldOptionsByAlias"
+      :target-field-options="targetFieldOptions"
+      :field-mapping-rules="fieldMappingRules"
+      :mapping-actions="mappingSectionActions"
+    />
 
     <CollectionTaskScheduleSection
       v-else-if="activeStep === 3"
@@ -139,17 +87,17 @@ import type {
   CollectionTaskTargetBinding,
   DataModelDefinition,
   DataSourceDefinition,
+  FieldMappingDefinition,
   FieldMappingRuleView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
 } from "@studio/api-sdk";
-import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import CollectionTaskBindingSection from "@/components/collection-task/CollectionTaskBindingSection.vue";
+import CollectionTaskMappingSection from "@/components/collection-task/CollectionTaskMappingSection.vue";
 import CollectionTaskReviewSection from "@/components/collection-task/CollectionTaskReviewSection.vue";
 import CollectionTaskScheduleSection from "@/components/collection-task/CollectionTaskScheduleSection.vue";
-import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
 import { cloneDeep } from "@/utils/studio";
 
 interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
@@ -335,6 +283,16 @@ const bindingSectionActions = {
   isHttpWriterTarget,
   writerDynamicFunctionFields,
   updateTargetWriterOptions,
+};
+
+const mappingSectionActions = {
+  initializeMappings,
+  runtimeSchemaTitleByType,
+  runtimeSchemaForType,
+  runtimeStatusTypeByType,
+  runtimeStatusLabelByType,
+  updateFusionReaderOptions,
+  updateFieldMappings,
 };
 
 async function loadReferenceData() {
@@ -1036,6 +994,10 @@ function initializeMappings() {
   }));
 }
 
+function updateFieldMappings(value: FieldMappingDefinition[]) {
+  form.fieldMappings = value;
+}
+
 async function loadPreviewConfig() {
   if (!canPreviewConfig.value) {
     previewConfig.value = null;
@@ -1205,33 +1167,6 @@ h3 {
 p {
   margin: 0;
   color: var(--studio-text-soft);
-}
-
-.section-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.fusion-options {
-  margin-bottom: 16px;
-}
-
-.runtime-option-block {
-  display: grid;
-  gap: 12px;
-  border: 1px solid var(--studio-border);
-  border-radius: 8px;
-  padding: 14px;
-}
-
-.runtime-option-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .editor-footer {
