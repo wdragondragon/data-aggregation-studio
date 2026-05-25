@@ -12,245 +12,28 @@
       </div>
     </div>
 
-    <SectionCard :title="t('web.statistics.setupTitle')" :show-description="false">
-      <template #actions>
-        <el-button plain :loading="workspaceLoading" @click="loadWorkspace">{{ t("common.refresh") }}</el-button>
-        <el-button plain @click="toggleSetupPanel">
-          {{ setupExpanded ? t("web.statistics.hideSetup") : t("web.statistics.editSetup") }}
-        </el-button>
-        <el-button type="primary" :disabled="!canRunAnalysis" :loading="runningAnalysis" @click="runAnalysis">
-          {{ t("web.statistics.run") }}
-        </el-button>
-      </template>
-
-      <div class="statistics-setup-summary">
-        <StatusPill
-          v-for="item in setupSummaryItems"
-          :key="item.key"
-          :label="item.label"
-          :tone="item.tone"
-        />
-      </div>
-
-      <div v-if="scopeHintText" class="soft-panel statistics-setup-hint">
-        {{ scopeHintText }}
-      </div>
-      <div class="statistics-field-hint">
-        <span>{{ fieldSummaryText }}</span>
-      </div>
-      <div v-if="numericAutoBucketText" class="soft-panel statistics-bucket-note">
-        {{ numericAutoBucketText }}
-      </div>
-
-      <div v-show="setupExpanded" class="statistics-setup-panel">
-        <div class="studio-form-grid">
-          <el-form-item>
-            <el-select
-              v-model="selectedTargetScope"
-              :placeholder="t('web.statistics.targetScopeLabel')"
-              @change="handleTargetScopeChange"
-            >
-              <el-option :label="t('web.statistics.targetScopeBusiness')" value="BUSINESS" />
-              <el-option :label="t('web.statistics.targetScopeTechnical')" value="TECHNICAL" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item>
-            <el-select
-              v-model="selectedDatasourceType"
-              clearable
-              :placeholder="t('web.models.datasourceTypePlaceholder')"
-              @change="handleDatasourceTypeChange"
-            >
-              <el-option v-for="typeCode in datasourceTypes" :key="typeCode" :label="typeCode" :value="typeCode" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item>
-            <el-select
-              v-model="selectedDatasourceId"
-              clearable
-              filterable
-              :placeholder="t('web.models.datasourcePlaceholder')"
-              @change="handleDatasourceChange"
-            >
-              <el-option
-                v-for="item in filteredDatasourceOptions"
-                :key="String(item.id)"
-                :label="`${item.name} (${item.typeCode})`"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item>
-            <el-select
-              v-model="targetMetaSchemaCode"
-              clearable
-              filterable
-              :disabled="targetSchemaOptions.length === 0"
-              :placeholder="t('web.statistics.targetMetaModelPlaceholder')"
-            >
-              <el-option
-                v-for="schema in targetSchemaOptions"
-                :key="schema.schemaCode"
-                :label="schemaLabel(schema)"
-                :value="schema.schemaCode"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item>
-            <el-select
-              v-model="targetFieldKey"
-              clearable
-              :disabled="targetFieldOptions.length === 0"
-              :placeholder="t('web.statistics.targetFieldPlaceholder')"
-            >
-              <el-option
-                v-for="field in targetFieldOptions"
-                :key="field.fieldKey"
-                :label="field.fieldName"
-                :value="field.fieldKey"
-              />
-            </el-select>
-          </el-form-item>
-
-        </div>
-
-        <div class="statistics-setup-divider">
-          <div>
-            <h4>{{ t("web.models.dynamicFiltersTitle") }}</h4>
-            <p>{{ t("web.models.dynamicFiltersDescription") }}</p>
-          </div>
-          <div class="statistics-setup-divider__actions">
-            <el-button plain :disabled="querySchemaOptions.length === 0" @click="appendQueryGroup">{{ t("common.addFilter") }}</el-button>
-            <el-button plain @click="resetQueryFilters">{{ t("common.reset") }}</el-button>
-          </div>
-        </div>
-
-        <div v-if="queryGroups.length === 0" class="soft-panel statistics-empty statistics-empty--compact">
-          {{ t("web.models.dynamicFiltersEmpty") }}
-        </div>
-
-        <div v-for="group in queryGroups" :key="group.key" class="soft-panel model-query-group">
-          <div class="studio-form-grid">
-            <el-form-item>
-              <el-select
-                v-model="group.metaSchemaCode"
-                clearable
-                filterable
-                :placeholder="t('web.models.filterMetaModelPlaceholder')"
-                @change="handleQuerySchemaChange(group)"
-              >
-                <el-option
-                  v-for="schema in querySchemaOptions"
-                  :key="schema.schemaCode"
-                  :label="schemaLabel(schema)"
-                  :value="schema.schemaCode"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item v-if="isMultipleQuerySchema(group)">
-              <el-select v-model="group.rowMatchMode" :placeholder="t('web.models.filterRowMatchMode')">
-                <el-option :label="t('web.models.filterRowMatchSameItem')" value="SAME_ITEM" />
-                <el-option :label="t('web.models.filterRowMatchAnyItem')" value="ANY_ITEM" />
-              </el-select>
-            </el-form-item>
-          </div>
-
-          <div class="multiple-section-actions">
-            <el-button type="primary" plain @click="appendQueryCondition(group)">{{ t("common.addCondition") }}</el-button>
-            <el-button link type="danger" @click="removeQueryGroup(group.key)">{{ t("common.remove") }}</el-button>
-          </div>
-
-          <StudioTableShell min-width="760px">
-            <el-table :data="group.conditions" border>
-            <el-table-column :label="t('web.models.filterField')" min-width="160">
-              <template #default="{ row }">
-                <el-select
-                  v-model="row.fieldKey"
-                  clearable
-                  :placeholder="t('web.models.filterFieldPlaceholder')"
-                  @change="handleQueryFieldChange(group, row)"
-                >
-                  <el-option
-                    v-for="field in querySchemaFields(group)"
-                    :key="field.fieldKey"
-                    :label="field.fieldName"
-                    :value="field.fieldKey"
-                  />
-                </el-select>
-              </template>
-            </el-table-column>
-
-            <el-table-column :label="t('web.models.filterOperator')" width="140">
-              <template #default="{ row }">
-                <el-select v-model="row.operator" clearable :placeholder="t('web.models.filterOperatorPlaceholder')">
-                  <el-option
-                    v-for="operator in queryConditionOperators(group, row)"
-                    :key="operator"
-                    :label="operator"
-                    :value="operator"
-                  />
-                </el-select>
-              </template>
-            </el-table-column>
-
-            <el-table-column :label="t('web.models.filterValue')" min-width="260">
-              <template #default="{ row }">
-                <div class="query-condition-value">
-                  <el-input
-                    v-if="row.operator === 'IN'"
-                    v-model="row.multiValueText"
-                    :placeholder="t('web.models.filterValuesPlaceholder')"
-                  />
-                  <template v-else-if="row.operator === 'BETWEEN'">
-                    <component
-                      :is="isNumericField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                      v-model="row.value"
-                      class="query-condition-value__input"
-                      :placeholder="t('web.models.filterValuePlaceholder')"
-                    />
-                    <span class="query-condition-value__divider">-</span>
-                    <component
-                      :is="isNumericField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                      v-model="row.valueTo"
-                      class="query-condition-value__input"
-                      :placeholder="t('web.models.filterValueToPlaceholder')"
-                    />
-                  </template>
-                  <el-select
-                    v-else-if="queryConditionField(group, row)?.valueType === 'BOOLEAN'"
-                    v-model="row.value"
-                    clearable
-                    :placeholder="t('web.models.filterValuePlaceholder')"
-                  >
-                    <el-option :label="t('common.yes')" :value="true" />
-                    <el-option :label="t('common.no')" :value="false" />
-                  </el-select>
-                  <component
-                    :is="isNumericField(queryConditionField(group, row)) ? ElInputNumber : ElInput"
-                    v-else
-                    v-model="row.value"
-                    class="query-condition-value__input"
-                    :placeholder="t('web.models.filterValuePlaceholder')"
-                  />
-                </div>
-              </template>
-            </el-table-column>
-
-            <el-table-column :label="t('web.metadata.actions')" width="100" fixed="right">
-              <template #default="{ $index }">
-                <el-button link type="danger" @click="removeQueryCondition(group, $index)">{{ t("common.remove") }}</el-button>
-              </template>
-            </el-table-column>
-            </el-table>
-          </StudioTableShell>
-        </div>
-      </div>
-    </SectionCard>
+    <ModelStatisticsSetupSection
+      v-model:selected-target-scope="selectedTargetScope"
+      v-model:selected-datasource-type="selectedDatasourceType"
+      v-model:selected-datasource-id="selectedDatasourceId"
+      v-model:target-meta-schema-code="targetMetaSchemaCode"
+      v-model:target-field-key="targetFieldKey"
+      :workspace-loading="workspaceLoading"
+      :setup-expanded="setupExpanded"
+      :can-run-analysis="canRunAnalysis"
+      :running-analysis="runningAnalysis"
+      :setup-summary-items="setupSummaryItems"
+      :scope-hint-text="scopeHintText"
+      :field-summary-text="fieldSummaryText"
+      :numeric-auto-bucket-text="numericAutoBucketText"
+      :datasource-types="datasourceTypes"
+      :filtered-datasource-options="filteredDatasourceOptions"
+      :target-schema-options="targetSchemaOptions"
+      :target-field-options="targetFieldOptions"
+      :query-schema-options="querySchemaOptions"
+      :query-groups="queryGroups"
+      :setup-actions="setupSectionActions"
+    />
 
     <SectionCard :title="t('web.statistics.overviewTitle')" :description="t('web.statistics.overviewDescription')" :show-description="true">
       <div v-if="metricCards.length === 0" class="soft-panel statistics-empty">{{ t("web.statistics.chartEmpty") }}</div>
@@ -357,7 +140,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ElInput, ElInputNumber, ElMessage } from "element-plus";
+import { ElMessage } from "element-plus";
 import type { EChartsOption } from "echarts";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
@@ -375,8 +158,9 @@ import type {
   EntityId,
   StatisticsChartType,
 } from "@studio/api-sdk";
-import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
+import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
 import EChartPanel from "@/components/EChartPanel.vue";
+import ModelStatisticsSetupSection from "@/components/model-statistics/ModelStatisticsSetupSection.vue";
 import { studioApi } from "@/api/studio";
 import { useAsyncAction } from "@/composables/useAsyncAction";
 import { useAuthStore } from "@/stores/auth";
@@ -661,6 +445,28 @@ const pieChartHeight = computed(() => {
 const trendOption = computed(() => buildTrendOption(chartResults.TREND));
 const barOption = computed(() => buildBarOption(chartResults.BAR));
 const pieOption = computed(() => buildPieOption(chartResults.PIE, chartGridMode.value));
+
+const setupSectionActions = {
+  loadWorkspace,
+  toggleSetupPanel,
+  runAnalysis,
+  handleTargetScopeChange,
+  handleDatasourceTypeChange,
+  handleDatasourceChange,
+  schemaLabel,
+  appendQueryGroup,
+  resetQueryFilters,
+  isMultipleQuerySchema,
+  handleQuerySchemaChange,
+  appendQueryCondition,
+  removeQueryGroup,
+  querySchemaFields,
+  handleQueryFieldChange,
+  queryConditionOperators,
+  queryConditionField,
+  isNumericField,
+  removeQueryCondition,
+};
 
 watch(querySchemaOptions, () => {
   sanitizeQueryGroups();
@@ -1330,70 +1136,12 @@ function buildPieOption(chart?: DataModelStatisticsChartView, layoutMode: "defau
   margin-top: 12px;
 }
 
-.statistics-setup-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.statistics-setup-hint {
-  margin-top: 14px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.7;
-}
-
-.statistics-setup-panel {
-  margin-top: 18px;
-}
-
-.statistics-setup-divider {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 4px 0 16px;
-}
-
-.statistics-setup-divider h4 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.statistics-setup-divider p {
-  margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.statistics-setup-divider__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.statistics-field-hint {
-  margin-top: 8px;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.statistics-bucket-note {
-  margin-top: 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
 .statistics-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 120px;
   color: var(--el-text-color-secondary);
-}
-
-.statistics-empty--compact {
-  min-height: 88px;
 }
 
 .statistics-metrics {
@@ -1456,20 +1204,6 @@ function buildPieOption(chart?: DataModelStatisticsChartView, layoutMode: "defau
 
 .statistics-card-control__number {
   width: 132px;
-}
-
-.query-condition-value {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.query-condition-value__input {
-  flex: 1;
-}
-
-.query-condition-value__divider {
-  color: var(--el-text-color-secondary);
 }
 
 .ranking-board {
@@ -1575,10 +1309,6 @@ function buildPieOption(chart?: DataModelStatisticsChartView, layoutMode: "defau
   .statistics-chart-card--pie,
   .statistics-chart-card--topn {
     grid-column: 1 / -1;
-  }
-
-  .statistics-setup-divider {
-    flex-direction: column;
   }
 
   .ranking-board__header {

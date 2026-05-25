@@ -972,3 +972,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 元模型页已降到 1000 行以下；后续如继续治理，建议抽 drawer basic section 或 tree/detail section，但当前优先级低于模型中心、质量指标和模型统计页面。
 - 下一步：提交 Batch 29；继续处理模型中心、质量指标或模型统计页面。
+
+## Step 047 - Batch 30 拆分模型统计配置区块
+
+- 执行时间：2026-05-25 14:30:29 +08:00
+- 目标问题：`ModelStatisticsView.vue` 仍超过 1000 行，顶部统计目标、数据源、动态筛选条件和执行按钮都集中在父页面，和图表展示/统计请求逻辑混在一起。
+- 修改范围：新增 `ModelStatisticsSetupSection.vue` 承载统计配置区块；父页面保留数据源加载、元模型选项、动态筛选状态、统计执行和图表数据处理逻辑，通过 `setupSectionActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelStatisticsView.vue`
+  - `frontend/apps/web/src/components/model-statistics/ModelStatisticsSetupSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：目标范围、数据源类型、数据源、目标元模型/字段、动态筛选分组、执行/刷新/收起操作保持不变；本步骤只迁移配置展示层。`ModelStatisticsView.vue` 从约 1444 行降到 1204 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是新组件的 `SummaryItem.tone` 类型包含 `accent`，但 `StatusPill` 不接受该值。
+  - 修复 tone 类型后，`npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - 模型统计父页面仍约 1204 行；剩余较清晰的展示债务在图表展示区和 TopN 排名区，适合继续拆分。
+- 下一步：提交 Batch 30；继续拆模型统计图表/排名展示区，或转向质量指标、模型中心剩余大页面。
