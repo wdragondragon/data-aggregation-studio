@@ -50,36 +50,21 @@
       </el-tabs>
     </template>
 
-    <template v-else>
-      <div class="detail-toolbar">
-        <el-button plain @click="goBackToList">{{ t("common.backToList") }}</el-button>
-        <div class="detail-toolbar__actions">
-          <el-button plain :disabled="!selectedModel?.datasourceId" @click="openStatisticsWorkspace(selectedModel?.datasourceId)">{{ t("common.statistics") }}</el-button>
-          <el-button plain @click="refreshDetail">{{ t("common.refresh") }}</el-button>
-          <el-button type="primary" :disabled="!selectedModel || isSharedSelectedModel" @click="openDetailEdit">{{ t("common.edit") }}</el-button>
-        </div>
-      </div>
-
-      <el-tabs v-model="activeDetailTab" class="model-detail-tabs">
-        <el-tab-pane :label="t('web.models.detailTabOverview')" name="overview">
-          <ModelDetailOverview
-            :model="selectedModel"
-            :shared="isSharedSelectedModel"
-            :sections="previewSections"
-            :preview-rows="previewRows"
-            :preview-columns="previewColumns"
-            :resolve-project-label="resolveProjectLabel"
-            :preview-section-rows="previewSectionRows"
-            :section-value="sectionValue"
-            :format-display-value="formatDisplayValue"
-          />
-        </el-tab-pane>
-
-        <el-tab-pane :label="t('web.models.detailTabLineage')" name="lineage">
-          <ModelLineagePanel :model-id="detailModelId" :model="selectedModel" />
-        </el-tab-pane>
-      </el-tabs>
-    </template>
+    <ModelDetailShell
+      v-else
+      v-model:active-tab="activeDetailTab"
+      :model-id="detailModelId"
+      :model="selectedModel"
+      :shared="isSharedSelectedModel"
+      :sections="previewSections"
+      :preview-rows="previewRows"
+      :preview-columns="previewColumns"
+      :resolve-project-label="resolveProjectLabel"
+      :preview-section-rows="previewSectionRows"
+      :section-value="sectionValue"
+      :format-display-value="formatDisplayValue"
+      :actions="modelDetailActions"
+    />
 
     <ModelSyncDialogs
       v-model:sync-dialog-open="syncDialogOpen"
@@ -133,15 +118,15 @@ import type {
 } from "@studio/api-sdk";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
-import ModelDetailOverview from "@/components/models/ModelDetailOverview.vue";
+import ModelDetailShell from "@/components/models/ModelDetailShell.vue";
 import ModelEditorDrawer from "@/components/models/ModelEditorDrawer.vue";
 import ModelIndexQueueCard from "@/components/models/ModelIndexQueueCard.vue";
 import ModelListPanel from "@/components/models/ModelListPanel.vue";
 import { isDatabaseDatasourceType, normalizeModelPagePayload, normalizeTypeCode, sameId, useModelMetadataSupport } from "@/components/models/modelMetadataSupport";
+import { canDeleteSyncTask, canStopSyncTask, formatSyncTaskDurationMs, modelSyncTaskStatusOptions, normalizeModelListTab } from "@/components/models/modelSyncTaskSupport";
 import ModelSyncDialogs from "@/components/models/ModelSyncDialogs.vue";
 import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState, ModelSyncFormState, ModelSyncTaskFormState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
-import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
 import { cloneDeep, isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const route = useRoute();
@@ -246,7 +231,7 @@ const syncTaskFilterDatasourceOptions = computed(() =>
     (item) => !syncTaskFilters.datasourceType || item.typeCode === syncTaskFilters.datasourceType,
   ),
 );
-const syncTaskStatusOptions = computed(() => ["PENDING", "RUNNING", "STOPPING", "SUCCESS", "FAILED", "STOPPED"]);
+const syncTaskStatusOptions = modelSyncTaskStatusOptions;
 const indexQueueBusy = computed(() => Boolean(indexQueueStatus.value?.busy));
 const indexQueuePendingRebuildCount = computed(() => Number(indexQueueStatus.value?.pendingRebuildCount ?? 0));
 const indexQueueQueuedCommandCount = computed(() => Number(indexQueueStatus.value?.queuedCommandCount ?? 0));
@@ -360,7 +345,7 @@ const syncTaskSectionActions = {
   stopSyncTask,
   deleteSyncTask,
   handlePageSizeChange: handleSyncTaskPageSizeChange,
-  formatDurationMs,
+  formatDurationMs: (durationMs?: number) => formatSyncTaskDurationMs(durationMs, t("common.none")),
 };
 const syncDialogActions = {
   handleSyncDatasourceTypeChange,
@@ -382,6 +367,12 @@ const modelEditorActions = {
   sectionModelValue,
   updateSectionModelValue,
   saveModel,
+};
+const modelDetailActions = {
+  goBackToList,
+  openStatisticsWorkspace,
+  refreshDetail,
+  openDetailEdit,
 };
 
 function findDatasourceById(datasourceId?: EntityId) {
@@ -526,14 +517,6 @@ async function loadIndexQueueStatus(showError = false) {
   }
 }
 
-function canStopSyncTask(task: ModelSyncTaskView) {
-  return ["PENDING", "RUNNING", "STOPPING"].includes(String(task.status || "").toUpperCase());
-}
-
-function canDeleteSyncTask(task: ModelSyncTaskView) {
-  return ["SUCCESS", "FAILED", "STOPPED"].includes(String(task.status || "").toUpperCase());
-}
-
 function openSyncTaskDetail(task: ModelSyncTaskView) {
   if (!task.id) {
     return;
@@ -575,22 +558,6 @@ async function deleteSyncTask(task: ModelSyncTaskView) {
       ElMessage.error(error instanceof Error ? error.message : "删除同步任务失败");
     }
   }
-}
-
-function formatDurationMs(durationMs?: number) {
-  if (durationMs == null || Number.isNaN(Number(durationMs))) {
-    return t("common.none");
-  }
-  if (durationMs < 1000) {
-    return `${durationMs} ms`;
-  }
-  const seconds = durationMs / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(seconds >= 10 ? 1 : 2)} s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainderSeconds = Math.round(seconds % 60);
-  return `${minutes}m ${remainderSeconds}s`;
 }
 
 async function loadPage() {
@@ -961,15 +928,11 @@ function buildModelActions(model: DataModelDefinition) {
   ];
 }
 
-function normalizeListTab(value: unknown) {
-  return value === "sync-tasks" ? "sync-tasks" : "models";
-}
-
 watch(
   () => route.query.tab,
   (value) => {
     if (!isDetailPage.value) {
-      activeListTab.value = normalizeListTab(value);
+      activeListTab.value = normalizeModelListTab(value);
     }
   },
   { immediate: true },
@@ -981,7 +944,7 @@ watch(
     if (isDetailPage.value) {
       return;
     }
-    const normalized = normalizeListTab(value);
+    const normalized = normalizeModelListTab(value);
     if (route.query.tab !== normalized) {
       await router.replace({
         name: "models",
@@ -1031,37 +994,4 @@ p {
   gap: 12px;
 }
 
-.detail-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.detail-toolbar__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.model-detail-tabs :deep(.el-tabs__header) {
-  margin-bottom: 18px;
-}
-
-.model-detail-tabs :deep(.el-tabs__nav-wrap::after) {
-  background: rgba(148, 163, 184, 0.22);
-}
-
-@media (max-width: 980px) {
-  .detail-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .detail-toolbar__actions {
-    justify-content: flex-start;
-  }
-
-}
 </style>

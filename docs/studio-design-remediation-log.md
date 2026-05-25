@@ -1256,3 +1256,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
   - 质量规则编辑页已降到 1000 行以下；后续如继续治理，建议抽 SQL 选择/插入 composable，而不是再拆表格模板。
 - 下一步：提交 Batch 43；继续处理模型中心、工作流和采集任务编辑页。
+
+## Step 061 - Batch 44 拆分模型中心详情壳与同步任务支撑
+
+- 执行时间：2026-05-26 01:32:52 +08:00
+- 目标问题：`ModelsView.vue` 仍超过 1000 行，详情页工具条、概览/血缘 tab 布局和同步任务状态/时长 helper 与模型列表、同步、编辑流程混在一起。
+- 修改范围：新增 `ModelDetailShell.vue` 承载模型详情工具条、概览/血缘 tabs 和局部响应式样式；新增 `modelSyncTaskSupport.ts` 承载同步任务状态选项、停止/删除状态判断、耗时格式化和列表 tab 归一化。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/ModelDetailShell.vue`
+  - `frontend/apps/web/src/components/models/modelSyncTaskSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型详情页按钮、概览、血缘、同步任务状态选项、停止/删除条件、耗时格式和 `tab=sync-tasks` 路由归一化保持不变；父页面仍负责加载、路由、保存、同步和删除流程。`ModelsView.vue` 从 1067 行降到 997 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
+  - 模型中心父页面已降到 1000 行以下；后续如继续治理，建议抽模型同步流程 composable，而不是继续拆页面样式。
+- 下一步：提交 Batch 44；继续处理工作流编辑和采集任务编辑页。
