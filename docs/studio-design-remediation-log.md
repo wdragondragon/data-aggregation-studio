@@ -1295,3 +1295,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
   - 工作流编辑页已降到 1000 行以下；后续如继续治理，建议抽节点绑定 composable 或资源加载 composable，不再围绕行数硬拆。
 - 下一步：提交 Batch 45；继续处理采集任务编辑页。
+
+## Step 063 - Batch 46 拆分采集任务编辑页模型/增量/运行参数支撑
+
+- 执行时间：2026-05-26 01:49:20 +08:00
+- 目标问题：`CollectionTaskEditorView.vue` 仍超过 1000 行，页面内保留模型字段解析、主键字段解析、源端/目标端绑定归一化、增量游标清理和同步、运行参数默认值合并、JSON 默认值解析等纯支撑逻辑。
+- 修改范围：扩展 `collectionTaskEditorSupport.ts`，迁入模型字段 helper、任务绑定规范化、历史写入模式迁移、增量游标 helper、运行参数默认值合并、纯对象判断和增量游标展示格式化；父页面继续负责引用数据加载、runtime schema 获取、custom SQL 字段解析、预览和保存。
+- 涉及文件：
+  - `frontend/apps/web/src/views/CollectionTaskEditorView.vue`
+  - `frontend/apps/web/src/components/collection-task/collectionTaskEditorSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：采集任务保存 payload、reader/writer/fusion runtime options 合并规则、HTTP/File 动态函数字段、增量游标展示与重置逻辑保持不变；仅把不依赖 Vue 页面状态的 helper 下沉到既有 support 文件。`CollectionTaskEditorView.vue` 从 1109 行降到 936 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
+  - 采集任务编辑页已降到 1000 行以下；后续如继续治理，建议抽 custom SQL 字段解析或 runtime schema 加载 composable，而不是继续拆模板。
+- 下一步：提交 Batch 46；执行最终大文件扫描、设计债务门禁和前端构建收口。
