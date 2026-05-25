@@ -1276,3 +1276,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
   - 模型中心父页面已降到 1000 行以下；后续如继续治理，建议抽模型同步流程 composable，而不是继续拆页面样式。
 - 下一步：提交 Batch 44；继续处理工作流编辑和采集任务编辑页。
+
+## Step 062 - Batch 45 拆分工作流编辑页解析与格式化支撑
+
+- 执行时间：2026-05-26 01:41:00 +08:00
+- 目标问题：`WorkflowEditorView.vue` 仍超过 1000 行，页面内包含对话框分页、脚本树过滤、HTTP 参数/Body 归一化、数据脚本参数解析、最大行数归一化、质量维度/粒度格式化等纯支撑逻辑。
+- 修改范围：新增 `workflowEditorSupport.ts`，将上述无页面状态依赖的类型和 helper 迁出；父页面继续负责引用数据加载、节点绑定、保存 payload、资源弹窗和选中节点动作。
+- 涉及文件：
+  - `frontend/apps/web/src/views/WorkflowEditorView.vue`
+  - `frontend/apps/web/src/components/workflow/workflowEditorSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：工作流保存 payload、HTTP 节点 `body/queryParams/headers` 结构、数据脚本参数 JSON 校验、脚本树搜索、资源弹窗分页序号和质量任务文案保持不变；错误消息仍由父页面传入 i18n 文案。`WorkflowEditorView.vue` 从 1069 行降到 928 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
+  - 工作流编辑页已降到 1000 行以下；后续如继续治理，建议抽节点绑定 composable 或资源加载 composable，不再围绕行数硬拆。
+- 下一步：提交 Batch 45；继续处理采集任务编辑页。
