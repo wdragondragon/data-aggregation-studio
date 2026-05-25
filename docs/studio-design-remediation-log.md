@@ -1314,3 +1314,30 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
   - 采集任务编辑页已降到 1000 行以下；后续如继续治理，建议抽 custom SQL 字段解析或 runtime schema 加载 composable，而不是继续拆模板。
 - 下一步：提交 Batch 46；执行最终大文件扫描、设计债务门禁和前端构建收口。
+
+## Step 064 - 最终验证与整改记录收口
+
+- 执行时间：2026-05-26 02:12:09 +08:00
+- 目标问题：完成 Batch 46 后的最终门禁验证，确认前端大页面阈值目标、后端设计债务门禁、schema drift 和 Studio 全量回归状态，并把验证过程中的环境修复与假失败记录到文档。
+- 修改范围：无业务代码改动；仅补充整改日志和汇总文档。为完成后端验证，临时在本机 Maven 仓库安装 Studio 依赖的 DataAggregation 快照模块。
+- 涉及文件：
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：本步骤只更新文档和本机 Maven 缓存，不改变 Studio API、DTO、任务 JSON、数据库表结构或前端运行行为。
+- 验证命令与结果：
+  - `git status --short --branch`（Studio 根目录）：当前分支 `codex/studio-design-remediation`，文档更新前工作树干净。
+  - `git diff --check`（Studio 根目录）：通过，无空白错误。
+  - 大文件扫描（后端 Java > 800 行、前端 Vue > 1000 行）：仅剩 `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java`，2050 行；该类按前序结论作为已审查 schema/升级编排类暂留。
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `mvn -pl studio-test -am "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：首次失败，原因是本机 Maven 仓库缺少 `com.jdragon.aggregation:commons/core/data-source-handler-abstract/plugins-loader-center:1.0_jdk17-SNAPSHOT`。
+  - `mvn -pl commons,core,data-source-plugins/data-source-handler-abstract,plugins-loader-center -am -DskipTests install`（`DataAggregation` 根目录）：通过，补齐 Studio 后端测试所需本地快照依赖。
+  - `mvn -pl studio-test -am "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：通过，4 tests，0 failures，0 errors。
+  - `mvn -pl studio-test -am "-DforkCount=0" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：失败 1 个用例，`DataDevelopmentApiRegressionTest.shouldSaveAndExecutePythonScriptWithoutDatasource` 中假 Python 子进程找不到 `com.jdragon.studio.test.support.FakePythonInterpreter`；定位为 `-DforkCount=0` 下 `System.getProperty("java.class.path")` 不包含 `target/test-classes` 的测试启动方式问题。
+  - `mvn -pl studio-test -am "-Dtest=DataDevelopmentApiRegressionTest#shouldSaveAndExecutePythonScriptWithoutDatasource" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：默认 Surefire fork 策略下通过，1 test，0 failures，0 errors。
+  - `mvn -pl studio-test -am "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：默认 Surefire fork 策略下通过，87 tests，0 failures，0 errors，0 skipped。
+- 失败、阻塞或残余风险：
+  - 后端全量回归启动时 Redis 不可达，会触发 `DataServiceResponseCacheService` 本地内存降级日志并拖慢首个 Spring 上下文启动；最终不影响测试结果。
+  - 默认 Surefire fork 策略退出阶段出现 `Surefire is going to kill self fork JVM` 提示，但测试汇总为 `BUILD SUCCESS`。
+  - `-DforkCount=0` 不适合执行包含 Python 假解释器子进程的全量回归；后续全量回归应使用默认 fork 策略，设计债务等纯静态门禁仍可使用 `-DforkCount=0`。
+  - `StudioSchemaUpgradeService` 仍超过 800 行，按用户确认和本轮判断不做硬拆；后续只建议在 schema drift/init 回归保护下按具体升级步骤拆分。
+- 下一步：提交最终文档记录；本轮设计/代码风格整改收口。

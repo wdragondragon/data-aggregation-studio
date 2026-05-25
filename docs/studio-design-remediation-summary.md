@@ -55,15 +55,16 @@
 - Batch 44 拆分模型中心详情壳与同步任务支撑：新增 `ModelDetailShell.vue` 和 `modelSyncTaskSupport.ts`，`ModelsView.vue` 从 1067 行降到 997 行。
 - Batch 45 拆分工作流编辑页解析与格式化支撑：新增 `workflowEditorSupport.ts`，`WorkflowEditorView.vue` 从 1069 行降到 928 行。
 - Batch 46 拆分采集任务编辑页模型/增量/运行参数支撑：扩展 `collectionTaskEditorSupport.ts`，`CollectionTaskEditorView.vue` 从 1109 行降到 936 行。
+- Step 064 最终收口：前端 `views` 下 Vue 页面已全部低于 1000 行；后端大 Java 文件扫描只剩已审查暂留的 `StudioSchemaUpgradeService.java`；最终前端构建、设计债务门禁和 Studio 后端全量回归通过。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
 
 - 安全问题按用户要求暂不处理，包括认证、越权、SSRF、密钥泄露、文件路径安全等。
-- 巨型 Service 和巨型 Vue 页面没有一次性完全拆完。本轮优先拆了风险较低、测试保护较强的运行参数合并器、采集任务装配策略、schema/metadata helper、DataService 支撑组件、HTTP 编辑器子组件、source capability 元数据组装、血缘图组装和元模型 description 工具；`StudioSchemaUpgradeService` 剩余建表块、采集任务编辑页等仍建议后续按测试保护分批拆。
+- 巨型类/页面治理已完成当前阈值目标：前端 `views` 下 Vue 页面均低于 1000 行；后端除已审查暂留的 `StudioSchemaUpgradeService` 外，扫描范围内没有超过 800 行的 Java 类。后续不建议为了行数硬拆，只有在业务变更或测试保护充分时再按具体职责拆分。
 - `StudioSchemaUpgradeService` 作为已审查 schema/升级编排类暂留，不再为单纯行数阈值硬拆；其余后端 main 和后端测试大类继续按可验证边界收敛。
 - 后端历史 `catch ignored`、`return null;`、大文件数量仍存在，本轮通过静态门禁确保不再增加，并清理本轮新增代码的坏味道；历史债务建议单独排期。
-- 前端 composable 体系如 `usePageQuery`、`useAsyncAction`、`useTableSelection`、`useDialogForm` 已开始落地，但尚未全面迁移到采集任务、质量任务、工作流、系统管理、模型中心等大页面。
+- 前端 composable 体系如 `usePageQuery`、`useAsyncAction`、`useTableSelection`、`useDialogForm` 已开始落地，但尚未全面迁移到所有页面。当前不再作为本轮阻塞项，后续应结合具体页面变更逐步替换重复 loading、分页、弹窗和批量选择逻辑。
 - 数据质量动态函数弹窗仍可继续拆为独立 dialog 组件；HTTP 动态函数弹窗已独立，但后续仍可继续沉淀更通用的动态函数弹窗框架。
 
 ## 测试结果
@@ -127,6 +128,14 @@
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 44 模型中心详情壳与同步任务支撑拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 45 工作流编辑页解析与格式化支撑拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 46 采集任务编辑页模型/增量/运行参数支撑拆分后验证。
+- `git diff --check`（Studio 根目录）：最终通过，无空白错误。
+- 大文件扫描（后端 Java > 800 行、前端 Vue > 1000 行）：最终仅剩 `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java`，2050 行；该类按已审查 schema/升级编排类暂留。
+- `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；仅保留 npm `electron_mirror` / `electron-mirror` 和 Rollup pure annotation 既有警告。
+- `mvn -pl commons,core,data-source-plugins/data-source-handler-abstract,plugins-loader-center -am -DskipTests install`（`DataAggregation` 根目录）：通过，补齐 Studio 后端测试所需本地 DataAggregation 快照依赖。
+- `mvn -pl studio-test -am "-Dtest=StudioDesignDebtRegressionTest" "-DforkCount=0" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：补齐快照依赖后通过，4 tests，0 failures，0 errors。
+- `mvn -pl studio-test -am "-DforkCount=0" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：执行到 87 tests 时失败 1 个用例，原因是 `-DforkCount=0` 下假 Python 子进程 classpath 不包含 `target/test-classes`，属于测试启动参数假失败；随后用默认 fork 策略复核。
+- `mvn -pl studio-test -am "-Dtest=DataDevelopmentApiRegressionTest#shouldSaveAndExecutePythonScriptWithoutDatasource" "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：默认 Surefire fork 策略下通过，1 test，0 failures，0 errors。
+- `mvn -pl studio-test -am "-Dsurefire.failIfNoSpecifiedTests=false" test`（`backend` 目录）：最终通过，87 tests，0 failures，0 errors，0 skipped。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -174,5 +183,5 @@
 - Batch 43：质量规则编辑页已降到 1000 行以下；后续优先处理模型中心、工作流和采集任务编辑页。
 - Batch 44：模型中心父页面已降到 1000 行以下；后续优先处理工作流和采集任务编辑页。
 - Batch 45：工作流编辑页已降到 1000 行以下；后续优先处理采集任务编辑页。
-- Batch 46：采集任务编辑页已降到 1000 行以下；前端大页面行数治理已完成当前阈值目标。
+- Batch 46/最终收口：采集任务编辑页已降到 1000 行以下，前端 `views` 大页面行数治理已完成当前阈值目标；后端仅保留已审查的 `StudioSchemaUpgradeService` 超过 800 行。后续应围绕具体职责、测试保护和真实变更需求继续降债，不建议单纯按行数硬拆。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。
