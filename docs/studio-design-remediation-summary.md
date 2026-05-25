@@ -102,6 +102,7 @@
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 30 模型统计配置区块拆分后验证，中间曾因 `StatusPill` tone 类型过宽失败并已修复。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 31 模型统计图表展示区拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 32 质量指标全局筛选区拆分后验证。
+- `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 33 质量指标总览 tab 拆分后验证。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -136,4 +137,5 @@
 - Batch 30：模型统计配置 section 已独立，父页面保留统计请求和图表数据处理；后续继续治理时优先拆图表展示区和 TopN 排名区，或者抽统计请求/chart option composable。
 - Batch 31：模型统计图表展示 section 已独立，`ModelStatisticsView.vue` 已降到 1000 行以下；后续不建议继续为行数拆模板，可转向统计请求/chart option composable 或其他大页面。
 - Batch 32：质量指标全局筛选 section 已独立，父页面保留筛选状态和加载动作；后续继续拆总览 tab、资产/问题列表和详情抽屉。
+- Batch 33：质量指标总览 tab 已独立，父页面保留 dashboard 数据和图表 option 构造；后续拆资产/问题列表或详情抽屉。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

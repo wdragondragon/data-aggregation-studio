@@ -1030,3 +1030,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 质量指标页仍约 1410 行；后续优先拆总览 tab、资产/问题列表或两个详情抽屉。
 - 下一步：提交 Batch 32；继续拆质量指标总览 tab 或详情抽屉。
+
+## Step 050 - Batch 33 拆分质量指标总览 Tab
+
+- 执行时间：2026-05-25 15:58:34 +08:00
+- 目标问题：`QualityMetricsView.vue` 的总览 tab 同时包含执行健康/治理风险算法卡、趋势/分布图和 TopN 表格，是独立展示层，继续留在父页面会扩大模板体积。
+- 修改范围：新增 `QualityMetricsOverviewTab.vue` 承载总览页展示；父页面保留 dashboard 数据、图表 option 计算、格式化函数和跳转/打开抽屉动作，通过 `overviewTabActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityMetricsView.vue`
+  - `frontend/apps/web/src/components/quality-metrics/QualityMetricsOverviewTab.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：健康/风险算法卡、4 个统计卡、4 张图表、高风险资产 TopN、高噪声任务/规则 TopN 的展示和点击行为保持不变；本步骤只迁移总览展示层。`QualityMetricsView.vue` 从 1410 行降到 1167 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 质量指标父页面仍约 1167 行；后续拆资产/问题列表或详情抽屉后即可降到 1000 行以下。
+- 下一步：提交 Batch 33；继续拆质量指标资产/问题列表或详情抽屉。
