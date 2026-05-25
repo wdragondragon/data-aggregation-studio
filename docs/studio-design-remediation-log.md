@@ -875,3 +875,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 采集任务编辑页仍略超过 1000 行，但主要展示层已分离；后续更适合抽运行参数 schema、自定义 SQL 字段解析和表单 payload composable，而不是继续做纯模板拆分。
 - 下一步：提交 Batch 24；转向工作流节点配置面板或采集任务父页面 composable 抽取。
+
+## Step 042 - Batch 25 拆分工作流选中节点配置面板
+
+- 执行时间：2026-05-25 11:28:56 +08:00
+- 目标问题：`WorkflowEditorView.vue` 仍内联选中节点配置面板，包含采集任务、质量任务、数据脚本、HTTP、SHELL 等多种节点配置 UI，模板和局部样式混杂在工作流编辑主流程中。
+- 修改范围：新增 `WorkflowSelectedNodePanel.vue` 承载选中节点配置展示层；父页面保留节点状态、资源候选加载、脚本参数解析、HTTP 参数归一、节点配置更新和保存逻辑，通过 `selectedNodePanelActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/WorkflowEditorView.vue`
+  - `frontend/apps/web/src/components/workflow/WorkflowSelectedNodePanel.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：节点名称编辑、绑定采集任务/质量任务/脚本、脚本参数与 maxRows、HTTP URL/method/query/header/body、通用 `MetaFormRenderer` 节点配置和删除节点行为保持不变；本步骤只迁移选中节点配置面板展示层。`WorkflowEditorView.vue` 从 1234 行降到 1021 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 工作流编辑页仍略超过 1000 行，剩余较明确的展示层是基础信息/画布区；如果继续治理，更适合抽 workflow editor composable 或基础信息 section，而不是拆更细的节点子表。
+- 下一步：提交 Batch 25；继续处理工作流基础信息/画布区或转向其他仍超过 1000 行的页面。

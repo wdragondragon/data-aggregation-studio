@@ -47,228 +47,26 @@
     </SectionCard>
 
     <div class="studio-grid columns-2">
-      <SectionCard :title="t('web.workflows.selectedNodeTitle')" :description="t('web.workflows.selectedNodeDescription')">
-        <template v-if="selectedNode">
-          <div class="soft-panel node-header">
-            <div>
-              <strong>{{ selectedNode.nodeName }}</strong>
-              <p>{{ formatNodeType(t, selectedNode.nodeType) }}</p>
-            </div>
-            <el-button type="danger" plain @click="removeSelectedNode">{{ t("web.workflows.removeNode") }}</el-button>
-          </div>
-
-          <el-form-item :label="t('web.workflows.nodeName')">
-            <el-input :model-value="selectedNode.nodeName" @update:model-value="updateSelectedNode('nodeName', $event)" />
-          </el-form-item>
-
-          <template v-if="selectedNode.nodeType === 'COLLECTION_TASK'">
-            <el-form-item :label="t('web.workflows.collectionTaskBinding')">
-              <el-button type="primary" plain :loading="collectionTasksLoading" @click="openCollectionTaskDialog">
-                {{ selectedBoundTask ? t("web.workflows.reselectCollectionTask") : t("web.workflows.selectCollectionTask") }}
-              </el-button>
-            </el-form-item>
-            <div class="soft-panel" v-if="selectedBoundTask">
-              <strong>{{ selectedBoundTask.name }}</strong>
-              <p>{{ formatCollectionTaskType(t, selectedBoundTask.taskType) }} · {{ selectedBoundTask.sourceCount }} {{ t("web.collectionTasks.sourceCountUnit") }}</p>
-            </div>
-          </template>
-
-          <template v-else-if="selectedNode.nodeType === 'QUALITY_TASK'">
-            <el-form-item :label="t('web.workflows.qualityTaskBinding')">
-              <el-button type="primary" plain :loading="qualityTasksLoading" @click="openQualityTaskDialog">
-                {{ selectedBoundQualityTask ? t("web.workflows.reselectQualityTask") : t("web.workflows.selectQualityTask") }}
-              </el-button>
-            </el-form-item>
-            <div class="soft-panel" v-if="selectedBoundQualityTask">
-              <strong>{{ selectedBoundQualityTask.taskName }}</strong>
-              <p>
-                {{ selectedBoundQualityTask.ruleName || t("common.none") }}
-                · {{ formatQualityDimension(t, selectedBoundQualityTask.ruleDimension) }}
-                · {{ formatQualityGranularity(t, selectedBoundQualityTask.granularity) }}
-              </p>
-              <p>
-                {{ selectedBoundQualityTask.datasourceName || t("common.none") }}
-                · {{ selectedBoundQualityTask.modelName || t("common.none") }}
-                · {{ selectedBoundQualityTask.columnName || (selectedBoundQualityTask.granularity === "COLUMN" ? t("common.none") : t("web.workflows.qualityTaskWholeTable")) }}
-              </p>
-            </div>
-          </template>
-
-          <template v-else-if="selectedNode.nodeType === 'DATA_SCRIPT'">
-            <el-form-item :label="t('web.workflows.dataScriptBinding')">
-              <el-button type="primary" plain :loading="scriptsLoading || scriptTreeLoading" @click="openScriptDialog">
-                {{ selectedBoundScript ? t("web.workflows.reselectDataScript") : t("web.workflows.selectDataScript") }}
-              </el-button>
-            </el-form-item>
-            <div class="soft-panel" v-if="selectedBoundScript">
-              <strong>{{ selectedBoundScript.fileName }}</strong>
-              <p>{{ selectedBoundScript.datasourceName || t("common.none") }} · {{ formatScriptType(t, selectedBoundScript.scriptType) }}</p>
-              <p>{{ t("web.workflows.dataScriptSummary") }}</p>
-            </div>
-            <el-form-item v-if="selectedBoundScript && selectedBoundScript.scriptType !== 'SQL'" :label="t('web.workflows.dataScriptArguments')">
-              <el-input
-                v-model="dataScriptArgumentsText"
-                type="textarea"
-                :rows="6"
-                :placeholder="t('web.workflows.dataScriptArgumentsPlaceholder')"
-                @blur="applySelectedDataScriptArguments"
-              />
-            </el-form-item>
-            <el-form-item v-else-if="selectedBoundScript" :label="t('web.workflows.dataScriptMaxRows')">
-              <el-input-number
-                :model-value="selectedScriptMaxRows"
-                :min="1"
-                controls-position="right"
-                :placeholder="t('web.workflows.dataScriptMaxRowsPlaceholder')"
-                @update:model-value="updateSelectedDataScriptMaxRows"
-              />
-            </el-form-item>
-          </template>
-
-          <template v-else-if="selectedNode.nodeType === 'HTTP'">
-            <div class="http-node-editor">
-              <div class="http-node-editor__grid">
-                <el-form-item :label="t('web.workflows.httpUrl')">
-                  <el-input
-                    :model-value="selectedHttpUrl"
-                    :placeholder="t('web.workflows.httpUrlPlaceholder')"
-                    @update:model-value="updateSelectedHttpConfig({ url: $event })"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('web.workflows.httpMethod')">
-                  <el-select
-                    :model-value="selectedHttpMethod"
-                    :placeholder="t('web.workflows.httpMethodPlaceholder')"
-                    @update:model-value="updateSelectedHttpConfig({ method: $event })"
-                  >
-                    <el-option label="GET" value="GET" />
-                    <el-option label="POST" value="POST" />
-                    <el-option label="PUT" value="PUT" />
-                    <el-option label="PATCH" value="PATCH" />
-                    <el-option label="DELETE" value="DELETE" />
-                  </el-select>
-                </el-form-item>
-              </div>
-
-              <div class="http-param-section">
-                <div class="http-param-section__header">
-                  <div>
-                    <strong>{{ t("web.workflows.httpQueryParams") }}</strong>
-                    <p>{{ t("web.workflows.httpQueryParamsDescription") }}</p>
-                  </div>
-                  <el-button size="small" plain @click="appendHttpParam('queryParams')">
-                    {{ t("web.workflows.addHttpParam") }}
-                  </el-button>
-                </div>
-                <el-table :data="selectedHttpQueryParams" border size="small" table-layout="fixed" class="http-param-table">
-                  <el-table-column :label="t('web.workflows.httpParamEnabled')" width="88" align="center">
-                    <template #default="{ row, $index }">
-                      <el-switch
-                        :model-value="row.enabled !== false"
-                        @update:model-value="updateHttpParam('queryParams', $index, 'enabled', $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="t('web.workflows.httpParamName')" min-width="150">
-                    <template #default="{ row, $index }">
-                      <el-input
-                        :model-value="row.name"
-                        :placeholder="t('web.workflows.httpParamNamePlaceholder')"
-                        @update:model-value="updateHttpParam('queryParams', $index, 'name', $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="t('web.workflows.httpParamValue')" min-width="180">
-                    <template #default="{ row, $index }">
-                      <el-input
-                        :model-value="row.value"
-                        :placeholder="t('web.workflows.httpParamValuePlaceholder')"
-                        @update:model-value="updateHttpParam('queryParams', $index, 'value', $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="t('common.actions')" width="88" fixed="right" align="center">
-                    <template #default="{ $index }">
-                      <el-button link type="danger" @click="removeHttpParam('queryParams', $index)">
-                        {{ t("common.delete") }}
-                      </el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </div>
-
-              <div class="http-param-section">
-                <div class="http-param-section__header">
-                  <div>
-                    <strong>{{ t("web.workflows.httpHeaders") }}</strong>
-                    <p>{{ t("web.workflows.httpHeadersDescription") }}</p>
-                  </div>
-                  <el-button size="small" plain @click="appendHttpParam('headers')">
-                    {{ t("web.workflows.addHttpHeader") }}
-                  </el-button>
-                </div>
-                <el-table :data="selectedHttpHeaders" border size="small" table-layout="fixed" class="http-param-table">
-                  <el-table-column :label="t('web.workflows.httpParamEnabled')" width="88" align="center">
-                    <template #default="{ row, $index }">
-                      <el-switch
-                        :model-value="row.enabled !== false"
-                        @update:model-value="updateHttpParam('headers', $index, 'enabled', $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="t('web.workflows.httpParamName')" min-width="150">
-                    <template #default="{ row, $index }">
-                      <el-input
-                        :model-value="row.name"
-                        placeholder="Content-Type"
-                        @update:model-value="updateHttpParam('headers', $index, 'name', $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="t('web.workflows.httpParamValue')" min-width="180">
-                    <template #default="{ row, $index }">
-                      <el-input
-                        :model-value="row.value"
-                        placeholder="application/json"
-                        @update:model-value="updateHttpParam('headers', $index, 'value', $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column :label="t('common.actions')" width="88" fixed="right" align="center">
-                    <template #default="{ $index }">
-                      <el-button link type="danger" @click="removeHttpParam('headers', $index)">
-                        {{ t("common.delete") }}
-                      </el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </div>
-
-              <el-form-item :label="t('web.workflows.httpBody')">
-                <el-input
-                  v-model="httpBodyText"
-                  type="textarea"
-                  :rows="8"
-                  :placeholder="t('web.workflows.httpBodyPlaceholder')"
-                  @blur="applySelectedHttpBody"
-                />
-              </el-form-item>
-            </div>
-          </template>
-
-          <template v-else>
-            <MetaFormRenderer
-              :fields="selectedNodeFields"
-              :model-value="selectedNodeConfig"
-              @update:model-value="selectedNodeConfig = $event"
-            />
-          </template>
-        </template>
-
-        <div v-else class="soft-panel">
-          {{ t("web.workflows.emptySelectedNode") }}
-        </div>
-      </SectionCard>
+      <WorkflowSelectedNodePanel
+        v-model:data-script-arguments-text="dataScriptArgumentsText"
+        v-model:http-body-text="httpBodyText"
+        :selected-node="selectedNode"
+        :selected-bound-task="selectedBoundTask"
+        :selected-bound-quality-task="selectedBoundQualityTask"
+        :selected-bound-script="selectedBoundScript"
+        :collection-tasks-loading="collectionTasksLoading"
+        :quality-tasks-loading="qualityTasksLoading"
+        :scripts-loading="scriptsLoading"
+        :script-tree-loading="scriptTreeLoading"
+        :selected-script-max-rows="selectedScriptMaxRows"
+        :selected-http-url="selectedHttpUrl"
+        :selected-http-method="selectedHttpMethod"
+        :selected-http-query-params="selectedHttpQueryParams"
+        :selected-http-headers="selectedHttpHeaders"
+        :selected-node-fields="selectedNodeFields"
+        :selected-node-config="selectedNodeConfig"
+        :node-actions="selectedNodePanelActions"
+      />
 
       <SectionCard :title="t('web.workflows.edgeTitle')" :description="t('web.workflows.edgeDescription')">
         <el-table :data="form.edges" border>
@@ -332,16 +130,13 @@ import type {
   WorkflowSaveRequest,
 } from "@studio/api-sdk";
 import { WorkflowCanvas } from "@studio/workflow-designer";
-import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
 import WorkflowResourceDialogs from "@/components/workflow/WorkflowResourceDialogs.vue";
+import WorkflowSelectedNodePanel from "@/components/workflow/WorkflowSelectedNodePanel.vue";
 import {
   cloneDeep,
-  formatCollectionTaskType,
-  formatNodeType,
-  formatScriptType,
   prettyJson,
 } from "@/utils/studio";
 
@@ -807,6 +602,10 @@ function updateSelectedNode(key: keyof WorkflowNodeDefinition, value: unknown) {
   );
 }
 
+function updateSelectedNodeConfig(value: Record<string, unknown>) {
+  selectedNodeConfig.value = value;
+}
+
 function bindCollectionTask(value?: string) {
   if (!value) {
     return;
@@ -1245,6 +1044,24 @@ function formatQualityGranularity(t: (key: string) => string, value?: string | n
   return String(value ?? t("common.none"));
 }
 
+const selectedNodePanelActions = {
+  removeSelectedNode,
+  updateSelectedNode,
+  updateSelectedNodeConfig,
+  openCollectionTaskDialog,
+  openQualityTaskDialog,
+  openScriptDialog,
+  updateSelectedDataScriptMaxRows,
+  applySelectedDataScriptArguments,
+  updateSelectedHttpConfig,
+  appendHttpParam,
+  updateHttpParam,
+  removeHttpParam,
+  applySelectedHttpBody,
+  formatQualityDimension: (value?: string | null) => formatQualityDimension(t, value),
+  formatQualityGranularity: (value?: string | null) => formatQualityGranularity(t, value),
+};
+
 const resourceDialogActions = {
   ensureCollectionTasksLoaded,
   getDialogRowIndex,
@@ -1279,49 +1096,4 @@ p {
   color: var(--studio-text-soft);
 }
 
-.node-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.http-node-editor {
-  display: grid;
-  gap: 18px;
-}
-
-.http-node-editor__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
-  gap: 14px;
-}
-
-.http-param-section {
-  display: grid;
-  gap: 10px;
-}
-
-.http-param-section__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.http-param-section__header strong {
-  display: block;
-  margin-bottom: 3px;
-}
-
-.http-param-table :deep(.cell) {
-  overflow: visible;
-}
-
-@media (max-width: 1080px) {
-  .http-node-editor__grid {
-    grid-template-columns: 1fr;
-  }
-}
 </style>
