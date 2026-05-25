@@ -1179,3 +1179,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - 质量指标页已降到 1000 行以下；后续如继续治理，建议抽处置动作 composable，而不是继续拆展示 helper。
 - 下一步：提交 Batch 39；继续拆数据开发、数据服务编辑、模型统计或模型中心页面。
+
+## Step 057 - Batch 40 拆分模型统计图表 Option 支撑
+
+- 执行时间：2026-05-25 22:26:07 +08:00
+- 目标问题：`ModelStatisticsView.vue` 仍超过 1000 行，底部包含趋势图、柱状图和饼图 ECharts option 构造逻辑，和页面筛选、请求、状态管理混在一起。
+- 修改范围：新增 `modelStatisticsChartOptions.ts` 承载 `buildTrendOption`、`buildBarOption`、`buildPieOption` 和图表内部数值转换；父页面继续负责 chartResults、布局模式、国际化 label 和请求流程。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelStatisticsView.vue`
+  - `frontend/apps/web/src/components/model-statistics/modelStatisticsChartOptions.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：趋势图、柱状图、饼图的 tooltip、grid、legend、颜色、半径、标签和大类目布局保持不变；父页面显式传入当前语言下的 `count` 指标 label，避免抽出后丢失国际化语义。`ModelStatisticsView.vue` 从 1061 行降到 950 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 模型统计页已降到 1000 行以下；后续如继续治理，建议抽查询条件 payload composable。
+- 下一步：提交 Batch 40；继续拆数据开发、数据服务编辑、模型中心、质量规则、工作流和采集任务编辑页。

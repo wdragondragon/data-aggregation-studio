@@ -77,6 +77,7 @@ import type {
 import { StatusPill } from "@studio/ui";
 import ModelStatisticsChartsSection from "@/components/model-statistics/ModelStatisticsChartsSection.vue";
 import ModelStatisticsSetupSection from "@/components/model-statistics/ModelStatisticsSetupSection.vue";
+import { buildBarOption, buildPieOption, buildTrendOption } from "@/components/model-statistics/modelStatisticsChartOptions";
 import { studioApi } from "@/api/studio";
 import { useAsyncAction } from "@/composables/useAsyncAction";
 import { useAuthStore } from "@/stores/auth";
@@ -358,9 +359,9 @@ const pieChartHeight = computed(() => {
   return `${Math.min(baseHeight + extraHeight, 760)}px`;
 });
 
-const trendOption = computed(() => buildTrendOption(chartResults.TREND));
-const barOption = computed(() => buildBarOption(chartResults.BAR));
-const pieOption = computed(() => buildPieOption(chartResults.PIE, chartGridMode.value));
+const trendOption = computed(() => buildTrendOption(chartResults.TREND, metricLabel("count")));
+const barOption = computed(() => buildBarOption(chartResults.BAR, metricLabel("count")));
+const pieOption = computed(() => buildPieOption(chartResults.PIE, chartGridMode.value, metricLabel("count")));
 
 const setupSectionActions = {
   loadWorkspace,
@@ -931,118 +932,6 @@ function resolveErrorMessage(error: unknown) {
   return locale.value.startsWith("zh") ? "未知错误" : "Unknown error";
 }
 
-function buildTrendOption(chart?: DataModelStatisticsChartView): EChartsOption {
-  if (!chart) {
-    return {};
-  }
-  const series = chart.series?.[0];
-  return {
-    tooltip: { trigger: "axis" },
-    grid: { left: 16, right: 16, top: 24, bottom: 24, containLabel: true },
-    xAxis: {
-      type: "category",
-      data: chart.xAxis ?? [],
-      axisLabel: { rotate: chart.xAxis.length > 10 ? 25 : 0 },
-    },
-    yAxis: {
-      type: "value",
-      minInterval: 1,
-    },
-    series: [{
-      name: series?.name ?? metricLabel("count"),
-      type: "line",
-      smooth: true,
-      areaStyle: { opacity: 0.18 },
-      itemStyle: { color: "#2f6fed" },
-      lineStyle: { width: 3 },
-      data: (series?.data ?? []).map((item) => toNumber(item)),
-    }],
-  };
-}
-
-function buildBarOption(chart?: DataModelStatisticsChartView): EChartsOption {
-  if (!chart) {
-    return {};
-  }
-  const series = chart.series?.[0];
-  return {
-    tooltip: { trigger: "axis" },
-    grid: { left: 16, right: 16, top: 24, bottom: 48, containLabel: true },
-    xAxis: {
-      type: "category",
-      data: chart.xAxis ?? [],
-      axisLabel: { rotate: chart.xAxis.length > 6 ? 20 : 0 },
-    },
-    yAxis: {
-      type: "value",
-      minInterval: 1,
-    },
-    series: [{
-      name: series?.name ?? metricLabel("count"),
-      type: "bar",
-      barMaxWidth: 42,
-      itemStyle: { color: "#0f9d58", borderRadius: [8, 8, 0, 0] },
-      data: (series?.data ?? []).map((item) => toNumber(item)),
-    }],
-  };
-}
-
-function buildPieOption(chart?: DataModelStatisticsChartView, layoutMode: "default" | "wide" | "stacked" = "default"): EChartsOption {
-  if (!chart) {
-    return {};
-  }
-  const series = chart.series?.[0];
-  const pieData = Array.isArray(series?.data)
-    ? series.data.map((item, index) => {
-      if (item && typeof item === "object" && "value" in item) {
-        const pieItem = item as { name?: string; value?: unknown };
-        return {
-          name: pieItem.name ?? chart.xAxis[index] ?? `${index + 1}`,
-          value: toNumber(pieItem.value),
-        };
-      }
-      return {
-        name: chart.xAxis[index] ?? `${index + 1}`,
-        value: toNumber(item),
-      };
-      })
-      : [];
-  const largeLegend = pieData.length >= 12;
-  const pieCenter = layoutMode === "stacked"
-    ? (largeLegend ? ["50%", "32%"] : ["50%", "35%"])
-    : layoutMode === "wide"
-      ? ["50%", "38%"]
-      : ["50%", "44%"];
-  const pieRadius = layoutMode === "stacked"
-    ? (largeLegend ? ["30%", "54%"] : ["34%", "58%"])
-    : layoutMode === "wide"
-      ? ["36%", "60%"]
-      : ["40%", "68%"];
-  return {
-    tooltip: { trigger: "item" },
-    legend: {
-      bottom: 0,
-      left: "center",
-      width: "92%",
-      itemGap: 14,
-    },
-    series: [{
-      name: series?.name ?? metricLabel("count"),
-      type: "pie",
-      radius: pieRadius,
-      center: pieCenter,
-      itemStyle: {
-        borderRadius: 8,
-        borderColor: "#fff",
-        borderWidth: 2,
-      },
-      label: {
-        formatter: "{b}: {d}%",
-      },
-      data: pieData,
-    }],
-  };
-}
 </script>
 
 <style scoped>
