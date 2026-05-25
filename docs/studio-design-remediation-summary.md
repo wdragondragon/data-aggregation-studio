@@ -47,6 +47,7 @@
 - Batch 29 拆分元模型字段定义表：新增 `MetadataSchemaFieldsSection.vue`，将字段定义表从 `MetadataSchemasView.vue` 移出，页面降到 929 行。
 - Batch 37 拆分后端回归测试支撑类：新增 `DataModelStatisticsTestSupport` 和 `CollectionTaskAssemblerTestSupport`，`DataModelStatisticsRegressionTest.java` 降到 546 行，`CollectionTaskAssemblerServiceRegressionTest.java` 降到 513 行。
 - Batch 38 拆分系统管理页 action 与资源类型支撑：新增 `systemActions.ts` 和 `systemViewSupport.ts`，`SystemView.vue` 从 1040 行降到 986 行。
+- Batch 39 拆分质量指标页枚举与格式化支撑：新增 `qualityMetricsViewSupport.ts`，`QualityMetricsView.vue` 从 1026 行降到 869 行。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -111,6 +112,7 @@
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 36 采集任务编辑页轻量支撑与页面 chrome 拆分后验证，中间曾因 header action 返回类型过窄失败并已修复。
 - `mvn -pl studio-test "-Dtest=DataModelStatisticsRegressionTest,CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`（`backend` 目录）：通过，26 tests，0 failures，0 errors，0 skipped；Batch 37 后端测试支撑类拆分后验证。首次在 Studio 根目录执行同命令因不在 backend reactor 下失败，随后已在正确目录重跑通过。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 38 系统管理页 action 与资源类型支撑拆分后验证。
+- `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 39 质量指标页枚举与格式化支撑拆分后验证，中间曾因 readonly 数组选项与子组件 prop 类型不兼容失败并已修复。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -151,4 +153,5 @@
 - Batch 36：采集任务默认表单/常量和页面 chrome 已独立，`CollectionTaskEditorView.vue` 已降到 1000 行以下；后续建议抽运行参数 schema/custom SQL 字段解析 composable。
 - Batch 37：后端测试大类已收口；后续继续处理剩余前端大页面，按系统页、数据开发页、数据服务编辑页、质量规则页、工作流/采集任务编辑页等顺序拆低风险展示组件。
 - Batch 38：系统管理页已降到 1000 行以下；后续优先处理数据开发、数据服务编辑、质量规则、质量指标、模型中心、模型统计、工作流和采集任务编辑页。
+- Batch 39：质量指标页已降到 1000 行以下；后续优先处理数据开发、数据服务编辑、质量规则、模型中心、模型统计、工作流和采集任务编辑页。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

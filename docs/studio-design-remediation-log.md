@@ -1159,3 +1159,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 系统页仍保留保存/删除/审批流程，后续若继续治理应抽 `useAsyncAction` 或系统管理 composable，而不是继续拆表格列。
 - 下一步：提交 Batch 38；继续拆数据开发或数据服务编辑页。
+
+## Step 056 - Batch 39 拆分质量指标页枚举与格式化支撑
+
+- 执行时间：2026-05-25 22:00:03 +08:00
+- 目标问题：`QualityMetricsView.vue` 仍超过 1000 行，页面内同时维护维度/严重级别/状态选项、时间范围、空 dashboard、标签、tone、record 取值、JSON 格式化等通用展示支撑。
+- 修改范围：新增 `qualityMetricsViewSupport.ts` 承载质量指标页面的枚举选项、时间范围计算、空对象构造、标签/tone/数值/JSON/record helper；父页面继续保留数据加载、问题处置、图表 option 和页面状态。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityMetricsView.vue`
+  - `frontend/apps/web/src/components/quality-metrics/qualityMetricsViewSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：筛选选项文案、问题状态/严重级别文案、tone 规则、时间范围、空 dashboard 默认值、资产标题、证据 JSON 展示和图表数据读取保持不变；本步骤只迁移纯支撑函数。`QualityMetricsView.vue` 从 1026 行降到 869 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是抽出的 `dimensionOptions` 使用 `as const` 变成 readonly，与子组件可变数组 prop 类型不兼容。
+  - 修复 `dimensionOptions` 为普通数组后，`npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - 质量指标页已降到 1000 行以下；后续如继续治理，建议抽处置动作 composable，而不是继续拆展示 helper。
+- 下一步：提交 Batch 39；继续拆数据开发、数据服务编辑、模型统计或模型中心页面。
