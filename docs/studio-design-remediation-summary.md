@@ -42,6 +42,7 @@
 - Batch 24 拆分采集任务字段映射与融合配置区块：新增 `CollectionTaskMappingSection.vue`，将字段映射工具栏、融合 join 配置、fusion reader 高级参数和字段映射编辑器从 `CollectionTaskEditorView.vue` 移出，页面降到 1062 行。
 - Batch 25 拆分工作流选中节点配置面板：新增 `WorkflowSelectedNodePanel.vue`，将采集任务、质量任务、脚本、HTTP、SHELL 等节点配置展示从 `WorkflowEditorView.vue` 移出，页面降到 1021 行。
 - Batch 26 拆分工作流基础信息与画布区块：新增 `WorkflowBasicsSection.vue` 和 `WorkflowCanvasSection.vue`，将基础信息表单与工作流画布从 `WorkflowEditorView.vue` 移出，页面降到 992 行。
+- Batch 27 拆分数据服务接口调试区块：新增 `DataServiceDebugSection.vue`，将 Header/Query/Body 调试编辑、调试请求、cURL 生成和返回结果展示从 `DataServiceEditorView.vue` 移出，页面降到 966 行。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -93,6 +94,7 @@
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 24 采集任务字段映射与融合配置区块拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 25 工作流选中节点配置面板拆分后验证。
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 26 工作流基础信息与画布区块拆分后验证，中间曾因 `select-node` 事件类型过窄失败并已修复。
+- `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 27 数据服务接口调试区块拆分后验证。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -121,4 +123,5 @@
 - Batch 24：采集任务字段映射与融合配置 section 已独立；后续继续治理时应优先抽运行参数 schema、自定义 SQL 字段解析和 payload 组装 composable，不建议继续为行数硬拆模板。
 - Batch 25：工作流选中节点配置面板已独立；后续继续治理时可抽基础信息/画布 section 或 workflow editor composable，但不建议继续拆节点面板内部小表格。
 - Batch 26：工作流基础信息和画布 section 已独立，工作流编辑页已降到 1000 行以下；后续如继续治理，建议抽数据加载/资源弹窗 composable。
+- Batch 27：数据服务接口调试 section 已独立，数据服务编辑页已降到 1000 行以下；后续如继续治理，建议抽服务开发/发布参数 composable。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。

@@ -915,3 +915,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - 工作流编辑页已降到 1000 行以下；后续如继续治理，建议抽数据加载/资源弹窗 composable，而不是继续拆小模板。
 - 下一步：提交 Batch 26；重新扫描剩余超大前端文件，转向模型中心、质量指标、模型统计、数据服务编辑、血缘面板或元模型页面。
+
+## Step 044 - Batch 27 拆分数据服务接口调试区块
+
+- 执行时间：2026-05-25 12:42:22 +08:00
+- 目标问题：`DataServiceEditorView.vue` 略超过 1000 行，其中接口调试步骤包含 Header/Query/Body JSON 编辑、调试请求、cURL 生成和返回结果展示，是独立展示层。
+- 修改范围：新增 `DataServiceDebugSection.vue` 承载第四步接口调试 UI；父页面保留调试模板生成、调试请求、cURL 构造、JSON 解析和保存发布逻辑，通过 `debugSectionActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/DataServiceEditorView.vue`
+  - `frontend/apps/web/src/components/data-service/DataServiceDebugSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：调试 Header/Query/Body、返回结果、调试按钮禁用条件、cURL 生成与复制行为保持不变；本步骤只迁移第四步展示层。`DataServiceEditorView.vue` 从 1063 行降到 966 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 数据服务编辑页已降到 1000 行以下；后续如继续治理，建议抽服务开发/发布参数 composable，而不是继续拆小模板。
+- 下一步：提交 Batch 27；继续处理剩余超大页面：模型中心、质量指标、模型统计、血缘面板或元模型页面。

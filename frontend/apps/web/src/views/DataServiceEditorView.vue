@@ -236,80 +236,22 @@
       </el-table>
     </SectionCard>
 
-    <SectionCard v-if="activeStep === 3" title="四、接口调试" description="按发布映射生成 Header、Query、Body 模板，调试结果会展示统一包装结构。">
-      <div class="section-toolbar debug-toolbar">
-        <div>
-          <strong>调试请求</strong>
-          <p>先生成模板，再按实际值补充 Header、Query、Body 后发起调试。</p>
-        </div>
-        <div class="section-actions">
-          <el-button plain @click="generateDebugTemplate">生成调试模板</el-button>
-          <el-button plain :disabled="!endpointUrl" @click="generateCurlCommand('bash')">生成 cURL(bash)</el-button>
-          <el-button plain :disabled="!endpointUrl" @click="generateCurlCommand('cmd')">生成 cURL(cmd)</el-button>
-          <el-button type="primary" :loading="debugging" :disabled="!form.id" @click="debugService">调试</el-button>
-        </div>
-      </div>
-      <el-form-item label="请求 Path">
-        <el-input :model-value="endpointUrl" readonly />
-      </el-form-item>
-      <div class="debug-editor-layout">
-        <div class="debug-request-editor">
-          <el-tabs v-model="activeDebugRequestPane" class="debug-tabs">
-            <el-tab-pane label="Header" name="headers">
-              <JsonEditor
-                v-model="debugHeaders"
-                title="请求 Header"
-                description="会作为调试请求的 Header 参数。"
-                :placeholder="debugHeaderPlaceholder"
-                height="260px"
-              />
-            </el-tab-pane>
-            <el-tab-pane label="Query" name="query">
-              <JsonEditor
-                v-model="debugQuery"
-                title="请求 Query"
-                description="GET 参数和 Query 位置的发布参数会填在这里。"
-                :placeholder="debugQueryPlaceholder"
-                height="260px"
-              />
-            </el-tab-pane>
-            <el-tab-pane label="Body" name="body">
-              <JsonEditor
-                v-model="debugBody"
-                title="请求 Body"
-                description="POST Body 位置的发布参数会填在这里。"
-                :placeholder="debugBodyPlaceholder"
-                height="260px"
-              />
-            </el-tab-pane>
-          </el-tabs>
-        </div>
-        <JsonEditor
-          v-model="debugResult"
-          title="返回结果"
-          description="展示后端统一 Result 包装后的调试响应。"
-          placeholder="调试后展示返回 JSON"
-          height="360px"
-          readonly
-        />
-      </div>
-      <div class="curl-panel">
-        <div class="curl-panel__header">
-          <div>
-            <strong>cURL 调用命令</strong>
-            <p>根据当前请求 Path、Header、Query、Body 生成开放服务调用命令，Token 使用占位符。</p>
-          </div>
-          <el-button plain :disabled="!curlCommand" @click="copyCurlCommand">复制 cURL</el-button>
-        </div>
-        <el-input
-          v-model="curlCommand"
-          type="textarea"
-          :rows="8"
-          readonly
-          placeholder="点击“生成 cURL(bash)”或“生成 cURL(cmd)”后展示命令"
-        />
-      </div>
-    </SectionCard>
+    <DataServiceDebugSection
+      v-if="activeStep === 3"
+      v-model:active-request-pane="activeDebugRequestPane"
+      v-model:debug-headers="debugHeaders"
+      v-model:debug-query="debugQuery"
+      v-model:debug-body="debugBody"
+      v-model:debug-result="debugResult"
+      v-model:curl-command="curlCommand"
+      :endpoint-url="endpointUrl"
+      :can-debug="Boolean(form.id)"
+      :debugging="debugging"
+      :debug-header-placeholder="debugHeaderPlaceholder"
+      :debug-query-placeholder="debugQueryPlaceholder"
+      :debug-body-placeholder="debugBodyPlaceholder"
+      :debug-actions="debugSectionActions"
+    />
 
     <div class="wizard-footer">
       <el-button :disabled="activeStep === 0" @click="previousStep">上一步</el-button>
@@ -338,7 +280,7 @@ import type {
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
-import JsonEditor from "@/components/JsonEditor.vue";
+import DataServiceDebugSection from "@/components/data-service/DataServiceDebugSection.vue";
 import { prettyJson } from "@/utils/studio";
 
 const route = useRoute();
@@ -415,6 +357,13 @@ const debugQueryPlaceholder = `{
 const debugBodyPlaceholder = `{
   "name": ""
 }`;
+
+const debugSectionActions = {
+  generateDebugTemplate,
+  generateCurlCommand,
+  debugService,
+  copyCurlCommand,
+};
 
 const statusLabel = computed(() => {
   if (form.status === "ONLINE") {
@@ -1072,53 +1021,7 @@ onMounted(() => {
   gap: 8px;
 }
 
-.debug-toolbar {
-  margin-top: 0;
-}
-
 .section-toolbar p {
-  margin: 4px 0 0;
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
-.debug-editor-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.95fr);
-  gap: 14px;
-  align-items: start;
-}
-
-.debug-request-editor {
-  min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--studio-border);
-  border-radius: 16px;
-  background: rgba(248, 250, 252, 0.72);
-}
-
-.debug-tabs :deep(.el-tabs__header) {
-  margin-bottom: 12px;
-}
-
-.curl-panel {
-  display: grid;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 14px;
-  border: 1px solid var(--studio-border);
-  border-radius: 16px;
-  background: #fff;
-}
-
-.curl-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.curl-panel__header p {
   margin: 4px 0 0;
   color: var(--studio-text-soft);
   font-size: 12px;
@@ -1135,19 +1038,11 @@ onMounted(() => {
   .service-wizard {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .debug-editor-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 720px) {
   .service-wizard {
     grid-template-columns: 1fr;
-  }
-
-  .curl-panel__header {
-    flex-direction: column;
   }
 }
 </style>
