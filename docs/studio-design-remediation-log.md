@@ -894,3 +894,24 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 工作流编辑页仍略超过 1000 行，剩余较明确的展示层是基础信息/画布区；如果继续治理，更适合抽 workflow editor composable 或基础信息 section，而不是拆更细的节点子表。
 - 下一步：提交 Batch 25；继续处理工作流基础信息/画布区或转向其他仍超过 1000 行的页面。
+
+## Step 043 - Batch 26 拆分工作流基础信息与画布区块
+
+- 执行时间：2026-05-25 12:27:20 +08:00
+- 目标问题：`WorkflowEditorView.vue` 在节点配置面板拆出后仍略超过 1000 行，基础信息表单和画布区域是两个独立展示区块，继续留在父页面会让主流程模板分散。
+- 修改范围：新增 `WorkflowBasicsSection.vue` 承载编码、名称、Cron、时区和启停配置；新增 `WorkflowCanvasSection.vue` 承载工作流画布和节点选择事件转发；父页面保留工作流加载、节点状态、保存和资源弹窗逻辑。
+- 涉及文件：
+  - `frontend/apps/web/src/views/WorkflowEditorView.vue`
+  - `frontend/apps/web/src/components/workflow/WorkflowBasicsSection.vue`
+  - `frontend/apps/web/src/components/workflow/WorkflowCanvasSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：工作流编码/名称、调度 Cron/时区/开关、画布节点/边更新和节点选择行为保持不变；本步骤只迁移展示层。`WorkflowEditorView.vue` 从 1021 行降到 992 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是 `WorkflowCanvasSection.vue` 将 `select-node` 事件类型收窄为 `string`，而画布可能传 `string | null`。
+  - 修复事件类型后，`npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - 工作流编辑页已降到 1000 行以下；后续如继续治理，建议抽数据加载/资源弹窗 composable，而不是继续拆小模板。
+- 下一步：提交 Batch 26；重新扫描剩余超大前端文件，转向模型中心、质量指标、模型统计、数据服务编辑、血缘面板或元模型页面。

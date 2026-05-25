@@ -12,39 +12,15 @@
       </div>
     </div>
 
-    <SectionCard :title="t('web.workflows.basicsTitle')" :description="t('web.workflows.basicsDescription')">
-      <div class="studio-form-grid">
-        <el-form-item :label="t('web.workflows.workflowCode')">
-          <el-input v-model="form.code" :placeholder="t('web.workflows.placeholderWorkflowCode')" />
-        </el-form-item>
-        <el-form-item :label="t('web.workflows.workflowName')">
-          <el-input v-model="form.name" :placeholder="t('web.workflows.placeholderWorkflowName')" />
-        </el-form-item>
-        <el-form-item :label="t('web.workflows.cronExpression')" class="cron-form-item">
-          <CronExpressionPicker
-            v-model="form.schedule.cronExpression"
-            :label="t('web.workflows.cronExpression')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('web.workflows.timezone')">
-          <el-input v-model="form.schedule.timezone" placeholder="Asia/Shanghai" />
-        </el-form-item>
-        <el-form-item :label="t('web.workflows.scheduleEnabled')">
-          <el-switch v-model="form.schedule.enabled" inline-prompt :active-text="t('common.on')" :inactive-text="t('common.off')" />
-        </el-form-item>
-      </div>
-    </SectionCard>
+    <WorkflowBasicsSection :form="form" />
 
-    <SectionCard :title="t('web.workflows.canvasTitle')" :description="t('web.workflows.canvasDescription')">
-      <WorkflowCanvas
-        :nodes="form.nodes"
-        :edges="form.edges"
-        :palette-types="['COLLECTION_TASK', 'QUALITY_TASK', 'DATA_SCRIPT', 'HTTP', 'SHELL']"
-        @update:nodes="form.nodes = $event"
-        @update:edges="form.edges = $event"
-        @select-node="selectedNodeCode = $event"
-      />
-    </SectionCard>
+    <WorkflowCanvasSection
+      :nodes="form.nodes"
+      :edges="form.edges"
+      @update:nodes="form.nodes = $event"
+      @update:edges="form.edges = $event"
+      @select-node="selectedNodeCode = $event"
+    />
 
     <div class="studio-grid columns-2">
       <WorkflowSelectedNodePanel
@@ -129,10 +105,10 @@ import type {
   WorkflowNodeDefinition,
   WorkflowSaveRequest,
 } from "@studio/api-sdk";
-import { WorkflowCanvas } from "@studio/workflow-designer";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
+import WorkflowBasicsSection from "@/components/workflow/WorkflowBasicsSection.vue";
+import WorkflowCanvasSection from "@/components/workflow/WorkflowCanvasSection.vue";
 import WorkflowResourceDialogs from "@/components/workflow/WorkflowResourceDialogs.vue";
 import WorkflowSelectedNodePanel from "@/components/workflow/WorkflowSelectedNodePanel.vue";
 import {
@@ -1079,12 +1055,6 @@ const resourceDialogActions = {
   formatQualityGranularity: (value?: string | null) => formatQualityGranularity(t, value),
 };
 </script>
-
-<style scoped>
-.cron-form-item {
-  grid-column: 1 / -1;
-}
-</style>
 
 <style scoped>
 h3 {
