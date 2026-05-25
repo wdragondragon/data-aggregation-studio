@@ -1138,3 +1138,24 @@
   - Maven settings 仍有 `release` 标签警告，测试启动时 Redis 不可达会降级到本地缓存并输出现有日志，未阻断测试。
   - 前端仍有 9 个 Vue 页面超过 1000 行，需要继续按低风险展示区/支撑逻辑拆分。
 - 下一步：提交 Batch 37；继续处理剩余前端大页面，优先从相对独立的系统页、数据开发页或数据服务编辑页开始。
+
+## Step 055 - Batch 38 拆分系统管理页 action 与资源类型支撑
+
+- 执行时间：2026-05-25 21:39:01 +08:00
+- 目标问题：`SystemView.vue` 仍超过 1000 行，表格 action 构造和资源类型/布尔标记转换支撑逻辑与页面表单、保存删除流程混在一起。
+- 修改范围：新增 `systemActions.ts` 承载用户、注册登记、租户、项目、成员、申请、Worker 和资源共享表格 action 构造；新增 `systemViewSupport.ts` 承载资源类型选项、资源类型归一化、布尔/整型标记转换和删除标记归一化。
+- 涉及文件：
+  - `frontend/apps/web/src/views/SystemView.vue`
+  - `frontend/apps/web/src/components/system/systemActions.ts`
+  - `frontend/apps/web/src/components/system/systemViewSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：系统管理各表格按钮、显示/禁用条件、弹窗打开、审批、删除和保存流程不变；抽出的 helper 只复用既有函数引用。`SystemView.vue` 从 1040 行降到 986 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+  - 大文件扫描：`SystemView.vue` 已不再超过 1000 行；剩余前端超 1000 行页面为数据开发、采集任务编辑、工作流编辑、质量规则编辑、质量指标、模型中心、模型统计、数据服务编辑。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 系统页仍保留保存/删除/审批流程，后续若继续治理应抽 `useAsyncAction` 或系统管理 composable，而不是继续拆表格列。
+- 下一步：提交 Batch 38；继续拆数据开发或数据服务编辑页。

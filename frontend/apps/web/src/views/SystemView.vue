@@ -32,7 +32,7 @@
             <el-table-column prop="createdAt" label="创建时间" min-width="180" />
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="userActions(row)" />
+                <OverflowActionGroup :items="buildUserActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -57,7 +57,7 @@
             </el-table-column>
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="registrationActions(row)" />
+                <OverflowActionGroup :items="buildRegistrationActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -80,7 +80,7 @@
             </el-table-column>
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="tenantActions(row)" />
+                <OverflowActionGroup :items="buildTenantActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -108,7 +108,7 @@
             </el-table-column>
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="projectActions(row)" />
+                <OverflowActionGroup :items="buildProjectActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -127,7 +127,7 @@
             <el-table-column prop="status" label="状态" width="110" align="center" />
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="tenantMemberActions(row)" />
+                <OverflowActionGroup :items="buildTenantMemberActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -147,7 +147,7 @@
             <el-table-column prop="status" label="状态" width="110" align="center" />
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="projectMemberActions(row)" />
+                <OverflowActionGroup :items="buildProjectMemberActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -169,7 +169,7 @@
             <el-table-column prop="reason" label="原因" min-width="220" />
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="projectRequestActions(row)" />
+                <OverflowActionGroup :items="buildProjectRequestActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -194,7 +194,7 @@
             </el-table-column>
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="workerActions(row)" />
+                <OverflowActionGroup :items="buildWorkerActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -232,7 +232,7 @@
             </el-table-column>
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
-                <OverflowActionGroup :items="resourceShareActions(row)" />
+                <OverflowActionGroup :items="buildResourceShareActions(row, systemActionHandlers)" />
               </template>
             </el-table-column>
           </el-table>
@@ -441,6 +441,19 @@ import type {
 } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import {
+  buildProjectActions,
+  buildProjectMemberActions,
+  buildProjectRequestActions,
+  buildRegistrationActions,
+  buildResourceShareActions,
+  buildTenantActions,
+  buildTenantMemberActions,
+  buildUserActions,
+  buildWorkerActions,
+} from "@/components/system/systemActions";
+import type { SystemActionHandlers } from "@/components/system/systemActions";
+import { normalizeDeletedFlag, normalizeResourceType, resourceTypeOptions, toBooleanFlag, toIntegerFlag } from "@/components/system/systemViewSupport";
 import { useAuthStore } from "@/stores/auth";
 import { resolveProjectName, sameEntityId } from "@/utils/studio";
 
@@ -484,13 +497,6 @@ const workerForm = reactive<Partial<SystemProjectWorker>>({ enabled: true });
 const shareForm = reactive<Partial<ResourceShare>>({ enabled: true });
 
 const workerCodeOptions = computed(() => Array.from(new Set(projectWorkers.value.map((item) => item.workerCode).filter(Boolean))) as string[]);
-const resourceTypeOptions = [
-  { label: "数据源", value: "DATASOURCE" },
-  { label: "模型", value: "DATA_MODEL" },
-  { label: "采集任务", value: "COLLECTION_TASK" },
-  { label: "工作流", value: "WORKFLOW" },
-  { label: "数据开发脚本", value: "DATA_DEVELOPMENT_SCRIPT" },
-] as const;
 const shareTargetProjects = computed(() =>
   projects.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
 );
@@ -554,25 +560,6 @@ function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(projects.value, projectId);
 }
 
-function normalizeResourceType(value?: string) {
-  return String(value ?? "").trim().toUpperCase();
-}
-
-function toBooleanFlag(value: boolean | number | null | undefined) {
-  return value === true || value === 1;
-}
-
-function toIntegerFlag(value: boolean | number | null | undefined) {
-  return toBooleanFlag(value) ? 1 : 0;
-}
-
-function normalizeDeletedFlag<T extends { deleted?: boolean | number }>(payload: T): T {
-  if (payload.deleted == null) {
-    return { ...payload };
-  }
-  return { ...payload, deleted: toIntegerFlag(payload.deleted) } as T;
-}
-
 function shareOptionList(resourceType: string) {
   const currentProjectId = authStore.currentProjectId;
   switch (resourceType) {
@@ -611,72 +598,6 @@ function resourceLabel(share: ResourceShare) {
   const resourceType = normalizeResourceType(share.resourceType);
   const option = shareOptionList(resourceType).find((item) => sameEntityId(item.id, share.resourceId));
   return option?.label ?? `${resourceType || "RESOURCE"} #${share.resourceId ?? "-"}`;
-}
-
-function userActions(row: StudioUser) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openUserDialog(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteUser(row) },
-  ];
-}
-
-function registrationActions(row: UserRegistrationRequestView) {
-  return [
-    { key: "approve", label: "通过", type: "success", disabled: row.status !== "PENDING", onClick: () => approveRegistration(row) },
-    { key: "reject", label: "拒绝", type: "warning", disabled: row.status !== "PENDING", onClick: () => rejectRegistration(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteRegistration(row) },
-  ];
-}
-
-function tenantActions(row: SystemTenant) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openTenantDialog(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteTenant(row) },
-  ];
-}
-
-function projectActions(row: SystemProject) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openProjectDialog(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteProject(row) },
-  ];
-}
-
-function tenantMemberActions(row: SystemTenantMember) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openTenantMemberDialog(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteTenantMember(row) },
-  ];
-}
-
-function projectMemberActions(row: SystemProjectMember) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openProjectMemberDialog(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteProjectMember(row) },
-  ];
-}
-
-function projectRequestActions(row: SystemProjectMemberRequest) {
-  return [
-    { key: "approve", label: "通过", type: "success", visible: canReviewProjectRequest(row), onClick: () => approveProjectRequest(row) },
-    { key: "reject", label: "拒绝", type: "warning", visible: canReviewProjectRequest(row), onClick: () => rejectProjectRequest(row) },
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openRequestDialog(row) },
-    { key: "delete", label: "删除", type: "danger", onClick: () => deleteProjectRequest(row) },
-  ];
-}
-
-function workerActions(row: SystemProjectWorker) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openWorkerDialog(row) },
-    { key: "delete", label: "解绑", type: "danger", visible: Boolean(row.id), onClick: () => deleteProjectWorker(row) },
-  ];
-}
-
-function resourceShareActions(row: ResourceShare) {
-  return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => openShareDialog(row) },
-    { key: "delete", label: "取消共享", type: "danger", onClick: () => deleteResourceShare(row) },
-  ];
 }
 
 function openTenantDialog(row?: SystemTenant) {
@@ -967,6 +888,31 @@ async function confirmDelete(message: string, action: () => Promise<unknown>) {
     }
   }
 }
+
+const systemActionHandlers: SystemActionHandlers = {
+  openUserDialog,
+  deleteUser,
+  approveRegistration,
+  rejectRegistration,
+  deleteRegistration,
+  openTenantDialog,
+  deleteTenant,
+  openProjectDialog,
+  deleteProject,
+  openTenantMemberDialog,
+  deleteTenantMember,
+  openProjectMemberDialog,
+  deleteProjectMember,
+  canReviewProjectRequest,
+  approveProjectRequest,
+  rejectProjectRequest,
+  openRequestDialog,
+  deleteProjectRequest,
+  openWorkerDialog,
+  deleteProjectWorker,
+  openShareDialog,
+  deleteResourceShare,
+};
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   if (authStore.isAuthenticated) {
