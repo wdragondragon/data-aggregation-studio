@@ -21,246 +21,18 @@
       </el-steps>
     </SectionCard>
 
-    <SectionCard v-if="activeStep === 1" :title="t('web.collectionTasks.bindingTitle')" :description="t('web.collectionTasks.bindingDescription')">
-      <div class="studio-form-grid">
-        <el-form-item :label="t('web.collectionTasks.name')">
-          <el-input v-model="form.name" :placeholder="t('web.collectionTasks.namePlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.type')">
-          <el-input :model-value="taskTypeLabel" disabled />
-        </el-form-item>
-        <el-form-item v-if="collectionModeVisible" :label="t('web.collectionTasks.collectionMode')">
-          <el-radio-group v-model="collectionMode">
-            <el-radio-button label="FULL">{{ t("web.collectionTasks.collectionModeFull") }}</el-radio-button>
-            <el-radio-button label="INCREMENTAL">{{ t("web.collectionTasks.collectionModeIncremental") }}</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-      </div>
-
-      <div class="soft-panel">
-        <div class="section-toolbar">
-          <div>
-            <strong>{{ t("web.collectionTasks.sourcesTitle") }}</strong>
-            <p>{{ isFusionTask ? t("web.collectionTasks.sourcesDescription") : t("web.collectionTasks.singleSourceDescription") }}</p>
-          </div>
-          <el-button type="primary" plain @click="appendSourceBinding">{{ t("common.addRow") }}</el-button>
-        </div>
-
-        <el-table :data="form.sourceBindings" border>
-          <el-table-column v-if="isFusionTask" :label="t('web.collectionTasks.sourceAlias')" min-width="150">
-            <template #default="{ row }">
-              <el-input v-model="row.sourceAlias" :placeholder="t('web.collectionTasks.sourceAliasPlaceholder')" />
-            </template>
-          </el-table-column>
-
-          <el-table-column :label="t('web.collectionTasks.datasource')" min-width="220">
-            <template #default="{ row }">
-              <el-select
-                :model-value="String(row.datasourceId ?? '')"
-                filterable
-                :placeholder="t('web.collectionTasks.datasourcePlaceholder')"
-                @update:model-value="handleSourceDatasourceChange(row, $event)"
-              >
-                <el-option v-for="datasource in datasources" :key="datasource.id" :label="datasource.name" :value="String(datasource.id)" />
-              </el-select>
-            </template>
-          </el-table-column>
-
-          <el-table-column :label="t('web.collectionTasks.model')" min-width="220">
-            <template #default="{ row }">
-              <el-select
-                :model-value="String(row.modelId ?? '')"
-                filterable
-                :placeholder="t('web.collectionTasks.modelPlaceholder')"
-                @update:model-value="handleSourceModelChange(row, $event)"
-              >
-                <el-option
-                  v-for="model in resolveModelsByDatasource(row.datasourceId)"
-                  :key="model.id"
-                  :label="model.name"
-                  :value="String(model.id)"
-                />
-              </el-select>
-            </template>
-          </el-table-column>
-
-            <el-table-column :label="t('fieldMapping.actions')" width="110" fixed="right">
-            <template #default="{ $index }">
-              <el-button link type="danger" :disabled="form.sourceBindings.length === 1" @click="removeSourceBinding($index)">{{ t("common.remove") }}</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-
-      <div v-if="form.sourceBindings.length" class="advanced-options">
-        <div
-          v-for="source in form.sourceBindings"
-          :key="source.sourceAlias || String(source.datasourceId ?? '')"
-          class="runtime-option-block"
-        >
-          <div class="runtime-option-header">
-            <div>
-              <strong>
-                {{ isFusionTask
-                  ? `${t("web.collectionTasks.readerAdvancedOptions")} - ${source.sourceAlias || t("common.none")}`
-                  : t("web.collectionTasks.readerAdvancedOptions") }}
-              </strong>
-              <p>{{ runtimeSchemaTitle("reader", source.datasourceId) }}</p>
-            </div>
-            <el-tag v-if="runtimeSchemaFor('reader', source.datasourceId)" :type="runtimeStatusType('reader', source.datasourceId)">
-              {{ runtimeStatusLabel("reader", source.datasourceId) }}
-            </el-tag>
-          </div>
-
-          <div v-if="source.incremental && sourceIncrementalVisible(source)" class="studio-form-grid incremental-grid">
-            <el-form-item :label="t('web.collectionTasks.incrementalColumn')">
-                  <el-select
-                    v-model="source.incremental.incrColumn"
-                    filterable
-                    clearable
-                    :placeholder="t('web.collectionTasks.incrementalColumn')"
-                    @change="syncCurrentIncrementalCursor(source)"
-                  >
-                <el-option v-for="field in sourceFieldOptions(source)" :key="field" :label="field" :value="field" />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('web.collectionTasks.incrementalModel')">
-                  <el-select v-model="source.incremental.incrModel" @change="syncCurrentIncrementalCursor(source)">
-                <el-option label=">" value=">" />
-                <el-option label=">=" value=">=" />
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('web.collectionTasks.incrementalValue')">
-              <div class="incremental-cursor">
-                <div class="incremental-cursor__body">
-                  <div
-                    class="studio-mono incremental-cursor__value"
-                    :class="{ 'incremental-cursor__value--empty': !hasIncrementalCursor(source) }"
-                  >
-                    {{ formatIncrementalCursorValue(source.incremental.pkValue) }}
-                  </div>
-                  <div class="incremental-cursor__meta">
-                    <span>{{ t("web.collectionTasks.incrementalCursorLastRun") }}: {{ formatIncrementalCursorMeta(source.incremental.lastRunRecordId) }}</span>
-                    <span>{{ t("web.collectionTasks.incrementalCursorUpdatedAt") }}: {{ formatIncrementalCursorMeta(source.incremental.lastUpdatedAt) }}</span>
-                  </div>
-                </div>
-                <el-button
-                  plain
-                  type="warning"
-                  size="small"
-                  :disabled="!taskId || !hasIncrementalCursor(source)"
-                  :loading="isIncrementalCursorResetting(source)"
-                  @click="resetIncrementalCursor(source)"
-                >
-                  {{ t("web.collectionTasks.resetIncrementalCursor") }}
-                </el-button>
-              </div>
-            </el-form-item>
-          </div>
-
-          <HttpRequestOptionsEditor
-            v-if="readerAdvancedFields(source).length && isHttpReaderSource(source)"
-            :fields="readerAdvancedFields(source)"
-            :model-value="source.readerOptions ?? {}"
-            :dynamic-function-fields="readerDynamicFunctionFields(source)"
-            @update:model-value="updateSourceReaderOptions(source, $event)"
-          />
-          <MetaFormRenderer
-            v-else-if="readerAdvancedFields(source).length"
-            :fields="readerAdvancedFields(source)"
-            :model-value="source.readerOptions ?? {}"
-            :dynamic-function-fields="readerDynamicFunctionFields(source)"
-            @update:model-value="updateSourceReaderOptions(source, $event)"
-          />
-          <el-alert
-            v-else-if="runtimeSchemaFor('reader', source.datasourceId) && !runtimeSchemaFor('reader', source.datasourceId)?.runtimeSupported"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('web.collectionTasks.runtimeUnsupported')"
-          />
-          <el-alert
-            v-else-if="runtimeSchemaFor('reader', source.datasourceId)"
-            type="info"
-            :closable="false"
-            show-icon
-            :title="t('web.collectionTasks.runtimeSchemaMissing')"
-          />
-        </div>
-      </div>
-
-      <div class="soft-panel">
-        <strong>{{ t("web.collectionTasks.targetTitle") }}</strong>
-        <p>{{ t("web.collectionTasks.targetDescription") }}</p>
-        <div class="studio-form-grid">
-          <el-form-item :label="t('web.collectionTasks.datasource')">
-            <el-select
-              :model-value="String(form.targetBinding.datasourceId ?? '')"
-              filterable
-              :placeholder="t('web.collectionTasks.datasourcePlaceholder')"
-              @update:model-value="handleTargetDatasourceChange"
-            >
-              <el-option v-for="datasource in datasources" :key="datasource.id" :label="datasource.name" :value="String(datasource.id)" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('web.collectionTasks.model')">
-            <el-select
-              :model-value="String(form.targetBinding.modelId ?? '')"
-              filterable
-              :placeholder="t('web.collectionTasks.modelPlaceholder')"
-              @update:model-value="handleTargetModelChange"
-            >
-              <el-option
-                v-for="model in resolveModelsByDatasource(form.targetBinding.datasourceId)"
-                :key="model.id"
-                :label="model.name"
-                :value="String(model.id)"
-              />
-            </el-select>
-          </el-form-item>
-        </div>
-
-        <div class="runtime-option-block runtime-option-block--target">
-          <div class="runtime-option-header">
-            <div>
-              <strong>{{ t("web.collectionTasks.writerAdvancedOptions") }}</strong>
-              <p>{{ runtimeSchemaTitle("writer", form.targetBinding.datasourceId) }}</p>
-            </div>
-            <el-tag v-if="runtimeSchemaFor('writer', form.targetBinding.datasourceId)" :type="runtimeStatusType('writer', form.targetBinding.datasourceId)">
-              {{ runtimeStatusLabel("writer", form.targetBinding.datasourceId) }}
-            </el-tag>
-          </div>
-          <HttpRequestOptionsEditor
-            v-if="writerAdvancedFields.length && isHttpWriterTarget()"
-            :fields="writerAdvancedFields"
-            :model-value="form.targetBinding.writerOptions ?? {}"
-            :dynamic-function-fields="writerDynamicFunctionFields()"
-            @update:model-value="form.targetBinding.writerOptions = $event"
-          />
-          <MetaFormRenderer
-            v-else-if="writerAdvancedFields.length"
-            :fields="writerAdvancedFields"
-            :model-value="form.targetBinding.writerOptions ?? {}"
-            :dynamic-function-fields="writerDynamicFunctionFields()"
-            @update:model-value="form.targetBinding.writerOptions = $event"
-          />
-          <el-alert
-            v-else-if="runtimeSchemaFor('writer', form.targetBinding.datasourceId) && !runtimeSchemaFor('writer', form.targetBinding.datasourceId)?.runtimeSupported"
-            type="warning"
-            :closable="false"
-            show-icon
-            :title="t('web.collectionTasks.runtimeUnsupported')"
-          />
-          <el-alert
-            v-else-if="runtimeSchemaFor('writer', form.targetBinding.datasourceId)"
-            type="info"
-            :closable="false"
-            show-icon
-            :title="t('web.collectionTasks.runtimeSchemaMissing')"
-          />
-        </div>
-      </div>
-    </SectionCard>
+    <CollectionTaskBindingSection
+      v-if="activeStep === 1"
+      v-model:collection-mode="collectionMode"
+      :form="form"
+      :task-id="taskId"
+      :task-type-label="taskTypeLabel"
+      :collection-mode-visible="collectionModeVisible"
+      :is-fusion-task="isFusionTask"
+      :datasources="datasources"
+      :writer-advanced-fields="writerAdvancedFields"
+      :binding-actions="bindingSectionActions"
+    />
 
     <SectionCard v-else-if="activeStep === 2" :title="t('web.collectionTasks.mappingTitle')" :description="t('web.collectionTasks.mappingDescription')">
       <div class="section-toolbar">
@@ -374,10 +146,10 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import CollectionTaskBindingSection from "@/components/collection-task/CollectionTaskBindingSection.vue";
 import CollectionTaskReviewSection from "@/components/collection-task/CollectionTaskReviewSection.vue";
 import CollectionTaskScheduleSection from "@/components/collection-task/CollectionTaskScheduleSection.vue";
 import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
-import HttpRequestOptionsEditor from "@web/components/HttpRequestOptionsEditor.vue";
 import { cloneDeep } from "@/utils/studio";
 
 interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
@@ -535,6 +307,35 @@ const fusionReaderOptions = computed<Record<string, unknown>>(() => {
   const value = form.executionOptions.fusionReaderOptions;
   return isPlainRecord(value) ? value : {};
 });
+
+const bindingSectionActions = {
+  appendSourceBinding,
+  removeSourceBinding,
+  handleSourceDatasourceChange,
+  handleSourceModelChange,
+  resolveModelsByDatasource,
+  runtimeSchemaTitle,
+  runtimeSchemaFor,
+  runtimeStatusType,
+  runtimeStatusLabel,
+  sourceIncrementalVisible,
+  syncCurrentIncrementalCursor,
+  sourceFieldOptions,
+  hasIncrementalCursor,
+  formatIncrementalCursorValue,
+  formatIncrementalCursorMeta,
+  isIncrementalCursorResetting,
+  resetIncrementalCursor,
+  readerAdvancedFields,
+  isHttpReaderSource,
+  readerDynamicFunctionFields,
+  updateSourceReaderOptions,
+  handleTargetDatasourceChange,
+  handleTargetModelChange,
+  isHttpWriterTarget,
+  writerDynamicFunctionFields,
+  updateTargetWriterOptions,
+};
 
 async function loadReferenceData() {
   try {
@@ -907,6 +708,10 @@ function writerDynamicFunctionFields() {
 
 function isHttpWriterTarget() {
   return resolveDatasourceTypeCode(form.targetBinding.datasourceId) === "http";
+}
+
+function updateTargetWriterOptions(value: Record<string, unknown>) {
+  form.targetBinding.writerOptions = value ?? {};
 }
 
 function updateFusionReaderOptions(value: Record<string, unknown>) {
@@ -1393,12 +1198,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.cron-form-item {
-  grid-column: 1 / -1;
-}
-</style>
-
-<style scoped>
 h3 {
   margin: 0 0 6px;
 }
@@ -1420,12 +1219,6 @@ p {
   margin-bottom: 16px;
 }
 
-.advanced-options {
-  display: grid;
-  gap: 14px;
-  margin: 16px 0;
-}
-
 .runtime-option-block {
   display: grid;
   gap: 12px;
@@ -1434,54 +1227,11 @@ p {
   padding: 14px;
 }
 
-.runtime-option-block--target {
-  margin-top: 16px;
-}
-
 .runtime-option-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-}
-
-.incremental-grid {
-  margin-top: 4px;
-}
-
-.incremental-cursor {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-}
-
-.incremental-cursor__body {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.incremental-cursor__value {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  color: var(--studio-text);
-  line-height: 1.4;
-}
-
-.incremental-cursor__value--empty {
-  color: var(--studio-text-soft);
-}
-
-.incremental-cursor__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  color: var(--studio-text-soft);
-  font-size: 12px;
-  line-height: 1.3;
 }
 
 .editor-footer {

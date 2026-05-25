@@ -837,3 +837,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 采集任务编辑页的主要复杂度仍在第 1 步源端/目标端运行参数和第 2 步融合/字段映射配置，后续应优先拆这些区块。
 - 下一步：提交 Batch 22；继续处理采集任务源端/目标端绑定或转向质量指标/模型统计大页面。
+
+## Step 040 - Batch 23 拆分采集任务源端与目标端绑定区块
+
+- 执行时间：2026-05-25 10:12:48 +08:00
+- 目标问题：`CollectionTaskEditorView.vue` 第 1 步同时承载任务基础信息、源端绑定表、reader 增量配置、reader 高级参数、目标端绑定和 writer 高级参数，模板体积大且和后续字段映射/预览流程混杂。
+- 修改范围：新增 `CollectionTaskBindingSection.vue` 承载采集任务绑定步骤的展示层；父页面保留数据源/模型加载、运行参数 schema、增量游标、默认值合并和保存预览逻辑，通过 `bindingSectionActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/CollectionTaskEditorView.vue`
+  - `frontend/apps/web/src/components/collection-task/CollectionTaskBindingSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：任务名称、任务类型、采集模式、源端/目标端数据源模型选择、reader/writer 高级参数、HTTP 参数编辑器、增量游标展示和重置行为保持不变；本步骤只迁移第 1 步展示层。`CollectionTaskEditorView.vue` 从 1355 行降到 1122 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 采集任务编辑页仍超过 1000 行，剩余主要复杂度在第 2 步字段映射/融合运行参数，以及父页面中的运行参数 schema 和自定义 SQL 字段解析逻辑。
+- 下一步：提交 Batch 23；继续拆第 2 步字段映射与融合配置，或转向工作流节点配置面板。
