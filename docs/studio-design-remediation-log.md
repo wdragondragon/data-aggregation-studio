@@ -1218,3 +1218,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，均未阻断最终构建。
   - 数据开发页已降到 1000 行以下；后续如继续治理，建议抽目录树/运行记录 composable，而不是继续为行数拆模板。
 - 下一步：提交 Batch 41；继续处理剩余前端大页面，优先数据服务编辑、模型中心、质量规则、工作流和采集任务编辑页。
+
+## Step 059 - Batch 42 拆分数据服务编辑页调试与枚举支撑
+
+- 执行时间：2026-05-26 01:10:05 +08:00
+- 目标问题：`DataServiceEditorView.vue` 仍超过 1000 行，页面内保留值类型/操作符枚举、向导步骤、调试占位 JSON、默认分页参数、字段类型推导、调试 JSON 解析和 cURL 生成等纯支撑逻辑。
+- 修改范围：新增 `dataServiceEditorSupport.ts`，集中承载数据服务编辑页的枚举、默认参数、类型/示例值推导、OpenAPI Header 补齐、bash/cmd cURL 构造和剪贴板降级复制；父页面继续负责数据加载、保存、发布、调试调用和向导流转。
+- 涉及文件：
+  - `frontend/apps/web/src/views/DataServiceEditorView.vue`
+  - `frontend/apps/web/src/components/data-service/dataServiceEditorSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：服务编辑、请求参数、发布参数、调试模板、OpenAPI Token Header、bash/cmd cURL 内容和 JSON 校验错误消息保持不变；仅迁移无页面状态依赖的纯函数。`DataServiceEditorView.vue` 从 1048 行降到 837 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
+  - 数据服务编辑页已降到 1000 行以下；后续如继续治理，建议抽服务开发/发布参数 composable，不再为行数拆纯模板。
+- 下一步：提交 Batch 42；继续处理质量规则、模型中心、工作流和采集任务编辑页。
