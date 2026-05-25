@@ -953,3 +953,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 血缘面板已降到 1000 行以下；后续如继续治理，建议抽 graph/summary 展示或手工血缘表单，但当前收益低于模型中心、质量指标和模型统计页面。
 - 下一步：提交 Batch 28；继续处理模型中心、质量指标、模型统计或元模型页面。
+
+## Step 046 - Batch 29 拆分元模型字段定义表
+
+- 执行时间：2026-05-25 13:31:19 +08:00
+- 目标问题：`MetadataSchemasView.vue` 略超过 1000 行，抽屉中的字段定义表包含大量列配置、选项编辑和操作列，和元模型树、详情、保存逻辑混在同一页面。
+- 修改范围：新增 `MetadataSchemaFieldsSection.vue` 承载字段定义表；父页面保留 schema 草稿、字段增删、保存发布同步和元模型树逻辑，通过 `fieldSectionActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/MetadataSchemasView.vue`
+  - `frontend/apps/web/src/components/metadata/MetadataSchemaFieldsSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：字段 key/name/scope/component/valueType、必填/敏感/可搜索/可排序、查询操作符、默认操作符、选项和删除行为保持不变；本步骤只迁移字段定义表展示层。`MetadataSchemasView.vue` 从 1040 行降到 929 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 元模型页已降到 1000 行以下；后续如继续治理，建议抽 drawer basic section 或 tree/detail section，但当前优先级低于模型中心、质量指标和模型统计页面。
+- 下一步：提交 Batch 29；继续处理模型中心、质量指标或模型统计页面。

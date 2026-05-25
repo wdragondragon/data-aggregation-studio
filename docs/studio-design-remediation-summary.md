@@ -44,6 +44,7 @@
 - Batch 26 拆分工作流基础信息与画布区块：新增 `WorkflowBasicsSection.vue` 和 `WorkflowCanvasSection.vue`，将基础信息表单与工作流画布从 `WorkflowEditorView.vue` 移出，页面降到 992 行。
 - Batch 27 拆分数据服务接口调试区块：新增 `DataServiceDebugSection.vue`，将 Header/Query/Body 调试编辑、调试请求、cURL 生成和返回结果展示从 `DataServiceEditorView.vue` 移出，页面降到 966 行。
 - Batch 28 拆分模型血缘边详情抽屉：新增 `ModelLineageEdgeDrawer.vue`，将边基础信息、贡献者卡片、跳转、编辑和删除入口从 `ModelLineagePanel.vue` 移出，组件降到 903 行。
+- Batch 29 拆分元模型字段定义表：新增 `MetadataSchemaFieldsSection.vue`，将字段定义表从 `MetadataSchemasView.vue` 移出，页面降到 929 行。
 - 完成浏览器 smoke：确认 nginx 代理的 Studio 构建产物可加载，采集任务列表、HTTP 写入任务编辑页、HTTP 动态函数弹窗、工作流、数据服务监控、质量任务、模型、系统页均可渲染。
 
 ## 未处理或延期问题
@@ -97,6 +98,7 @@
 - `npm run build:web`（`frontend` 目录）：最终通过，`vue-tsc --noEmit && vite build` 成功；Batch 26 工作流基础信息与画布区块拆分后验证，中间曾因 `select-node` 事件类型过窄失败并已修复。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 27 数据服务接口调试区块拆分后验证。
 - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 28 模型血缘边详情抽屉拆分后验证。
+- `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功；Batch 29 元模型字段定义表拆分后验证。
 - `mvn -pl studio-test "-Dtest=StudioDesignDebtRegressionTest,CollectionTaskAssemblerServiceRegressionTest" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`：通过，15 tests，0 failures，0 errors。
 - `mvn -pl studio-test -am "-Dtest=CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：上游模块和 Studio 后端相关模块重新编译通过，但 `studio-test` fork JVM 因 Windows 页文件不足未启动，0 tests executed；随后已用非 fork 模式完成目标测试。
@@ -127,4 +129,5 @@
 - Batch 26：工作流基础信息和画布 section 已独立，工作流编辑页已降到 1000 行以下；后续如继续治理，建议抽数据加载/资源弹窗 composable。
 - Batch 27：数据服务接口调试 section 已独立，数据服务编辑页已降到 1000 行以下；后续如继续治理，建议抽服务开发/发布参数 composable。
 - Batch 28：模型血缘边详情抽屉已独立，血缘面板已降到 1000 行以下；后续优先级低于模型中心、质量指标和模型统计页面。
+- Batch 29：元模型字段定义表已独立，元模型页面已降到 1000 行以下；后续优先处理模型中心、质量指标和模型统计页面。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。
