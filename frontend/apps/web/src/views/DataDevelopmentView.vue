@@ -264,6 +264,7 @@ import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { formatScriptType, formatStatusLabel, isSharedFromAnotherProject, prettyJson, resolveProjectName, sameEntityId } from "@/utils/studio";
 import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.vue";
+import { defaultJavaTemplate, defaultPythonTemplate, normalizeEntityId, requireEntityId } from "../components/data-development/dataDevelopmentViewSupport";
 import type { SqlEditorHintSource } from "../components/data-development/editorTypes";
 import { resolveScriptEditorEntry } from "../components/data-development/scriptEditorRegistry";
 
@@ -769,21 +770,6 @@ async function deleteSelectedNode() {
   }
 }
 
-function normalizeEntityId(value: unknown): EntityId | undefined {
-  if (value == null || value === "") {
-    return undefined;
-  }
-  return value as EntityId;
-}
-
-function requireEntityId(value: unknown, fieldName: string): EntityId {
-  const normalized = normalizeEntityId(value);
-  if (normalized == null) {
-    throw new Error(`${fieldName} is required`);
-  }
-  return normalized;
-}
-
 function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
@@ -847,38 +833,6 @@ watch(
   { immediate: true },
 );
 
-function defaultJavaTemplate() {
-  return [
-    "import com.jdragon.studio.infra.script.java.JavaDataScript;",
-    "import com.jdragon.studio.infra.script.java.JavaDataScriptContext;",
-    "import com.jdragon.studio.infra.script.java.JavaDataScriptResult;",
-    "",
-    "public class DemoJavaDataScript implements JavaDataScript {",
-    "    @Override",
-    "    public JavaDataScriptResult execute(JavaDataScriptContext context) throws Exception {",
-    "        context.getLogger().info(\"Java script started by \" + context.getUsername());",
-    "        JavaDataScriptResult result = new JavaDataScriptResult();",
-    "        result.setMessage(\"Java script executed successfully\");",
-    "        result.getResultJson().put(\"tenantId\", context.getTenantId());",
-    "        result.getResultJson().put(\"arguments\", context.getArguments());",
-    "        return result;",
-    "    }",
-    "}",
-  ].join("\n");
-}
-
-function defaultPythonTemplate() {
-  return [
-    "def execute(context):",
-    "    context.logger.info(\"Python script started by %s\" % context.username)",
-    "    datasources = context.services.list_datasources()",
-    "    return {",
-    "        \"tenantId\": context.tenant_id,",
-    "        \"arguments\": context.arguments,",
-    "        \"datasourceCount\": len(datasources),",
-    "    }",
-  ].join("\n");
-}
 </script>
 
 <style scoped>

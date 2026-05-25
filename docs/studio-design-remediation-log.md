@@ -1198,3 +1198,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 模型统计页已降到 1000 行以下；后续如继续治理，建议抽查询条件 payload composable。
 - 下一步：提交 Batch 40；继续拆数据开发、数据服务编辑、模型中心、质量规则、工作流和采集任务编辑页。
+
+## Step 058 - Batch 41 拆分数据开发页 ID 与脚本模板支撑
+
+- 执行时间：2026-05-26 00:19:21 +08:00
+- 目标问题：`DataDevelopmentView.vue` 仍超过 1000 行，页面内同时维护实体 ID 归一化、必填 ID 断言、Java/Python 默认脚本模板等纯支撑逻辑，和树节点、脚本保存、运行记录状态混在一起。
+- 修改范围：新增 `dataDevelopmentViewSupport.ts`，将 `normalizeEntityId`、`requireEntityId`、`defaultJavaTemplate`、`defaultPythonTemplate` 从页面迁出；父页面继续负责权限、项目、目录树、脚本编辑和执行流程。
+- 涉及文件：
+  - `frontend/apps/web/src/views/DataDevelopmentView.vue`
+  - `frontend/apps/web/src/components/data-development/dataDevelopmentViewSupport.ts`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：实体 ID 空值处理、必填错误消息、Java/Python 默认模板内容保持不变；本步骤只迁移纯函数。`DataDevelopmentView.vue` 从 1041 行降到 995 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - 本步骤验证前发现本地 `node_modules` 存在缺失文件，已补齐缺失的 `@babel/parser`、`vue-i18n`、`echarts`、`@antv/x6`、`monaco-editor` 包；未修改 tracked package 文件。
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，均未阻断最终构建。
+  - 数据开发页已降到 1000 行以下；后续如继续治理，建议抽目录树/运行记录 composable，而不是继续为行数拆模板。
+- 下一步：提交 Batch 41；继续处理剩余前端大页面，优先数据服务编辑、模型中心、质量规则、工作流和采集任务编辑页。
