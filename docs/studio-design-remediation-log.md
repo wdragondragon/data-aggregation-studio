@@ -934,3 +934,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 数据服务编辑页已降到 1000 行以下；后续如继续治理，建议抽服务开发/发布参数 composable，而不是继续拆小模板。
 - 下一步：提交 Batch 27；继续处理剩余超大页面：模型中心、质量指标、模型统计、血缘面板或元模型页面。
+
+## Step 045 - Batch 28 拆分模型血缘边详情抽屉
+
+- 执行时间：2026-05-25 13:12:49 +08:00
+- 目标问题：`ModelLineagePanel.vue` 略超过 1000 行，其中边详情抽屉包含边基础信息、贡献者卡片、跳转、编辑和删除入口，是独立展示区块。
+- 修改范围：新增 `ModelLineageEdgeDrawer.vue` 承载血缘边详情抽屉；父组件保留血缘加载、边详情加载、人工血缘编辑/删除和路由跳转逻辑，通过 `edgeDrawerActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/components/ModelLineagePanel.vue`
+  - `frontend/apps/web/src/components/model-lineage/ModelLineageEdgeDrawer.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：边详情打开/关闭、贡献者展示、状态标签、任务/运行跳转、人工关系编辑和删除行为保持不变；本步骤只迁移边详情抽屉展示层。`ModelLineagePanel.vue` 从 1046 行降到 903 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 血缘面板已降到 1000 行以下；后续如继续治理，建议抽 graph/summary 展示或手工血缘表单，但当前收益低于模型中心、质量指标和模型统计页面。
+- 下一步：提交 Batch 28；继续处理模型中心、质量指标、模型统计或元模型页面。

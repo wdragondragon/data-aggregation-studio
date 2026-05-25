@@ -84,108 +84,13 @@
       </StudioTableShell>
     </SectionCard>
 
-    <el-drawer
-      :model-value="edgeDrawerOpen"
-      :title="t('web.models.lineageEdgeDetailTitle')"
-      size="46%"
-      @close="edgeDrawerOpen = false"
-    >
-      <div v-loading="edgeLoading" class="lineage-edge-drawer">
-        <template v-if="edgeDetail">
-          <div class="lineage-edge-detail-grid soft-panel">
-            <div>
-              <strong>{{ t("web.models.lineageSourceNode") }}:</strong>
-              {{ edgeDetail.sourceNodeTitle || t("common.none") }}
-            </div>
-            <div>
-              <strong>{{ t("web.models.lineageTargetNode") }}:</strong>
-              {{ edgeDetail.targetNodeTitle || t("common.none") }}
-            </div>
-            <div>
-              <strong>{{ t("web.models.lineageCreationType") }}:</strong>
-              {{ formatSourceTypeLabel(edgeDetail.sourceTypeLabel || edgeDetail.sourceType) }}
-            </div>
-            <div class="lineage-edge-detail-grid__status">
-              <strong>{{ t("web.models.lineageLatestRun") }}:</strong>
-              <StatusPill :label="formatDisplayStatus(edgeDetail.displayStatus ?? edgeDetail.latestRunStatus)" :tone="displayStatusTone(edgeDetail.displayStatus ?? edgeDetail.latestRunStatus)" />
-            </div>
-            <div v-if="activeLevel === 'FIELD'">
-              <strong>{{ t("web.models.lineageSourceField") }}:</strong>
-              {{ edgeDetail.sourceField || t("common.none") }}
-            </div>
-            <div v-if="activeLevel === 'FIELD'">
-              <strong>{{ t("web.models.lineageTargetField") }}:</strong>
-              {{ edgeDetail.targetField || t("common.none") }}
-            </div>
-            <div>
-              <strong>{{ t("web.models.lineageContributorTime") }}:</strong>
-              {{ edgeDetail.latestRunAt || t("web.models.lineageNoRun") }}
-            </div>
-          </div>
-
-          <SectionCard
-            :title="t('web.models.lineageContributorsTitle')"
-            :description="t('web.models.lineageContributorsDescription')"
-          >
-            <div class="lineage-contributors">
-              <div
-                v-for="(contributor, index) in edgeDetail.contributors"
-                :key="`${contributor.relationId ?? contributor.collectionTaskId ?? 'item'}-${index}`"
-                class="soft-panel lineage-contributor-card"
-              >
-                <div class="lineage-contributor-card__header">
-                  <div>
-                    <strong>{{ contributor.collectionTaskName || formatManualContributorTitle(contributor) }}</strong>
-                    <p>{{ formatSourceTypeLabel(contributor.sourceTypeLabel || contributor.sourceType) }}</p>
-                  </div>
-                  <StatusPill
-                    :label="formatDisplayStatus(contributor.displayStatus ?? contributor.latestRunStatus)"
-                    :tone="displayStatusTone(contributor.displayStatus ?? contributor.latestRunStatus)"
-                  />
-                </div>
-                <div class="lineage-contributor-card__body">
-                  <div>
-                    <span>{{ t("web.models.lineageContributorTime") }}</span>
-                    <strong>{{ contributor.latestRunAt || contributor.updatedAt || t("web.models.lineageNoRun") }}</strong>
-                  </div>
-                  <div>
-                    <span>{{ t("web.models.lineageContributorMappingMode") }}</span>
-                    <strong>{{ contributor.mappingMode || t("common.none") }}</strong>
-                  </div>
-                  <div v-if="contributor.expression">
-                    <span>{{ t("web.models.lineageContributorExpression") }}</span>
-                    <strong>{{ contributor.expression }}</strong>
-                  </div>
-                  <div v-if="contributor.maintainer">
-                    <span>{{ t("web.models.lineageMaintainer") }}</span>
-                    <strong>{{ contributor.maintainer }}</strong>
-                  </div>
-                </div>
-                <div class="lineage-contributor-card__actions">
-                  <el-button v-if="contributor.taskPath" link type="primary" @click="jumpToPath(contributor.taskPath)">
-                    {{ t("web.models.lineageOpenTask") }}
-                  </el-button>
-                  <el-button v-if="contributor.runPath" link type="primary" @click="jumpToPath(contributor.runPath)">
-                    {{ t("web.models.lineageOpenRun") }}
-                  </el-button>
-                  <el-button v-if="contributor.editable" link type="primary" @click="openEditManualRelation(contributor)">
-                    {{ t("common.edit") }}
-                  </el-button>
-                  <el-button
-                    v-if="contributor.editable && contributor.relationId != null"
-                    link
-                    type="danger"
-                    @click="deleteManualRelation(contributor)"
-                  >
-                    {{ t("common.delete") }}
-                  </el-button>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-        </template>
-      </div>
-    </el-drawer>
+    <ModelLineageEdgeDrawer
+      v-model="edgeDrawerOpen"
+      :edge-loading="edgeLoading"
+      :edge-detail="edgeDetail"
+      :active-level="activeLevel"
+      :edge-actions="edgeDrawerActions"
+    />
 
     <el-dialog
       :model-value="manualDialogOpen"
@@ -263,6 +168,7 @@ import { useRouter } from "vue-router";
 import type { DataModelDefinition, DataModelLineageContributorView, DataModelLineageEdgeDetailView, DataModelLineageLevel, DataModelLineageView, DataModelManualLineageSaveRequest, EntityId } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import ModelLineageGraph from "@/components/ModelLineageGraph.vue";
+import ModelLineageEdgeDrawer from "@/components/model-lineage/ModelLineageEdgeDrawer.vue";
 import { studioApi } from "@/api/studio";
 
 const props = defineProps<{
@@ -341,6 +247,16 @@ const manualModelOptions = computed(() => {
 });
 const sourceFieldOptions = computed(() => extractFieldOptions(findModelById(manualForm.sourceModelId)));
 const targetFieldOptions = computed(() => extractFieldOptions(findModelById(manualForm.targetModelId)));
+
+const edgeDrawerActions = {
+  formatSourceTypeLabel,
+  formatDisplayStatus,
+  displayStatusTone,
+  formatManualContributorTitle,
+  jumpToPath,
+  openEditManualRelation,
+  deleteManualRelation,
+};
 
 watch(
   () => props.model,
@@ -1043,73 +959,6 @@ function calculateMaxDepth(adjacency: Map<string, Set<string>>, startNodeIds: st
   color: #8b5cf6;
 }
 
-.lineage-edge-drawer {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.lineage-edge-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 18px;
-  padding: 16px 18px;
-}
-
-.lineage-edge-detail-grid__status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.lineage-contributors {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
-}
-
-.lineage-contributor-card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.lineage-contributor-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.lineage-contributor-card__header p {
-  margin: 4px 0 0;
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
-.lineage-contributor-card__body {
-  display: grid;
-  gap: 10px;
-}
-
-.lineage-contributor-card__body div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.lineage-contributor-card__body span {
-  font-size: 12px;
-  color: var(--studio-text-soft);
-}
-
-.lineage-contributor-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
 .lineage-form {
   display: grid;
   gap: 8px;
@@ -1128,10 +977,6 @@ function calculateMaxDepth(adjacency: Map<string, Set<string>>, startNodeIds: st
 @media (max-width: 720px) {
   .lineage-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lineage-edge-detail-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
