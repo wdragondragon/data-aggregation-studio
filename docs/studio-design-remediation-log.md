@@ -1237,3 +1237,22 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
   - 数据服务编辑页已降到 1000 行以下；后续如继续治理，建议抽服务开发/发布参数 composable，不再为行数拆纯模板。
 - 下一步：提交 Batch 42；继续处理质量规则、模型中心、工作流和采集任务编辑页。
+
+## Step 060 - Batch 43 复用质量规则动态函数弹窗
+
+- 执行时间：2026-05-26 01:18:05 +08:00
+- 目标问题：`QualityRuleEditorView.vue` 内嵌了一整套动态函数弹窗、函数目录和样式，而质量任务编辑页已经有同类可复用组件，造成函数清单和交互样式双份维护。
+- 修改范围：质量规则编辑页改为复用 `QualityDynamicFunctionDialog.vue` 和 `qualityTaskDynamicFunctions.ts`；删除页面内重复的动态函数 catalog、弹窗模板和动态函数专用样式。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityRuleEditorView.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：动态函数保存格式仍是 `$getCurrentTime(...)`、`$subStr(...)` 等原字符串表达式；插入位置、参数预览、必填校验和 SQL 光标插入逻辑保持在父页面不变。`QualityRuleEditorView.vue` 从 1069 行降到 642 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - 复用质量任务动态函数 catalog 后，弹窗说明文案与质量任务保持统一，较原质量规则页的个别描述略有差异，但函数名、参数和输出表达式不变。
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，Rollup 对 `@vueuse/core` pure annotation 有既有警告，未阻断构建。
+  - 质量规则编辑页已降到 1000 行以下；后续如继续治理，建议抽 SQL 选择/插入 composable，而不是再拆表格模板。
+- 下一步：提交 Batch 43；继续处理模型中心、工作流和采集任务编辑页。
