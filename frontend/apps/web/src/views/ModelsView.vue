@@ -5,28 +5,12 @@
         <h3>{{ t("web.models.heading") }}</h3>
         <p>{{ t("web.models.description") }}</p>
       </div>
-      <div v-if="!isDetailPage" class="soft-panel index-queue-card">
-        <div class="index-queue-card__header">
-          <div>
-            <strong>{{ t("web.models.indexQueueTitle") }}</strong>
-            <p>{{ t("web.models.indexQueueDescription") }}</p>
-          </div>
-          <StatusPill
-            :label="indexQueueBusy ? t('web.models.indexQueueBusy') : t('web.models.indexQueueIdle')"
-            :tone="indexQueueBusy ? 'warning' : 'success'"
-          />
-        </div>
-        <div class="index-queue-card__metrics">
-          <div class="index-queue-card__metric">
-            <span class="index-queue-card__metric-label">{{ t("web.models.indexQueuePending") }}</span>
-            <strong class="index-queue-card__metric-value">{{ indexQueuePendingRebuildCount }}</strong>
-          </div>
-          <div class="index-queue-card__metric">
-            <span class="index-queue-card__metric-label">{{ t("web.models.indexQueueQueuedCommands") }}</span>
-            <strong class="index-queue-card__metric-value">{{ indexQueueQueuedCommandCount }}</strong>
-          </div>
-        </div>
-      </div>
+      <ModelIndexQueueCard
+        v-if="!isDetailPage"
+        :busy="indexQueueBusy"
+        :pending-rebuild-count="indexQueuePendingRebuildCount"
+        :queued-command-count="indexQueueQueuedCommandCount"
+      />
     </div>
 
     <template v-if="!isDetailPage">
@@ -135,62 +119,30 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { ElInput, ElInputNumber, ElMessage, ElMessageBox, ElSelect, ElSwitch } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import type {
   DataModelDefinition,
   DataModelIndexQueueStatusView,
-  DataModelQueryCondition,
-  DataModelQueryGroup,
-  DataModelQueryRequest,
   DataModelSaveRequest,
   DataSourceDefinition,
   EntityId,
-  MetadataFieldDefinition,
   MetadataSchemaDefinition,
-  ModelKind,
   ModelSyncTaskView,
 } from "@studio/api-sdk";
-import { StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import ModelDetailOverview from "@/components/models/ModelDetailOverview.vue";
 import ModelEditorDrawer from "@/components/models/ModelEditorDrawer.vue";
+import ModelIndexQueueCard from "@/components/models/ModelIndexQueueCard.vue";
 import ModelListPanel from "@/components/models/ModelListPanel.vue";
+import { isDatabaseDatasourceType, normalizeModelPagePayload, normalizeTypeCode, sameId, useModelMetadataSupport } from "@/components/models/modelMetadataSupport";
 import ModelSyncDialogs from "@/components/models/ModelSyncDialogs.vue";
 import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState, ModelSyncFormState, ModelSyncTaskFormState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
-import {
-  ensureBusinessMetaModelEntries,
-  getBusinessMetaModelRows,
-  getBusinessMetaModelValues,
-  parseMetaModelSchema,
-  setBusinessMetaModelRows,
-  setBusinessMetaModelValues,
-} from "@/utils/metaModel";
 import { cloneDeep, isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
-
-const DATABASE_TYPE_HINTS = [
-  "mysql",
-  "oracle",
-  "postgres",
-  "postgresql",
-  "sqlserver",
-  "clickhouse",
-  "kingbase",
-  "dm",
-  "db2",
-  "hive",
-  "gauss",
-  "tidb",
-  "phoenix",
-  "greenplum",
-  "starrocks",
-  "doris",
-  "sqlite",
-];
 
 const route = useRoute();
 const router = useRouter();
@@ -306,27 +258,59 @@ const manualDatasourceOptions = computed(() =>
     return !isDatabaseDatasourceType(item.typeCode);
   }),
 );
-const availableModelSchemas = computed(() =>
-  filterModelSchemas(editorDatasource.value?.typeCode).filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "field"),
-);
-const querySchemaOptions = computed(() =>
-  buildQuerySchemaOptions(),
-);
-const selectedModelSchema = computed(() => findSelectedModelSchema(availableModelSchemas.value, modelForm.schemaVersionId));
-const editorTechnicalSections = computed(() => buildTechnicalSections(editorDatasource.value?.typeCode, modelForm.schemaVersionId));
-const previewTechnicalSections = computed(() => buildTechnicalSections(selectedDatasource.value?.typeCode, selectedModel.value?.schemaVersionId));
-const editorBusinessSections = computed(() => buildBusinessSections(resolveBusinessSchemas(editorTechnicalSections.value.map((section) => section.metaModelCode))));
-const previewBusinessSections = computed(() => buildBusinessSections(resolveBusinessSchemas(previewTechnicalSections.value.map((section) => section.metaModelCode))));
-const editorSections = computed(() => buildOrderedSections(editorTechnicalSections.value, editorBusinessSections.value));
-const previewSections = computed(() => buildOrderedSections(previewTechnicalSections.value, previewBusinessSections.value));
-const showManualDatasourceHint = computed(
-  () => Boolean(editorDatasource.value && isDatabaseDatasourceType(editorDatasource.value.typeCode) && !isEditingModel.value),
-);
-const isHttpModelEditor = computed(() => normalizeTypeCode(editorDatasource.value?.typeCode) === "http");
-const modelNameEditorLabel = computed(() => isHttpModelEditor.value ? t("web.models.interfaceNameLabel") : t("web.models.modelNameLabel"));
-const modelNameEditorPlaceholder = computed(() => isHttpModelEditor.value ? t("web.models.interfaceNamePlaceholder") : t("web.models.modelNamePlaceholder"));
-const physicalLocatorEditorLabel = computed(() => isHttpModelEditor.value ? t("web.models.requestPathLabel") : t("web.models.physicalLocatorLabel"));
-const physicalLocatorEditorPlaceholder = computed(() => isHttpModelEditor.value ? t("web.models.requestPathPlaceholder") : t("web.models.physicalLocatorPlaceholder"));
+const {
+  availableModelSchemas,
+  querySchemaOptions,
+  selectedModelSchema,
+  editorSections,
+  previewSections,
+  showManualDatasourceHint,
+  modelNameEditorLabel,
+  modelNameEditorPlaceholder,
+  physicalLocatorEditorLabel,
+  physicalLocatorEditorPlaceholder,
+  filterModelSchemas,
+  querySchemaLabel,
+  querySchemaFields,
+  queryConditionField,
+  queryConditionOperators,
+  queryConditionInputValue,
+  queryConditionBooleanValue,
+  setQueryConditionValue,
+  setQueryConditionValueTo,
+  isMultipleQuerySchema,
+  isNumericQueryField,
+  normalizeQueryGroupsForDatasource,
+  appendQueryGroup,
+  removeQueryGroup,
+  handleQuerySchemaChange,
+  appendQueryCondition,
+  removeQueryCondition,
+  handleQueryFieldChange,
+  buildModelQueryRequest,
+  appendSectionRow,
+  editorSectionRows,
+  resolveRowEditorComponent,
+  resolveRowEditorProps,
+  updateSectionRowField,
+  removeSectionRow,
+  sectionValue,
+  sectionModelValue,
+  updateSectionModelValue,
+  previewSectionRows,
+  formatDisplayValue,
+  applyModelSchemaContext,
+  resetModelForm,
+} = useModelMetadataSupport({
+  schemas,
+  modelForm,
+  selectedModel,
+  selectedDatasource,
+  editorDatasource,
+  activeQueryDatasourceType,
+  queryGroups,
+  t,
+});
 const isSharedSelectedModel = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, selectedModel.value?.projectId),
 );
@@ -400,50 +384,6 @@ const modelEditorActions = {
   saveModel,
 };
 
-function normalizeModelPagePayload(payload: unknown) {
-  if (Array.isArray(payload)) {
-    return {
-      items: payload as DataModelDefinition[],
-      total: payload.length,
-    };
-  }
-  if (payload && typeof payload === "object") {
-    const candidate = payload as { items?: unknown; total?: unknown };
-    if (Array.isArray(candidate.items)) {
-      return {
-        items: candidate.items as DataModelDefinition[],
-        total: Number(candidate.total ?? candidate.items.length ?? 0),
-      };
-    }
-  }
-  return {
-    items: [] as DataModelDefinition[],
-    total: 0,
-  };
-}
-
-function sameId(left?: EntityId, right?: EntityId) {
-  if (left == null || right == null) {
-    return false;
-  }
-  return String(left) === String(right);
-}
-
-function normalizeTypeCode(value?: string) {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-function isDatabaseDatasourceType(typeCode?: string) {
-  const normalized = normalizeTypeCode(typeCode);
-  if (!normalized) {
-    return false;
-  }
-  if (["ftp", "sftp", "minio", "oss", "file", "kafka", "rabbitmq", "rocketmq"].some((item) => normalized.includes(item))) {
-    return false;
-  }
-  return DATABASE_TYPE_HINTS.some((item) => normalized.includes(item));
-}
-
 function findDatasourceById(datasourceId?: EntityId) {
   return datasources.value.find((item) => sameId(item.id, datasourceId));
 }
@@ -454,750 +394,6 @@ function resolveProjectLabel(projectId?: EntityId | null) {
 
 function isSharedModel(model: DataModelDefinition) {
   return isSharedFromAnotherProject(authStore.currentProjectId, model.projectId);
-}
-
-function filterModelSchemas(datasourceTypeCode?: string) {
-  const normalizedType = normalizeTypeCode(datasourceTypeCode);
-  if (!normalizedType) {
-    return [];
-  }
-  return schemas.value.filter((schema) => {
-    if (normalizeTypeCode(schema.objectType) !== "model") {
-      return false;
-    }
-    const schemaType = normalizeTypeCode(schema.typeCode);
-    return schemaType === normalizedType || schemaType.startsWith(`${normalizedType}.`);
-  });
-}
-
-function querySchemaOperatorOptions(field?: MetadataFieldDefinition) {
-  const configured = (field?.queryOperators ?? []).map((item) => String(item)).filter(Boolean);
-  if (configured.length > 0) {
-    return configured;
-  }
-  if (field?.valueType === "BOOLEAN") {
-    return ["EQ", "IN"];
-  }
-  if (isNumericQueryField(field)) {
-    return ["EQ", "IN", "GT", "GE", "LT", "LE", "BETWEEN"];
-  }
-  return ["EQ", "LIKE", "IN"];
-}
-
-function defaultQueryOperator(field?: MetadataFieldDefinition) {
-  return String(field?.queryDefaultOperator ?? querySchemaOperatorOptions(field)[0] ?? "EQ");
-}
-
-function activeBusinessMetaModelCodesForQuery() {
-  const typeCode = activeQueryDatasourceType.value;
-  if (!typeCode) {
-    return undefined;
-  }
-  return new Set(
-    filterModelSchemas(typeCode)
-      .map((schema) => normalizeTypeCode(parseMetaModelSchema(schema).config.metaModelCode))
-      .filter((metaModelCode) => Boolean(metaModelCode) && metaModelCode !== "source"),
-  );
-}
-
-function buildQuerySchemaOptions() {
-  const allowedBusinessMetaModels = activeBusinessMetaModelCodesForQuery();
-  return schemas.value
-    .filter((schema) => normalizeTypeCode(schema.objectType) === "model" || parseMetaModelSchema(schema).config.domain === "BUSINESS")
-    .filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "source")
-    .filter((schema) => searchableFields(schema).length > 0)
-    .filter((schema) => {
-      const parsed = parseMetaModelSchema(schema).config;
-      if (parsed.domain === "TECHNICAL") {
-        if (!activeQueryDatasourceType.value) {
-          return false;
-        }
-        return normalizeTypeCode(parsed.datasourceType) === normalizeTypeCode(activeQueryDatasourceType.value);
-      }
-      if (!allowedBusinessMetaModels) {
-        return false;
-      }
-      return allowedBusinessMetaModels.has(normalizeTypeCode(parsed.metaModelCode));
-    })
-    .sort((left, right) => querySchemaLabel(left).localeCompare(querySchemaLabel(right)));
-}
-
-function findSelectedModelSchema(options: MetadataSchemaDefinition[], schemaVersionId?: EntityId) {
-  if (schemaVersionId != null) {
-    const matched = options.find((schema) => sameId(schema.id, schemaVersionId) || sameId(schema.currentVersionId, schemaVersionId));
-    if (matched) {
-      return matched;
-    }
-  }
-  return options[0];
-}
-
-function resolveBusinessSchemas(metaModelCodes: string[]) {
-  const allowedCodes = new Set(metaModelCodes.map((code) => normalizeTypeCode(code)).filter(Boolean));
-  return schemas.value
-    .filter((schema) => {
-      const parsed = parseMetaModelSchema(schema).config;
-      return parsed.domain === "BUSINESS" && allowedCodes.has(normalizeTypeCode(parsed.metaModelCode));
-    })
-    .sort((left, right) => {
-      const leftConfig = parseMetaModelSchema(left).config;
-      const rightConfig = parseMetaModelSchema(right).config;
-      const directoryCompare = `${leftConfig.directoryName || leftConfig.directoryCode || ""}`
-        .localeCompare(`${rightConfig.directoryName || rightConfig.directoryCode || ""}`);
-      if (directoryCompare !== 0) {
-        return directoryCompare;
-      }
-      return left.schemaName.localeCompare(right.schemaName);
-    });
-}
-
-function resolveSectionCollectionKey(metaModelCode?: string) {
-  if (metaModelCode === "field") {
-    return "columns";
-  }
-  if (!metaModelCode) {
-    return "items";
-  }
-  return metaModelCode.endsWith("s") ? metaModelCode : `${metaModelCode}s`;
-}
-
-function metaModelRank(metaModelCode?: string) {
-  switch (metaModelCode) {
-    case "table":
-      return 0;
-    case "field":
-      return 1;
-    default:
-      return 10;
-  }
-}
-
-function isRelevantTechnicalSchema(schema: MetadataSchemaDefinition, activeSchemaVersionId?: EntityId) {
-  const metaModelCode = parseMetaModelSchema(schema).config.metaModelCode;
-  return metaModelCode === "field"
-    || sameId(schema.id, activeSchemaVersionId)
-    || sameId(schema.currentVersionId, activeSchemaVersionId)
-    || (!activeSchemaVersionId && metaModelCode === "table");
-}
-
-function buildTechnicalSections(datasourceTypeCode?: string, activeSchemaVersionId?: EntityId) {
-  const candidates = filterModelSchemas(datasourceTypeCode)
-    .filter((schema) => parseMetaModelSchema(schema).config.metaModelCode !== "source")
-    .filter((schema) => isRelevantTechnicalSchema(schema, activeSchemaVersionId))
-    .sort((left, right) => {
-      const leftActive = sameId(left.id, activeSchemaVersionId) || sameId(left.currentVersionId, activeSchemaVersionId);
-      const rightActive = sameId(right.id, activeSchemaVersionId) || sameId(right.currentVersionId, activeSchemaVersionId);
-      if (leftActive !== rightActive) {
-        return leftActive ? -1 : 1;
-      }
-      const leftCode = parseMetaModelSchema(left).config.metaModelCode;
-      const rightCode = parseMetaModelSchema(right).config.metaModelCode;
-      const rankCompare = metaModelRank(leftCode) - metaModelRank(rightCode);
-      if (rankCompare !== 0) {
-        return rankCompare;
-      }
-      return left.schemaName.localeCompare(right.schemaName);
-    });
-
-  const multipleFieldKeys = new Set<string>();
-  for (const schema of candidates) {
-    const parsed = parseMetaModelSchema(schema);
-    if (parsed.config.displayMode === "MULTIPLE") {
-      multipleFieldKeys.add(resolveSectionCollectionKey(parsed.config.metaModelCode));
-    }
-  }
-
-  return candidates.map((schema) => {
-    const parsed = parseMetaModelSchema(schema);
-    const displayMode = parsed.config.displayMode ?? (parsed.config.metaModelCode === "field" ? "MULTIPLE" : "SINGLE");
-    const fields = (schema.fields ?? [])
-      .filter((field) => field.scope !== "BUSINESS")
-      .filter((field) => !(displayMode !== "MULTIPLE" && multipleFieldKeys.has(field.fieldKey)));
-    return {
-      key: `technical:${schema.id ?? schema.schemaCode}`,
-      schema,
-      title: parsed.config.metaModelName || schema.schemaName,
-      description: parsed.plainDescription || schema.schemaCode,
-      binding: "TECHNICAL" as MetaSectionBinding,
-      displayMode,
-      metaModelCode: parsed.config.metaModelCode,
-      fields,
-      collectionKey: displayMode === "MULTIPLE" ? resolveSectionCollectionKey(parsed.config.metaModelCode) : undefined,
-    };
-  });
-}
-
-function buildBusinessSections(schemasForRender: MetadataSchemaDefinition[]) {
-  if (!schemasForRender.length) {
-    return [] as ModelMetaSection[];
-  }
-  return schemasForRender.map((schema) => {
-    const parsed = parseMetaModelSchema(schema);
-    const displayMode = parsed.config.displayMode ?? "SINGLE";
-    return {
-      key: `business:${schema.id ?? schema.schemaCode}`,
-      schema,
-      title: `${parsed.config.directoryName || parsed.config.directoryCode || t("web.models.businessMetaModelTitle")} / ${schema.schemaName}`,
-      description: parsed.plainDescription || schema.schemaCode,
-      binding: "BUSINESS" as MetaSectionBinding,
-      displayMode,
-      metaModelCode: parsed.config.metaModelCode,
-      fields: (schema.fields ?? []).filter((field) => field.scope === "BUSINESS"),
-      collectionKey: displayMode === "MULTIPLE" ? resolveSectionCollectionKey(parsed.config.metaModelCode) : undefined,
-    };
-  });
-}
-
-function buildOrderedSections(technicalSections: ModelMetaSection[], businessSections: ModelMetaSection[]) {
-  const ordered = [] as ModelMetaSection[];
-  const businessByCode = new Map<string, ModelMetaSection[]>();
-  for (const section of businessSections) {
-    const code = normalizeTypeCode(section.metaModelCode);
-    const items = businessByCode.get(code) ?? [];
-    items.push(section);
-    businessByCode.set(code, items);
-  }
-  for (const technicalSection of technicalSections) {
-    ordered.push(technicalSection);
-    const code = normalizeTypeCode(technicalSection.metaModelCode);
-    const matchedBusinessSections = businessByCode.get(code) ?? [];
-    ordered.push(...matchedBusinessSections);
-    businessByCode.delete(code);
-  }
-  for (const sectionsForCode of businessByCode.values()) {
-    ordered.push(...sectionsForCode);
-  }
-  return ordered;
-}
-
-function deriveModelKindFromDatasource(datasource?: DataSourceDefinition): ModelKind | undefined {
-  const typeCode = normalizeTypeCode(datasource?.typeCode);
-  if (!typeCode) {
-    return undefined;
-  }
-  if (["kafka", "rocketmq", "rabbitmq"].some((item) => typeCode.includes(item))) {
-    return "TOPIC";
-  }
-  if (["ftp", "sftp", "minio", "oss", "file"].some((item) => typeCode.includes(item))) {
-    return "FILE";
-  }
-  if (isDatabaseDatasourceType(typeCode)) {
-    return "TABLE";
-  }
-  return "DATASET";
-}
-
-function deriveModelKindFromSchema(schema?: MetadataSchemaDefinition, datasource?: DataSourceDefinition): ModelKind | undefined {
-  const suffix = normalizeTypeCode(schema?.typeCode).split(".").pop();
-  switch (suffix) {
-    case "table":
-      return "TABLE";
-    case "view":
-      return "VIEW";
-    case "file":
-      return "FILE";
-    case "topic":
-      return "TOPIC";
-    case "measurement":
-      return "MEASUREMENT";
-    case "dataset":
-      return "DATASET";
-    default:
-      return deriveModelKindFromDatasource(datasource);
-  }
-}
-
-function buildDefaultMetadata(fields: MetadataFieldDefinition[]) {
-  const defaults: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (!field.fieldKey || field.defaultValue === undefined || field.defaultValue === null || field.defaultValue === "") {
-      continue;
-    }
-    defaults[field.fieldKey] = parseDefaultValue(field);
-  }
-  return defaults;
-}
-
-function searchableFields(schema?: MetadataSchemaDefinition) {
-  return (schema?.fields ?? []).filter((field) => field.searchable);
-}
-
-function querySchemaLabel(schema: MetadataSchemaDefinition) {
-  const parsed = parseMetaModelSchema(schema);
-  if (parsed.config.domain === "BUSINESS") {
-    return `${parsed.config.directoryName || parsed.config.directoryCode || "business"} / ${schema.schemaName}`;
-  }
-  return `${parsed.config.datasourceType || schema.typeCode} / ${schema.schemaName}`;
-}
-
-function findQuerySchema(metaSchemaCode?: string) {
-  if (!metaSchemaCode) {
-    return undefined;
-  }
-  return querySchemaOptions.value.find((schema) => schema.schemaCode === metaSchemaCode);
-}
-
-function querySchemaFields(group: ModelQueryGroupState) {
-  return searchableFields(findQuerySchema(group.metaSchemaCode));
-}
-
-function queryConditionField(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
-  return querySchemaFields(group).find((field) => field.fieldKey === condition.fieldKey);
-}
-
-function queryConditionOperators(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
-  return querySchemaOperatorOptions(queryConditionField(group, condition));
-}
-
-function queryConditionInputValue(value: unknown): string | number | undefined {
-  return typeof value === "string" || typeof value === "number" ? value : undefined;
-}
-
-function queryConditionBooleanValue(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function setQueryConditionValue(condition: ModelQueryConditionState, value: string | number | boolean | null | undefined) {
-  condition.value = value == null ? undefined : value;
-}
-
-function setQueryConditionValueTo(condition: ModelQueryConditionState, value: string | number | null | undefined) {
-  condition.valueTo = value == null ? undefined : value;
-}
-
-function isMultipleQuerySchema(group: ModelQueryGroupState) {
-  const schema = findQuerySchema(group.metaSchemaCode);
-  return schema ? parseMetaModelSchema(schema).config.displayMode === "MULTIPLE" : false;
-}
-
-function isNumericQueryField(field?: MetadataFieldDefinition) {
-  return field?.valueType === "INTEGER" || field?.valueType === "LONG" || field?.valueType === "DECIMAL";
-}
-
-let queryGroupSeed = 0;
-
-function nextQueryGroupKey() {
-  queryGroupSeed += 1;
-  return `query-group-${queryGroupSeed}`;
-}
-
-function createDefaultQueryCondition(schema?: MetadataSchemaDefinition): ModelQueryConditionState {
-  const field = searchableFields(schema)[0];
-  return {
-    fieldKey: field?.fieldKey ?? "",
-    operator: defaultQueryOperator(field),
-    value: undefined,
-    valueTo: undefined,
-    multiValueText: "",
-  };
-}
-
-function createQueryGroup(schemaCode?: string): ModelQueryGroupState {
-  const schema = schemaCode ? findQuerySchema(schemaCode) : querySchemaOptions.value[0];
-  return {
-    key: nextQueryGroupKey(),
-    metaSchemaCode: schema?.schemaCode ?? schemaCode ?? "",
-    rowMatchMode: schema && parseMetaModelSchema(schema).config.displayMode === "MULTIPLE" ? "SAME_ITEM" : "ANY_ITEM",
-    conditions: [createDefaultQueryCondition(schema)],
-  };
-}
-
-function parseDefaultValue(field: MetadataFieldDefinition) {
-  const rawValue = field.defaultValue;
-  if (rawValue === undefined || rawValue === null) {
-    return undefined;
-  }
-  if (field.valueType === "BOOLEAN") {
-    return rawValue === "true";
-  }
-  if (field.valueType === "INTEGER" || field.valueType === "LONG" || field.valueType === "DECIMAL") {
-    const numberValue = Number(rawValue);
-    return Number.isNaN(numberValue) ? rawValue : numberValue;
-  }
-  if (field.valueType === "JSON" || field.valueType === "OBJECT" || field.valueType === "ARRAY") {
-    try {
-      return JSON.parse(rawValue);
-    } catch (error) {
-      return rawValue;
-    }
-  }
-  return rawValue;
-}
-
-function mergeMetadataDefaults(current: Record<string, unknown> | undefined, fields: MetadataFieldDefinition[]) {
-  return {
-    ...buildDefaultMetadata(fields),
-    ...(current ?? {}),
-  };
-}
-
-function parseFieldRows(value: unknown, fields: MetadataFieldDefinition[] = []) {
-  if (!Array.isArray(value)) {
-    return [] as Record<string, unknown>[];
-  }
-  const defaults = buildDefaultMetadata(fields);
-  return value
-    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
-    .map((item) => normalizeFieldRow({ ...defaults, ...(item as Record<string, unknown>) }, fields));
-}
-
-function normalizeFieldRow(row: Record<string, unknown>, fields: MetadataFieldDefinition[]) {
-  if (fields.length === 0) {
-    return row;
-  }
-  const normalized = { ...row };
-  for (const field of fields) {
-    if (!field.fieldKey || normalized[field.fieldKey] === undefined || normalized[field.fieldKey] === null) {
-      continue;
-    }
-    normalized[field.fieldKey] = normalizeMetadataValue(normalized[field.fieldKey], field);
-  }
-  return normalized;
-}
-
-function normalizeMetadataValue(value: unknown, field: MetadataFieldDefinition) {
-  if (field.valueType === "BOOLEAN") {
-    if (typeof value === "boolean") {
-      return value;
-    }
-    return String(value).trim().toLowerCase() === "true";
-  }
-  if (field.valueType === "INTEGER" || field.valueType === "LONG" || field.valueType === "DECIMAL") {
-    if (typeof value === "number") {
-      return value;
-    }
-    if (typeof value === "string" && value.trim() === "") {
-      return undefined;
-    }
-    const numberValue = Number(value);
-    return Number.isNaN(numberValue) ? value : numberValue;
-  }
-  if ((field.valueType === "JSON" || field.valueType === "OBJECT" || field.valueType === "ARRAY") && typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch (error) {
-      return value;
-    }
-  }
-  return value;
-}
-
-function sectionValue(section: ModelMetaSection, fieldKey?: string, editor = false) {
-  if (!fieldKey) {
-    return undefined;
-  }
-  if (section.binding === "TECHNICAL") {
-    const metadata = editor ? modelForm.technicalMetadata : selectedModel.value?.technicalMetadata;
-    return metadata?.[fieldKey];
-  }
-  return sectionModelValue(section, editor)?.[fieldKey];
-}
-
-function sectionModelValue(section: ModelMetaSection, editor = false) {
-  if (section.binding === "TECHNICAL") {
-    return (editor ? modelForm.technicalMetadata : selectedModel.value?.technicalMetadata) ?? {};
-  }
-  const metadata = editor ? modelForm.businessMetadata : selectedModel.value?.businessMetadata;
-  return getBusinessMetaModelValues(metadata, section.schema);
-}
-
-function previewSectionRows(section: ModelMetaSection) {
-  if (section.binding === "BUSINESS") {
-    return getBusinessMetaModelRows(selectedModel.value?.businessMetadata, section.schema);
-  }
-  return parseFieldRows(sectionValue(section, section.collectionKey, false), section.fields);
-}
-
-function editorSectionRows(section: ModelMetaSection) {
-  if (section.binding === "BUSINESS") {
-    return getBusinessMetaModelRows(modelForm.businessMetadata, section.schema);
-  }
-  return parseFieldRows(sectionValue(section, section.collectionKey, true), section.fields);
-}
-
-function updateSectionModelValue(section: ModelMetaSection, value: Record<string, unknown>) {
-  if (section.binding === "TECHNICAL") {
-    modelForm.technicalMetadata = value;
-    return;
-  }
-  modelForm.businessMetadata = setBusinessMetaModelValues(modelForm.businessMetadata, section.schema, value);
-}
-
-function setSectionRows(section: ModelMetaSection, rows: Record<string, unknown>[]) {
-  if (!section.collectionKey) {
-    return;
-  }
-  if (section.binding === "TECHNICAL") {
-    const container = { ...(modelForm.technicalMetadata ?? {}) };
-    container[section.collectionKey] = rows;
-    modelForm.technicalMetadata = container;
-    return;
-  }
-  modelForm.businessMetadata = setBusinessMetaModelRows(modelForm.businessMetadata, section.schema, rows);
-}
-
-function appendSectionRow(section: ModelMetaSection) {
-  const rows = editorSectionRows(section);
-  rows.push(buildDefaultMetadata(section.fields));
-  setSectionRows(section, rows);
-}
-
-function removeSectionRow(section: ModelMetaSection, index: number) {
-  const rows = editorSectionRows(section);
-  rows.splice(index, 1);
-  setSectionRows(section, rows);
-}
-
-function updateSectionRowField(section: ModelMetaSection, index: number, fieldKey: string, value: unknown) {
-  const rows = editorSectionRows(section);
-  rows[index] = {
-    ...(rows[index] ?? {}),
-    [fieldKey]: value,
-  };
-  setSectionRows(section, rows);
-}
-
-function resolveRowEditorComponent(field: MetadataFieldDefinition) {
-  switch (field.componentType) {
-    case "SWITCH":
-      return ElSwitch;
-    case "SELECT":
-      return ElSelect;
-    case "NUMBER":
-      return ElInputNumber;
-    default:
-      return ElInput;
-  }
-}
-
-function resolveRowEditorProps(field: MetadataFieldDefinition) {
-  switch (field.componentType) {
-    case "SWITCH":
-      return {
-        inlinePrompt: true,
-        activeText: t("common.on"),
-        inactiveText: t("common.off"),
-      };
-    case "SELECT":
-      return {
-        clearable: true,
-        filterable: true,
-        placeholder: field.placeholder ?? field.fieldName,
-      };
-    case "NUMBER":
-      return {
-        controlsPosition: "right",
-      };
-    case "TEXTAREA":
-    case "JSON_EDITOR":
-    case "SQL_EDITOR":
-    case "CODE_EDITOR":
-      return {
-        type: "textarea",
-        rows: 2,
-        placeholder: field.placeholder ?? field.fieldName,
-      };
-    default:
-      return {
-        placeholder: field.placeholder ?? field.fieldName,
-      };
-  }
-}
-
-function formatDisplayValue(value: unknown) {
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  if (typeof value === "boolean") {
-    return value ? t("common.yes") : t("common.no");
-  }
-  if (Array.isArray(value)) {
-    return value.length === 0 ? "-" : JSON.stringify(value);
-  }
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch (error) {
-      return String(value);
-    }
-  }
-  return String(value);
-}
-
-function applyModelSchemaContext(options: { resetMetadata?: boolean; forceKind?: boolean } = {}) {
-  const schema = selectedModelSchema.value;
-  if (schema) {
-    modelForm.schemaVersionId = schema.currentVersionId ?? schema.id;
-  }
-  const technicalDefaultFields = (schema?.fields ?? []).filter((field) => field.scope !== "BUSINESS");
-  if (options.resetMetadata) {
-    modelForm.technicalMetadata = buildDefaultMetadata(technicalDefaultFields);
-  } else {
-    modelForm.technicalMetadata = mergeMetadataDefaults(modelForm.technicalMetadata, technicalDefaultFields);
-  }
-  for (const section of buildTechnicalSections(editorDatasource.value?.typeCode, modelForm.schemaVersionId)) {
-    if (section.displayMode === "MULTIPLE") {
-      setSectionRows(section, editorSectionRows(section));
-    }
-  }
-  if ((options.forceKind || !modelForm.modelKind) && editorDatasource.value) {
-    modelForm.modelKind = deriveModelKindFromSchema(schema, editorDatasource.value);
-  }
-  applyBusinessMetadataDefaults();
-}
-
-function applyBusinessMetadataDefaults() {
-  modelForm.businessMetadata = ensureBusinessMetaModelEntries(
-    modelForm.businessMetadata,
-    editorBusinessSections.value.map((section) => section.schema),
-  );
-  for (const section of editorBusinessSections.value) {
-    if (section.displayMode === "MULTIPLE") {
-      setSectionRows(section, editorSectionRows(section));
-      continue;
-    }
-    updateSectionModelValue(section, {
-      ...buildDefaultMetadata(section.fields),
-      ...sectionModelValue(section, true),
-    });
-  }
-}
-
-function resetModelForm(prefillDatasourceId?: EntityId) {
-  modelForm.id = undefined;
-  modelForm.datasourceId = prefillDatasourceId;
-  modelForm.name = "";
-  modelForm.physicalLocator = "";
-  modelForm.modelKind = undefined;
-  modelForm.schemaVersionId = undefined;
-  modelForm.technicalMetadata = {};
-  modelForm.businessMetadata = {};
-  if (prefillDatasourceId) {
-    applyModelSchemaContext({ resetMetadata: true, forceKind: true });
-  }
-}
-
-function normalizeQueryGroupsForDatasource() {
-  const availableCodes = new Set(querySchemaOptions.value.map((schema) => schema.schemaCode));
-  queryGroups.value = queryGroups.value.filter((group) => !group.metaSchemaCode || availableCodes.has(group.metaSchemaCode));
-}
-
-function appendQueryGroup() {
-  queryGroups.value.push(createQueryGroup());
-}
-
-function removeQueryGroup(groupKey: string) {
-  queryGroups.value = queryGroups.value.filter((group) => group.key !== groupKey);
-}
-
-function handleQuerySchemaChange(group: ModelQueryGroupState) {
-  const schema = findQuerySchema(group.metaSchemaCode);
-  group.rowMatchMode = schema && parseMetaModelSchema(schema).config.displayMode === "MULTIPLE" ? "SAME_ITEM" : "ANY_ITEM";
-  group.conditions = [createDefaultQueryCondition(schema)];
-}
-
-function appendQueryCondition(group: ModelQueryGroupState) {
-  group.conditions.push(createDefaultQueryCondition(findQuerySchema(group.metaSchemaCode)));
-}
-
-function removeQueryCondition(group: ModelQueryGroupState, index: number) {
-  group.conditions.splice(index, 1);
-  if (group.conditions.length === 0) {
-    group.conditions.push(createDefaultQueryCondition(findQuerySchema(group.metaSchemaCode)));
-  }
-}
-
-function handleQueryFieldChange(group: ModelQueryGroupState, condition: ModelQueryConditionState) {
-  const field = queryConditionField(group, condition);
-  condition.operator = defaultQueryOperator(field);
-  condition.value = undefined;
-  condition.valueTo = undefined;
-  condition.multiValueText = "";
-}
-
-function parseQueryValue(value: unknown, field?: MetadataFieldDefinition) {
-  if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
-    return undefined;
-  }
-  if (field?.valueType === "BOOLEAN") {
-    if (typeof value === "boolean") {
-      return value;
-    }
-    return String(value).trim().toLowerCase() === "true";
-  }
-  if (isNumericQueryField(field)) {
-    const numberValue = Number(value);
-    return Number.isNaN(numberValue) ? undefined : numberValue;
-  }
-  return value;
-}
-
-function buildModelQueryRequest(): DataModelQueryRequest {
-  const groups: DataModelQueryGroup[] = [];
-  for (const group of queryGroups.value) {
-    const schema = findQuerySchema(group.metaSchemaCode);
-    if (!schema) {
-      continue;
-    }
-    const conditions: DataModelQueryCondition[] = [];
-    for (const condition of group.conditions) {
-      const field = queryConditionField(group, condition);
-      if (!field || !condition.fieldKey || !condition.operator) {
-        continue;
-      }
-      if (condition.operator === "IN") {
-        const values = condition.multiValueText
-          .split(",")
-          .map((item) => parseQueryValue(item.trim(), field))
-          .filter((item) => item !== undefined);
-        if (values.length === 0) {
-          continue;
-        }
-        conditions.push({
-          fieldKey: condition.fieldKey,
-          operator: condition.operator,
-          values,
-        });
-        continue;
-      }
-      if (condition.operator === "BETWEEN") {
-        const lower = parseQueryValue(condition.value, field);
-        const upper = parseQueryValue(condition.valueTo, field);
-        if (lower === undefined || upper === undefined) {
-          continue;
-        }
-        conditions.push({
-          fieldKey: condition.fieldKey,
-          operator: condition.operator,
-          values: [lower, upper],
-        });
-        continue;
-      }
-      const value = parseQueryValue(condition.value, field);
-      if (value === undefined) {
-        continue;
-      }
-      conditions.push({
-        fieldKey: condition.fieldKey,
-        operator: condition.operator,
-        value,
-      });
-    }
-    if (conditions.length === 0) {
-      continue;
-    }
-    groups.push({
-      scope: parseMetaModelSchema(schema).config.domain as DataModelQueryGroup["scope"],
-      metaSchemaCode: schema.schemaCode,
-      rowMatchMode: group.rowMatchMode,
-      conditions,
-    });
-  }
-  return {
-    datasourceId: selectedDatasourceId.value,
-    datasourceType: selectedDatasourceType.value || undefined,
-    groups,
-  };
 }
 
 async function searchModels() {
@@ -1830,46 +1026,6 @@ p {
   color: var(--studio-text-soft);
 }
 
-.index-queue-card {
-  min-width: 280px;
-  max-width: 360px;
-  display: grid;
-  gap: 12px;
-}
-
-.index-queue-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.index-queue-card__metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.index-queue-card__metric {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(248, 250, 252, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-}
-
-.index-queue-card__metric-label {
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
-.index-queue-card__metric-value {
-  color: var(--studio-text);
-  font-size: 20px;
-  line-height: 1.1;
-}
-
 .models-tabs {
   display: grid;
   gap: 12px;
@@ -1898,15 +1054,6 @@ p {
 }
 
 @media (max-width: 980px) {
-  .index-queue-card {
-    min-width: 100%;
-    max-width: none;
-  }
-
-  .index-queue-card__header {
-    flex-direction: column;
-  }
-
   .detail-toolbar {
     flex-direction: column;
     align-items: stretch;

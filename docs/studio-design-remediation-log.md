@@ -1071,3 +1071,24 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - 质量指标页已降到 1000 行以下；后续不建议继续为行数拆模板，可进一步抽问题处置抽屉或质量指标 composable，但优先级低于模型中心。
 - 下一步：提交 Batch 34；继续处理模型中心页或采集任务编辑页。
+
+## Step 052 - Batch 35 拆分模型中心元数据支撑逻辑
+
+- 执行时间：2026-05-25 18:26:42 +08:00
+- 目标问题：`ModelsView.vue` 模板已经拆分，但脚本中仍混合元模型 section 构造、动态筛选、编辑表单默认值、字段行编辑和模型类型推断逻辑，导致页面文件长期维持在 1700 行以上。
+- 修改范围：新增 `modelMetadataSupport.ts` 承载模型中心元数据支撑逻辑；新增 `ModelIndexQueueCard.vue` 承载顶部索引队列状态卡；父页面保留路由、数据加载、同步任务、保存/删除和页面编排。
+- 涉及文件：
+  - `frontend/apps/web/src/views/ModelsView.vue`
+  - `frontend/apps/web/src/components/models/modelMetadataSupport.ts`
+  - `frontend/apps/web/src/components/models/ModelIndexQueueCard.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：模型列表动态筛选、模型编辑抽屉 section、业务/技术元数据默认值、字段行编辑、HTTP 接口名称/路径标签、索引队列状态卡展示保持不变；本步骤只迁移内部支撑逻辑和展示卡。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是原有 `API` / `CUSTOM` 模型类型值不在当前 SDK `ModelKind` 联合类型中，抽出 helper 后被独立类型检查暴露。
+  - 保持原有保存值不变并补充局部类型断言后，`npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - `ModelsView.vue` 已降到 994 行；新增 `modelMetadataSupport.ts` 为 831 行，仍偏大但聚焦在元模型支撑逻辑，后续如继续治理可按查询筛选和编辑 section 再拆。
+- 下一步：提交 Batch 35；继续处理采集任务编辑页或统计回归测试类。
