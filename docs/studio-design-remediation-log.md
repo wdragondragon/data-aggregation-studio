@@ -817,3 +817,23 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 工作流编辑页仍超过 1000 行，后续可继续拆节点配置面板，尤其 HTTP 节点参数表和绑定任务/脚本节点区块。
 - 下一步：提交 Batch 21；继续拆工作流节点配置面板或转向采集任务编辑器。
+
+## Step 039 - Batch 22 拆分采集任务调度与预览区块
+
+- 执行时间：2026-05-25 09:49:17 +08:00
+- 目标问题：`CollectionTaskEditorView.vue` 的后置步骤仍内联调度配置和最终预览区块，和复杂的源端/目标端绑定、字段映射、增量游标逻辑混在同一文件。
+- 修改范围：新增 `CollectionTaskScheduleSection.vue` 承载调度开关、Cron 和时区配置；新增 `CollectionTaskReviewSection.vue` 承载任务摘要、字段映射数量、调度摘要和 Job JSON 预览；父页面继续持有预览加载、保存和表单状态。
+- 涉及文件：
+  - `frontend/apps/web/src/views/CollectionTaskEditorView.vue`
+  - `frontend/apps/web/src/components/collection-task/CollectionTaskScheduleSection.vue`
+  - `frontend/apps/web/src/components/collection-task/CollectionTaskReviewSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：调度开关、Cron 表达式、时区、预览按钮、预览禁用状态、预览 JSON 展示和最终保存入口保持不变；本步骤只迁移第 3/4 步展示层。`CollectionTaskEditorView.vue` 从 1403 行降到 1355 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 采集任务编辑页的主要复杂度仍在第 1 步源端/目标端运行参数和第 2 步融合/字段映射配置，后续应优先拆这些区块。
+- 下一步：提交 Batch 22；继续处理采集任务源端/目标端绑定或转向质量指标/模型统计大页面。

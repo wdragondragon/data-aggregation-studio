@@ -330,54 +330,20 @@
       />
     </SectionCard>
 
-    <SectionCard v-else-if="activeStep === 3" :title="t('web.collectionTasks.scheduleTitle')" :description="t('web.collectionTasks.scheduleDescription')">
-      <div class="studio-form-grid">
-        <el-form-item :label="t('web.collectionTasks.scheduleEnabled')">
-          <el-switch v-model="form.schedule.enabled" inline-prompt :active-text="t('common.on')" :inactive-text="t('common.off')" />
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.cronExpression')" class="cron-form-item">
-          <CronExpressionPicker
-            v-model="form.schedule.cronExpression"
-            :label="t('web.collectionTasks.cronExpression')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.timezone')">
-          <el-input v-model="form.schedule.timezone" placeholder="Asia/Shanghai" />
-        </el-form-item>
-      </div>
-    </SectionCard>
+    <CollectionTaskScheduleSection
+      v-else-if="activeStep === 3"
+      :schedule="form.schedule"
+    />
 
-    <SectionCard v-else :title="t('web.collectionTasks.reviewTitle')" :description="t('web.collectionTasks.reviewDescription')">
-      <div class="review-grid">
-        <div class="soft-panel">
-          <strong>{{ form.name || t("common.none") }}</strong>
-          <p>{{ taskTypeLabel }}</p>
-          <p>{{ t("web.collectionTasks.sourceCount") }}: {{ form.sourceBindings.length }}</p>
-        </div>
-        <div class="soft-panel">
-          <strong>{{ t("web.collectionTasks.mappingTitle") }}</strong>
-          <p>{{ t("common.fields", { count: form.fieldMappings.length }) }}</p>
-          <p>{{ form.schedule.enabled ? form.schedule.cronExpression || t("common.on") : t("common.off") }}</p>
-        </div>
-      </div>
-
-      <div class="soft-panel preview-panel">
-        <div class="section-toolbar">
-          <div>
-            <strong>{{ t("web.collectionTasks.previewTitle") }}</strong>
-            <p>{{ t("web.collectionTasks.previewDescription") }}</p>
-          </div>
-          <el-button plain :loading="previewLoading" :disabled="!canPreviewConfig" @click="loadPreviewConfig">
-            {{ t("web.collectionTasks.refreshPreview") }}
-          </el-button>
-        </div>
-
-        <pre v-if="previewConfig" class="json-block studio-mono preview-json">{{ prettyJson(previewConfig) }}</pre>
-        <div v-else class="soft-panel">
-          {{ t("web.collectionTasks.previewEmpty") }}
-        </div>
-      </div>
-    </SectionCard>
+    <CollectionTaskReviewSection
+      v-else
+      :form="form"
+      :task-type-label="taskTypeLabel"
+      :preview-loading="previewLoading"
+      :can-preview-config="canPreviewConfig"
+      :preview-config="previewConfig"
+      :load-preview-config="loadPreviewConfig"
+    />
 
     <div class="editor-footer">
       <el-button :disabled="activeStep === 1" @click="activeStep -= 1">{{ t("web.collectionTasks.previousStep") }}</el-button>
@@ -408,10 +374,11 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import CollectionTaskReviewSection from "@/components/collection-task/CollectionTaskReviewSection.vue";
+import CollectionTaskScheduleSection from "@/components/collection-task/CollectionTaskScheduleSection.vue";
 import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
-import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
 import HttpRequestOptionsEditor from "@web/components/HttpRequestOptionsEditor.vue";
-import { cloneDeep, prettyJson } from "@/utils/studio";
+import { cloneDeep } from "@/utils/studio";
 
 interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
   schedule: NonNullable<CollectionTaskSaveRequest["schedule"]>;
@@ -1517,31 +1484,10 @@ p {
   line-height: 1.3;
 }
 
-.review-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.preview-panel {
-  display: grid;
-  gap: 12px;
-}
-
-.preview-json {
-  max-height: 420px;
-}
-
 .editor-footer {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
-}
-
-@media (max-width: 1100px) {
-  .review-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>
