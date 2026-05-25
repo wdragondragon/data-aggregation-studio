@@ -753,3 +753,25 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 质量任务编辑页仍超过 1000 行，剩余可拆点包括基本信息/绑定/规则选择 section、参数绑定表、SQL 预览区和告警/校验结果区。
 - 下一步：提交 Batch 18；继续拆质量任务编辑页的表单 section，或转向工作流编辑器/采集任务编辑器。
+
+## Step 036 - Batch 19 拆分质量任务参数、告警、调度与校验结果区块
+
+- 执行时间：2026-05-25 08:33:01 +08:00
+- 目标问题：`QualityTaskEditorView.vue` 仍内联参数绑定表、告警配置表、调度表单和校验结果展示，这些都是独立 section，继续放在父页面会分散保存/预览/校验主流程。
+- 修改范围：新增 `QualityParameterBindingsSection.vue` 承载输入参数绑定表和动态函数按钮；新增 `QualityAlertConfigsSection.vue` 承载输出告警配置表和阈值输入；新增 `QualityScheduleSection.vue` 承载调度开关、Cron 和时区；新增 `QualityValidationResultSection.vue` 承载语义校验结果、输出列、样例数据和摘要 JSON。父页面保留参数赋值、动态函数插入、告警操作符归一和校验执行逻辑，通过 actions 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityTaskEditorView.vue`
+  - `frontend/apps/web/src/components/quality/QualityParameterBindingsSection.vue`
+  - `frontend/apps/web/src/components/quality/QualityAlertConfigsSection.vue`
+  - `frontend/apps/web/src/components/quality/QualityScheduleSection.vue`
+  - `frontend/apps/web/src/components/quality/QualityValidationResultSection.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：参数绑定值、动态函数插入目标、告警开启/操作符/阈值、调度配置、校验结果展示和保存 payload 保持不变；本步骤只迁移 section 展示和局部样式。`QualityTaskEditorView.vue` 从 1179 行降到 1016 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
+  - 质量任务编辑页还略超过 1000 行，剩余的基本信息、任务绑定、规则选择、SQL 预览与校验 section 可继续抽取；但主要动态函数和表格 section 已完成隔离。
+- 下一步：提交 Batch 19；继续拆质量任务编辑页剩余 section，使其降到 1000 行以下。

@@ -121,47 +121,10 @@
       </el-form-item>
     </SectionCard>
 
-    <SectionCard title="输入参数绑定" description="表参数和字段参数会自动赋值，自定义参数支持动态函数与手工输入。">
-      <el-table :data="form.parameterBindings" border>
-        <el-table-column label="序号" width="90" align="center" header-align="center">
-          <template #default="{ row }">{{ row.paramOrder || "-" }}</template>
-        </el-table-column>
-        <el-table-column label="参数名称" min-width="160">
-          <template #default="{ row }">{{ row.paramName }}</template>
-        </el-table-column>
-        <el-table-column label="参数类型" width="120" align="center" header-align="center">
-          <template #default="{ row }">{{ resolveParamTypeLabel(row.paramType) }}</template>
-        </el-table-column>
-        <el-table-column label="参数含义" min-width="180">
-          <template #default="{ row }">{{ row.paramMeaning || "-" }}</template>
-        </el-table-column>
-        <el-table-column label="参数赋值" min-width="240">
-          <template #default="{ row }">
-            <div v-if="row.editable" class="task-binding-input">
-              <input
-                :ref="(el) => registerBindingInputRef(row.paramName ?? '', el as HTMLInputElement | null)"
-                v-model="row.paramValue"
-                class="task-binding-input__field"
-                placeholder="支持直接输入字面量或动态函数"
-                @click="syncBindingSelection(row.paramName ?? '', $event)"
-                @focus="syncBindingSelection(row.paramName ?? '', $event)"
-                @keyup="syncBindingSelection(row.paramName ?? '', $event)"
-                @select="syncBindingSelection(row.paramName ?? '', $event)"
-              />
-              <el-button plain size="small" @click="openDynamicFunctionDialog({ type: 'binding', key: row.paramName ?? '' })">
-                函数
-              </el-button>
-            </div>
-            <el-input
-              v-else
-              v-model="row.paramValue"
-              disabled
-              placeholder="系统自动赋值"
-            />
-          </template>
-        </el-table-column>
-      </el-table>
-    </SectionCard>
+    <QualityParameterBindingsSection
+      :bindings="form.parameterBindings"
+      :actions="parameterBindingActions"
+    />
 
     <SectionCard title="SQL 预览与校验" description="where 子句支持动态函数；SQL 预览会替换参数与函数后生成当前时刻可执行语句。">
       <div class="section-toolbar">
@@ -202,101 +165,14 @@
       </div>
     </SectionCard>
 
-    <SectionCard title="输出告警" description="按输出字段逐项定义告警条件，当前版本仅将告警内容打印到运行日志。">
-      <el-table :data="form.alertConfigs" border>
-        <el-table-column label="序号" width="90" align="center" header-align="center">
-          <template #default="{ row }">{{ row.outputOrder || "-" }}</template>
-        </el-table-column>
-        <el-table-column label="结果字段" min-width="180">
-          <template #default="{ row }">{{ row.resultField || "-" }}</template>
-        </el-table-column>
-        <el-table-column label="输出类型" width="110" align="center" header-align="center">
-          <template #default="{ row }">{{ row.outputType === "NUMBER" ? "数值" : "字符串" }}</template>
-        </el-table-column>
-        <el-table-column label="开启告警" width="110" align="center" header-align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.enabled" />
-          </template>
-        </el-table-column>
-        <el-table-column label="比较方式" min-width="180">
-          <template #default="{ row }">
-            <el-select v-model="row.operator" :disabled="!row.enabled" placeholder="请选择" @change="handleAlertOperatorChange(row)">
-              <el-option
-                v-for="option in resolveAlertOperators(row.outputType)"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="阈值配置" min-width="280">
-          <template #default="{ row }">
-            <div v-if="isRangeOperator(row.operator)" class="threshold-grid">
-              <el-input v-model="row.minValue" :disabled="!row.enabled" placeholder="最小值" />
-              <el-input v-model="row.maxValue" :disabled="!row.enabled" placeholder="最大值" />
-            </div>
-            <el-input v-else v-model="row.expectedValue" :disabled="!row.enabled" placeholder="比较值" />
-          </template>
-        </el-table-column>
-      </el-table>
-    </SectionCard>
+    <QualityAlertConfigsSection
+      :configs="form.alertConfigs"
+      :actions="alertConfigActions"
+    />
 
-    <SectionCard title="调度配置" description="支持保存草稿时一并配置调度，发布后即可由调度器接管执行。">
-      <div class="studio-form-grid">
-        <el-form-item label="开启调度">
-          <el-switch v-model="form.schedule.enabled" inline-prompt active-text="开启" inactive-text="关闭" />
-        </el-form-item>
-        <el-form-item label="Cron 表达式" class="cron-form-item">
-          <CronExpressionPicker v-model="form.schedule.cronExpression" label="Cron 表达式" />
-        </el-form-item>
-        <el-form-item label="时区">
-          <el-input v-model="form.schedule.timezone" placeholder="Asia/Shanghai" />
-        </el-form-item>
-      </div>
-    </SectionCard>
+    <QualityScheduleSection :schedule="form.schedule" />
 
-    <SectionCard v-if="validationResult" title="校验结果" description="语义校验会使用已选数据源执行真实 SQL，并返回结果列、样例数据和摘要。">
-      <div class="validation-overview">
-        <div class="summary-chip">
-          <span>校验状态</span>
-          <strong>{{ validationResult.valid ? "通过" : "失败" }}</strong>
-        </div>
-        <div class="summary-chip">
-          <span>结果列数</span>
-          <strong>{{ validationResult.columns?.length ?? 0 }}</strong>
-        </div>
-        <div class="summary-chip">
-          <span>样例行数</span>
-          <strong>{{ validationResult.rows?.length ?? 0 }}</strong>
-        </div>
-      </div>
-
-      <div v-if="validationResult.columns?.length" class="validation-block">
-        <strong>输出列</strong>
-        <div class="tag-list">
-          <el-tag v-for="column in validationResult.columns" :key="column" effect="plain">{{ column }}</el-tag>
-        </div>
-      </div>
-
-      <div v-if="validationResult.rows?.length" class="validation-block">
-        <strong>样例数据</strong>
-        <el-table :data="validationResult.rows" border max-height="360">
-          <el-table-column
-            v-for="column in validationResult.columns"
-            :key="column"
-            :prop="column"
-            :label="column"
-            min-width="160"
-          />
-        </el-table>
-      </div>
-
-      <div class="validation-block">
-        <strong>执行摘要</strong>
-        <pre class="json-block">{{ prettyJson(validationResult.summary ?? {}) }}</pre>
-      </div>
-    </SectionCard>
+    <QualityValidationResultSection :validation-result="validationResult" />
 
     <QualityDynamicFunctionDialog
       v-model="dynamicFunctionDialogVisible"
@@ -332,9 +208,11 @@ import type {
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
-import { prettyJson } from "@/utils/studio";
-import CronExpressionPicker from "@web/components/CronExpressionPicker.vue";
+import QualityAlertConfigsSection from "@/components/quality/QualityAlertConfigsSection.vue";
 import QualityDynamicFunctionDialog from "@/components/quality/QualityDynamicFunctionDialog.vue";
+import QualityParameterBindingsSection from "@/components/quality/QualityParameterBindingsSection.vue";
+import QualityScheduleSection from "@/components/quality/QualityScheduleSection.vue";
+import QualityValidationResultSection from "@/components/quality/QualityValidationResultSection.vue";
 import { dynamicFunctionCatalog } from "@/components/quality/qualityTaskDynamicFunctions";
 import type { DynamicFunctionInsertTarget, DynamicFunctionParamSchema } from "@/components/quality/qualityTaskDynamicFunctions";
 
@@ -448,6 +326,17 @@ const selectedDynamicFunction = computed(() =>
   dynamicFunctionCatalog.find((item) => item.name === selectedDynamicFunctionName.value) ?? dynamicFunctionCatalog[0],
 );
 const dynamicFunctionPreview = computed(() => buildDynamicFunctionExpression());
+const parameterBindingActions = {
+  resolveParamTypeLabel,
+  registerBindingInputRef,
+  syncBindingSelection,
+  openBindingFunction: (key: string) => openDynamicFunctionDialog({ type: "binding", key }),
+};
+const alertConfigActions = {
+  resolveAlertOperators,
+  isRangeOperator,
+  handleAlertOperatorChange,
+};
 
 function resetForm() {
   form.id = undefined;
@@ -1159,13 +1048,6 @@ watch(selectedDynamicFunctionName, () => {
   font-size: 12px;
 }
 
-.task-binding-input {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-binding-input__field,
 .task-where-textarea {
   width: 100%;
   padding: 10px 12px;
@@ -1178,7 +1060,6 @@ watch(selectedDynamicFunctionName, () => {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.task-binding-input__field:focus,
 .task-where-textarea:focus {
   border-color: var(--studio-primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
@@ -1187,12 +1068,6 @@ watch(selectedDynamicFunctionName, () => {
 .task-where-textarea {
   min-height: 108px;
   resize: vertical;
-}
-
-.threshold-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
 }
 
 .inline-message {
@@ -1218,52 +1093,4 @@ watch(selectedDynamicFunctionName, () => {
   color: #991b1b;
 }
 
-.validation-overview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.summary-chip {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.validation-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.json-block {
-  margin: 0;
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.04);
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-@media (max-width: 960px) {
-  .task-binding-input {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
 </style>
