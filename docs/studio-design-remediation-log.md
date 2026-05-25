@@ -1092,3 +1092,26 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - `ModelsView.vue` 已降到 994 行；新增 `modelMetadataSupport.ts` 为 831 行，仍偏大但聚焦在元模型支撑逻辑，后续如继续治理可按查询筛选和编辑 section 再拆。
 - 下一步：提交 Batch 35；继续处理采集任务编辑页或统计回归测试类。
+
+## Step 053 - Batch 36 拆分采集任务编辑页轻量支撑与页面 Chrome
+
+- 执行时间：2026-05-25 19:06:19 +08:00
+- 目标问题：`CollectionTaskEditorView.vue` 在源端/目标端、字段映射、调度和预览 section 拆出后仍略超过 1000 行，但剩余主体是业务逻辑，不适合继续硬拆核心函数。
+- 修改范围：新增 `collectionTaskEditorSupport.ts` 承载默认表单、运行参数角色和 reader/writer 动态函数字段常量；新增 `CollectionTaskEditorHeader.vue`、`CollectionTaskEditorFooter.vue`、`CollectionTaskStepIndicator.vue` 承载顶部操作、底部步骤按钮和步骤指示器。
+- 涉及文件：
+  - `frontend/apps/web/src/views/CollectionTaskEditorView.vue`
+  - `frontend/apps/web/src/components/collection-task/collectionTaskEditorSupport.ts`
+  - `frontend/apps/web/src/components/collection-task/CollectionTaskEditorHeader.vue`
+  - `frontend/apps/web/src/components/collection-task/CollectionTaskEditorFooter.vue`
+  - `frontend/apps/web/src/components/collection-task/CollectionTaskStepIndicator.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：默认表单、步骤切换、保存草稿、返回列表、刷新引用数据、调度步骤和预览步骤行为保持不变；本步骤只迁移支撑常量和页面 chrome。`CollectionTaskEditorView.vue` 从 1062 行降到 996 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是 `CollectionTaskEditorHeader` action 对 `router.push` 的返回值类型过窄。
+  - 将返回列表动作改成事件语义后，`npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：首次失败，原因是 `CollectionTaskEditorView.vue` 文件末尾多余空行；已删除。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - 采集任务编辑页已降到 1000 行以下；剩余逻辑仍偏重，后续更适合抽运行参数 schema/custom SQL 字段解析 composable，而不是继续拆模板。
+- 下一步：提交 Batch 36；执行最终扫描、关键测试和 summary 收口。

@@ -1,25 +1,12 @@
 <template>
   <div class="studio-page">
-    <div class="studio-toolbar">
-      <div>
-        <h3>{{ taskId ? t("web.collectionTasks.editTitle") : t("web.collectionTasks.createTitle") }}</h3>
-        <p>{{ t("web.collectionTasks.editorDescription") }}</p>
-      </div>
-      <div class="studio-toolbar-actions">
-        <el-button @click="router.push('/collection-tasks')">{{ t("common.backToList") }}</el-button>
-        <el-button plain @click="loadReferenceData">{{ t("common.refresh") }}</el-button>
-        <el-button type="primary" :loading="saving" @click="saveTask">{{ t("common.saveDraft") }}</el-button>
-      </div>
-    </div>
+    <CollectionTaskEditorHeader
+      :task-id="taskId"
+      :saving="saving"
+      :actions="editorHeaderActions"
+    />
 
-    <SectionCard :title="t('web.collectionTasks.stepsTitle')" :description="t('web.collectionTasks.stepsDescription')">
-      <el-steps :active="activeStep - 1" finish-status="success">
-        <el-step :title="t('web.collectionTasks.step1Title')" />
-        <el-step :title="t('web.collectionTasks.step2Title')" />
-        <el-step :title="t('web.collectionTasks.step3Title')" />
-        <el-step :title="t('web.collectionTasks.step4Title')" />
-      </el-steps>
-    </SectionCard>
+    <CollectionTaskStepIndicator :active-step="activeStep" />
 
     <CollectionTaskBindingSection
       v-if="activeStep === 1"
@@ -65,11 +52,11 @@
       :load-preview-config="loadPreviewConfig"
     />
 
-    <div class="editor-footer">
-      <el-button :disabled="activeStep === 1" @click="activeStep -= 1">{{ t("web.collectionTasks.previousStep") }}</el-button>
-      <el-button v-if="activeStep < 4" type="primary" @click="activeStep += 1">{{ t("web.collectionTasks.nextStep") }}</el-button>
-      <el-button v-else type="primary" :loading="saving" @click="saveTask">{{ t("common.saveDraft") }}</el-button>
-    </div>
+    <CollectionTaskEditorFooter
+      v-model:active-step="activeStep"
+      :saving="saving"
+      :save-task="saveTask"
+    />
   </div>
 </template>
 
@@ -92,26 +79,16 @@ import type {
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
 } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import CollectionTaskBindingSection from "@/components/collection-task/CollectionTaskBindingSection.vue";
+import { createDefaultCollectionTaskForm, fileReaderDatasourceTypes, fileReaderDynamicFunctionFields, fileWriterDatasourceTypes, fileWriterDynamicFunctionFields, httpReaderDynamicFunctionFields, httpWriterDynamicFunctionFields, type RuntimeOptionRole } from "@/components/collection-task/collectionTaskEditorSupport";
+import CollectionTaskEditorFooter from "@/components/collection-task/CollectionTaskEditorFooter.vue";
+import CollectionTaskEditorHeader from "@/components/collection-task/CollectionTaskEditorHeader.vue";
 import CollectionTaskMappingSection from "@/components/collection-task/CollectionTaskMappingSection.vue";
 import CollectionTaskReviewSection from "@/components/collection-task/CollectionTaskReviewSection.vue";
 import CollectionTaskScheduleSection from "@/components/collection-task/CollectionTaskScheduleSection.vue";
+import CollectionTaskStepIndicator from "@/components/collection-task/CollectionTaskStepIndicator.vue";
 import { cloneDeep } from "@/utils/studio";
-
-interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
-  schedule: NonNullable<CollectionTaskSaveRequest["schedule"]>;
-}
-
-type RuntimeOptionRole = "reader" | "writer";
-
-const fileReaderDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
-const fileReaderDynamicFunctionFields = ["rootPath", "partition"];
-const httpReaderDynamicFunctionFields = ["header", "params", "requestBody"];
-const httpWriterDynamicFunctionFields = ["header", "params", "requestBody"];
-const fileWriterDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
-const fileWriterDynamicFunctionFields = ["rootPath", "fileName", "efile.dataTime", "efile.planDate"];
 
 const { t } = useI18n();
 const route = useRoute();
@@ -129,46 +106,10 @@ const previewLoading = ref(false);
 const previewDirty = ref(true);
 const previewConfig = ref<JobContainerConfig | null>(null);
 const resettingIncrementalCursor = ref<Record<string, boolean>>({});
-const customSqlFieldCache = ref<Record<string, {
-  datasourceId: string;
-  sql: string;
-  fields: string[];
-  loading: boolean;
-  error?: string;
-}>>({});
+const customSqlFieldCache = ref<Record<string, { datasourceId: string; sql: string; fields: string[]; loading: boolean; error?: string }>>({});
 const customSqlResolveTimers = new Map<string, number>();
 
-const form = reactive<CollectionTaskEditorForm>({
-  name: "",
-  sourceBindings: [
-    {
-      sourceAlias: "src1",
-      datasourceId: "",
-      modelId: "",
-      readerOptions: {},
-      incremental: {
-        enabled: false,
-        incrModel: ">",
-      },
-    },
-  ],
-  targetBinding: {
-    datasourceId: "",
-    modelId: "",
-    writerOptions: {},
-  },
-  fieldMappings: [],
-  executionOptions: {
-    collectionMode: "FULL",
-    joinKeys: [],
-    joinType: "LEFT",
-  },
-  schedule: {
-    enabled: false,
-    cronExpression: "0 */30 * * * ?",
-    timezone: "Asia/Shanghai",
-  },
-});
+const form = reactive(createDefaultCollectionTaskForm());
 
 const isFusionTask = computed(() => form.sourceBindings.length > 1);
 const taskTypeLabel = computed(() => (isFusionTask.value ? t("web.collectionTasks.typeFusion") : t("web.collectionTasks.typeSingle")));
@@ -255,6 +196,14 @@ const fusionReaderOptions = computed<Record<string, unknown>>(() => {
   const value = form.executionOptions.fusionReaderOptions;
   return isPlainRecord(value) ? value : {};
 });
+
+const editorHeaderActions = {
+  backToList: () => {
+    void router.push("/collection-tasks");
+  },
+  refresh: loadReferenceData,
+  saveTask,
+};
 
 const bindingSectionActions = {
   appendSourceBinding,
@@ -1158,21 +1107,3 @@ onBeforeUnmount(() => {
   customSqlResolveTimers.clear();
 });
 </script>
-
-<style scoped>
-h3 {
-  margin: 0 0 6px;
-}
-
-p {
-  margin: 0;
-  color: var(--studio-text-soft);
-}
-
-.editor-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 12px;
-}
-</style>
