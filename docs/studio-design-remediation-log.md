@@ -1115,3 +1115,26 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
   - 采集任务编辑页已降到 1000 行以下；剩余逻辑仍偏重，后续更适合抽运行参数 schema/custom SQL 字段解析 composable，而不是继续拆模板。
 - 下一步：提交 Batch 36；执行最终扫描、关键测试和 summary 收口。
+
+## Step 054 - Batch 37 拆分后端回归测试支撑类
+
+- 执行时间：2026-05-25 20:40:00 +08:00
+- 目标问题：`DataModelStatisticsRegressionTest.java` 和 `CollectionTaskAssemblerServiceRegressionTest.java` 超过 800 行，测试场景与大量构造 helper 混在同一类中，后续新增断言容易继续膨胀。
+- 修改范围：新增 `DataModelStatisticsTestSupport` 和 `CollectionTaskAssemblerTestSupport`，把元模型/项目/数据源/模型构造、统计请求、装配 mock、任务定义构造和类型转换 helper 从测试场景类中抽出；测试类只保留场景编排和断言。
+- 涉及文件：
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/DataModelStatisticsRegressionTest.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/DataModelStatisticsTestSupport.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/CollectionTaskAssemblerServiceRegressionTest.java`
+  - `backend/studio-test/src/test/java/com/jdragon/studio/test/CollectionTaskAssemblerTestSupport.java`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：测试请求路径、payload、mock 返回、断言和业务覆盖范围不变；只把重复构造逻辑迁移到同包抽象支撑类。`DataModelStatisticsRegressionTest.java` 降到 546 行，`CollectionTaskAssemblerServiceRegressionTest.java` 降到 513 行。
+- 验证命令与结果：
+  - `mvn -pl studio-test "-Dtest=DataModelStatisticsRegressionTest,CollectionTaskAssemblerServiceRegressionTest,StudioDesignDebtRegressionTest" "-DforkCount=0" test`（`backend` 目录）：通过，26 tests，0 failures，0 errors，0 skipped。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+  - 大文件扫描：后端测试类已无超过 800 行文件；后端 main 仅剩已审查暂留的 `StudioSchemaUpgradeService.java` 超过 800 行。
+- 失败、阻塞或残余风险：
+  - 首次在 Studio 根目录运行 Maven 时因不在 backend reactor 下失败，已在 `backend` 目录重跑通过。
+  - Maven settings 仍有 `release` 标签警告，测试启动时 Redis 不可达会降级到本地缓存并输出现有日志，未阻断测试。
+  - 前端仍有 9 个 Vue 页面超过 1000 行，需要继续按低风险展示区/支撑逻辑拆分。
+- 下一步：提交 Batch 37；继续处理剩余前端大页面，优先从相对独立的系统页、数据开发页或数据服务编辑页开始。
