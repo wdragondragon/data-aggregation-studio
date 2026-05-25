@@ -42,272 +42,32 @@
         />
       </el-tab-pane>
       <el-tab-pane label="资产洞察" name="assets">
-        <SectionCard title="资产风险列表" description="资产等价于当前项目中的数据源 + 模型，字段级问题会归属到对应模型。">
-          <div class="quality-section-actions">
-            <el-checkbox v-model="assetFilters.onlyProblemAssets" @change="loadAssets">仅看有问题资产</el-checkbox>
-            <el-checkbox v-model="assetFilters.onlyLowCoverageAssets" @change="loadAssets">仅看低覆盖资产</el-checkbox>
-          </div>
-          <StudioTableShell min-width="1300px">
-            <el-table :data="pagedAssets" border size="small">
-            <el-table-column label="资产名称" min-width="240">
-              <template #default="{ row }">
-                <div class="table-entity-cell">
-                  <el-button link type="primary" class="table-entity-cell__title" @click="openAssetDrawer(row)">{{ assetTitle(row) }}</el-button>
-                  <span v-if="row.modelPhysicalLocator && row.modelPhysicalLocator !== assetTitle(row)" class="table-entity-cell__meta">{{ row.modelPhysicalLocator }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="数据源" min-width="190">
-              <template #default="{ row }">{{ row.datasourceName || "-" }} / {{ row.datasourceTypeCode || "-" }}</template>
-            </el-table-column>
-            <el-table-column label="执行健康分" width="130">
-              <template #default="{ row }">
-                <el-progress :percentage="scorePercent(row.executionHealthScore)" :stroke-width="8" :show-text="false" />
-                <span>{{ formatNumber(row.executionHealthScore) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="治理风险指数" width="130">
-              <template #default="{ row }">
-                <el-progress :percentage="scorePercent(row.governanceRiskScore)" :stroke-width="8" :show-text="false" status="warning" />
-                <span>{{ formatNumber(row.governanceRiskScore) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="活跃/超时" width="110" align="right" header-align="right">
-              <template #default="{ row }">{{ formatNumber(row.activeIssueCount) }} / {{ formatNumber(row.overdueIssueCount) }}</template>
-            </el-table-column>
-            <el-table-column label="覆盖维度" min-width="220">
-              <template #default="{ row }">
-                <div class="tag-row">
-                  <el-tag v-for="item in row.coverageDimensions" :key="item" size="small">{{ dimensionLabel(item) }}</el-tag>
-                  <span v-if="!row.coverageDimensions?.length" class="cell-subtle">未覆盖</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="最近执行" min-width="180">
-              <template #default="{ row }">
-                <div class="stack-cell">
-                  <StatusPill :label="row.latestRunStatus || '无运行'" :tone="runStatusTone(row.latestRunStatus)" />
-                  <span class="cell-subtle">{{ row.latestRunAt || "-" }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            </el-table>
-          </StudioTableShell>
-          <div class="table-pagination">
-            <el-pagination
-              v-model:current-page="assetPagination.page"
-              v-model:page-size="assetPagination.pageSize"
-              background
-              layout="total, sizes, prev, pager, next"
-              :page-sizes="[10, 20, 50, 100]"
-              :total="assets.length"
-            />
-          </div>
-        </SectionCard>
+        <QualityMetricsAssetsTab
+          :asset-filters="assetFilters"
+          :paged-assets="pagedAssets"
+          :asset-pagination="assetPagination"
+          :asset-total="assets.length"
+          :asset-actions="assetTabActions"
+        />
       </el-tab-pane>
 
       <el-tab-pane label="问题中心" name="issues">
-        <SectionCard title="问题列表" description="同一问题签名会聚合为一条记录，状态处置和评论在右侧抽屉中完成。">
-          <StudioTableShell min-width="1720px">
-            <el-table :data="pagedIssues" border size="small" table-layout="auto">
-            <el-table-column label="问题编号" min-width="140">
-              <template #default="{ row }">
-                <el-button link type="primary" @click="openIssueDrawer(row)">{{ row.issueCode || row.id || "-" }}</el-button>
-              </template>
-            </el-table-column>
-            <el-table-column label="严重级别" width="112" align="center" header-align="center">
-              <template #default="{ row }">
-                <StatusPill :label="severityLabel(row.severity)" :tone="severityTone(row.severity)" />
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="132" align="center" header-align="center">
-              <template #default="{ row }">
-                <StatusPill :label="issueStatusLabel(row.status)" :tone="issueStatusTone(row.status)" />
-              </template>
-            </el-table-column>
-            <el-table-column label="资产" min-width="220">
-              <template #default="{ row }">
-                <div class="table-entity-cell">
-                  <el-button v-if="row.assetId" link type="primary" class="table-entity-cell__title" @click="openAssetByIssue(row)">{{ row.modelName || "-" }}</el-button>
-                  <span v-else class="table-entity-cell__title">{{ row.modelName || "-" }}</span>
-                  <span class="table-entity-cell__meta">{{ row.datasourceName || "-" }} · {{ row.columnName || "全表" }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="规则 / 任务" min-width="240">
-              <template #default="{ row }">
-                <div class="table-entity-cell">
-                  <span class="table-entity-cell__title">{{ row.ruleName || "-" }}</span>
-                  <span class="table-entity-cell__meta">{{ row.qualityTaskName || "-" }} · {{ dimensionLabel(row.ruleDimension) }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="首次 / 最近" min-width="200">
-              <template #default="{ row }">
-                <div class="stack-cell">
-                  <span>{{ row.firstSeenAt || "-" }}</span>
-                  <span class="cell-subtle">{{ row.lastSeenAt || "-" }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="负责人 / SLA" min-width="180">
-              <template #default="{ row }">
-                <div class="stack-cell">
-                  <span>{{ row.assigneeName || "未认领" }}</span>
-                  <span class="cell-subtle" :class="{ danger: row.overdue }">{{ row.slaDueAt || "-" }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="最近证据" min-width="260" show-overflow-tooltip>
-              <template #default="{ row }">
-                <MessagePreviewText :text="row.latestMessage" />
-              </template>
-            </el-table-column>
-              <el-table-column label="操作" width="130" align="center" header-align="center" fixed="right">
-              <template #default="{ row }">
-                <el-button link type="primary" @click="openIssueDrawer(row)">处置</el-button>
-                <el-button link type="primary" :disabled="!row.lastRunRecordId" @click="openRunLog(row.lastRunRecordId)">日志</el-button>
-              </template>
-            </el-table-column>
-            </el-table>
-          </StudioTableShell>
-          <div class="table-pagination">
-            <el-pagination
-              v-model:current-page="issuePagination.page"
-              v-model:page-size="issuePagination.pageSize"
-              background
-              layout="total, sizes, prev, pager, next"
-              :page-sizes="[10, 20, 50, 100]"
-              :total="issues.length"
-            />
-          </div>
-        </SectionCard>
+        <QualityMetricsIssuesTab
+          :paged-issues="pagedIssues"
+          :issue-pagination="issuePagination"
+          :issue-total="issues.length"
+          :issue-actions="issueTabActions"
+        />
       </el-tab-pane>
     </el-tabs>
 
-    <el-drawer v-model="assetDrawerVisible" :title="assetDetailTitle" size="62%">
-      <template v-if="assetDetail">
-        <div class="drawer-section">
-          <div class="metric-grid drawer-metric-grid">
-            <MetricCard label="执行健康分" :value="formatNumber(assetDetail.executionHealthScore)" tone="success" />
-            <MetricCard label="治理风险指数" :value="formatNumber(assetDetail.governanceRiskScore)" tone="warning" />
-            <MetricCard label="活跃问题" :value="formatNumber(assetDetail.activeIssueCount)" tone="primary" />
-            <MetricCard label="覆盖率" :value="`${formatNumber(assetDetail.coverageRate)}%`" tone="accent" />
-          </div>
-
-          <SectionCard title="资产趋势" description="过去窗口内该资产的健康分与风险指数变化。">
-            <EChartPanel v-if="assetDetail.scoreTrend?.length" :option="assetScoreTrendOption" height="260px" />
-            <div v-else class="soft-panel quality-empty">暂无资产趋势</div>
-          </SectionCard>
-
-          <SectionCard title="维度覆盖与风险" description="覆盖维度代表已绑定任务，风险维度来自当前活跃问题。">
-            <div class="tag-row quality-tag-block">
-              <span class="tag-row__label">覆盖维度</span>
-              <el-tag v-for="item in assetDetail.coverageDimensions" :key="item" size="small">{{ dimensionLabel(item) }}</el-tag>
-              <span v-if="!assetDetail.coverageDimensions?.length" class="cell-subtle">未覆盖</span>
-            </div>
-            <div class="tag-row quality-tag-block">
-              <span class="tag-row__label">风险维度</span>
-              <el-tag v-for="item in assetDetail.riskDimensions" :key="item" type="warning" size="small">{{ dimensionLabel(item) }}</el-tag>
-              <span v-if="!assetDetail.riskDimensions?.length" class="cell-subtle">暂无风险</span>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="当前活跃问题" description="点击问题进入问题中心抽屉处置。">
-            <el-table :data="assetDetail.activeIssues" border size="small">
-              <el-table-column label="问题" min-width="220">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="openIssueDrawer(row)">{{ row.issueCode || row.title || "-" }}</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="级别" width="100" align="center">
-                <template #default="{ row }"><StatusPill :label="severityLabel(row.severity)" :tone="severityTone(row.severity)" /></template>
-              </el-table-column>
-              <el-table-column label="状态" width="120" align="center">
-                <template #default="{ row }"><StatusPill :label="issueStatusLabel(row.status)" :tone="issueStatusTone(row.status)" /></template>
-              </el-table-column>
-              <el-table-column label="最近出现" min-width="160" prop="lastSeenAt" />
-            </el-table>
-          </SectionCard>
-
-          <SectionCard title="已绑定质量任务" description="仅提供跳转，不在资产抽屉中直接修改任务。">
-            <el-table :data="assetDetail.relatedTasks" border size="small">
-              <el-table-column label="任务" min-width="220">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="openTask(recordId(row, 'taskId'))">{{ recordText(row, "taskName") || "-" }}</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="规则" min-width="180">
-                <template #default="{ row }">
-                  <el-button link type="primary" @click="openRule(recordId(row, 'ruleId'))">{{ recordText(row, "ruleName") || "-" }}</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="维度/粒度" min-width="150">
-                <template #default="{ row }">{{ dimensionLabel(recordText(row, "ruleDimension")) }} / {{ granularityLabel(recordText(row, "granularity")) }}</template>
-              </el-table-column>
-              <el-table-column label="最近运行" min-width="170">
-                <template #default="{ row }">
-                  <el-button link type="primary" :disabled="!recordId(row, 'latestRunRecordId')" @click="openRunLog(recordId(row, 'latestRunRecordId'))">
-                    {{ recordText(row, "latestRunStatus") || "无运行" }}
-                  </el-button>
-                  <span class="cell-subtle">{{ recordText(row, "latestRunAt") || "-" }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </SectionCard>
-
-          <SectionCard title="最近失败证据" description="展示最近失败或告警运行，保留日志入口。">
-            <el-table :data="assetDetail.latestFailures" border size="small">
-              <el-table-column label="任务/规则" min-width="220">
-                <template #default="{ row }">
-                  <div class="stack-cell">
-                    <span>{{ recordText(row, "taskName") || "-" }}</span>
-                    <span class="cell-subtle">{{ recordText(row, "ruleName") || "-" }}</span>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="摘要" min-width="260" show-overflow-tooltip>
-                <template #default="{ row }">
-                  <MessagePreviewText :text="recordText(row, 'message')" />
-                </template>
-              </el-table-column>
-              <el-table-column label="结束时间" min-width="160">
-                <template #default="{ row }">{{ recordText(row, "endedAt") || "-" }}</template>
-              </el-table-column>
-            <el-table-column label="操作" width="100" align="center" fixed="right">
-                <template #default="{ row }">
-                  <el-button link type="primary" :disabled="!recordId(row, 'runRecordId')" @click="openRunLog(recordId(row, 'runRecordId'))">日志</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </SectionCard>
-
-          <SectionCard title="字段级问题分组" description="字段级问题依附在资产下展示。">
-            <el-collapse v-if="assetDetail.fieldIssueGroups?.length">
-              <el-collapse-item
-                v-for="group in assetDetail.fieldIssueGroups"
-                :key="recordText(group, 'columnName')"
-                :title="`${recordText(group, 'columnName') || '-'} · ${recordNumber(group, 'issueCount')} 个问题`"
-              >
-                <el-table :data="fieldIssues(group)" border size="small">
-                  <el-table-column label="问题" min-width="220">
-                    <template #default="{ row }">
-                      <el-button link type="primary" @click="openIssueDrawer(row)">{{ row.issueCode || row.title || "-" }}</el-button>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="级别" width="100" align="center">
-                    <template #default="{ row }"><StatusPill :label="severityLabel(row.severity)" :tone="severityTone(row.severity)" /></template>
-                  </el-table-column>
-                  <el-table-column label="最近出现" min-width="160" prop="lastSeenAt" />
-                </el-table>
-              </el-collapse-item>
-            </el-collapse>
-            <div v-else class="soft-panel quality-empty">暂无字段级问题</div>
-          </SectionCard>
-        </div>
-      </template>
-      <div v-else class="soft-panel quality-empty">请选择资产查看详情</div>
-    </el-drawer>
+    <QualityMetricsAssetDrawer
+      v-model:visible="assetDrawerVisible"
+      :asset-detail-title="assetDetailTitle"
+      :asset-detail="assetDetail"
+      :asset-score-trend-option="assetScoreTrendOption"
+      :asset-actions="assetDrawerActions"
+    />
 
     <el-drawer v-model="issueDrawerVisible" :title="issueDetailTitle" size="58%">
       <template v-if="issueDetail">
@@ -408,10 +168,11 @@ import type {
   QualityMetricOptionsView,
   SystemProjectMember,
 } from "@studio/api-sdk";
-import { MetricCard, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
-import EChartPanel from "@/components/EChartPanel.vue";
-import MessagePreviewText from "@/components/MessagePreviewText.vue";
+import { SectionCard, StatusPill } from "@studio/ui";
+import QualityMetricsAssetDrawer from "@/components/quality-metrics/QualityMetricsAssetDrawer.vue";
+import QualityMetricsAssetsTab from "@/components/quality-metrics/QualityMetricsAssetsTab.vue";
 import QualityMetricsFilterSection from "@/components/quality-metrics/QualityMetricsFilterSection.vue";
+import QualityMetricsIssuesTab from "@/components/quality-metrics/QualityMetricsIssuesTab.vue";
 import QualityMetricsOverviewTab from "@/components/quality-metrics/QualityMetricsOverviewTab.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
@@ -533,6 +294,45 @@ const overviewTabActions = {
   recordNumber,
   dimensionLabel,
   openNoisyTarget,
+};
+
+const assetTabActions = {
+  loadAssets,
+  openAssetDrawer,
+  assetTitle,
+  scorePercent,
+  formatNumber,
+  dimensionLabel,
+  runStatusTone,
+};
+
+const issueTabActions = {
+  openIssueDrawer,
+  openAssetByIssue,
+  openRunLog,
+  severityLabel,
+  severityTone,
+  issueStatusLabel,
+  issueStatusTone,
+  dimensionLabel,
+};
+
+const assetDrawerActions = {
+  formatNumber,
+  dimensionLabel,
+  openIssueDrawer,
+  severityLabel,
+  severityTone,
+  issueStatusLabel,
+  issueStatusTone,
+  recordId,
+  recordText,
+  recordNumber,
+  granularityLabel,
+  openTask,
+  openRule,
+  openRunLog,
+  fieldIssues,
 };
 
 async function loadOptions() {
@@ -1103,7 +903,6 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
   gap: 20px;
 }
 
-.quality-section-actions,
 .quality-form-actions {
   display: flex;
   justify-content: flex-end;
@@ -1111,19 +910,8 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
   margin-top: 12px;
 }
 
-.quality-section-actions {
-  justify-content: flex-start;
-  margin: 0 0 12px;
-}
-
 .quality-tabs {
   min-width: 0;
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
 }
 
 .quality-empty {
@@ -1134,51 +922,14 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
   color: var(--studio-text-soft);
 }
 
-.stack-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.cell-subtle {
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
 .danger {
   color: var(--studio-danger);
-}
-
-.tag-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.tag-row__label {
-  width: 72px;
-  color: var(--studio-text-soft);
-}
-
-.quality-tag-block + .quality-tag-block {
-  margin-top: 10px;
-}
-
-.table-pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
 }
 
 .drawer-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.drawer-metric-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .compact-panel {
@@ -1259,14 +1010,11 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .drawer-metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 760px) {
   .issue-summary-grid,
-  .drawer-metric-grid {
+  .issue-action-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

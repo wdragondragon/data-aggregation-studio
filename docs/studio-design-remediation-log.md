@@ -1049,3 +1049,25 @@
   - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断构建。
   - 质量指标父页面仍约 1167 行；后续拆资产/问题列表或详情抽屉后即可降到 1000 行以下。
 - 下一步：提交 Batch 33；继续拆质量指标资产/问题列表或详情抽屉。
+
+## Step 051 - Batch 34 拆分质量指标资产/问题列表和资产抽屉
+
+- 执行时间：2026-05-25 17:17:17 +08:00
+- 目标问题：`QualityMetricsView.vue` 在筛选和总览拆出后仍超过 1000 行，剩余主要是资产列表、问题列表和资产详情抽屉的大块展示逻辑。
+- 修改范围：新增 `QualityMetricsAssetsTab.vue`、`QualityMetricsIssuesTab.vue` 和 `QualityMetricsAssetDrawer.vue`；父页面保留加载、分页状态、问题处置动作、图表 option 和路由跳转逻辑，通过 `assetTabActions`、`issueTabActions`、`assetDrawerActions` 注入子组件。
+- 涉及文件：
+  - `frontend/apps/web/src/views/QualityMetricsView.vue`
+  - `frontend/apps/web/src/components/quality-metrics/QualityMetricsAssetsTab.vue`
+  - `frontend/apps/web/src/components/quality-metrics/QualityMetricsIssuesTab.vue`
+  - `frontend/apps/web/src/components/quality-metrics/QualityMetricsAssetDrawer.vue`
+  - `docs/studio-design-remediation-log.md`
+  - `docs/studio-design-remediation-summary.md`
+- 行为兼容说明：资产筛选复选框、资产/问题分页、资产抽屉指标卡、趋势图、维度覆盖、活跃问题、关联任务、失败证据和字段级问题分组保持不变；本步骤只迁移展示层。`QualityMetricsView.vue` 从 1167 行降到 960 行。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：首次失败，原因是 `QualityMetricsAssetsTab.vue` 将 `scorePercent` action 参数声明为 `unknown`，而父页面函数只接受 `number | undefined`。
+  - 修复 action 类型后，`npm run build:web`（`frontend` 目录）：通过，`vue-tsc --noEmit && vite build` 成功。
+  - `git diff --check`：通过，仅有 Windows 工作区 LF/CRLF 替换提示，无空白错误。
+- 失败、阻塞或残余风险：
+  - npm 仍提示 `electron_mirror` / `electron-mirror` 配置即将不兼容，未阻断最终构建。
+  - 质量指标页已降到 1000 行以下；后续不建议继续为行数拆模板，可进一步抽问题处置抽屉或质量指标 composable，但优先级低于模型中心。
+- 下一步：提交 Batch 34；继续处理模型中心页或采集任务编辑页。
