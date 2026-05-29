@@ -166,6 +166,11 @@ export type DataServiceResponseType = "JSON" | "XML" | "FILE";
 export type DataServiceValueType = "STRING" | "INT" | "TIME" | "FLOAT" | "TIMESTAMP" | "LIST";
 export type DataServiceQueryOperator = "EQ" | "LIKE" | "NE" | "GT" | "GE" | "LT" | "LE" | "CONTAINS" | "NOT_CONTAINS";
 export type DataServiceParamPosition = "BODY" | "QUERY" | "HEADER";
+export type DataIngestionStatus = "DRAFT" | "ONLINE" | "OFFLINE";
+export type DataIngestionRequestFormat = "JSON" | "FORM";
+export type DataIngestionPayloadMode = "OBJECT" | "ARRAY";
+export type DataIngestionSourcePosition = "BODY" | "FORM" | "QUERY" | "HEADER";
+export type DataIngestionTargetType = "DATABASE" | "FILE";
 export type ModelSyncTaskSource = "MANUAL" | "AUTO_PAGE";
 export type ModelSyncTaskStatus = "PENDING" | "RUNNING" | "STOPPING" | "SUCCESS" | "FAILED" | "STOPPED";
 export type ModelSyncTaskItemStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "STOPPED";
@@ -357,6 +362,8 @@ export interface DataServiceDefinitionView extends BaseRecord {
   endpointPath?: string;
   serviceKey?: string;
   cacheEnabled?: boolean;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
   requestParams: DataServiceRequestParam[];
   responseParams: DataServiceResponseParam[];
   publishParams: DataServicePublishParam[];
@@ -374,6 +381,8 @@ export interface DataServiceSaveRequest {
   requestMethod?: DataServiceRequestMethod;
   responseType?: DataServiceResponseType;
   cacheEnabled?: boolean;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
   requestParams: DataServiceRequestParam[];
   responseParams: DataServiceResponseParam[];
   publishParams: DataServicePublishParam[];
@@ -403,6 +412,94 @@ export interface DataServiceInvokeResponse {
 }
 
 export interface DataServiceSubscriptionView extends BaseRecord {
+  serviceId?: EntityId;
+  subscriptionName: string;
+  token?: string;
+  tokenMasked?: string;
+  enabled?: boolean;
+  createdBy?: EntityId;
+  lastUsedAt?: string;
+}
+
+export interface DataIngestionFieldMapping {
+  sortOrder?: number;
+  sourcePosition?: DataIngestionSourcePosition;
+  sourceField?: string;
+  targetField: string;
+  valueType?: FieldValueType;
+  required?: boolean;
+  defaultValue?: string;
+  description?: string;
+}
+
+export interface DataIngestionServiceView extends BaseRecord {
+  createdBy?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  status?: DataIngestionStatus;
+  requestFormat?: DataIngestionRequestFormat;
+  payloadMode?: DataIngestionPayloadMode;
+  dataNodePath?: string;
+  targetType?: DataIngestionTargetType;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  endpointPath?: string;
+  serviceKey?: string;
+  maxBatchSize?: number;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  writerOptions?: Record<string, unknown>;
+  fieldMappings: DataIngestionFieldMapping[];
+}
+
+export interface DataIngestionServiceSaveRequest {
+  id?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  requestFormat?: DataIngestionRequestFormat;
+  payloadMode?: DataIngestionPayloadMode;
+  dataNodePath?: string;
+  targetType?: DataIngestionTargetType;
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+  maxBatchSize?: number;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  writerOptions?: Record<string, unknown>;
+  fieldMappings: DataIngestionFieldMapping[];
+}
+
+export interface DataIngestionResolveFieldsRequest {
+  datasourceId?: EntityId;
+  modelId?: EntityId;
+}
+
+export interface DataIngestionResolveFieldsView {
+  fields: DataServiceFieldView[];
+  fieldMappings: DataIngestionFieldMapping[];
+}
+
+export interface DataIngestionDebugRequest {
+  headers?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  form?: Record<string, unknown>;
+  body?: unknown;
+}
+
+export interface DataIngestionInvokeResult {
+  requestId?: string;
+  serviceCode?: string;
+  receivedCount?: number;
+  successCount?: number;
+  failedCount?: number;
+  status?: string;
+}
+
+export interface DataIngestionSubscriptionView extends BaseRecord {
   serviceId?: EntityId;
   subscriptionName: string;
   token?: string;
@@ -518,6 +615,99 @@ export interface DataServiceMetricQueryRequest {
   serviceStatus?: string;
   success?: boolean;
   cacheHit?: boolean;
+  startTime?: string;
+  endTime?: string;
+  granularity?: string;
+  logFocus?: "ALL" | "ERROR" | "SLOW" | "ERROR_OR_SLOW";
+  minDurationMs?: number;
+  topN?: number;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface DataIngestionMetricSummaryView {
+  accessCount?: number;
+  successCount?: number;
+  failureCount?: number;
+  successRate?: number;
+  receivedCount?: number;
+  writtenCount?: number;
+  failedCount?: number;
+  minResponseTimeMs?: number;
+  maxResponseTimeMs?: number;
+  avgResponseTimeMs?: number;
+  p95ResponseTimeMs?: number;
+  p99ResponseTimeMs?: number;
+  lastAccessAt?: string;
+  counterBacked?: boolean;
+}
+
+export interface DataIngestionApiMetricView {
+  serviceId?: EntityId;
+  serviceName?: string;
+  serviceCode?: string;
+  status?: string;
+  subscriptionId?: EntityId;
+  subscriptionName?: string;
+  accessCount?: number;
+  successCount?: number;
+  failureCount?: number;
+  successRate?: number;
+  receivedCount?: number;
+  writtenCount?: number;
+  failedCount?: number;
+  minResponseTimeMs?: number;
+  maxResponseTimeMs?: number;
+  avgResponseTimeMs?: number;
+  p95ResponseTimeMs?: number;
+  p99ResponseTimeMs?: number;
+  lastAccessAt?: string;
+}
+
+export interface DataIngestionAccessLogView extends BaseRecord {
+  serviceId?: EntityId;
+  serviceCode?: string;
+  serviceName?: string;
+  serviceStatus?: string;
+  subscriptionId?: EntityId;
+  subscriptionName?: string;
+  requestId?: string;
+  requestMethod?: string;
+  occurredAt?: string;
+  durationMs?: number;
+  success?: boolean;
+  httpStatus?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  systemLog?: string;
+  clientIp?: string;
+  userAgent?: string;
+  receivedCount?: number;
+  successCount?: number;
+  failedCount?: number;
+}
+
+export interface DataIngestionMetricDashboardView {
+  summary?: DataIngestionMetricSummaryView;
+  accessTrend?: RunMetricTrendView;
+  cumulativeAccessTrend?: RunMetricTrendView;
+  receivedTrend?: RunMetricTrendView;
+  cumulativeReceivedTrend?: RunMetricTrendView;
+  writtenTrend?: RunMetricTrendView;
+  cumulativeWrittenTrend?: RunMetricTrendView;
+  responseTimeTrend?: RunMetricTrendView;
+  successRateTrend?: RunMetricTrendView;
+  errorDistribution?: DataServiceMetricDistributionView[];
+  topSlowServices?: DataIngestionApiMetricView[];
+  topFailedServices?: DataIngestionApiMetricView[];
+  subscriptionRank?: DataIngestionApiMetricView[];
+}
+
+export interface DataIngestionMetricQueryRequest {
+  serviceId?: EntityId;
+  subscriptionId?: EntityId;
+  serviceStatus?: string;
+  success?: boolean;
   startTime?: string;
   endTime?: string;
   granularity?: string;

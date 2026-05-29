@@ -31,6 +31,8 @@ public class DataServiceSaveRequest {
     private DataServiceRequestMethod requestMethod;
     private DataServiceResponseType responseType;
     private Boolean cacheEnabled;
+    private Boolean tokenRequired;
+    private String defaultSubscriptionName;
     private List<DataServiceRequestParamView> requestParams = new ArrayList<DataServiceRequestParamView>();
     private List<DataServiceResponseParamView> responseParams = new ArrayList<DataServiceResponseParamView>();
     private List<DataServicePublishParamView> publishParams = new ArrayList<DataServicePublishParamView>();

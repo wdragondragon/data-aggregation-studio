@@ -53,6 +53,19 @@ public class CollectionTaskAssemblerService {
         return assembleSingle(definition);
     }
 
+    public Map<String, Object> assembleWriter(Long datasourceId,
+                                              Long modelId,
+                                              List<String> targetFields,
+                                              Map<String, Object> writerOptions) {
+        DataSourceDefinition targetDatasource = requiredDatasource(datasourceId);
+        DataModelDefinition targetModel = requiredModel(modelId);
+        CollectionTaskTargetBinding binding = new CollectionTaskTargetBinding();
+        binding.setDatasourceId(datasourceId);
+        binding.setModelId(modelId);
+        binding.setWriterOptions(writerOptions == null ? new LinkedHashMap<String, Object>() : writerOptions);
+        return buildStandardWriter(binding, targetDatasource, targetModel, targetFields);
+    }
+
     private Map<String, Object> assembleSingle(CollectionTaskDefinitionView definition) {
         CollectionTaskSourceBinding sourceBinding = definition.getSourceBindings().get(0);
         CollectionTaskTargetBinding targetBinding = definition.getTargetBinding();

@@ -36,4 +36,6 @@ public class DataServiceDefinitionEntity extends BaseProjectTenantEntity {
     private String endpointPath;
     private String serviceKey;
     private Integer cacheEnabled;
+    private Integer tokenRequired;
+    private String defaultSubscriptionName;
 }

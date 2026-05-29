@@ -32,6 +32,7 @@ final class DataServiceAccessLogSupport {
 
     void recordAccessLog(DataServiceDefinitionEntity service,
                          DataServiceSubscriptionEntity subscription,
+                         String defaultSubscriptionName,
                          String requestMethod,
                          LocalDateTime occurredAt,
                          long startedAt,
@@ -53,7 +54,7 @@ final class DataServiceAccessLogSupport {
             entity.setServiceNameSnapshot(service == null ? null : service.getServiceName());
             entity.setServiceStatusSnapshot(service == null ? null : service.getStatus());
             entity.setSubscriptionId(subscription == null ? null : subscription.getId());
-            entity.setSubscriptionNameSnapshot(subscription == null ? null : subscription.getSubscriptionName());
+            entity.setSubscriptionNameSnapshot(subscription == null ? defaultSubscriptionName : subscription.getSubscriptionName());
             entity.setRequestMethod(invocationSupport.hasText(requestMethod) ? requestMethod.toUpperCase(Locale.ROOT) : null);
             entity.setOccurredAt(occurredAt == null ? LocalDateTime.now() : occurredAt);
             entity.setDurationMs(Long.valueOf(Math.max(0L, (System.nanoTime() - startedAt) / 1000000L)));

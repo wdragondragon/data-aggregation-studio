@@ -40,6 +40,7 @@ public class DataServiceMetricsService {
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 200;
     private static final int DEFAULT_TOP_N = 10;
+    private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
     private static final DateTimeFormatter REQUEST_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter DAY_LABEL_FORMATTER = DateTimeFormatter.ofPattern("MM-dd");
     private static final DateTimeFormatter HOUR_LABEL_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:mm");
@@ -87,6 +88,16 @@ public class DataServiceMetricsService {
             item.setLabel(service.getServiceName() + " / " + service.getServiceCode());
             item.setStatus(service.getStatus());
             view.getServices().add(item);
+            if (!isTokenRequired(service)) {
+                DataServiceMetricOptionView noTokenItem = new DataServiceMetricOptionView();
+                noTokenItem.setId(Long.valueOf(-service.getId().longValue()));
+                noTokenItem.setName(defaultSubscriptionName(service));
+                noTokenItem.setLabel(defaultSubscriptionName(service) + " / " + service.getServiceName());
+                noTokenItem.setStatus("NO_TOKEN");
+                noTokenItem.setServiceId(service.getId());
+                noTokenItem.setServiceName(service.getServiceName());
+                view.getSubscriptions().add(noTokenItem);
+            }
         }
         if (serviceIds.isEmpty()) {
             return view;
@@ -199,10 +210,11 @@ public class DataServiceMetricsService {
         if (!context.serviceIds.isEmpty()) {
             Integer successFilter = safeRequest.getSuccess() == null ? null : (Boolean.TRUE.equals(safeRequest.getSuccess()) ? Integer.valueOf(1) : Integer.valueOf(0));
             Integer cacheHitFilter = safeRequest.getCacheHit() == null ? null : (Boolean.TRUE.equals(safeRequest.getCacheHit()) ? Integer.valueOf(1) : Integer.valueOf(0));
+            Long counterSubscriptionId = counterSubscriptionId(safeRequest.getSubscriptionId());
             context.counterSummary = accessCounterMapper.selectSummary(context.tenantId, context.projectId, context.serviceIds,
-                    safeRequest.getSubscriptionId(), successFilter, cacheHitFilter, context.startTime, context.endTime);
+                    counterSubscriptionId, successFilter, cacheHitFilter, context.startTime, context.endTime);
             context.counterBucketSummaries.addAll(accessCounterMapper.selectBucketSummaries(context.tenantId, context.projectId, context.serviceIds,
-                    safeRequest.getSubscriptionId(), successFilter, cacheHitFilter, context.startTime, context.endTime));
+                    counterSubscriptionId, successFilter, cacheHitFilter, context.startTime, context.endTime));
         }
         if (!skipLogList && !context.serviceIds.isEmpty()) {
             context.logs.addAll(accessLogMapper.selectList(baseLogQuery(safeRequest, context)
@@ -220,6 +232,7 @@ public class DataServiceMetricsService {
                 .eq(DataServiceDefinitionEntity::getTenantId, context.tenantId)
                 .eq(DataServiceDefinitionEntity::getProjectId, context.projectId)
                 .eq(request.getServiceId() != null, DataServiceDefinitionEntity::getId, request.getServiceId())
+                .eq(noTokenServiceId(request.getSubscriptionId()) != null, DataServiceDefinitionEntity::getId, noTokenServiceId(request.getSubscriptionId()))
                 .eq(hasText(request.getServiceStatus()), DataServiceDefinitionEntity::getStatus,
                         hasText(request.getServiceStatus()) ? request.getServiceStatus().toUpperCase(Locale.ROOT) : null)
                 .orderByAsc(DataServiceDefinitionEntity::getServiceName)
@@ -234,7 +247,8 @@ public class DataServiceMetricsService {
                 .in(!context.serviceIds.isEmpty(), DataServiceAccessLogEntity::getServiceId, context.serviceIds)
                 .ge(DataServiceAccessLogEntity::getOccurredAt, context.startTime)
                 .le(DataServiceAccessLogEntity::getOccurredAt, context.endTime)
-                .eq(request.getSubscriptionId() != null, DataServiceAccessLogEntity::getSubscriptionId, request.getSubscriptionId())
+                .eq(request.getSubscriptionId() != null && !isNoTokenSubscriptionFilter(request.getSubscriptionId()), DataServiceAccessLogEntity::getSubscriptionId, request.getSubscriptionId())
+                .isNull(isNoTokenSubscriptionFilter(request.getSubscriptionId()), DataServiceAccessLogEntity::getSubscriptionId)
                 .eq(request.getSuccess() != null, DataServiceAccessLogEntity::getSuccess, Boolean.TRUE.equals(request.getSuccess()) ? 1 : 0)
                 .eq(request.getCacheHit() != null, DataServiceAccessLogEntity::getCacheEnabled, 1)
                 .eq(request.getCacheHit() != null, DataServiceAccessLogEntity::getCacheHit, Boolean.TRUE.equals(request.getCacheHit()) ? 1 : 0)
@@ -676,6 +690,35 @@ public class DataServiceMetricsService {
             return DEFAULT_PAGE_SIZE;
         }
         return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
+    }
+
+    private boolean isNoTokenSubscriptionFilter(Long subscriptionId) {
+        return subscriptionId != null && subscriptionId.longValue() < 0L;
+    }
+
+    private Long noTokenServiceId(Long subscriptionId) {
+        if (!isNoTokenSubscriptionFilter(subscriptionId)) {
+            return null;
+        }
+        return Long.valueOf(-subscriptionId.longValue());
+    }
+
+    private Long counterSubscriptionId(Long subscriptionId) {
+        if (subscriptionId == null) {
+            return null;
+        }
+        return isNoTokenSubscriptionFilter(subscriptionId) ? Long.valueOf(0L) : subscriptionId;
+    }
+
+    private boolean isTokenRequired(DataServiceDefinitionEntity service) {
+        return service == null || service.getTokenRequired() == null || service.getTokenRequired().intValue() != 0;
+    }
+
+    private String defaultSubscriptionName(DataServiceDefinitionEntity service) {
+        if (service != null && hasText(service.getDefaultSubscriptionName())) {
+            return service.getDefaultSubscriptionName().trim();
+        }
+        return DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME;
     }
 
     private boolean hasText(String value) {

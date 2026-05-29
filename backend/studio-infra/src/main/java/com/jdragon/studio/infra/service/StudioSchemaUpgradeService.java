@@ -79,6 +79,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_model_lineage_relation", "manual_maintainer_name_snapshot", "alter table data_model_lineage_relation add column manual_maintainer_name_snapshot varchar(255)");
         ensureQualityTablesMysql();
         ensureDataServiceTablesMysql();
+        ensureDataIngestionTablesMysql();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesMysql();
 
         if (!tableExists("data_model_lineage_relation")) {
@@ -640,6 +641,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records integer");
         ensureQualityTablesSqlite();
         ensureDataServiceTablesSqlite();
+        ensureDataIngestionTablesSqlite();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesSqlite();
 
         jdbcTemplate.execute("create table if not exists data_model_attr_index (" +
@@ -1650,9 +1652,15 @@ public class StudioSchemaUpgradeService {
                     "response_type varchar(32)," +
                     "endpoint_path varchar(1000)," +
                     "service_key varchar(128)," +
-                    "cache_enabled int default 0" +
+                    "cache_enabled int default 0," +
+                    "token_required int default 1," +
+                    "default_subscription_name varchar(255)" +
                     ")");
         }
+        ensureColumn("data_service_definition", "token_required",
+                "alter table data_service_definition add column token_required int default 1 after cache_enabled");
+        ensureColumn("data_service_definition", "default_subscription_name",
+                "alter table data_service_definition add column default_subscription_name varchar(255) after token_required");
         ensureIndex("data_service_definition", "uk_data_service_project_code",
                 "alter table data_service_definition add unique key uk_data_service_project_code (tenant_id, project_id, service_code)");
         ensureIndex("data_service_definition", "idx_data_service_project_status",
@@ -1852,8 +1860,14 @@ public class StudioSchemaUpgradeService {
                 "response_type text," +
                 "endpoint_path text," +
                 "service_key text," +
-                "cache_enabled integer default 0" +
+                "cache_enabled integer default 0," +
+                "token_required integer default 1," +
+                "default_subscription_name text" +
                 ")");
+        ensureColumn("data_service_definition", "token_required",
+                "alter table data_service_definition add column token_required integer default 1");
+        ensureColumn("data_service_definition", "default_subscription_name",
+                "alter table data_service_definition add column default_subscription_name text");
         jdbcTemplate.execute("create unique index if not exists uk_data_service_project_code on data_service_definition(tenant_id, project_id, service_code)");
         jdbcTemplate.execute("create index if not exists idx_data_service_project_status on data_service_definition(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_data_service_code_key on data_service_definition(service_code, service_key)");
@@ -1998,6 +2012,249 @@ public class StudioSchemaUpgradeService {
                 "where deleted = 0 and project_id is not null and service_id is not null and coalesce(occurred_at, created_at) is not null " +
                 "group by tenant_id, project_id, coalesce(service_id, 0), coalesce(subscription_id, 0), bucket_start, success, cache_enabled, cache_hit" +
                 ") t");
+    }
+
+    private void ensureDataIngestionTablesMysql() {
+        if (!tableExists("data_ingestion_service")) {
+            jdbcTemplate.execute("create table data_ingestion_service (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "created_by bigint," +
+                    "service_code varchar(128) not null," +
+                    "service_name varchar(255) not null," +
+                    "status varchar(64) not null," +
+                    "request_format varchar(32) not null," +
+                    "payload_mode varchar(32)," +
+                    "data_node_path varchar(500)," +
+                    "target_type varchar(32) not null," +
+                    "datasource_id bigint," +
+                    "datasource_name_snapshot varchar(255)," +
+                    "datasource_type_code varchar(128)," +
+                    "model_id bigint," +
+                    "model_name_snapshot varchar(255)," +
+                    "model_physical_locator varchar(1000)," +
+                    "endpoint_path varchar(1000)," +
+                    "service_key varchar(128)," +
+                    "max_batch_size int default 500," +
+                    "token_required int default 1," +
+                    "default_subscription_name varchar(255)," +
+                    "writer_options_json json," +
+                    "field_mappings_json json" +
+                    ")");
+        }
+        ensureColumn("data_ingestion_service", "token_required",
+                "alter table data_ingestion_service add column token_required int default 1 after max_batch_size");
+        ensureColumn("data_ingestion_service", "default_subscription_name",
+                "alter table data_ingestion_service add column default_subscription_name varchar(255) after token_required");
+        ensureIndex("data_ingestion_service", "uk_data_ingestion_project_code",
+                "alter table data_ingestion_service add unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code)");
+        ensureIndex("data_ingestion_service", "idx_data_ingestion_project_status",
+                "alter table data_ingestion_service add key idx_data_ingestion_project_status (project_id, status)");
+        ensureIndex("data_ingestion_service", "idx_data_ingestion_code_key",
+                "alter table data_ingestion_service add key idx_data_ingestion_code_key (service_code, service_key)");
+
+        if (!tableExists("data_ingestion_subscription")) {
+            jdbcTemplate.execute("create table data_ingestion_subscription (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null," +
+                    "subscription_name varchar(255) not null," +
+                    "token_hash varchar(128) not null," +
+                    "enabled int default 1," +
+                    "created_by bigint," +
+                    "last_used_at datetime" +
+                    ")");
+        }
+        ensureIndex("data_ingestion_subscription", "idx_data_ingestion_sub_service_enabled",
+                "alter table data_ingestion_subscription add key idx_data_ingestion_sub_service_enabled (service_id, enabled)");
+        ensureIndex("data_ingestion_subscription", "idx_data_ingestion_sub_token",
+                "alter table data_ingestion_subscription add key idx_data_ingestion_sub_token (token_hash)");
+
+        if (!tableExists("data_ingestion_access_log")) {
+            jdbcTemplate.execute("create table data_ingestion_access_log (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint," +
+                    "service_code_snapshot varchar(255)," +
+                    "service_name_snapshot varchar(255)," +
+                    "service_status_snapshot varchar(64)," +
+                    "subscription_id bigint," +
+                    "subscription_name_snapshot varchar(255)," +
+                    "request_id varchar(128)," +
+                    "request_method varchar(16)," +
+                    "occurred_at datetime," +
+                    "duration_ms bigint," +
+                    "success int default 0," +
+                    "http_status int," +
+                    "error_code varchar(128)," +
+                    "error_message varchar(1000)," +
+                    "system_log mediumtext," +
+                    "client_ip varchar(128)," +
+                    "user_agent varchar(500)," +
+                    "received_count bigint default 0," +
+                    "success_count bigint default 0," +
+                    "failed_count bigint default 0" +
+                    ")");
+        }
+        ensureColumn("data_ingestion_access_log", "system_log",
+                "alter table data_ingestion_access_log add column system_log mediumtext after error_message");
+        jdbcTemplate.execute("alter table data_ingestion_access_log modify column system_log mediumtext");
+        ensureIndex("data_ingestion_access_log", "idx_data_ingestion_access_project_time",
+                "alter table data_ingestion_access_log add key idx_data_ingestion_access_project_time (tenant_id, project_id, occurred_at)");
+        ensureIndex("data_ingestion_access_log", "idx_data_ingestion_access_service_time",
+                "alter table data_ingestion_access_log add key idx_data_ingestion_access_service_time (service_id, occurred_at)");
+        ensureIndex("data_ingestion_access_log", "idx_data_ingestion_access_subscription_time",
+                "alter table data_ingestion_access_log add key idx_data_ingestion_access_subscription_time (subscription_id, occurred_at)");
+        ensureIndex("data_ingestion_access_log", "idx_data_ingestion_access_success",
+                "alter table data_ingestion_access_log add key idx_data_ingestion_access_success (project_id, success, occurred_at)");
+
+        if (!tableExists("data_ingestion_access_counter")) {
+            jdbcTemplate.execute("create table data_ingestion_access_counter (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null default 0," +
+                    "subscription_id bigint not null default 0," +
+                    "bucket_start datetime not null," +
+                    "success int not null default 0," +
+                    "access_count bigint default 0," +
+                    "received_count bigint default 0," +
+                    "success_count bigint default 0," +
+                    "failed_count bigint default 0" +
+                    ")");
+        }
+        ensureIndex("data_ingestion_access_counter", "uk_data_ingestion_access_counter",
+                "alter table data_ingestion_access_counter add unique key uk_data_ingestion_access_counter (tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
+        ensureIndex("data_ingestion_access_counter", "idx_data_ingestion_counter_project_bucket",
+                "alter table data_ingestion_access_counter add key idx_data_ingestion_counter_project_bucket (tenant_id, project_id, bucket_start)");
+        ensureIndex("data_ingestion_access_counter", "idx_data_ingestion_counter_service_bucket",
+                "alter table data_ingestion_access_counter add key idx_data_ingestion_counter_service_bucket (service_id, bucket_start)");
+    }
+
+    private void ensureDataIngestionTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists data_ingestion_service (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "created_by integer," +
+                "service_code text not null," +
+                "service_name text not null," +
+                "status text not null," +
+                "request_format text not null," +
+                "payload_mode text," +
+                "data_node_path text," +
+                "target_type text not null," +
+                "datasource_id integer," +
+                "datasource_name_snapshot text," +
+                "datasource_type_code text," +
+                "model_id integer," +
+                "model_name_snapshot text," +
+                "model_physical_locator text," +
+                "endpoint_path text," +
+                "service_key text," +
+                "max_batch_size integer default 500," +
+                "token_required integer default 1," +
+                "default_subscription_name text," +
+                "writer_options_json text," +
+                "field_mappings_json text" +
+                ")");
+        ensureColumn("data_ingestion_service", "token_required",
+                "alter table data_ingestion_service add column token_required integer default 1");
+        ensureColumn("data_ingestion_service", "default_subscription_name",
+                "alter table data_ingestion_service add column default_subscription_name text");
+        jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_project_code on data_ingestion_service(tenant_id, project_id, service_code)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_project_status on data_ingestion_service(project_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_code_key on data_ingestion_service(service_code, service_key)");
+
+        jdbcTemplate.execute("create table if not exists data_ingestion_subscription (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null," +
+                "subscription_name text not null," +
+                "token_hash text not null," +
+                "enabled integer default 1," +
+                "created_by integer," +
+                "last_used_at text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_sub_service_enabled on data_ingestion_subscription(service_id, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_sub_token on data_ingestion_subscription(token_hash)");
+
+        jdbcTemplate.execute("create table if not exists data_ingestion_access_log (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer," +
+                "service_code_snapshot text," +
+                "service_name_snapshot text," +
+                "service_status_snapshot text," +
+                "subscription_id integer," +
+                "subscription_name_snapshot text," +
+                "request_id text," +
+                "request_method text," +
+                "occurred_at text," +
+                "duration_ms integer," +
+                "success integer default 0," +
+                "http_status integer," +
+                "error_code text," +
+                "error_message text," +
+                "system_log text," +
+                "client_ip text," +
+                "user_agent text," +
+                "received_count integer default 0," +
+                "success_count integer default 0," +
+                "failed_count integer default 0" +
+                ")");
+        ensureColumn("data_ingestion_access_log", "system_log",
+                "alter table data_ingestion_access_log add column system_log text");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_project_time on data_ingestion_access_log(tenant_id, project_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_service_time on data_ingestion_access_log(service_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_subscription_time on data_ingestion_access_log(subscription_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_success on data_ingestion_access_log(project_id, success, occurred_at)");
+
+        jdbcTemplate.execute("create table if not exists data_ingestion_access_counter (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null default 0," +
+                "subscription_id integer not null default 0," +
+                "bucket_start text not null," +
+                "success integer not null default 0," +
+                "access_count integer default 0," +
+                "received_count integer default 0," +
+                "success_count integer default 0," +
+                "failed_count integer default 0" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_access_counter on data_ingestion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_counter_project_bucket on data_ingestion_access_counter(tenant_id, project_id, bucket_start)");
+        jdbcTemplate.execute("create index if not exists idx_data_ingestion_counter_service_bucket on data_ingestion_access_counter(service_id, bucket_start)");
     }
 
     private void ensureDataModelNameUniqueIndexMysql() {

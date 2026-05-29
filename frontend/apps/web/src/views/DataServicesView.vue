@@ -198,6 +198,7 @@ function buildActions(row: DataServiceDefinitionView) {
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/data-services/${row.id}/edit`); } },
     { key: "debug", label: "调试", onClick: () => { void router.push(`/data-services/${row.id}/edit?debug=1`); } },
     { key: "metrics", label: "监控", onClick: () => { void router.push(`/data-service-metrics?serviceId=${row.id}`); } },
+    { key: "accessLogs", label: "调用日志", onClick: () => { void router.push(`/data-service-metrics/access-logs?serviceId=${row.id}`); } },
     { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", onClick: () => publishService(row) },
     { key: "offline", label: "下线", visible: row.status === "ONLINE", onClick: () => offlineService(row) },
     { key: "subscriptions", label: "订阅", onClick: () => openSubscriptions(row) },

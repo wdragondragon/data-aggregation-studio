@@ -48,6 +48,7 @@ import java.util.Map;
 public class DataServiceService {
 
     private static final long CACHE_TTL_MILLIS = 60000L;
+    private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
 
     private final DataServiceDefinitionMapper definitionMapper;
     private final DataServiceSubscriptionMapper subscriptionMapper;
@@ -189,6 +190,8 @@ public class DataServiceService {
         entity.setServiceKey(dataServiceInvocationSupport.hasText(entity.getServiceKey()) ? entity.getServiceKey() : dataServiceTokenSupport.generateServiceKey());
         entity.setEndpointPath(dataServiceInvocationSupport.buildEndpointPath(entity.getServiceCode(), entity.getServiceKey()));
         entity.setCacheEnabled(Boolean.TRUE.equals(request.getCacheEnabled()) ? Integer.valueOf(1) : Integer.valueOf(0));
+        entity.setTokenRequired(Boolean.FALSE.equals(request.getTokenRequired()) ? Integer.valueOf(0) : Integer.valueOf(1));
+        entity.setDefaultSubscriptionName(normalizeDefaultSubscriptionName(request.getDefaultSubscriptionName()));
         if (entity.getId() == null) {
             definitionMapper.insert(entity);
         } else {
@@ -315,7 +318,7 @@ public class DataServiceService {
                 throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service is not available");
             }
             cacheEnabled = Integer.valueOf(1).equals(entity.getCacheEnabled());
-            subscription = validateSubscriptionToken(entity.getId(), token);
+            subscription = resolveInvocationSubscription(entity, token);
             DataServiceExecutionResult result = execute(toView(entity, true), headers, query, body, true);
             success = true;
             cacheHit = result.cacheHit;
@@ -332,7 +335,7 @@ public class DataServiceService {
             errorMessage = ex.getMessage();
             throw ex;
         } finally {
-            dataServiceAccessLogSupport.recordAccessLog(entity, subscription, requestMethod, occurredAt, startedAt, success, httpStatus,
+            dataServiceAccessLogSupport.recordAccessLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestMethod, occurredAt, startedAt, success, httpStatus,
                     errorCode, errorMessage, clientIp, userAgent, cacheEnabled, cacheHit, rowCount);
         }
     }
@@ -551,6 +554,8 @@ public class DataServiceService {
         view.setEndpointPath(entity.getEndpointPath());
         view.setServiceKey(entity.getServiceKey());
         view.setCacheEnabled(entity.getCacheEnabled() != null && entity.getCacheEnabled() == 1);
+        view.setTokenRequired(isTokenRequired(entity));
+        view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
         if (includeChildren) {
             view.setRequestParams(dataServiceParamSupport.loadRequestParams(entity.getId()));
             view.setResponseParams(dataServiceParamSupport.loadResponseParams(entity.getId()));
@@ -658,6 +663,16 @@ public class DataServiceService {
         return entity;
     }
 
+    private DataServiceSubscriptionEntity resolveInvocationSubscription(DataServiceDefinitionEntity service, String token) {
+        if (dataServiceInvocationSupport.hasText(token)) {
+            return validateSubscriptionToken(service.getId(), token);
+        }
+        if (isTokenRequired(service)) {
+            throw new StudioException(StudioErrorCode.UNAUTHORIZED, "Data service token is required");
+        }
+        return null;
+    }
+
     private DataServiceSubscriptionEntity validateSubscriptionToken(Long serviceId, String token) {
         if (!dataServiceInvocationSupport.hasText(token)) {
             throw new StudioException(StudioErrorCode.UNAUTHORIZED, "Data service token is required");
@@ -673,6 +688,26 @@ public class DataServiceService {
         entity.setLastUsedAt(LocalDateTime.now());
         subscriptionMapper.updateById(entity);
         return entity;
+    }
+
+    private boolean isTokenRequired(DataServiceDefinitionEntity service) {
+        return service == null || service.getTokenRequired() == null || service.getTokenRequired().intValue() != 0;
+    }
+
+    private String defaultSubscriptionNameForLog(DataServiceDefinitionEntity service) {
+        if (isTokenRequired(service)) {
+            return null;
+        }
+        String configuredName = normalizeDefaultSubscriptionName(service.getDefaultSubscriptionName());
+        return dataServiceInvocationSupport.hasText(configuredName) ? configuredName : DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME;
+    }
+
+    private String normalizeDefaultSubscriptionName(String value) {
+        String normalized = dataServiceInvocationSupport.normalizeText(value);
+        if (!dataServiceInvocationSupport.hasText(normalized)) {
+            return null;
+        }
+        return normalized.length() > 255 ? normalized.substring(0, 255) : normalized;
     }
 
     private int statusForException(StudioException ex) {

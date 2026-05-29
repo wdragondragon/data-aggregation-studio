@@ -817,6 +817,8 @@ create table if not exists data_service_definition (
     endpoint_path varchar(1000),
     service_key varchar(128),
     cache_enabled int default 0,
+    token_required int default 1,
+    default_subscription_name varchar(255),
     unique key uk_data_service_project_code (tenant_id, project_id, service_code),
     key idx_data_service_project_status (project_id, status),
     key idx_data_service_code_key (service_code, service_key)
@@ -939,6 +941,109 @@ create table if not exists data_service_access_counter (
     unique key uk_data_service_access_counter (tenant_id, project_id, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit),
     key idx_data_service_counter_project_bucket (tenant_id, project_id, bucket_start),
     key idx_data_service_counter_service_bucket (service_id, bucket_start)
+);
+
+create table if not exists data_ingestion_service (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    created_by bigint,
+    service_code varchar(128) not null,
+    service_name varchar(255) not null,
+    status varchar(64) not null,
+    request_format varchar(32) not null,
+    payload_mode varchar(32),
+    data_node_path varchar(500),
+    target_type varchar(32) not null,
+    datasource_id bigint,
+    datasource_name_snapshot varchar(255),
+    datasource_type_code varchar(128),
+    model_id bigint,
+    model_name_snapshot varchar(255),
+    model_physical_locator varchar(1000),
+    endpoint_path varchar(1000),
+    service_key varchar(128),
+    max_batch_size int default 500,
+    token_required int default 1,
+    default_subscription_name varchar(255),
+    writer_options_json json,
+    field_mappings_json json,
+    unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code),
+    key idx_data_ingestion_project_status (project_id, status),
+    key idx_data_ingestion_code_key (service_code, service_key)
+);
+
+create table if not exists data_ingestion_subscription (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null,
+    subscription_name varchar(255) not null,
+    token_hash varchar(128) not null,
+    enabled int default 1,
+    created_by bigint,
+    last_used_at datetime,
+    key idx_data_ingestion_sub_service_enabled (service_id, enabled),
+    key idx_data_ingestion_sub_token (token_hash)
+);
+
+create table if not exists data_ingestion_access_log (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint,
+    service_code_snapshot varchar(255),
+    service_name_snapshot varchar(255),
+    service_status_snapshot varchar(64),
+    subscription_id bigint,
+    subscription_name_snapshot varchar(255),
+    request_id varchar(128),
+    request_method varchar(16),
+    occurred_at datetime,
+    duration_ms bigint,
+    success int default 0,
+    http_status int,
+    error_code varchar(128),
+    error_message varchar(1000),
+    system_log mediumtext,
+    client_ip varchar(128),
+    user_agent varchar(500),
+    received_count bigint default 0,
+    success_count bigint default 0,
+    failed_count bigint default 0,
+    key idx_data_ingestion_access_project_time (tenant_id, project_id, occurred_at),
+    key idx_data_ingestion_access_service_time (service_id, occurred_at),
+    key idx_data_ingestion_access_subscription_time (subscription_id, occurred_at),
+    key idx_data_ingestion_access_success (project_id, success, occurred_at)
+);
+
+create table if not exists data_ingestion_access_counter (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    service_id bigint not null default 0,
+    subscription_id bigint not null default 0,
+    bucket_start datetime not null,
+    success int not null default 0,
+    access_count bigint default 0,
+    received_count bigint default 0,
+    success_count bigint default 0,
+    failed_count bigint default 0,
+    unique key uk_data_ingestion_access_counter (tenant_id, project_id, service_id, subscription_id, bucket_start, success),
+    key idx_data_ingestion_counter_project_bucket (tenant_id, project_id, bucket_start),
+    key idx_data_ingestion_counter_service_bucket (service_id, bucket_start)
 );
 
 create table if not exists data_dev_directory (

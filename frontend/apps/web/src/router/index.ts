@@ -74,6 +74,8 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     captionKey: "routes.web.menuGroups.dataService.caption",
     items: [
       { path: "/data-services", labelKey: "routes.web.dataServices.title", captionKey: "routes.web.dataServices.menuCaption", requiresProject: true },
+      { path: "/data-ingestion-services", labelKey: "routes.web.dataIngestionServices.title", captionKey: "routes.web.dataIngestionServices.menuCaption", requiresProject: true },
+      { path: "/data-ingestion-metrics", labelKey: "routes.web.dataIngestionMetrics.title", captionKey: "routes.web.dataIngestionMetrics.menuCaption", requiresProject: true },
       { path: "/data-service-metrics", labelKey: "routes.web.dataServiceMetrics.title", captionKey: "routes.web.dataServiceMetrics.menuCaption", requiresProject: true },
     ],
   },
@@ -298,6 +300,33 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/data-ingestion-services",
+        name: "data-ingestion-services",
+        component: () => import("@/views/DataIngestionServicesView.vue"),
+        meta: {
+          titleKey: "routes.web.dataIngestionServices.title",
+          subtitleKey: "routes.web.dataIngestionServices.subtitle",
+        },
+      },
+      {
+        path: "/data-ingestion-services/new",
+        name: "data-ingestion-service-create",
+        component: () => import("@/views/DataIngestionServiceEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.dataIngestionServices.createTitle",
+          subtitleKey: "routes.web.dataIngestionServices.createSubtitle",
+        },
+      },
+      {
+        path: "/data-ingestion-services/:serviceId/edit",
+        name: "data-ingestion-service-edit",
+        component: () => import("@/views/DataIngestionServiceEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.dataIngestionServices.editTitle",
+          subtitleKey: "routes.web.dataIngestionServices.editSubtitle",
+        },
+      },
+      {
         path: "/data-service-metrics",
         name: "data-service-metrics",
         component: () => import("@/views/DataServiceMetricsView.vue"),
@@ -313,6 +342,24 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.dataServiceMetrics.logsTitle",
           subtitleKey: "routes.web.dataServiceMetrics.logsSubtitle",
+        },
+      },
+      {
+        path: "/data-ingestion-metrics",
+        name: "data-ingestion-metrics",
+        component: () => import("@/views/DataIngestionMetricsView.vue"),
+        meta: {
+          titleKey: "routes.web.dataIngestionMetrics.title",
+          subtitleKey: "routes.web.dataIngestionMetrics.subtitle",
+        },
+      },
+      {
+        path: "/data-ingestion-metrics/access-logs",
+        name: "data-ingestion-access-logs",
+        component: () => import("@/views/DataIngestionAccessLogsView.vue"),
+        meta: {
+          titleKey: "routes.web.dataIngestionMetrics.logsTitle",
+          subtitleKey: "routes.web.dataIngestionMetrics.logsSubtitle",
         },
       },
       {

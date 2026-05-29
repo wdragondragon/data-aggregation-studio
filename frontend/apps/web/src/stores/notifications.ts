@@ -132,6 +132,9 @@ export const useNotificationStore = defineStore("studio-notifications", () => {
   }
 
   function handleSseEvent(event: ParsedSseEvent) {
+    if (event.event === "heartbeat") {
+      return;
+    }
     if (!event.data) {
       return;
     }

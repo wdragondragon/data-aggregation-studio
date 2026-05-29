@@ -32,6 +32,17 @@ import type {
   DataModelSaveRequest,
   DatasourceTypeCapabilityView,
   DataSourceDefinition,
+  DataIngestionDebugRequest,
+  DataIngestionAccessLogView,
+  DataIngestionApiMetricView,
+  DataIngestionInvokeResult,
+  DataIngestionMetricDashboardView,
+  DataIngestionMetricQueryRequest,
+  DataIngestionResolveFieldsRequest,
+  DataIngestionResolveFieldsView,
+  DataIngestionServiceSaveRequest,
+  DataIngestionServiceView,
+  DataIngestionSubscriptionView,
   DataServiceDefinitionView,
   DataServiceDebugRequest,
   DataServiceInvokeResponse,
@@ -437,6 +448,60 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         });
       },
     },
+    dataIngestionServices: {
+      list(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        status?: string;
+        targetType?: string;
+      }) {
+        return request<PageResult<DataIngestionServiceView>>({ url: "/data-ingestion-services", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}`, method: "GET" });
+      },
+      save(payload: DataIngestionServiceSaveRequest) {
+        return request<DataIngestionServiceView>({ url: "/data-ingestion-services", method: "POST", data: payload });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/data-ingestion-services/${id}`, method: "DELETE" });
+      },
+      publish(id: EntityId) {
+        return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}/publish`, method: "POST" });
+      },
+      offline(id: EntityId) {
+        return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}/offline`, method: "POST" });
+      },
+      resolveFields(payload: DataIngestionResolveFieldsRequest) {
+        return request<DataIngestionResolveFieldsView>({ url: "/data-ingestion-services/resolve-fields", method: "POST", data: payload });
+      },
+      debug(id: EntityId, payload: DataIngestionDebugRequest) {
+        return request<DataIngestionInvokeResult>({ url: `/data-ingestion-services/${id}/debug`, method: "POST", data: payload });
+      },
+      listSubscriptions(id: EntityId) {
+        return request<DataIngestionSubscriptionView[]>({ url: `/data-ingestion-services/${id}/subscriptions`, method: "GET" });
+      },
+      createSubscription(id: EntityId, subscriptionName: string) {
+        return request<DataIngestionSubscriptionView>({
+          url: `/data-ingestion-services/${id}/subscriptions`,
+          method: "POST",
+          data: { subscriptionName },
+        });
+      },
+      disableSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<DataIngestionSubscriptionView>({
+          url: `/data-ingestion-services/${id}/subscriptions/${subscriptionId}/disable`,
+          method: "POST",
+        });
+      },
+      enableSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<DataIngestionSubscriptionView>({
+          url: `/data-ingestion-services/${id}/subscriptions/${subscriptionId}/enable`,
+          method: "POST",
+        });
+      },
+    },
     dataServiceMetrics: {
       options() {
         return request<DataServiceMetricOptionsView>({ url: "/data-service-metrics/options", method: "GET" });
@@ -449,6 +514,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       queryAccessLogs(payload?: DataServiceMetricQueryRequest) {
         return request<PageResult<DataServiceAccessLogView>>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload });
+      },
+    },
+    dataIngestionMetrics: {
+      options() {
+        return request<DataServiceMetricOptionsView>({ url: "/data-ingestion-metrics/options", method: "GET" });
+      },
+      queryDashboard(payload?: DataIngestionMetricQueryRequest) {
+        return request<DataIngestionMetricDashboardView>({ url: "/data-ingestion-metrics/dashboard/query", method: "POST", data: payload });
+      },
+      queryApiStats(payload?: DataIngestionMetricQueryRequest) {
+        return request<PageResult<DataIngestionApiMetricView>>({ url: "/data-ingestion-metrics/api-stats/query", method: "POST", data: payload });
+      },
+      queryAccessLogs(payload?: DataIngestionMetricQueryRequest) {
+        return request<PageResult<DataIngestionAccessLogView>>({ url: "/data-ingestion-metrics/access-logs/query", method: "POST", data: payload });
       },
     },
     models: {

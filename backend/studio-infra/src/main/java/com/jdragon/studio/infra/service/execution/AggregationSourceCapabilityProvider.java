@@ -24,6 +24,7 @@ import com.jdragon.aggregation.datasource.queue.QueueAbstract;
 import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
 import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.aggregation.pluginloader.spi.AbstractPlugin;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -45,6 +46,7 @@ import static com.jdragon.studio.infra.service.execution.AggregationModelMetadat
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildRelationalMetadata;
 
 @Service
+@Slf4j
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
 
     public static class HydrationResult {
@@ -394,18 +396,26 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 }
             } else if (plugin instanceof FileHelper) {
                 FileHelper fileHelper = (FileHelper) plugin;
-                Map<String, Object> metadata = normalizePluginMetadata(datasource.getTypeCode(), decryptMetadata(datasource.getTechnicalMetadata()));
-                fileHelper.connect(Configuration.from(metadata));
-                fileHelper.readFile(model.getPhysicalLocator(),
-                        String.valueOf(metadata.getOrDefault("fileType", "csv")),
+                Map<String, Object> connectionMetadata = normalizePluginMetadata(datasource.getTypeCode(), decryptMetadata(datasource.getTechnicalMetadata()));
+                Map<String, Object> fileMetadata = new LinkedHashMap<String, Object>(connectionMetadata);
+                if (model != null && model.getTechnicalMetadata() != null) {
+                    fileMetadata.putAll(model.getTechnicalMetadata());
+                }
+                fileHelper.connect(Configuration.from(connectionMetadata));
+                fileHelper.readFile(AggregationFileModelPathSupport.resolveFilePreviewPath(model),
+                        String.valueOf(fileMetadata.getOrDefault("fileType", "csv")),
                         row -> {
                             if (rows.size() < limit) {
                                 rows.add(new LinkedHashMap<String, Object>(row));
                             }
                         },
-                        Configuration.from(metadata));
+                        Configuration.from(fileMetadata));
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("Failed to preview datasource model. datasourceId={}, modelId={}, reason={}",
+                    datasource == null ? null : datasource.getId(),
+                    model == null ? null : model.getId(),
+                    e.getMessage());
         }
         return rows;
     }

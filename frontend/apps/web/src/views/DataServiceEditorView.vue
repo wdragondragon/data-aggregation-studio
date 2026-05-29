@@ -187,6 +187,12 @@
         <el-form-item label="是否缓存">
           <el-switch v-model="form.cacheEnabled" active-text="开启 60 秒缓存" inactive-text="实时查询" />
         </el-form-item>
+        <el-form-item label="访问 Token">
+          <el-switch v-model="form.tokenRequired" active-text="需要 Token" inactive-text="免 Token" />
+        </el-form-item>
+        <el-form-item v-if="!form.tokenRequired" label="默认订阅方">
+          <el-input v-model="form.defaultSubscriptionName" placeholder="免 Token 调用" />
+        </el-form-item>
       </div>
       <el-form-item label="服务地址">
         <el-input :model-value="endpointUrl" readonly placeholder="保存后生成服务地址" />
@@ -315,6 +321,8 @@ const form = reactive<DataServiceSaveRequest & {
   requestMethod: "GET",
   responseType: "JSON",
   cacheEnabled: false,
+  tokenRequired: true,
+  defaultSubscriptionName: "",
   requestParams: [],
   responseParams: [],
   publishParams: [],
@@ -391,6 +399,8 @@ function applyDetail(detail: DataServiceDefinitionView) {
   form.requestMethod = detail.requestMethod || "GET";
   form.responseType = detail.responseType || "JSON";
   form.cacheEnabled = Boolean(detail.cacheEnabled);
+  form.tokenRequired = detail.tokenRequired !== false;
+  form.defaultSubscriptionName = detail.defaultSubscriptionName || "";
   form.endpointPath = detail.endpointPath;
   form.serviceKey = detail.serviceKey;
   form.requestParams = detail.requestParams?.length ? detail.requestParams : defaultFixedParams();
@@ -564,6 +574,7 @@ async function saveService() {
       ...form,
       serviceCode: form.serviceCode.trim(),
       serviceName: form.serviceName.trim(),
+      defaultSubscriptionName: form.defaultSubscriptionName?.trim() || undefined,
     });
     applyDetail(saved);
     ElMessage.success("数据服务已保存");

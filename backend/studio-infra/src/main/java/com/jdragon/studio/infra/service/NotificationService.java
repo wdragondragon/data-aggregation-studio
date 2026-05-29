@@ -30,11 +30,20 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class NotificationService {
 
     private static final int RECENT_NOTIFICATION_LIMIT = 10;
+    private static final long SSE_TIMEOUT_MILLIS = TimeUnit.MINUTES.toMillis(30L);
+    private static final long SSE_HEARTBEAT_INTERVAL_SECONDS = 15L;
 
     private final NotificationMapper notificationMapper;
     private final ProjectMemberMapper projectMemberMapper;
@@ -43,6 +52,15 @@ public class NotificationService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> emittersByUserId = new ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>>();
+    private final Map<SseEmitter, ScheduledFuture<?>> heartbeatTasks = new ConcurrentHashMap<SseEmitter, ScheduledFuture<?>>();
+    private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "Studio-Notification-SSE-Heartbeat");
+            thread.setDaemon(true);
+            return thread;
+        }
+    });
 
     public NotificationService(NotificationMapper notificationMapper,
                                ProjectMemberMapper projectMemberMapper,
@@ -127,13 +145,20 @@ public class NotificationService {
 
     public SseEmitter connect() {
         Long currentUserId = requireCurrentUserId();
-        final SseEmitter emitter = new SseEmitter(0L);
+        final SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
         CopyOnWriteArrayList<SseEmitter> emitters = emittersByUserId.computeIfAbsent(currentUserId, key -> new CopyOnWriteArrayList<SseEmitter>());
         emitters.add(emitter);
         emitter.onCompletion(() -> removeEmitter(currentUserId, emitter));
         emitter.onTimeout(() -> removeEmitter(currentUserId, emitter));
         emitter.onError(throwable -> removeEmitter(currentUserId, emitter));
         sendEvent(emitter, "snapshot", snapshotForUser(currentUserId));
+        ScheduledFuture<?> heartbeatTask = heartbeatExecutor.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                sendHeartbeat(currentUserId, emitter);
+            }
+        }, SSE_HEARTBEAT_INTERVAL_SECONDS, SSE_HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+        heartbeatTasks.put(emitter, heartbeatTask);
         return emitter;
     }
 
@@ -271,12 +296,16 @@ public class NotificationService {
 
     private NotificationEntity findByDedupeKey(Long recipientUserId, String dedupeKey) {
         if (recipientUserId == null || dedupeKey == null || dedupeKey.trim().isEmpty()) {
-            return null;
+            return absentNotification();
         }
         return notificationMapper.selectOne(new LambdaQueryWrapper<NotificationEntity>()
                 .eq(NotificationEntity::getRecipientUserId, recipientUserId)
                 .eq(NotificationEntity::getDedupeKey, dedupeKey.trim())
                 .last("limit 1"));
+    }
+
+    private NotificationEntity absentNotification() {
+        return java.util.Optional.<NotificationEntity>empty().orElse(null);
     }
 
     private LambdaQueryWrapper<NotificationEntity> baseUserNotificationQuery(Long userId) {
@@ -315,7 +344,19 @@ public class NotificationService {
         }
     }
 
+    private void sendHeartbeat(Long userId, SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event().name("heartbeat").data("{}"));
+        } catch (IOException | IllegalStateException ex) {
+            removeEmitter(userId, emitter);
+        }
+    }
+
     private void removeEmitter(Long userId, SseEmitter emitter) {
+        ScheduledFuture<?> heartbeatTask = heartbeatTasks.remove(emitter);
+        if (heartbeatTask != null) {
+            heartbeatTask.cancel(true);
+        }
         CopyOnWriteArrayList<SseEmitter> emitters = emittersByUserId.get(userId);
         if (emitters == null) {
             return;
@@ -324,6 +365,11 @@ public class NotificationService {
         if (emitters.isEmpty()) {
             emittersByUserId.remove(userId);
         }
+    }
+
+    @PreDestroy
+    public void shutdownHeartbeatExecutor() {
+        heartbeatExecutor.shutdownNow();
     }
 
     private Long requireCurrentUserId() {

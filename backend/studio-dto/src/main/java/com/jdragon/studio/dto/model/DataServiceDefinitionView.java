@@ -32,6 +32,8 @@ public class DataServiceDefinitionView extends BaseDefinition {
     private String endpointPath;
     private String serviceKey;
     private Boolean cacheEnabled;
+    private Boolean tokenRequired;
+    private String defaultSubscriptionName;
     private List<DataServiceRequestParamView> requestParams = new ArrayList<DataServiceRequestParamView>();
     private List<DataServiceResponseParamView> responseParams = new ArrayList<DataServiceResponseParamView>();
     private List<DataServicePublishParamView> publishParams = new ArrayList<DataServicePublishParamView>();

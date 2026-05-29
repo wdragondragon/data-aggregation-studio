@@ -593,6 +593,125 @@ create table if not exists collection_task_schedule (
 );
 create index if not exists idx_collection_task_schedule_project on collection_task_schedule(project_id);
 
+create table if not exists data_ingestion_service (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    created_by integer,
+    service_code text not null,
+    service_name text not null,
+    status text not null,
+    request_format text not null,
+    payload_mode text,
+    data_node_path text,
+    target_type text not null,
+    datasource_id integer,
+    datasource_name_snapshot text,
+    datasource_type_code text,
+    model_id integer,
+    model_name_snapshot text,
+    model_physical_locator text,
+    endpoint_path text,
+    service_key text,
+    max_batch_size integer default 500,
+    token_required integer default 1,
+    default_subscription_name text,
+    writer_options_json text,
+    field_mappings_json text
+);
+
+create unique index if not exists uk_data_ingestion_project_code
+    on data_ingestion_service(tenant_id, project_id, service_code);
+create index if not exists idx_data_ingestion_project_status
+    on data_ingestion_service(project_id, status);
+create index if not exists idx_data_ingestion_code_key
+    on data_ingestion_service(service_code, service_key);
+
+create table if not exists data_ingestion_subscription (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null,
+    subscription_name text not null,
+    token_hash text not null,
+    enabled integer default 1,
+    created_by integer,
+    last_used_at text
+);
+
+create index if not exists idx_data_ingestion_sub_service_enabled
+    on data_ingestion_subscription(service_id, enabled);
+create index if not exists idx_data_ingestion_sub_token
+    on data_ingestion_subscription(token_hash);
+
+create table if not exists data_ingestion_access_log (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer,
+    service_code_snapshot text,
+    service_name_snapshot text,
+    service_status_snapshot text,
+    subscription_id integer,
+    subscription_name_snapshot text,
+    request_id text,
+    request_method text,
+    occurred_at text,
+    duration_ms integer,
+    success integer default 0,
+    http_status integer,
+    error_code text,
+    error_message text,
+    system_log text,
+    client_ip text,
+    user_agent text,
+    received_count integer default 0,
+    success_count integer default 0,
+    failed_count integer default 0
+);
+
+create index if not exists idx_data_ingestion_access_project_time
+    on data_ingestion_access_log(tenant_id, project_id, occurred_at);
+create index if not exists idx_data_ingestion_access_service_time
+    on data_ingestion_access_log(service_id, occurred_at);
+create index if not exists idx_data_ingestion_access_subscription_time
+    on data_ingestion_access_log(subscription_id, occurred_at);
+create index if not exists idx_data_ingestion_access_success
+    on data_ingestion_access_log(project_id, success, occurred_at);
+
+create table if not exists data_ingestion_access_counter (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null default 0,
+    subscription_id integer not null default 0,
+    bucket_start text not null,
+    success integer not null default 0,
+    access_count integer default 0,
+    received_count integer default 0,
+    success_count integer default 0,
+    failed_count integer default 0
+);
+
+create unique index if not exists uk_data_ingestion_access_counter
+    on data_ingestion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success);
+create index if not exists idx_data_ingestion_counter_project_bucket
+    on data_ingestion_access_counter(tenant_id, project_id, bucket_start);
+create index if not exists idx_data_ingestion_counter_service_bucket
+    on data_ingestion_access_counter(service_id, bucket_start);
+
 create table if not exists data_dev_directory (
     id integer primary key,
     tenant_id text default 'default',
