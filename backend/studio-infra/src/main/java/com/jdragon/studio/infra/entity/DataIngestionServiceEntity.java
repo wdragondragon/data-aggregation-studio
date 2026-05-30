@@ -34,6 +34,10 @@ public class DataIngestionServiceEntity extends BaseProjectTenantEntity {
     private Integer maxBatchSize;
     private Integer tokenRequired;
     private String defaultSubscriptionName;
+    private Integer webserviceEnabled;
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Map<String, Object> webserviceConfigJson = new LinkedHashMap<String, Object>();
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> writerOptionsJson = new LinkedHashMap<String, Object>();

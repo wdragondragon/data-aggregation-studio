@@ -93,9 +93,21 @@ final class DataServiceAccessLogSupport {
                     : Integer.valueOf(0));
             counter.setAccessCount(Long.valueOf(1L));
             counter.setRowCount(Long.valueOf(Math.max(0L, invocationSupport.safeLong(logEntity.getRowCount()))));
-            accessCounterMapper.upsert(counter);
+            incrementOrInsertCounter(counter);
         } catch (RuntimeException ex) {
             log.warn("Failed to update data service access counter", ex);
+        }
+    }
+
+    private void incrementOrInsertCounter(DataServiceAccessCounterEntity counter) {
+        int updated = accessCounterMapper.increment(counter);
+        if (updated > 0) {
+            return;
+        }
+        try {
+            accessCounterMapper.insert(counter);
+        } catch (RuntimeException ex) {
+            accessCounterMapper.increment(counter);
         }
     }
 

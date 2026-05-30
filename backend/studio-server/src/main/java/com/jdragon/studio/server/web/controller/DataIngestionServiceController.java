@@ -6,10 +6,13 @@ import com.jdragon.studio.dto.model.DataIngestionResolveFieldsView;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
 import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.WebServiceDebugResult;
+import com.jdragon.studio.dto.model.WebServicePreviewView;
 import com.jdragon.studio.dto.model.request.DataIngestionDebugRequest;
 import com.jdragon.studio.dto.model.request.DataIngestionResolveFieldsRequest;
 import com.jdragon.studio.dto.model.request.DataIngestionServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
+import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.service.DataIngestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -88,6 +91,19 @@ public class DataIngestionServiceController {
     public Result<DataIngestionInvokeResult> debug(@PathVariable("id") Long id,
                                                    @RequestBody(required = false) DataIngestionDebugRequest request) {
         return Result.success(dataIngestionService.debug(id, request));
+    }
+
+    @Operation(summary = "Preview data ingestion service WebService contract")
+    @GetMapping("/{id}/webservice/preview")
+    public Result<WebServicePreviewView> previewWebService(@PathVariable("id") Long id) {
+        return Result.success(dataIngestionService.previewWebService(id));
+    }
+
+    @Operation(summary = "Debug data ingestion service WebService")
+    @PostMapping("/{id}/webservice/debug")
+    public Result<WebServiceDebugResult> debugWebService(@PathVariable("id") Long id,
+                                                         @RequestBody(required = false) WebServiceDebugRequest request) {
+        return Result.success(dataIngestionService.debugWebService(id, request));
     }
 
     @Operation(summary = "List data ingestion service subscriptions")

@@ -4,6 +4,19 @@
 
 ## 目录分类
 
+- `使用/`
+  - 面向业务使用者的系统使用说明、操作白皮书和正式分发版本。
+  - 当前包含：
+    - [studio-user-whitepaper.md](./使用/studio-user-whitepaper.md)
+    - [studio-user-whitepaper.docx](./使用/studio-user-whitepaper.docx)
+
+- `需求/`
+  - 面向产品、开发、测试和交付的需求规约、页面反向规约和可见点追踪矩阵。
+  - 当前包含：
+    - [DataAggregation-Studio-需求规格说明书.docx](./需求/DataAggregation-Studio-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6.docx)
+    - [studio-reverse-requirements.md](./需求/studio-reverse-requirements.md)
+    - [studio-reverse-requirements.docx](./需求/studio-reverse-requirements.docx)
+
 - `交接/`
   - 交接类文档，面向项目接手人和维护人。
   - 当前包含：[tenant-project-handover.md](./交接/tenant-project-handover.md)

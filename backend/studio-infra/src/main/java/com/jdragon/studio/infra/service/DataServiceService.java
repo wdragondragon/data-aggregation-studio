@@ -2,6 +2,8 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DataServiceRequestMethod;
@@ -20,10 +22,14 @@ import com.jdragon.studio.dto.model.DataServiceSubscriptionView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
+import com.jdragon.studio.dto.model.WebServiceConfig;
+import com.jdragon.studio.dto.model.WebServiceDebugResult;
+import com.jdragon.studio.dto.model.WebServicePreviewView;
 import com.jdragon.studio.dto.model.request.DataServiceDebugRequest;
 import com.jdragon.studio.dto.model.request.DataServiceResolveFieldsRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
+import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
 import com.jdragon.studio.infra.entity.DataServiceSubscriptionEntity;
 import com.jdragon.studio.infra.mapper.DataServiceAccessCounterMapper;
@@ -49,6 +55,7 @@ public class DataServiceService {
 
     private static final long CACHE_TTL_MILLIS = 60000L;
     private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
+    private static final String WS_OPEN_PATH_PREFIX = "/openapi/ws/data-services";
 
     private final DataServiceDefinitionMapper definitionMapper;
     private final DataServiceSubscriptionMapper subscriptionMapper;
@@ -62,6 +69,8 @@ public class DataServiceService {
     private final DataServiceParamSupport dataServiceParamSupport;
     private final DataServiceAccessLogSupport dataServiceAccessLogSupport;
     private final DataServiceTokenSupport dataServiceTokenSupport = new DataServiceTokenSupport();
+    private final WebServiceSupport webServiceSupport = new WebServiceSupport();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DataServiceService(DataServiceDefinitionMapper definitionMapper,
                               DataServiceRequestParamMapper requestParamMapper,
@@ -192,6 +201,9 @@ public class DataServiceService {
         entity.setCacheEnabled(Boolean.TRUE.equals(request.getCacheEnabled()) ? Integer.valueOf(1) : Integer.valueOf(0));
         entity.setTokenRequired(Boolean.FALSE.equals(request.getTokenRequired()) ? Integer.valueOf(0) : Integer.valueOf(1));
         entity.setDefaultSubscriptionName(normalizeDefaultSubscriptionName(request.getDefaultSubscriptionName()));
+        entity.setWebserviceEnabled(Boolean.TRUE.equals(request.getWebserviceEnabled()) ? Integer.valueOf(1) : Integer.valueOf(0));
+        entity.setWebserviceConfigJson(toWebServiceConfigMap(request.getWebserviceConfig(), "data-service", entity.getServiceCode(),
+                Integer.valueOf(1).equals(entity.getWebserviceEnabled())));
         if (entity.getId() == null) {
             definitionMapper.insert(entity);
         } else {
@@ -278,6 +290,63 @@ public class DataServiceService {
                 request == null ? new LinkedHashMap<String, Object>() : request.getQuery(),
                 request == null ? new LinkedHashMap<String, Object>() : request.getBody(),
                 false).data;
+    }
+
+    public WebServicePreviewView previewWebService(Long id) {
+        DataServiceDefinitionView view = get(id);
+        return webServiceSupport.previewForDataService(view, buildWebServiceEndpointPath(view.getServiceCode(), view.getServiceKey()));
+    }
+
+    public WebServiceDebugResult debugWebService(Long id, WebServiceDebugRequest request) {
+        DataServiceDefinitionView view = get(id);
+        ensureWebServiceEnabled(view);
+        String envelope = request == null || request.getSoapEnvelope() == null || request.getSoapEnvelope().trim().isEmpty()
+                ? previewWebService(id).getSampleRequest()
+                : request.getSoapEnvelope();
+        WebServiceSupport.ParsedSoapRequest parsed = webServiceSupport.parse(envelope);
+        WebServiceConfig config = normalizedWebServiceConfig(view);
+        validateSoapOperation(config, parsed);
+        Map<String, Object> headers = webServiceSupport.mergeHeaders(request == null ? null : request.getHeaders(), parsed.getHeaders());
+        DataServiceExecutionResult result = execute(view, headers, parsed.getBody(), parsed.getBody(), false);
+        WebServiceDebugResult debugResult = new WebServiceDebugResult();
+        debugResult.setSuccess(Boolean.TRUE);
+        debugResult.setHttpStatus(Integer.valueOf(200));
+        debugResult.setRequestEnvelope(envelope);
+        debugResult.setResult(result.data);
+        debugResult.setResponseEnvelope(webServiceSupport.successEnvelope(config, result.data, parsed.getSoapVersion()));
+        return debugResult;
+    }
+
+    public String webServiceWsdl(String serviceCode, String serviceKey, String endpointUrl) {
+        DataServiceDefinitionEntity entity = requireOpenWebServiceEntity(serviceCode, serviceKey);
+        DataServiceDefinitionView view = toView(entity, true);
+        WebServiceConfig config = normalizedWebServiceConfig(view);
+        return webServiceSupport.wsdlForDataService(view, config, endpointUrl);
+    }
+
+    public String webServiceFault(com.jdragon.studio.dto.enums.WebServiceSoapVersion version, String code, String message) {
+        return webServiceSupport.faultEnvelope(version, code, message);
+    }
+
+    public String invokeWebService(String serviceCode,
+                                   String serviceKey,
+                                   String token,
+                                   Map<String, Object> httpHeaders,
+                                   String soapEnvelope,
+                                   String clientIp,
+                                   String userAgent) {
+        DataServiceDefinitionEntity entity = requireOpenWebServiceEntity(serviceCode, serviceKey);
+        DataServiceDefinitionView view = toView(entity, true);
+        WebServiceSupport.ParsedSoapRequest parsed = webServiceSupport.parse(soapEnvelope);
+        WebServiceConfig config = normalizedWebServiceConfig(view);
+        validateSoapOperation(config, parsed);
+        String effectiveToken = dataServiceInvocationSupport.hasText(token)
+                ? token
+                : webServiceSupport.tokenFromSoapHeader(parsed, "token", "dataServiceToken");
+        Map<String, Object> headers = webServiceSupport.mergeHeaders(httpHeaders, parsed.getHeaders());
+        Map<String, Object> data = invoke(serviceCode, serviceKey, effectiveToken, headers, parsed.getBody(), parsed.getBody(),
+                "SOAP", clientIp, userAgent);
+        return webServiceSupport.successEnvelope(config, data, parsed.getSoapVersion());
     }
 
     public Map<String, Object> invoke(String serviceCode,
@@ -556,6 +625,8 @@ public class DataServiceService {
         view.setCacheEnabled(entity.getCacheEnabled() != null && entity.getCacheEnabled() == 1);
         view.setTokenRequired(isTokenRequired(entity));
         view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
+        view.setWebserviceEnabled(entity.getWebserviceEnabled() != null && entity.getWebserviceEnabled().intValue() == 1);
+        view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         if (includeChildren) {
             view.setRequestParams(dataServiceParamSupport.loadRequestParams(entity.getId()));
             view.setResponseParams(dataServiceParamSupport.loadResponseParams(entity.getId()));
@@ -654,6 +725,40 @@ public class DataServiceService {
         return entity;
     }
 
+    private DataServiceDefinitionEntity requireOpenWebServiceEntity(String serviceCode, String serviceKey) {
+        DataServiceDefinitionEntity entity = definitionMapper.selectOne(new LambdaQueryWrapper<DataServiceDefinitionEntity>()
+                .eq(DataServiceDefinitionEntity::getServiceCode, dataServiceInvocationSupport.normalizeRequiredText(serviceCode, "Service code is required"))
+                .eq(DataServiceDefinitionEntity::getServiceKey, dataServiceInvocationSupport.normalizeRequiredText(serviceKey, "Service key is required"))
+                .last("limit 1"));
+        if (entity == null || !DataServiceStatus.ONLINE.name().equalsIgnoreCase(entity.getStatus())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service is not available");
+        }
+        if (entity.getWebserviceEnabled() == null || entity.getWebserviceEnabled().intValue() != 1) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service WebService endpoint is not available");
+        }
+        return entity;
+    }
+
+    private void ensureWebServiceEnabled(DataServiceDefinitionView view) {
+        if (view == null || !Boolean.TRUE.equals(view.getWebserviceEnabled())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "WebService is not enabled");
+        }
+    }
+
+    private void validateSoapOperation(WebServiceConfig config, WebServiceSupport.ParsedSoapRequest parsed) {
+        if (config == null || parsed == null || !dataServiceInvocationSupport.hasText(parsed.getOperationName())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SOAP operation is required");
+        }
+        if (!config.getRequestRootName().equals(parsed.getOperationName())
+                && !config.getOperationName().equals(parsed.getOperationName())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SOAP operation does not match service config");
+        }
+    }
+
+    private String buildWebServiceEndpointPath(String serviceCode, String serviceKey) {
+        return WS_OPEN_PATH_PREFIX + "/" + serviceCode + "/" + serviceKey;
+    }
+
     private DataServiceSubscriptionEntity requireSubscription(Long serviceId, Long subscriptionId) {
         requireWritableEntity(serviceId);
         DataServiceSubscriptionEntity entity = subscriptionMapper.selectById(subscriptionId);
@@ -708,6 +813,33 @@ public class DataServiceService {
             return null;
         }
         return normalized.length() > 255 ? normalized.substring(0, 255) : normalized;
+    }
+
+    private WebServiceConfig normalizedWebServiceConfig(DataServiceDefinitionView view) {
+        return webServiceSupport.normalizeConfig(view == null ? null : view.getWebserviceConfig(),
+                "data-service",
+                view == null ? null : view.getServiceCode());
+    }
+
+    private Map<String, Object> toWebServiceConfigMap(WebServiceConfig config,
+                                                      String domain,
+                                                      String serviceCode,
+                                                      boolean enabled) {
+        WebServiceConfig normalized = webServiceSupport.normalizeConfig(config, domain, serviceCode);
+        normalized.setEnabled(Boolean.valueOf(enabled));
+        return objectMapper.convertValue(normalized, new TypeReference<Map<String, Object>>() {
+        });
+    }
+
+    private WebServiceConfig fromWebServiceConfigMap(Map<String, Object> config,
+                                                    String domain,
+                                                    String serviceCode,
+                                                    Boolean enabled) {
+        WebServiceConfig parsed = config == null
+                ? new WebServiceConfig()
+                : objectMapper.convertValue(config, WebServiceConfig.class);
+        parsed.setEnabled(Boolean.TRUE.equals(enabled));
+        return webServiceSupport.normalizeConfig(parsed, domain, serviceCode);
     }
 
     private int statusForException(StudioException ex) {

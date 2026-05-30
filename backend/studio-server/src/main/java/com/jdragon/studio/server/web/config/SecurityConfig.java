@@ -42,6 +42,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/**",
                                 "/openapi/data-services/**",
                                 "/openapi/data-ingestion-services/**",
+                                "/openapi/ws/**",
                                 "/actuator/health/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",

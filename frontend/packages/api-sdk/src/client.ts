@@ -130,6 +130,9 @@ import type {
   RuntimeModeResponse,
   ResourceShare,
   StudioUser,
+  WebServiceDebugRequest,
+  WebServiceDebugResult,
+  WebServicePreviewView,
   WorkflowDefinitionView,
   WorkflowSaveRequest,
 } from "./types";
@@ -425,6 +428,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         }
         return response.data;
       },
+      previewWebService(id: EntityId) {
+        return request<WebServicePreviewView>({ url: `/data-services/${id}/webservice/preview`, method: "GET" });
+      },
+      debugWebService(id: EntityId, payload: WebServiceDebugRequest) {
+        return request<WebServiceDebugResult>({ url: `/data-services/${id}/webservice/debug`, method: "POST", data: payload });
+      },
       listSubscriptions(id: EntityId) {
         return request<DataServiceSubscriptionView[]>({ url: `/data-services/${id}/subscriptions`, method: "GET" });
       },
@@ -478,6 +487,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       debug(id: EntityId, payload: DataIngestionDebugRequest) {
         return request<DataIngestionInvokeResult>({ url: `/data-ingestion-services/${id}/debug`, method: "POST", data: payload });
+      },
+      previewWebService(id: EntityId) {
+        return request<WebServicePreviewView>({ url: `/data-ingestion-services/${id}/webservice/preview`, method: "GET" });
+      },
+      debugWebService(id: EntityId, payload: WebServiceDebugRequest) {
+        return request<WebServiceDebugResult>({ url: `/data-ingestion-services/${id}/webservice/debug`, method: "POST", data: payload });
       },
       listSubscriptions(id: EntityId) {
         return request<DataIngestionSubscriptionView[]>({ url: `/data-ingestion-services/${id}/subscriptions`, method: "GET" });

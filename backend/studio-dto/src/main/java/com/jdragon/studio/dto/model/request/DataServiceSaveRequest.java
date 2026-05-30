@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.enums.DataServiceType;
 import com.jdragon.studio.dto.model.DataServicePublishParamView;
 import com.jdragon.studio.dto.model.DataServiceRequestParamView;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
+import com.jdragon.studio.dto.model.WebServiceConfig;
 import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
@@ -33,6 +34,8 @@ public class DataServiceSaveRequest {
     private Boolean cacheEnabled;
     private Boolean tokenRequired;
     private String defaultSubscriptionName;
+    private Boolean webserviceEnabled;
+    private WebServiceConfig webserviceConfig;
     private List<DataServiceRequestParamView> requestParams = new ArrayList<DataServiceRequestParamView>();
     private List<DataServiceResponseParamView> responseParams = new ArrayList<DataServiceResponseParamView>();
     private List<DataServicePublishParamView> publishParams = new ArrayList<DataServicePublishParamView>();

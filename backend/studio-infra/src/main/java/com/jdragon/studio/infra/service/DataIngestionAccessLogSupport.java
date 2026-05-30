@@ -92,9 +92,21 @@ final class DataIngestionAccessLogSupport {
             counter.setReceivedCount(Long.valueOf(safeLong(logEntity.getReceivedCount())));
             counter.setSuccessCount(Long.valueOf(safeLong(logEntity.getSuccessCount())));
             counter.setFailedCount(Long.valueOf(safeLong(logEntity.getFailedCount())));
-            accessCounterMapper.upsert(counter);
+            incrementOrInsertCounter(counter);
         } catch (RuntimeException ex) {
             log.warn("Failed to update data ingestion access counter", ex);
+        }
+    }
+
+    private void incrementOrInsertCounter(DataIngestionAccessCounterEntity counter) {
+        int updated = accessCounterMapper.increment(counter);
+        if (updated > 0) {
+            return;
+        }
+        try {
+            accessCounterMapper.insert(counter);
+        } catch (RuntimeException ex) {
+            accessCounterMapper.increment(counter);
         }
     }
 

@@ -20,10 +20,14 @@ import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.WebServiceConfig;
+import com.jdragon.studio.dto.model.WebServiceDebugResult;
+import com.jdragon.studio.dto.model.WebServicePreviewView;
 import com.jdragon.studio.dto.model.request.DataIngestionDebugRequest;
 import com.jdragon.studio.dto.model.request.DataIngestionResolveFieldsRequest;
 import com.jdragon.studio.dto.model.request.DataIngestionServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
+import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.entity.DataIngestionServiceEntity;
 import com.jdragon.studio.infra.entity.DataIngestionSubscriptionEntity;
 import com.jdragon.studio.infra.mapper.DataIngestionAccessCounterMapper;
@@ -52,6 +56,7 @@ public class DataIngestionService {
     private static final int MAX_BATCH_SIZE = 500;
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
     private static final String OPEN_PATH_PREFIX = "/openapi/data-ingestion-services";
+    private static final String WS_OPEN_PATH_PREFIX = "/openapi/ws/data-ingestion-services";
     private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
     private static final Pattern SIMPLE_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
@@ -68,6 +73,7 @@ public class DataIngestionService {
     private final DataIngestionExecutionSupport executionSupport;
     private final DataIngestionFieldSupport fieldSupport;
     private final DataIngestionInvocationLogSupport invocationLogSupport;
+    private final WebServiceSupport webServiceSupport = new WebServiceSupport();
 
     public DataIngestionService(DataIngestionServiceMapper serviceMapper,
                                 DataIngestionSubscriptionMapper subscriptionMapper,
@@ -179,6 +185,9 @@ public class DataIngestionService {
         entity.setMaxBatchSize(Integer.valueOf(maxBatchSize));
         entity.setTokenRequired(Boolean.FALSE.equals(request.getTokenRequired()) ? Integer.valueOf(0) : Integer.valueOf(1));
         entity.setDefaultSubscriptionName(normalizeDefaultSubscriptionName(request.getDefaultSubscriptionName()));
+        entity.setWebserviceEnabled(Boolean.TRUE.equals(request.getWebserviceEnabled()) ? Integer.valueOf(1) : Integer.valueOf(0));
+        entity.setWebserviceConfigJson(toWebServiceConfigMap(request.getWebserviceConfig(), "data-ingestion-service", entity.getServiceCode(),
+                Integer.valueOf(1).equals(entity.getWebserviceEnabled())));
         entity.setWriterOptionsJson(request.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : request.getWriterOptions());
         entity.setFieldMappingsJson(toMapList(mappings));
         if (entity.getId() == null) {
@@ -241,6 +250,77 @@ public class DataIngestionService {
                 request == null ? null : request.getBody(),
                 newRequestId(),
                 false);
+    }
+
+    public WebServicePreviewView previewWebService(Long id) {
+        DataIngestionServiceView view = get(id);
+        return webServiceSupport.previewForDataIngestion(view, buildWebServiceEndpointPath(view.getServiceCode(), view.getServiceKey()));
+    }
+
+    public WebServiceDebugResult debugWebService(Long id, WebServiceDebugRequest request) {
+        DataIngestionServiceView view = get(id);
+        ensureWebServiceEnabled(view);
+        String envelope = request == null || request.getSoapEnvelope() == null || request.getSoapEnvelope().trim().isEmpty()
+                ? previewWebService(id).getSampleRequest()
+                : request.getSoapEnvelope();
+        WebServiceSupport.ParsedSoapRequest parsed = webServiceSupport.parse(envelope);
+        WebServiceConfig config = normalizedWebServiceConfig(view);
+        validateSoapOperation(config, parsed);
+        DataIngestionInvokeResult result = execute(view,
+                webServiceSupport.mergeHeaders(request == null ? null : request.getHeaders(), parsed.getHeaders()),
+                parsed.getBody(),
+                new LinkedHashMap<String, Object>(),
+                parsed.getBody(),
+                newRequestId(),
+                null,
+                null,
+                false);
+        WebServiceDebugResult debugResult = new WebServiceDebugResult();
+        debugResult.setSuccess(Boolean.TRUE);
+        debugResult.setHttpStatus(Integer.valueOf(200));
+        debugResult.setRequestEnvelope(envelope);
+        debugResult.setResult(result);
+        debugResult.setResponseEnvelope(webServiceSupport.successEnvelope(config, webServiceSupport.ingestionResultToPayload(result), parsed.getSoapVersion()));
+        return debugResult;
+    }
+
+    public String webServiceWsdl(String serviceCode, String serviceKey, String endpointUrl) {
+        DataIngestionServiceEntity entity = requireOpenWebServiceEntity(serviceCode, serviceKey);
+        DataIngestionServiceView view = toView(entity);
+        WebServiceConfig config = normalizedWebServiceConfig(view);
+        return webServiceSupport.wsdlForDataIngestion(view, config, endpointUrl);
+    }
+
+    public String webServiceFault(com.jdragon.studio.dto.enums.WebServiceSoapVersion version, String code, String message) {
+        return webServiceSupport.faultEnvelope(version, code, message);
+    }
+
+    public String invokeWebService(String serviceCode,
+                                   String serviceKey,
+                                   String token,
+                                   Map<String, Object> httpHeaders,
+                                   String soapEnvelope,
+                                   String clientIp,
+                                   String userAgent) {
+        DataIngestionServiceEntity entity = requireOpenWebServiceEntity(serviceCode, serviceKey);
+        DataIngestionServiceView view = toView(entity);
+        WebServiceSupport.ParsedSoapRequest parsed = webServiceSupport.parse(soapEnvelope);
+        WebServiceConfig config = normalizedWebServiceConfig(view);
+        validateSoapOperation(config, parsed);
+        String effectiveToken = hasText(token)
+                ? token
+                : webServiceSupport.tokenFromSoapHeader(parsed, "token", "dataIngestionToken");
+        DataIngestionInvokeResult result = invoke(serviceCode,
+                serviceKey,
+                effectiveToken,
+                webServiceSupport.mergeHeaders(httpHeaders, parsed.getHeaders()),
+                parsed.getBody(),
+                new LinkedHashMap<String, Object>(),
+                parsed.getBody(),
+                "SOAP",
+                clientIp,
+                userAgent);
+        return webServiceSupport.successEnvelope(config, webServiceSupport.ingestionResultToPayload(result), parsed.getSoapVersion());
     }
 
     public DataIngestionInvokeResult invoke(String serviceCode,
@@ -439,6 +519,8 @@ public class DataIngestionService {
         view.setMaxBatchSize(entity.getMaxBatchSize() == null ? Integer.valueOf(DEFAULT_MAX_BATCH_SIZE) : entity.getMaxBatchSize());
         view.setTokenRequired(isTokenRequired(entity));
         view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
+        view.setWebserviceEnabled(entity.getWebserviceEnabled() != null && entity.getWebserviceEnabled().intValue() == 1);
+        view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-ingestion-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         view.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());
         view.setFieldMappings(fromMapList(entity.getFieldMappingsJson()));
         return view;
@@ -551,6 +633,36 @@ public class DataIngestionService {
         DataIngestionServiceEntity entity = requireAccessibleEntity(id);
         projectResourceAccessService.assertWritable(entity.getProjectId());
         return entity;
+    }
+
+    private DataIngestionServiceEntity requireOpenWebServiceEntity(String serviceCode, String serviceKey) {
+        DataIngestionServiceEntity entity = serviceMapper.selectOne(new LambdaQueryWrapper<DataIngestionServiceEntity>()
+                .eq(DataIngestionServiceEntity::getServiceCode, normalizeRequiredText(serviceCode, "Service code is required"))
+                .eq(DataIngestionServiceEntity::getServiceKey, normalizeRequiredText(serviceKey, "Service key is required"))
+                .last("limit 1"));
+        if (entity == null || !DataIngestionStatus.ONLINE.name().equalsIgnoreCase(entity.getStatus())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service is not available");
+        }
+        if (entity.getWebserviceEnabled() == null || entity.getWebserviceEnabled().intValue() != 1) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service WebService endpoint is not available");
+        }
+        return entity;
+    }
+
+    private void ensureWebServiceEnabled(DataIngestionServiceView view) {
+        if (view == null || !Boolean.TRUE.equals(view.getWebserviceEnabled())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "WebService is not enabled");
+        }
+    }
+
+    private void validateSoapOperation(WebServiceConfig config, WebServiceSupport.ParsedSoapRequest parsed) {
+        if (config == null || parsed == null || !hasText(parsed.getOperationName())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SOAP operation is required");
+        }
+        if (!config.getRequestRootName().equals(parsed.getOperationName())
+                && !config.getOperationName().equals(parsed.getOperationName())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SOAP operation does not match service config");
+        }
     }
 
     private DataIngestionSubscriptionEntity requireSubscription(Long serviceId, Long subscriptionId) {
@@ -702,6 +814,10 @@ public class DataIngestionService {
         return OPEN_PATH_PREFIX + "/" + serviceCode + "/" + serviceKey;
     }
 
+    private String buildWebServiceEndpointPath(String serviceCode, String serviceKey) {
+        return WS_OPEN_PATH_PREFIX + "/" + serviceCode + "/" + serviceKey;
+    }
+
     private int normalizePageNo(Integer pageNo) {
         return pageNo == null || pageNo.intValue() < 1 ? DEFAULT_PAGE_NO : pageNo.intValue();
     }
@@ -768,6 +884,33 @@ public class DataIngestionService {
         }
         return objectMapper.convertValue(mappings, new TypeReference<List<DataIngestionFieldMapping>>() {
         });
+    }
+
+    private WebServiceConfig normalizedWebServiceConfig(DataIngestionServiceView view) {
+        return webServiceSupport.normalizeConfig(view == null ? null : view.getWebserviceConfig(),
+                "data-ingestion-service",
+                view == null ? null : view.getServiceCode());
+    }
+
+    private Map<String, Object> toWebServiceConfigMap(WebServiceConfig config,
+                                                      String domain,
+                                                      String serviceCode,
+                                                      boolean enabled) {
+        WebServiceConfig normalized = webServiceSupport.normalizeConfig(config, domain, serviceCode);
+        normalized.setEnabled(Boolean.valueOf(enabled));
+        return objectMapper.convertValue(normalized, new TypeReference<Map<String, Object>>() {
+        });
+    }
+
+    private WebServiceConfig fromWebServiceConfigMap(Map<String, Object> config,
+                                                    String domain,
+                                                    String serviceCode,
+                                                    Boolean enabled) {
+        WebServiceConfig parsed = config == null
+                ? new WebServiceConfig()
+                : objectMapper.convertValue(config, WebServiceConfig.class);
+        parsed.setEnabled(Boolean.TRUE.equals(enabled));
+        return webServiceSupport.normalizeConfig(parsed, domain, serviceCode);
     }
 
     private <E extends Enum<E>> E enumValue(Class<E> enumClass, String value, E defaultValue) {

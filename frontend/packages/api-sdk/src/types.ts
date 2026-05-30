@@ -167,10 +167,12 @@ export type DataServiceValueType = "STRING" | "INT" | "TIME" | "FLOAT" | "TIMEST
 export type DataServiceQueryOperator = "EQ" | "LIKE" | "NE" | "GT" | "GE" | "LT" | "LE" | "CONTAINS" | "NOT_CONTAINS";
 export type DataServiceParamPosition = "BODY" | "QUERY" | "HEADER";
 export type DataIngestionStatus = "DRAFT" | "ONLINE" | "OFFLINE";
-export type DataIngestionRequestFormat = "JSON" | "FORM";
+export type DataIngestionRequestFormat = "JSON" | "FORM" | "SOAP";
 export type DataIngestionPayloadMode = "OBJECT" | "ARRAY";
 export type DataIngestionSourcePosition = "BODY" | "FORM" | "QUERY" | "HEADER";
 export type DataIngestionTargetType = "DATABASE" | "FILE";
+export type ServiceOpenProtocol = "REST" | "SOAP";
+export type WebServiceSoapVersion = "SOAP_11" | "SOAP_12";
 export type ModelSyncTaskSource = "MANUAL" | "AUTO_PAGE";
 export type ModelSyncTaskStatus = "PENDING" | "RUNNING" | "STOPPING" | "SUCCESS" | "FAILED" | "STOPPED";
 export type ModelSyncTaskItemStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "STOPPED";
@@ -343,6 +345,43 @@ export interface DataServiceResolveFieldsView {
   responseParams: DataServiceResponseParam[];
 }
 
+export interface WebServiceConfig {
+  enabled?: boolean;
+  soapVersion?: WebServiceSoapVersion;
+  namespaceUri?: string;
+  operationName?: string;
+  soapAction?: string;
+  requestRootName?: string;
+  responseRootName?: string;
+}
+
+export interface WebServicePreviewView {
+  endpointPath?: string;
+  wsdlPath?: string;
+  wsdl?: string;
+  sampleRequest?: string;
+  sampleResponse?: string;
+  soapAction?: string;
+  namespaceUri?: string;
+  operationName?: string;
+}
+
+export interface WebServiceDebugRequest {
+  soapEnvelope?: string;
+  soapVersion?: WebServiceSoapVersion;
+  headers?: Record<string, unknown>;
+}
+
+export interface WebServiceDebugResult {
+  success?: boolean;
+  httpStatus?: number;
+  requestEnvelope?: string;
+  responseEnvelope?: string;
+  result?: unknown;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface DataServiceDefinitionView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
@@ -364,6 +403,8 @@ export interface DataServiceDefinitionView extends BaseRecord {
   cacheEnabled?: boolean;
   tokenRequired?: boolean;
   defaultSubscriptionName?: string;
+  webserviceEnabled?: boolean;
+  webserviceConfig?: WebServiceConfig;
   requestParams: DataServiceRequestParam[];
   responseParams: DataServiceResponseParam[];
   publishParams: DataServicePublishParam[];
@@ -383,6 +424,8 @@ export interface DataServiceSaveRequest {
   cacheEnabled?: boolean;
   tokenRequired?: boolean;
   defaultSubscriptionName?: string;
+  webserviceEnabled?: boolean;
+  webserviceConfig?: WebServiceConfig;
   requestParams: DataServiceRequestParam[];
   responseParams: DataServiceResponseParam[];
   publishParams: DataServicePublishParam[];
@@ -452,6 +495,8 @@ export interface DataIngestionServiceView extends BaseRecord {
   maxBatchSize?: number;
   tokenRequired?: boolean;
   defaultSubscriptionName?: string;
+  webserviceEnabled?: boolean;
+  webserviceConfig?: WebServiceConfig;
   writerOptions?: Record<string, unknown>;
   fieldMappings: DataIngestionFieldMapping[];
 }
@@ -469,6 +514,8 @@ export interface DataIngestionServiceSaveRequest {
   maxBatchSize?: number;
   tokenRequired?: boolean;
   defaultSubscriptionName?: string;
+  webserviceEnabled?: boolean;
+  webserviceConfig?: WebServiceConfig;
   writerOptions?: Record<string, unknown>;
   fieldMappings: DataIngestionFieldMapping[];
 }

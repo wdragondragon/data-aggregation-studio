@@ -619,6 +619,8 @@ create table if not exists data_ingestion_service (
     max_batch_size integer default 500,
     token_required integer default 1,
     default_subscription_name text,
+    webservice_enabled integer default 0,
+    webservice_config_json text,
     writer_options_json text,
     field_mappings_json text
 );

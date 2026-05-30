@@ -19,8 +19,16 @@ final class StudioSchemaIntrospector {
     }
 
     void ensureColumn(String tableName, String columnName, String ddl) {
-        if (!columnExists(tableName, columnName)) {
+        if (columnExists(tableName, columnName)) {
+            return;
+        }
+        try {
             jdbcTemplate.execute(ddl);
+        } catch (RuntimeException ex) {
+            if (isDuplicateColumnError(ex) || columnExists(tableName, columnName)) {
+                return;
+            }
+            throw ex;
         }
     }
 
@@ -145,5 +153,28 @@ final class StudioSchemaIntrospector {
             position++;
         }
         return true;
+    }
+
+    private boolean isDuplicateColumnError(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SQLException) {
+                SQLException sqlException = (SQLException) current;
+                if (sqlException.getErrorCode() == 1060 || "42S21".equalsIgnoreCase(sqlException.getSQLState())) {
+                    return true;
+                }
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lowerMessage = message.toLowerCase(Locale.ENGLISH);
+                if (lowerMessage.contains("duplicate column")
+                        || lowerMessage.contains("duplicate column name")
+                        || lowerMessage.contains("column already exists")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

@@ -3,12 +3,16 @@ package com.jdragon.studio.infra.entity;
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Data
 @EqualsAndHashCode(callSuper = true)
-@TableName("data_service_definition")
+@TableName(value = "data_service_definition", autoResultMap = true)
 public class DataServiceDefinitionEntity extends BaseProjectTenantEntity {
     private Long createdBy;
     private String serviceCode;
@@ -38,4 +42,8 @@ public class DataServiceDefinitionEntity extends BaseProjectTenantEntity {
     private Integer cacheEnabled;
     private Integer tokenRequired;
     private String defaultSubscriptionName;
+    private Integer webserviceEnabled;
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Map<String, Object> webserviceConfigJson = new LinkedHashMap<String, Object>();
 }

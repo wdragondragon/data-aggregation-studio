@@ -1654,13 +1654,19 @@ public class StudioSchemaUpgradeService {
                     "service_key varchar(128)," +
                     "cache_enabled int default 0," +
                     "token_required int default 1," +
-                    "default_subscription_name varchar(255)" +
+                    "default_subscription_name varchar(255)," +
+                    "webservice_enabled int default 0," +
+                    "webservice_config_json json" +
                     ")");
         }
         ensureColumn("data_service_definition", "token_required",
                 "alter table data_service_definition add column token_required int default 1 after cache_enabled");
         ensureColumn("data_service_definition", "default_subscription_name",
                 "alter table data_service_definition add column default_subscription_name varchar(255) after token_required");
+        ensureColumn("data_service_definition", "webservice_enabled",
+                "alter table data_service_definition add column webservice_enabled int default 0 after default_subscription_name");
+        ensureColumn("data_service_definition", "webservice_config_json",
+                "alter table data_service_definition add column webservice_config_json json after webservice_enabled");
         ensureIndex("data_service_definition", "uk_data_service_project_code",
                 "alter table data_service_definition add unique key uk_data_service_project_code (tenant_id, project_id, service_code)");
         ensureIndex("data_service_definition", "idx_data_service_project_status",
@@ -1862,12 +1868,18 @@ public class StudioSchemaUpgradeService {
                 "service_key text," +
                 "cache_enabled integer default 0," +
                 "token_required integer default 1," +
-                "default_subscription_name text" +
+                "default_subscription_name text," +
+                "webservice_enabled integer default 0," +
+                "webservice_config_json text" +
                 ")");
         ensureColumn("data_service_definition", "token_required",
                 "alter table data_service_definition add column token_required integer default 1");
         ensureColumn("data_service_definition", "default_subscription_name",
                 "alter table data_service_definition add column default_subscription_name text");
+        ensureColumn("data_service_definition", "webservice_enabled",
+                "alter table data_service_definition add column webservice_enabled integer default 0");
+        ensureColumn("data_service_definition", "webservice_config_json",
+                "alter table data_service_definition add column webservice_config_json text");
         jdbcTemplate.execute("create unique index if not exists uk_data_service_project_code on data_service_definition(tenant_id, project_id, service_code)");
         jdbcTemplate.execute("create index if not exists idx_data_service_project_status on data_service_definition(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_data_service_code_key on data_service_definition(service_code, service_key)");
@@ -2042,6 +2054,8 @@ public class StudioSchemaUpgradeService {
                     "max_batch_size int default 500," +
                     "token_required int default 1," +
                     "default_subscription_name varchar(255)," +
+                    "webservice_enabled int default 0," +
+                    "webservice_config_json json," +
                     "writer_options_json json," +
                     "field_mappings_json json" +
                     ")");
@@ -2050,6 +2064,10 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_service add column token_required int default 1 after max_batch_size");
         ensureColumn("data_ingestion_service", "default_subscription_name",
                 "alter table data_ingestion_service add column default_subscription_name varchar(255) after token_required");
+        ensureColumn("data_ingestion_service", "webservice_enabled",
+                "alter table data_ingestion_service add column webservice_enabled int default 0 after default_subscription_name");
+        ensureColumn("data_ingestion_service", "webservice_config_json",
+                "alter table data_ingestion_service add column webservice_config_json json after webservice_enabled");
         ensureIndex("data_ingestion_service", "uk_data_ingestion_project_code",
                 "alter table data_ingestion_service add unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code)");
         ensureIndex("data_ingestion_service", "idx_data_ingestion_project_status",
@@ -2173,6 +2191,8 @@ public class StudioSchemaUpgradeService {
                 "max_batch_size integer default 500," +
                 "token_required integer default 1," +
                 "default_subscription_name text," +
+                "webservice_enabled integer default 0," +
+                "webservice_config_json text," +
                 "writer_options_json text," +
                 "field_mappings_json text" +
                 ")");
@@ -2180,6 +2200,10 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_service add column token_required integer default 1");
         ensureColumn("data_ingestion_service", "default_subscription_name",
                 "alter table data_ingestion_service add column default_subscription_name text");
+        ensureColumn("data_ingestion_service", "webservice_enabled",
+                "alter table data_ingestion_service add column webservice_enabled integer default 0");
+        ensureColumn("data_ingestion_service", "webservice_config_json",
+                "alter table data_ingestion_service add column webservice_config_json text");
         jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_project_code on data_ingestion_service(tenant_id, project_id, service_code)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_project_status on data_ingestion_service(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_code_key on data_ingestion_service(service_code, service_key)");

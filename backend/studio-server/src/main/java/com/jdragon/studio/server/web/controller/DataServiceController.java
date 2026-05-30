@@ -5,10 +5,13 @@ import com.jdragon.studio.dto.model.DataServiceDefinitionView;
 import com.jdragon.studio.dto.model.DataServiceResolveFieldsView;
 import com.jdragon.studio.dto.model.DataServiceSubscriptionView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.WebServiceDebugResult;
+import com.jdragon.studio.dto.model.WebServicePreviewView;
 import com.jdragon.studio.dto.model.request.DataServiceDebugRequest;
 import com.jdragon.studio.dto.model.request.DataServiceResolveFieldsRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
+import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.service.DataServiceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -88,6 +91,19 @@ public class DataServiceController {
     public Result<Map<String, Object>> debug(@PathVariable("id") Long id,
                                              @RequestBody(required = false) DataServiceDebugRequest request) {
         return Result.success(dataServiceService.debug(id, request));
+    }
+
+    @Operation(summary = "Preview data service WebService contract")
+    @GetMapping("/{id}/webservice/preview")
+    public Result<WebServicePreviewView> previewWebService(@PathVariable("id") Long id) {
+        return Result.success(dataServiceService.previewWebService(id));
+    }
+
+    @Operation(summary = "Debug data service WebService")
+    @PostMapping("/{id}/webservice/debug")
+    public Result<WebServiceDebugResult> debugWebService(@PathVariable("id") Long id,
+                                                         @RequestBody(required = false) WebServiceDebugRequest request) {
+        return Result.success(dataServiceService.debugWebService(id, request));
     }
 
     @Operation(summary = "List data service subscriptions")

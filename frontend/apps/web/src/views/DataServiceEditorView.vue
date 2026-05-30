@@ -198,6 +198,56 @@
         <el-input :model-value="endpointUrl" readonly placeholder="保存后生成服务地址" />
       </el-form-item>
 
+      <el-collapse v-model="webserviceCollapseNames" class="webservice-collapse">
+        <el-collapse-item name="webservice">
+          <template #title>
+            <span class="webservice-title">WebService 设置</span>
+          </template>
+          <div class="studio-form-grid">
+            <el-form-item label="启用 WebService">
+              <el-switch v-model="form.webserviceEnabled" active-text="启用 SOAP" inactive-text="关闭" @change="handleWebServiceToggle" />
+            </el-form-item>
+            <el-form-item label="SOAP 版本">
+              <el-select v-model="form.webserviceConfig.soapVersion" :disabled="!form.webserviceEnabled">
+                <el-option label="SOAP 1.1" value="SOAP_11" />
+                <el-option label="SOAP 1.2" value="SOAP_12" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="Namespace">
+              <el-input v-model="form.webserviceConfig.namespaceUri" :disabled="!form.webserviceEnabled" placeholder="默认按服务编码生成" />
+            </el-form-item>
+            <el-form-item label="Operation">
+              <el-input v-model="form.webserviceConfig.operationName" :disabled="!form.webserviceEnabled" placeholder="默认使用服务 Code" />
+            </el-form-item>
+            <el-form-item label="SOAP Action">
+              <el-input v-model="form.webserviceConfig.soapAction" :disabled="!form.webserviceEnabled" placeholder="默认 namespace/operation" />
+            </el-form-item>
+            <el-form-item label="请求根节点">
+              <el-input v-model="form.webserviceConfig.requestRootName" :disabled="!form.webserviceEnabled" placeholder="默认使用 Operation" />
+            </el-form-item>
+            <el-form-item label="响应根节点">
+              <el-input v-model="form.webserviceConfig.responseRootName" :disabled="!form.webserviceEnabled" placeholder="默认 OperationResponse" />
+            </el-form-item>
+          </div>
+          <el-form-item label="WSDL 地址">
+            <el-input :model-value="webserviceWsdlUrl" readonly placeholder="保存并启用后可预览 WSDL">
+              <template #append>
+                <el-button :disabled="!form.id || !form.webserviceEnabled" :loading="webservicePreviewLoading" @click="previewWebService()">预览</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+          <el-input
+            v-if="webservicePreview?.wsdl"
+            :model-value="webservicePreview.wsdl"
+            class="xml-textarea"
+            type="textarea"
+            :rows="10"
+            readonly
+            placeholder="点击预览后展示 WSDL"
+          />
+        </el-collapse-item>
+      </el-collapse>
+
       <div class="section-toolbar">
         <div>
           <strong>发布参数映射</strong>
@@ -259,6 +309,44 @@
       :debug-actions="debugSectionActions"
     />
 
+    <SectionCard v-if="activeStep === 3" title="SOAP 调试" description="启用 WebService 后，可生成 SOAP Envelope 样例并走同一服务执行链路。">
+      <el-alert
+        v-if="!form.webserviceEnabled"
+        class="webservice-alert"
+        type="info"
+        show-icon
+        :closable="false"
+        title="当前服务未启用 WebService。启用并保存后可预览 WSDL 和发送 SOAP 调试请求。"
+      />
+      <div class="section-toolbar">
+        <div>
+          <strong>WebService 调试</strong>
+          <p>SOAP Header 中可放 token；HTTP Header 会优先使用调试 Header JSON。</p>
+        </div>
+        <div class="section-actions">
+          <el-button plain :disabled="!form.id || !form.webserviceEnabled" :loading="webservicePreviewLoading" @click="previewWebService(true)">生成 SOAP 样例</el-button>
+          <el-button plain :disabled="!webserviceWsdlUrl" @click="copyWebServiceText(webserviceWsdlUrl, 'WSDL 地址')">复制 WSDL 地址</el-button>
+          <el-button type="primary" :disabled="!form.id || !form.webserviceEnabled" :loading="webserviceDebugging" @click="debugWebService">发送 SOAP 调试</el-button>
+        </div>
+      </div>
+      <el-form-item label="WSDL 地址">
+        <el-input :model-value="webserviceWsdlUrl" readonly placeholder="保存并启用 WebService 后生成" />
+      </el-form-item>
+      <div class="webservice-debug-grid">
+        <div class="xml-editor">
+          <div class="xml-editor__header">
+            <strong>SOAP Envelope</strong>
+            <span>可编辑 XML 报文。</span>
+          </div>
+          <el-input v-model="soapEnvelope" type="textarea" :rows="18" placeholder="点击生成 SOAP 样例后展示 Envelope" />
+        </div>
+        <div class="webservice-debug-side">
+          <JsonEditor v-model="soapDebugHeaders" title="HTTP Headers" description="可选，JSON 对象。" height="170px" />
+          <JsonEditor v-model="soapDebugResult" title="SOAP 调试结果" readonly height="170px" />
+        </div>
+      </div>
+    </SectionCard>
+
     <div class="wizard-footer">
       <el-button :disabled="activeStep === 0" @click="previousStep">上一步</el-button>
       <el-button v-if="activeStep < wizardSteps.length - 1" type="primary" @click="nextStep">下一步</el-button>
@@ -280,9 +368,12 @@ import type {
   DataServiceSaveRequest,
   DataSourceDefinition,
   EntityId,
+  WebServiceConfig,
+  WebServicePreviewView,
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
+import JsonEditor from "@/components/JsonEditor.vue";
 import DataServiceDebugSection from "@/components/data-service/DataServiceDebugSection.vue";
 import {
   buildBashCurl,
@@ -313,6 +404,8 @@ const form = reactive<DataServiceSaveRequest & {
   status?: string;
   endpointPath?: string;
   serviceKey?: string;
+  webserviceEnabled: boolean;
+  webserviceConfig: WebServiceConfig;
 }>({
   serviceCode: "",
   serviceName: "",
@@ -323,6 +416,8 @@ const form = reactive<DataServiceSaveRequest & {
   cacheEnabled: false,
   tokenRequired: true,
   defaultSubscriptionName: "",
+  webserviceEnabled: false,
+  webserviceConfig: defaultWebServiceConfig(),
   requestParams: [],
   responseParams: [],
   publishParams: [],
@@ -342,6 +437,13 @@ const debugBody = ref("{}");
 const debugResult = ref("");
 const activeDebugRequestPane = ref("query");
 const curlCommand = ref("");
+const webserviceCollapseNames = ref<string[]>([]);
+const webservicePreviewLoading = ref(false);
+const webserviceDebugging = ref(false);
+const webservicePreview = ref<WebServicePreviewView | null>(null);
+const soapEnvelope = ref("");
+const soapDebugHeaders = ref("{}");
+const soapDebugResult = ref("");
 
 const debugSectionActions = {
   generateDebugTemplate,
@@ -366,6 +468,34 @@ const endpointUrl = computed(() => {
   }
   return resolveDataServiceOpenUrl(form.endpointPath);
 });
+
+const webserviceEndpointPath = computed(() => {
+  if (webservicePreview.value?.endpointPath) {
+    return webservicePreview.value.endpointPath;
+  }
+  if (!form.serviceCode || !form.serviceKey) {
+    return "";
+  }
+  return `/openapi/ws/data-services/${form.serviceCode}/${form.serviceKey}`;
+});
+
+const webserviceWsdlUrl = computed(() => {
+  const path = webservicePreview.value?.wsdlPath
+    || (webserviceEndpointPath.value ? `${webserviceEndpointPath.value}?wsdl` : "");
+  return resolveDataServiceOpenUrl(path);
+});
+
+function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): WebServiceConfig {
+  return {
+    enabled,
+    soapVersion: config?.soapVersion || "SOAP_11",
+    namespaceUri: config?.namespaceUri || "",
+    operationName: config?.operationName || "",
+    soapAction: config?.soapAction || "",
+    requestRootName: config?.requestRootName || "",
+    responseRootName: config?.responseRootName || "",
+  };
+}
 
 async function loadInitialData() {
   datasources.value = await studioApi.dataDevelopment.listSqlDatasources();
@@ -401,11 +531,17 @@ function applyDetail(detail: DataServiceDefinitionView) {
   form.cacheEnabled = Boolean(detail.cacheEnabled);
   form.tokenRequired = detail.tokenRequired !== false;
   form.defaultSubscriptionName = detail.defaultSubscriptionName || "";
+  form.webserviceEnabled = Boolean(detail.webserviceEnabled);
+  form.webserviceConfig = defaultWebServiceConfig(detail.webserviceConfig, form.webserviceEnabled);
   form.endpointPath = detail.endpointPath;
   form.serviceKey = detail.serviceKey;
   form.requestParams = detail.requestParams?.length ? detail.requestParams : defaultFixedParams();
   form.responseParams = detail.responseParams || [];
   form.publishParams = detail.publishParams || [];
+  webservicePreview.value = null;
+  if (!form.webserviceEnabled) {
+    soapEnvelope.value = "";
+  }
   fieldOptions.value = buildFieldsFromResponseParams(form.responseParams);
   ensureFixedParams();
   syncPublishParams();
@@ -575,6 +711,8 @@ async function saveService() {
       serviceCode: form.serviceCode.trim(),
       serviceName: form.serviceName.trim(),
       defaultSubscriptionName: form.defaultSubscriptionName?.trim() || undefined,
+      webserviceEnabled: Boolean(form.webserviceEnabled),
+      webserviceConfig: normalizeWebServiceConfigForSave(),
     });
     applyDetail(saved);
     ElMessage.success("数据服务已保存");
@@ -585,6 +723,105 @@ async function saveService() {
     ElMessage.error(error instanceof Error ? error.message : "保存失败");
   } finally {
     saving.value = false;
+  }
+}
+
+function normalizeWebServiceConfigForSave(): WebServiceConfig {
+  const config = defaultWebServiceConfig(form.webserviceConfig, form.webserviceEnabled);
+  return {
+    enabled: Boolean(form.webserviceEnabled),
+    soapVersion: config.soapVersion || "SOAP_11",
+    namespaceUri: config.namespaceUri?.trim() || undefined,
+    operationName: config.operationName?.trim() || undefined,
+    soapAction: config.soapAction?.trim() || undefined,
+    requestRootName: config.requestRootName?.trim() || undefined,
+    responseRootName: config.responseRootName?.trim() || undefined,
+  };
+}
+
+function handleWebServiceToggle() {
+  form.webserviceConfig = defaultWebServiceConfig(form.webserviceConfig, form.webserviceEnabled);
+  webservicePreview.value = null;
+}
+
+async function previewWebService(fillSample = false) {
+  if (!form.id) {
+    ElMessage.warning("请先保存服务");
+    return;
+  }
+  if (!form.webserviceEnabled) {
+    ElMessage.warning("请先启用 WebService 并保存");
+    return;
+  }
+  webservicePreviewLoading.value = true;
+  try {
+    webservicePreview.value = await studioApi.dataServices.previewWebService(form.id);
+    if (fillSample || !soapEnvelope.value.trim()) {
+      soapEnvelope.value = webservicePreview.value.sampleRequest || "";
+    }
+    ElMessage.success("WebService 预览已生成");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "WebService 预览失败");
+  } finally {
+    webservicePreviewLoading.value = false;
+  }
+}
+
+async function debugWebService() {
+  if (!form.id) {
+    ElMessage.warning("请先保存服务");
+    return;
+  }
+  if (!form.webserviceEnabled) {
+    ElMessage.warning("请先启用 WebService 并保存");
+    return;
+  }
+  if (!soapEnvelope.value.trim()) {
+    await previewWebService(true);
+  }
+  if (!soapEnvelope.value.trim()) {
+    return;
+  }
+  webserviceDebugging.value = true;
+  try {
+    const result = await studioApi.dataServices.debugWebService(form.id, {
+      soapEnvelope: soapEnvelope.value,
+      soapVersion: form.webserviceConfig.soapVersion || "SOAP_11",
+      headers: parseJsonObject(soapDebugHeaders.value, "HTTP Headers"),
+    });
+    soapDebugResult.value = prettyJson(result);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "SOAP 调试失败");
+  } finally {
+    webserviceDebugging.value = false;
+  }
+}
+
+function parseJsonObject(value: string, label: string) {
+  const parsed = parseJson(value || "{}", label);
+  if (parsed == null) {
+    return {};
+  }
+  if (typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+async function copyWebServiceText(value: string, label: string) {
+  if (!value) {
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      copyTextFallback(value);
+    }
+    ElMessage.success(`${label} 已复制`);
+  } catch {
+    copyTextFallback(value);
+    ElMessage.success(`${label} 已复制`);
   }
 }
 
@@ -821,6 +1058,59 @@ onMounted(() => {
   gap: 8px;
 }
 
+.webservice-collapse {
+  margin: 14px 0;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+}
+
+.webservice-title {
+  font-weight: 700;
+  color: var(--studio-text);
+}
+
+.webservice-alert {
+  margin-bottom: 14px;
+}
+
+.webservice-debug-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.webservice-debug-side {
+  display: grid;
+  gap: 14px;
+}
+
+.xml-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.xml-editor__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--studio-text);
+}
+
+.xml-editor__header span {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.xml-textarea :deep(.el-textarea__inner),
+.xml-editor :deep(.el-textarea__inner) {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .section-toolbar p {
   margin: 4px 0 0;
   color: var(--studio-text-soft);
@@ -842,6 +1132,10 @@ onMounted(() => {
 
 @media (max-width: 720px) {
   .service-wizard {
+    grid-template-columns: 1fr;
+  }
+
+  .webservice-debug-grid {
     grid-template-columns: 1fr;
   }
 }

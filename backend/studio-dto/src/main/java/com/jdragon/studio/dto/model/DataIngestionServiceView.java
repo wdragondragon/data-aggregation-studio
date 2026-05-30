@@ -34,6 +34,8 @@ public class DataIngestionServiceView extends BaseDefinition {
     private Integer maxBatchSize;
     private Boolean tokenRequired;
     private String defaultSubscriptionName;
+    private Boolean webserviceEnabled;
+    private WebServiceConfig webserviceConfig;
     private Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
     private List<DataIngestionFieldMapping> fieldMappings = new ArrayList<DataIngestionFieldMapping>();
 }

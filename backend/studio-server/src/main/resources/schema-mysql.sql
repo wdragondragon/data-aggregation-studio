@@ -819,6 +819,8 @@ create table if not exists data_service_definition (
     cache_enabled int default 0,
     token_required int default 1,
     default_subscription_name varchar(255),
+    webservice_enabled int default 0,
+    webservice_config_json json,
     unique key uk_data_service_project_code (tenant_id, project_id, service_code),
     key idx_data_service_project_status (project_id, status),
     key idx_data_service_code_key (service_code, service_key)
@@ -969,6 +971,8 @@ create table if not exists data_ingestion_service (
     max_batch_size int default 500,
     token_required int default 1,
     default_subscription_name varchar(255),
+    webservice_enabled int default 0,
+    webservice_config_json json,
     writer_options_json json,
     field_mappings_json json,
     unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code),

@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.enums.DataIngestionPayloadMode;
 import com.jdragon.studio.dto.enums.DataIngestionRequestFormat;
 import com.jdragon.studio.dto.enums.DataIngestionTargetType;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
+import com.jdragon.studio.dto.model.WebServiceConfig;
 import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
@@ -31,6 +32,8 @@ public class DataIngestionServiceSaveRequest {
     private Integer maxBatchSize;
     private Boolean tokenRequired;
     private String defaultSubscriptionName;
+    private Boolean webserviceEnabled;
+    private WebServiceConfig webserviceConfig;
     private Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
     private List<DataIngestionFieldMapping> fieldMappings = new ArrayList<DataIngestionFieldMapping>();
 }

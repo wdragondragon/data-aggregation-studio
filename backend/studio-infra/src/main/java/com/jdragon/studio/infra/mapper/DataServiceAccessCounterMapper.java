@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -23,6 +24,21 @@ public interface DataServiceAccessCounterMapper extends BaseMapper<DataServiceAc
             "access_count = access_count + values(access_count), " +
             "row_count = row_count + values(row_count)")
     int upsert(DataServiceAccessCounterEntity entity);
+
+    @Update("update data_service_access_counter set " +
+            "updated_at = current_timestamp, " +
+            "access_count = access_count + #{accessCount}, " +
+            "row_count = row_count + #{rowCount} " +
+            "where deleted = 0 " +
+            "and tenant_id = #{tenantId} " +
+            "and project_id = #{projectId} " +
+            "and service_id = #{serviceId} " +
+            "and subscription_id = #{subscriptionId} " +
+            "and bucket_start = #{bucketStart} " +
+            "and success = #{success} " +
+            "and cache_enabled = #{cacheEnabled} " +
+            "and cache_hit = #{cacheHit}")
+    int increment(DataServiceAccessCounterEntity entity);
 
     @Select({"<script>",
             "select",

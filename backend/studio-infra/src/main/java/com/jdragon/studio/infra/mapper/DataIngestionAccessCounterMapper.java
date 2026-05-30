@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,6 +26,21 @@ public interface DataIngestionAccessCounterMapper extends BaseMapper<DataIngesti
             "success_count = success_count + values(success_count), " +
             "failed_count = failed_count + values(failed_count)")
     int upsert(DataIngestionAccessCounterEntity entity);
+
+    @Update("update data_ingestion_access_counter set " +
+            "updated_at = current_timestamp, " +
+            "access_count = access_count + #{accessCount}, " +
+            "received_count = received_count + #{receivedCount}, " +
+            "success_count = success_count + #{successCount}, " +
+            "failed_count = failed_count + #{failedCount} " +
+            "where deleted = 0 " +
+            "and tenant_id = #{tenantId} " +
+            "and project_id = #{projectId} " +
+            "and service_id = #{serviceId} " +
+            "and subscription_id = #{subscriptionId} " +
+            "and bucket_start = #{bucketStart} " +
+            "and success = #{success}")
+    int increment(DataIngestionAccessCounterEntity entity);
 
     @Select({"<script>",
             "select",
