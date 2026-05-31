@@ -22,9 +22,16 @@ public class CronScheduleDueEvaluator {
                          String timezone,
                          LocalDateTime lastTriggeredAt,
                          LocalDateTime now) {
+        return nextDueTime(cronExpression, timezone, lastTriggeredAt, now) != null;
+    }
+
+    public LocalDateTime nextDueTime(String cronExpression,
+                                     String timezone,
+                                     LocalDateTime lastTriggeredAt,
+                                     LocalDateTime now) {
         String normalizedCron = normalizeCron(cronExpression);
         if (normalizedCron == null) {
-            return false;
+            return null;
         }
 
         ZoneId zoneId = resolveZoneId(timezone);
@@ -34,13 +41,16 @@ public class CronScheduleDueEvaluator {
             expression.setTimeZone(TimeZone.getTimeZone(zoneId));
         } catch (ParseException ex) {
             log.warn("Ignore invalid cron expression: {}", normalizedCron, ex);
-            return false;
+            return null;
         }
 
         ZonedDateTime nowAtZone = now.atZone(zoneId);
         LocalDateTime referenceTime = lastTriggeredAt == null ? now.minusMinutes(1) : lastTriggeredAt;
         Date nextValidTime = expression.getNextValidTimeAfter(Date.from(referenceTime.atZone(zoneId).toInstant()));
-        return nextValidTime != null && !nextValidTime.toInstant().isAfter(nowAtZone.toInstant());
+        if (nextValidTime == null || nextValidTime.toInstant().isAfter(nowAtZone.toInstant())) {
+            return null;
+        }
+        return LocalDateTime.ofInstant(nextValidTime.toInstant(), zoneId);
     }
 
     private String normalizeCron(String cronExpression) {

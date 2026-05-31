@@ -7,9 +7,12 @@ import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
+import com.jdragon.studio.infra.service.ClusterInstanceIdentity;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
+import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
@@ -18,6 +21,7 @@ import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
@@ -27,10 +31,13 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,7 +68,9 @@ class WorkerLifecycleRunnerRegressionTest {
                 collectionTaskService,
                 mock(QualityTaskService.class),
                 assemblerService,
-                mock(RunLogFileService.class)
+                mock(RunLogFileService.class),
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity("test-instance")
         );
 
         DispatchTaskEntity dispatchTask = new DispatchTaskEntity();
@@ -97,11 +106,13 @@ class WorkerLifecycleRunnerRegressionTest {
 
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setWorkerCode("studio-online-worker-01");
+        ClusterInstanceIdentity clusterInstanceIdentity = clusterInstanceIdentity("worker-instance-01");
 
         DispatchTaskEntity staleTask = new DispatchTaskEntity();
         staleTask.setId(1L);
         staleTask.setStatus("RUNNING");
         staleTask.setLeaseOwner("studio-online-worker-01");
+        staleTask.setWorkerInstanceId("worker-instance-01");
         staleTask.setRunRecordId(2L);
         staleTask.setWorkflowRunId(3L);
         staleTask.setWorkflowDefinitionId(4L);
@@ -119,6 +130,7 @@ class WorkerLifecycleRunnerRegressionTest {
         staleRunRecord.setExecutionType("WORKFLOW_NODE");
         staleRunRecord.setNodeCode("collection_task_1");
         staleRunRecord.setWorkerCode("studio-online-worker-01");
+        staleRunRecord.setWorkerInstanceId("worker-instance-01");
         staleRunRecord.setStatus("RUNNING");
         staleRunRecord.setStartedAt(LocalDateTime.of(2026, 4, 5, 7, 0, 1));
         staleRunRecord.setLogFilePath("2026-04-05/run-2.log");
@@ -139,14 +151,237 @@ class WorkerLifecycleRunnerRegressionTest {
                 collectionTaskService,
                 mock(QualityTaskService.class),
                 assemblerService,
-                runLogFileService
+                runLogFileService,
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity
         );
 
         runner.recoverLeasedRunningTasks();
 
         assertEquals("FAILED", staleTask.getStatus());
         assertEquals(Boolean.TRUE, staleTask.getPayloadJson().get("recovered"));
-        verify(dispatchTaskMapper).updateById(eq(staleTask));
+        verify(dispatchTaskMapper).update(eq(staleTask), any());
         verify(executionEventPublisher).publish(any(ExecutionEvent.class));
+    }
+
+    @Test
+    void shouldNotExecuteQueuedTaskWhenAtomicClaimFails() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        NodeExecutor nodeExecutor = mock(NodeExecutor.class);
+        RunLogFileService runLogFileService = mock(RunLogFileService.class);
+
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setWorkerCode("worker-a");
+
+        DispatchTaskEntity queuedTask = queuedTask();
+        when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("worker-a", "instance-a"));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
+        when(workerAuthorizationService.isWorkerAuthorizedForProject("default", 100L, "worker-a")).thenReturn(true);
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(0);
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                dispatchTaskMapper,
+                workerLeaseMapper,
+                mock(RunRecordMapper.class),
+                Collections.singletonList(nodeExecutor),
+                mock(ExecutionEventPublisher.class),
+                properties,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                runLogFileService,
+                workerAuthorizationService,
+                clusterInstanceIdentity("instance-a")
+        );
+        ReflectionTestUtils.setField(runner, "acceptingTasks", true);
+
+        runner.pollAndExecute();
+
+        ArgumentCaptor<DispatchTaskEntity> updateCaptor = ArgumentCaptor.forClass(DispatchTaskEntity.class);
+        verify(dispatchTaskMapper).update(updateCaptor.capture(), any());
+        assertEquals("worker-a", updateCaptor.getValue().getWorkerGroupCode());
+        assertEquals("worker-a", updateCaptor.getValue().getLeaseOwner());
+        assertNull(updateCaptor.getValue().getPayloadJson());
+        verify(runLogFileService, never()).prepare(any(Long.class));
+        verify(nodeExecutor, never()).execute(any(), any());
+    }
+
+    @Test
+    void shouldUseWorkerGroupForAuthorizationAndClaimOwnership() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setWorkerGroupCode("group-a");
+        properties.setWorkerCode("pod-a");
+
+        DispatchTaskEntity queuedTask = queuedTask();
+        when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("group-a", "pod-a", "instance-a"));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
+        when(workerAuthorizationService.isWorkerAuthorizedForProject("default", 100L, "group-a")).thenReturn(true);
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(0);
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                dispatchTaskMapper,
+                workerLeaseMapper,
+                mock(RunRecordMapper.class),
+                Collections.<NodeExecutor>emptyList(),
+                mock(ExecutionEventPublisher.class),
+                properties,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                workerAuthorizationService,
+                clusterInstanceIdentity("instance-a")
+        );
+        ReflectionTestUtils.setField(runner, "acceptingTasks", true);
+
+        runner.pollAndExecute();
+
+        verify(workerAuthorizationService).isWorkerAuthorizedForProject("default", 100L, "group-a");
+        ArgumentCaptor<DispatchTaskEntity> updateCaptor = ArgumentCaptor.forClass(DispatchTaskEntity.class);
+        verify(dispatchTaskMapper).update(updateCaptor.capture(), any());
+        assertEquals("group-a", updateCaptor.getValue().getWorkerGroupCode());
+        assertEquals("group-a", updateCaptor.getValue().getLeaseOwner());
+        assertEquals("instance-a", updateCaptor.getValue().getWorkerInstanceId());
+    }
+
+    @Test
+    void shouldAllowSameWorkerGroupDifferentInstancesToHeartbeat() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setWorkerGroupCode("default-pool");
+        properties.setWorkerCode("default-pool-pod-a");
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                dispatchTaskMapper,
+                workerLeaseMapper,
+                mock(RunRecordMapper.class),
+                Collections.<NodeExecutor>emptyList(),
+                mock(ExecutionEventPublisher.class),
+                properties,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity("pod-uid-a")
+        );
+
+        when(workerLeaseMapper.selectOne(any())).thenReturn(null);
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.<DispatchTaskEntity>emptyList());
+
+        runner.heartbeat();
+
+        ArgumentCaptor<WorkerLeaseEntity> insertCaptor = ArgumentCaptor.forClass(WorkerLeaseEntity.class);
+        verify(workerLeaseMapper).insert(insertCaptor.capture());
+        assertEquals("default-pool", insertCaptor.getValue().getWorkerGroupCode());
+        assertEquals("default-pool-pod-a", insertCaptor.getValue().getWorkerCode());
+        assertEquals("WORKER", insertCaptor.getValue().getWorkerKind());
+        assertEquals("pod-uid-a", insertCaptor.getValue().getInstanceId());
+        assertTrue(runner.isAcceptingTasks());
+    }
+
+    @Test
+    void shouldSkipQueuedTaskWhenWorkerIsNotAuthorizedForProject() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setWorkerCode("worker-a");
+
+        DispatchTaskEntity queuedTask = queuedTask();
+        when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("worker-a", "instance-a"));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
+        when(workerAuthorizationService.isWorkerAuthorizedForProject("default", 100L, "worker-a")).thenReturn(false);
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                dispatchTaskMapper,
+                workerLeaseMapper,
+                mock(RunRecordMapper.class),
+                Collections.<NodeExecutor>emptyList(),
+                mock(ExecutionEventPublisher.class),
+                properties,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                workerAuthorizationService,
+                clusterInstanceIdentity("instance-a")
+        );
+        ReflectionTestUtils.setField(runner, "acceptingTasks", true);
+
+        runner.pollAndExecute();
+
+        verify(dispatchTaskMapper, never()).update(any(DispatchTaskEntity.class), any());
+    }
+
+    @Test
+    void shouldNotPollBeforeCurrentLeaseIsEstablished() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setWorkerCode("worker-a");
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                dispatchTaskMapper,
+                mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class),
+                Collections.<NodeExecutor>emptyList(),
+                mock(ExecutionEventPublisher.class),
+                properties,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity("instance-a")
+        );
+
+        runner.pollAndExecute();
+
+        verify(dispatchTaskMapper, never()).selectList(any());
+    }
+
+    private ClusterInstanceIdentity clusterInstanceIdentity(String instanceId) {
+        ClusterInstanceIdentity identity = mock(ClusterInstanceIdentity.class);
+        when(identity.instanceId()).thenReturn(instanceId);
+        when(identity.hostName()).thenReturn("localhost");
+        when(identity.podName()).thenReturn("pod");
+        when(identity.nodeName()).thenReturn("node");
+        return identity;
+    }
+
+    private DispatchTaskEntity queuedTask() {
+        DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setId(1L);
+        task.setTenantId("default");
+        task.setProjectId(100L);
+        task.setStatus("QUEUED");
+        task.setExecutionType("WORKFLOW_NODE");
+        task.setNodeCode("node_a");
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("nodeType", NodeType.HTTP.name());
+        task.setPayloadJson(payload);
+        return task;
+    }
+
+    private WorkerLeaseEntity onlineLease(String workerCode, String instanceId) {
+        return onlineLease(workerCode, workerCode, instanceId);
+    }
+
+    private WorkerLeaseEntity onlineLease(String workerGroupCode, String workerCode, String instanceId) {
+        WorkerLeaseEntity lease = new WorkerLeaseEntity();
+        lease.setWorkerGroupCode(workerGroupCode);
+        lease.setWorkerCode(workerCode);
+        lease.setInstanceId(instanceId);
+        lease.setStatus("ONLINE");
+        lease.setLastHeartbeatAt(LocalDateTime.now());
+        lease.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(1));
+        return lease;
     }
 }

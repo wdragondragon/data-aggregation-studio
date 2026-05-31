@@ -149,9 +149,11 @@ create table if not exists studio_project_worker_binding (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     project_id bigint not null,
+    worker_group_code varchar(255),
     worker_code varchar(255) not null,
     enabled int default 1,
-    unique key uk_studio_project_worker_binding (project_id, worker_code)
+    unique key uk_studio_project_worker_binding (project_id, worker_code),
+    key idx_studio_project_worker_group (project_id, worker_group_code)
 );
 
 create table if not exists studio_resource_share (
@@ -1099,13 +1101,18 @@ create table if not exists dispatch_task (
     run_record_id bigint,
     node_code varchar(255),
     status varchar(64),
+    worker_group_code varchar(255),
     lease_owner varchar(255),
+    worker_instance_id varchar(255),
     lease_expires_at datetime,
+    scheduled_fire_time datetime,
     attempts int default 0,
     max_retries int default 3,
     payload_json json,
     key idx_dispatch_task_project_status (project_id, status),
-    key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id)
+    key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id),
+    key idx_dispatch_task_project_status_created (project_id, status, created_at),
+    key idx_dispatch_task_group_status_created (worker_group_code, status, created_at)
 );
 
 create table if not exists run_record (
@@ -1123,7 +1130,11 @@ create table if not exists run_record (
     triggered_by_user_id bigint,
     node_code varchar(255),
     status varchar(64),
+    worker_group_code varchar(255),
     worker_code varchar(255),
+    worker_instance_id varchar(255),
+    worker_pod_name varchar(255),
+    worker_node_name varchar(255),
     message varchar(2000),
     started_at datetime,
     ended_at datetime,
@@ -1140,6 +1151,12 @@ create table if not exists run_record (
     log_file_path varchar(1000),
     log_size_bytes bigint,
     log_charset varchar(64),
+    log_storage_type varchar(64),
+    log_object_bucket varchar(255),
+    log_object_key varchar(1000),
+    log_chunk_count int,
+    log_status varchar(64),
+    log_error_summary varchar(1000),
     payload_json json,
     result_json json,
     key idx_run_record_project_created (project_id, created_at),
@@ -1198,10 +1215,30 @@ create table if not exists worker_lease (
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
+    worker_group_code varchar(255),
     worker_code varchar(255),
     worker_kind varchar(64),
+    instance_id varchar(255),
     host_name varchar(255),
+    pod_name varchar(255),
+    node_name varchar(255),
     status varchar(64),
     last_heartbeat_at datetime,
-    capabilities_json json
+    lease_expires_at datetime,
+    capabilities_json json,
+    key idx_worker_lease_code_instance (worker_code, instance_id),
+    key idx_worker_lease_group_instance (worker_group_code, instance_id),
+    key idx_worker_lease_status_heartbeat (status, last_heartbeat_at)
+);
+
+create table if not exists studio_cluster_lock (
+    id bigint primary key,
+    lock_name varchar(255) not null,
+    owner_id varchar(255),
+    locked_until datetime,
+    last_acquired_at datetime,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    unique key uk_studio_cluster_lock_name (lock_name),
+    key idx_studio_cluster_lock_until (locked_until)
 );

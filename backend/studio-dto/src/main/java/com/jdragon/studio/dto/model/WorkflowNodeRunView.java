@@ -14,7 +14,9 @@ public class WorkflowNodeRunView {
     private String nodeName;
     private String nodeType;
     private String status;
+    private String workerGroupCode;
     private String workerCode;
+    private String workerInstanceId;
     private String message;
     private LocalDateTime startedAt;
     private LocalDateTime endedAt;

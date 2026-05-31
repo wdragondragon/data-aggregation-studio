@@ -20,7 +20,11 @@ public class RunRecordView extends BaseDefinition {
     private Long qualityTaskId;
     private String qualityTaskName;
     private String nodeCode;
+    private String workerGroupCode;
     private String workerCode;
+    private String workerInstanceId;
+    private String workerPodName;
+    private String workerNodeName;
     private String status;
     private String message;
     private LocalDateTime startedAt;
@@ -28,6 +32,9 @@ public class RunRecordView extends BaseDefinition {
     private String logFilePath;
     private Long logSizeBytes;
     private String logCharset;
+    private String logStorageType;
+    private String logStatus;
+    private String logErrorSummary;
     private RunMetricSummaryView metricSummary;
     private Map<String, Object> payloadJson = new LinkedHashMap<String, Object>();
     private Map<String, Object> resultJson = new LinkedHashMap<String, Object>();

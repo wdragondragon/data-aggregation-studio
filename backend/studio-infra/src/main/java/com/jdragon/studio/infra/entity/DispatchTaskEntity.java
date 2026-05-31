@@ -24,8 +24,11 @@ public class DispatchTaskEntity extends BaseProjectTenantEntity {
     private Long runRecordId;
     private String nodeCode;
     private String status;
+    private String workerGroupCode;
     private String leaseOwner;
+    private String workerInstanceId;
     private LocalDateTime leaseExpiresAt;
+    private LocalDateTime scheduledFireTime;
     private Integer attempts;
     private Integer maxRetries;
 

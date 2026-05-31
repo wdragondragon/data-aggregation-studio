@@ -154,11 +154,13 @@ create table if not exists studio_project_worker_binding (
     created_at text,
     updated_at text,
     project_id integer not null,
+    worker_group_code text,
     worker_code text not null,
     enabled integer default 1
 );
 
 create unique index if not exists uk_studio_project_worker_binding on studio_project_worker_binding(project_id, worker_code);
+create index if not exists idx_studio_project_worker_group on studio_project_worker_binding(project_id, worker_group_code);
 
 create table if not exists studio_resource_share (
     id integer primary key,
@@ -764,14 +766,19 @@ create table if not exists dispatch_task (
     run_record_id integer,
     node_code text,
     status text,
+    worker_group_code text,
     lease_owner text,
+    worker_instance_id text,
     lease_expires_at text,
+    scheduled_fire_time text,
     attempts integer default 0,
     max_retries integer default 3,
     payload_json text
 );
 create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status);
 create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id);
+create index if not exists idx_dispatch_task_project_status_created on dispatch_task(project_id, status, created_at);
+create index if not exists idx_dispatch_task_group_status_created on dispatch_task(worker_group_code, status, created_at);
 
 create table if not exists run_record (
     id integer primary key,
@@ -788,7 +795,11 @@ create table if not exists run_record (
     triggered_by_user_id integer,
     node_code text,
     status text,
+    worker_group_code text,
     worker_code text,
+    worker_instance_id text,
+    worker_pod_name text,
+    worker_node_name text,
     message text,
     started_at text,
     ended_at text,
@@ -805,6 +816,12 @@ create table if not exists run_record (
     log_file_path text,
     log_size_bytes integer,
     log_charset text,
+    log_storage_type text,
+    log_object_bucket text,
+    log_object_key text,
+    log_chunk_count integer,
+    log_status text,
+    log_error_summary text,
     payload_json text,
     result_json text
 );
@@ -863,10 +880,18 @@ create table if not exists worker_lease (
     deleted integer default 0,
     created_at text,
     updated_at text,
+    worker_group_code text,
     worker_code text,
     worker_kind text,
+    instance_id text,
     host_name text,
+    pod_name text,
+    node_name text,
     status text,
     last_heartbeat_at text,
+    lease_expires_at text,
     capabilities_json text
 );
+create index if not exists idx_worker_lease_code_instance on worker_lease(worker_code, instance_id);
+create index if not exists idx_worker_lease_group_instance on worker_lease(worker_group_code, instance_id);
+create index if not exists idx_worker_lease_status_heartbeat on worker_lease(status, last_heartbeat_at);

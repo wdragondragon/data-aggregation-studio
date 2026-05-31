@@ -17,6 +17,11 @@
     - [studio-reverse-requirements.md](./需求/studio-reverse-requirements.md)
     - [studio-reverse-requirements.docx](./需求/studio-reverse-requirements.docx)
 
+- `规划/`
+  - 面向产品规划、阶段建设和后续立项的路线图文档。
+  - 当前包含：
+    - [studio-future-roadmap.md](./规划/studio-future-roadmap.md)
+
 - `交接/`
   - 交接类文档，面向项目接手人和维护人。
   - 当前包含：[tenant-project-handover.md](./交接/tenant-project-handover.md)

@@ -589,7 +589,9 @@ public class WorkflowRunService {
         if (record != null) {
             nodeRun.setRunRecordId(record.getId());
             nodeRun.setStatus(record.getStatus());
+            nodeRun.setWorkerGroupCode(record.getWorkerGroupCode());
             nodeRun.setWorkerCode(record.getWorkerCode());
+            nodeRun.setWorkerInstanceId(record.getWorkerInstanceId());
             nodeRun.setMessage(record.getMessage());
             nodeRun.setStartedAt(record.getStartedAt());
             nodeRun.setEndedAt(record.getEndedAt());
@@ -599,7 +601,9 @@ public class WorkflowRunService {
         }
         if (task != null) {
             nodeRun.setStatus(task.getStatus() == null ? "NOT_RUN" : task.getStatus());
+            nodeRun.setWorkerGroupCode(task.getWorkerGroupCode());
             nodeRun.setWorkerCode(task.getLeaseOwner());
+            nodeRun.setWorkerInstanceId(task.getWorkerInstanceId());
             nodeRun.setMessage(resolveTaskMessage(task));
             nodeRun.setLogAvailable(false);
             return nodeRun;

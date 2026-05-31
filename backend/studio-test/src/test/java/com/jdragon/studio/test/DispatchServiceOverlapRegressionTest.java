@@ -8,6 +8,7 @@ import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.QualityTaskService;
@@ -53,7 +54,8 @@ class DispatchServiceOverlapRegressionTest {
                 mock(QualityTaskService.class),
                 securityService,
                 workerAuthorizationService,
-                staleExecutionRecoveryService
+                staleExecutionRecoveryService,
+                mock(ClusterLockService.class)
         );
 
         assertThatThrownBy(() -> dispatchService.triggerManualRun(100L))
@@ -91,7 +93,8 @@ class DispatchServiceOverlapRegressionTest {
                 mock(QualityTaskService.class),
                 securityService,
                 workerAuthorizationService,
-                staleExecutionRecoveryService
+                staleExecutionRecoveryService,
+                mock(ClusterLockService.class)
         );
 
         assertThatThrownBy(() -> dispatchService.triggerCollectionTask(200L))

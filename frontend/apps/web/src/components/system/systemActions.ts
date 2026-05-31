@@ -90,7 +90,7 @@ export function buildProjectRequestActions(row: SystemProjectMemberRequest, hand
 
 export function buildWorkerActions(row: SystemProjectWorker, handlers: SystemActionHandlers): OverflowActionItem[] {
   return [
-    { key: "edit", label: "编辑", type: "primary", onClick: () => handlers.openWorkerDialog(row) },
+    { key: "bind", label: "下发到当前项目", type: "primary", visible: !row.boundToProject, onClick: () => handlers.openWorkerDialog(row) },
     { key: "delete", label: "解绑", type: "danger", visible: Boolean(row.id), onClick: () => handlers.deleteProjectWorker(row) },
   ];
 }

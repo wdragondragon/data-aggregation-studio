@@ -22,6 +22,7 @@ import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -41,6 +42,7 @@ public class DispatchService implements WorkflowDispatcher {
     private final StudioSecurityService securityService;
     private final WorkerAuthorizationService workerAuthorizationService;
     private final StaleExecutionRecoveryService staleExecutionRecoveryService;
+    private final ClusterLockService clusterLockService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
@@ -50,7 +52,8 @@ public class DispatchService implements WorkflowDispatcher {
                            QualityTaskService qualityTaskService,
                            StudioSecurityService securityService,
                            WorkerAuthorizationService workerAuthorizationService,
-                           StaleExecutionRecoveryService staleExecutionRecoveryService) {
+                           StaleExecutionRecoveryService staleExecutionRecoveryService,
+                           ClusterLockService clusterLockService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
@@ -60,6 +63,7 @@ public class DispatchService implements WorkflowDispatcher {
         this.securityService = securityService;
         this.workerAuthorizationService = workerAuthorizationService;
         this.staleExecutionRecoveryService = staleExecutionRecoveryService;
+        this.clusterLockService = clusterLockService;
     }
 
     @Override
@@ -97,6 +101,11 @@ public class DispatchService implements WorkflowDispatcher {
     }
 
     @Transactional
+    public DispatchTriggerStatus triggerScheduledWorkflowIfIdle(Long workflowDefinitionId, LocalDateTime scheduledFireTime) {
+        return triggerWorkflowIfIdleStatus(requireWorkflow(workflowDefinitionId), null, false, scheduledFireTime, true);
+    }
+
+    @Transactional
     public void triggerCollectionTask(Long collectionTaskId) {
         CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
@@ -115,6 +124,11 @@ public class DispatchService implements WorkflowDispatcher {
     @Transactional
     public boolean triggerCollectionTaskIfIdle(Long collectionTaskId, Long runtimeProjectId) {
         return triggerCollectionTaskIfIdle(collectionTaskService.requireOnline(collectionTaskId), runtimeProjectId, false);
+    }
+
+    @Transactional
+    public DispatchTriggerStatus triggerScheduledCollectionTaskIfIdle(Long collectionTaskId, LocalDateTime scheduledFireTime) {
+        return triggerCollectionTaskIfIdleStatus(collectionTaskService.requireOnline(collectionTaskId), null, false, scheduledFireTime, true);
     }
 
     @Transactional
@@ -138,6 +152,11 @@ public class DispatchService implements WorkflowDispatcher {
         return triggerQualityTaskIfIdle(qualityTaskService.requireOnline(qualityTaskId), runtimeProjectId, false);
     }
 
+    @Transactional
+    public DispatchTriggerStatus triggerScheduledQualityTaskIfIdle(Long qualityTaskId, LocalDateTime scheduledFireTime) {
+        return triggerQualityTaskIfIdleStatus(qualityTaskService.requireOnline(qualityTaskId), null, false, scheduledFireTime, true);
+    }
+
     public List<DispatchTaskEntity> queuedTasks() {
         LambdaQueryWrapper<DispatchTaskEntity> queryWrapper = new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getTenantId, securityService.currentTenantId())
@@ -151,16 +170,36 @@ public class DispatchService implements WorkflowDispatcher {
     private boolean triggerWorkflowIfIdle(WorkflowDefinitionView workflow,
                                           Long runtimeProjectId,
                                           boolean workerRequired) {
+        return triggerWorkflowIfIdleStatus(workflow, runtimeProjectId, workerRequired, null, false) == DispatchTriggerStatus.TRIGGERED;
+    }
+
+    private DispatchTriggerStatus triggerWorkflowIfIdleStatus(WorkflowDefinitionView workflow,
+                                                              Long runtimeProjectId,
+                                                              boolean workerRequired,
+                                                              LocalDateTime scheduledFireTime,
+                                                              boolean clusterGuard) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, workflow.getProjectId());
         if (!workerAuthorizationService.hasAvailableWorker(workflow.getTenantId(), resolvedProjectId)) {
             if (workerRequired) {
                 workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), resolvedProjectId);
             }
-            return false;
+            return DispatchTriggerStatus.SKIPPED_NO_WORKER;
         }
+        if (clusterGuard) {
+            String lockName = triggerLockName("workflow", workflow.getTenantId(), resolvedProjectId, workflow.getId(), scheduledFireTime);
+            return clusterLockService.executeIfAcquired(lockName,
+                    () -> triggerWorkflowAfterLock(workflow, resolvedProjectId, scheduledFireTime),
+                    () -> DispatchTriggerStatus.LOCK_BUSY);
+        }
+        return triggerWorkflowAfterLock(workflow, resolvedProjectId, scheduledFireTime);
+    }
+
+    private DispatchTriggerStatus triggerWorkflowAfterLock(WorkflowDefinitionView workflow,
+                                                           Long resolvedProjectId,
+                                                           LocalDateTime scheduledFireTime) {
         staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), resolvedProjectId, workflow.getId());
         if (hasActiveWorkflowRun(workflow.getTenantId(), workflow.getId(), resolvedProjectId)) {
-            return false;
+            return DispatchTriggerStatus.SKIPPED_ACTIVE;
         }
         Long workflowRunId = IdWorker.getId();
         Set<String> inbound = new HashSet<String>();
@@ -169,10 +208,10 @@ public class DispatchService implements WorkflowDispatcher {
         }
         for (WorkflowNodeDefinition node : workflow.getNodes()) {
             if (!inbound.contains(node.getNodeCode())) {
-                dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, workflowRunId, node, resolvedProjectId));
+                dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, workflowRunId, node, resolvedProjectId, scheduledFireTime));
             }
         }
-        return true;
+        return DispatchTriggerStatus.TRIGGERED;
     }
 
     @Transactional
@@ -199,14 +238,15 @@ public class DispatchService implements WorkflowDispatcher {
             if (!isNodeReady(workflow, event.getWorkflowRunId(), candidate.getNodeCode())) {
                 continue;
             }
-            dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, event.getWorkflowRunId(), candidate, runtimeProjectId));
+            dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, event.getWorkflowRunId(), candidate, runtimeProjectId, null));
         }
     }
 
     private DispatchTaskEntity buildWorkflowNodeTask(WorkflowDefinitionView workflow,
                                                      Long workflowRunId,
                                                      WorkflowNodeDefinition node,
-                                                     Long runtimeProjectId) {
+                                                     Long runtimeProjectId,
+                                                     LocalDateTime scheduledFireTime) {
         DispatchTaskEntity task = new DispatchTaskEntity();
         task.setTenantId(workflow.getTenantId());
         task.setProjectId(runtimeProjectId);
@@ -218,6 +258,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setQualityTaskId(resolveQualityTaskId(node));
         task.setNodeCode(node.getNodeCode());
         task.setStatus("QUEUED");
+        task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
         task.setTriggeredByUserId(securityService.currentUserId());
@@ -228,6 +269,7 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("config", node.getConfig());
         payload.put("fieldMappings", node.getFieldMappings());
         payload.put("projectId", runtimeProjectId);
+        payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
         task.setPayloadJson(payload);
         return task;
     }
@@ -235,16 +277,36 @@ public class DispatchService implements WorkflowDispatcher {
     private boolean triggerCollectionTaskIfIdle(CollectionTaskDefinitionView definition,
                                                 Long runtimeProjectId,
                                                 boolean workerRequired) {
+        return triggerCollectionTaskIfIdleStatus(definition, runtimeProjectId, workerRequired, null, false) == DispatchTriggerStatus.TRIGGERED;
+    }
+
+    private DispatchTriggerStatus triggerCollectionTaskIfIdleStatus(CollectionTaskDefinitionView definition,
+                                                                    Long runtimeProjectId,
+                                                                    boolean workerRequired,
+                                                                    LocalDateTime scheduledFireTime,
+                                                                    boolean clusterGuard) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
         if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
             if (workerRequired) {
                 workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), resolvedProjectId);
             }
-            return false;
+            return DispatchTriggerStatus.SKIPPED_NO_WORKER;
         }
+        if (clusterGuard) {
+            String lockName = triggerLockName("collection", definition.getTenantId(), resolvedProjectId, definition.getId(), scheduledFireTime);
+            return clusterLockService.executeIfAcquired(lockName,
+                    () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                    () -> DispatchTriggerStatus.LOCK_BUSY);
+        }
+        return triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime);
+    }
+
+    private DispatchTriggerStatus triggerCollectionTaskAfterLock(CollectionTaskDefinitionView definition,
+                                                                 Long resolvedProjectId,
+                                                                 LocalDateTime scheduledFireTime) {
         staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), resolvedProjectId, definition.getId());
         if (hasActiveCollectionTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
-            return false;
+            return DispatchTriggerStatus.SKIPPED_ACTIVE;
         }
         DispatchTaskEntity task = new DispatchTaskEntity();
         task.setTenantId(definition.getTenantId());
@@ -253,6 +315,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setCollectionTaskId(definition.getId());
         task.setNodeCode("collection_task_" + definition.getId());
         task.setStatus("QUEUED");
+        task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
         task.setTriggeredByUserId(securityService.currentUserId());
@@ -261,24 +324,45 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("nodeType", "COLLECTION_TASK");
         payload.put("collectionTaskId", definition.getId());
         payload.put("projectId", resolvedProjectId);
+        payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
         task.setPayloadJson(payload);
         dispatchTaskMapper.insert(task);
-        return true;
+        return DispatchTriggerStatus.TRIGGERED;
     }
 
     private boolean triggerQualityTaskIfIdle(QualityTaskDefinitionView definition,
                                              Long runtimeProjectId,
                                              boolean workerRequired) {
+        return triggerQualityTaskIfIdleStatus(definition, runtimeProjectId, workerRequired, null, false) == DispatchTriggerStatus.TRIGGERED;
+    }
+
+    private DispatchTriggerStatus triggerQualityTaskIfIdleStatus(QualityTaskDefinitionView definition,
+                                                                 Long runtimeProjectId,
+                                                                 boolean workerRequired,
+                                                                 LocalDateTime scheduledFireTime,
+                                                                 boolean clusterGuard) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
         if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
             if (workerRequired) {
                 workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), resolvedProjectId);
             }
-            return false;
+            return DispatchTriggerStatus.SKIPPED_NO_WORKER;
         }
+        if (clusterGuard) {
+            String lockName = triggerLockName("quality", definition.getTenantId(), resolvedProjectId, definition.getId(), scheduledFireTime);
+            return clusterLockService.executeIfAcquired(lockName,
+                    () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                    () -> DispatchTriggerStatus.LOCK_BUSY);
+        }
+        return triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime);
+    }
+
+    private DispatchTriggerStatus triggerQualityTaskAfterLock(QualityTaskDefinitionView definition,
+                                                              Long resolvedProjectId,
+                                                              LocalDateTime scheduledFireTime) {
         staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), resolvedProjectId, definition.getId());
         if (hasActiveQualityTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
-            return false;
+            return DispatchTriggerStatus.SKIPPED_ACTIVE;
         }
         DispatchTaskEntity task = new DispatchTaskEntity();
         task.setTenantId(definition.getTenantId());
@@ -287,6 +371,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setQualityTaskId(definition.getId());
         task.setNodeCode("quality_task_" + definition.getId());
         task.setStatus("QUEUED");
+        task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
         task.setTriggeredByUserId(securityService.currentUserId());
@@ -295,9 +380,10 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("nodeType", "QUALITY_TASK");
         payload.put("qualityTaskId", definition.getId());
         payload.put("projectId", resolvedProjectId);
+        payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
         task.setPayloadJson(payload);
         dispatchTaskMapper.insert(task);
-        return true;
+        return DispatchTriggerStatus.TRIGGERED;
     }
 
     private List<WorkflowNodeDefinition> collectDownstreamNodes(WorkflowDefinitionView workflow,
@@ -457,6 +543,15 @@ public class DispatchService implements WorkflowDispatcher {
         }
         Object qualityTaskId = node.getConfig().get("qualityTaskId");
         return parseLong(qualityTaskId);
+    }
+
+    private String triggerLockName(String type, String tenantId, Long projectId, Long businessId, LocalDateTime scheduledFireTime) {
+        String fireTime = scheduledFireTime == null ? "manual" : scheduledFireTime.toString();
+        return "dispatch:" + type + ":" + safePart(tenantId) + ":" + safePart(projectId) + ":" + safePart(businessId) + ":" + fireTime;
+    }
+
+    private String safePart(Object value) {
+        return value == null ? "-" : String.valueOf(value);
     }
 
     private Long parseLong(Object value) {

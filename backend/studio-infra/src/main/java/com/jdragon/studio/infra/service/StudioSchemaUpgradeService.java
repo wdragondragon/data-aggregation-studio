@@ -55,6 +55,9 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id bigint");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id bigint");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id bigint");
+        ensureColumn("dispatch_task", "worker_group_code", "alter table dispatch_task add column worker_group_code varchar(255)");
+        ensureColumn("dispatch_task", "worker_instance_id", "alter table dispatch_task add column worker_instance_id varchar(255)");
+        ensureColumn("dispatch_task", "scheduled_fire_time", "alter table dispatch_task add column scheduled_fire_time datetime");
         ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at datetime");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type varchar(64)");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id bigint");
@@ -62,9 +65,19 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "quality_task_id", "alter table run_record add column quality_task_id bigint");
         ensureColumn("run_record", "triggered_by_user_id", "alter table run_record add column triggered_by_user_id bigint");
         ensureColumn("run_record", "project_id", "alter table run_record add column project_id bigint");
+        ensureColumn("run_record", "worker_group_code", "alter table run_record add column worker_group_code varchar(255)");
+        ensureColumn("run_record", "worker_instance_id", "alter table run_record add column worker_instance_id varchar(255)");
+        ensureColumn("run_record", "worker_pod_name", "alter table run_record add column worker_pod_name varchar(255)");
+        ensureColumn("run_record", "worker_node_name", "alter table run_record add column worker_node_name varchar(255)");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path varchar(1000)");
         ensureColumn("run_record", "log_size_bytes", "alter table run_record add column log_size_bytes bigint");
         ensureColumn("run_record", "log_charset", "alter table run_record add column log_charset varchar(64)");
+        ensureColumn("run_record", "log_storage_type", "alter table run_record add column log_storage_type varchar(64)");
+        ensureColumn("run_record", "log_object_bucket", "alter table run_record add column log_object_bucket varchar(255)");
+        ensureColumn("run_record", "log_object_key", "alter table run_record add column log_object_key varchar(1000)");
+        ensureColumn("run_record", "log_chunk_count", "alter table run_record add column log_chunk_count int");
+        ensureColumn("run_record", "log_status", "alter table run_record add column log_status varchar(64)");
+        ensureColumn("run_record", "log_error_summary", "alter table run_record add column log_error_summary varchar(1000)");
         ensureColumn("run_record", "collected_records", "alter table run_record add column collected_records bigint");
         ensureColumn("run_record", "read_succeed_records", "alter table run_record add column read_succeed_records bigint");
         ensureColumn("run_record", "read_failed_records", "alter table run_record add column read_failed_records bigint");
@@ -75,6 +88,13 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records bigint");
         ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records bigint");
         ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records bigint");
+        ensureColumn("studio_project_worker_binding", "worker_group_code", "alter table studio_project_worker_binding add column worker_group_code varchar(255)");
+        ensureColumn("worker_lease", "worker_group_code", "alter table worker_lease add column worker_group_code varchar(255)");
+        ensureColumn("worker_lease", "instance_id", "alter table worker_lease add column instance_id varchar(255)");
+        ensureColumn("worker_lease", "pod_name", "alter table worker_lease add column pod_name varchar(255)");
+        ensureColumn("worker_lease", "node_name", "alter table worker_lease add column node_name varchar(255)");
+        ensureColumn("worker_lease", "lease_expires_at", "alter table worker_lease add column lease_expires_at datetime");
+        ensureClusterLockTableMysql();
         ensureColumn("data_model_lineage_relation", "manual_maintainer_user_id", "alter table data_model_lineage_relation add column manual_maintainer_user_id bigint");
         ensureColumn("data_model_lineage_relation", "manual_maintainer_name_snapshot", "alter table data_model_lineage_relation add column manual_maintainer_name_snapshot varchar(255)");
         ensureQualityTablesMysql();
@@ -434,6 +454,7 @@ public class StudioSchemaUpgradeService {
                     "created_at datetime default current_timestamp," +
                     "updated_at datetime default current_timestamp," +
                     "project_id bigint not null," +
+                    "worker_group_code varchar(255)," +
                     "worker_code varchar(255) not null," +
                     "enabled int default 1" +
                     ")");
@@ -552,6 +573,10 @@ public class StudioSchemaUpgradeService {
                 "alter table dispatch_task add key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id)");
         ensureIndex("dispatch_task", "idx_dispatch_task_project_quality_task_status",
                 "alter table dispatch_task add key idx_dispatch_task_project_quality_task_status (project_id, quality_task_id, status)");
+        ensureIndex("dispatch_task", "idx_dispatch_task_project_status_created",
+                "alter table dispatch_task add key idx_dispatch_task_project_status_created (project_id, status, created_at)");
+        ensureIndex("dispatch_task", "idx_dispatch_task_group_status_created",
+                "alter table dispatch_task add key idx_dispatch_task_group_status_created (worker_group_code, status, created_at)");
         ensureIndex("run_record", "idx_run_record_project_created",
                 "alter table run_record add key idx_run_record_project_created (project_id, created_at)");
         ensureIndex("run_record", "idx_run_record_project_workflow_run",
@@ -584,12 +609,21 @@ public class StudioSchemaUpgradeService {
                 "alter table studio_project_member_request add key idx_studio_project_member_request_lookup (project_id, user_id, status)");
         ensureIndex("studio_project_worker_binding", "uk_studio_project_worker_binding",
                 "alter table studio_project_worker_binding add unique key uk_studio_project_worker_binding (project_id, worker_code)");
+        ensureIndex("studio_project_worker_binding", "idx_studio_project_worker_group",
+                "alter table studio_project_worker_binding add key idx_studio_project_worker_group (project_id, worker_group_code)");
+        ensureIndex("worker_lease", "idx_worker_lease_code_instance",
+                "alter table worker_lease add key idx_worker_lease_code_instance (worker_code, instance_id)");
+        ensureIndex("worker_lease", "idx_worker_lease_group_instance",
+                "alter table worker_lease add key idx_worker_lease_group_instance (worker_group_code, instance_id)");
+        ensureIndex("worker_lease", "idx_worker_lease_status_heartbeat",
+                "alter table worker_lease add key idx_worker_lease_status_heartbeat (status, last_heartbeat_at)");
         ensureIndex("studio_resource_share", "uk_studio_resource_share_target",
                 "alter table studio_resource_share add unique key uk_studio_resource_share_target (resource_type, resource_id, target_project_id)");
         ensureIndex("studio_resource_share", "idx_studio_resource_share_project",
                 "alter table studio_resource_share add key idx_studio_resource_share_project (target_project_id)");
 
         backfillProjectIdsMysql();
+        backfillWorkerGroupColumnsMysql();
     }
 
     private void upgradeSqlite() {
@@ -619,6 +653,9 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id integer");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id integer");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id integer");
+        ensureColumn("dispatch_task", "worker_group_code", "alter table dispatch_task add column worker_group_code text");
+        ensureColumn("dispatch_task", "worker_instance_id", "alter table dispatch_task add column worker_instance_id text");
+        ensureColumn("dispatch_task", "scheduled_fire_time", "alter table dispatch_task add column scheduled_fire_time text");
         ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at text");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type text");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id integer");
@@ -626,9 +663,19 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "quality_task_id", "alter table run_record add column quality_task_id integer");
         ensureColumn("run_record", "triggered_by_user_id", "alter table run_record add column triggered_by_user_id integer");
         ensureColumn("run_record", "project_id", "alter table run_record add column project_id integer");
+        ensureColumn("run_record", "worker_group_code", "alter table run_record add column worker_group_code text");
+        ensureColumn("run_record", "worker_instance_id", "alter table run_record add column worker_instance_id text");
+        ensureColumn("run_record", "worker_pod_name", "alter table run_record add column worker_pod_name text");
+        ensureColumn("run_record", "worker_node_name", "alter table run_record add column worker_node_name text");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path text");
         ensureColumn("run_record", "log_size_bytes", "alter table run_record add column log_size_bytes integer");
         ensureColumn("run_record", "log_charset", "alter table run_record add column log_charset text");
+        ensureColumn("run_record", "log_storage_type", "alter table run_record add column log_storage_type text");
+        ensureColumn("run_record", "log_object_bucket", "alter table run_record add column log_object_bucket text");
+        ensureColumn("run_record", "log_object_key", "alter table run_record add column log_object_key text");
+        ensureColumn("run_record", "log_chunk_count", "alter table run_record add column log_chunk_count integer");
+        ensureColumn("run_record", "log_status", "alter table run_record add column log_status text");
+        ensureColumn("run_record", "log_error_summary", "alter table run_record add column log_error_summary text");
         ensureColumn("run_record", "collected_records", "alter table run_record add column collected_records integer");
         ensureColumn("run_record", "read_succeed_records", "alter table run_record add column read_succeed_records integer");
         ensureColumn("run_record", "read_failed_records", "alter table run_record add column read_failed_records integer");
@@ -639,6 +686,13 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records integer");
         ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records integer");
         ensureColumn("run_record", "transformer_filter_records", "alter table run_record add column transformer_filter_records integer");
+        ensureColumn("studio_project_worker_binding", "worker_group_code", "alter table studio_project_worker_binding add column worker_group_code text");
+        ensureColumn("worker_lease", "worker_group_code", "alter table worker_lease add column worker_group_code text");
+        ensureColumn("worker_lease", "instance_id", "alter table worker_lease add column instance_id text");
+        ensureColumn("worker_lease", "pod_name", "alter table worker_lease add column pod_name text");
+        ensureColumn("worker_lease", "node_name", "alter table worker_lease add column node_name text");
+        ensureColumn("worker_lease", "lease_expires_at", "alter table worker_lease add column lease_expires_at text");
+        ensureClusterLockTableSqlite();
         ensureQualityTablesSqlite();
         ensureDataServiceTablesSqlite();
         ensureDataIngestionTablesSqlite();
@@ -894,6 +948,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_quality_task_status on dispatch_task(project_id, quality_task_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_dispatch_task_project_status_created on dispatch_task(project_id, status, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_dispatch_task_group_status_created on dispatch_task(worker_group_code, status, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_created on run_record(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
@@ -1020,10 +1076,15 @@ public class StudioSchemaUpgradeService {
                 "created_at text," +
                 "updated_at text," +
                 "project_id integer not null," +
+                "worker_group_code text," +
                 "worker_code text not null," +
                 "enabled integer default 1" +
                 ")");
         jdbcTemplate.execute("create unique index if not exists uk_studio_project_worker_binding on studio_project_worker_binding(project_id, worker_code)");
+        jdbcTemplate.execute("create index if not exists idx_studio_project_worker_group on studio_project_worker_binding(project_id, worker_group_code)");
+        jdbcTemplate.execute("create index if not exists idx_worker_lease_code_instance on worker_lease(worker_code, instance_id)");
+        jdbcTemplate.execute("create index if not exists idx_worker_lease_group_instance on worker_lease(worker_group_code, instance_id)");
+        jdbcTemplate.execute("create index if not exists idx_worker_lease_status_heartbeat on worker_lease(status, last_heartbeat_at)");
 
         jdbcTemplate.execute("create table if not exists studio_resource_share (" +
                 "id integer primary key," +
@@ -1061,6 +1122,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at)");
 
         backfillProjectIdsSqlite();
+        backfillWorkerGroupColumnsSqlite();
     }
 
     private void backfillProjectIdsMysql() {
@@ -1116,6 +1178,52 @@ public class StudioSchemaUpgradeService {
                 "where project.tenant_id = " + tableName + ".tenant_id and project.default_project = 1 " +
                 "limit 1" +
                 ") where project_id is null");
+    }
+
+    private void backfillWorkerGroupColumnsMysql() {
+        if (tableExists("studio_project_worker_binding") && columnExists("studio_project_worker_binding", "worker_group_code")) {
+            jdbcTemplate.execute("update studio_project_worker_binding " +
+                    "set worker_group_code = worker_code " +
+                    "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
+        }
+        if (tableExists("worker_lease") && columnExists("worker_lease", "worker_group_code")) {
+            jdbcTemplate.execute("update worker_lease " +
+                    "set worker_group_code = worker_code " +
+                    "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
+        }
+        if (tableExists("dispatch_task") && columnExists("dispatch_task", "worker_group_code")) {
+            jdbcTemplate.execute("update dispatch_task " +
+                    "set worker_group_code = lease_owner " +
+                    "where (worker_group_code is null or worker_group_code = '') and lease_owner is not null");
+        }
+        if (tableExists("run_record") && columnExists("run_record", "worker_group_code")) {
+            jdbcTemplate.execute("update run_record " +
+                    "set worker_group_code = worker_code " +
+                    "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
+        }
+    }
+
+    private void backfillWorkerGroupColumnsSqlite() {
+        if (tableExists("studio_project_worker_binding") && columnExists("studio_project_worker_binding", "worker_group_code")) {
+            jdbcTemplate.execute("update studio_project_worker_binding " +
+                    "set worker_group_code = worker_code " +
+                    "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
+        }
+        if (tableExists("worker_lease") && columnExists("worker_lease", "worker_group_code")) {
+            jdbcTemplate.execute("update worker_lease " +
+                    "set worker_group_code = worker_code " +
+                    "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
+        }
+        if (tableExists("dispatch_task") && columnExists("dispatch_task", "worker_group_code")) {
+            jdbcTemplate.execute("update dispatch_task " +
+                    "set worker_group_code = lease_owner " +
+                    "where (worker_group_code is null or worker_group_code = '') and lease_owner is not null");
+        }
+        if (tableExists("run_record") && columnExists("run_record", "worker_group_code")) {
+            jdbcTemplate.execute("update run_record " +
+                    "set worker_group_code = worker_code " +
+                    "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
+        }
     }
 
     private void ensureColumn(String tableName, String columnName, String ddl) {
@@ -2279,6 +2387,40 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_access_counter on data_ingestion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_counter_project_bucket on data_ingestion_access_counter(tenant_id, project_id, bucket_start)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_counter_service_bucket on data_ingestion_access_counter(service_id, bucket_start)");
+    }
+
+    private void ensureClusterLockTableMysql() {
+        if (!tableExists("studio_cluster_lock")) {
+            jdbcTemplate.execute("create table studio_cluster_lock (" +
+                    "id bigint primary key," +
+                    "lock_name varchar(255) not null," +
+                    "owner_id varchar(255)," +
+                    "locked_until datetime," +
+                    "last_acquired_at datetime," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "unique key uk_studio_cluster_lock_name (lock_name)," +
+                    "key idx_studio_cluster_lock_until (locked_until)" +
+                    ")");
+        }
+        ensureIndex("studio_cluster_lock", "uk_studio_cluster_lock_name",
+                "alter table studio_cluster_lock add unique key uk_studio_cluster_lock_name (lock_name)");
+        ensureIndex("studio_cluster_lock", "idx_studio_cluster_lock_until",
+                "alter table studio_cluster_lock add key idx_studio_cluster_lock_until (locked_until)");
+    }
+
+    private void ensureClusterLockTableSqlite() {
+        jdbcTemplate.execute("create table if not exists studio_cluster_lock (" +
+                "id integer primary key," +
+                "lock_name text not null," +
+                "owner_id text," +
+                "locked_until text," +
+                "last_acquired_at text," +
+                "created_at text," +
+                "updated_at text" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_studio_cluster_lock_name on studio_cluster_lock(lock_name)");
+        jdbcTemplate.execute("create index if not exists idx_studio_cluster_lock_until on studio_cluster_lock(locked_until)");
     }
 
     private void ensureDataModelNameUniqueIndexMysql() {

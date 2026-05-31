@@ -16,7 +16,8 @@
             <strong>{{ t("web.runs.status") }}:</strong>
             <span class="log-status-chip">{{ formatStatusLabel(t, activeRunRecord.status) }}</span>
           </div>
-          <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerCode ?? t("common.none") }}</div>
+          <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerGroupCode ?? activeRunRecord.workerCode ?? t("common.none") }}</div>
+          <div v-if="activeRunRecord.workerInstanceId"><strong>Worker 实例:</strong> {{ activeRunRecord.workerInstanceId }}</div>
           <div v-if="isCollectionTaskVariant || isQualityTaskVariant"><strong>{{ t("web.runs.startedAt") }}:</strong> {{ activeRunRecord.startedAt ?? t("common.none") }}</div>
         </div>
 

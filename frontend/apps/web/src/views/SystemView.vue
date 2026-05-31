@@ -11,10 +11,10 @@
     </div>
 
     <div v-if="!authStore.currentProjectId" class="context-alert" role="alert">
-      请先选择当前项目后，再管理项目成员、申请邀请、Worker 下发和资源共享。
+      请先选择当前项目后，再管理项目成员、申请邀请、Worker 组下发和资源共享。
     </div>
 
-    <SectionCard title="组织管理" description="统一管理租户、项目、成员、申请邀请和 Worker 下发关系。">
+    <SectionCard title="组织管理" description="统一管理租户、项目、成员、申请邀请和 Worker 组下发关系。">
       <el-tabs v-model="activeTab">
         <el-tab-pane v-if="isSuperAdmin" label="用户管理" name="users">
           <div class="tab-toolbar">
@@ -178,20 +178,80 @@
 
         <el-tab-pane label="Worker 下发" name="workers">
           <div class="tab-toolbar">
-            <el-button type="primary" @click="openWorkerDialog()">绑定 Worker</el-button>
+            <el-button type="primary" @click="openWorkerDialog()">绑定 Worker 组</el-button>
           </div>
           <StudioTableShell min-width="1180px">
-          <el-table :data="projectWorkers" border size="small">
-            <el-table-column prop="workerCode" label="Worker 编码" min-width="180" />
-            <el-table-column prop="workerKind" label="类型" width="110" align="center" />
-            <el-table-column prop="hostName" label="主机" min-width="180" />
-            <el-table-column prop="status" label="状态" width="110" align="center" />
-            <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180" />
-            <el-table-column label="已下发" width="100" align="center">
+          <el-table :data="projectWorkers" :row-key="workerRowKey" border size="small">
+            <el-table-column type="expand" width="48">
               <template #default="{ row }">
-                <el-tag :type="row.boundToProject ? 'success' : 'info'">{{ row.boundToProject ? "是" : "否" }}</el-tag>
+                <div class="worker-instances">
+                  <el-empty
+                    v-if="workerInstances(row).length === 0"
+                    description="暂无在线或近期 Pod 实例"
+                    :image-size="72"
+                  />
+                  <el-table v-else :data="workerInstances(row)" border size="small">
+                    <el-table-column label="Pod" min-width="180" show-overflow-tooltip>
+                      <template #default="{ row: instance }">
+                        <span class="mono-ellipsis">{{ instance.podName || "-" }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="实例 ID" min-width="220" show-overflow-tooltip>
+                      <template #default="{ row: instance }">
+                        <span class="mono-ellipsis">{{ instance.workerInstanceId || "-" }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="nodeName" label="节点" min-width="150" show-overflow-tooltip />
+                    <el-table-column prop="hostName" label="主机" min-width="150" show-overflow-tooltip />
+                    <el-table-column label="类型" width="110" align="center">
+                      <template #default="{ row: instance }">{{ workerKindLabel(instance.workerKind) }}</template>
+                    </el-table-column>
+                    <el-table-column label="Worker Code" min-width="170" show-overflow-tooltip>
+                      <template #default="{ row: instance }">
+                        <span class="mono-ellipsis">{{ instance.workerCode || "-" }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="实例状态" width="110" align="center">
+                      <template #default="{ row: instance }">
+                        <el-tag :type="workerInstanceTagType(instance)">{{ workerInstanceStatusLabel(instance) }}</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="lastHeartbeatAt" label="最近心跳" min-width="180" />
+                    <el-table-column prop="leaseExpiresAt" label="租约到期" min-width="180" />
+                  </el-table>
+                </div>
               </template>
             </el-table-column>
+            <el-table-column label="Worker 组" min-width="220">
+              <template #default="{ row }">
+                <div class="stack-cell">
+                  <span class="mono-ellipsis">{{ row.workerGroupCode || row.workerCode || "-" }}</span>
+                  <span class="cell-subtle">最近实例：{{ row.workerInstanceId || "-" }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="下发状态" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.boundToProject ? 'success' : 'info'">{{ row.boundToProject ? "已下发" : "未下发" }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="启用" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? "启用" : "停用" }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="组状态" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag :type="workerGroupTagType(row)">{{ workerGroupStatusLabel(row) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="在线实例" width="110" align="center">
+              <template #default="{ row }">{{ row.onlineInstanceCount ?? 0 }}</template>
+            </el-table-column>
+            <el-table-column label="近期实例" width="110" align="center">
+              <template #default="{ row }">{{ row.recentInstanceCount ?? workerInstances(row).length }}</template>
+            </el-table-column>
+            <el-table-column prop="latestHeartbeatAt" label="最近心跳" min-width="180" />
             <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
                 <OverflowActionGroup :items="buildWorkerActions(row, systemActionHandlers)" />
@@ -365,11 +425,16 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="workerDialogOpen" title="Worker 下发" width="480px">
+    <el-dialog v-model="workerDialogOpen" :title="workerDialogTitle" width="480px">
       <el-form label-position="top">
-        <el-form-item label="Worker 编码">
-          <el-select v-model="workerForm.workerCode" filterable allow-create default-first-option style="width: 100%">
-            <el-option v-for="worker in workerCodeOptions" :key="worker" :label="worker" :value="worker" />
+        <el-form-item label="Worker 组">
+          <el-select v-model="workerForm.workerGroupCode" filterable allow-create default-first-option style="width: 100%">
+            <el-option
+              v-for="worker in workerGroupOptions"
+              :key="worker.value"
+              :label="worker.label"
+              :value="worker.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="workerForm.enabled" /></el-form-item>
@@ -435,6 +500,7 @@ import type {
   SystemProjectMember,
   SystemProjectMemberRequest,
   SystemProjectWorker,
+  SystemWorkerInstance,
   SystemTenant,
   SystemTenantMember,
   UserRegistrationRequestView,
@@ -496,7 +562,20 @@ const requestForm = reactive<Partial<SystemProjectMemberRequest>>({ requestType:
 const workerForm = reactive<Partial<SystemProjectWorker>>({ enabled: true });
 const shareForm = reactive<Partial<ResourceShare>>({ enabled: true });
 
-const workerCodeOptions = computed(() => Array.from(new Set(projectWorkers.value.map((item) => item.workerCode).filter(Boolean))) as string[]);
+const workerGroupOptions = computed(() =>
+  projectWorkers.value
+    .map((item) => {
+      const value = item.workerGroupCode || item.workerCode;
+      return value
+        ? {
+          value,
+          label: `${value} / 在线 ${item.onlineInstanceCount ?? 0} / 近期 ${item.recentInstanceCount ?? workerInstances(item).length} / ${item.boundToProject ? "已下发" : "未下发"}`,
+        }
+        : null;
+    })
+    .filter((item): item is { value: string; label: string } => item != null),
+);
+const workerDialogTitle = computed(() => (workerForm.id ? "编辑 Worker 组下发" : "下发 Worker 组"));
 const shareTargetProjects = computed(() =>
   projects.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
 );
@@ -649,10 +728,68 @@ function canReviewProjectRequest(row: SystemProjectMemberRequest) {
   return normalizeRequestValue(row.requestType) === "APPLY" && normalizeRequestValue(row.status) === "PENDING";
 }
 
+function workerRowKey(row: SystemProjectWorker) {
+  return row.workerGroupCode || row.workerCode || String(row.id ?? "");
+}
+
+function workerInstances(row: SystemProjectWorker): SystemWorkerInstance[] {
+  return Array.isArray(row.instances) ? row.instances : [];
+}
+
+function normalizeWorkerStatus(value?: string | null) {
+  return value?.trim().toUpperCase() ?? "";
+}
+
+function workerGroupStatusLabel(row: SystemProjectWorker) {
+  switch (normalizeWorkerStatus(row.displayStatus || row.status)) {
+    case "ONLINE":
+      return "在线";
+    case "OFFLINE":
+      return "离线";
+    case "NO_INSTANCE":
+      return "无实例";
+    default:
+      return row.displayStatus || row.status || "未知";
+  }
+}
+
+function workerGroupTagType(row: SystemProjectWorker) {
+  switch (normalizeWorkerStatus(row.displayStatus || row.status)) {
+    case "ONLINE":
+      return "success";
+    case "OFFLINE":
+      return "warning";
+    default:
+      return "info";
+  }
+}
+
+function workerInstanceStatusLabel(instance: SystemWorkerInstance) {
+  return instance.online ? "在线" : "离线";
+}
+
+function workerInstanceTagType(instance: SystemWorkerInstance) {
+  return instance.online ? "success" : "info";
+}
+
+function workerKindLabel(value?: string | null) {
+  switch (normalizeWorkerStatus(value)) {
+    case "WORKER":
+      return "Worker";
+    case "DESKTOP":
+      return "桌面运行时";
+    case "ONLINE":
+      return "Worker";
+    default:
+      return value || "-";
+  }
+}
+
 function openWorkerDialog(row?: SystemProjectWorker) {
   resetForm(workerForm as Record<string, unknown>, { enabled: true });
   Object.assign(workerForm, row ?? {});
-  workerForm.enabled = toBooleanFlag(workerForm.enabled);
+  workerForm.workerGroupCode = workerForm.workerGroupCode || workerForm.workerCode;
+  workerForm.enabled = row?.boundToProject ? toBooleanFlag(workerForm.enabled) : true;
   workerDialogOpen.value = true;
 }
 
@@ -765,12 +902,15 @@ async function rejectProjectRequest(row: SystemProjectMemberRequest) {
 }
 
 async function saveProjectWorker() {
+  const workerGroupCode = workerForm.workerGroupCode || workerForm.workerCode;
   const payload = normalizeDeletedFlag<Partial<SystemProjectWorker>>({
-    ...workerForm,
+    id: workerForm.id,
     projectId: requireCurrentProjectId(),
+    workerGroupCode,
+    workerCode: workerGroupCode,
     enabled: toIntegerFlag(workerForm.enabled),
   });
-  await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 绑定已保存");
+  await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 组绑定已保存");
 }
 
 async function saveResourceShare() {
@@ -808,7 +948,7 @@ async function deleteProjectRequest(row: SystemProjectMemberRequest) {
 }
 
 async function deleteProjectWorker(row: SystemProjectWorker) {
-  await confirmDelete(`确认解绑 Worker ${row.workerCode} 吗？`, () => studioApi.system.projectWorkers.delete(row.id!));
+  await confirmDelete(`确认解绑 Worker 组 ${row.workerGroupCode || row.workerCode} 吗？`, () => studioApi.system.projectWorkers.delete(row.id!));
 }
 
 async function deleteResourceShare(row: ResourceShare) {
@@ -981,6 +1121,22 @@ p {
 
 .cell-subtle {
   color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.worker-instances {
+  padding: 12px 18px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.mono-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
 }
 </style>

@@ -1723,7 +1723,11 @@ export interface RunRecord extends BaseRecord {
   qualityTaskId?: EntityId;
   qualityTaskName?: string;
   nodeCode?: string;
+  workerGroupCode?: string;
   workerCode?: string;
+  workerInstanceId?: string;
+  workerPodName?: string;
+  workerNodeName?: string;
   status?: string;
   message?: string;
   startedAt?: string;
@@ -1864,7 +1868,9 @@ export interface WorkflowNodeRun {
   nodeName?: string;
   nodeType?: NodeType | string;
   status?: string;
+  workerGroupCode?: string;
   workerCode?: string;
+  workerInstanceId?: string;
   message?: string;
   startedAt?: string;
   endedAt?: string;
@@ -1995,13 +2001,36 @@ export interface SystemProjectMemberRequest extends BaseRecord {
 }
 
 export interface SystemProjectWorker extends BaseRecord {
-  workerCode: string;
+  workerGroupCode?: string;
+  workerCode?: string;
+  workerInstanceId?: string;
   workerKind?: string;
   hostName?: string;
+  podName?: string;
+  nodeName?: string;
+  onlineInstanceCount?: number;
+  recentInstanceCount?: number;
   status?: string;
+  displayStatus?: string;
   lastHeartbeatAt?: string;
+  latestHeartbeatAt?: string;
   boundToProject?: boolean;
   enabled?: boolean | number;
+  instances?: SystemWorkerInstance[];
+}
+
+export interface SystemWorkerInstance {
+  workerGroupCode?: string;
+  workerCode?: string;
+  workerInstanceId?: string;
+  workerKind?: string;
+  hostName?: string;
+  podName?: string;
+  nodeName?: string;
+  status?: string;
+  lastHeartbeatAt?: string;
+  leaseExpiresAt?: string;
+  online?: boolean;
 }
 
 export interface ResourceShare extends BaseRecord {

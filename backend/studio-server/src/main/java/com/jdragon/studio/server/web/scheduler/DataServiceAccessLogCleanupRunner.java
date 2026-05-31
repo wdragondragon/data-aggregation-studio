@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.scheduler;
 
 import com.jdragon.studio.infra.service.DataServiceMetricsService;
+import com.jdragon.studio.infra.service.ClusterLockService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -13,13 +14,20 @@ public class DataServiceAccessLogCleanupRunner {
     private static final int RETENTION_DAYS = 90;
 
     private final DataServiceMetricsService dataServiceMetricsService;
+    private final ClusterLockService clusterLockService;
 
-    public DataServiceAccessLogCleanupRunner(DataServiceMetricsService dataServiceMetricsService) {
+    public DataServiceAccessLogCleanupRunner(DataServiceMetricsService dataServiceMetricsService,
+                                             ClusterLockService clusterLockService) {
         this.dataServiceMetricsService = dataServiceMetricsService;
+        this.clusterLockService = clusterLockService;
     }
 
     @Scheduled(cron = "0 0 3 * * ?")
     public void cleanupExpiredAccessLogs() {
+        clusterLockService.runIfAcquired("scheduler:data-service-access-log-cleanup", this::cleanupExpiredAccessLogsLocked);
+    }
+
+    private void cleanupExpiredAccessLogsLocked() {
         try {
             int deleted = dataServiceMetricsService.purgeExpiredAccessLogs(RETENTION_DAYS);
             if (deleted > 0) {

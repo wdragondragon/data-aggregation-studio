@@ -181,6 +181,7 @@ public class RunService {
         view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
+        view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setLeaseOwner(entity.getLeaseOwner());
         view.setAttempts(entity.getAttempts());
         view.setMaxRetries(entity.getMaxRetries());
@@ -211,7 +212,11 @@ public class RunService {
         view.setQualityTaskId(entity.getQualityTaskId());
         view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
+        view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setWorkerCode(entity.getWorkerCode());
+        view.setWorkerInstanceId(entity.getWorkerInstanceId());
+        view.setWorkerPodName(entity.getWorkerPodName());
+        view.setWorkerNodeName(entity.getWorkerNodeName());
         view.setStatus(entity.getStatus());
         view.setMessage(entity.getMessage());
         view.setStartedAt(entity.getStartedAt());
@@ -219,6 +224,9 @@ public class RunService {
         view.setLogFilePath(entity.getLogFilePath());
         view.setLogSizeBytes(entity.getLogSizeBytes());
         view.setLogCharset(entity.getLogCharset());
+        view.setLogStorageType(entity.getLogStorageType());
+        view.setLogStatus(entity.getLogStatus());
+        view.setLogErrorSummary(entity.getLogErrorSummary());
         view.setMetricSummary(runMetricSummaryMapper.fromEntity(entity));
         view.setPayloadJson(entity.getPayloadJson() == null
                 ? new LinkedHashMap<String, Object>()
@@ -256,7 +264,8 @@ public class RunService {
         builder.append("==================").append('\n');
         builder.append("Run Record ID: ").append(entity.getId()).append('\n');
         builder.append("Status: ").append(entity.getStatus()).append('\n');
-        builder.append("Worker: ").append(entity.getWorkerCode()).append('\n');
+        builder.append("Worker Group: ").append(firstText(entity.getWorkerGroupCode(), entity.getWorkerCode())).append('\n');
+        builder.append("Worker Instance: ").append(entity.getWorkerInstanceId()).append('\n');
         builder.append("Node: ").append(entity.getNodeCode()).append('\n');
         builder.append("Started At: ").append(entity.getStartedAt()).append('\n');
         builder.append("Ended At: ").append(entity.getEndedAt()).append('\n');
@@ -277,5 +286,17 @@ public class RunService {
             return "(none)";
         }
         return String.valueOf(value);
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 }

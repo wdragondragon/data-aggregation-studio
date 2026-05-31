@@ -70,6 +70,10 @@ management:
 studio:
   aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
   encryption-secret: studio-secret-key
+  instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-server-local}}}
+  pod-name: ${POD_NAME:${HOSTNAME:studio-server-local}}
+  node-name: ${NODE_NAME:}
+  worker-group-code: ${STUDIO_WORKER_GROUP_CODE:${STUDIO_WORKER_CODE:studio-server-worker}}
   worker-code: studio-server-worker
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
   gateway:
@@ -78,6 +82,19 @@ studio:
     signature-expire-seconds: ${STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS:300}
   model-sync-task:
     max-concurrency: ${STUDIO_MODEL_SYNC_TASK_MAX_CONCURRENCY:1}
+  dispatch:
+    scheduler-batch-size: ${STUDIO_SCHEDULER_BATCH_SIZE:500}
+    cluster-lock-lease-seconds: ${STUDIO_CLUSTER_LOCK_LEASE_SECONDS:120}
+  run-log:
+    storage-type: ${STUDIO_RUN_LOG_STORAGE_TYPE:LOCAL}
+    object-storage:
+      endpoint: ${STUDIO_RUN_LOG_OBJECT_ENDPOINT:}
+      access-key: ${STUDIO_RUN_LOG_OBJECT_ACCESS_KEY:}
+      secret-key: ${STUDIO_RUN_LOG_OBJECT_SECRET_KEY:}
+      bucket: ${STUDIO_RUN_LOG_OBJECT_BUCKET:}
+      region: ${STUDIO_RUN_LOG_OBJECT_REGION:}
+      prefix: ${STUDIO_RUN_LOG_OBJECT_PREFIX:studio/run-logs}
+      create-bucket: ${STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET:true}
   python:
     executable: ${STUDIO_PYTHON_EXECUTABLE:}
     execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}

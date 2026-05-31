@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
+import com.jdragon.studio.dto.model.system.SystemWorkerInstanceView;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -41,6 +42,7 @@ import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -55,6 +57,7 @@ import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toP
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectWorkerView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toTenantMemberView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toTenantView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toWorkerInstanceView;
 
 @Service
 public class SystemManagementService {
@@ -76,6 +79,7 @@ public class SystemManagementService {
     private final StudioSecurityService securityService;
     private final NotificationService notificationService;
     private final SystemResourceShareSupport resourceShareSupport;
+    private static final long WORKER_RECENT_INSTANCE_HOURS = 24L;
 
     public SystemManagementService(TenantMapper tenantMapper,
                                    ProjectMapper projectMapper,
@@ -401,28 +405,51 @@ public class SystemManagementService {
 
     public List<SystemProjectWorkerView> listProjectWorkers(Long projectId) {
         ProjectEntity project = requireTenantManagedProject(projectId);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime recentThreshold = now.minusHours(WORKER_RECENT_INSTANCE_HOURS);
         List<WorkerLeaseEntity> workerLeases = workerLeaseMapper.selectList(new LambdaQueryWrapper<WorkerLeaseEntity>()
                 .eq(WorkerLeaseEntity::getTenantId, project.getTenantId())
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt)
+                .orderByAsc(WorkerLeaseEntity::getWorkerGroupCode)
                 .orderByAsc(WorkerLeaseEntity::getWorkerCode));
         List<ProjectWorkerBindingEntity> bindings = projectWorkerBindingMapper.selectList(new LambdaQueryWrapper<ProjectWorkerBindingEntity>()
                 .eq(ProjectWorkerBindingEntity::getTenantId, project.getTenantId())
                 .eq(ProjectWorkerBindingEntity::getProjectId, project.getId())
+                .orderByAsc(ProjectWorkerBindingEntity::getWorkerGroupCode)
                 .orderByAsc(ProjectWorkerBindingEntity::getWorkerCode));
-        Map<String, WorkerLeaseEntity> leaseMap = new LinkedHashMap<String, WorkerLeaseEntity>();
+        Map<String, List<WorkerLeaseEntity>> leaseMap = new LinkedHashMap<String, List<WorkerLeaseEntity>>();
         for (WorkerLeaseEntity lease : workerLeases) {
-            leaseMap.put(lease.getWorkerCode(), lease);
+            String workerGroupCode = resolveWorkerGroupCode(lease);
+            if (!hasText(workerGroupCode)) {
+                continue;
+            }
+            if (!isOnlineLease(lease, now) && !isRecentLease(lease, recentThreshold)) {
+                continue;
+            }
+            leaseMap.computeIfAbsent(workerGroupCode, key -> new ArrayList<WorkerLeaseEntity>()).add(lease);
         }
         Map<String, ProjectWorkerBindingEntity> bindingMap = new LinkedHashMap<String, ProjectWorkerBindingEntity>();
         for (ProjectWorkerBindingEntity binding : bindings) {
-            bindingMap.put(binding.getWorkerCode(), binding);
+            String workerGroupCode = resolveWorkerGroupCode(binding);
+            if (hasText(workerGroupCode)) {
+                bindingMap.put(workerGroupCode, binding);
+            }
         }
-        Set<String> workerCodes = new LinkedHashSet<String>();
-        workerCodes.addAll(leaseMap.keySet());
-        workerCodes.addAll(bindingMap.keySet());
+        Set<String> workerGroupCodes = new LinkedHashSet<String>();
+        workerGroupCodes.addAll(leaseMap.keySet());
+        workerGroupCodes.addAll(bindingMap.keySet());
         List<SystemProjectWorkerView> result = new ArrayList<SystemProjectWorkerView>();
-        for (String workerCode : workerCodes) {
-            result.add(toProjectWorkerView(project.getId(), project.getTenantId(), leaseMap.get(workerCode), bindingMap.get(workerCode)));
+        for (String workerGroupCode : workerGroupCodes) {
+            List<WorkerLeaseEntity> leases = leaseMap.get(workerGroupCode);
+            WorkerLeaseEntity latestLease = chooseDisplayLease(leases, now);
+            List<SystemWorkerInstanceView> instances = toWorkerInstances(leases, now);
+            result.add(toProjectWorkerView(project.getId(), project.getTenantId(), latestLease,
+                    bindingMap.get(workerGroupCode),
+                    countOnlineInstances(leases, now),
+                    instances.size(),
+                    latestHeartbeatAt(leases),
+                    displayWorkerGroupStatus(instances),
+                    instances));
         }
         return result;
     }
@@ -430,25 +457,30 @@ public class SystemManagementService {
     @Transactional
     public ProjectWorkerBindingEntity saveProjectWorkerBinding(ProjectWorkerBindingEntity entity) {
         ProjectEntity project = requireTenantManagedProject(entity == null ? null : entity.getProjectId());
-        if (entity == null || !hasText(entity.getWorkerCode())) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Worker code is required");
+        String workerGroupCode = resolveWorkerGroupCode(entity);
+        if (!hasText(workerGroupCode)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Worker group is required");
         }
+        final String normalizedWorkerGroupCode = workerGroupCode.trim();
         ProjectWorkerBindingEntity target = entity.getId() == null
-                ? projectWorkerBindingMapper.selectOne(new LambdaQueryWrapper<ProjectWorkerBindingEntity>()
-                .eq(ProjectWorkerBindingEntity::getTenantId, project.getTenantId())
-                .eq(ProjectWorkerBindingEntity::getProjectId, project.getId())
-                .eq(ProjectWorkerBindingEntity::getWorkerCode, entity.getWorkerCode().trim())
-                .last("limit 1"))
+                ? projectWorkerBindingMapper.selectIncludingDeleted(project.getTenantId(), project.getId(), normalizedWorkerGroupCode)
                 : requireProjectWorkerBinding(entity.getId(), project.getId(), project.getTenantId());
+        if (entity.getId() != null && !normalizedWorkerGroupCode.equals(resolveWorkerGroupCode(target))) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Worker group cannot be changed for an existing binding");
+        }
         if (target == null) {
             target = new ProjectWorkerBindingEntity();
         }
         target.setTenantId(project.getTenantId());
         target.setProjectId(project.getId());
-        target.setWorkerCode(entity.getWorkerCode().trim());
+        target.setWorkerGroupCode(normalizedWorkerGroupCode);
+        target.setWorkerCode(normalizedWorkerGroupCode);
         target.setEnabled(entity.getEnabled() == null ? 1 : entity.getEnabled());
         if (target.getId() == null) {
             projectWorkerBindingMapper.insert(target);
+        } else if (target.getDeleted() != null && target.getDeleted() == 1) {
+            projectWorkerBindingMapper.reviveDeletedById(target.getId(), target.getWorkerGroupCode(), target.getWorkerCode(), target.getEnabled());
+            target.setDeleted(0);
         } else {
             projectWorkerBindingMapper.updateById(target);
         }
@@ -641,6 +673,107 @@ public class SystemManagementService {
         if (value != null) {
             target.add(value);
         }
+    }
+
+    private int countOnlineInstances(List<WorkerLeaseEntity> leases, LocalDateTime now) {
+        if (leases == null || leases.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (WorkerLeaseEntity lease : leases) {
+            if (isOnlineLease(lease, now)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private WorkerLeaseEntity chooseDisplayLease(List<WorkerLeaseEntity> leases, LocalDateTime now) {
+        if (leases == null || leases.isEmpty()) {
+            return null;
+        }
+        for (WorkerLeaseEntity lease : leases) {
+            if (isOnlineLease(lease, now)) {
+                return lease;
+            }
+        }
+        return leases.get(0);
+    }
+
+    private List<SystemWorkerInstanceView> toWorkerInstances(List<WorkerLeaseEntity> leases, LocalDateTime now) {
+        if (leases == null || leases.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SystemWorkerInstanceView> result = new ArrayList<SystemWorkerInstanceView>();
+        for (WorkerLeaseEntity lease : leases) {
+            result.add(toWorkerInstanceView(lease, isOnlineLease(lease, now)));
+        }
+        return result;
+    }
+
+    private boolean isOnlineLease(WorkerLeaseEntity lease, LocalDateTime now) {
+        if (lease == null || !StudioConstants.WORKER_STATUS_ONLINE.equalsIgnoreCase(lease.getStatus())) {
+            return false;
+        }
+        if (lease.getLeaseExpiresAt() != null && lease.getLeaseExpiresAt().isAfter(now)) {
+            return true;
+        }
+        LocalDateTime heartbeatThreshold = now.minusSeconds(StudioConstants.WORKER_HEARTBEAT_TIMEOUT_SECONDS);
+        return lease.getLastHeartbeatAt() != null && !lease.getLastHeartbeatAt().isBefore(heartbeatThreshold);
+    }
+
+    private boolean isRecentLease(WorkerLeaseEntity lease, LocalDateTime recentThreshold) {
+        return lease != null
+                && lease.getLastHeartbeatAt() != null
+                && !lease.getLastHeartbeatAt().isBefore(recentThreshold);
+    }
+
+    private LocalDateTime latestHeartbeatAt(List<WorkerLeaseEntity> leases) {
+        if (leases == null || leases.isEmpty()) {
+            return null;
+        }
+        LocalDateTime latest = null;
+        for (WorkerLeaseEntity lease : leases) {
+            if (lease == null || lease.getLastHeartbeatAt() == null) {
+                continue;
+            }
+            if (latest == null || lease.getLastHeartbeatAt().isAfter(latest)) {
+                latest = lease.getLastHeartbeatAt();
+            }
+        }
+        return latest;
+    }
+
+    private String displayWorkerGroupStatus(List<SystemWorkerInstanceView> instances) {
+        if (instances == null || instances.isEmpty()) {
+            return "NO_INSTANCE";
+        }
+        for (SystemWorkerInstanceView instance : instances) {
+            if (instance != null && Boolean.TRUE.equals(instance.getOnline())) {
+                return "ONLINE";
+            }
+        }
+        return "OFFLINE";
+    }
+
+    private String resolveWorkerGroupCode(ProjectWorkerBindingEntity binding) {
+        if (binding == null) {
+            return null;
+        }
+        if (hasText(binding.getWorkerGroupCode())) {
+            return binding.getWorkerGroupCode();
+        }
+        return binding.getWorkerCode();
+    }
+
+    private String resolveWorkerGroupCode(WorkerLeaseEntity lease) {
+        if (lease == null) {
+            return null;
+        }
+        if (hasText(lease.getWorkerGroupCode())) {
+            return lease.getWorkerGroupCode();
+        }
+        return lease.getWorkerCode();
     }
 
     private void clearDefaultProject(String tenantId, Long keepProjectId) {

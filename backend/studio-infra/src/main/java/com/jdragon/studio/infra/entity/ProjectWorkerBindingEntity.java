@@ -9,6 +9,7 @@ import lombok.EqualsAndHashCode;
 @TableName("studio_project_worker_binding")
 public class ProjectWorkerBindingEntity extends BaseTenantEntity {
     private Long projectId;
+    private String workerGroupCode;
     private String workerCode;
     private Integer enabled;
 }

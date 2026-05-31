@@ -1,8 +1,11 @@
 package com.jdragon.studio.test;
 
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.QualityTaskScheduleEntity;
+import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.DispatchService;
+import com.jdragon.studio.infra.service.DispatchTriggerStatus;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.server.web.scheduler.CronScheduleDueEvaluator;
@@ -14,6 +17,7 @@ import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,16 +48,24 @@ class QualityTaskScheduleRunnerRegressionTest {
         when(qualityTaskService.findEnabledSchedules()).thenReturn(Collections.singletonList(schedule));
         when(qualityTaskService.requireOnline(11L)).thenReturn(definition);
         when(workerAuthorizationService.hasAvailableWorker("default", 110L)).thenReturn(true);
-        when(dispatchService.triggerQualityTaskIfIdle(11L)).thenReturn(false);
+        when(dispatchService.triggerScheduledQualityTaskIfIdle(eq(11L), any(LocalDateTime.class)))
+                .thenReturn(DispatchTriggerStatus.SKIPPED_ACTIVE);
+        ClusterLockService clusterLockService = mock(ClusterLockService.class);
+        doAnswer(invocation -> {
+            invocation.getArgument(1, Runnable.class).run();
+            return null;
+        }).when(clusterLockService).runIfAcquired(eq("scheduler:quality-task"), any(Runnable.class));
 
         QualityTaskScheduleRunner runner = new QualityTaskScheduleRunner(
                 qualityTaskService,
                 dispatchService,
                 evaluator,
-                workerAuthorizationService);
+                workerAuthorizationService,
+                clusterLockService,
+                new StudioPlatformProperties());
         runner.dispatchDueQualityTasks();
 
-        verify(dispatchService).triggerQualityTaskIfIdle(11L);
+        verify(dispatchService).triggerScheduledQualityTaskIfIdle(eq(11L), any(LocalDateTime.class));
         verify(qualityTaskService).markScheduleTriggered(eq(11L), any(LocalDateTime.class));
     }
 }

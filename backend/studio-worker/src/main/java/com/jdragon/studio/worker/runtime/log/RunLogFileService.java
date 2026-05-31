@@ -12,6 +12,7 @@ import com.jdragon.studio.commons.util.StudioPathUtils;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.service.RunLogStorageService;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,12 +44,15 @@ public class RunLogFileService {
     private static final int MAX_PAGE_BYTES = 512 * 1024;
 
     private final StudioPlatformProperties properties;
+    private final RunLogStorageService runLogStorageService;
     private final LoggerContext loggerContext;
     private final Logger rootLogger;
     private final Map<Long, FileAppender<ILoggingEvent>> appenders = new ConcurrentHashMap<Long, FileAppender<ILoggingEvent>>();
+    private final Map<Long, PreparedRunLog> activeLogs = new ConcurrentHashMap<Long, PreparedRunLog>();
 
-    public RunLogFileService(StudioPlatformProperties properties) {
+    public RunLogFileService(StudioPlatformProperties properties, RunLogStorageService runLogStorageService) {
         this.properties = properties;
+        this.runLogStorageService = runLogStorageService;
         this.loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
         this.rootLogger = loggerContext.getLogger(Logger.ROOT_LOGGER_NAME);
     }
@@ -71,6 +76,7 @@ public class RunLogFileService {
         FileAppender<ILoggingEvent> appender = buildAppender(prepared);
         rootLogger.addAppender(appender);
         appenders.put(prepared.getRunRecordId(), appender);
+        activeLogs.put(prepared.getRunRecordId(), prepared);
         MDC.put(StudioConstants.MDC_RUN_LOG_ID, String.valueOf(prepared.getRunRecordId()));
         MDC.put(StudioConstants.MDC_RUN_LOG_PATH, prepared.getRelativePath());
         return new RunLogScope(prepared.getRunRecordId());
@@ -96,6 +102,55 @@ public class RunLogFileService {
             return Files.size(path);
         } catch (IOException e) {
             return 0L;
+        }
+    }
+
+    public RunLogStorageResult finalizeLog(PreparedRunLog prepared) {
+        if (prepared == null) {
+            return RunLogStorageResult.local(0L);
+        }
+        activeLogs.remove(prepared.getRunRecordId());
+        return uploadLog(prepared, "AVAILABLE");
+    }
+
+    public Map<Long, RunLogStorageResult> syncActiveObjectLogs() {
+        Map<Long, RunLogStorageResult> results = new LinkedHashMap<Long, RunLogStorageResult>();
+        if (!runLogStorageService.objectStorageEnabled()) {
+            return results;
+        }
+        for (PreparedRunLog prepared : activeLogs.values()) {
+            if (prepared == null || prepared.getRunRecordId() == null) {
+                continue;
+            }
+            results.put(prepared.getRunRecordId(), uploadLog(prepared, "WRITING"));
+        }
+        return results;
+    }
+
+    public RunLogStorageResult syncExistingLog(String relativePath, String charset) {
+        if (relativePath == null || relativePath.trim().isEmpty()) {
+            return RunLogStorageResult.local(0L);
+        }
+        String resolvedCharset = charset == null || charset.trim().isEmpty() ? DEFAULT_CHARSET.name() : charset.trim();
+        PreparedRunLog prepared = new PreparedRunLog(null, relativePath, resolveLogPath(relativePath), resolvedCharset);
+        return uploadLog(prepared, "AVAILABLE");
+    }
+
+    private RunLogStorageResult uploadLog(PreparedRunLog prepared, String successStatus) {
+        long size = fileSize(prepared.getRelativePath());
+        if (!runLogStorageService.objectStorageEnabled()) {
+            return RunLogStorageResult.local(size);
+        }
+        String bucket = null;
+        String objectKey = null;
+        try {
+            bucket = runLogStorageService.resolveBucket();
+            objectKey = runLogStorageService.buildObjectKey(prepared.getRelativePath());
+            byte[] bytes = Files.readAllBytes(prepared.getAbsolutePath());
+            runLogStorageService.upload(bucket, objectKey, bytes, "text/plain;charset=" + prepared.getCharset());
+            return RunLogStorageResult.objectStorage(size, bucket, objectKey, successStatus);
+        } catch (Exception e) {
+            return RunLogStorageResult.failed(size, e.getMessage());
         }
     }
 
@@ -303,11 +358,76 @@ public class RunLogFileService {
         public void close() {
             MDC.remove(StudioConstants.MDC_RUN_LOG_ID);
             MDC.remove(StudioConstants.MDC_RUN_LOG_PATH);
+            activeLogs.remove(runRecordId);
             FileAppender<ILoggingEvent> appender = appenders.remove(runRecordId);
             if (appender != null) {
                 rootLogger.detachAppender(appender);
                 appender.stop();
             }
+        }
+    }
+
+    public static final class RunLogStorageResult {
+        private final long sizeBytes;
+        private final String storageType;
+        private final String bucket;
+        private final String objectKey;
+        private final String status;
+        private final String errorSummary;
+
+        private RunLogStorageResult(long sizeBytes,
+                                    String storageType,
+                                    String bucket,
+                                    String objectKey,
+                                    String status,
+                                    String errorSummary) {
+            this.sizeBytes = sizeBytes;
+            this.storageType = storageType;
+            this.bucket = bucket;
+            this.objectKey = objectKey;
+            this.status = status;
+            this.errorSummary = errorSummary;
+        }
+
+        public static RunLogStorageResult local(long sizeBytes) {
+            return new RunLogStorageResult(sizeBytes, RunLogStorageService.STORAGE_LOCAL, null, null, "AVAILABLE", null);
+        }
+
+        public static RunLogStorageResult objectStorage(long sizeBytes, String bucket, String objectKey) {
+            return objectStorage(sizeBytes, bucket, objectKey, "AVAILABLE");
+        }
+
+        public static RunLogStorageResult objectStorage(long sizeBytes, String bucket, String objectKey, String status) {
+            return new RunLogStorageResult(sizeBytes, RunLogStorageService.STORAGE_OBJECT, bucket, objectKey,
+                    status == null || status.trim().isEmpty() ? "AVAILABLE" : status.trim(), null);
+        }
+
+        public static RunLogStorageResult failed(long sizeBytes, String errorSummary) {
+            return new RunLogStorageResult(sizeBytes, RunLogStorageService.STORAGE_OBJECT, null, null, "FAILED", errorSummary);
+        }
+
+        public long getSizeBytes() {
+            return sizeBytes;
+        }
+
+        public String getStorageType() {
+            return storageType;
+        }
+
+        public String getBucket() {
+            return bucket;
+        }
+
+        public String getObjectKey() {
+            return objectKey;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public String getErrorSummary() {
+            return errorSummary;
         }
     }
 

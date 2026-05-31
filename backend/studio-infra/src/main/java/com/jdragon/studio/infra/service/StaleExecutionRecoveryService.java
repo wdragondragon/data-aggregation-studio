@@ -132,7 +132,7 @@ public class StaleExecutionRecoveryService {
         if (task.getLeaseExpiresAt() != null && task.getLeaseExpiresAt().isAfter(now)) {
             return true;
         }
-        if (hasActiveWorker(task.getTenantId(), task.getLeaseOwner(), now)) {
+        if (hasActiveWorker(task.getTenantId(), task.getWorkerGroupCode(), task.getLeaseOwner(), task.getWorkerInstanceId(), now)) {
             return true;
         }
         return isRecent(task.getCreatedAt(), now);
@@ -148,7 +148,7 @@ public class StaleExecutionRecoveryService {
         if (hasActiveDispatchForRecord(record, now)) {
             return true;
         }
-        if (hasActiveWorker(record.getTenantId(), record.getWorkerCode(), now)) {
+        if (hasActiveWorker(record.getTenantId(), record.getWorkerGroupCode(), record.getWorkerCode(), record.getWorkerInstanceId(), now)) {
             return true;
         }
         return isRecent(firstNonNull(record.getStartedAt(), record.getCreatedAt()), now);
@@ -161,7 +161,7 @@ public class StaleExecutionRecoveryService {
         if (task.getLeaseExpiresAt() != null && task.getLeaseExpiresAt().isAfter(now)) {
             return false;
         }
-        if (hasActiveWorker(task.getTenantId(), task.getLeaseOwner(), now)) {
+        if (hasActiveWorker(task.getTenantId(), task.getWorkerGroupCode(), task.getLeaseOwner(), task.getWorkerInstanceId(), now)) {
             return false;
         }
         return !isRecent(firstNonNull(task.getLeaseExpiresAt(), task.getUpdatedAt(), task.getCreatedAt()), now);
@@ -174,7 +174,7 @@ public class StaleExecutionRecoveryService {
         if (hasActiveDispatchForRecord(record, now)) {
             return false;
         }
-        if (hasActiveWorker(record.getTenantId(), record.getWorkerCode(), now)) {
+        if (hasActiveWorker(record.getTenantId(), record.getWorkerGroupCode(), record.getWorkerCode(), record.getWorkerInstanceId(), now)) {
             return false;
         }
         return !isRecent(firstNonNull(record.getStartedAt(), record.getCreatedAt()), now);
@@ -204,18 +204,37 @@ public class StaleExecutionRecoveryService {
         return false;
     }
 
-    private boolean hasActiveWorker(String tenantId, String workerCode, LocalDateTime now) {
-        if (workerCode == null || workerCode.trim().isEmpty()) {
+    private boolean hasActiveWorker(String tenantId,
+                                    String workerGroupCode,
+                                    String legacyWorkerCode,
+                                    String workerInstanceId,
+                                    LocalDateTime now) {
+        String normalizedWorkerGroupCode = trimToNull(workerGroupCode);
+        String normalizedLegacyWorkerCode = trimToNull(legacyWorkerCode);
+        if (normalizedWorkerGroupCode == null && normalizedLegacyWorkerCode == null) {
             return false;
         }
-        WorkerLeaseEntity lease = workerLeaseMapper.selectOne(new LambdaQueryWrapper<WorkerLeaseEntity>()
+        LambdaQueryWrapper<WorkerLeaseEntity> query = new LambdaQueryWrapper<WorkerLeaseEntity>()
                 .eq(tenantId != null, WorkerLeaseEntity::getTenantId, tenantId)
-                .eq(WorkerLeaseEntity::getWorkerCode, workerCode)
                 .eq(WorkerLeaseEntity::getStatus, "ONLINE")
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt)
-                .last("limit 1"));
+                .last("limit 1");
+        if (normalizedWorkerGroupCode != null) {
+            query.and(wrapper -> wrapper.eq(WorkerLeaseEntity::getWorkerGroupCode, normalizedWorkerGroupCode)
+                    .or(nested -> nested.isNull(WorkerLeaseEntity::getWorkerGroupCode)
+                            .eq(WorkerLeaseEntity::getWorkerCode, normalizedWorkerGroupCode)));
+        } else {
+            query.eq(WorkerLeaseEntity::getWorkerCode, normalizedLegacyWorkerCode);
+        }
+        if (workerInstanceId != null && !workerInstanceId.trim().isEmpty()) {
+            query.eq(WorkerLeaseEntity::getInstanceId, workerInstanceId);
+        }
+        WorkerLeaseEntity lease = workerLeaseMapper.selectOne(query);
         if (lease == null || lease.getLastHeartbeatAt() == null) {
             return false;
+        }
+        if (lease.getLeaseExpiresAt() != null && lease.getLeaseExpiresAt().isAfter(now)) {
+            return true;
         }
         return !lease.getLastHeartbeatAt().isBefore(workerOfflineCutoff(now));
     }
@@ -338,6 +357,10 @@ public class StaleExecutionRecoveryService {
             return result;
         }
         return result.substring(0, RUN_RECORD_MESSAGE_MAX_LENGTH - 3) + "...";
+    }
+
+    private String trimToNull(String value) {
+        return value == null || value.trim().isEmpty() ? null : value.trim();
     }
 
     private static class Scope {

@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
+import com.jdragon.studio.dto.model.system.SystemWorkerInstanceView;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberRequestEntity;
@@ -14,6 +15,10 @@ import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.TenantEntity;
 import com.jdragon.studio.infra.entity.TenantMemberEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
+
+import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
 
 final class SystemManagementViewAssembler {
 
@@ -113,7 +118,12 @@ final class SystemManagementViewAssembler {
     static SystemProjectWorkerView toProjectWorkerView(Long projectId,
                                                        String tenantId,
                                                        WorkerLeaseEntity lease,
-                                                       ProjectWorkerBindingEntity binding) {
+                                                       ProjectWorkerBindingEntity binding,
+                                                       Integer onlineInstanceCount,
+                                                       Integer recentInstanceCount,
+                                                       LocalDateTime latestHeartbeatAt,
+                                                       String displayStatus,
+                                                       List<SystemWorkerInstanceView> instances) {
         SystemProjectWorkerView view = new SystemProjectWorkerView();
         view.setId(binding == null ? null : binding.getId());
         view.setTenantId(tenantId);
@@ -121,13 +131,56 @@ final class SystemManagementViewAssembler {
         view.setDeleted(Boolean.FALSE);
         view.setCreatedAt(binding == null ? null : binding.getCreatedAt());
         view.setUpdatedAt(binding == null ? null : binding.getUpdatedAt());
-        view.setWorkerCode(lease != null ? lease.getWorkerCode() : binding == null ? null : binding.getWorkerCode());
+        String workerGroupCode = resolveWorkerGroupCode(lease, binding);
+        view.setWorkerGroupCode(workerGroupCode);
+        view.setWorkerCode(lease != null && hasText(lease.getWorkerCode()) ? lease.getWorkerCode() : workerGroupCode);
+        view.setWorkerInstanceId(lease == null ? null : lease.getInstanceId());
         view.setWorkerKind(lease == null ? null : lease.getWorkerKind());
         view.setHostName(lease == null ? null : lease.getHostName());
-        view.setStatus(lease == null ? "OFFLINE" : lease.getStatus());
-        view.setLastHeartbeatAt(lease == null ? null : lease.getLastHeartbeatAt());
-        view.setBoundToProject(binding != null && binding.getEnabled() != null && binding.getEnabled() == 1);
+        view.setPodName(lease == null ? null : lease.getPodName());
+        view.setNodeName(lease == null ? null : lease.getNodeName());
+        view.setOnlineInstanceCount(onlineInstanceCount == null ? 0 : onlineInstanceCount);
+        view.setRecentInstanceCount(recentInstanceCount == null ? 0 : recentInstanceCount);
+        view.setStatus(displayStatus == null ? (lease == null ? "NO_INSTANCE" : lease.getStatus()) : displayStatus);
+        view.setDisplayStatus(view.getStatus());
+        view.setLastHeartbeatAt(latestHeartbeatAt == null && lease != null ? lease.getLastHeartbeatAt() : latestHeartbeatAt);
+        view.setLatestHeartbeatAt(view.getLastHeartbeatAt());
+        view.setBoundToProject(binding != null);
         view.setEnabled(binding != null && binding.getEnabled() != null && binding.getEnabled() == 1);
+        view.setInstances(instances == null ? Collections.<SystemWorkerInstanceView>emptyList() : instances);
         return view;
+    }
+
+    static SystemWorkerInstanceView toWorkerInstanceView(WorkerLeaseEntity lease, boolean online) {
+        SystemWorkerInstanceView view = new SystemWorkerInstanceView();
+        view.setWorkerGroupCode(lease == null ? null : lease.getWorkerGroupCode());
+        view.setWorkerCode(lease == null ? null : lease.getWorkerCode());
+        view.setWorkerInstanceId(lease == null ? null : lease.getInstanceId());
+        view.setWorkerKind(lease == null ? null : lease.getWorkerKind());
+        view.setHostName(lease == null ? null : lease.getHostName());
+        view.setPodName(lease == null ? null : lease.getPodName());
+        view.setNodeName(lease == null ? null : lease.getNodeName());
+        view.setStatus(online ? "ONLINE" : "OFFLINE");
+        view.setLastHeartbeatAt(lease == null ? null : lease.getLastHeartbeatAt());
+        view.setLeaseExpiresAt(lease == null ? null : lease.getLeaseExpiresAt());
+        view.setOnline(online);
+        return view;
+    }
+
+    private static String resolveWorkerGroupCode(WorkerLeaseEntity lease, ProjectWorkerBindingEntity binding) {
+        if (lease != null && hasText(lease.getWorkerGroupCode())) {
+            return lease.getWorkerGroupCode();
+        }
+        if (binding != null && hasText(binding.getWorkerGroupCode())) {
+            return binding.getWorkerGroupCode();
+        }
+        if (lease != null && hasText(lease.getWorkerCode())) {
+            return lease.getWorkerCode();
+        }
+        return binding == null ? null : binding.getWorkerCode();
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

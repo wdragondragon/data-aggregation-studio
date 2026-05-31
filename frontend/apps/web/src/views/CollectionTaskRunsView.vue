@@ -117,7 +117,7 @@
           </el-table-column>
           <el-table-column :label="t('web.runs.worker')" width="170" show-overflow-tooltip>
             <template #default="{ row }">
-              <span class="mono-ellipsis">{{ row.workerCode || t("common.none") }}</span>
+              <span class="mono-ellipsis">{{ row.workerGroupCode || row.workerCode || t("common.none") }}</span>
             </template>
           </el-table-column>
           <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" width="200">

@@ -13,6 +13,10 @@ public class StudioPlatformProperties {
     private String encryptionSecret = "studio-secret-key";
     private String timezone = "Asia/Shanghai";
     private boolean scanPluginsOnStartup = true;
+    private String instanceId;
+    private String podName;
+    private String nodeName;
+    private String workerGroupCode;
     private String workerCode = "worker-local";
     private boolean desktopRuntime = false;
     private String runtimeLogDir = "./runtime/run-logs";
@@ -22,6 +26,23 @@ public class StudioPlatformProperties {
     private PythonProperties python = new PythonProperties();
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
     private DispatchProperties dispatch = new DispatchProperties();
+    private RunLogProperties runLog = new RunLogProperties();
+
+    public String getWorkerGroupCode() {
+        return firstText(workerGroupCode, workerCode, "worker-local");
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
 
     @Data
     public static class PythonProperties {
@@ -41,6 +62,25 @@ public class StudioPlatformProperties {
         private Long workerOfflineGraceMinutes = 120L;
         private Long dispatchLeaseMinutes = 10L;
         private Integer workerSchedulerPoolSize = 4;
+        private Integer schedulerBatchSize = 500;
+        private Long clusterLockLeaseSeconds = 120L;
+    }
+
+    @Data
+    public static class RunLogProperties {
+        private String storageType = "LOCAL";
+        private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
+    }
+
+    @Data
+    public static class ObjectStorageProperties {
+        private String endpoint;
+        private String accessKey;
+        private String secretKey;
+        private String bucket;
+        private String region;
+        private String prefix = "studio/run-logs";
+        private boolean createBucket = true;
     }
 
     @Data

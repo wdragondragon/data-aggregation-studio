@@ -111,7 +111,7 @@
           </el-table-column>
           <el-table-column label="执行节点" min-width="150">
             <template #default="{ row }">
-              <span>{{ row.workerCode || t("common.none") }}</span>
+              <span>{{ row.workerGroupCode || row.workerCode || t("common.none") }}</span>
             </template>
           </el-table-column>
           <el-table-column label="开始 / 耗时" min-width="190">

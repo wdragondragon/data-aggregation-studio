@@ -189,25 +189,36 @@ public class TenantProjectFoundationService {
         if (!studioPlatformProperties.isDesktopRuntime() || projectId == null || !hasText(tenantId)) {
             return;
         }
-        String workerCode = trimToNull(studioPlatformProperties.getWorkerCode());
-        if (workerCode == null) {
+        String workerGroupCode = trimToNull(studioPlatformProperties.getWorkerGroupCode());
+        if (workerGroupCode == null) {
             return;
         }
         ProjectWorkerBindingEntity binding = projectWorkerBindingMapper.selectOne(new LambdaQueryWrapper<ProjectWorkerBindingEntity>()
                 .eq(ProjectWorkerBindingEntity::getTenantId, tenantId)
                 .eq(ProjectWorkerBindingEntity::getProjectId, projectId)
-                .eq(ProjectWorkerBindingEntity::getWorkerCode, workerCode)
+                .and(wrapper -> wrapper.eq(ProjectWorkerBindingEntity::getWorkerGroupCode, workerGroupCode)
+                        .or(nested -> nested.isNull(ProjectWorkerBindingEntity::getWorkerGroupCode)
+                                .eq(ProjectWorkerBindingEntity::getWorkerCode, workerGroupCode)))
                 .last("limit 1"));
         if (binding == null) {
             binding = new ProjectWorkerBindingEntity();
             binding.setTenantId(tenantId);
             binding.setProjectId(projectId);
-            binding.setWorkerCode(workerCode);
+            binding.setWorkerGroupCode(workerGroupCode);
+            binding.setWorkerCode(workerGroupCode);
             binding.setEnabled(1);
             projectWorkerBindingMapper.insert(binding);
             return;
         }
         boolean changed = false;
+        if (!workerGroupCode.equals(binding.getWorkerGroupCode())) {
+            binding.setWorkerGroupCode(workerGroupCode);
+            changed = true;
+        }
+        if (!workerGroupCode.equals(binding.getWorkerCode())) {
+            binding.setWorkerCode(workerGroupCode);
+            changed = true;
+        }
         if (!tenantId.equals(binding.getTenantId())) {
             binding.setTenantId(tenantId);
             changed = true;

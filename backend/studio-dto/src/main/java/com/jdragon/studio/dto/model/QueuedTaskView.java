@@ -20,6 +20,7 @@ public class QueuedTaskView extends BaseDefinition {
     private String qualityTaskName;
     private String nodeCode;
     private String status;
+    private String workerGroupCode;
     private String leaseOwner;
     private Integer attempts;
     private Integer maxRetries;

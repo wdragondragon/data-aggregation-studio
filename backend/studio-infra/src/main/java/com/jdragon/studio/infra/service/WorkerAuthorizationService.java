@@ -40,12 +40,13 @@ public class WorkerAuthorizationService {
                 "No authorized online worker is available for the current project");
     }
 
-    public boolean isWorkerAuthorizedForProject(String tenantId, Long projectId, String workerCode) {
-        if (!hasText(workerCode)) {
+    public boolean isWorkerAuthorizedForProject(String tenantId, Long projectId, String workerGroupCode) {
+        if (!hasText(workerGroupCode)) {
             return false;
         }
+        String normalizedWorkerGroupCode = workerGroupCode.trim();
         for (WorkerLeaseEntity worker : listAvailableWorkers(tenantId, projectId)) {
-            if (workerCode.equalsIgnoreCase(worker.getWorkerCode())) {
+            if (normalizedWorkerGroupCode.equalsIgnoreCase(resolveWorkerGroupCode(worker))) {
                 return true;
             }
         }
@@ -56,8 +57,8 @@ public class WorkerAuthorizationService {
         if (!hasText(tenantId)) {
             return new ArrayList<WorkerLeaseEntity>();
         }
-        List<String> workerCodes = boundWorkerCodes(tenantId, projectId);
-        if (workerCodes.isEmpty()) {
+        List<String> workerGroupCodes = boundWorkerGroupCodes(tenantId, projectId);
+        if (workerGroupCodes.isEmpty()) {
             return new ArrayList<WorkerLeaseEntity>();
         }
         LocalDateTime heartbeatThreshold = LocalDateTime.now()
@@ -66,12 +67,15 @@ public class WorkerAuthorizationService {
                 .eq(WorkerLeaseEntity::getTenantId, tenantId)
                 .eq(WorkerLeaseEntity::getStatus, StudioConstants.WORKER_STATUS_ONLINE)
                 .ge(WorkerLeaseEntity::getLastHeartbeatAt, heartbeatThreshold)
-                .in(WorkerLeaseEntity::getWorkerCode, workerCodes)
+                .and(wrapper -> wrapper.in(WorkerLeaseEntity::getWorkerGroupCode, workerGroupCodes)
+                        .or(nested -> nested.isNull(WorkerLeaseEntity::getWorkerGroupCode)
+                                .in(WorkerLeaseEntity::getWorkerCode, workerGroupCodes)))
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt)
+                .orderByAsc(WorkerLeaseEntity::getWorkerGroupCode)
                 .orderByAsc(WorkerLeaseEntity::getWorkerCode));
     }
 
-    public List<String> boundWorkerCodes(String tenantId, Long projectId) {
+    public List<String> boundWorkerGroupCodes(String tenantId, Long projectId) {
         if (!hasText(tenantId) || projectId == null) {
             return new ArrayList<String>();
         }
@@ -79,14 +83,40 @@ public class WorkerAuthorizationService {
                 .eq(ProjectWorkerBindingEntity::getTenantId, tenantId)
                 .eq(ProjectWorkerBindingEntity::getProjectId, projectId)
                 .eq(ProjectWorkerBindingEntity::getEnabled, 1)
+                .orderByAsc(ProjectWorkerBindingEntity::getWorkerGroupCode)
                 .orderByAsc(ProjectWorkerBindingEntity::getWorkerCode));
-        Set<String> workerCodes = new LinkedHashSet<String>();
+        Set<String> workerGroupCodes = new LinkedHashSet<String>();
         for (ProjectWorkerBindingEntity binding : bindings) {
-            if (hasText(binding.getWorkerCode())) {
-                workerCodes.add(binding.getWorkerCode().trim());
+            String workerGroupCode = resolveWorkerGroupCode(binding);
+            if (hasText(workerGroupCode)) {
+                workerGroupCodes.add(workerGroupCode.trim());
             }
         }
-        return new ArrayList<String>(workerCodes);
+        return new ArrayList<String>(workerGroupCodes);
+    }
+
+    public List<String> boundWorkerCodes(String tenantId, Long projectId) {
+        return boundWorkerGroupCodes(tenantId, projectId);
+    }
+
+    private String resolveWorkerGroupCode(ProjectWorkerBindingEntity binding) {
+        if (binding == null) {
+            return null;
+        }
+        if (hasText(binding.getWorkerGroupCode())) {
+            return binding.getWorkerGroupCode();
+        }
+        return binding.getWorkerCode();
+    }
+
+    private String resolveWorkerGroupCode(WorkerLeaseEntity lease) {
+        if (lease == null) {
+            return null;
+        }
+        if (hasText(lease.getWorkerGroupCode())) {
+            return lease.getWorkerGroupCode();
+        }
+        return lease.getWorkerCode();
     }
 
     private boolean hasText(String value) {

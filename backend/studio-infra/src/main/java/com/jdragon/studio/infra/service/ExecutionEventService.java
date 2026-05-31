@@ -83,7 +83,11 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setQualityTaskId(event.getQualityTaskId());
         entity.setProjectId(event.getProjectId());
         entity.setNodeCode(event.getNodeCode());
+        entity.setWorkerGroupCode(event.getWorkerGroupCode());
         entity.setWorkerCode(event.getWorkerCode());
+        entity.setWorkerInstanceId(event.getWorkerInstanceId());
+        entity.setWorkerPodName(event.getWorkerPodName());
+        entity.setWorkerNodeName(event.getWorkerNodeName());
         entity.setStatus(event.getEventType());
         entity.setPayloadJson(event.getPayload());
         entity.setResultJson(event.getPayload());
@@ -95,6 +99,12 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setLogFilePath(event.getLogFilePath());
         entity.setLogSizeBytes(event.getLogSizeBytes());
         entity.setLogCharset(event.getLogCharset());
+        entity.setLogStorageType(event.getLogStorageType());
+        entity.setLogObjectBucket(event.getLogObjectBucket());
+        entity.setLogObjectKey(event.getLogObjectKey());
+        entity.setLogChunkCount(event.getLogChunkCount());
+        entity.setLogStatus(event.getLogStatus());
+        entity.setLogErrorSummary(event.getLogErrorSummary());
         entity.setMessage(truncateRunRecordMessage(resolveMessage(event)));
         runMetricSummaryMapper.applyToEntity(entity, event.getPayload());
         if (entity.getId() == null) {

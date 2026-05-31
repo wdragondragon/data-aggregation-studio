@@ -5,6 +5,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.server.web.filter.JwtAuthenticationFilter;
 import com.jdragon.studio.server.web.filter.StudioRequestContextFilter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,6 +39,8 @@ public class SecurityConfig {
                                 writeJson(response, HttpServletResponse.SC_FORBIDDEN,
                                         objectMapper, Result.error(StudioErrorCode.FORBIDDEN, "Permission denied"))))
                 .authorizeHttpRequests(authorize -> authorize
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC)
+                        .permitAll()
                         .requestMatchers(
                                 "/api/v1/auth/**",
                                 "/openapi/data-services/**",
@@ -69,6 +72,9 @@ public class SecurityConfig {
                            ObjectMapper objectMapper,
                            Result<Void> body) {
         try {
+            if (response.isCommitted()) {
+                return;
+            }
             response.setStatus(status);
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
             response.setContentType("application/json;charset=UTF-8");

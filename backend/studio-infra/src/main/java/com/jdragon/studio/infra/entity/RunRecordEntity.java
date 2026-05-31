@@ -23,7 +23,11 @@ public class RunRecordEntity extends BaseProjectTenantEntity {
     private Long triggeredByUserId;
     private String nodeCode;
     private String status;
+    private String workerGroupCode;
     private String workerCode;
+    private String workerInstanceId;
+    private String workerPodName;
+    private String workerNodeName;
     private String message;
     private LocalDateTime startedAt;
     private LocalDateTime endedAt;
@@ -40,6 +44,12 @@ public class RunRecordEntity extends BaseProjectTenantEntity {
     private String logFilePath;
     private Long logSizeBytes;
     private String logCharset;
+    private String logStorageType;
+    private String logObjectBucket;
+    private String logObjectKey;
+    private Integer logChunkCount;
+    private String logStatus;
+    private String logErrorSummary;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> payloadJson = new LinkedHashMap<String, Object>();

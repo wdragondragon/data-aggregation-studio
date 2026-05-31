@@ -14,11 +14,16 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "worker_lease", autoResultMap = true)
 public class WorkerLeaseEntity extends BaseTenantEntity {
+    private String workerGroupCode;
     private String workerCode;
     private String workerKind;
+    private String instanceId;
     private String hostName;
+    private String podName;
+    private String nodeName;
     private String status;
     private LocalDateTime lastHeartbeatAt;
+    private LocalDateTime leaseExpiresAt;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> capabilitiesJson = new LinkedHashMap<String, Object>();

@@ -12,6 +12,7 @@ import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.service.RunService;
+import com.jdragon.studio.infra.service.RunLogStorageService;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -32,20 +33,27 @@ public class RunLogProxyService {
     private final StudioPlatformProperties properties;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final RunLogStorageService runLogStorageService;
+
     public RunLogProxyService(RunService runService,
                               WorkerLeaseMapper workerLeaseMapper,
                               StudioPlatformProperties properties,
                               RestTemplate restTemplate,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              RunLogStorageService runLogStorageService) {
         this.runService = runService;
         this.workerLeaseMapper = workerLeaseMapper;
         this.properties = properties;
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.runLogStorageService = runLogStorageService;
     }
 
     public RunLogView viewLog(Long runRecordId, Integer pageNo, Integer pageSizeBytes) {
         RunRecordEntity entity = runService.getEntity(runRecordId);
+        if (isObjectStorageLog(entity)) {
+            return runLogStorageService.readObjectLog(entity, pageNo, pageSizeBytes, false);
+        }
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
             return runService.buildHistoricalFallback(entity);
         }
@@ -64,6 +72,9 @@ public class RunLogProxyService {
 
     public RunLogView downloadLog(Long runRecordId) {
         RunRecordEntity entity = runService.getEntity(runRecordId);
+        if (isObjectStorageLog(entity)) {
+            return runLogStorageService.readObjectLog(entity, 1, Integer.MAX_VALUE, true);
+        }
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
             return runService.buildHistoricalFallback(entity);
         }
@@ -121,5 +132,12 @@ public class RunLogProxyService {
                     "Worker API base URL is missing for " + runRecord.getWorkerCode());
         }
         return String.valueOf(apiBaseUrl).trim();
+    }
+
+    private boolean isObjectStorageLog(RunRecordEntity entity) {
+        return entity != null
+                && RunLogStorageService.STORAGE_OBJECT.equalsIgnoreCase(entity.getLogStorageType())
+                && StringUtils.hasText(entity.getLogObjectBucket())
+                && StringUtils.hasText(entity.getLogObjectKey());
     }
 }

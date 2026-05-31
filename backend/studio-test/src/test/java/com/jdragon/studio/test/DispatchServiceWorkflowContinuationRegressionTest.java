@@ -12,6 +12,7 @@ import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.QualityTaskService;
@@ -63,7 +64,8 @@ class DispatchServiceWorkflowContinuationRegressionTest {
             mock(QualityTaskService.class),
             mock(StudioSecurityService.class),
             mock(WorkerAuthorizationService.class),
-            mock(StaleExecutionRecoveryService.class)
+            mock(StaleExecutionRecoveryService.class),
+            mock(ClusterLockService.class)
         );
 
         dispatchService.continueWorkflowRun(successEvent(1000L, 10L, "A"));
@@ -102,7 +104,8 @@ class DispatchServiceWorkflowContinuationRegressionTest {
             mock(QualityTaskService.class),
             mock(StudioSecurityService.class),
             mock(WorkerAuthorizationService.class),
-            mock(StaleExecutionRecoveryService.class)
+            mock(StaleExecutionRecoveryService.class),
+            mock(ClusterLockService.class)
         );
 
         dispatchService.continueWorkflowRun(successEvent(2000L, 10L, "A"));
@@ -142,7 +145,8 @@ class DispatchServiceWorkflowContinuationRegressionTest {
             mock(QualityTaskService.class),
             mock(StudioSecurityService.class),
             mock(WorkerAuthorizationService.class),
-            mock(StaleExecutionRecoveryService.class)
+            mock(StaleExecutionRecoveryService.class),
+            mock(ClusterLockService.class)
         );
 
         dispatchService.continueWorkflowRun(successEvent(3000L, 10L, "B"));
