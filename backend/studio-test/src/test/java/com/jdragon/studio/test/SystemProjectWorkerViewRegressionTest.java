@@ -10,7 +10,9 @@ import com.jdragon.studio.infra.entity.ProjectWorkerBindingEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
+import com.jdragon.studio.infra.mapper.DataServiceDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
@@ -120,6 +122,8 @@ class SystemProjectWorkerViewRegressionTest {
                 mock(CollectionTaskDefinitionMapper.class),
                 mock(WorkflowDefinitionMapper.class),
                 mock(DataDevelopmentScriptMapper.class),
+                mock(DataServiceDefinitionMapper.class),
+                mock(DataIngestionServiceMapper.class),
                 securityService,
                 mock(NotificationService.class)
         );

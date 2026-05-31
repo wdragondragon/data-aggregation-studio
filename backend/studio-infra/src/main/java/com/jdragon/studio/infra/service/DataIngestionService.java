@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DataIngestionPayloadMode;
@@ -117,8 +118,16 @@ public class DataIngestionService {
         String normalizedTargetType = normalizeText(targetType);
         Page<DataIngestionServiceEntity> page = new Page<DataIngestionServiceEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<DataIngestionServiceEntity> queryWrapper = new LambdaQueryWrapper<DataIngestionServiceEntity>()
-                .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId())
-                .eq(DataIngestionServiceEntity::getProjectId, currentProjectId)
+                .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId());
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(DataIngestionServiceEntity::getProjectId, currentProjectId);
+        } else {
+            queryWrapper.and(wrapper -> wrapper.eq(DataIngestionServiceEntity::getProjectId, currentProjectId)
+                    .or()
+                    .in(DataIngestionServiceEntity::getId, sharedIds));
+        }
+        queryWrapper
                 .and(hasText(normalizedKeyword), wrapper -> wrapper.like(DataIngestionServiceEntity::getServiceName, normalizedKeyword)
                         .or()
                         .like(DataIngestionServiceEntity::getServiceCode, normalizedKeyword)
@@ -418,9 +427,24 @@ public class DataIngestionService {
         entity.setServiceId(service.getId());
         entity.setSubscriptionName(subscriptionName);
         entity.setTokenHash(tokenSupport.hashToken(token));
+        entity.setTokenMasked(tokenSupport.maskToken(token));
         entity.setEnabled(Integer.valueOf(1));
         entity.setCreatedBy(securityService.currentUserId());
         subscriptionMapper.insert(entity);
+        return toSubscriptionView(entity, token);
+    }
+
+    @Transactional
+    public DataIngestionSubscriptionView rotateSubscription(Long serviceId, Long subscriptionId) {
+        DataIngestionSubscriptionEntity entity = requireSubscription(serviceId, subscriptionId);
+        String token = tokenSupport.generateSubscriptionToken();
+        entity.setTokenHash(tokenSupport.hashToken(token));
+        entity.setTokenMasked(tokenSupport.maskToken(token));
+        entity.setEnabled(Integer.valueOf(1));
+        entity.setLastUsedAt(null);
+        entity.setRotatedAt(LocalDateTime.now());
+        entity.setRotatedBy(securityService.currentUserId());
+        subscriptionMapper.updateById(entity);
         return toSubscriptionView(entity, token);
     }
 
@@ -537,11 +561,17 @@ public class DataIngestionService {
         view.setServiceId(entity.getServiceId());
         view.setSubscriptionName(entity.getSubscriptionName());
         view.setToken(token);
-        view.setTokenMasked(token == null ? "仅创建时展示" : tokenSupport.maskToken(token));
+        view.setTokenMasked(token == null ? tokenMaskedForList(entity.getTokenMasked()) : tokenSupport.maskToken(token));
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         view.setCreatedBy(entity.getCreatedBy());
         view.setLastUsedAt(entity.getLastUsedAt());
+        view.setRotatedAt(entity.getRotatedAt());
+        view.setRotatedBy(entity.getRotatedBy());
         return view;
+    }
+
+    private String tokenMaskedForList(String tokenMasked) {
+        return hasText(tokenMasked) ? tokenMasked : "历史 Token 不可查看，请重新生成";
     }
 
     private void validateSaveRequest(DataIngestionServiceSaveRequest request) {
@@ -625,7 +655,8 @@ public class DataIngestionService {
         if (!securityService.currentTenantId().equals(entity.getTenantId())) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service not found: " + id);
         }
-        projectResourceAccessService.assertReadable("DATA_INGESTION_SERVICE", entity.getProjectId(), entity.getId(), "Data ingestion service not found: " + id);
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE,
+                entity.getProjectId(), entity.getId(), "Data ingestion service not found: " + id);
         return entity;
     }
 

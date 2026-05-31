@@ -15,4 +15,6 @@ public class DataIngestionSubscriptionView extends BaseDefinition {
     private Boolean enabled;
     private Long createdBy;
     private LocalDateTime lastUsedAt;
+    private LocalDateTime rotatedAt;
+    private Long rotatedBy;
 }

@@ -27,7 +27,9 @@ import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
+import com.jdragon.studio.infra.mapper.DataServiceDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
@@ -95,6 +97,8 @@ public class SystemManagementService {
                                    CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                                    WorkflowDefinitionMapper workflowDefinitionMapper,
                                    DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
+                                   DataServiceDefinitionMapper dataServiceDefinitionMapper,
+                                   DataIngestionServiceMapper dataIngestionServiceMapper,
                                    StudioSecurityService securityService,
                                    NotificationService notificationService) {
         this.tenantMapper = tenantMapper;
@@ -119,6 +123,8 @@ public class SystemManagementService {
                 collectionTaskDefinitionMapper,
                 workflowDefinitionMapper,
                 dataDevelopmentScriptMapper,
+                dataServiceDefinitionMapper,
+                dataIngestionServiceMapper,
                 notificationService);
     }
 

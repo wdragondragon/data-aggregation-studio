@@ -5,14 +5,18 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
+import com.jdragon.studio.infra.entity.DataIngestionServiceEntity;
 import com.jdragon.studio.infra.entity.DataModelEntity;
+import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
+import com.jdragon.studio.infra.mapper.DataServiceDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 
@@ -25,6 +29,8 @@ final class SystemResourceShareSupport {
     private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
+    private final DataServiceDefinitionMapper dataServiceDefinitionMapper;
+    private final DataIngestionServiceMapper dataIngestionServiceMapper;
     private final NotificationService notificationService;
 
     SystemResourceShareSupport(DatasourceMapper datasourceMapper,
@@ -32,12 +38,16 @@ final class SystemResourceShareSupport {
                                CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                                WorkflowDefinitionMapper workflowDefinitionMapper,
                                DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
+                               DataServiceDefinitionMapper dataServiceDefinitionMapper,
+                               DataIngestionServiceMapper dataIngestionServiceMapper,
                                NotificationService notificationService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
+        this.dataServiceDefinitionMapper = dataServiceDefinitionMapper;
+        this.dataIngestionServiceMapper = dataIngestionServiceMapper;
         this.notificationService = notificationService;
     }
 
@@ -70,6 +80,18 @@ final class SystemResourceShareSupport {
             DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(resourceId);
             ensureShareableResource(entity == null ? null : entity.getTenantId(),
                     entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data development script");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
+            DataServiceDefinitionEntity entity = dataServiceDefinitionMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data service");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
+            DataIngestionServiceEntity entity = dataIngestionServiceMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data ingestion service");
             return;
         }
         throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
@@ -132,6 +154,14 @@ final class SystemResourceShareSupport {
             DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(share.getResourceId());
             return entity == null ? "数据开发脚本#" + share.getResourceId() : "数据开发脚本 " + entity.getFileName();
         }
+        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
+            DataServiceDefinitionEntity entity = dataServiceDefinitionMapper.selectById(share.getResourceId());
+            return entity == null ? "数据服务#" + share.getResourceId() : "数据服务 " + entity.getServiceName();
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
+            DataIngestionServiceEntity entity = dataIngestionServiceMapper.selectById(share.getResourceId());
+            return entity == null ? "数据接入服务#" + share.getResourceId() : "数据接入服务 " + entity.getServiceName();
+        }
         return share.getResourceType() + "#" + share.getResourceId();
     }
 
@@ -154,6 +184,12 @@ final class SystemResourceShareSupport {
         }
         if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
             return "/data-development";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
+            return "/data-services";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
+            return "/data-ingestion-services";
         }
         return "/dashboard";
     }

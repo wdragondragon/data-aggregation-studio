@@ -644,9 +644,12 @@ create table if not exists data_ingestion_subscription (
     service_id integer not null,
     subscription_name text not null,
     token_hash text not null,
+    token_masked text,
     enabled integer default 1,
     created_by integer,
-    last_used_at text
+    last_used_at text,
+    rotated_at text,
+    rotated_by integer
 );
 
 create index if not exists idx_data_ingestion_sub_service_enabled

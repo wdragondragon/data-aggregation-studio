@@ -450,6 +450,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           method: "POST",
         });
       },
+      rotateSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<DataServiceSubscriptionView>({
+          url: `/data-services/${id}/subscriptions/${subscriptionId}/rotate`,
+          method: "POST",
+        });
+      },
       enableSubscription(id: EntityId, subscriptionId: EntityId) {
         return request<DataServiceSubscriptionView>({
           url: `/data-services/${id}/subscriptions/${subscriptionId}/enable`,
@@ -507,6 +513,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       disableSubscription(id: EntityId, subscriptionId: EntityId) {
         return request<DataIngestionSubscriptionView>({
           url: `/data-ingestion-services/${id}/subscriptions/${subscriptionId}/disable`,
+          method: "POST",
+        });
+      },
+      rotateSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<DataIngestionSubscriptionView>({
+          url: `/data-ingestion-services/${id}/subscriptions/${subscriptionId}/rotate`,
           method: "POST",
         });
       },

@@ -100,7 +100,10 @@
       </div>
       <div v-if="newToken" class="token-once-card">
         <div class="token-once-card__header">
-          <strong>新 Token 仅展示一次</strong>
+          <div>
+            <strong>新 Token 仅展示一次</strong>
+            <p>请立即记录或复制，关闭弹窗后将只能看到脱敏信息。</p>
+          </div>
           <el-button plain @click="copyNewToken">复制 Token</el-button>
         </div>
         <el-input :model-value="newToken" readonly />
@@ -114,8 +117,10 @@
               <StatusPill :label="row.enabled ? '启用' : '停用'" :tone="row.enabled ? 'success' : 'neutral'" />
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120" align="center" header-align="center">
+          <el-table-column prop="rotatedAt" label="最近轮换" min-width="180" />
+          <el-table-column label="操作" width="190" align="center" header-align="center">
             <template #default="{ row }">
+              <el-button link type="primary" @click="rotateSubscription(row.id)">重新生成</el-button>
               <el-button v-if="row.enabled" link type="warning" @click="disableSubscription(row.id)">停用</el-button>
               <el-button v-else link type="primary" @click="enableSubscription(row.id)">启用</el-button>
             </template>
@@ -239,6 +244,31 @@ async function createSubscription() {
     subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(selectedService.value.id as EntityId);
   } finally {
     creatingSubscription.value = false;
+  }
+}
+
+async function rotateSubscription(subscriptionId?: EntityId) {
+  if (!selectedService.value || !subscriptionId) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "重新生成后旧 Token 会立即失效，外部调用方必须更新请求头中的 X-Data-Ingestion-Token。是否继续？",
+      "重新生成 Token",
+      { type: "warning", confirmButtonText: "重新生成", cancelButtonText: "取消" },
+    );
+    const rotated = await studioApi.dataIngestionServices.rotateSubscription(selectedService.value.id as EntityId, subscriptionId);
+    newToken.value = rotated.token || "";
+    if (!newToken.value) {
+      ElMessage.warning("Token 已重新生成，但接口未返回明文 Token；请联系管理员检查服务端返回。");
+    }
+    subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(selectedService.value.id as EntityId);
+    ElMessage.success("订阅 Token 已重新生成，请立即复制保存");
+  } catch (error) {
+    if (error === "cancel" || error === "close") {
+      return;
+    }
+    ElMessage.error(error instanceof Error ? error.message : "重新生成订阅 Token 失败");
   }
 }
 
@@ -389,6 +419,11 @@ function sourceSummary(row: DataIngestionServiceView) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.token-once-card__header p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 960px) {

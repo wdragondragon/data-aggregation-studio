@@ -119,6 +119,13 @@ public class DataIngestionServiceController {
         return Result.success(dataIngestionService.createSubscription(id, request));
     }
 
+    @Operation(summary = "Rotate data ingestion service subscription token")
+    @PostMapping("/{id}/subscriptions/{subscriptionId}/rotate")
+    public Result<DataIngestionSubscriptionView> rotateSubscription(@PathVariable("id") Long id,
+                                                                    @PathVariable("subscriptionId") Long subscriptionId) {
+        return Result.success(dataIngestionService.rotateSubscription(id, subscriptionId));
+    }
+
     @Operation(summary = "Disable data ingestion service subscription token")
     @PostMapping("/{id}/subscriptions/{subscriptionId}/disable")
     public Result<DataIngestionSubscriptionView> disableSubscription(@PathVariable("id") Long id,

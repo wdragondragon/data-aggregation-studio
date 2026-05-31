@@ -1852,11 +1852,20 @@ public class StudioSchemaUpgradeService {
                     "service_id bigint not null," +
                     "subscription_name varchar(255) not null," +
                     "token_hash varchar(128) not null," +
+                    "token_masked varchar(64)," +
                     "enabled int default 1," +
                     "created_by bigint," +
-                    "last_used_at datetime" +
+                    "last_used_at datetime," +
+                    "rotated_at datetime," +
+                    "rotated_by bigint" +
                     ")");
         }
+        ensureColumn("data_service_subscription", "token_masked",
+                "alter table data_service_subscription add column token_masked varchar(64)");
+        ensureColumn("data_service_subscription", "rotated_at",
+                "alter table data_service_subscription add column rotated_at datetime");
+        ensureColumn("data_service_subscription", "rotated_by",
+                "alter table data_service_subscription add column rotated_by bigint");
         ensureIndex("data_service_subscription", "idx_data_service_subscription_service_enabled",
                 "alter table data_service_subscription add key idx_data_service_subscription_service_enabled (service_id, enabled)");
         ensureIndex("data_service_subscription", "idx_data_service_subscription_token",
@@ -2052,10 +2061,19 @@ public class StudioSchemaUpgradeService {
                 "service_id integer not null," +
                 "subscription_name text not null," +
                 "token_hash text not null," +
+                "token_masked text," +
                 "enabled integer default 1," +
                 "created_by integer," +
-                "last_used_at text" +
+                "last_used_at text," +
+                "rotated_at text," +
+                "rotated_by integer" +
                 ")");
+        ensureColumn("data_service_subscription", "token_masked",
+                "alter table data_service_subscription add column token_masked text");
+        ensureColumn("data_service_subscription", "rotated_at",
+                "alter table data_service_subscription add column rotated_at text");
+        ensureColumn("data_service_subscription", "rotated_by",
+                "alter table data_service_subscription add column rotated_by integer");
         jdbcTemplate.execute("create index if not exists idx_data_service_subscription_service_enabled on data_service_subscription(service_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_data_service_subscription_token on data_service_subscription(token_hash)");
 
@@ -2194,11 +2212,20 @@ public class StudioSchemaUpgradeService {
                     "service_id bigint not null," +
                     "subscription_name varchar(255) not null," +
                     "token_hash varchar(128) not null," +
+                    "token_masked varchar(64)," +
                     "enabled int default 1," +
                     "created_by bigint," +
-                    "last_used_at datetime" +
+                    "last_used_at datetime," +
+                    "rotated_at datetime," +
+                    "rotated_by bigint" +
                     ")");
         }
+        ensureColumn("data_ingestion_subscription", "token_masked",
+                "alter table data_ingestion_subscription add column token_masked varchar(64)");
+        ensureColumn("data_ingestion_subscription", "rotated_at",
+                "alter table data_ingestion_subscription add column rotated_at datetime");
+        ensureColumn("data_ingestion_subscription", "rotated_by",
+                "alter table data_ingestion_subscription add column rotated_by bigint");
         ensureIndex("data_ingestion_subscription", "idx_data_ingestion_sub_service_enabled",
                 "alter table data_ingestion_subscription add key idx_data_ingestion_sub_service_enabled (service_id, enabled)");
         ensureIndex("data_ingestion_subscription", "idx_data_ingestion_sub_token",
@@ -2326,10 +2353,19 @@ public class StudioSchemaUpgradeService {
                 "service_id integer not null," +
                 "subscription_name text not null," +
                 "token_hash text not null," +
+                "token_masked text," +
                 "enabled integer default 1," +
                 "created_by integer," +
-                "last_used_at text" +
+                "last_used_at text," +
+                "rotated_at text," +
+                "rotated_by integer" +
                 ")");
+        ensureColumn("data_ingestion_subscription", "token_masked",
+                "alter table data_ingestion_subscription add column token_masked text");
+        ensureColumn("data_ingestion_subscription", "rotated_at",
+                "alter table data_ingestion_subscription add column rotated_at text");
+        ensureColumn("data_ingestion_subscription", "rotated_by",
+                "alter table data_ingestion_subscription add column rotated_by integer");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_sub_service_enabled on data_ingestion_subscription(service_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_sub_token on data_ingestion_subscription(token_hash)");
 

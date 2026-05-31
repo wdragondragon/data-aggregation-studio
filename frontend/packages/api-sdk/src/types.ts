@@ -462,6 +462,8 @@ export interface DataServiceSubscriptionView extends BaseRecord {
   enabled?: boolean;
   createdBy?: EntityId;
   lastUsedAt?: string;
+  rotatedAt?: string;
+  rotatedBy?: EntityId;
 }
 
 export interface DataIngestionFieldMapping {
@@ -554,6 +556,8 @@ export interface DataIngestionSubscriptionView extends BaseRecord {
   enabled?: boolean;
   createdBy?: EntityId;
   lastUsedAt?: string;
+  rotatedAt?: string;
+  rotatedBy?: EntityId;
 }
 
 export interface DataServiceMetricOptionView {

@@ -119,6 +119,13 @@ public class DataServiceController {
         return Result.success(dataServiceService.createSubscription(id, request));
     }
 
+    @Operation(summary = "Rotate data service subscription token")
+    @PostMapping("/{id}/subscriptions/{subscriptionId}/rotate")
+    public Result<DataServiceSubscriptionView> rotateSubscription(@PathVariable("id") Long id,
+                                                                  @PathVariable("subscriptionId") Long subscriptionId) {
+        return Result.success(dataServiceService.rotateSubscription(id, subscriptionId));
+    }
+
     @Operation(summary = "Disable data service subscription token")
     @PostMapping("/{id}/subscriptions/{subscriptionId}/disable")
     public Result<DataServiceSubscriptionView> disableSubscription(@PathVariable("id") Long id,

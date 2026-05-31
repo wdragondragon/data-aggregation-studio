@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DataServiceRequestMethod;
@@ -113,8 +114,16 @@ public class DataServiceService {
         String normalizedServiceType = dataServiceInvocationSupport.normalizeText(serviceType);
         Page<DataServiceDefinitionEntity> page = new Page<DataServiceDefinitionEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<DataServiceDefinitionEntity> queryWrapper = new LambdaQueryWrapper<DataServiceDefinitionEntity>()
-                .eq(DataServiceDefinitionEntity::getTenantId, securityService.currentTenantId())
-                .eq(DataServiceDefinitionEntity::getProjectId, currentProjectId)
+                .eq(DataServiceDefinitionEntity::getTenantId, securityService.currentTenantId());
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_SERVICE);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(DataServiceDefinitionEntity::getProjectId, currentProjectId);
+        } else {
+            queryWrapper.and(wrapper -> wrapper.eq(DataServiceDefinitionEntity::getProjectId, currentProjectId)
+                    .or()
+                    .in(DataServiceDefinitionEntity::getId, sharedIds));
+        }
+        queryWrapper
                 .and(dataServiceInvocationSupport.hasText(normalizedKeyword), wrapper -> wrapper.like(DataServiceDefinitionEntity::getServiceName, normalizedKeyword)
                         .or()
                         .like(DataServiceDefinitionEntity::getServiceCode, normalizedKeyword)
@@ -437,9 +446,12 @@ public class DataServiceService {
         if (duplicates != null && !duplicates.isEmpty()) {
             DataServiceSubscriptionEntity entity = duplicates.get(0);
             entity.setTokenHash(dataServiceTokenSupport.hashToken(token));
+            entity.setTokenMasked(dataServiceTokenSupport.maskToken(token));
             entity.setEnabled(1);
             entity.setCreatedBy(securityService.currentUserId());
             entity.setLastUsedAt(null);
+            entity.setRotatedAt(LocalDateTime.now());
+            entity.setRotatedBy(securityService.currentUserId());
             subscriptionMapper.updateById(entity);
             for (int index = 1; index < duplicates.size(); index++) {
                 DataServiceSubscriptionEntity duplicate = duplicates.get(index);
@@ -454,9 +466,24 @@ public class DataServiceService {
         entity.setServiceId(service.getId());
         entity.setSubscriptionName(subscriptionName);
         entity.setTokenHash(dataServiceTokenSupport.hashToken(token));
+        entity.setTokenMasked(dataServiceTokenSupport.maskToken(token));
         entity.setEnabled(1);
         entity.setCreatedBy(securityService.currentUserId());
         subscriptionMapper.insert(entity);
+        return toSubscriptionView(entity, token);
+    }
+
+    @Transactional
+    public DataServiceSubscriptionView rotateSubscription(Long serviceId, Long subscriptionId) {
+        DataServiceSubscriptionEntity entity = requireSubscription(serviceId, subscriptionId);
+        String token = dataServiceTokenSupport.generateSubscriptionToken();
+        entity.setTokenHash(dataServiceTokenSupport.hashToken(token));
+        entity.setTokenMasked(dataServiceTokenSupport.maskToken(token));
+        entity.setEnabled(1);
+        entity.setLastUsedAt(null);
+        entity.setRotatedAt(LocalDateTime.now());
+        entity.setRotatedBy(securityService.currentUserId());
+        subscriptionMapper.updateById(entity);
         return toSubscriptionView(entity, token);
     }
 
@@ -646,11 +673,17 @@ public class DataServiceService {
         view.setServiceId(entity.getServiceId());
         view.setSubscriptionName(entity.getSubscriptionName());
         view.setToken(token);
-        view.setTokenMasked(token == null ? "仅创建时展示" : dataServiceTokenSupport.maskToken(token));
+        view.setTokenMasked(token == null ? tokenMaskedForList(entity.getTokenMasked()) : dataServiceTokenSupport.maskToken(token));
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
         view.setCreatedBy(entity.getCreatedBy());
         view.setLastUsedAt(entity.getLastUsedAt());
+        view.setRotatedAt(entity.getRotatedAt());
+        view.setRotatedBy(entity.getRotatedBy());
         return view;
+    }
+
+    private String tokenMaskedForList(String tokenMasked) {
+        return dataServiceInvocationSupport.hasText(tokenMasked) ? tokenMasked : "历史 Token 不可查看，请重新生成";
     }
 
     private void validateSaveRequest(DataServiceSaveRequest request) {
@@ -715,7 +748,8 @@ public class DataServiceService {
         if (!securityService.currentTenantId().equals(entity.getTenantId())) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service not found: " + id);
         }
-        projectResourceAccessService.assertReadable("DATA_SERVICE", entity.getProjectId(), entity.getId(), "Data service not found: " + id);
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_SERVICE,
+                entity.getProjectId(), entity.getId(), "Data service not found: " + id);
         return entity;
     }
 

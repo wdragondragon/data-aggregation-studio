@@ -888,9 +888,12 @@ create table if not exists data_service_subscription (
     service_id bigint not null,
     subscription_name varchar(255) not null,
     token_hash varchar(128) not null,
+    token_masked varchar(64),
     enabled int default 1,
     created_by bigint,
     last_used_at datetime,
+    rotated_at datetime,
+    rotated_by bigint,
     key idx_data_service_subscription_service_enabled (service_id, enabled),
     key idx_data_service_subscription_token (token_hash)
 );
@@ -992,9 +995,12 @@ create table if not exists data_ingestion_subscription (
     service_id bigint not null,
     subscription_name varchar(255) not null,
     token_hash varchar(128) not null,
+    token_masked varchar(64),
     enabled int default 1,
     created_by bigint,
     last_used_at datetime,
+    rotated_at datetime,
+    rotated_by bigint,
     key idx_data_ingestion_sub_service_enabled (service_id, enabled),
     key idx_data_ingestion_sub_token (token_hash)
 );
