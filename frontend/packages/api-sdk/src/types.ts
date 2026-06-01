@@ -1710,6 +1710,7 @@ export interface QueuedTask extends BaseRecord {
   qualityTaskName?: string;
   nodeCode?: string;
   status?: string;
+  workerGroupCode?: string;
   leaseOwner?: string;
   attempts?: number;
   maxRetries?: number;
@@ -1836,6 +1837,153 @@ export interface RunListQuery {
   workflowDefinitionId?: EntityId;
   startTime?: string;
   endTime?: string;
+}
+
+export type OpsCenterHealthStatus = "HEALTHY" | "WARNING" | "CRITICAL";
+
+export interface OpsCenterQueryRequest {
+  startTime?: string;
+  endTime?: string;
+  executionType?: string;
+  status?: string;
+  workerGroupCode?: string;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface OpsCenterOptionsView {
+  executionTypes: string[];
+  statuses: string[];
+  workerGroups: string[];
+}
+
+export interface OpsCenterMetricCardView {
+  key?: string;
+  label?: string;
+  value?: number | string | null;
+  status?: OpsCenterHealthStatus | string;
+  hint?: string;
+}
+
+export interface OpsCenterOverviewView {
+  healthStatus?: OpsCenterHealthStatus | string;
+  healthMessage?: string;
+  startTime?: string;
+  endTime?: string;
+  healthReasons?: string[];
+  metrics?: OpsCenterMetricCardView[];
+  runTotal?: number | string | null;
+  failedRuns?: number | string | null;
+  runningRuns?: number | string | null;
+  slowRuns?: number | string | null;
+  queuedTasks?: number | string | null;
+  runningQueueTasks?: number | string | null;
+  serviceFailures?: number | string | null;
+  serviceSlowCalls?: number | string | null;
+  ingestionFailures?: number | string | null;
+  ingestionSlowCalls?: number | string | null;
+  logFailures?: number | string | null;
+  onlineWorkerInstances?: number | string | null;
+  boundWorkerGroups?: number | string | null;
+}
+
+export interface OpsCenterQueueItemView extends BaseRecord {
+  executionType?: string;
+  workflowRunId?: EntityId;
+  workflowDefinitionId?: EntityId;
+  workflowVersionId?: EntityId;
+  collectionTaskId?: EntityId;
+  qualityTaskId?: EntityId;
+  targetName?: string;
+  nodeCode?: string;
+  status?: string;
+  workerGroupCode?: string;
+  leaseOwner?: string;
+  workerInstanceId?: string;
+  scheduledFireTime?: string;
+  queuedDurationMs?: number | string | null;
+  scheduleDelayMs?: number | string | null;
+  attempts?: number;
+  maxRetries?: number;
+}
+
+export interface OpsCenterRunIncidentView extends BaseRecord {
+  executionType?: string;
+  workflowRunId?: EntityId;
+  workflowDefinitionId?: EntityId;
+  workflowVersionId?: EntityId;
+  collectionTaskId?: EntityId;
+  qualityTaskId?: EntityId;
+  nodeCode?: string;
+  status?: string;
+  message?: string;
+  workerGroupCode?: string;
+  workerCode?: string;
+  workerInstanceId?: string;
+  workerPodName?: string;
+  workerNodeName?: string;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number | string | null;
+  logStorageType?: string;
+  logStatus?: string;
+  logErrorSummary?: string;
+  slow?: boolean;
+  logAbnormal?: boolean;
+}
+
+export interface OpsCenterWorkerGroupView {
+  workerGroupCode?: string;
+  displayStatus?: string;
+  boundToProject?: boolean;
+  enabled?: boolean;
+  onlineInstanceCount?: number;
+  recentInstanceCount?: number;
+  latestHeartbeatAt?: string;
+  latestWorkerCode?: string;
+  latestWorkerInstanceId?: string;
+  latestPodName?: string;
+  latestNodeName?: string;
+  leaseExpiresAt?: string;
+}
+
+export interface OpsCenterServiceEventView {
+  id?: EntityId;
+  serviceId?: EntityId;
+  serviceCode?: string;
+  serviceName?: string;
+  serviceStatus?: string;
+  subscriptionId?: EntityId;
+  subscriptionName?: string;
+  requestMethod?: string;
+  occurredAt?: string;
+  durationMs?: number | string | null;
+  success?: boolean;
+  httpStatus?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  rowCount?: number | string | null;
+  receivedCount?: number | string | null;
+  writtenCount?: number | string | null;
+  failedCount?: number | string | null;
+  slow?: boolean;
+}
+
+export interface OpsCenterLogEventView extends BaseRecord {
+  executionType?: string;
+  workflowRunId?: EntityId;
+  workflowDefinitionId?: EntityId;
+  collectionTaskId?: EntityId;
+  qualityTaskId?: EntityId;
+  nodeCode?: string;
+  status?: string;
+  workerGroupCode?: string;
+  workerInstanceId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  logStorageType?: string;
+  logStatus?: string;
+  logErrorSummary?: string;
 }
 
 export interface RunLogQuery {

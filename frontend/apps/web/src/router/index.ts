@@ -98,6 +98,14 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
       { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN"] },
     ],
   },
+  {
+    key: "operations",
+    labelKey: "routes.web.menuGroups.operations.title",
+    captionKey: "routes.web.menuGroups.operations.caption",
+    items: [
+      { path: "/ops-center", labelKey: "routes.web.opsCenter.title", captionKey: "routes.web.opsCenter.menuCaption", requiresProject: true },
+    ],
+  },
 ];
 
 export function resolveStudioMenus(
@@ -561,6 +569,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.runMetrics.title",
           subtitleKey: "routes.web.runMetrics.subtitle",
+        },
+      },
+      {
+        path: "/ops-center",
+        name: "ops-center",
+        component: () => import("@/views/OpsCenterView.vue"),
+        meta: {
+          titleKey: "routes.web.opsCenter.title",
+          subtitleKey: "routes.web.opsCenter.subtitle",
         },
       },
       {

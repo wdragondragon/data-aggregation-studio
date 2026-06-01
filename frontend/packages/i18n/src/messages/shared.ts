@@ -129,6 +129,10 @@ export const sharedMessages = {
             title: "Data Service",
             caption: "Publish model data as subscription APIs",
           },
+          operations: {
+            title: "Operations Center",
+            caption: "Unified runtime, queue and worker observability",
+          },
           administration: {
             title: "Administration",
             caption: "Platform and permission management",
@@ -293,6 +297,11 @@ export const sharedMessages = {
           subtitle: "Inspect collection task run indicators with trends and TopN rankings.",
           menuCaption: "Run indicators and historical monitoring",
         },
+        opsCenter: {
+          title: "Unified Operations Center",
+          subtitle: "Observe task runs, dispatch queues, workers, services and run logs in one place.",
+          menuCaption: "Runtime health and queue overview",
+        },
         notifications: {
           title: "Notifications",
           subtitle: "Review inbox messages, approvals and task state changes in one place.",
@@ -454,6 +463,10 @@ export const sharedMessages = {
           dataService: {
             title: "数据服务",
             caption: "将模型数据发布为订阅 API",
+          },
+          operations: {
+            title: "运维中心",
+            caption: "统一查看运行、队列与 Worker 状态",
           },
           administration: {
             title: "系统管理",
@@ -618,6 +631,11 @@ export const sharedMessages = {
           title: "指标监控",
           subtitle: "查看采集任务运行指标、趋势和 TopN 排行。",
           menuCaption: "运行指标与历史监控",
+        },
+        opsCenter: {
+          title: "统一运维中心",
+          subtitle: "集中查看任务运行、调度队列、Worker、服务调用与运行日志健康状态。",
+          menuCaption: "运行健康与队列总览",
         },
         notifications: {
           title: "消息中心",

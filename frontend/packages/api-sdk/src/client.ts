@@ -73,6 +73,14 @@ import type {
   NotificationQueryRequest,
   NotificationSnapshotView,
   NotificationView,
+  OpsCenterLogEventView,
+  OpsCenterOptionsView,
+  OpsCenterOverviewView,
+  OpsCenterQueryRequest,
+  OpsCenterQueueItemView,
+  OpsCenterRunIncidentView,
+  OpsCenterServiceEventView,
+  OpsCenterWorkerGroupView,
   PermissionEntity,
   PageResult,
   PluginRuntimeOptionSchemaView,
@@ -1001,6 +1009,32 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       query(payload?: RunMetricDashboardQueryRequest) {
         return request<RunMetricDashboardResponse>({ url: "/run-metrics/query", method: "POST", data: payload });
+      },
+    },
+    opsCenter: {
+      options() {
+        return request<OpsCenterOptionsView>({ url: "/ops-center/options", method: "GET" });
+      },
+      queryOverview(payload?: OpsCenterQueryRequest) {
+        return request<OpsCenterOverviewView>({ url: "/ops-center/overview/query", method: "POST", data: payload });
+      },
+      queryRuns(payload?: OpsCenterQueryRequest) {
+        return request<PageResult<OpsCenterRunIncidentView>>({ url: "/ops-center/runs/query", method: "POST", data: payload });
+      },
+      queryQueue(payload?: OpsCenterQueryRequest) {
+        return request<PageResult<OpsCenterQueueItemView>>({ url: "/ops-center/queue/query", method: "POST", data: payload });
+      },
+      queryWorkers(payload?: OpsCenterQueryRequest) {
+        return request<PageResult<OpsCenterWorkerGroupView>>({ url: "/ops-center/workers/query", method: "POST", data: payload });
+      },
+      queryServiceEvents(payload?: OpsCenterQueryRequest) {
+        return request<PageResult<OpsCenterServiceEventView>>({ url: "/ops-center/service-events/query", method: "POST", data: payload });
+      },
+      queryIngestionEvents(payload?: OpsCenterQueryRequest) {
+        return request<PageResult<OpsCenterServiceEventView>>({ url: "/ops-center/ingestion-events/query", method: "POST", data: payload });
+      },
+      queryLogEvents(payload?: OpsCenterQueryRequest) {
+        return request<PageResult<OpsCenterLogEventView>>({ url: "/ops-center/log-events/query", method: "POST", data: payload });
       },
     },
     notifications: {
