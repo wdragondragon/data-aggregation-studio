@@ -66,6 +66,7 @@ public class DataServiceService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final DataServiceResponseCacheService responseCacheService;
+    private final StudioTransformerSupport transformerSupport;
     private final DataServiceInvocationSupport dataServiceInvocationSupport = new DataServiceInvocationSupport();
     private final DataServiceParamSupport dataServiceParamSupport;
     private final DataServiceAccessLogSupport dataServiceAccessLogSupport;
@@ -85,7 +86,8 @@ public class DataServiceService {
                               DataDevelopmentSqlExecutor sqlExecutor,
                               StudioSecurityService securityService,
                               ProjectResourceAccessService projectResourceAccessService,
-                              DataServiceResponseCacheService responseCacheService) {
+                              DataServiceResponseCacheService responseCacheService,
+                              StudioTransformerSupport transformerSupport) {
         this.definitionMapper = definitionMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.dataSourceService = dataSourceService;
@@ -94,7 +96,8 @@ public class DataServiceService {
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.responseCacheService = responseCacheService;
-        this.dataServiceParamSupport = new DataServiceParamSupport(requestParamMapper, responseParamMapper, publishParamMapper, dataServiceInvocationSupport);
+        this.transformerSupport = transformerSupport;
+        this.dataServiceParamSupport = new DataServiceParamSupport(requestParamMapper, responseParamMapper, publishParamMapper, dataServiceInvocationSupport, transformerSupport);
         this.dataServiceAccessLogSupport = new DataServiceAccessLogSupport(accessLogMapper, accessCounterMapper, dataServiceInvocationSupport);
     }
 
@@ -224,6 +227,7 @@ public class DataServiceService {
         DataServiceResolveFieldsView resolvedFields = resolveFieldsForDefinition(sourceType, datasource, model, normalizedSql);
         List<DataServiceRequestParamView> requestParams = dataServiceParamSupport.normalizeRequestParams(request.getRequestParams());
         List<DataServiceResponseParamView> responseParams = dataServiceParamSupport.normalizeResponseParams(request.getResponseParams(), resolvedFields.getResponseParams());
+        transformerSupport.validateOnlineResponseTransformers(responseParams);
         List<DataServicePublishParamView> publishParams = dataServiceParamSupport.normalizePublishParams(request.getPublishParams(), requestParams, requestMethod);
         dataServiceParamSupport.saveChildren(entity.getId(), requestParams, responseParams, publishParams);
         return get(entity.getId());
@@ -534,8 +538,9 @@ public class DataServiceService {
         SqlExecutionResultView countResult = sqlExecutor.executePreparedQuery(datasource, plan.countSql, plan.countParameters, 1);
         long total = dataServiceInvocationSupport.extractTotal(countResult);
         SqlExecutionResultView dataResult = sqlExecutor.executePreparedQuery(datasource, plan.dataSql, plan.dataParameters, plan.pageSize);
-        Map<String, Object> data = dataServiceInvocationSupport.buildInvokeData(plan.pageNum, plan.pageSize, total, dataResult.getRows());
-        long rowCount = dataResult.getRows() == null ? 0L : dataResult.getRows().size();
+        List<Map<String, Object>> transformedRows = transformerSupport.applyOnlineResponseTransformers(dataResult.getRows(), service.getResponseParams());
+        Map<String, Object> data = dataServiceInvocationSupport.buildInvokeData(plan.pageNum, plan.pageSize, total, transformedRows);
+        long rowCount = transformedRows == null ? 0L : transformedRows.size();
         if (cacheKey != null) {
             responseCacheService.put(service.getId(), cacheKey, dataServiceInvocationSupport.copyResponseData(data), rowCount, CACHE_TTL_MILLIS);
         }
@@ -646,13 +651,15 @@ public class DataServiceService {
         view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
         view.setCustomSql(entity.getCustomSql());
         view.setRequestMethod(dataServiceInvocationSupport.enumValue(DataServiceRequestMethod.class, entity.getRequestMethod(), DataServiceRequestMethod.GET));
-        view.setResponseType(dataServiceInvocationSupport.enumValue(DataServiceResponseType.class, entity.getResponseType(), DataServiceResponseType.JSON));
         view.setEndpointPath(entity.getEndpointPath());
         view.setServiceKey(entity.getServiceKey());
         view.setCacheEnabled(entity.getCacheEnabled() != null && entity.getCacheEnabled() == 1);
         view.setTokenRequired(isTokenRequired(entity));
         view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
         view.setWebserviceEnabled(entity.getWebserviceEnabled() != null && entity.getWebserviceEnabled().intValue() == 1);
+        view.setResponseType(Boolean.TRUE.equals(view.getWebserviceEnabled())
+                ? DataServiceResponseType.XML
+                : dataServiceInvocationSupport.enumValue(DataServiceResponseType.class, entity.getResponseType(), DataServiceResponseType.JSON));
         view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         if (includeChildren) {
             view.setRequestParams(dataServiceParamSupport.loadRequestParams(entity.getId()));
@@ -697,9 +704,11 @@ public class DataServiceService {
         if (serviceType == DataServiceType.SERVICE_PROXY) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Service proxy is not supported in v1");
         }
-        DataServiceResponseType responseType = request.getResponseType() == null ? DataServiceResponseType.JSON : request.getResponseType();
-        if (responseType != DataServiceResponseType.JSON) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only JSON response is supported in v1");
+        DataServiceResponseType responseType = Boolean.TRUE.equals(request.getWebserviceEnabled())
+                ? DataServiceResponseType.XML
+                : request.getResponseType() == null ? DataServiceResponseType.JSON : request.getResponseType();
+        if (!isSupportedResponseType(responseType, Boolean.TRUE.equals(request.getWebserviceEnabled()))) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only JSON REST response is supported; SOAP WebService response must be XML");
         }
         if (request.getDatasourceId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required");
@@ -710,8 +719,8 @@ public class DataServiceService {
         if (view.getServiceType() == DataServiceType.SERVICE_PROXY) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Service proxy is not supported in v1");
         }
-        if (view.getResponseType() != DataServiceResponseType.JSON) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only JSON response is supported in v1");
+        if (!isSupportedResponseType(view.getResponseType(), Boolean.TRUE.equals(view.getWebserviceEnabled()))) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only JSON REST response is supported; SOAP WebService response must be XML");
         }
         if (view.getDatasourceId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required");
@@ -777,6 +786,14 @@ public class DataServiceService {
         if (view == null || !Boolean.TRUE.equals(view.getWebserviceEnabled())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "WebService is not enabled");
         }
+    }
+
+    private boolean isSupportedResponseType(DataServiceResponseType responseType, boolean webserviceEnabled) {
+        DataServiceResponseType safeResponseType = responseType == null ? DataServiceResponseType.JSON : responseType;
+        if (safeResponseType == DataServiceResponseType.JSON) {
+            return true;
+        }
+        return webserviceEnabled && safeResponseType == DataServiceResponseType.XML;
     }
 
     private void validateSoapOperation(WebServiceConfig config, WebServiceSupport.ParsedSoapRequest parsed) {

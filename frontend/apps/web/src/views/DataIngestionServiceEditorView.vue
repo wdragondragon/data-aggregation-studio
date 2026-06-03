@@ -73,6 +73,12 @@
                 <el-option label="SOAP 1.2" value="SOAP_12" />
               </el-select>
             </el-form-item>
+            <el-form-item label="SOAP 请求类型">
+              <el-input model-value="XML" disabled />
+            </el-form-item>
+            <el-form-item label="SOAP 响应类型">
+              <el-input model-value="XML" disabled />
+            </el-form-item>
             <el-form-item label="Namespace">
               <el-input v-model="form.webserviceConfig.namespaceUri" :disabled="!form.webserviceEnabled" placeholder="默认按服务编码生成" />
             </el-form-item>
@@ -259,113 +265,48 @@
       </div>
     </SectionCard>
 
-    <SectionCard v-if="activeStep === 2" title="三、发布调试" description="表单模式按字段映射生成请求样例，原始模式可直接编辑完整请求。">
-      <el-alert
-        v-if="!form.id"
-        class="debug-alert"
-        type="info"
-        show-icon
-        :closable="false"
-        title="请先保存服务，保存后会生成接入地址并允许发送调试请求。"
-      />
-      <div class="debug-toolbar">
-        <el-radio-group v-model="debugMode" size="small">
-          <el-radio-button value="form">表单模式</el-radio-button>
-          <el-radio-button value="raw">原始模式</el-radio-button>
-          <el-radio-button value="soap">SOAP 模式</el-radio-button>
-        </el-radio-group>
-        <div class="debug-actions">
-          <el-button v-if="debugMode === 'form'" plain @click="resetDebugValues">重置样例</el-button>
-          <el-button v-if="debugMode === 'soap'" plain :disabled="!form.id || !form.webserviceEnabled" :loading="webservicePreviewLoading" @click="previewWebService(true)">生成 SOAP 样例</el-button>
-          <el-button type="primary" :loading="debugging || webserviceDebugging" @click="debugCurrentMode">发送调试</el-button>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="usesBothJsonBodyAndForm"
-        class="debug-alert"
-        type="warning"
-        show-icon
-        :closable="false"
-        title="同一个开放 HTTP 请求通常只能选择 JSON Body 或 Form Body；Query 和 Header 可与任一 Body 类型混合。"
-      />
-
-      <template v-if="debugMode === 'form'">
-        <div v-if="debugFieldGroups.length" class="debug-form-layout">
-          <section v-for="group in debugFieldGroups" :key="group.position" class="debug-field-group">
-            <div class="debug-field-group__header">
-              <strong>{{ group.title }}</strong>
-              <span>{{ group.description }}</span>
-            </div>
-            <el-form label-width="160px" class="debug-field-form">
-              <el-form-item v-for="item in group.rows" :key="item.key" :label="item.label" :required="item.required">
-                <el-switch
-                  v-if="item.valueType === 'BOOLEAN'"
-                  :model-value="booleanDebugValue(item.key)"
-                  @update:model-value="setDebugValue(item.key, $event)"
-                />
-                <el-input-number
-                  v-else-if="isNumericType(item.valueType)"
-                  :model-value="numberDebugValue(item.key)"
-                  :controls="false"
-                  class="debug-number-input"
-                  @update:model-value="setDebugValue(item.key, $event)"
-                />
-                <el-input
-                  v-else-if="isJsonLikeType(item.valueType)"
-                  type="textarea"
-                  :rows="3"
-                  :model-value="stringDebugValue(item.key)"
-                  @update:model-value="setDebugValue(item.key, $event)"
-                />
-                <el-input
-                  v-else
-                  :model-value="stringDebugValue(item.key)"
-                  @update:model-value="setDebugValue(item.key, $event)"
-                />
-                <span class="debug-field-meta">写入 {{ item.targetField }}</span>
-              </el-form-item>
-            </el-form>
-          </section>
-        </div>
-        <el-empty v-else description="请先配置字段映射" />
-      </template>
-
-      <template v-else-if="debugMode === 'raw'">
-        <div class="debug-raw-grid">
-          <JsonEditor v-model="debugHeaders" title="Headers" height="180px" />
-          <JsonEditor v-model="debugQuery" title="Query" height="180px" />
-          <JsonEditor v-model="debugForm" title="Form" height="180px" />
-          <JsonEditor v-model="debugBody" title="Body" height="220px" />
-        </div>
-      </template>
-
-      <template v-else>
-        <el-alert
-          v-if="!form.webserviceEnabled"
-          class="debug-alert"
-          type="info"
-          show-icon
-          :closable="false"
-          title="当前接入服务未启用 WebService。启用并保存后可预览 WSDL 和发送 SOAP 调试请求。"
-        />
-        <el-form-item label="WSDL 地址">
-          <el-input :model-value="webserviceWsdlUrl" readonly placeholder="保存并启用 WebService 后生成" />
-        </el-form-item>
-        <div class="soap-debug-grid">
-          <div class="xml-editor">
-            <div class="xml-editor__header">
-              <strong>SOAP Envelope</strong>
-              <span>字段路径按 SOAP Body 转换后的节点读取。</span>
-            </div>
-            <el-input v-model="soapEnvelope" type="textarea" :rows="18" placeholder="点击生成 SOAP 样例后展示 Envelope" />
-          </div>
-          <JsonEditor v-model="soapDebugHeaders" title="HTTP Headers" description="可选，JSON 对象。" height="360px" />
-        </div>
-      </template>
-
-      <JsonEditor v-model="debugResult" title="调试结果" readonly height="180px" />
-    </SectionCard>
+    <OpenServiceDebugPanel
+      v-if="activeStep === 2"
+      v-model:mode="debugMode"
+      :soap-envelope="soapEnvelope"
+      :soap-headers="soapDebugHeaders"
+      title="三、发布调试"
+      description="表单模式按字段映射生成请求样例，原始模式按 Header、Query、Form、Body 分段编辑。"
+      disabled-hint="请先保存服务，保存后会生成接入地址并允许发送调试请求。"
+      :can-debug="Boolean(form.id)"
+      :debugging="debugging || webserviceDebugging"
+      :warning-message="usesBothJsonBodyAndForm ? '同一个开放 HTTP 请求通常只能选择 JSON Body 或 Form Body；Query 和 Header 可与任一 Body 类型混合。' : ''"
+      endpoint-label="接入地址"
+      :endpoint-url="endpointUrl"
+      :form-groups="debugPanelGroups"
+      :raw-sections="debugRawSections"
+      show-curl
+      :curl-command="curlCommand"
+      :show-soap-mode="form.webserviceEnabled"
+      :soap-preview-loading="webservicePreviewLoading"
+      :wsdl-url="webserviceWsdlUrl"
+      soap-description="SOAP Envelope 是完整 XML 请求 Body；字段路径按 SOAP Body 转换后的节点读取，请求会调用数据接入服务 WebService。"
+      :soap-headers-placeholder="'{\n  &quot;X-Data-Ingestion-Token&quot;: &quot;...&quot;\n}'"
+      :soap-envelope-error="soapEnvelopeError"
+      :soap-headers-mode="soapHeadersMode"
+      :soap-headers-error="soapHeadersError"
+      :soap-header-rows="soapHeaderRows"
+      :soap-field-groups="soapFieldGroups"
+      :debug-result="debugResult"
+      @update-field-value="setDebugValue"
+      @update-soap-field-value="setSoapFieldValue"
+      @update-soap-header-value="setSoapHeaderValue"
+      @update:soap-envelope="updateSoapEnvelope"
+      @update:soap-headers="updateSoapHeaders"
+      @update:soap-headers-mode="soapHeadersMode = $event"
+      @update-raw-section="updateDebugRawSection"
+      @reset-form="resetDebugValues"
+      @generate-curl="generateCurlCommand"
+      @copy-curl="copyCurlCommand"
+      @generate-soap-sample="previewWebService(true)"
+      @format-soap-response="formatSoapResponse"
+      @debug="debugCurrentMode"
+    />
 
     <div class="wizard-footer">
       <el-button :disabled="activeStep === 0" @click="previousStep">上一步</el-button>
@@ -400,6 +341,34 @@ import { SectionCard, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import JsonEditor from "@/components/JsonEditor.vue";
 import HttpRequestOptionsEditor from "@/components/HttpRequestOptionsEditor.vue";
+import OpenServiceDebugPanel from "@/components/open-service/OpenServiceDebugPanel.vue";
+import type {
+  DebugControlType,
+  HeaderEditorMode,
+  OpenServiceDebugGroup,
+  OpenServiceRawSection,
+} from "@/components/open-service/OpenServiceDebugPanel.vue";
+import {
+  buildSoapEnvelope,
+  formatXmlText,
+  firstArrayItemOrSelf,
+  parseJsonObjectText,
+  parseJsonValueText,
+  parseSoapEnvelope,
+  prettyJsonValue,
+  readPath as readDebugPath,
+  stringifyDebugValue,
+  type DebugObject,
+  type SoapFieldSpec,
+} from "@/components/open-service/openServiceDebugSupport";
+import {
+  buildBashCurl,
+  buildBashRawBodyCurl,
+  buildCmdCurl,
+  buildCmdRawBodyCurl,
+  copyTextFallback,
+  ensureOpenApiHeaders,
+} from "@/components/data-service/dataServiceEditorSupport";
 import {
   fileWriterDatasourceTypes,
   fileWriterDynamicFunctionFields,
@@ -481,12 +450,36 @@ const debugQuery = ref("{}");
 const debugForm = ref("{}");
 const debugBody = ref("{\n  \"id\": 1,\n  \"name\": \"demo\"\n}");
 const debugResult = ref("{}");
+const curlCommand = ref("");
 const debugValues = reactive<Record<string, DebugFieldValue>>({});
+const restDebugPayload = reactive<{
+  headers: DebugObject;
+  query: DebugObject;
+  form: DebugObject;
+  body: unknown;
+}>({
+  headers: {},
+  query: {},
+  form: {},
+  body: {},
+});
+const debugRawErrors = reactive<Record<"headers" | "query" | "form" | "body", string>>({
+  headers: "",
+  query: "",
+  form: "",
+  body: "",
+});
 const targetDatasourceType = ref("");
 const webserviceCollapseNames = ref<string[]>([]);
 const webservicePreview = ref<WebServicePreviewView | null>(null);
 const soapEnvelope = ref("");
 const soapDebugHeaders = ref("{}");
+const soapEnvelopeError = ref("");
+const soapHeadersMode = ref<HeaderEditorMode>("form");
+const soapHeadersError = ref("");
+const soapHttpHeaders = reactive<DebugObject>({});
+const soapFieldValues = reactive<Record<string, DebugFieldValue>>({});
+const SOAP_TOKEN_FIELD_KEY = "__soap_header_token";
 
 const form = reactive<DataIngestionServiceSaveRequest & {
   webserviceEnabled: boolean;
@@ -528,6 +521,24 @@ const webserviceWsdlUrl = computed(() => {
     || (webserviceEndpointPath.value ? `${webserviceEndpointPath.value}?wsdl` : "");
   return resolveDataServiceOpenUrl(path);
 });
+const webserviceInvokeUrl = computed(() => {
+  if (!webserviceEndpointPath.value) {
+    return "";
+  }
+  return resolveDataServiceOpenUrl(webserviceEndpointPath.value);
+});
+const endpointUrl = computed(() => resolveEndpoint());
+
+const soapHeaderRows = computed(() => [
+  {
+    key: "X-Data-Ingestion-Token",
+    label: "X-Data-Ingestion-Token",
+    meta: "HTTP Header Token；也可使用 SOAP Header token",
+    required: Boolean(form.tokenRequired),
+    controlType: "text" as DebugControlType,
+    value: soapHttpHeaders["X-Data-Ingestion-Token"] as DebugFieldValue,
+  },
+]);
 
 const targetModel = computed(() =>
   models.value.find((item) => String(item.id) === String(form.modelId ?? "")),
@@ -595,6 +606,111 @@ const debugFieldGroups = computed<DebugFieldGroup[]>(() => {
     }));
 });
 
+const debugPanelGroups = computed<OpenServiceDebugGroup[]>(() =>
+  debugFieldGroups.value.map((group) => ({
+    key: group.position,
+    title: group.title,
+    description: group.description,
+    rows: group.rows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      meta: `写入 ${row.targetField}`,
+      required: row.required,
+      controlType: debugControlType(row.valueType),
+      value: debugValues[row.key],
+    })),
+  })),
+);
+
+const soapFieldGroups = computed<OpenServiceDebugGroup[]>(() => {
+  const headerRows = debugFieldGroups.value
+    .filter((group) => group.position === "HEADER")
+    .flatMap((group) => group.rows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      meta: `SOAP Header / 写入 ${row.targetField}`,
+      required: row.required,
+      controlType: debugControlType(row.valueType),
+      value: soapFieldValues[row.key],
+    })));
+  const bodyRows = debugFieldGroups.value
+    .filter((group) => group.position !== "HEADER")
+    .flatMap((group) => group.rows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      meta: `${sourcePositionTitle(group.position)} / 写入 ${row.targetField}`,
+      required: row.required,
+      controlType: debugControlType(row.valueType),
+      value: soapFieldValues[row.key],
+    })));
+  const groups: OpenServiceDebugGroup[] = [
+    {
+      key: "soap-header",
+      title: "SOAP Header",
+      description: "会写入 Envelope Header；Token 可使用 token / dataIngestionToken。",
+      rows: [
+        {
+          key: SOAP_TOKEN_FIELD_KEY,
+          label: "token",
+          meta: "SOAP Header token",
+          required: Boolean(form.tokenRequired),
+          controlType: "text",
+          value: soapFieldValues[SOAP_TOKEN_FIELD_KEY],
+        },
+        ...headerRows,
+      ],
+    },
+  ];
+  if (bodyRows.length) {
+    groups.push({
+      key: "soap-body",
+      title: "SOAP Body 参数",
+      description: "会写入当前 WebService 操作节点；存在 dataNodePath 时会自动包装到对应节点。",
+      rows: bodyRows,
+    });
+  }
+  return groups;
+});
+
+const debugRawSections = computed<OpenServiceRawSection[]>(() => [
+  {
+    key: "headers",
+    title: "Header 参数",
+    description: "HTTP 请求头 JSON 对象。",
+    value: debugHeaders.value,
+    placeholder: "{\n  \"X-Trace-Id\": \"debug-001\"\n}",
+    rows: 5,
+    parseError: debugRawErrors.headers,
+  },
+  {
+    key: "query",
+    title: "Query 参数",
+    description: "拼接在接入地址后的查询参数 JSON 对象。",
+    value: debugQuery.value,
+    placeholder: "{\n  \"source\": \"demo\"\n}",
+    rows: 5,
+    parseError: debugRawErrors.query,
+  },
+  {
+    key: "form",
+    title: "Form Body",
+    description: "以 x-www-form-urlencoded 提交的表单字段 JSON 对象。",
+    value: debugForm.value,
+    placeholder: "{\n  \"name\": \"demo\"\n}",
+    rows: 5,
+    parseError: debugRawErrors.form,
+  },
+  {
+    key: "body",
+    title: "Body 参数",
+    description: "JSON Body 原文；可填写对象、数组或 dataNodePath 指向的数据结构。",
+    value: debugBody.value,
+    placeholder: "{\n  \"id\": 1,\n  \"name\": \"demo\"\n}",
+    rows: 8,
+    parseError: debugRawErrors.body,
+  },
+]);
+
 const usesBothJsonBodyAndForm = computed(() => {
   const positions = new Set(form.fieldMappings.map((mapping) => normalizeSourcePosition(mapping.sourcePosition)));
   return positions.has("BODY") && positions.has("FORM");
@@ -625,13 +741,37 @@ onMounted(async () => {
   if (route.query.debug) {
     activeStep.value = 2;
     syncDebugValues(false);
+    syncRestPayloadFromFields();
+    syncSoapValues(false);
   }
 });
 
 watch(
   () => form.fieldMappings,
-  () => syncDebugValues(false),
+  () => {
+    syncDebugValues(false);
+    syncSoapValues(false);
+    syncRestPayloadFromFields();
+    if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
+      rebuildSoapEnvelopeFromFields();
+    }
+  },
   { deep: true, immediate: true },
+);
+
+watch(
+  () => form.webserviceEnabled,
+  (enabled) => {
+    if (enabled) {
+      debugMode.value = "soap";
+      return;
+    }
+    if (debugMode.value === "soap") {
+      debugMode.value = "form";
+    }
+    soapEnvelope.value = "";
+    soapEnvelopeError.value = "";
+  },
 );
 
 async function loadService(id: EntityId) {
@@ -650,7 +790,6 @@ function applyDetail(detail: DataIngestionServiceView) {
   form.id = detail.id;
   form.serviceCode = detail.serviceCode;
   form.serviceName = detail.serviceName;
-  form.requestFormat = detail.requestFormat ?? "JSON";
   form.payloadMode = detail.payloadMode ?? "OBJECT";
   form.dataNodePath = detail.dataNodePath ?? "";
   form.targetType = detail.targetType ?? "DATABASE";
@@ -660,6 +799,7 @@ function applyDetail(detail: DataIngestionServiceView) {
   form.tokenRequired = detail.tokenRequired !== false;
   form.defaultSubscriptionName = detail.defaultSubscriptionName ?? "";
   form.webserviceEnabled = Boolean(detail.webserviceEnabled);
+  form.requestFormat = form.webserviceEnabled ? "SOAP" : detail.requestFormat ?? "JSON";
   form.webserviceConfig = defaultWebServiceConfig(detail.webserviceConfig, form.webserviceEnabled);
   form.writerOptions = detail.writerOptions ?? {};
   targetDatasourceType.value = detail.datasourceTypeCode ?? resolveDatasourceTypeCode(detail.datasourceId);
@@ -675,6 +815,11 @@ function applyDetail(detail: DataIngestionServiceView) {
   }
   writerOptionsText.value = JSON.stringify(form.writerOptions ?? {}, null, 2);
   syncDebugValues(false);
+  syncRestPayloadFromFields();
+  syncSoapValues(false);
+  if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
+    rebuildSoapEnvelopeFromFields();
+  }
 }
 
 function handleTargetTypeChange() {
@@ -895,6 +1040,11 @@ function nextStep() {
   activeStep.value = Math.min(wizardSteps.length - 1, activeStep.value + 1);
   if (activeStep.value === 2) {
     syncDebugValues(false);
+    syncRestPayloadFromFields();
+    syncSoapValues(false);
+    if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
+      rebuildSoapEnvelopeFromFields();
+    }
   }
 }
 
@@ -913,6 +1063,11 @@ function goStep(index: number) {
   activeStep.value = index;
   if (activeStep.value === 2) {
     syncDebugValues(false);
+    syncRestPayloadFromFields();
+    syncSoapValues(false);
+    if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
+      rebuildSoapEnvelopeFromFields();
+    }
   }
 }
 
@@ -988,6 +1143,7 @@ function normalizeWebServiceConfigForSave(): WebServiceConfig {
 
 function handleWebServiceToggle() {
   form.webserviceConfig = defaultWebServiceConfig(form.webserviceConfig, form.webserviceEnabled);
+  form.requestFormat = form.webserviceEnabled ? "SOAP" : deriveRequestFormat(normalizedMappings());
   webservicePreview.value = null;
 }
 
@@ -1037,14 +1193,7 @@ async function debugService() {
   }
   debugging.value = true;
   try {
-    const payload = debugMode.value === "form"
-      ? buildDebugPayloadFromForm()
-      : {
-          headers: parseJsonObject(debugHeaders.value, "Headers"),
-          query: parseJsonObject(debugQuery.value, "Query"),
-          form: parseJsonObject(debugForm.value, "Form"),
-          body: parseJsonValue(debugBody.value, "Body"),
-        };
+    const payload = buildCurrentRestDebugPayload();
     const result = await studioApi.dataIngestionServices.debug(form.id, payload);
     debugResult.value = JSON.stringify(result, null, 2);
   } catch (error) {
@@ -1064,6 +1213,154 @@ async function debugCurrentMode() {
   await debugService();
 }
 
+function buildCurrentRestDebugPayload() {
+  if (debugMode.value === "form") {
+    return buildDebugPayloadFromForm();
+  }
+  const invalidSection = Object.values(debugRawErrors).find(Boolean);
+  if (invalidSection) {
+    throw new Error(invalidSection);
+  }
+  return {
+    headers: parseJsonObject(debugHeaders.value, "Headers"),
+    query: parseJsonObject(debugQuery.value, "Query"),
+    form: parseJsonObject(debugForm.value, "Form"),
+    body: parseJsonValue(debugBody.value, "Body"),
+  };
+}
+
+function updateDebugRawSection(key: string, value: string) {
+  if (key === "headers") {
+    debugHeaders.value = value;
+    updateRawObjectSection("headers", value, "Headers");
+  } else if (key === "query") {
+    debugQuery.value = value;
+    updateRawObjectSection("query", value, "Query");
+  } else if (key === "form") {
+    debugForm.value = value;
+    updateRawObjectSection("form", value, "Form");
+  } else if (key === "body") {
+    debugBody.value = value;
+    updateRawBodySection(value);
+  }
+  curlCommand.value = "";
+}
+
+async function generateCurlCommand(mode: "bash" | "cmd") {
+  if (debugMode.value === "soap") {
+    await generateSoapCurlCommand(mode);
+    return;
+  }
+  if (!endpointUrl.value) {
+    ElMessage.warning("请先保存服务生成接入地址");
+    return;
+  }
+  try {
+    const payload = buildCurrentRestDebugPayload();
+    const headers = ensureOpenApiHeaders(payload.headers, "X-Data-Ingestion-Token");
+    curlCommand.value = mode === "bash"
+      ? buildBashCurl(endpointUrl.value, "POST", headers, payload.query, payload.body, payload.form)
+      : buildCmdCurl(endpointUrl.value, "POST", headers, payload.query, payload.body, payload.form);
+    ElMessage.success(`已生成 cURL(${mode === "bash" ? "bash" : "cmd"})`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "生成 cURL 失败");
+  }
+}
+
+async function generateSoapCurlCommand(mode: "bash" | "cmd") {
+  if (!form.webserviceEnabled || !webserviceInvokeUrl.value) {
+    ElMessage.warning("请先启用 WebService 并保存服务");
+    return;
+  }
+  try {
+    if (!soapEnvelope.value.trim()) {
+      await previewWebService(true);
+    }
+    if (soapEnvelopeError.value) {
+      throw new Error(soapEnvelopeError.value);
+    }
+    if (!soapEnvelope.value.trim()) {
+      throw new Error("SOAP Envelope 不能为空");
+    }
+    const headers = buildSoapCurlHeaders();
+    const contentType = resolveSoapContentType();
+    curlCommand.value = mode === "bash"
+      ? buildBashRawBodyCurl(webserviceInvokeUrl.value, "POST", headers, soapEnvelope.value, contentType)
+      : buildCmdRawBodyCurl(webserviceInvokeUrl.value, "POST", headers, soapEnvelope.value, contentType);
+    ElMessage.success(`已生成 SOAP cURL(${mode === "bash" ? "bash" : "cmd"})`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "生成 SOAP cURL 失败");
+  }
+}
+
+function buildSoapCurlHeaders() {
+  const headers: Record<string, unknown> = { ...currentSoapHttpHeaders() };
+  setHeaderIfMissing(headers, "Accept", "text/xml");
+  if (form.tokenRequired) {
+    setHeaderIfMissing(headers, "X-Data-Ingestion-Token", "<订阅Token>");
+  }
+  const soapAction = resolveSoapAction();
+  if (soapAction) {
+    setHeaderIfMissing(headers, "SOAPAction", soapAction);
+  }
+  return compactCurlHeaders(headers);
+}
+
+function resolveSoapContentType() {
+  return form.webserviceConfig.soapVersion === "SOAP_12"
+    ? "application/soap+xml;charset=UTF-8"
+    : "text/xml;charset=UTF-8";
+}
+
+function resolveSoapAction() {
+  const configured = form.webserviceConfig.soapAction?.trim();
+  if (configured) {
+    return configured;
+  }
+  const namespaceUri = form.webserviceConfig.namespaceUri?.trim() || webservicePreview.value?.namespaceUri || "";
+  const operationName = form.webserviceConfig.operationName?.trim() || webservicePreview.value?.operationName || form.serviceCode || "";
+  return namespaceUri && operationName ? `${namespaceUri}/${operationName}` : "";
+}
+
+function setHeaderIfMissing(headers: Record<string, unknown>, name: string, value: string) {
+  const existingKey = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase());
+  if (!existingKey || isBlankHeaderValue(headers[existingKey])) {
+    headers[existingKey || name] = value;
+  }
+}
+
+function isBlankHeaderValue(value: unknown) {
+  return value == null || (typeof value === "string" && !value.trim());
+}
+
+function compactCurlHeaders(headers: Record<string, unknown>) {
+  const compacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (!key || isBlankHeaderValue(value)) {
+      continue;
+    }
+    compacted[key] = value;
+  }
+  return compacted;
+}
+
+async function copyCurlCommand() {
+  if (!curlCommand.value) {
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(curlCommand.value);
+    } else {
+      copyTextFallback(curlCommand.value);
+    }
+    ElMessage.success("cURL 已复制");
+  } catch {
+    copyTextFallback(curlCommand.value);
+    ElMessage.success("cURL 已复制");
+  }
+}
+
 async function previewWebService(fillSample = false) {
   if (!form.id) {
     ElMessage.warning("请先保存服务");
@@ -1077,7 +1374,7 @@ async function previewWebService(fillSample = false) {
   try {
     webservicePreview.value = await studioApi.dataIngestionServices.previewWebService(form.id);
     if (fillSample || !soapEnvelope.value.trim()) {
-      soapEnvelope.value = webservicePreview.value.sampleRequest || "";
+      updateSoapEnvelope(webservicePreview.value.sampleRequest || "");
     }
     ElMessage.success("WebService 预览已生成");
   } catch (error) {
@@ -1099,17 +1396,26 @@ async function debugWebService() {
   if (!soapEnvelope.value.trim()) {
     await previewWebService(true);
   }
+  if (soapEnvelopeError.value) {
+    ElMessage.error(soapEnvelopeError.value);
+    return;
+  }
+  if (soapHeadersError.value) {
+    ElMessage.error(soapHeadersError.value);
+    return;
+  }
   if (!soapEnvelope.value.trim()) {
     return;
   }
   webserviceDebugging.value = true;
   try {
+    const headers = currentSoapHttpHeaders();
     const result = await studioApi.dataIngestionServices.debugWebService(form.id, {
       soapEnvelope: soapEnvelope.value,
       soapVersion: form.webserviceConfig.soapVersion || "SOAP_11",
-      headers: parseJsonObject(soapDebugHeaders.value, "HTTP Headers"),
+      headers,
     });
-    debugResult.value = JSON.stringify(result, null, 2);
+    debugResult.value = result.responseEnvelope || JSON.stringify(result, null, 2);
   } catch (error) {
     if (error instanceof Error) {
       ElMessage.error(error.message);
@@ -1135,6 +1441,9 @@ function normalizedMappings() {
 }
 
 function deriveRequestFormat(mappings: DataIngestionFieldMapping[]): DataIngestionRequestFormat {
+  if (form.webserviceEnabled) {
+    return "SOAP";
+  }
   if (mappings.some((mapping) => normalizeSourcePosition(mapping.sourcePosition) === "BODY")) {
     return "JSON";
   }
@@ -1159,6 +1468,10 @@ function syncDebugValues(force: boolean) {
 
 function resetDebugValues() {
   syncDebugValues(true);
+  syncRestPayloadFromFields();
+  syncSoapValues(true);
+  rebuildSoapEnvelopeFromFields();
+  curlCommand.value = "";
 }
 
 function debugFieldKey(mapping: DataIngestionFieldMapping, index: number) {
@@ -1255,6 +1568,102 @@ function wrapBodyPayload(row: Record<string, unknown>) {
   return root;
 }
 
+function wrapSoapBodyPayload(row: Record<string, unknown>) {
+  const path = form.dataNodePath?.trim();
+  if (!path) {
+    return row;
+  }
+  const root: Record<string, unknown> = {};
+  assignPath(root, path, row);
+  return root;
+}
+
+function syncRestPayloadFromFields() {
+  try {
+    const payload = buildDebugPayloadFromForm();
+    replaceDebugObject(restDebugPayload.headers, payload.headers);
+    replaceDebugObject(restDebugPayload.query, payload.query);
+    replaceDebugObject(restDebugPayload.form, payload.form);
+    restDebugPayload.body = payload.body;
+    syncRestRawTextFromPayload();
+    clearRestRawErrors();
+    curlCommand.value = "";
+  } catch {
+    // 保留用户正在填写的非法表单值，发送调试时再提示。
+  }
+}
+
+function syncRestRawTextFromPayload() {
+  debugHeaders.value = prettyJsonValue(restDebugPayload.headers);
+  debugQuery.value = prettyJsonValue(restDebugPayload.query);
+  debugForm.value = prettyJsonValue(restDebugPayload.form);
+  debugBody.value = prettyJsonValue(restDebugPayload.body);
+}
+
+function updateRawObjectSection(key: "headers" | "query" | "form", value: string, label: string) {
+  const parsed = parseJsonObjectText(value, label);
+  if (!parsed.ok) {
+    debugRawErrors[key] = parsed.error;
+    return;
+  }
+  debugRawErrors[key] = "";
+  replaceDebugObject(restDebugPayload[key], parsed.value);
+  syncDebugValuesFromRestPayload();
+}
+
+function updateRawBodySection(value: string) {
+  const parsed = parseJsonValueText(value, "Body");
+  if (!parsed.ok) {
+    debugRawErrors.body = parsed.error;
+    return;
+  }
+  debugRawErrors.body = "";
+  restDebugPayload.body = parsed.value;
+  syncDebugValuesFromRestPayload();
+}
+
+function syncDebugValuesFromRestPayload() {
+  const bodySource = resolveBodySourceRow(restDebugPayload.body);
+  form.fieldMappings.forEach((mapping, index) => {
+    if (!mapping.targetField?.trim()) {
+      return;
+    }
+    const normalized: DataIngestionFieldMapping = {
+      ...mapping,
+      sourcePosition: normalizeSourcePosition(mapping.sourcePosition),
+      sourceField: mapping.sourceField?.trim() || mapping.targetField.trim(),
+      targetField: mapping.targetField.trim(),
+      valueType: mapping.valueType ?? "STRING",
+    };
+    const sourceField = normalized.sourceField?.trim() || normalized.targetField;
+    const position = normalizeSourcePosition(normalized.sourcePosition);
+    const source = position === "HEADER"
+      ? restDebugPayload.headers
+      : position === "QUERY"
+        ? restDebugPayload.query
+        : position === "FORM"
+          ? restDebugPayload.form
+          : bodySource;
+    const value = position === "BODY" ? readDebugPath(source, sourceField) : source[sourceField];
+    if (value !== undefined) {
+      debugValues[debugFieldKey(mapping, index)] = toDebugFieldValue(value);
+    }
+  });
+}
+
+function resolveBodySourceRow(body: unknown) {
+  const path = form.dataNodePath?.trim();
+  const payload = path ? readDebugPath(body, path) : body;
+  return firstArrayItemOrSelf(payload) ?? {};
+}
+
+function clearRestRawErrors() {
+  debugRawErrors.headers = "";
+  debugRawErrors.query = "";
+  debugRawErrors.form = "";
+  debugRawErrors.body = "";
+}
+
 function assignPath(target: Record<string, unknown>, path: string, value: unknown) {
   const segments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
   if (!segments.length) {
@@ -1304,20 +1713,164 @@ function isBlankDebugValue(value: DebugFieldValue) {
 
 function setDebugValue(key: string, value: DebugFieldValue) {
   debugValues[key] = value;
+  syncRestPayloadFromFields();
+  curlCommand.value = "";
 }
 
-function stringDebugValue(key: string) {
-  const value = debugValues[key];
-  return value == null ? "" : String(value);
+function setSoapFieldValue(key: string, value: DebugFieldValue) {
+  soapFieldValues[key] = value;
+  rebuildSoapEnvelopeFromFields();
 }
 
-function numberDebugValue(key: string) {
-  const value = debugValues[key];
-  return typeof value === "number" ? value : null;
+function setSoapHeaderValue(key: string, value: DebugFieldValue) {
+  soapHttpHeaders[key] = value ?? "";
+  syncSoapHeadersRawFromPayload();
+  soapHeadersError.value = "";
 }
 
-function booleanDebugValue(key: string) {
-  return Boolean(debugValues[key]);
+function updateSoapHeaders(value: string) {
+  soapDebugHeaders.value = value;
+  const parsed = parseJsonObjectText(value, "HTTP Headers");
+  if (!parsed.ok) {
+    soapHeadersError.value = parsed.error;
+    return;
+  }
+  soapHeadersError.value = "";
+  replaceDebugObject(soapHttpHeaders, parsed.value);
+}
+
+function formatSoapResponse() {
+  const formatted = formatXmlText(debugResult.value === "{}" ? "" : debugResult.value, "SOAP 响应");
+  if (!formatted.ok) {
+    ElMessage.error(formatted.error);
+    return;
+  }
+  debugResult.value = formatted.value || "{}";
+}
+
+function updateSoapEnvelope(value: string) {
+  soapEnvelope.value = value;
+  const parsed = parseSoapEnvelope(value);
+  if (!parsed.ok) {
+    soapEnvelopeError.value = parsed.error;
+    return;
+  }
+  soapEnvelopeError.value = "";
+  if (parsed.tokenValue != null) {
+    soapFieldValues[SOAP_TOKEN_FIELD_KEY] = parsed.tokenValue;
+  }
+  syncSoapValuesFromEnvelope(parsed.values, parsed.headerValues);
+}
+
+function syncSoapValues(force: boolean) {
+  if (force || !(SOAP_TOKEN_FIELD_KEY in soapFieldValues)) {
+    soapFieldValues[SOAP_TOKEN_FIELD_KEY] = "your-token";
+  }
+  form.fieldMappings.forEach((mapping, index) => {
+    const key = debugFieldKey(mapping, index);
+    if (force || !(key in soapFieldValues)) {
+      soapFieldValues[key] = initialDebugValue(mapping);
+    }
+  });
+  if (!Object.keys(soapHttpHeaders).length) {
+    soapHttpHeaders["X-Data-Ingestion-Token"] = "";
+    syncSoapHeadersRawFromPayload();
+  }
+}
+
+function syncSoapValuesFromEnvelope(bodyValues: DebugObject, headerValues: DebugObject) {
+  const bodySource = resolveBodySourceRow(bodyValues);
+  form.fieldMappings.forEach((mapping, index) => {
+    if (!mapping.targetField?.trim()) {
+      return;
+    }
+    const sourceField = mapping.sourceField?.trim() || mapping.targetField.trim();
+    const position = normalizeSourcePosition(mapping.sourcePosition);
+    const source = position === "HEADER" ? headerValues : bodySource;
+    const value = position === "BODY" ? readDebugPath(source, sourceField) : source[sourceField];
+    if (value !== undefined) {
+      soapFieldValues[debugFieldKey(mapping, index)] = toDebugFieldValue(value);
+    }
+  });
+}
+
+function rebuildSoapEnvelopeFromFields() {
+  syncSoapValues(false);
+  soapEnvelope.value = buildSoapEnvelope({
+    soapVersion: form.webserviceConfig.soapVersion || "SOAP_11",
+    namespaceUri: form.webserviceConfig.namespaceUri || webservicePreview.value?.namespaceUri || undefined,
+    requestRootName: form.webserviceConfig.requestRootName
+      || form.webserviceConfig.operationName
+      || webservicePreview.value?.operationName
+      || form.serviceCode
+      || "request",
+    tokenElementName: "token",
+    tokenValue: stringifyDebugValue(soapFieldValues[SOAP_TOKEN_FIELD_KEY] || "your-token"),
+    headerFields: buildSoapFieldSpecs("HEADER"),
+    bodyPayload: buildSoapBodyPayload(),
+  });
+  soapEnvelopeError.value = "";
+}
+
+function buildSoapFieldSpecs(target: "HEADER" | "BODY"): SoapFieldSpec[] {
+  return form.fieldMappings
+    .map((mapping, index) => ({ mapping, index }))
+    .filter(({ mapping }) => {
+      if (!mapping.targetField?.trim()) {
+        return false;
+      }
+      const position = normalizeSourcePosition(mapping.sourcePosition);
+      return target === "HEADER" ? position === "HEADER" : position !== "HEADER";
+    })
+    .map(({ mapping, index }) => {
+      const sourceField = mapping.sourceField?.trim() || mapping.targetField.trim();
+      return {
+        key: debugFieldKey(mapping, index),
+        elementName: sourceField,
+        value: soapFieldValues[debugFieldKey(mapping, index)] ?? initialDebugValue(mapping),
+      };
+    });
+}
+
+function buildSoapBodyPayload() {
+  const row: DebugObject = {};
+  buildSoapFieldSpecs("BODY").forEach((field) => {
+    assignPath(row, field.elementName, field.value);
+  });
+  return wrapSoapBodyPayload(row);
+}
+
+function syncSoapHeadersRawFromPayload() {
+  soapDebugHeaders.value = prettyJsonValue(soapHttpHeaders);
+}
+
+function currentSoapHttpHeaders() {
+  if (soapHeadersError.value) {
+    throw new Error(soapHeadersError.value);
+  }
+  if (soapHeadersMode.value === "raw") {
+    const parsed = parseJsonObjectText(soapDebugHeaders.value, "HTTP Headers");
+    if (!parsed.ok) {
+      soapHeadersError.value = parsed.error;
+      throw new Error(parsed.error);
+    }
+    replaceDebugObject(soapHttpHeaders, parsed.value);
+  }
+  return { ...soapHttpHeaders };
+}
+
+function toDebugFieldValue(value: unknown): DebugFieldValue {
+  if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value as DebugFieldValue;
+  }
+  return stringifyDebugValue(value);
+}
+
+function replaceDebugObject(target: DebugObject, source?: Record<string, unknown>) {
+  Object.keys(target).forEach((key) => {
+    delete target[key];
+  });
+  Object.assign(target, source ?? {});
 }
 
 function isNumericType(valueType?: FieldValueType) {
@@ -1326,6 +1879,19 @@ function isNumericType(valueType?: FieldValueType) {
 
 function isJsonLikeType(valueType?: FieldValueType) {
   return valueType === "ARRAY" || valueType === "OBJECT" || valueType === "JSON";
+}
+
+function debugControlType(valueType?: FieldValueType): DebugControlType {
+  if (valueType === "BOOLEAN") {
+    return "boolean";
+  }
+  if (isNumericType(valueType)) {
+    return "number";
+  }
+  if (isJsonLikeType(valueType)) {
+    return "textarea";
+  }
+  return "text";
 }
 
 function sourcePositionTitle(position: DataIngestionSourcePosition) {
@@ -1357,26 +1923,19 @@ function sourcePositionDescription(position: DataIngestionSourcePosition) {
 }
 
 function parseJsonObject(value: string, label: string) {
-  const parsed = parseJsonValue(value, label);
-  if (parsed == null) {
-    return {};
+  const parsed = parseJsonObjectText(value, label);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
   }
-  if (typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`${label} 必须是 JSON 对象`);
-  }
-  return parsed as Record<string, unknown>;
+  return parsed.value;
 }
 
 function parseJsonValue(value: string, label: string) {
-  const text = value.trim();
-  if (!text) {
-    return {};
+  const parsed = parseJsonValueText(value, label);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
   }
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`${label} 不是合法 JSON`);
-  }
+  return parsed.value;
 }
 
 function resolveEndpoint() {
@@ -1473,8 +2032,7 @@ function resolveEndpoint() {
 }
 
 .studio-toolbar-actions,
-.mapping-actions,
-.debug-actions {
+.mapping-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1536,117 +2094,19 @@ function resolveEndpoint() {
   color: var(--studio-text);
 }
 
-.xml-textarea :deep(.el-textarea__inner),
-.xml-editor :deep(.el-textarea__inner) {
+.xml-textarea :deep(.el-textarea__inner) {
   font-family: "Cascadia Code", "Consolas", monospace;
   font-size: 13px;
   line-height: 1.6;
 }
 
-.xml-editor {
-  display: grid;
-  gap: 8px;
-}
-
-.xml-editor__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--studio-text);
-}
-
-.xml-editor__header span {
-  color: var(--studio-text-soft);
-  font-size: 12px;
-}
-
-.debug-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.debug-alert {
-  margin-bottom: 14px;
-}
-
-.debug-form-layout {
-  display: grid;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.debug-field-group {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  background: var(--el-fill-color-extra-light);
-}
-
-.debug-field-group__header {
-  display: grid;
-  gap: 4px;
-}
-
-.debug-field-group__header span,
-.debug-field-meta {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.debug-field-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
-  column-gap: 18px;
-}
-
-.debug-field-form :deep(.el-form-item) {
-  margin-bottom: 12px;
-}
-
-.debug-field-form :deep(.el-form-item__content) {
-  align-items: center;
-  gap: 8px;
-}
-
-.debug-number-input {
-  width: 100%;
-}
-
-.debug-raw-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.soap-debug-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
-  gap: 14px;
-  margin-bottom: 14px;
-  align-items: start;
-}
-
 @media (max-width: 960px) {
-  .ingestion-form-grid,
-  .debug-field-form,
-  .debug-raw-grid,
-  .soap-debug-grid {
+  .ingestion-form-grid {
     grid-template-columns: 1fr;
   }
 
   .service-wizard {
     grid-template-columns: 1fr;
-  }
-
-  .debug-toolbar {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
 </style>

@@ -316,6 +316,7 @@ export interface DataServiceResponseParam {
   fieldName: string;
   exampleValue?: string;
   description?: string;
+  transformers?: TransformerBinding[];
 }
 
 export interface DataServicePublishParam {

@@ -99,6 +99,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_model_lineage_relation", "manual_maintainer_name_snapshot", "alter table data_model_lineage_relation add column manual_maintainer_name_snapshot varchar(255)");
         ensureQualityTablesMysql();
         ensureDataServiceTablesMysql();
+        ensureColumn("data_service_response_param", "transformers_json", "alter table data_service_response_param add column transformers_json json");
         ensureDataIngestionTablesMysql();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesMysql();
 
@@ -695,6 +696,7 @@ public class StudioSchemaUpgradeService {
         ensureClusterLockTableSqlite();
         ensureQualityTablesSqlite();
         ensureDataServiceTablesSqlite();
+        ensureColumn("data_service_response_param", "transformers_json", "alter table data_service_response_param add column transformers_json text");
         ensureDataIngestionTablesSqlite();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesSqlite();
 
@@ -1814,7 +1816,8 @@ public class StudioSchemaUpgradeService {
                     "param_name varchar(128) not null," +
                     "field_name varchar(255) not null," +
                     "example_value varchar(1000)," +
-                    "description varchar(1000)" +
+                    "description varchar(1000)," +
+                    "transformers_json json" +
                     ")");
         }
         ensureIndex("data_service_response_param", "idx_data_service_response_service_order",
@@ -2029,7 +2032,8 @@ public class StudioSchemaUpgradeService {
                 "param_name text not null," +
                 "field_name text not null," +
                 "example_value text," +
-                "description text" +
+                "description text," +
+                "transformers_json text" +
                 ")");
         jdbcTemplate.execute("create index if not exists idx_data_service_response_service_order on data_service_response_param(service_id, sort_order)");
 

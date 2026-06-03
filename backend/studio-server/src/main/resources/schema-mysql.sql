@@ -857,6 +857,7 @@ create table if not exists data_service_response_param (
     field_name varchar(255) not null,
     example_value varchar(1000),
     description varchar(1000),
+    transformers_json json,
     key idx_data_service_response_service_order (service_id, sort_order)
 );
 

@@ -1,12 +1,12 @@
 package com.jdragon.studio.infra.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
-import com.jdragon.studio.dto.model.TransformerBinding;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,6 +19,16 @@ import java.util.Set;
 final class CollectionTaskFieldMappingResolver {
 
     static final String FILE_FIELD_SOURCE_KIND_TAG = "TAG";
+
+    private final StudioTransformerSupport transformerSupport;
+
+    CollectionTaskFieldMappingResolver() {
+        this(new StudioTransformerSupport(new ObjectMapper()));
+    }
+
+    CollectionTaskFieldMappingResolver(StudioTransformerSupport transformerSupport) {
+        this.transformerSupport = transformerSupport;
+    }
 
     List<Map<String, Object>> resolveColumnEntries(DataModelDefinition model,
                                                    List<String> fields,
@@ -145,32 +155,7 @@ final class CollectionTaskFieldMappingResolver {
     }
 
     List<Map<String, Object>> buildTransformers(List<FieldMappingDefinition> mappings, List<String> targetFields) {
-        List<Map<String, Object>> transformers = new ArrayList<Map<String, Object>>();
-        if (mappings == null || targetFields == null) {
-            return transformers;
-        }
-        for (FieldMappingDefinition mapping : mappings) {
-            if (mapping.getTargetField() == null || mapping.getTransformers() == null || mapping.getTransformers().isEmpty()) {
-                continue;
-            }
-            int columnIndex = targetFields.indexOf(mapping.getTargetField());
-            if (columnIndex < 0) {
-                continue;
-            }
-            for (TransformerBinding transformer : mapping.getTransformers()) {
-                if (transformer.getTransformerCode() == null || transformer.getTransformerCode().trim().isEmpty()) {
-                    continue;
-                }
-                Map<String, Object> item = new LinkedHashMap<String, Object>();
-                item.put("name", transformer.getTransformerCode());
-                Map<String, Object> parameters = new LinkedHashMap<String, Object>();
-                parameters.put("columnIndex", Integer.valueOf(columnIndex));
-                parameters.put("paras", extractRuntimeParas(transformer));
-                item.put("parameter", parameters);
-                transformers.add(item);
-            }
-        }
-        return transformers;
+        return transformerSupport.buildAggregationTransformers(mappings, targetFields);
     }
 
     List<String> resolveTargetFields(List<FieldMappingDefinition> fieldMappings, DataModelDefinition targetModel) {
@@ -412,24 +397,6 @@ final class CollectionTaskFieldMappingResolver {
     private String resolveHttpColumnType(Map<String, Object> metadata) {
         Object type = metadata == null ? null : metadata.get("type");
         return isBlankValue(type) ? "STRING" : String.valueOf(type).trim();
-    }
-
-    private List<Object> extractRuntimeParas(TransformerBinding transformer) {
-        if (transformer == null || transformer.getParameters() == null || transformer.getParameters().isEmpty()) {
-            return Collections.emptyList();
-        }
-        Object paras = transformer.getParameters().get("paras");
-        if (paras instanceof List<?>) {
-            return new ArrayList<Object>((List<?>) paras);
-        }
-        List<Object> fallback = new ArrayList<Object>();
-        for (Map.Entry<String, Object> entry : transformer.getParameters().entrySet()) {
-            if ("columnIndex".equals(entry.getKey()) || "paras".equals(entry.getKey())) {
-                continue;
-            }
-            fallback.add(entry.getValue());
-        }
-        return fallback;
     }
 
     private boolean isBlankValue(Object value) {

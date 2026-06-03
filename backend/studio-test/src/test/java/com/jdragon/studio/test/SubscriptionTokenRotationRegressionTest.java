@@ -31,6 +31,7 @@ import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
+import com.jdragon.studio.infra.service.StudioTransformerSupport;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -159,7 +160,8 @@ class SubscriptionTokenRotationRegressionTest {
                 mock(DataDevelopmentSqlExecutor.class),
                 securityService,
                 accessService,
-                mock(DataServiceResponseCacheService.class)
+                mock(DataServiceResponseCacheService.class),
+                new StudioTransformerSupport(new ObjectMapper())
         );
     }
 

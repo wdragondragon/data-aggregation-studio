@@ -136,40 +136,91 @@ export function parseJson(value: string, label = "调试参数") {
   return parsed as Record<string, unknown>;
 }
 
-export function ensureOpenApiHeaders(headers: Record<string, unknown>) {
+export function ensureOpenApiHeaders(headers: Record<string, unknown>, tokenHeaderName = "X-Data-Service-Token") {
   const result: Record<string, unknown> = { ...headers };
   const hasAccept = Object.keys(result).some((key) => key.toLowerCase() === "accept");
-  const hasToken = Object.keys(result).some((key) => key.toLowerCase() === "x-data-service-token");
+  const normalizedTokenHeaderName = tokenHeaderName.toLowerCase();
+  const hasToken = Object.keys(result).some((key) => key.toLowerCase() === normalizedTokenHeaderName);
   if (!hasAccept) {
     result.Accept = "application/json";
   }
   if (!hasToken) {
-    result["X-Data-Service-Token"] = "<订阅Token>";
+    result[tokenHeaderName] = "<订阅Token>";
   }
   return result;
 }
 
-export function buildBashCurl(url: string, method: string, headers: Record<string, unknown>, query: Record<string, unknown>, body: Record<string, unknown>) {
+export function buildBashCurl(
+  url: string,
+  method: string,
+  headers: Record<string, unknown>,
+  query: Record<string, unknown>,
+  body: unknown,
+  form?: Record<string, unknown>,
+) {
   const normalizedMethod = normalizeRequestMethod(method);
-  const bodyText = normalizeBodyForCurl(normalizedMethod, body);
+  const requestBody = normalizeBodyForCurl(body, form);
   const lines = [`curl -X ${normalizedMethod} ${quoteBash(appendQueryParams(url, query))}`];
-  for (const [key, value] of Object.entries(normalizeHeadersForCurl(headers, Boolean(bodyText)))) {
+  for (const [key, value] of Object.entries(normalizeHeadersForCurl(headers, requestBody.contentType))) {
     lines.push(`  -H ${quoteBash(`${key}: ${String(value)}`)}`);
   }
-  if (bodyText) {
+  if (requestBody.text) {
+    lines.push(`  --data-raw ${quoteBash(requestBody.text)}`);
+  }
+  return lines.join(" \\\n");
+}
+
+export function buildCmdCurl(
+  url: string,
+  method: string,
+  headers: Record<string, unknown>,
+  query: Record<string, unknown>,
+  body: unknown,
+  form?: Record<string, unknown>,
+) {
+  const normalizedMethod = normalizeRequestMethod(method);
+  const requestBody = normalizeBodyForCurl(body, form);
+  const lines = [`curl -X ${normalizedMethod} ${quoteCmd(appendQueryParams(url, query))}`];
+  for (const [key, value] of Object.entries(normalizeHeadersForCurl(headers, requestBody.contentType))) {
+    lines.push(`  -H ${quoteCmd(`${key}: ${String(value)}`)}`);
+  }
+  if (requestBody.text) {
+    lines.push(`  --data-raw ${quoteCmd(requestBody.text)}`);
+  }
+  return lines.join(" ^\n");
+}
+
+export function buildBashRawBodyCurl(
+  url: string,
+  method: string,
+  headers: Record<string, unknown>,
+  bodyText: string,
+  contentType: string,
+) {
+  const normalizedMethod = normalizeRequestMethod(method);
+  const lines = [`curl -X ${normalizedMethod} ${quoteBash(normalizeCurlUrl(url))}`];
+  for (const [key, value] of Object.entries(normalizeHeadersForCurl(headers, contentType))) {
+    lines.push(`  -H ${quoteBash(`${key}: ${String(value)}`)}`);
+  }
+  if (bodyText.trim()) {
     lines.push(`  --data-raw ${quoteBash(bodyText)}`);
   }
   return lines.join(" \\\n");
 }
 
-export function buildCmdCurl(url: string, method: string, headers: Record<string, unknown>, query: Record<string, unknown>, body: Record<string, unknown>) {
+export function buildCmdRawBodyCurl(
+  url: string,
+  method: string,
+  headers: Record<string, unknown>,
+  bodyText: string,
+  contentType: string,
+) {
   const normalizedMethod = normalizeRequestMethod(method);
-  const bodyText = normalizeBodyForCurl(normalizedMethod, body);
-  const lines = [`curl -X ${normalizedMethod} ${quoteCmd(appendQueryParams(url, query))}`];
-  for (const [key, value] of Object.entries(normalizeHeadersForCurl(headers, Boolean(bodyText)))) {
+  const lines = [`curl -X ${normalizedMethod} ${quoteCmd(normalizeCurlUrl(url))}`];
+  for (const [key, value] of Object.entries(normalizeHeadersForCurl(headers, contentType))) {
     lines.push(`  -H ${quoteCmd(`${key}: ${String(value)}`)}`);
   }
-  if (bodyText) {
+  if (bodyText.trim()) {
     lines.push(`  --data-raw ${quoteCmd(bodyText)}`);
   }
   return lines.join(" ^\n");
@@ -191,7 +242,7 @@ function normalizeRequestMethod(method?: string) {
   return String(method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
 }
 
-function normalizeHeadersForCurl(headers: Record<string, unknown>, hasBody: boolean) {
+function normalizeHeadersForCurl(headers: Record<string, unknown>, contentType: string) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (!key || value == null) {
@@ -199,21 +250,64 @@ function normalizeHeadersForCurl(headers: Record<string, unknown>, hasBody: bool
     }
     result[key] = value;
   }
-  if (hasBody && !Object.keys(result).some((key) => key.toLowerCase() === "content-type")) {
-    result["Content-Type"] = "application/json";
+  if (contentType && !Object.keys(result).some((key) => key.toLowerCase() === "content-type")) {
+    result["Content-Type"] = contentType;
   }
   return result;
 }
 
-function normalizeBodyForCurl(method: string, body: Record<string, unknown>) {
-  if (method !== "POST" || !Object.keys(body).length) {
+function normalizeBodyForCurl(body: unknown, form?: Record<string, unknown>) {
+  if (hasCurlBody(body)) {
+    return {
+      text: JSON.stringify(body),
+      contentType: "application/json",
+    };
+  }
+  const formText = normalizeFormBodyForCurl(form);
+  if (formText) {
+    return {
+      text: formText,
+      contentType: "application/x-www-form-urlencoded",
+    };
+  }
+  return {
+    text: "",
+    contentType: "",
+  };
+}
+
+function hasCurlBody(body: unknown) {
+  if (body == null) {
+    return false;
+  }
+  if (Array.isArray(body)) {
+    return body.length > 0;
+  }
+  if (typeof body === "object") {
+    return Object.keys(body as Record<string, unknown>).length > 0;
+  }
+  if (typeof body === "string") {
+    return Boolean(body.trim());
+  }
+  return true;
+}
+
+function normalizeFormBodyForCurl(form?: Record<string, unknown>) {
+  if (!form || !Object.keys(form).length) {
     return "";
   }
-  return JSON.stringify(body);
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(form)) {
+    if (!key || value == null) {
+      continue;
+    }
+    params.set(key, stringifyCurlValue(value));
+  }
+  return params.toString();
 }
 
 function appendQueryParams(url: string, query: Record<string, unknown>) {
-  const parsed = new URL(url);
+  const parsed = new URL(url, window.location.origin);
   for (const [key, value] of Object.entries(query)) {
     if (!key || value == null) {
       continue;
@@ -225,6 +319,24 @@ function appendQueryParams(url: string, query: Record<string, unknown>) {
     parsed.searchParams.set(key, String(value));
   }
   return parsed.toString();
+}
+
+function normalizeCurlUrl(url: string) {
+  try {
+    return new URL(url, window.location.origin).toString();
+  } catch {
+    return url;
+  }
+}
+
+function stringifyCurlValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => stringifyCurlValue(item)).join(",");
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 function quoteBash(value: string) {

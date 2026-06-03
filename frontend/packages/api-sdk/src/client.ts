@@ -162,6 +162,94 @@ async function unwrap<T>(promise: Promise<{ data: Result<T> }>): Promise<T> {
   return response.data.data;
 }
 
+function responseDataMessage(data: unknown): string {
+  if (!data) {
+    return "";
+  }
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    if (!trimmed) {
+      return "";
+    }
+    try {
+      return responseDataMessage(JSON.parse(trimmed));
+    } catch {
+      return trimmed;
+    }
+  }
+  if (typeof data !== "object") {
+    return "";
+  }
+  const record = data as Record<string, unknown>;
+  const candidates = [
+    record.message,
+    record.msg,
+    record.detail,
+    record.error_description,
+    record.error,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  if (record.data && typeof record.data === "object") {
+    const nested = responseDataMessage(record.data);
+    if (nested) {
+      return nested;
+    }
+  }
+  return "";
+}
+
+function responseDataCode(data: unknown): string {
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+  const code = (data as Record<string, unknown>).code;
+  return typeof code === "string" ? code : "";
+}
+
+function httpErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const businessMessage = responseDataMessage(error.response?.data);
+    if (businessMessage) {
+      return businessMessage;
+    }
+    if (error.response?.status) {
+      const statusText = error.response.statusText ? ` ${error.response.statusText}` : "";
+      return `HTTP ${error.response.status}${statusText}`;
+    }
+    return error.message || "网络请求失败";
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "网络请求失败";
+}
+
+function normalizeRequestError(error: unknown): Error {
+  const normalized = new Error(httpErrorMessage(error));
+  if (error && typeof error === "object") {
+    const source = error as {
+      code?: unknown;
+      config?: unknown;
+      request?: unknown;
+      response?: { status?: number; data?: unknown };
+      status?: unknown;
+    };
+    Object.assign(normalized, {
+      cause: error,
+      code: responseDataCode(source.response?.data) || source.code,
+      config: source.config,
+      request: source.request,
+      response: source.response,
+      status: source.response?.status ?? source.status,
+    });
+  }
+  return normalized;
+}
+
 function normalizePageResult<T>(payload: unknown, pageNo = 1, pageSize = 20): PageResult<T> {
   if (Array.isArray(payload)) {
     return {
@@ -229,7 +317,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       if (error.response?.status === 401) {
         options.onUnauthorized?.();
       }
-      return Promise.reject(error);
+      return Promise.reject(normalizeRequestError(error));
     },
   );
 

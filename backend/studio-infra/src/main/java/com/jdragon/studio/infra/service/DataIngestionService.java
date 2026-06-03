@@ -171,7 +171,9 @@ public class DataIngestionService {
         DataModelDefinition model = requiredModel(request.getModelId());
         validateTarget(datasource, model, targetType);
         List<DataIngestionFieldMapping> mappings = fieldSupport.normalizeFieldMappings(request.getFieldMappings(), model);
-        DataIngestionRequestFormat requestFormat = deriveRequestFormat(request.getRequestFormat(), mappings);
+        DataIngestionRequestFormat requestFormat = Boolean.TRUE.equals(request.getWebserviceEnabled())
+                ? DataIngestionRequestFormat.SOAP
+                : deriveRequestFormat(request.getRequestFormat(), mappings);
 
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
@@ -528,7 +530,6 @@ public class DataIngestionService {
         view.setServiceCode(entity.getServiceCode());
         view.setServiceName(entity.getServiceName());
         view.setStatus(enumValue(DataIngestionStatus.class, entity.getStatus(), DataIngestionStatus.DRAFT));
-        view.setRequestFormat(enumValue(DataIngestionRequestFormat.class, entity.getRequestFormat(), DataIngestionRequestFormat.JSON));
         view.setPayloadMode(enumValue(DataIngestionPayloadMode.class, entity.getPayloadMode(), DataIngestionPayloadMode.OBJECT));
         view.setDataNodePath(entity.getDataNodePath());
         view.setTargetType(enumValue(DataIngestionTargetType.class, entity.getTargetType(), DataIngestionTargetType.DATABASE));
@@ -544,6 +545,9 @@ public class DataIngestionService {
         view.setTokenRequired(isTokenRequired(entity));
         view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
         view.setWebserviceEnabled(entity.getWebserviceEnabled() != null && entity.getWebserviceEnabled().intValue() == 1);
+        view.setRequestFormat(Boolean.TRUE.equals(view.getWebserviceEnabled())
+                ? DataIngestionRequestFormat.SOAP
+                : enumValue(DataIngestionRequestFormat.class, entity.getRequestFormat(), DataIngestionRequestFormat.JSON));
         view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-ingestion-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         view.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());
         view.setFieldMappings(fromMapList(entity.getFieldMappingsJson()));

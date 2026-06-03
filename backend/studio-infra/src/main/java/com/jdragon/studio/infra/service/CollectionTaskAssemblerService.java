@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
@@ -10,6 +11,7 @@ import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,18 +31,34 @@ public class CollectionTaskAssemblerService {
     private final DataModelService dataModelService;
     private final EncryptionService encryptionService;
     private final PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService;
-    private final CollectionTaskFieldMappingResolver fieldMappingResolver = new CollectionTaskFieldMappingResolver();
-    private final CollectionTaskFileConfigSupport fileConfigSupport = new CollectionTaskFileConfigSupport(fieldMappingResolver);
-    private final CollectionTaskHttpConfigSupport httpConfigSupport = new CollectionTaskHttpConfigSupport(fieldMappingResolver);
+    private final CollectionTaskFieldMappingResolver fieldMappingResolver;
+    private final CollectionTaskFileConfigSupport fileConfigSupport;
+    private final CollectionTaskHttpConfigSupport httpConfigSupport;
 
     public CollectionTaskAssemblerService(DataSourceService dataSourceService,
                                           DataModelService dataModelService,
                                           EncryptionService encryptionService,
                                           PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService) {
+        this(dataSourceService,
+                dataModelService,
+                encryptionService,
+                pluginRuntimeOptionSchemaService,
+                new StudioTransformerSupport(new ObjectMapper()));
+    }
+
+    @Autowired
+    public CollectionTaskAssemblerService(DataSourceService dataSourceService,
+                                          DataModelService dataModelService,
+                                          EncryptionService encryptionService,
+                                          PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService,
+                                          StudioTransformerSupport transformerSupport) {
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.encryptionService = encryptionService;
         this.pluginRuntimeOptionSchemaService = pluginRuntimeOptionSchemaService;
+        this.fieldMappingResolver = new CollectionTaskFieldMappingResolver(transformerSupport);
+        this.fileConfigSupport = new CollectionTaskFileConfigSupport(fieldMappingResolver);
+        this.httpConfigSupport = new CollectionTaskHttpConfigSupport(fieldMappingResolver);
     }
 
     public Map<String, Object> assemble(CollectionTaskDefinitionView definition) {

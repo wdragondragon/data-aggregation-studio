@@ -27,15 +27,18 @@ final class DataServiceParamSupport {
     private final DataServiceResponseParamMapper responseParamMapper;
     private final DataServicePublishParamMapper publishParamMapper;
     private final DataServiceInvocationSupport invocationSupport;
+    private final StudioTransformerSupport transformerSupport;
 
     DataServiceParamSupport(DataServiceRequestParamMapper requestParamMapper,
                             DataServiceResponseParamMapper responseParamMapper,
                             DataServicePublishParamMapper publishParamMapper,
-                            DataServiceInvocationSupport invocationSupport) {
+                            DataServiceInvocationSupport invocationSupport,
+                            StudioTransformerSupport transformerSupport) {
         this.requestParamMapper = requestParamMapper;
         this.responseParamMapper = responseParamMapper;
         this.publishParamMapper = publishParamMapper;
         this.invocationSupport = invocationSupport;
+        this.transformerSupport = transformerSupport;
     }
 
     List<DataServiceRequestParamView> defaultRequestParams() {
@@ -110,6 +113,7 @@ final class DataServiceParamSupport {
             view.setFieldName(fieldName);
             view.setExampleValue(invocationSupport.normalizeNullableText(item.getExampleValue()));
             view.setDescription(invocationSupport.normalizeNullableText(item.getDescription()));
+            view.setTransformers(item.getTransformers() == null ? new ArrayList<>() : item.getTransformers());
             result.add(view);
             order++;
         }
@@ -180,6 +184,7 @@ final class DataServiceParamSupport {
             entity.setFieldName(view.getFieldName());
             entity.setExampleValue(view.getExampleValue());
             entity.setDescription(view.getDescription());
+            entity.setTransformersJson(transformerSupport.toBindingMaps(view.getTransformers()));
             responseParamMapper.insert(entity);
         }
         for (DataServicePublishParamView view : publishParams) {
@@ -246,6 +251,7 @@ final class DataServiceParamSupport {
             view.setFieldName(entity.getFieldName());
             view.setExampleValue(entity.getExampleValue());
             view.setDescription(entity.getDescription());
+            view.setTransformers(transformerSupport.toBindings(entity.getTransformersJson()));
             result.add(view);
         }
         return result;

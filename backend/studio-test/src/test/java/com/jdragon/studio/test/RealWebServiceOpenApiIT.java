@@ -225,6 +225,7 @@ class RealWebServiceOpenApiIT extends StudioHttpIntegrationTestSupport {
         ));
         JsonNode created = requireSuccess(postJson("/api/v1/data-services", session.authorization, session.projectId, payload));
         assertThat(created.path("data").path("modelPhysicalLocator").asText()).isEqualTo(tableName);
+        assertThat(created.path("data").path("responseType").asText()).isEqualTo("XML");
         return created;
     }
 
@@ -256,6 +257,7 @@ class RealWebServiceOpenApiIT extends StudioHttpIntegrationTestSupport {
         ));
         JsonNode created = requireSuccess(postJson("/api/v1/data-ingestion-services", session.authorization, session.projectId, payload));
         assertThat(created.path("data").path("modelPhysicalLocator").asText()).isEqualTo(tableName);
+        assertThat(created.path("data").path("requestFormat").asText()).isEqualTo("SOAP");
         return created;
     }
 
