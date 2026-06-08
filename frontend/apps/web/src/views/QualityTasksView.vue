@@ -34,7 +34,7 @@
     </SectionCard>
 
     <SectionCard title="任务列表" description="可在列表中直接发布、执行任务，并跳转到质量任务运行日志页面。">
-      <StudioTableShell min-width="1280px">
+      <StudioTableShell min-width="1450px">
         <el-table
           :data="tasks"
           border
@@ -57,6 +57,14 @@
         <el-table-column label="任务编码" min-width="220">
           <template #default="{ row }">
             <span class="task-code-text">{{ row.taskCode || "-" }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="所属项目" min-width="170">
+          <template #default="{ row }">
+            <div class="table-entity-cell">
+              <span>{{ resolveProjectLabel(row.projectId) }}</span>
+              <span class="table-entity-cell__meta">{{ isSharedTask(row) ? "共享来源" : "当前项目" }}</span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="规则信息" min-width="210">
@@ -115,13 +123,16 @@
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { QualityTaskDefinitionView } from "@studio/api-sdk";
+import type { EntityId, QualityTaskDefinitionView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, type ClientPaginationState } from "@/composables/useClientPagination";
 import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
+import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 const dimensionOptions = [
   { label: "一致性", value: "CONSISTENCY" },
@@ -199,6 +210,14 @@ function handlePageSizeChange() {
 
 function resolveDimensionLabel(value?: string) {
   return dimensionOptions.find((item) => item.value === value)?.label ?? value ?? "-";
+}
+
+function resolveProjectLabel(projectId?: EntityId | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedTask(row: QualityTaskDefinitionView) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, row.projectId);
 }
 
 function buildActions(row: QualityTaskDefinitionView) {

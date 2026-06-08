@@ -287,7 +287,7 @@ function applyFilters() {
     query.endTime = filters.value.timeRange[1];
   }
   pagination.page = 1;
-  router.push({ path: "/collection-task-runs", query });
+  void navigateOrReload(query);
 }
 
 function resetFilters() {
@@ -295,7 +295,17 @@ function resetFilters() {
   filters.value.status = "";
   filters.value.timeRange = [];
   pagination.page = 1;
-  router.push({ path: "/collection-task-runs" });
+  void navigateOrReload({});
+}
+
+async function navigateOrReload(query: Record<string, string>) {
+  const target = { path: "/collection-task-runs", query };
+  const resolved = router.resolve(target);
+  if (resolved.fullPath === route.fullPath) {
+    await loadTaskRuns();
+    return;
+  }
+  await router.push(target);
 }
 
 function resolveProjectLabel(projectId?: string | number | null) {

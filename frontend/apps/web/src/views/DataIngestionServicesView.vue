@@ -31,7 +31,7 @@
     </SectionCard>
 
     <SectionCard title="服务列表" description="发布后创建订阅 Token，外部系统即可调用接入地址。">
-      <StudioTableShell min-width="1280px">
+      <StudioTableShell min-width="1440px">
         <el-table :data="services" border>
           <el-table-column label="序号" width="76" align="center" header-align="center">
             <template #default="{ $index }">{{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}</template>
@@ -41,6 +41,14 @@
               <div class="table-entity-cell">
                 <span class="table-entity-cell__title">{{ row.serviceName }}</span>
                 <span class="table-entity-cell__meta">{{ row.serviceCode }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="所属项目" min-width="170">
+            <template #default="{ row }">
+              <div class="table-entity-cell">
+                <span>{{ resolveProjectLabel(row.projectId) }}</span>
+                <span class="table-entity-cell__meta">{{ isSharedService(row) ? "共享来源" : "当前项目" }}</span>
               </div>
             </template>
           </el-table-column>
@@ -138,8 +146,11 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import type { DataIngestionServiceView, DataIngestionSubscriptionView, EntityId } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
+import { useAuthStore } from "@/stores/auth";
+import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const router = useRouter();
+const authStore = useAuthStore();
 const services = ref<DataIngestionServiceView[]>([]);
 const total = ref(0);
 const filters = reactive({
@@ -302,6 +313,14 @@ async function copyNewToken() {
 
 function resolveEndpoint(row: DataIngestionServiceView) {
   return resolveDataServiceOpenUrl(row.endpointPath);
+}
+
+function resolveProjectLabel(projectId?: EntityId | null) {
+  return resolveProjectName(authStore.projects, projectId);
+}
+
+function isSharedService(row: DataIngestionServiceView) {
+  return isSharedFromAnotherProject(authStore.currentProjectId, row.projectId);
 }
 
 function statusLabel(status?: string) {
