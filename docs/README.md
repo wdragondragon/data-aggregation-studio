@@ -30,7 +30,7 @@
   - 运维、监控、排障和运行策略说明。
   - 当前包含：
     - [环境初始化说明.md](./运维/部署/环境初始化说明.md)
-    - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)
+    - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：server/worker、运行日志对象存储、Worker 组和 ODPS 集成配置说明。
     - [data-service-metrics-retention-impact.md](./运维/监控/data-service-metrics-retention-impact.md)
 
 - `测试/`

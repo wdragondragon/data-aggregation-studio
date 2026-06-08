@@ -360,8 +360,20 @@ function resolveFieldsByModelId(modelId: unknown) {
 }
 
 function sourceFieldOptions(source: CollectionTaskSourceBinding) {
+  const localCustomSqlFields = resolveLocalCustomSqlFields(source);
+  if (localCustomSqlFields.length) {
+    return localCustomSqlFields;
+  }
   const customFields = resolveCustomSqlCachedFields(source);
   return customFields.length ? customFields : resolveFieldsByModelId(source.modelId);
+}
+
+function resolveLocalCustomSqlFields(source: CollectionTaskSourceBinding) {
+  if (resolveDatasourceTypeCode(source.datasourceId) !== "odps") {
+    return [];
+  }
+  const parsedFields = parseSelectFieldNames(selectSqlText(source));
+  return parsedFields.length ? parsedFields : resolveFieldsByModelId(source.modelId);
 }
 
 function resolveCustomSqlCachedFields(source: CollectionTaskSourceBinding) {
@@ -607,6 +619,7 @@ function selectSqlText(source: CollectionTaskSourceBinding) {
 
 function supportsCustomSqlFields(source: CollectionTaskSourceBinding) {
   return Boolean(source.datasourceId)
+    && resolveDatasourceTypeCode(source.datasourceId) !== "odps"
     && Boolean(selectSqlText(source))
     && readerAdvancedFields(source).some((field) => field.fieldKey === "selectSql");
 }
@@ -706,7 +719,7 @@ async function resolveCustomSqlFields(source: CollectionTaskSourceBinding, showE
         error: message,
       },
     };
-    if (showError) {
+    if (showError && sourceFieldOptions(source).length === 0) {
       ElMessage.error(message);
     }
   }
@@ -724,6 +737,119 @@ function uniqueFieldNames(fields: string[] | undefined) {
     result.push(name);
   }
   return result;
+}
+
+function parseSelectFieldNames(sql: string) {
+  const normalized = sql.trim().replace(/;+\s*$/, "");
+  if (!/^select\s+/i.test(normalized)) {
+    return [];
+  }
+  const fromIndex = findTopLevelKeyword(normalized, "from", 6);
+  if (fromIndex <= 0) {
+    return [];
+  }
+  const selectList = normalized.slice(6, fromIndex).trim();
+  if (!selectList || selectList.includes("*")) {
+    return [];
+  }
+  return uniqueFieldNames(splitTopLevelComma(selectList)
+    .map((item) => resolveSelectItemName(item))
+    .filter((item): item is string => Boolean(item)));
+}
+
+function findTopLevelKeyword(text: string, keyword: string, startIndex = 0) {
+  const lower = text.toLowerCase();
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = startIndex; index <= text.length - keyword.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === "'" || char === "\"" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") {
+      depth++;
+      continue;
+    }
+    if (char === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth === 0
+      && lower.slice(index, index + keyword.length) === keyword
+      && isSqlWordBoundary(text[index - 1])
+      && isSqlWordBoundary(text[index + keyword.length])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function splitTopLevelComma(text: string) {
+  const result: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote: string | undefined;
+  for (const char of text) {
+    if (quote) {
+      current += char;
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === "'" || char === "\"" || char === "`") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth = Math.max(0, depth - 1);
+    }
+    if (char === "," && depth === 0) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) {
+    result.push(current.trim());
+  }
+  return result;
+}
+
+function resolveSelectItemName(item: string) {
+  const normalized = item.trim();
+  if (!normalized || normalized === "*") {
+    return "";
+  }
+  const asMatch = normalized.match(/\s+as\s+([`"']?[\w\u4e00-\u9fa5]+[`"']?)$/i);
+  if (asMatch?.[1]) {
+    return stripSqlIdentifierQuote(asMatch[1]);
+  }
+  const trailingAlias = normalized.match(/\s+([`"']?[\w\u4e00-\u9fa5]+[`"']?)$/);
+  if (trailingAlias && !/^[`"']?[\w\u4e00-\u9fa5]+[`"']?(\.[`"']?[\w\u4e00-\u9fa5]+[`"']?)*$/.test(normalized)) {
+    return stripSqlIdentifierQuote(trailingAlias[1]);
+  }
+  const identifierMatch = normalized.match(/(?:^|\.)([`"']?[\w\u4e00-\u9fa5]+[`"']?)$/);
+  return identifierMatch?.[1] ? stripSqlIdentifierQuote(identifierMatch[1]) : "";
+}
+
+function stripSqlIdentifierQuote(value: string) {
+  return value.replace(/^[`"']|[`"']$/g, "");
+}
+
+function isSqlWordBoundary(char: string | undefined) {
+  return !char || !/[\w\u4e00-\u9fa5]/.test(char);
 }
 
 async function handleTargetDatasourceChange(value: string) {
@@ -776,7 +902,7 @@ function applyRuntimeDefaultsForFusion() {
 }
 
 function enhanceWriterAdvancedField(field: MetadataFieldDefinition): MetadataFieldDefinition {
-  if (field.fieldKey !== "pkColumn") {
+  if (field.fieldKey !== "pkColumn" && field.fieldKey !== "partitionColumns") {
     return field;
   }
   return {
@@ -906,7 +1032,7 @@ watch(
 
 watch(activeStep, async (value) => {
   if (value === 2) {
-    await resolveCustomSqlFieldsForActiveStep(true);
+    await resolveCustomSqlFieldsForActiveStep(false);
   }
   if (value === 4 && previewDirty.value) {
     await loadPreviewConfig();

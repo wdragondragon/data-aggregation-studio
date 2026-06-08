@@ -59,6 +59,7 @@
       :sections="previewSections"
       :preview-rows="previewRows"
       :preview-columns="previewColumns"
+      :preview-loading="loadingPreviewRows"
       :resolve-project-label="resolveProjectLabel"
       :preview-section-rows="previewSectionRows"
       :section-value="sectionValue"
@@ -142,6 +143,7 @@ const modelPagination = reactive({
   total: 0,
 });
 const previewRows = ref<Record<string, unknown>[]>([]);
+const loadingPreviewRows = ref(false);
 const queryGroups = ref<ModelQueryGroupState[]>([]);
 const selectedDatasourceType = ref("");
 const selectedDatasourceId = ref<EntityId>();
@@ -374,6 +376,8 @@ const modelDetailActions = {
   refreshDetail,
   openDetailEdit,
 };
+let modelDetailLoadSeq = 0;
+let previewLoadSeq = 0;
 
 function findDatasourceById(datasourceId?: EntityId) {
   return datasources.value.find((item) => sameId(item.id, datasourceId));
@@ -672,12 +676,29 @@ async function selectModel(model: DataModelDefinition) {
   }
   if (!model.id) {
     previewRows.value = [];
+    loadingPreviewRows.value = false;
     return;
   }
+  void loadModelPreviewRows(model.id);
+}
+
+async function loadModelPreviewRows(modelId: EntityId) {
+  const seq = ++previewLoadSeq;
+  previewRows.value = [];
+  loadingPreviewRows.value = true;
   try {
-    previewRows.value = await studioApi.models.preview(model.id);
+    const rows = await studioApi.models.preview(modelId);
+    if (seq === previewLoadSeq && sameId(selectedModel.value?.id, modelId)) {
+      previewRows.value = rows;
+    }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.models.previewFailed"));
+    if (seq === previewLoadSeq && sameId(selectedModel.value?.id, modelId)) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.models.previewFailed"));
+    }
+  } finally {
+    if (seq === previewLoadSeq) {
+      loadingPreviewRows.value = false;
+    }
   }
 }
 
@@ -717,13 +738,20 @@ function openDetailEdit() {
 
 async function loadModelDetail() {
   if (!detailModelId.value) {
+    modelDetailLoadSeq += 1;
     selectedModel.value = undefined;
     previewRows.value = [];
+    loadingPreviewRows.value = false;
+    previewLoadSeq += 1;
     return;
   }
+  const seq = ++modelDetailLoadSeq;
   try {
-    const model = await studioApi.models.get(detailModelId.value);
-    await selectModel(model);
+    const model = await studioApi.models.get(detailModelId.value, { studioSkipGlobalLoading: true });
+    if (seq !== modelDetailLoadSeq) {
+      return;
+    }
+    selectModel(model);
     if (route.query.edit === "1") {
       editModel(model);
       const nextQuery = { ...route.query };
@@ -731,7 +759,9 @@ async function loadModelDetail() {
       router.replace({ name: "model-detail", params: { modelId: String(detailModelId.value) }, query: nextQuery });
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.models.loadModelDetailFailed"));
+    if (seq === modelDetailLoadSeq) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.models.loadModelDetailFailed"));
+    }
   }
 }
 

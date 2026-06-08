@@ -44,7 +44,7 @@ public class DatasourceTypeCapabilityService {
             capability("rocketmq", "RocketMQ", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "rocketmq", list("rocketmq"), list("rocketmq"), 90, "RocketMQ 消息队列"),
             capability("http", "HTTP", CATEGORY_HTTP_API, true, true, true, true, false, "http", list("httpreader"), list("httpwriter"), 95, "HTTP 接口数据源"),
             capability("rabbitmq", "RabbitMQ", CATEGORY_MESSAGE_QUEUE, true, false, false, true, false, "rabbitmq", list(), list(), 100, "RabbitMQ 消息队列"),
-            capability("odps", "ODPS", CATEGORY_DATABASE, true, false, false, true, true, "odps", list(), list(), 110, "ODPS / MaxCompute 数据源"),
+            capability("odps", "ODPS", CATEGORY_DATABASE, true, true, true, true, true, "odps", list("odpsreader"), list("odpswriter"), 110, "ODPS / MaxCompute 数据源"),
             capability("tbds-hdfs", "TBDS HDFS", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "tbds-hdfs", list(), list(), 120, "TBDS HDFS 文件系统"),
             capability("tbds-hdfs3", "TBDS HDFS3", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "tbds-hdfs3", list(), list(), 130, "TBDS HDFS3 文件系统"),
             capability("tbds-hive2", "TBDS Hive2", CATEGORY_DATABASE, true, true, false, true, true, "tbds-hive2", list("tbds-hive2"), list(), 140, "TBDS Hive2 数据源"),
@@ -99,6 +99,7 @@ public class DatasourceTypeCapabilityService {
         syncDefaultCapability("sftp");
         syncDefaultCapability("minio");
         syncDefaultCapability("http");
+        syncDefaultCapability("odps");
     }
 
     public List<DatasourceTypeCapabilityView> listEnabled() {

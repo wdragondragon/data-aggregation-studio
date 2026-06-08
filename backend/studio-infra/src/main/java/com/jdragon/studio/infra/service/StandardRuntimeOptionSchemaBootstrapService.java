@@ -45,6 +45,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("reader", "sftp", "SFTP Reader 参数", buildFileTableReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "minio", "MinIO Reader 参数", buildFileTableReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "http", "HTTP Reader 参数", buildHttpReaderFields()));
+        result.add(ensureRuntimeOptionSchema("reader", "odps", "ODPS Reader 参数", buildOdpsReaderFields()));
 
         result.add(ensureRuntimeOptionSchema("writer", "mysql8", "MYSQL8 Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace", "update"))));
         result.add(ensureRuntimeOptionSchema("writer", "dm", "DM Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace"))));
@@ -55,6 +56,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("writer", "sftp", "SFTP Writer 参数", buildFileTableWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "minio", "MinIO Writer 参数", buildFileTableWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "http", "HTTP Writer 参数", buildHttpWriterFields()));
+        result.add(ensureRuntimeOptionSchema("writer", "odps", "ODPS Writer 参数", buildOdpsWriterFields()));
         return result;
     }
 
@@ -147,6 +149,32 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         fields.add(field("retryIntervalMs", "重试间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 130, "1000"));
         fields.add(field("connectTimeoutMs", "连接超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 140, "3000"));
         fields.add(field("socketTimeoutMs", "响应超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 150, "3000"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildOdpsReaderFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("readMode", "读取模式", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 10,
+                "auto", Arrays.asList("auto", "tunnel", "sql")));
+        fields.add(field("selectSql", "自定义查询 SQL", FieldValueType.STRING, FieldComponentType.SQL_EDITOR, false, false, 20, null));
+        fields.add(field("partitionSpec", "分区条件", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
+        fields.add(field("includePartitionColumns", "读取分区字段", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 40, "false"));
+        fields.add(field("offset", "起始偏移", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 50, "0"));
+        fields.add(field("maxRows", "最大读取行数", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 60, "0"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildOdpsWriterFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("writeMode", "写入模式", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 10,
+                "append", Arrays.asList("append", "overwrite")));
+        fields.add(field("partitionSpec", "静态分区", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+        fields.add(field("partitionColumns", "动态分区字段", FieldValueType.ARRAY, FieldComponentType.SELECT, false, false, 30, "[]"));
+        fields.add(field("batchSize", "批量写入大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 40, "1000"));
+        fields.add(field("emptyAsNull", "空字符串写入 NULL", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 50, "false"));
+        fields.add(field("autoCreatePartition", "自动创建分区", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "true"));
+        fields.add(field("preSql", "写入前 SQL", FieldValueType.STRING, FieldComponentType.SQL_EDITOR, false, false, 70, null));
+        fields.add(field("postSql", "写入后 SQL", FieldValueType.STRING, FieldComponentType.SQL_EDITOR, false, false, 80, null));
         return fields;
     }
 

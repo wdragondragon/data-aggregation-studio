@@ -98,6 +98,9 @@ final class AggregationModelMetadataSupport {
             putIfPresent(item, "nullable", column.getIsNullable());
             putIfPresent(item, "primaryKey", column.getIsPrimaryKey());
             putIfPresent(item, "autoIncrement", column.getIsAutoincrement());
+            if (column.isPartitionColumn()) {
+                item.put("partitionColumn", Boolean.TRUE);
+            }
             putIfPresent(item, "remarks", column.getRemarks());
             putIfPresent(item, "defaultValue", column.getColumnDef());
             if (!item.isEmpty()) {

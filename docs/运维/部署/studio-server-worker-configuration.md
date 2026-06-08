@@ -221,9 +221,85 @@ STUDIO_RUN_LOG_OBJECT_PREFIX=studio/run-logs
 STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=true
 ```
 
-## 8. 常见配置问题
+## 8. ODPS / MaxCompute 集成配置
 
-### 8.1 修改 Redis 地址应该改哪里？
+Studio 已将 ODPS 作为数据库型数据源接入，支持数据源管理、模型同步、模型预览、采集任务源端读取和目标端写入。
+
+### 8.1 插件目录要求
+
+`studio.aggregation-home` 指向的 DataAggregation 运行目录必须包含以下插件：
+
+```text
+plugin/source/odps
+plugin/reader/odpsreader
+plugin/writer/odpswriter
+```
+
+server 侧需要 `source/odps` 支撑数据源测试、模型同步、预览和 SQL 执行；worker 侧需要 `reader/odpsreader` 与 `writer/odpswriter` 支撑采集任务运行。
+
+### 8.2 数据源字段
+
+| 字段 | 说明 |
+| --- | --- |
+| `host` | MaxCompute Endpoint，例如 `http://service.cn-hangzhou.maxcompute.aliyun.com/api`。 |
+| `database` | MaxCompute Project 名。`projectEnv=dev` 时底层会按 ODPS 工具逻辑解析为开发项目。 |
+| `userName` | AccessKey ID。 |
+| `password` | AccessKey Secret，按敏感字段保存。 |
+| `extraParams` | ODPS 全局参数 JSON。 |
+
+推荐 `extraParams`：
+
+```json
+{
+  "projectEnv": "",
+  "tunnelEndpoint": "",
+  "odps.sql.allow.fullscan": "true"
+}
+```
+
+说明：
+
+- `tunnelEndpoint` 用于 TableTunnel / InstanceTunnel 读写通道。
+- 模型样例预览默认使用 TableTunnel 读取普通表或最近分区，不拼接 `SELECT * LIMIT`。
+- `odps.sql.allow.fullscan` 仅对 SQL 执行类场景有意义，Tunnel 读取普通表、分区或样例预览时不需要依赖该参数。
+- ODPS 目标表需要提前创建；Studio 首版不提供 ODPS 建表向导。
+
+### 8.3 采集任务 Reader 参数
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `readMode` | `auto` | `auto` 在填写 `selectSql` 时走 `sql`，未填写时走 `tunnel`；也可显式填写 `tunnel` 或 `sql`。 |
+| `selectSql` | 空 | `readMode=sql` 或 `auto` 时执行的自定义 SQL；显式 `readMode=tunnel` 时不能填写。 |
+| `partitionSpec` | 空 | ODPS 分区条件，例如 `dt='20260605'`。 |
+| `includePartitionColumns` | `false` | Tunnel 读取指定分区时，是否把分区字段值也输出为普通记录列。 |
+| `offset` | `0` | 起始偏移。 |
+| `maxRows` | `0` | 最大读取行数，`0` 表示不限制。 |
+
+### 8.4 采集任务 Writer 参数
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `writeMode` | `append` | `append` 追加写入；`overwrite` 覆盖目标表或目标分区。 |
+| `partitionSpec` | 空 | 静态分区写入，例如 `dt='20260605'`。 |
+| `partitionColumns` | `[]` | 动态分区字段，分区值来自字段映射后的记录列。 |
+| `batchSize` | `1000` | 每个 Tunnel block 的批量写入大小。 |
+| `emptyAsNull` | `false` | 空字符串是否写入为 `NULL`。 |
+| `autoCreatePartition` | `true` | 分区不存在时是否自动创建。 |
+| `preSql` | 空 | 写入前执行的 ODPS SQL。 |
+| `postSql` | 空 | 写入后执行的 ODPS SQL。 |
+
+限制：
+
+- `partitionSpec` 与 `partitionColumns` 不能同时配置。
+- 分区表必须配置静态分区或动态分区来源。
+- `overwrite` 是覆盖目标表或目标分区，不是按主键 update/upsert。
+- 动态分区 `append` 可以一次写入多个分区，但 ODPS Tunnel 多 UploadSession 不具备跨分区全局事务；若某个分区提交失败，需要根据运行日志中的已提交/未提交分区人工补偿。
+- 动态分区 `overwrite` 只允许一次覆盖一个分区；一次任务触达多个动态分区时会在提交前失败，避免部分分区已覆盖、部分分区未覆盖。
+- 当前 ODPS writer 不支持 row-level update/delete/upsert；如需更新语义，应使用 ODPS SQL 或后续单独扩展 Delta Table 能力。
+
+## 9. 常见配置问题
+
+### 9.1 修改 Redis 地址应该改哪里？
 
 优先通过启动环境变量设置：
 
@@ -234,7 +310,7 @@ REDIS_PORT=6379
 
 不建议直接改仓库内 `application.yml`。
 
-### 8.2 Worker 多副本时 `workerCode` 是否必须不同？
+### 9.2 Worker 多副本时 `workerCode` 是否必须不同？
 
 不要求。当前推荐使用：
 
@@ -243,7 +319,7 @@ REDIS_PORT=6379
 
 同一 `workerGroupCode` 下多个 Pod 可以并发接单，任务领取通过数据库原子更新防重复。
 
-### 8.3 `storageType` 可以填哪些值？
+### 9.3 `storageType` 可以填哪些值？
 
 当前可填：
 
@@ -254,7 +330,7 @@ OBJECT_STORAGE
 
 生产 K8s 环境推荐使用 `OBJECT_STORAGE`，否则 worker 重启或 Pod IP 变化后，历史本地日志可能不可访问。
 
-### 8.4 server 和 worker 哪些配置必须一致？
+### 9.4 server 和 worker 哪些配置必须一致？
 
 必须保持一致或指向同一资源：
 
@@ -266,7 +342,7 @@ OBJECT_STORAGE
 - `STUDIO_RUN_LOG_OBJECT_*`
 - `STUDIO_AGGREGATION_HOME` 对应的插件能力版本
 
-### 8.5 哪些配置不应该提交明文？
+### 9.5 哪些配置不应该提交明文？
 
 以下配置应通过环境变量、K8s Secret 或配置中心安全管理：
 

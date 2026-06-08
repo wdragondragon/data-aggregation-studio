@@ -186,6 +186,93 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
     }
 
     @Test
+    void odpsReaderAndWriterOptionsShouldUseGenericJobConfigAssembly() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.SINGLE_TABLE);
+
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setDatasourceId(5L);
+        sourceBinding.setModelId(50L);
+        sourceBinding.setSourceAlias("src1");
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("readMode", "sql");
+        readerOptions.put("selectSql", "select id, name from odps_source_table");
+        readerOptions.put("partitionSpec", "dt='20260605'");
+        readerOptions.put("includePartitionColumns", Boolean.TRUE);
+        readerOptions.put("offset", Long.valueOf(10L));
+        readerOptions.put("maxRows", Long.valueOf(100L));
+        readerOptions.put("connect.host", "ignored-host");
+        readerOptions.put("columns", Collections.singletonList("ignored"));
+        sourceBinding.setReaderOptions(readerOptions);
+        definition.setSourceBindings(Collections.singletonList(sourceBinding));
+
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(5L);
+        targetBinding.setModelId(51L);
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("writeMode", "overwrite");
+        writerOptions.put("partitionColumns", Collections.singletonList("dt"));
+        writerOptions.put("batchSize", Integer.valueOf(2000));
+        writerOptions.put("emptyAsNull", Boolean.TRUE);
+        writerOptions.put("autoCreatePartition", Boolean.TRUE);
+        writerOptions.put("preSql", "set odps.sql.allow.fullscan=true;");
+        targetBinding.setWriterOptions(writerOptions);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition idMapping = new FieldMappingDefinition();
+        idMapping.setSourceAlias("src1");
+        idMapping.setSourceField("id");
+        idMapping.setTargetField("id");
+        FieldMappingDefinition nameMapping = new FieldMappingDefinition();
+        nameMapping.setSourceAlias("src1");
+        nameMapping.setSourceField("name");
+        nameMapping.setTargetField("name");
+        FieldMappingDefinition partitionMapping = new FieldMappingDefinition();
+        partitionMapping.setSourceAlias("src1");
+        partitionMapping.setSourceField("dt");
+        partitionMapping.setTargetField("dt");
+        definition.setFieldMappings(Arrays.asList(idMapping, nameMapping, partitionMapping));
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        assertEquals("odps", reader.get("type"));
+        assertEquals("odps_source_table", readerConfig.get("table"));
+        assertEquals("sql", readerConfig.get("readMode"));
+        assertEquals("select id, name from odps_source_table", readerConfig.get("selectSql"));
+        assertEquals("dt='20260605'", readerConfig.get("partitionSpec"));
+        assertEquals(Boolean.TRUE, readerConfig.get("includePartitionColumns"));
+        assertEquals(Long.valueOf(10L), readerConfig.get("offset"));
+        assertEquals(Long.valueOf(100L), readerConfig.get("maxRows"));
+        assertIterableEquals(Arrays.asList("id", "name", "dt"), (List<?>) readerConfig.get("columns"));
+        assertEquals("http://service.cn-hangzhou.maxcompute.aliyun.com/api", castMap(readerConfig.get("connect")).get("host"));
+        assertEquals("true", castMap(castMap(readerConfig.get("connect")).get("extraParams")).get("odps.sql.allow.fullscan"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        assertEquals("odps", writer.get("type"));
+        assertEquals("odps_target_pt", writerConfig.get("table"));
+        assertIterableEquals(Arrays.asList("id", "name", "dt"), (List<?>) writerConfig.get("columns"));
+        assertEquals("overwrite", writerConfig.get("writeMode"));
+        assertIterableEquals(Collections.singletonList("dt"), (List<?>) writerConfig.get("partitionColumns"));
+        assertEquals(Integer.valueOf(2000), writerConfig.get("batchSize"));
+        assertEquals(Boolean.TRUE, writerConfig.get("emptyAsNull"));
+        assertEquals(Boolean.TRUE, writerConfig.get("autoCreatePartition"));
+        assertEquals("set odps.sql.allow.fullscan=true;", writerConfig.get("preSql"));
+    }
+
+    @Test
     void fileReaderConfigShouldUseModelPathOptionsAndModelColumnIndexesWithoutIncremental() {
         CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
                 mockDataSourceService(),

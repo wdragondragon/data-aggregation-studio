@@ -3,6 +3,10 @@ package com.jdragon.studio.infra.service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.UUID;
+
 @Service
 public class StudioSchemaUpgradeService {
 
@@ -102,6 +106,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_service_response_param", "transformers_json", "alter table data_service_response_param add column transformers_json json");
         ensureDataIngestionTablesMysql();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesMysql();
+        ensureOdpsFieldMetadataDefinitionsMysql();
+        ensureCurrentOdpsFieldMetadataDefinitions();
 
         if (!tableExists("data_model_lineage_relation")) {
             jdbcTemplate.execute("create table data_model_lineage_relation (" +
@@ -699,6 +705,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_service_response_param", "transformers_json", "alter table data_service_response_param add column transformers_json text");
         ensureDataIngestionTablesSqlite();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesSqlite();
+        ensureOdpsFieldMetadataDefinitionsSqlite();
+        ensureCurrentOdpsFieldMetadataDefinitions();
 
         jdbcTemplate.execute("create table if not exists data_model_attr_index (" +
                 "id integer primary key," +
@@ -1226,6 +1234,218 @@ public class StudioSchemaUpgradeService {
                     "set worker_group_code = worker_code " +
                     "where (worker_group_code is null or worker_group_code = '') and worker_code is not null");
         }
+    }
+
+    private void ensureOdpsFieldMetadataDefinitionsMysql() {
+        if (!tableExists("meta_field_definition")) {
+            return;
+        }
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291011L, "name", "字段名", "STRING", "INPUT", 1, 0, 10, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291012L, "type", "字段类型", "STRING", "INPUT", 0, 0, 20, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291013L, "size", "长度", "INTEGER", "NUMBER", 0, 0, 30, null, 1, 1, "[\"EQ\", \"GT\", \"GE\", \"LT\", \"LE\", \"BETWEEN\", \"IN\"]", "EQ", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291014L, "scale", "精度", "INTEGER", "NUMBER", 0, 0, 40, null, 1, 1, "[\"EQ\", \"GT\", \"GE\", \"LT\", \"LE\", \"BETWEEN\", \"IN\"]", "EQ", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291015L, "nullable", "是否可空", "STRING", "INPUT", 0, 0, 50, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291016L, "primaryKey", "是否主键", "STRING", "INPUT", 0, 0, 60, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291017L, "autoIncrement", "是否自增", "STRING", "INPUT", 0, 0, 70, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291018L, "remarks", "备注", "STRING", "TEXTAREA", 0, 0, 80, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291019L, "defaultValue", "默认值", "STRING", "INPUT", 0, 0, 90, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionMysql(2047489211925291020L, "partitionColumn", "是否分区字段", "BOOLEAN", "SWITCH", 0, 0, 100, "false", 1, 1, "[\"EQ\"]", "EQ", "[]");
+    }
+
+    private void upsertOdpsFieldMetadataDefinitionMysql(long id,
+                                                        String fieldKey,
+                                                        String fieldName,
+                                                        String valueType,
+                                                        String componentType,
+                                                        int requiredFlag,
+                                                        int sensitiveFlag,
+                                                        int sortOrder,
+                                                        String defaultValue,
+                                                        int searchableFlag,
+                                                        int sortableFlag,
+                                                        String queryOperators,
+                                                        String queryDefaultOperator,
+                                                        String options) {
+        jdbcTemplate.update("insert into meta_field_definition (" +
+                        "id, tenant_id, deleted, created_at, updated_at, schema_version_id, field_key, field_name, description, scope, value_type, component_type, required_flag, sensitive_flag, sort_order, validation_rule, placeholder, default_value, searchable_flag, sortable_flag, query_operators, query_default_operator, options" +
+                        ") values (?, 'default', 0, current_timestamp, current_timestamp, 2047489211925291010, ?, ?, ?, 'TECHNICAL', ?, ?, ?, ?, ?, null, null, ?, ?, ?, ?, ?, ?) " +
+                        "on duplicate key update " +
+                        "tenant_id = values(tenant_id), deleted = values(deleted), updated_at = values(updated_at), schema_version_id = values(schema_version_id), field_key = values(field_key), field_name = values(field_name), description = values(description), scope = values(scope), value_type = values(value_type), component_type = values(component_type), required_flag = values(required_flag), sensitive_flag = values(sensitive_flag), sort_order = values(sort_order), validation_rule = values(validation_rule), placeholder = values(placeholder), default_value = values(default_value), searchable_flag = values(searchable_flag), sortable_flag = values(sortable_flag), query_operators = values(query_operators), query_default_operator = values(query_default_operator), options = values(options)",
+                Long.valueOf(id),
+                fieldKey,
+                fieldName,
+                fieldName,
+                valueType,
+                componentType,
+                Integer.valueOf(requiredFlag),
+                Integer.valueOf(sensitiveFlag),
+                Integer.valueOf(sortOrder),
+                defaultValue,
+                Integer.valueOf(searchableFlag),
+                Integer.valueOf(sortableFlag),
+                queryOperators,
+                queryDefaultOperator,
+                options);
+    }
+
+    private void ensureOdpsFieldMetadataDefinitionsSqlite() {
+        if (!tableExists("meta_field_definition")) {
+            return;
+        }
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291011L, "name", "字段名", "STRING", "INPUT", 1, 0, 10, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291012L, "type", "字段类型", "STRING", "INPUT", 0, 0, 20, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291013L, "size", "长度", "INTEGER", "NUMBER", 0, 0, 30, null, 1, 1, "[\"EQ\", \"GT\", \"GE\", \"LT\", \"LE\", \"BETWEEN\", \"IN\"]", "EQ", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291014L, "scale", "精度", "INTEGER", "NUMBER", 0, 0, 40, null, 1, 1, "[\"EQ\", \"GT\", \"GE\", \"LT\", \"LE\", \"BETWEEN\", \"IN\"]", "EQ", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291015L, "nullable", "是否可空", "STRING", "INPUT", 0, 0, 50, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291016L, "primaryKey", "是否主键", "STRING", "INPUT", 0, 0, 60, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291017L, "autoIncrement", "是否自增", "STRING", "INPUT", 0, 0, 70, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291018L, "remarks", "备注", "STRING", "TEXTAREA", 0, 0, 80, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291019L, "defaultValue", "默认值", "STRING", "INPUT", 0, 0, 90, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionSqlite(2047489211925291020L, "partitionColumn", "是否分区字段", "BOOLEAN", "SWITCH", 0, 0, 100, "false", 1, 1, "[\"EQ\"]", "EQ", "[]");
+    }
+
+    private void upsertOdpsFieldMetadataDefinitionSqlite(long id,
+                                                         String fieldKey,
+                                                         String fieldName,
+                                                         String valueType,
+                                                         String componentType,
+                                                         int requiredFlag,
+                                                         int sensitiveFlag,
+                                                         int sortOrder,
+                                                         String defaultValue,
+                                                         int searchableFlag,
+                                                         int sortableFlag,
+                                                         String queryOperators,
+                                                         String queryDefaultOperator,
+                                                         String options) {
+        jdbcTemplate.update("insert or replace into meta_field_definition (" +
+                        "id, tenant_id, deleted, created_at, updated_at, schema_version_id, field_key, field_name, description, scope, value_type, component_type, required_flag, sensitive_flag, sort_order, validation_rule, placeholder, default_value, searchable_flag, sortable_flag, query_operators, query_default_operator, options" +
+                        ") values (?, 'default', 0, datetime('now'), datetime('now'), 2047489211925291010, ?, ?, ?, 'TECHNICAL', ?, ?, ?, ?, ?, null, null, ?, ?, ?, ?, ?, ?)",
+                Long.valueOf(id),
+                fieldKey,
+                fieldName,
+                fieldName,
+                valueType,
+                componentType,
+                Integer.valueOf(requiredFlag),
+                Integer.valueOf(sensitiveFlag),
+                Integer.valueOf(sortOrder),
+                defaultValue,
+                Integer.valueOf(searchableFlag),
+                Integer.valueOf(sortableFlag),
+                queryOperators,
+                queryDefaultOperator,
+                options);
+    }
+
+    private void ensureCurrentOdpsFieldMetadataDefinitions() {
+        if (!tableExists("meta_schema") || !tableExists("meta_field_definition")) {
+            return;
+        }
+        List<Long> versionIds = jdbcTemplate.queryForList(
+                "select current_version_id from meta_schema where schema_code = 'technical:odps:field' and current_version_id is not null",
+                Long.class);
+        for (Long versionId : versionIds) {
+            ensureOdpsFieldMetadataDefinitionsForVersion(versionId);
+        }
+    }
+
+    private void ensureOdpsFieldMetadataDefinitionsForVersion(Long versionId) {
+        if (versionId == null) {
+            return;
+        }
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "name", "字段名", "STRING", "INPUT", 1, 0, 10, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "type", "字段类型", "STRING", "INPUT", 0, 0, 20, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "size", "长度", "INTEGER", "NUMBER", 0, 0, 30, null, 1, 1, "[\"EQ\", \"GT\", \"GE\", \"LT\", \"LE\", \"BETWEEN\", \"IN\"]", "EQ", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "scale", "精度", "INTEGER", "NUMBER", 0, 0, 40, null, 1, 1, "[\"EQ\", \"GT\", \"GE\", \"LT\", \"LE\", \"BETWEEN\", \"IN\"]", "EQ", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "nullable", "是否可空", "STRING", "INPUT", 0, 0, 50, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "primaryKey", "是否主键", "STRING", "INPUT", 0, 0, 60, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "autoIncrement", "是否自增", "STRING", "INPUT", 0, 0, 70, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "remarks", "备注", "STRING", "TEXTAREA", 0, 0, 80, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "defaultValue", "默认值", "STRING", "INPUT", 0, 0, 90, null, 1, 1, "[\"EQ\", \"LIKE\", \"IN\"]", "LIKE", "[]");
+        upsertOdpsFieldMetadataDefinitionForVersion(versionId, "partitionColumn", "是否分区字段", "BOOLEAN", "SWITCH", 0, 0, 100, "false", 1, 1, "[\"EQ\"]", "EQ", "[]");
+        jdbcTemplate.update("delete from meta_field_definition where schema_version_id = ? and field_key = 'sourceType'",
+                versionId);
+    }
+
+    private void upsertOdpsFieldMetadataDefinitionForVersion(Long versionId,
+                                                             String fieldKey,
+                                                             String fieldName,
+                                                             String valueType,
+                                                             String componentType,
+                                                             int requiredFlag,
+                                                             int sensitiveFlag,
+                                                             int sortOrder,
+                                                             String defaultValue,
+                                                             int searchableFlag,
+                                                             int sortableFlag,
+                                                             String queryOperators,
+                                                             String queryDefaultOperator,
+                                                             String options) {
+        Long id = findMetaFieldDefinitionId(versionId, fieldKey);
+        if (id == null && "partitionColumn".equals(fieldKey)) {
+            id = findMetaFieldDefinitionId(versionId, "sourceType");
+        }
+        if (id == null) {
+            jdbcTemplate.update("insert into meta_field_definition (" +
+                            "id, tenant_id, deleted, created_at, updated_at, schema_version_id, field_key, field_name, description, scope, value_type, component_type, required_flag, sensitive_flag, sort_order, validation_rule, placeholder, default_value, searchable_flag, sortable_flag, query_operators, query_default_operator, options" +
+                            ") values (?, 'default', 0, current_timestamp, current_timestamp, ?, ?, ?, ?, 'TECHNICAL', ?, ?, ?, ?, ?, null, null, ?, ?, ?, ?, ?, ?)",
+                    Long.valueOf(generatedMetaFieldDefinitionId(versionId, fieldKey)),
+                    versionId,
+                    fieldKey,
+                    fieldName,
+                    fieldName,
+                    valueType,
+                    componentType,
+                    Integer.valueOf(requiredFlag),
+                    Integer.valueOf(sensitiveFlag),
+                    Integer.valueOf(sortOrder),
+                    defaultValue,
+                    Integer.valueOf(searchableFlag),
+                    Integer.valueOf(sortableFlag),
+                    queryOperators,
+                    queryDefaultOperator,
+                    options);
+            return;
+        }
+        jdbcTemplate.update("update meta_field_definition set " +
+                        "tenant_id = 'default', deleted = 0, updated_at = current_timestamp, schema_version_id = ?, field_key = ?, field_name = ?, description = ?, scope = 'TECHNICAL', value_type = ?, component_type = ?, required_flag = ?, sensitive_flag = ?, sort_order = ?, validation_rule = null, placeholder = null, default_value = ?, searchable_flag = ?, sortable_flag = ?, query_operators = ?, query_default_operator = ?, options = ? " +
+                        "where id = ?",
+                versionId,
+                fieldKey,
+                fieldName,
+                fieldName,
+                valueType,
+                componentType,
+                Integer.valueOf(requiredFlag),
+                Integer.valueOf(sensitiveFlag),
+                Integer.valueOf(sortOrder),
+                defaultValue,
+                Integer.valueOf(searchableFlag),
+                Integer.valueOf(sortableFlag),
+                queryOperators,
+                queryDefaultOperator,
+                options,
+                id);
+    }
+
+    private Long findMetaFieldDefinitionId(Long versionId, String fieldKey) {
+        List<Long> ids = jdbcTemplate.queryForList(
+                "select id from meta_field_definition where schema_version_id = ? and field_key = ? order by id limit 1",
+                Long.class,
+                versionId,
+                fieldKey);
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    private long generatedMetaFieldDefinitionId(Long versionId, String fieldKey) {
+        UUID uuid = UUID.nameUUIDFromBytes(("meta_field_definition|odps|" + versionId + "|" + fieldKey)
+                .getBytes(StandardCharsets.UTF_8));
+        long value = uuid.getMostSignificantBits() & Long.MAX_VALUE;
+        if (value == 0L) {
+            value = uuid.getLeastSignificantBits() & Long.MAX_VALUE;
+        }
+        return value == 0L ? 1L : value;
     }
 
     private void ensureColumn(String tableName, String columnName, String ddl) {

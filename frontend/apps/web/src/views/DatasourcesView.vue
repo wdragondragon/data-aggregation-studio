@@ -306,6 +306,16 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
       ...businessDefault,
     ];
   }
+  if (form.typeCode === "odps") {
+    return [
+      { fieldKey: "host", fieldName: "MaxCompute Endpoint", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
+      { fieldKey: "database", fieldName: "Project 名", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
+      { fieldKey: "userName", fieldName: "AccessKey ID", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING", required: true },
+      { fieldKey: "password", fieldName: "AccessKey Secret", scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", required: true, sensitive: true },
+      { fieldKey: "extraParams", fieldName: "全局参数", scope: "TECHNICAL", componentType: "JSON_EDITOR", valueType: "JSON", defaultValue: "{}" },
+      ...businessDefault,
+    ];
+  }
   if (["kafka", "rocketmq", "rabbitmq"].includes(form.typeCode)) {
     return [
       { fieldKey: "brokers", fieldName: "Brokers", scope: "TECHNICAL", componentType: "TEXTAREA", valueType: "STRING", required: true },

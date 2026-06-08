@@ -16,6 +16,7 @@
         :sections="sections"
         :preview-rows="previewRows"
         :preview-columns="previewColumns"
+        :preview-loading="previewLoading"
         :resolve-project-label="resolveProjectLabel"
         :preview-section-rows="previewSectionRows"
         :section-value="sectionValue"
@@ -44,6 +45,7 @@ defineProps<{
   sections: ModelMetaSection[];
   previewRows: Record<string, unknown>[];
   previewColumns: string[];
+  previewLoading?: boolean;
   resolveProjectLabel: (projectId?: EntityId | null) => string;
   previewSectionRows: (section: ModelMetaSection) => Record<string, unknown>[];
   sectionValue: (section: ModelMetaSection, fieldKey?: string, editor?: boolean) => unknown;

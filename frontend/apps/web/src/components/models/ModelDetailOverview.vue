@@ -49,20 +49,22 @@
             <div v-if="previewSectionRows(section).length === 0" class="soft-panel empty-hint section-empty">
               {{ t("web.models.metaSectionEmpty") }}
             </div>
-            <el-table v-else :data="previewSectionRows(section)" border>
-              <el-table-column
-                v-for="field in section.fields"
-                :key="field.fieldKey"
-                :prop="field.fieldKey"
-                :label="field.fieldName"
-                min-width="140"
-                show-overflow-tooltip
-              >
-                <template #default="{ row }">
-                  {{ formatDisplayValue(row[field.fieldKey]) }}
-                </template>
-              </el-table-column>
-            </el-table>
+            <StudioTableShell v-else :min-width="tableMinWidth(section.fields.length, 150)">
+              <el-table :data="previewSectionRows(section)" border table-layout="fixed">
+                <el-table-column
+                  v-for="field in section.fields"
+                  :key="field.fieldKey"
+                  :prop="field.fieldKey"
+                  :label="field.fieldName"
+                  min-width="150"
+                  show-overflow-tooltip
+                >
+                  <template #default="{ row }">
+                    {{ formatDisplayValue(row[field.fieldKey]) }}
+                  </template>
+                </el-table-column>
+              </el-table>
+            </StudioTableShell>
           </div>
 
           <div v-else class="model-field-grid">
@@ -92,19 +94,24 @@
           </div>
         </div>
 
-        <div v-if="previewRows.length === 0" class="soft-panel empty-hint section-empty">
+        <div v-if="previewLoading && previewRows.length === 0" class="soft-panel empty-hint section-empty">
+          样例数据加载中...
+        </div>
+        <div v-else-if="previewRows.length === 0" class="soft-panel empty-hint section-empty">
           {{ t("web.models.sampleRowsEmpty") }}
         </div>
-        <el-table v-else :data="previewRows" border>
-          <el-table-column
-            v-for="column in previewColumns"
-            :key="column"
-            :prop="column"
-            :label="column"
-            min-width="140"
-            show-overflow-tooltip
-          />
-        </el-table>
+        <StudioTableShell v-else :min-width="tableMinWidth(previewColumns.length, 140)">
+          <el-table :data="previewRows" border table-layout="fixed">
+            <el-table-column
+              v-for="column in previewColumns"
+              :key="column"
+              :prop="column"
+              :label="column"
+              min-width="140"
+              show-overflow-tooltip
+            />
+          </el-table>
+        </StudioTableShell>
       </div>
     </template>
   </SectionCard>
@@ -113,7 +120,7 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 import type { DataModelDefinition, EntityId } from "@studio/api-sdk";
-import { SectionCard, StatusPill } from "@studio/ui";
+import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { formatModelKind } from "@/utils/studio";
 import type { ModelMetaSection } from "./modelViewTypes";
 
@@ -123,6 +130,7 @@ defineProps<{
   sections: ModelMetaSection[];
   previewRows: Record<string, unknown>[];
   previewColumns: string[];
+  previewLoading?: boolean;
   resolveProjectLabel: (projectId?: EntityId | null) => string;
   previewSectionRows: (section: ModelMetaSection) => Record<string, unknown>[];
   sectionValue: (section: ModelMetaSection, fieldKey?: string, editor?: boolean) => unknown;
@@ -130,6 +138,10 @@ defineProps<{
 }>();
 
 const { t } = useI18n();
+
+function tableMinWidth(columnCount: number, columnWidth: number) {
+  return Math.max(720, columnCount * columnWidth);
+}
 </script>
 
 <style scoped>
@@ -160,12 +172,14 @@ p {
 
 .model-section-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
 .model-meta-section,
 .sample-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 

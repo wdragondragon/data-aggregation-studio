@@ -9,6 +9,8 @@ import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.core.spi.ModelDiscoveryProvider;
 import com.jdragon.studio.core.spi.SourceCapabilityProvider;
+import com.jdragon.studio.commons.exception.StudioErrorCode;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.EncryptionService;
@@ -416,6 +418,10 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                     datasource == null ? null : datasource.getId(),
                     model == null ? null : model.getId(),
                     e.getMessage());
+            if (datasource != null && "odps".equalsIgnoreCase(datasource.getTypeCode())) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "ODPS样例数据预览失败: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            }
         }
         return rows;
     }

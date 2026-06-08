@@ -269,6 +269,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.models.detailTitle",
           subtitleKey: "routes.web.models.detailSubtitle",
+          disableGlobalLoadingMask: true,
         },
       },
       {

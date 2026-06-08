@@ -54,7 +54,7 @@ final class StudioDatasourceCapabilityUpgradeSupport {
         insertDatasourceTypeCapabilityMysql("rocketmq", "RocketMQ", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "rocketmq", "[\"rocketmq\"]", "[\"rocketmq\"]", 90, "RocketMQ 消息队列");
         insertDatasourceTypeCapabilityMysql("http", "HTTP", "HTTP_API", 1, 1, 1, 1, 0, "http", "[\"httpreader\"]", "[\"httpwriter\"]", 95, "HTTP 接口数据源");
         insertDatasourceTypeCapabilityMysql("rabbitmq", "RabbitMQ", "MESSAGE_QUEUE", 1, 0, 0, 1, 0, "rabbitmq", "[]", "[]", 100, "RabbitMQ 消息队列");
-        insertDatasourceTypeCapabilityMysql("odps", "ODPS", "DATABASE", 1, 0, 0, 1, 1, "odps", "[]", "[]", 110, "ODPS / MaxCompute 数据源");
+        insertDatasourceTypeCapabilityMysql("odps", "ODPS", "DATABASE", 1, 1, 1, 1, 1, "odps", "[\"odpsreader\"]", "[\"odpswriter\"]", 110, "ODPS / MaxCompute 数据源");
         insertDatasourceTypeCapabilityMysql("tbds-hdfs", "TBDS HDFS", "FILE_SYSTEM", 1, 0, 0, 1, 0, "tbds-hdfs", "[]", "[]", 120, "TBDS HDFS 文件系统");
         insertDatasourceTypeCapabilityMysql("tbds-hdfs3", "TBDS HDFS3", "FILE_SYSTEM", 1, 0, 0, 1, 0, "tbds-hdfs3", "[]", "[]", 130, "TBDS HDFS3 文件系统");
         insertDatasourceTypeCapabilityMysql("tbds-hive2", "TBDS Hive2", "DATABASE", 1, 1, 0, 1, 1, "tbds-hive2", "[\"tbds-hive2\"]", "[]", 140, "TBDS Hive2 数据源");
@@ -173,7 +173,7 @@ final class StudioDatasourceCapabilityUpgradeSupport {
         insertDatasourceTypeCapabilitySqlite("rocketmq", "RocketMQ", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "rocketmq", "[\"rocketmq\"]", "[\"rocketmq\"]", 90, "RocketMQ 消息队列");
         insertDatasourceTypeCapabilitySqlite("http", "HTTP", "HTTP_API", 1, 1, 1, 1, 0, "http", "[\"httpreader\"]", "[\"httpwriter\"]", 95, "HTTP 接口数据源");
         insertDatasourceTypeCapabilitySqlite("rabbitmq", "RabbitMQ", "MESSAGE_QUEUE", 1, 0, 0, 1, 0, "rabbitmq", "[]", "[]", 100, "RabbitMQ 消息队列");
-        insertDatasourceTypeCapabilitySqlite("odps", "ODPS", "DATABASE", 1, 0, 0, 1, 1, "odps", "[]", "[]", 110, "ODPS / MaxCompute 数据源");
+        insertDatasourceTypeCapabilitySqlite("odps", "ODPS", "DATABASE", 1, 1, 1, 1, 1, "odps", "[\"odpsreader\"]", "[\"odpswriter\"]", 110, "ODPS / MaxCompute 数据源");
         insertDatasourceTypeCapabilitySqlite("tbds-hdfs", "TBDS HDFS", "FILE_SYSTEM", 1, 0, 0, 1, 0, "tbds-hdfs", "[]", "[]", 120, "TBDS HDFS 文件系统");
         insertDatasourceTypeCapabilitySqlite("tbds-hdfs3", "TBDS HDFS3", "FILE_SYSTEM", 1, 0, 0, 1, 0, "tbds-hdfs3", "[]", "[]", 130, "TBDS HDFS3 文件系统");
         insertDatasourceTypeCapabilitySqlite("tbds-hive2", "TBDS Hive2", "DATABASE", 1, 1, 0, 1, 1, "tbds-hive2", "[\"tbds-hive2\"]", "[]", 140, "TBDS Hive2 数据源");

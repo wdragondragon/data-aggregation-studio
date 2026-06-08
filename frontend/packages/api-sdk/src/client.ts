@@ -154,6 +154,14 @@ export interface StudioApiOptions {
   onUnauthorized?: () => void;
 }
 
+export interface StudioRequestConfig extends AxiosRequestConfig {
+  studioSkipGlobalLoading?: boolean;
+}
+
+function shouldUseGlobalLoading(config?: unknown) {
+  return !(config && typeof config === "object" && (config as StudioRequestConfig).studioSkipGlobalLoading);
+}
+
 async function unwrap<T>(promise: Promise<{ data: Result<T> }>): Promise<T> {
   const response = await promise;
   if (!response.data.success) {
@@ -285,7 +293,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
   });
 
   instance.interceptors.request.use((config) => {
-    beginStudioApiRequest();
+    if (shouldUseGlobalLoading(config)) {
+      beginStudioApiRequest();
+    }
     const token = options.getToken?.();
     if (token) {
       config.headers = config.headers ?? {};
@@ -303,17 +313,23 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     }
     return config;
   }, (error) => {
-    endStudioApiRequest();
+    if (shouldUseGlobalLoading(error?.config)) {
+      endStudioApiRequest();
+    }
     return Promise.reject(error);
   });
 
   instance.interceptors.response.use(
     (response) => {
-      endStudioApiRequest();
+      if (shouldUseGlobalLoading(response.config)) {
+        endStudioApiRequest();
+      }
       return response;
     },
     (error) => {
-      endStudioApiRequest();
+      if (shouldUseGlobalLoading(error?.config)) {
+        endStudioApiRequest();
+      }
       if (error.response?.status === 401) {
         options.onUnauthorized?.();
       }
@@ -321,7 +337,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
   );
 
-  const request = <T>(config: AxiosRequestConfig) => unwrap<T>(instance.request<Result<T>>(config) as Promise<{ data: Result<T> }>);
+  const request = <T>(config: StudioRequestConfig) => unwrap<T>(instance.request<Result<T>>(config) as Promise<{ data: Result<T> }>);
 
   return {
     auth: {
@@ -705,8 +721,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         });
         return result.items;
       },
-      get(modelId: EntityId) {
-        return request<DataModelDefinition>({ url: `/models/${modelId}`, method: "GET" });
+      get(modelId: EntityId, config?: StudioRequestConfig) {
+        return request<DataModelDefinition>({ ...config, url: `/models/${modelId}`, method: "GET" });
       },
       queryPage(payload: DataModelQueryRequest, params?: {
         pageNo?: number;
@@ -770,6 +786,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           url: `/models/${modelId}/preview`,
           method: "GET",
           params: { limit },
+          studioSkipGlobalLoading: true,
         });
       },
       lineage(modelId: EntityId, level: DataModelLineageLevel | string) {

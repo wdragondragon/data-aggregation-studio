@@ -55,12 +55,16 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.executableSourceTypes", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.executableSourceTypes", hasItem("odps")))
                 .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("odps")))
                 .andExpect(jsonPath("$.data.executableTargetTypes", hasItem("minio")))
                 .andExpect(jsonPath("$.data.executableDatasourceTypes", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.executableDatasourceTypes", hasItem("odps")))
                 .andExpect(jsonPath("$.data.executableDatasourceTypes", hasItem("http")))
                 .andExpect(jsonPath("$.data.sourceCapabilities", hasSize(org.hamcrest.Matchers.greaterThan(0))))
                 .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("mysql8")))
+                .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("odps")))
                 .andExpect(jsonPath("$.data.sourceCapabilities[*].typeCode", hasItem("http")));
     }
 
@@ -155,6 +159,8 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .contains("host", "database", "userName", "password");
         assertThat(extractFieldKeys(findSchema(schemas, "technical:odps:source")))
                 .contains("host", "database", "userName", "password", "extraParams");
+        assertThat(extractFieldKeys(findSchema(schemas, "technical:odps:field")))
+                .contains("name", "type", "nullable", "partitionColumn");
         assertThat(extractFieldKeys(findSchema(schemas, "technical:tbds-hive3:source")))
                 .contains("host", "port", "database", "principal", "keytabPath", "krb5File", "other");
     }
@@ -296,20 +302,55 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
         assertThat(fieldByKey(httpWriterSchema, "payloadMode").path("defaultValue").asText()).isEqualTo("object");
         assertThat(fieldByKey(httpWriterSchema, "batchSize").path("defaultValue").asText()).isEqualTo("500");
 
+        MvcResult odpsReaderResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "reader")
+                        .param("datasourceType", "odps")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("odps"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andReturn();
+        JsonNode odpsReaderSchema = readBody(odpsReaderResult).path("data");
+        assertThat(extractFieldKeys(odpsReaderSchema))
+                .containsExactly("readMode", "selectSql", "partitionSpec", "includePartitionColumns", "offset", "maxRows");
+        assertThat(fieldByKey(odpsReaderSchema, "readMode").path("componentType").asText()).isEqualTo("SELECT");
+        assertThat(fieldByKey(odpsReaderSchema, "readMode").path("defaultValue").asText()).isEqualTo("auto");
+
+        MvcResult odpsWriterResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "writer")
+                        .param("datasourceType", "odps")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("odps"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andReturn();
+        JsonNode odpsWriterSchema = readBody(odpsWriterResult).path("data");
+        assertThat(extractFieldKeys(odpsWriterSchema))
+                .containsExactly("writeMode", "partitionSpec", "partitionColumns", "batchSize",
+                        "emptyAsNull", "autoCreatePartition", "preSql", "postSql");
+        assertThat(fieldByKey(odpsWriterSchema, "partitionColumns").path("valueType").asText()).isEqualTo("ARRAY");
+        assertThat(fieldByKey(odpsWriterSchema, "writeMode").path("defaultValue").asText()).isEqualTo("append");
+
         mockMvc.perform(post("/api/v1/meta-schemas/runtime-options/sync-standard")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(18)))
+                .andExpect(jsonPath("$.data", hasSize(20)))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:http")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:odps")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:minio")))
-                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http")));
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:odps")));
     }
 
     @Test

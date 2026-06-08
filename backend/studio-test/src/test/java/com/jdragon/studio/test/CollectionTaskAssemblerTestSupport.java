@@ -46,10 +46,24 @@ abstract class CollectionTaskAssemblerTestSupport {
         Map<String, Object> httpMetadata = new LinkedHashMap<String, Object>();
         httpMetadata.put("url", "http://api.example.com/base");
         httpDatasource.setTechnicalMetadata(httpMetadata);
+        DataSourceDefinition odpsDatasource = new DataSourceDefinition();
+        odpsDatasource.setId(5L);
+        odpsDatasource.setTypeCode("odps");
+        Map<String, Object> odpsMetadata = new LinkedHashMap<String, Object>();
+        odpsMetadata.put("host", "http://service.cn-hangzhou.maxcompute.aliyun.com/api");
+        odpsMetadata.put("database", "studio_project");
+        odpsMetadata.put("userName", "access-key-id");
+        odpsMetadata.put("password", "access-key-secret");
+        Map<String, Object> odpsExtraParams = new LinkedHashMap<String, Object>();
+        odpsExtraParams.put("tunnelEndpoint", "http://dt.cn-hangzhou.maxcompute.aliyun.com");
+        odpsExtraParams.put("odps.sql.allow.fullscan", "true");
+        odpsMetadata.put("extraParams", odpsExtraParams);
+        odpsDatasource.setTechnicalMetadata(odpsMetadata);
         when(service.getInternal(1L)).thenReturn(datasource);
         when(service.getInternal(2L)).thenReturn(datasource);
         when(service.getInternal(3L)).thenReturn(minioDatasource);
         when(service.getInternal(4L)).thenReturn(httpDatasource);
+        when(service.getInternal(5L)).thenReturn(odpsDatasource);
         return service;
     }
 
@@ -61,9 +75,12 @@ abstract class CollectionTaskAssemblerTestSupport {
         when(service.resolvePluginType("minio", "writer")).thenReturn("minio");
         when(service.resolvePluginType("http", "reader")).thenReturn("http");
         when(service.resolvePluginType("http", "writer")).thenReturn("http");
+        when(service.resolvePluginType("odps", "reader")).thenReturn("odps");
+        when(service.resolvePluginType("odps", "writer")).thenReturn("odps");
         when(service.sourceCategory("mysql8")).thenReturn("DATABASE");
         when(service.sourceCategory("minio")).thenReturn("FILE_SYSTEM");
         when(service.sourceCategory("http")).thenReturn("HTTP_API");
+        when(service.sourceCategory("odps")).thenReturn("DATABASE");
         when(service.reservedKeys("reader")).thenReturn(Arrays.asList("connect", "config", "table", "topic",
                 "measurement", "columns", "sourceAlias", "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
                 "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter",
@@ -86,6 +103,8 @@ abstract class CollectionTaskAssemblerTestSupport {
         DataModelDefinition httpModel = buildHttpModel(false);
         DataModelDefinition invalidHttpModel = buildHttpModel(true);
         DataModelDefinition httpWriterModel = buildHttpWriterModel();
+        DataModelDefinition odpsSourceModel = buildOdpsModel(50L, "odps_source_table", true);
+        DataModelDefinition odpsTargetModel = buildOdpsModel(51L, "odps_target_pt", true);
         when(service.get(10L)).thenReturn(sourceModel);
         when(service.get(11L)).thenReturn(sourceModel2);
         when(service.get(20L)).thenReturn(targetModel);
@@ -96,6 +115,8 @@ abstract class CollectionTaskAssemblerTestSupport {
         when(service.get(40L)).thenReturn(httpModel);
         when(service.get(41L)).thenReturn(invalidHttpModel);
         when(service.get(42L)).thenReturn(httpWriterModel);
+        when(service.get(50L)).thenReturn(odpsSourceModel);
+        when(service.get(51L)).thenReturn(odpsTargetModel);
         return service;
     }
 
@@ -179,6 +200,31 @@ abstract class CollectionTaskAssemblerTestSupport {
         Map<String, Object> name = column("name");
         name.put("type", "TEXT");
         columns.add(name);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    protected DataModelDefinition buildOdpsModel(Long id, String physicalLocator, boolean partitioned) {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(id);
+        model.setPhysicalLocator(physicalLocator);
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("sourceType", "odps");
+        technicalMetadata.put("partitioned", Boolean.valueOf(partitioned));
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> idColumn = column("id");
+        idColumn.put("type", "BIGINT");
+        columns.add(idColumn);
+        Map<String, Object> nameColumn = column("name");
+        nameColumn.put("type", "STRING");
+        columns.add(nameColumn);
+        if (partitioned) {
+            Map<String, Object> partitionColumn = column("dt");
+            partitionColumn.put("type", "STRING");
+            partitionColumn.put("partitionColumn", Boolean.TRUE);
+            columns.add(partitionColumn);
+        }
         technicalMetadata.put("columns", columns);
         model.setTechnicalMetadata(technicalMetadata);
         return model;

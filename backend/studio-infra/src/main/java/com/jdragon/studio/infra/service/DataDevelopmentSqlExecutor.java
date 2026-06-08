@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.aggregation.commons.pagination.Table;
 import com.jdragon.aggregation.datasource.AbstractDataSourcePlugin;
 import com.jdragon.aggregation.datasource.BaseDataSourceDTO;
 import com.jdragon.aggregation.datasource.SourcePluginType;
@@ -50,6 +51,13 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
             "jdbcUrl",
             "driverClassName",
             "extraParams"
+    )));
+    private static final Set<String> SOURCE_PLUGIN_QUERY_KEYWORDS = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(
+            "select",
+            "show",
+            "desc",
+            "describe",
+            "with"
     )));
 
     private final EncryptionService encryptionService;
@@ -107,7 +115,11 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
         try (PluginClassLoaderCloseable loader =
                      PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
             AbstractDataSourcePlugin plugin = loader.loadPlugin();
-            try (Connection connection = plugin.getConnection(dataSourceDTO);
+            Connection connection = resolveJdbcConnection(plugin, dataSourceDTO);
+            if (connection == null) {
+                return executeWithSourcePlugin(datasource, plugin, dataSourceDTO, statements, maxRows, startedAt);
+            }
+            try (connection;
                  Statement statement = connection.createStatement()) {
                 if (maxRows != null && maxRows.intValue() > 0) {
                     statement.setMaxRows(maxRows.intValue());
@@ -187,7 +199,19 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
         try (PluginClassLoaderCloseable loader =
                      PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
             AbstractDataSourcePlugin plugin = loader.loadPlugin();
-            try (Connection connection = plugin.getConnection(dataSourceDTO);
+            Connection connection = resolveJdbcConnection(plugin, dataSourceDTO);
+            if (connection == null) {
+                if (parameters != null && !parameters.isEmpty()) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Datasource type " + datasource.getTypeCode() + " does not support parameterized SQL execution");
+                }
+                if (!isSourcePluginQuerySql(sql)) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Prepared query requires a query SQL statement for datasource type " + datasource.getTypeCode());
+                }
+                return executeWithSourcePlugin(datasource, plugin, dataSourceDTO, Collections.singletonList(sql), maxRows, startedAt);
+            }
+            try (connection;
                  PreparedStatement statement = connection.prepareStatement(sql)) {
                 if (maxRows != null && maxRows.intValue() > 0) {
                     statement.setMaxRows(maxRows.intValue());
@@ -229,6 +253,185 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
         } catch (Exception ex) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL execution failed: " + ex.getMessage());
         }
+    }
+
+    private Connection resolveJdbcConnection(AbstractDataSourcePlugin plugin, BaseDataSourceDTO dataSourceDTO) {
+        try {
+            return plugin.getConnection(dataSourceDTO);
+        } catch (UnsupportedOperationException ex) {
+            return null;
+        }
+    }
+
+    private SqlExecutionResultView executeWithSourcePlugin(DataSourceDefinition datasource,
+                                                           AbstractDataSourcePlugin plugin,
+                                                           BaseDataSourceDTO dataSourceDTO,
+                                                           List<String> statements,
+                                                           Integer maxRows,
+                                                           long startedAt) {
+        SqlExecutionResultView result = new SqlExecutionResultView();
+        result.setDatasourceName(datasource.getName());
+        result.setStatementCount(statements.size());
+        int totalAffectedRows = 0;
+        int queryCount = 0;
+        for (int index = 0; index < statements.size(); index++) {
+            String sql = statements.get(index);
+            SqlStatementExecutionResultView statementResult = executeStatementWithSourcePlugin(
+                    plugin, dataSourceDTO, sql, maxRows, index + 1);
+            result.getResults().add(statementResult);
+            if (Boolean.TRUE.equals(statementResult.getQuery())) {
+                queryCount++;
+                result.setColumns(new ArrayList<String>(statementResult.getColumns()));
+                result.setRows(new ArrayList<Map<String, Object>>(statementResult.getRows()));
+            } else {
+                totalAffectedRows += statementResult.getAffectedRows() == null ? 0 : statementResult.getAffectedRows();
+            }
+        }
+        result.setExecutionMs(System.currentTimeMillis() - startedAt);
+        result.setAffectedRows(totalAffectedRows);
+        result.getSummary().put("statementCount", statements.size());
+        result.getSummary().put("queryCount", queryCount);
+        result.getSummary().put("affectedRows", totalAffectedRows);
+        result.getSummary().put("datasourceType", datasource.getTypeCode());
+        result.getSummary().put("executionMode", "sourcePlugin");
+        if (!result.getRows().isEmpty() || !result.getColumns().isEmpty()) {
+            result.setQuery(Boolean.TRUE);
+            result.setMessage(queryCount > 1
+                    ? String.format("Executed %d query statements successfully", queryCount)
+                    : "Query executed successfully");
+            result.getSummary().put("rowCount", result.getRows().size());
+        } else {
+            result.setQuery(Boolean.FALSE);
+            result.setMessage(String.format("Executed %d statement(s), affected rows: %d", statements.size(), totalAffectedRows));
+        }
+        return result;
+    }
+
+    private SqlStatementExecutionResultView executeStatementWithSourcePlugin(AbstractDataSourcePlugin plugin,
+                                                                             BaseDataSourceDTO dataSourceDTO,
+                                                                             String sql,
+                                                                             Integer maxRows,
+                                                                             int statementIndex) {
+        SqlStatementExecutionResultView statementResult = new SqlStatementExecutionResultView();
+        statementResult.setStatementIndex(statementIndex);
+        statementResult.setSql(sql);
+        long statementStartedAt = System.currentTimeMillis();
+        try {
+            if (isSourcePluginQuerySql(sql)) {
+                Table<Map<String, Object>> table = plugin.executeQuerySql(dataSourceDTO, sql, true);
+                populatePluginQueryResult(statementResult, table, maxRows);
+                statementResult.setQuery(Boolean.TRUE);
+                statementResult.setMessage(String.format("Query returned %d row(s)", statementResult.getRows().size()));
+                statementResult.getSummary().put("rowCount", statementResult.getRows().size());
+                return statementResult;
+            } else {
+                plugin.executeUpdate(dataSourceDTO, sql);
+                statementResult.setQuery(Boolean.FALSE);
+                statementResult.setAffectedRows(0);
+                statementResult.setMessage("Statement executed successfully");
+                statementResult.getSummary().put("affectedRows", 0);
+                return statementResult;
+            }
+        } catch (Exception ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "SQL execution failed: " + safeExceptionMessage(ex));
+        } finally {
+            statementResult.setExecutionMs(System.currentTimeMillis() - statementStartedAt);
+        }
+    }
+
+    static boolean isSourcePluginQuerySql(String sql) {
+        String keyword = firstSqlKeyword(sql);
+        return keyword != null && SOURCE_PLUGIN_QUERY_KEYWORDS.contains(keyword);
+    }
+
+    private static String firstSqlKeyword(String sql) {
+        if (sql == null) {
+            return null;
+        }
+        int index = 0;
+        int length = sql.length();
+        while (index < length) {
+            while (index < length && Character.isWhitespace(sql.charAt(index))) {
+                index++;
+            }
+            if (index + 1 < length && sql.charAt(index) == '-' && sql.charAt(index + 1) == '-') {
+                index += 2;
+                while (index < length && sql.charAt(index) != '\n' && sql.charAt(index) != '\r') {
+                    index++;
+                }
+                continue;
+            }
+            if (index + 1 < length && sql.charAt(index) == '/' && sql.charAt(index + 1) == '*') {
+                index += 2;
+                while (index + 1 < length && !(sql.charAt(index) == '*' && sql.charAt(index + 1) == '/')) {
+                    index++;
+                }
+                index = Math.min(length, index + 2);
+                continue;
+            }
+            break;
+        }
+        if (index >= length) {
+            return null;
+        }
+        int start = index;
+        while (index < length) {
+            char ch = sql.charAt(index);
+            if (!Character.isLetter(ch) && ch != '_') {
+                break;
+            }
+            index++;
+        }
+        if (index <= start) {
+            return null;
+        }
+        return sql.substring(start, index).toLowerCase(Locale.ENGLISH);
+    }
+
+    private String safeExceptionMessage(Exception ex) {
+        if (ex == null) {
+            return "unknown error";
+        }
+        if (ex.getMessage() == null || ex.getMessage().trim().isEmpty()) {
+            return ex.getClass().getSimpleName();
+        }
+        return ex.getMessage();
+    }
+
+    private void populatePluginQueryResult(SqlStatementExecutionResultView result,
+                                           Table<Map<String, Object>> table,
+                                           Integer maxRows) {
+        List<String> columns = new ArrayList<String>();
+        if (table != null && table.getHeaders() != null) {
+            for (Table.Header header : table.getHeaders()) {
+                if (header != null && header.getName() != null && !columns.contains(header.getName())) {
+                    columns.add(header.getName());
+                }
+            }
+        }
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        int rowLimit = maxRows == null || maxRows.intValue() <= 0 ? Integer.MAX_VALUE : maxRows.intValue();
+        if (table != null && table.getBodies() != null) {
+            for (Map<String, Object> body : table.getBodies()) {
+                if (body == null) {
+                    continue;
+                }
+                if (rows.size() >= rowLimit) {
+                    break;
+                }
+                Map<String, Object> row = new LinkedHashMap<String, Object>();
+                for (Map.Entry<String, Object> entry : body.entrySet()) {
+                    if (!columns.contains(entry.getKey())) {
+                        columns.add(entry.getKey());
+                    }
+                    row.put(entry.getKey(), normalizeJdbcValue(entry.getValue()));
+                }
+                rows.add(row);
+            }
+        }
+        result.setColumns(columns);
+        result.setRows(rows);
     }
 
     private void populateQueryResult(SqlStatementExecutionResultView result, ResultSet resultSet) throws Exception {

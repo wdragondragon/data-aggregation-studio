@@ -39,6 +39,7 @@ const DATABASE_TYPE_HINTS = [
   "starrocks",
   "doris",
   "sqlite",
+  "odps",
 ];
 
 export function normalizeModelPagePayload(payload: unknown) {

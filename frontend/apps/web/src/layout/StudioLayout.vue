@@ -2,7 +2,7 @@
   <StudioShell
     :menus="studioMenus"
     :active-path="activeMenuPath"
-    :loading="appLoading"
+    :loading="shellLoading"
     :title="pageTitle"
     :subtitle="pageSubtitle"
     :mode-label="t('shell.webRuntime')"
@@ -89,6 +89,15 @@ const appLoading = ref(false);
 const contextLoading = ref(false);
 const unsubscribe = subscribeStudioApiLoading((loading) => {
   appLoading.value = loading;
+});
+const disableGlobalLoadingMask = computed(() => {
+  return route.meta.disableGlobalLoadingMask === true || route.name === "model-detail" || /^\/models\/[^/]+$/.test(route.path);
+});
+const shellLoading = computed(() => {
+  if (disableGlobalLoadingMask.value) {
+    return false;
+  }
+  return appLoading.value;
 });
 
 const studioMenus = computed(() => {

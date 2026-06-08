@@ -299,6 +299,9 @@ final class TechnicalMetadataFieldBuilder {
         }
         fields.add(field("remarks", "备注", FieldValueType.STRING, FieldComponentType.TEXTAREA, false, false, 80, null));
         fields.add(field("defaultValue", "默认值", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
+        if ("odps".equals(normalized)) {
+            fields.add(field("partitionColumn", "是否分区字段", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 100, "false"));
+        }
         if (!isDatabaseType(datasourceType)) {
             fields.add(field("sourceType", "数据源类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, datasourceType));
         }
@@ -412,7 +415,7 @@ final class TechnicalMetadataFieldBuilder {
         String normalized = normalize(typeCode);
         return containsAny(normalized, "mysql", "oracle", "postgres", "postgresql", "sqlserver",
                 "clickhouse", "kingbase", "dm", "db2", "hive", "gauss", "tidb", "phoenix",
-                "greenplum", "starrocks", "doris", "sqlite");
+                "greenplum", "starrocks", "doris", "sqlite", "odps");
     }
 
     private boolean isQueueType(String typeCode) {

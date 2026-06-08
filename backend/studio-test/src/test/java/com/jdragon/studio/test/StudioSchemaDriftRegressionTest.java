@@ -31,7 +31,7 @@ class StudioSchemaDriftRegressionTest {
             capability("rocketmq", "MESSAGE_QUEUE", "rocketmq", "rocketmq", "rocketmq"),
             capability("http", "HTTP_API", "http", "httpreader", "httpwriter"),
             capability("rabbitmq", "MESSAGE_QUEUE", "rabbitmq", null, null),
-            capability("odps", "DATABASE", "odps", null, null),
+            capability("odps", "DATABASE", "odps", "odpsreader", "odpswriter"),
             capability("tbds-hdfs", "FILE_SYSTEM", "tbds-hdfs", null, null),
             capability("tbds-hdfs3", "FILE_SYSTEM", "tbds-hdfs3", null, null),
             capability("tbds-hive2", "DATABASE", "tbds-hive2", "tbds-hive2", null),
@@ -51,6 +51,7 @@ class StudioSchemaDriftRegressionTest {
             runtime("reader", "sftp"),
             runtime("reader", "minio"),
             runtime("reader", "http"),
+            runtime("reader", "odps"),
             runtime("writer", "mysql8"),
             runtime("writer", "dm"),
             runtime("writer", "postgresql"),
@@ -58,7 +59,8 @@ class StudioSchemaDriftRegressionTest {
             runtime("writer", "ftp"),
             runtime("writer", "sftp"),
             runtime("writer", "minio"),
-            runtime("writer", "http")
+            runtime("writer", "http"),
+            runtime("writer", "odps")
     );
 
     private static final List<String> TECHNICAL_META_MODEL_CODES = Arrays.asList("source", "table", "field");
@@ -72,12 +74,23 @@ class StudioSchemaDriftRegressionTest {
             "responseStatus.path", "responseStatus.code", "retryTimes", "retryIntervalMs",
             "connectTimeoutMs", "socketTimeoutMs");
 
+    private static final List<String> ODPS_READER_FIELDS = Arrays.asList(
+            "readMode", "selectSql", "partitionSpec", "includePartitionColumns", "offset", "maxRows");
+
+    private static final List<String> ODPS_WRITER_FIELDS = Arrays.asList(
+            "writeMode", "partitionSpec", "partitionColumns", "batchSize",
+            "emptyAsNull", "autoCreatePartition", "preSql", "postSql");
+
     private static final List<String> HTTP_TABLE_FIELDS = Arrays.asList(
             "physicalName", "description", "mode", "resultType",
             "businessStatusPath", "businessStatusCode", "totalCodePath");
 
     private static final List<String> HTTP_FIELD_FIELDS = Arrays.asList(
             "name", "cnName", "parentNode", "remarks", "primaryKey", "nullable", "type", "size", "scale");
+
+    private static final List<String> ODPS_FIELD_FIELDS = Arrays.asList(
+            "name", "type", "size", "scale", "nullable", "primaryKey",
+            "autoIncrement", "remarks", "defaultValue", "partitionColumn");
 
     @Test
     void defaultDatasourceCapabilitiesShouldStayAlignedAcrossBootstrapMysqlAndSqlite() throws Exception {
@@ -157,6 +170,41 @@ class StudioSchemaDriftRegressionTest {
         assertFieldsPresent("Java HTTP writer runtime fields", runtimeBootstrap, HTTP_WRITER_FIELDS);
         assertFieldsPresent("MySQL HTTP writer runtime fields", mysqlRuntimeOptions, HTTP_WRITER_FIELDS);
         assertFieldsPresent("Delta HTTP writer runtime fields", httpDelta, HTTP_WRITER_FIELDS);
+    }
+
+    @Test
+    void odpsCapabilityAndRuntimeSchemasShouldStayAlignedAcrossBootstrapMysqlSqliteAndDeltaScripts() throws Exception {
+        String capabilityBootstrap = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/DatasourceTypeCapabilityService.java");
+        String mysqlBase = readBackendFile("studio-server/src/main/resources/data-mysql-base.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String runtimeBootstrap = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StandardRuntimeOptionSchemaBootstrapService.java");
+        String mysqlRuntimeOptions = readBackendFile("studio-server/src/main/resources/data-mysql-runtime-options.sql");
+        String technicalFieldBuilder = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/TechnicalMetadataFieldBuilder.java");
+        String mysqlBuiltin = readBackendFile("studio-server/src/main/resources/data-mysql-builtin.sql");
+        String odpsDelta = readBackendFile("studio-server/src/main/resources/update/20260605/20260605-odps-studio-integration-delta.sql");
+        String odpsFieldDelta = readBackendFile("studio-server/src/main/resources/update/20260606/20260606-odps-field-meta-schema-delta.sql");
+
+        CapabilityExpectation odps = capability("odps", "DATABASE", "odps", "odpsreader", "odpswriter");
+        assertCapabilityPresent("Java ODPS capability", capabilityBootstrap, odps, false);
+        assertCapabilityPresent("MySQL ODPS capability", mysqlBase, odps, true);
+        assertCapabilityPresent("SQLite ODPS capability", sqliteSchema, odps, true);
+        assertCapabilityPresent("Delta ODPS capability", odpsDelta, odps, true);
+
+        assertThat(runtimeBootstrap).contains("buildOdpsReaderFields", "buildOdpsWriterFields");
+        assertThat(mysqlRuntimeOptions).contains("runtime:reader:odps", "runtime:writer:odps");
+        assertThat(odpsDelta).contains("runtime:reader:odps", "runtime:writer:odps");
+
+        assertFieldsPresent("Java ODPS reader runtime fields", runtimeBootstrap, ODPS_READER_FIELDS);
+        assertFieldsPresent("MySQL ODPS reader runtime fields", mysqlRuntimeOptions, ODPS_READER_FIELDS);
+        assertFieldsPresent("Delta ODPS reader runtime fields", odpsDelta, ODPS_READER_FIELDS);
+        assertFieldsPresent("Java ODPS writer runtime fields", runtimeBootstrap, ODPS_WRITER_FIELDS);
+        assertFieldsPresent("MySQL ODPS writer runtime fields", mysqlRuntimeOptions, ODPS_WRITER_FIELDS);
+        assertFieldsPresent("Delta ODPS writer runtime fields", odpsDelta, ODPS_WRITER_FIELDS);
+
+        assertFieldsPresent("Java ODPS technical field metadata", technicalFieldBuilder, ODPS_FIELD_FIELDS);
+        assertFieldsPresent("MySQL ODPS technical field metadata", mysqlBuiltin, ODPS_FIELD_FIELDS);
+        assertFieldsPresent("Delta ODPS technical field metadata", odpsDelta, Arrays.asList("partitionColumn"));
+        assertFieldsPresent("Repair delta ODPS technical field metadata", odpsFieldDelta, ODPS_FIELD_FIELDS);
     }
 
     @Test
