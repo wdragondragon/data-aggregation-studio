@@ -112,6 +112,10 @@
         </dependency>
         <dependency>
             <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>data-source-handler-file-s3-minio</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
             <artifactId>plugins-loader-center</artifactId>
         </dependency>
 

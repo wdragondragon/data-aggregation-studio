@@ -74,6 +74,7 @@ public class StudioPlatformProperties {
 
     @Data
     public static class ObjectStorageProperties {
+        private String provider = "MINIO";
         private String endpoint;
         private String accessKey;
         private String secretKey;

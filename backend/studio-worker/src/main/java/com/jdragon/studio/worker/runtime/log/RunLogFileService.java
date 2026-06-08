@@ -27,6 +27,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -49,6 +50,7 @@ public class RunLogFileService {
     private final Logger rootLogger;
     private final Map<Long, FileAppender<ILoggingEvent>> appenders = new ConcurrentHashMap<Long, FileAppender<ILoggingEvent>>();
     private final Map<Long, PreparedRunLog> activeLogs = new ConcurrentHashMap<Long, PreparedRunLog>();
+    private final Map<String, String> lastUploadErrorByPath = new ConcurrentHashMap<String, String>();
 
     public RunLogFileService(StudioPlatformProperties properties, RunLogStorageService runLogStorageService) {
         this.properties = properties;
@@ -148,10 +150,53 @@ public class RunLogFileService {
             objectKey = runLogStorageService.buildObjectKey(prepared.getRelativePath());
             byte[] bytes = Files.readAllBytes(prepared.getAbsolutePath());
             runLogStorageService.upload(bucket, objectKey, bytes, "text/plain;charset=" + prepared.getCharset());
+            lastUploadErrorByPath.remove(prepared.getRelativePath());
             return RunLogStorageResult.objectStorage(size, bucket, objectKey, successStatus);
         } catch (Exception e) {
-            return RunLogStorageResult.failed(size, e.getMessage());
+            String summary = summarizeThrowable(e);
+            appendUploadFailure(prepared, summary);
+            return RunLogStorageResult.failed(fileSize(prepared.getRelativePath()), summary);
         }
+    }
+
+    private void appendUploadFailure(PreparedRunLog prepared, String summary) {
+        if (prepared == null || prepared.getAbsolutePath() == null || prepared.getRelativePath() == null) {
+            return;
+        }
+        String previous = lastUploadErrorByPath.put(prepared.getRelativePath(), summary);
+        if (summary != null && summary.equals(previous)) {
+            return;
+        }
+        String line = System.lineSeparator()
+                + "[Studio] Run log object storage upload failed: "
+                + (summary == null || summary.trim().isEmpty() ? "unknown error" : summary.trim())
+                + System.lineSeparator();
+        try {
+            Files.write(prepared.getAbsolutePath(), line.getBytes(DEFAULT_CHARSET),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException ignored) {
+            // The original object storage failure is already returned through log_error_summary.
+        }
+    }
+
+    private String summarizeThrowable(Throwable throwable) {
+        if (throwable == null) {
+            return null;
+        }
+        StringBuilder builder = new StringBuilder();
+        Throwable current = throwable;
+        while (current != null) {
+            if (builder.length() > 0) {
+                builder.append(" <- ");
+            }
+            builder.append(current.getClass().getSimpleName());
+            String message = current.getMessage();
+            if (message != null && !message.trim().isEmpty()) {
+                builder.append(": ").append(message.trim());
+            }
+            current = current.getCause();
+        }
+        return builder.toString();
     }
 
     private RunLogView readLogPage(RunRecordEntity entity, Integer pageNo, int pageSizeBytes, boolean full) {

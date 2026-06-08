@@ -1,29 +1,24 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.aggregation.commons.util.Configuration;
+import com.jdragon.aggregation.datasource.file.FileHelper;
+import com.jdragon.aggregation.datasource.file.s3.minio.MinioSourcePlugin;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
-import io.minio.BucketExistsArgs;
-import io.minio.GetObjectArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
-import io.minio.errors.ErrorResponseException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.io.OutputStream;
 
 @Service
 public class MinioRunLogObjectStore implements RunLogObjectStore {
 
     private static final long HEALTH_CACHE_MILLIS = 30000L;
+    private static final String PROVIDER_MINIO = "minio";
+    private static final String PROVIDER_OSS = "oss";
 
     private final StudioPlatformProperties properties;
-    private final Map<String, Boolean> checkedBuckets = new ConcurrentHashMap<String, Boolean>();
-    private volatile MinioClient client;
     private volatile Boolean lastAvailable;
     private volatile long lastAvailableAt;
 
@@ -34,15 +29,13 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
     @Override
     public void put(String bucket, String objectKey, byte[] bytes, String contentType) {
         ensureConfigured(bucket, objectKey);
-        try {
-            ensureBucket(bucket);
+        try (FileHelper helper = newHelper(bucket)) {
             byte[] safeBytes = bytes == null ? new byte[0] : bytes;
-            getClient().putObject(PutObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .contentType(contentType == null || contentType.trim().isEmpty() ? "text/plain;charset=UTF-8" : contentType)
-                    .stream(new ByteArrayInputStream(safeBytes), safeBytes.length, -1)
-                    .build());
+            ObjectPath path = splitObjectKey(objectKey);
+            try (OutputStream outputStream = helper.getOutputStream(path.path, path.name);
+                 InputStream inputStream = new ByteArrayInputStream(safeBytes)) {
+                StreamUtils.copy(inputStream, outputStream);
+            }
         } catch (Exception e) {
             throw new IllegalStateException("Failed to upload run log object " + objectKey, e);
         }
@@ -51,13 +44,10 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
     @Override
     public byte[] get(String bucket, String objectKey) {
         ensureConfigured(bucket, objectKey);
-        try (InputStream inputStream = getClient().getObject(GetObjectArgs.builder()
-                .bucket(bucket)
-                .object(objectKey)
-                .build())) {
+        ObjectPath path = splitObjectKey(objectKey);
+        try (FileHelper helper = newHelper(bucket);
+             InputStream inputStream = helper.getInputStream(path.path, path.name)) {
             return StreamUtils.copyToByteArray(inputStream);
-        } catch (ErrorResponseException e) {
-            throw new IllegalStateException("Run log object not found: " + objectKey, e);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to read run log object " + objectKey, e);
         }
@@ -84,26 +74,18 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
         String bucket = objectStorage.getBucket().trim();
         String objectKey = healthObjectKey(objectStorage);
         byte[] bytes = "ok".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        try {
-            ensureBucket(bucket);
-            getClient().putObject(PutObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .contentType("text/plain;charset=UTF-8")
-                    .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                    .build());
-            try (InputStream inputStream = getClient().getObject(GetObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .build())) {
+        ObjectPath path = splitObjectKey(objectKey);
+        try (FileHelper helper = newHelper(bucket)) {
+            try (OutputStream outputStream = helper.getOutputStream(path.path, path.name);
+                 InputStream inputStream = new ByteArrayInputStream(bytes)) {
+                StreamUtils.copy(inputStream, outputStream);
+            }
+            try (InputStream inputStream = helper.getInputStream(path.path, path.name)) {
                 byte[] stored = StreamUtils.copyToByteArray(inputStream);
                 return stored.length == bytes.length;
             } finally {
                 try {
-                    getClient().removeObject(RemoveObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(objectKey)
-                            .build());
+                    helper.rm(objectKey);
                 } catch (Exception ignored) {
                     // Readiness only requires that the worker can persist and read log content.
                 }
@@ -113,38 +95,25 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
         }
     }
 
-    private void ensureBucket(String bucket) throws Exception {
-        if (!objectStorage().isCreateBucket() || checkedBuckets.containsKey(bucket)) {
-            return;
+    private FileHelper newHelper(String bucket) throws Exception {
+        StudioPlatformProperties.ObjectStorageProperties objectStorage = objectStorage();
+        if (!hasClientConfig(objectStorage)) {
+            throw new IllegalStateException("Run log object storage is not configured");
         }
-        boolean exists = getClient().bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
-        if (!exists) {
-            getClient().makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+        MinioSourcePlugin helper = new MinioSourcePlugin();
+        Configuration configuration = Configuration.newDefault();
+        configuration.set("storageProvider", normalizeProvider(objectStorage.getProvider()));
+        configuration.set("endpoint", objectStorage.getEndpoint());
+        configuration.set("accessKey", objectStorage.getAccessKey());
+        configuration.set("secretKey", objectStorage.getSecretKey());
+        configuration.set("bucket", bucket);
+        configuration.set("region", objectStorage.getRegion());
+        configuration.set("createBucket", objectStorage.isCreateBucket());
+        boolean connected = helper.connect(configuration);
+        if (!connected || !helper.isConnected()) {
+            throw new IllegalStateException("Run log object storage connection failed");
         }
-        checkedBuckets.put(bucket, Boolean.TRUE);
-    }
-
-    private MinioClient getClient() {
-        MinioClient current = client;
-        if (current != null) {
-            return current;
-        }
-        synchronized (this) {
-            if (client == null) {
-                StudioPlatformProperties.ObjectStorageProperties objectStorage = objectStorage();
-                if (!hasClientConfig(objectStorage)) {
-                    throw new IllegalStateException("Run log object storage is not configured");
-                }
-                MinioClient.Builder builder = MinioClient.builder()
-                        .endpoint(objectStorage.getEndpoint())
-                        .credentials(objectStorage.getAccessKey(), objectStorage.getSecretKey());
-                if (hasText(objectStorage.getRegion())) {
-                    builder.region(objectStorage.getRegion().trim());
-                }
-                client = builder.build();
-            }
-            return client;
-        }
+        return helper;
     }
 
     private StudioPlatformProperties.ObjectStorageProperties objectStorage() {
@@ -153,9 +122,21 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
 
     private boolean hasClientConfig(StudioPlatformProperties.ObjectStorageProperties objectStorage) {
         return objectStorage != null
+                && hasText(objectStorage.getProvider())
                 && hasText(objectStorage.getEndpoint())
                 && hasText(objectStorage.getAccessKey())
                 && hasText(objectStorage.getSecretKey());
+    }
+
+    private String normalizeProvider(String provider) {
+        String value = hasText(provider) ? provider.trim().toLowerCase(java.util.Locale.ROOT) : PROVIDER_MINIO;
+        if ("aliyun".equals(value) || "aliyun_oss".equals(value) || "aliyun-oss".equals(value)) {
+            value = PROVIDER_OSS;
+        }
+        if (!PROVIDER_MINIO.equals(value) && !PROVIDER_OSS.equals(value)) {
+            throw new IllegalArgumentException("Unsupported run log object storage provider: " + provider);
+        }
+        return value;
     }
 
     private String healthObjectKey(StudioPlatformProperties.ObjectStorageProperties objectStorage) {
@@ -186,5 +167,24 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
             result = result.substring(0, result.length() - 1);
         }
         return result;
+    }
+
+    private ObjectPath splitObjectKey(String objectKey) {
+        String normalized = trimSlashes(objectKey == null ? "" : objectKey.replace('\\', '/'));
+        int index = normalized.lastIndexOf('/');
+        if (index < 0) {
+            return new ObjectPath("", normalized);
+        }
+        return new ObjectPath(normalized.substring(0, index), normalized.substring(index + 1));
+    }
+
+    private static final class ObjectPath {
+        private final String path;
+        private final String name;
+
+        private ObjectPath(String path, String name) {
+            this.path = path;
+            this.name = name;
+        }
     }
 }

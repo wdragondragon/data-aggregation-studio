@@ -143,7 +143,7 @@ NODE_NAME: ${spec.nodeName}
 | `studio.run-log.storage-type` | 说明 |
 | --- | --- |
 | `LOCAL` | 默认模式。日志保存在 worker 本地目录，历史日志依赖 worker 本地文件和 worker 可访问性。 |
-| `OBJECT_STORAGE` | 对象存储模式。worker 本地写日志后同步到 S3/MinIO，server 通过 bucket/key 读取历史日志。 |
+| `OBJECT_STORAGE` | 对象存储模式。worker 本地写日志后同步到 MinIO/OSS，server 通过 bucket/key 读取历史日志。 |
 
 当前 `storage-type` 在代码中是字符串约定，可填值只有 `LOCAL` 和 `OBJECT_STORAGE`。如果填错，当前不会在配置绑定阶段按枚举直接失败，后续建议改成 Java enum。
 
@@ -151,13 +151,21 @@ NODE_NAME: ${spec.nodeName}
 
 | 配置项 | 环境变量 | 默认/示例 | 说明 |
 | --- | --- | --- | --- |
-| `studio.run-log.object-storage.endpoint` | `STUDIO_RUN_LOG_OBJECT_ENDPOINT` | `http://<minio-host>:9000` | S3/MinIO endpoint。 |
+| `studio.run-log.object-storage.provider` | `STUDIO_RUN_LOG_OBJECT_PROVIDER` | `MINIO` | 对象存储实现。可填 `MINIO` 或 `OSS`。`MINIO` 使用 S3/MinIO 兼容实现；`OSS` 使用阿里云 OSS 原生 SDK。 |
+| `studio.run-log.object-storage.endpoint` | `STUDIO_RUN_LOG_OBJECT_ENDPOINT` | `http://<minio-host>:9000` | 对象存储 endpoint。MinIO 示例为 `http://<minio-host>:9000`；阿里云 OSS 示例为 `https://oss-cn-guangzhou.aliyuncs.com`。 |
 | `studio.run-log.object-storage.access-key` | `STUDIO_RUN_LOG_OBJECT_ACCESS_KEY` | 按环境填写 | 对象存储 access key。生产必须覆盖。 |
 | `studio.run-log.object-storage.secret-key` | `STUDIO_RUN_LOG_OBJECT_SECRET_KEY` | 按环境填写 | 对象存储 secret key。生产必须覆盖。 |
 | `studio.run-log.object-storage.bucket` | `STUDIO_RUN_LOG_OBJECT_BUCKET` | 按环境填写 | 运行日志 bucket。`OBJECT_STORAGE` 模式下必填。 |
 | `studio.run-log.object-storage.region` | `STUDIO_RUN_LOG_OBJECT_REGION` | 空 | S3 region，可按对象存储要求填写。 |
 | `studio.run-log.object-storage.prefix` | `STUDIO_RUN_LOG_OBJECT_PREFIX` | `studio/run-logs` | 对象 key 前缀。 |
 | `studio.run-log.object-storage.create-bucket` | `STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET` | `true` | bucket 不存在时是否尝试创建。生产可按权限策略设为 `false`。 |
+
+选择规则：
+
+- 使用 MinIO 或其他 path-style S3 兼容服务时，设置 `STUDIO_RUN_LOG_OBJECT_PROVIDER=MINIO`。
+- 使用阿里云 OSS 时，设置 `STUDIO_RUN_LOG_OBJECT_PROVIDER=OSS`。OSS SDK 会按 OSS endpoint 访问 bucket，避免 MinIO SDK path-style 访问触发 `Please use virtual hosted style to access`。
+- server 与 worker 必须使用相同的 `provider / endpoint / bucket / prefix`，否则 worker 上传成功后 server 可能无法读取日志。
+- 生产环境若 bucket 已由平台提前创建，建议设置 `STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=false`，避免应用启动或健康检查尝试创建 bucket。
 
 对象日志同步行为：
 
@@ -213,12 +221,26 @@ server 与 worker 都需要配置同一组对象存储参数：
 
 ```bash
 STUDIO_RUN_LOG_STORAGE_TYPE=OBJECT_STORAGE
+STUDIO_RUN_LOG_OBJECT_PROVIDER=MINIO
 STUDIO_RUN_LOG_OBJECT_ENDPOINT=http://<minio-host>:9000
 STUDIO_RUN_LOG_OBJECT_ACCESS_KEY=<access-key>
 STUDIO_RUN_LOG_OBJECT_SECRET_KEY=<secret-key>
 STUDIO_RUN_LOG_OBJECT_BUCKET=studio-run-logs
 STUDIO_RUN_LOG_OBJECT_PREFIX=studio/run-logs
 STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=true
+```
+
+阿里云 OSS 示例：
+
+```bash
+STUDIO_RUN_LOG_STORAGE_TYPE=OBJECT_STORAGE
+STUDIO_RUN_LOG_OBJECT_PROVIDER=OSS
+STUDIO_RUN_LOG_OBJECT_ENDPOINT=https://oss-cn-guangzhou.aliyuncs.com
+STUDIO_RUN_LOG_OBJECT_ACCESS_KEY=<access-key>
+STUDIO_RUN_LOG_OBJECT_SECRET_KEY=<secret-key>
+STUDIO_RUN_LOG_OBJECT_BUCKET=studio-run-logs
+STUDIO_RUN_LOG_OBJECT_PREFIX=studio/run-logs
+STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=false
 ```
 
 ## 8. ODPS / MaxCompute 集成配置
