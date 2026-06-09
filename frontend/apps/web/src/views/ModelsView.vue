@@ -28,6 +28,7 @@
             :dynamic-filter-actions="dynamicFilterActions"
             :models="models"
             :pagination="modelPagination"
+            :sort-state="modelSortState"
             :empty-text="modelTableEmptyText"
             :actions="modelListActions"
           />
@@ -141,6 +142,10 @@ const modelPagination = reactive({
   page: 1,
   pageSize: 20,
   total: 0,
+});
+const modelSortState = reactive({
+  prop: "updatedAt",
+  order: "descending" as "ascending" | "descending",
 });
 const previewRows = ref<Record<string, unknown>[]>([]);
 const loadingPreviewRows = ref(false);
@@ -336,6 +341,7 @@ const modelListActions = {
   buildModelActions,
   handleModelPageChange,
   handleModelPageSizeChange,
+  handleModelSortChange,
 };
 const syncTaskSectionActions = {
   handleDatasourceTypeChange: handleSyncTaskDatasourceTypeChange,
@@ -409,6 +415,13 @@ function handleModelPageChange(page: number) {
 
 function handleModelPageSizeChange(pageSize: number) {
   modelPagination.pageSize = pageSize;
+  modelPagination.page = 1;
+  void handleDatasourceChange();
+}
+
+function handleModelSortChange(sort: { prop?: string; order?: "ascending" | "descending" | null }) {
+  modelSortState.prop = normalizeModelSortField(sort.prop);
+  modelSortState.order = sort.order ?? "descending";
   modelPagination.page = 1;
   void handleDatasourceChange();
 }
@@ -597,6 +610,12 @@ async function loadModelsForSelectedDatasource() {
   selectedModel.value = undefined;
   previewRows.value = [];
   const queryRequest = buildModelQueryRequest();
+  queryRequest.sortField = modelSortState.prop;
+  queryRequest.sortOrder = modelSortState.order;
+  const sortParams = {
+    sortField: modelSortState.prop,
+    sortOrder: modelSortState.order,
+  };
   const payload = queryRequest.groups.length > 0
     ? await studioApi.models.queryPage(queryRequest, {
       pageNo: modelPagination.page,
@@ -606,15 +625,28 @@ async function loadModelsForSelectedDatasource() {
       ? await studioApi.models.listByDatasourcePage(selectedDatasourceId.value, {
         pageNo: modelPagination.page,
         pageSize: modelPagination.pageSize,
+        ...sortParams,
       })
       : await studioApi.models.listPage({
         datasourceType: selectedDatasourceType.value || undefined,
         pageNo: modelPagination.page,
         pageSize: modelPagination.pageSize,
+        ...sortParams,
       }));
   const result = normalizeModelPagePayload(payload);
   models.value = result.items;
   modelPagination.total = Number(result.total ?? 0);
+}
+
+function normalizeModelSortField(value?: string) {
+  if (value === "name"
+    || value === "projectId"
+    || value === "updatedAt"
+    || value === "createdAt"
+    || value === "id") {
+    return value;
+  }
+  return "updatedAt";
 }
 
 async function handleDatasourceTypeChange() {

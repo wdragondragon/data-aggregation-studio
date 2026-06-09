@@ -57,16 +57,20 @@ public class ModelController {
     @GetMapping
     public Result<PageView<DataModelDefinition>> list(@RequestParam(value = "datasourceType", required = false) String datasourceType,
                                                       @RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize) {
-        return Result.success(dataModelService.listPage(datasourceType, pageNo, pageSize));
+                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                      @RequestParam(value = "sortField", required = false) String sortField,
+                                                      @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        return Result.success(dataModelService.listPage(datasourceType, pageNo, pageSize, sortField, sortOrder));
     }
 
     @Operation(summary = "List models by datasource")
     @GetMapping("/datasource/{datasourceId}")
     public Result<PageView<DataModelDefinition>> listByDatasource(@PathVariable("datasourceId") Long datasourceId,
                                                                   @RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize) {
-        return Result.success(dataModelService.listByDatasourcePage(datasourceId, pageNo, pageSize));
+                                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                  @RequestParam(value = "sortField", required = false) String sortField,
+                                                                  @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        return Result.success(dataModelService.listByDatasourcePage(datasourceId, pageNo, pageSize, sortField, sortOrder));
     }
 
     @Operation(summary = "Get datasource model detail")

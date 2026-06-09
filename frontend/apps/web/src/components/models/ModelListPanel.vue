@@ -44,13 +44,19 @@
     />
 
     <StudioTableShell min-width="1120px">
-      <el-table :data="models" border :empty-text="emptyText">
+      <el-table
+        :data="models"
+        border
+        :empty-text="emptyText"
+        :default-sort="sortState"
+        @sort-change="actions.handleModelSortChange"
+      >
         <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
           <template #default="{ $index }">
             {{ getPaginatedRowNumber(pagination, $index) }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.models.modelName')" min-width="180">
+        <el-table-column prop="name" :label="t('web.models.modelName')" min-width="180" sortable="custom">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="actions.openModelDetail(row)">{{ row.name }}</el-button>
           </template>
@@ -60,7 +66,7 @@
             {{ actions.resolveDatasourceLabel(row.datasourceId) }}
           </template>
         </el-table-column>
-        <el-table-column label="所属项目" min-width="170">
+        <el-table-column prop="projectId" label="所属项目" min-width="170" sortable="custom">
           <template #default="{ row }">
             <div class="stack-cell">
               <span>{{ actions.resolveProjectLabel(row.projectId) }}</span>
@@ -74,6 +80,8 @@
           </template>
         </el-table-column>
         <el-table-column prop="physicalLocator" :label="t('web.models.physicalLocator')" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="创建时间" min-width="180" sortable="custom" show-overflow-tooltip />
+        <el-table-column prop="updatedAt" label="更新时间" min-width="180" sortable="custom" show-overflow-tooltip />
         <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <OverflowActionGroup :items="actions.buildModelActions(row)" />
@@ -114,6 +122,16 @@ interface ModelListPagination {
   total: number;
 }
 
+interface ModelSortState {
+  prop: string;
+  order: "ascending" | "descending";
+}
+
+interface ModelSortChange {
+  prop?: string;
+  order?: "ascending" | "descending" | null;
+}
+
 interface ModelListActions {
   handleDatasourceTypeChange: () => void | Promise<void>;
   handleDatasourceChange: () => void | Promise<void>;
@@ -129,6 +147,7 @@ interface ModelListActions {
   buildModelActions: (model: DataModelDefinition) => OverflowActionItem[];
   handleModelPageChange: (page: number) => void | Promise<void>;
   handleModelPageSizeChange: (pageSize: number) => void | Promise<void>;
+  handleModelSortChange: (sort: ModelSortChange) => void | Promise<void>;
 }
 
 const props = defineProps<{
@@ -143,6 +162,7 @@ const props = defineProps<{
   dynamicFilterActions: ModelDynamicFilterActions;
   models: DataModelDefinition[];
   pagination: ModelListPagination;
+  sortState: ModelSortState;
   emptyText?: string;
   actions: ModelListActions;
 }>();

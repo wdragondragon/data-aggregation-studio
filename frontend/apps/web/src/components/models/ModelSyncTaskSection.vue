@@ -42,7 +42,7 @@
       <el-button plain @click="actions.loadSyncTasks">刷新任务</el-button>
     </div>
 
-    <StudioTableShell min-width="1180px">
+    <StudioTableShell min-width="1360px">
       <el-table :data="tasks" border v-loading="loading">
         <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
           <template #default="{ $index }">
@@ -67,6 +67,11 @@
         <el-table-column label="创建时间" min-width="180">
           <template #default="{ row }">
             {{ row.createdAt || t("common.none") }}
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" min-width="180">
+          <template #default="{ row }">
+            {{ row.updatedAt || t("common.none") }}
           </template>
         </el-table-column>
         <el-table-column label="持续时间" min-width="140">

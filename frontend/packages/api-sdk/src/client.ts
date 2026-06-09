@@ -674,6 +674,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         datasourceType?: string;
         pageNo?: number;
         pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
       }) {
         return request<unknown>({ url: "/models", method: "GET", params }).then((payload) =>
           normalizePageResult<DataModelDefinition>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
@@ -683,6 +685,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         datasourceType?: string;
         pageNo?: number;
         pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
       }) {
         const result = await request<PageResult<DataModelDefinition>>({
           url: "/models",
@@ -691,6 +695,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             datasourceType: params?.datasourceType,
             pageNo: params?.pageNo ?? 1,
             pageSize: params?.pageSize ?? 5000,
+            sortField: params?.sortField,
+            sortOrder: params?.sortOrder,
           },
         });
         return result.items;
@@ -698,6 +704,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       listByDatasourcePage(datasourceId: EntityId, params?: {
         pageNo?: number;
         pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
       }) {
         return request<unknown>({
           url: `/models/datasource/${datasourceId}`,
@@ -710,6 +718,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       async listByDatasource(datasourceId: EntityId, params?: {
         pageNo?: number;
         pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
       }) {
         const result = await request<PageResult<DataModelDefinition>>({
           url: `/models/datasource/${datasourceId}`,
@@ -717,6 +727,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           params: {
             pageNo: params?.pageNo ?? 1,
             pageSize: params?.pageSize ?? 5000,
+            sortField: params?.sortField,
+            sortOrder: params?.sortOrder,
           },
         });
         return result.items;

@@ -24,7 +24,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTasks.listTitle')" :description="t('web.collectionTasks.listDescription')">
-      <StudioTableShell min-width="1280px">
+      <StudioTableShell min-width="1460px">
         <el-table
           :data="pagedTasks"
           border
@@ -88,6 +88,8 @@
             <StatusPill :label="formatStatusLabel(t, row.status)" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'warning'" />
           </template>
         </el-table-column>
+        <el-table-column prop="createdAt" label="创建时间" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="updatedAt" label="更新时间" min-width="180" show-overflow-tooltip />
         <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <OverflowActionGroup :items="buildTaskActions(row)" />

@@ -12,7 +12,7 @@
     </div>
 
     <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
-      <StudioTableShell min-width="1120px">
+      <StudioTableShell min-width="1280px">
         <el-table :data="pagedDatasources" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
@@ -39,6 +39,7 @@
             <StatusPill :label="row.executable ? t('common.managed') : t('common.unmanaged')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
         </el-table-column>
+        <el-table-column prop="createdAt" label="创建时间" min-width="170" align="center" header-align="center" />
         <el-table-column prop="updatedAt" :label="t('web.datasources.updatedColumn')" min-width="170" align="center" header-align="center" />
         <el-table-column :label="t('web.datasources.actionsColumn')" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">

@@ -34,7 +34,7 @@
     </SectionCard>
 
     <SectionCard title="任务列表" description="可在列表中直接发布、执行任务，并跳转到质量任务运行日志页面。">
-      <StudioTableShell min-width="1450px">
+      <StudioTableShell min-width="1630px">
         <el-table
           :data="tasks"
           border
@@ -95,6 +95,7 @@
             <StatusPill :label="row.status === STUDIO_RUN_STATUS.ONLINE ? '已发布' : '草稿'" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
+        <el-table-column prop="createdAt" label="创建时间" min-width="180" />
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
         <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">

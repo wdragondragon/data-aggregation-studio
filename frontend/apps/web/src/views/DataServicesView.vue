@@ -31,7 +31,7 @@
     </SectionCard>
 
     <SectionCard title="服务列表" description="服务发布后，需要创建订阅 Token 才能开放调用。">
-      <StudioTableShell min-width="1460px">
+      <StudioTableShell min-width="1640px">
         <el-table :data="services" border>
         <el-table-column label="序号" width="76" align="center" header-align="center">
           <template #default="{ $index }">{{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}</template>
@@ -74,6 +74,7 @@
             <StatusPill :label="resolveStatusLabel(row.status)" :tone="resolveStatusTone(row.status)" />
           </template>
         </el-table-column>
+        <el-table-column prop="createdAt" label="创建时间" min-width="180" />
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
         <el-table-column label="操作" width="190" align="center" header-align="center" fixed="right">
           <template #default="{ row }">

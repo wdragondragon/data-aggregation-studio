@@ -915,6 +915,8 @@ export interface DataModelQueryRequest {
   datasourceId?: EntityId;
   datasourceType?: string;
   modelKind?: ModelKind | string;
+  sortField?: string;
+  sortOrder?: string;
   pageNo?: number;
   pageSize?: number;
   groups: DataModelQueryGroup[];

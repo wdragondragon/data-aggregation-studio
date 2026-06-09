@@ -15,6 +15,12 @@ public class DataModelQueryRequest {
     @Schema(description = "Requested page size")
     private Integer pageSize;
 
+    @Schema(description = "Sort field: name, datasourceId, projectId, updatedAt, createdAt, id")
+    private String sortField;
+
+    @Schema(description = "Sort order: asc or desc")
+    private String sortOrder;
+
     @Schema(description = "Datasource id filter")
     private Long datasourceId;
 

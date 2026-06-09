@@ -13,7 +13,7 @@
 
     <SectionCard :title="t('web.workflows.registryTitle')" :description="t('web.workflows.registryDescription')">
       <template v-if="workflows.length">
-        <StudioTableShell min-width="1120px">
+        <StudioTableShell min-width="1280px">
           <el-table
             :data="pagedWorkflows"
             border
@@ -65,6 +65,8 @@
               />
             </template>
           </el-table-column>
+          <el-table-column prop="createdAt" label="创建时间" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="updatedAt" label="更新时间" min-width="180" show-overflow-tooltip />
           <el-table-column :label="t('web.metadata.actions')" width="150" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <OverflowActionGroup :items="buildWorkflowActions(row)" />

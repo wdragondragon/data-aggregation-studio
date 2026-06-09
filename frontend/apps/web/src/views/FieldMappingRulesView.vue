@@ -29,7 +29,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.fieldMappingRules.listTitle')" :description="t('web.fieldMappingRules.listDescription')">
-      <StudioTableShell min-width="1120px">
+      <StudioTableShell min-width="1280px">
         <el-table :data="page.items" border>
         <el-table-column :label="t('common.sequence')" width="78" align="center" header-align="center">
           <template #default="{ $index }">
@@ -46,6 +46,7 @@
         </el-table-column>
         <el-table-column prop="createdByName" :label="t('web.fieldMappingRules.createdBy')" min-width="140" />
         <el-table-column prop="createdAt" :label="t('web.fieldMappingRules.createdAt')" min-width="180" />
+        <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
         <el-table-column :label="t('fieldMapping.actions')" width="130" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <OverflowActionGroup :items="buildRuleActions(row)" />

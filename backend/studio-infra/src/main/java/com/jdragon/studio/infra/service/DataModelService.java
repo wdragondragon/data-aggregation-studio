@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -99,12 +100,22 @@ public class DataModelService {
     }
 
     public PageView<DataModelDefinition> listPage(String datasourceType, Integer pageNo, Integer pageSize) {
-        return pageQuery(buildBaseQuery(null, datasourceType, null), pageNo, pageSize);
+        return listPage(datasourceType, pageNo, pageSize, null, null);
+    }
+
+    public PageView<DataModelDefinition> listPage(String datasourceType, Integer pageNo, Integer pageSize,
+                                                  String sortField, String sortOrder) {
+        return pageQuery(buildBaseQuery(null, datasourceType, null, sortField, sortOrder), pageNo, pageSize);
     }
 
     public PageView<DataModelDefinition> listByDatasourcePage(Long datasourceId, Integer pageNo, Integer pageSize) {
+        return listByDatasourcePage(datasourceId, pageNo, pageSize, null, null);
+    }
+
+    public PageView<DataModelDefinition> listByDatasourcePage(Long datasourceId, Integer pageNo, Integer pageSize,
+                                                              String sortField, String sortOrder) {
         dataSourceService.get(datasourceId);
-        return pageQuery(buildBaseQuery(datasourceId, null, null), pageNo, pageSize);
+        return pageQuery(buildBaseQuery(datasourceId, null, null, sortField, sortOrder), pageNo, pageSize);
     }
 
     public PageView<DataModelDefinition> queryPage(DataModelQueryRequest request, Integer pageNo, Integer pageSize) {
@@ -113,7 +124,7 @@ public class DataModelService {
         }
         List<DataModelQueryGroup> groups = normalizeQueryGroups(request.getGroups());
         if (groups.isEmpty()) {
-            return pageQuery(buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind()), pageNo, pageSize);
+            return pageQuery(buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind(), request.getSortField(), request.getSortOrder()), pageNo, pageSize);
         }
         DataModelQueryRequest normalizedRequest = new DataModelQueryRequest();
         normalizedRequest.setDatasourceId(request.getDatasourceId());
@@ -124,7 +135,7 @@ public class DataModelService {
         if (matchedIds.isEmpty()) {
             return PageView.of(normalizePageNo(pageNo), normalizePageSize(pageSize), 0L, new ArrayList<DataModelDefinition>());
         }
-        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind())
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind(), request.getSortField(), request.getSortOrder())
                 .in(DataModelEntity::getId, matchedIds);
         return pageQuery(queryWrapper, pageNo, pageSize);
     }
@@ -396,10 +407,16 @@ public class DataModelService {
     private LambdaQueryWrapper<DataModelEntity> buildBaseQuery(Long datasourceId,
                                                                String datasourceType,
                                                                String modelKind) {
-        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery()
-                .orderByAsc(DataModelEntity::getProjectId)
-                .orderByAsc(DataModelEntity::getName)
-                .orderByAsc(DataModelEntity::getId);
+        return buildBaseQuery(datasourceId, datasourceType, modelKind, null, null);
+    }
+
+    private LambdaQueryWrapper<DataModelEntity> buildBaseQuery(Long datasourceId,
+                                                               String datasourceType,
+                                                               String modelKind,
+                                                               String sortField,
+                                                               String sortOrder) {
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildAccessibleQuery();
+        applySort(queryWrapper, sortField, sortOrder);
         if (datasourceId != null) {
             queryWrapper.eq(DataModelEntity::getDatasourceId, datasourceId);
         } else if (datasourceType != null && !datasourceType.trim().isEmpty()) {
@@ -414,6 +431,58 @@ public class DataModelService {
             queryWrapper.eq(DataModelEntity::getModelKind, modelKind.trim().toUpperCase());
         }
         return queryWrapper;
+    }
+
+    private void applySort(LambdaQueryWrapper<DataModelEntity> queryWrapper,
+                           String sortField,
+                           String sortOrder) {
+        String normalizedSortField = normalizeSortField(sortField);
+        SFunction<DataModelEntity, ?> column = resolveSortColumn(normalizedSortField);
+        boolean ascending = "asc".equalsIgnoreCase(sortOrder) || "ascending".equalsIgnoreCase(sortOrder);
+        queryWrapper.orderBy(true, ascending, column);
+        if (!"projectId".equals(normalizedSortField)) {
+            queryWrapper.orderByAsc(DataModelEntity::getProjectId);
+        }
+        if (!"name".equals(normalizedSortField)) {
+            queryWrapper.orderByAsc(DataModelEntity::getName);
+        }
+        if (!"id".equals(normalizedSortField)) {
+            queryWrapper.orderByDesc(DataModelEntity::getId);
+        }
+    }
+
+    private String normalizeSortField(String sortField) {
+        if (sortField == null || sortField.trim().isEmpty()) {
+            return "updatedAt";
+        }
+        String normalized = sortField.trim();
+        if ("name".equals(normalized)
+                || "datasourceId".equals(normalized)
+                || "projectId".equals(normalized)
+                || "createdAt".equals(normalized)
+                || "id".equals(normalized)) {
+            return normalized;
+        }
+        return "updatedAt";
+    }
+
+    private SFunction<DataModelEntity, ?> resolveSortColumn(String normalizedSortField) {
+        if ("name".equals(normalizedSortField)) {
+            return DataModelEntity::getName;
+        }
+        if ("datasourceId".equals(normalizedSortField)) {
+            return DataModelEntity::getDatasourceId;
+        }
+        if ("projectId".equals(normalizedSortField)) {
+            return DataModelEntity::getProjectId;
+        }
+        if ("createdAt".equals(normalizedSortField)) {
+            return DataModelEntity::getCreatedAt;
+        }
+        if ("id".equals(normalizedSortField)) {
+            return DataModelEntity::getId;
+        }
+        return DataModelEntity::getUpdatedAt;
     }
 
     private Set<Long> resolveDatasourceIdsByType(String datasourceType) {

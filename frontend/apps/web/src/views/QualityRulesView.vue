@@ -34,7 +34,7 @@
     </SectionCard>
 
     <SectionCard title="规则列表" description="规则详情页支持查看 SQL 模板、输入参数和输出定义。">
-      <StudioTableShell min-width="1320px">
+      <StudioTableShell min-width="1500px">
         <el-table :data="page.items" border @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="48" />
         <el-table-column label="序号" width="78" align="center" header-align="center">
@@ -59,6 +59,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="createdByName" label="创建人" min-width="120" />
+        <el-table-column prop="createdAt" label="创建时间" min-width="180" />
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
         <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
