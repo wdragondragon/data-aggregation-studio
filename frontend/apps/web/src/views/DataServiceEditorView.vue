@@ -670,6 +670,7 @@ const soapHeaderRows = computed(() => [
     label: "X-Data-Service-Token",
     meta: "HTTP Header Token；也可使用 SOAP Header token",
     required: Boolean(form.tokenRequired),
+    readonly: true,
     controlType: "text" as DebugControlType,
     value: soapHttpHeaders["X-Data-Service-Token"] as DebugFieldValue,
   },

@@ -14,32 +14,52 @@
     </el-form-item>
 
     <div class="soap-request-builder__grid">
-      <div class="soap-request-builder__side">
-        <section class="soap-request-builder__option soap-request-builder__option--header">
-          <div class="soap-request-builder__option-header">
-            <div class="soap-request-builder__option-title">
-              <span class="soap-request-builder__index">1</span>
-              <div>
-                <strong>{{ headersTitle }}</strong>
-                <p>{{ headersDescription }}</p>
-              </div>
+      <section class="soap-request-builder__option soap-request-builder__option--header">
+        <div class="soap-request-builder__option-header">
+          <div class="soap-request-builder__option-title">
+            <span class="soap-request-builder__index">1</span>
+            <div>
+              <strong>{{ headersTitle }}</strong>
+              <p>{{ headersDescription }}</p>
             </div>
+          </div>
+          <div class="soap-request-builder__option-actions">
+            <el-button v-if="headersMode === 'form'" plain size="small" :icon="Plus" @click="appendHeaderRow">
+              添加参数
+            </el-button>
             <el-radio-group
               :model-value="headersMode"
               size="small"
               @update:model-value="emit('update:headersMode', $event as HeaderEditorMode)"
             >
-              <el-radio-button value="form">表格</el-radio-button>
-              <el-radio-button value="raw">原始</el-radio-button>
+              <el-radio-button value="form">键值表格</el-radio-button>
+              <el-radio-button value="raw">原始 JSON</el-radio-button>
             </el-radio-group>
           </div>
-          <div class="soap-request-builder__option-body">
-            <template v-if="headersMode === 'form'">
-              <el-table :data="headerRows" border size="small" table-layout="fixed" class="soap-request-builder__table">
-                <el-table-column label="Header" min-width="170">
+        </div>
+        <div class="soap-request-builder__option-body">
+          <template v-if="headersMode === 'form'">
+            <StudioTableShell v-if="headerRows.length" min-width="720px">
+              <el-table
+                :data="headerRows"
+                border
+                size="small"
+                table-layout="fixed"
+                class="soap-request-builder__table"
+              >
+                <el-table-column label="序号" width="72" align="center" header-align="center">
+                  <template #default="{ $index }">{{ $index + 1 }}</template>
+                </el-table-column>
+                <el-table-column label="参数名" min-width="220">
                   <template #default="{ row }">
                     <div class="soap-request-builder__field-name">
-                      <span>{{ row.label }}</span>
+                      <span v-if="isHeaderRowReadonly(row)">{{ row.label }}</span>
+                      <el-input
+                        v-else
+                        :model-value="row.label"
+                        placeholder="Header 名称"
+                        @update:model-value="renameHeaderRow(row.key, String($event ?? ''))"
+                      />
                       <el-tag v-if="row.required" size="small" type="danger" effect="plain">必填</el-tag>
                     </div>
                   </template>
@@ -52,46 +72,64 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column label="说明" min-width="160">
+                <el-table-column label="操作" width="86" align="center" header-align="center" fixed="right">
                   <template #default="{ row }">
-                    <span class="soap-request-builder__field-meta">{{ row.meta }}</span>
+                    <el-button
+                      link
+                      type="danger"
+                      :icon="Delete"
+                      aria-label="删除"
+                      :disabled="isHeaderRowReadonly(row)"
+                      @click="removeHeaderRow(row.key)"
+                    />
                   </template>
                 </el-table-column>
               </el-table>
-              <el-empty v-if="!headerRows.length" description="暂无固定 Header，可切换到原始模式填写 JSON" />
-            </template>
-            <template v-else>
-              <el-alert
-                v-if="headersError"
-                class="soap-request-builder__parse-alert"
-                type="error"
-                show-icon
-                :closable="false"
-                :title="headersError"
-              />
-              <el-input
-                :model-value="headers"
-                type="textarea"
-                :rows="7"
-                :placeholder="headersPlaceholder"
-                class="soap-request-builder__raw-input"
-                @update:model-value="emit('update:headers', String($event ?? ''))"
-              />
-            </template>
-          </div>
-        </section>
+            </StudioTableShell>
+            <div v-else class="soap-request-builder__compact-empty">
+              暂无固定 Header，可点击“添加参数”或切换到原始 JSON 填写。
+            </div>
+          </template>
+          <template v-else>
+            <el-alert
+              v-if="headersError"
+              class="soap-request-builder__parse-alert"
+              type="error"
+              show-icon
+              :closable="false"
+              :title="headersError"
+            />
+            <el-input
+              :model-value="headers"
+              type="textarea"
+              :rows="7"
+              :placeholder="headersPlaceholder"
+              class="soap-request-builder__raw-input"
+              @update:model-value="emit('update:headers', String($event ?? ''))"
+            />
+          </template>
+        </div>
+      </section>
 
-        <section class="soap-request-builder__option soap-request-builder__option--body">
-          <div class="soap-request-builder__option-header">
-            <div class="soap-request-builder__option-title">
-              <span class="soap-request-builder__index">2</span>
-              <div>
-                <strong>{{ fieldsTitle }}</strong>
-                <p>{{ fieldsDescription }}</p>
-              </div>
+      <section class="soap-request-builder__option soap-request-builder__option--body">
+        <div class="soap-request-builder__option-header">
+          <div class="soap-request-builder__option-title">
+            <span class="soap-request-builder__index">2</span>
+            <div>
+              <strong>{{ fieldsTitle }}</strong>
+              <p>{{ fieldsDescription }}</p>
             </div>
           </div>
-          <div class="soap-request-builder__option-body">
+          <div class="soap-request-builder__option-actions">
+            <el-button v-if="envelopeMode === 'raw'" plain size="small" @click="formatEnvelope">格式化 XML</el-button>
+            <el-radio-group v-model="envelopeMode" size="small">
+              <el-radio-button value="form">表单</el-radio-button>
+              <el-radio-button value="raw">原始 XML</el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
+        <div class="soap-request-builder__option-body">
+          <template v-if="envelopeMode === 'form'">
             <div v-if="fieldGroups.length" class="soap-request-builder__options soap-request-builder__options--inner">
               <section v-for="group in fieldGroups" :key="group.key">
                 <div class="soap-request-builder__subtitle">
@@ -144,45 +182,44 @@
               </section>
             </div>
             <el-empty v-else :description="emptyDescription" />
-          </div>
-        </section>
-      </div>
-
-      <div class="soap-request-builder__xml-editor">
-        <div class="soap-request-builder__xml-header">
-          <div>
-            <strong>{{ envelopeTitle }}</strong>
-            <span>{{ envelopeDescription }}</span>
-          </div>
-          <el-button plain size="small" @click="formatEnvelope">格式化 XML</el-button>
+          </template>
+          <template v-else>
+            <div class="soap-request-builder__raw-title">
+              <strong>{{ envelopeTitle }}</strong>
+              <span>{{ envelopeDescription }}</span>
+            </div>
+            <el-alert
+              v-if="envelopeError"
+              class="soap-request-builder__parse-alert"
+              type="error"
+              show-icon
+              :closable="false"
+              :title="envelopeError"
+            />
+            <el-input
+              :model-value="envelope"
+              type="textarea"
+              :rows="envelopeRows"
+              :placeholder="envelopePlaceholder"
+              class="soap-request-builder__raw-input"
+              @update:model-value="emit('update:envelope', String($event ?? ''))"
+            />
+          </template>
         </div>
-        <el-alert
-          v-if="envelopeError"
-          class="soap-request-builder__parse-alert"
-          type="error"
-          show-icon
-          :closable="false"
-          :title="envelopeError"
-        />
-        <el-input
-          :model-value="envelope"
-          type="textarea"
-          :rows="envelopeRows"
-          :placeholder="envelopePlaceholder"
-          class="soap-request-builder__raw-input"
-          @update:model-value="emit('update:envelope', String($event ?? ''))"
-        />
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { watch } from "vue";
+import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
+import { Delete, Plus } from "@element-plus/icons-vue";
+import { StudioTableShell } from "@studio/ui";
 import { formatXmlText } from "@/components/open-service/openServiceDebugSupport";
 
 export type HeaderEditorMode = "form" | "raw";
+type EnvelopeEditorMode = "form" | "raw";
 export type DebugControlType = "text" | "number" | "boolean" | "textarea";
 export type DebugFieldValue = string | number | boolean | null | undefined;
 
@@ -191,6 +228,7 @@ export interface SoapRequestBuilderField {
   label: string;
   meta: string;
   required?: boolean;
+  readonly?: boolean;
   controlType?: DebugControlType;
   value?: DebugFieldValue;
 }
@@ -262,6 +300,8 @@ const emit = defineEmits<{
   validChange: [value: boolean];
 }>();
 
+const envelopeMode = ref<EnvelopeEditorMode>("form");
+
 watch(
   [() => props.headersError, () => props.envelopeError],
   () => emit("validChange", !props.headersError && !props.envelopeError),
@@ -270,6 +310,83 @@ watch(
 
 function stringValue(value: DebugFieldValue) {
   return value == null ? "" : String(value);
+}
+
+function appendHeaderRow() {
+  const headers = parseHeadersObject();
+  const nextName = nextHeaderName(headers);
+  headers[nextName] = "";
+  emitHeadersObject(headers);
+}
+
+function renameHeaderRow(oldKey: string, nextKey: string) {
+  const oldName = headerNameByKey(oldKey);
+  const nextName = nextKey.trim();
+  if (!oldName || !nextName || oldName === nextName) {
+    return;
+  }
+  const headers = parseHeadersObject();
+  if (Object.prototype.hasOwnProperty.call(headers, nextName)) {
+    return;
+  }
+  const nextHeaders: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (name === oldName) {
+      nextHeaders[nextName] = value;
+      continue;
+    }
+    nextHeaders[name] = value;
+  }
+  emitHeadersObject(nextHeaders);
+}
+
+function removeHeaderRow(key: string) {
+  const name = headerNameByKey(key);
+  if (!name) {
+    return;
+  }
+  const headers = parseHeadersObject();
+  delete headers[name];
+  emitHeadersObject(headers);
+}
+
+function headerNameByKey(key: string) {
+  const row = props.headerRows.find((item) => item.key === key);
+  return (row?.label || key).trim();
+}
+
+function isHeaderRowReadonly(row: SoapRequestBuilderField) {
+  return Boolean(row.required || row.readonly);
+}
+
+function parseHeadersObject() {
+  const text = String(props.headers ?? "").trim();
+  if (!text) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { ...(parsed as Record<string, unknown>) };
+    }
+  } catch {
+    // 非法 JSON 保持当前输入不被覆盖，用户可切到原始模式修复。
+  }
+  return {};
+}
+
+function nextHeaderName(headers: Record<string, unknown>) {
+  let index = Object.keys(headers).length + 1;
+  let name = `X-Header-${index}`;
+  while (Object.prototype.hasOwnProperty.call(headers, name)) {
+    index += 1;
+    name = `X-Header-${index}`;
+  }
+  return name;
+}
+
+function emitHeadersObject(headers: Record<string, unknown>) {
+  emit("update:headers", JSON.stringify(headers, null, 2));
 }
 
 function formatEnvelope() {
@@ -295,12 +412,11 @@ function formatEnvelope() {
 
 .soap-request-builder__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
 
-.soap-request-builder__side,
 .soap-request-builder__options {
   display: grid;
   gap: 14px;
@@ -333,6 +449,13 @@ function formatEnvelope() {
   padding: 14px 16px 12px;
   border-bottom: 1px solid rgba(64, 113, 187, 0.12);
   background: rgba(15, 35, 66, 0.025);
+}
+
+.soap-request-builder__option-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .soap-request-builder__option-title {
@@ -387,11 +510,26 @@ function formatEnvelope() {
   background: rgba(16, 78, 139, 0.05);
 }
 
+.soap-request-builder__compact-empty {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--studio-text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .soap-request-builder__field-name {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  width: 100%;
+}
+
+.soap-request-builder__field-name :deep(.el-input) {
+  min-width: 120px;
 }
 
 .soap-request-builder__field-meta {
@@ -416,33 +554,20 @@ function formatEnvelope() {
   width: 100%;
 }
 
-.soap-request-builder__raw-input :deep(.el-textarea__inner),
-.soap-request-builder__xml-editor :deep(.el-textarea__inner) {
+.soap-request-builder__raw-input :deep(.el-textarea__inner) {
   font-family: "Cascadia Code", "Consolas", monospace;
   font-size: 13px;
   line-height: 1.6;
 }
 
-.soap-request-builder__xml-editor {
+.soap-request-builder__raw-title {
   display: grid;
+  min-width: 0;
   gap: 8px;
-}
-
-.soap-request-builder__xml-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
   color: var(--studio-text);
 }
 
-.soap-request-builder__xml-header > div {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.soap-request-builder__xml-header span {
+.soap-request-builder__raw-title span {
   color: var(--studio-text-soft);
   font-size: 12px;
 }

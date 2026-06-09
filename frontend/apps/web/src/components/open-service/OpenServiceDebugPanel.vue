@@ -229,6 +229,7 @@ export interface OpenServiceDebugField {
   label: string;
   meta: string;
   required?: boolean;
+  readonly?: boolean;
   controlType?: DebugControlType;
   value?: DebugFieldValue;
 }
