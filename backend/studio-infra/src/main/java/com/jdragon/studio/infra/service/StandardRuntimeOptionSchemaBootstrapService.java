@@ -45,6 +45,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("reader", "sftp", "SFTP Reader 参数", buildFileTableReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "minio", "MinIO Reader 参数", buildFileTableReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "http", "HTTP Reader 参数", buildHttpReaderFields()));
+        result.add(ensureRuntimeOptionSchema("reader", "http-soap", "HTTP SOAP Reader 参数", buildHttpSoapReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "odps", "ODPS Reader 参数", buildOdpsReaderFields()));
 
         result.add(ensureRuntimeOptionSchema("writer", "mysql8", "MYSQL8 Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace", "update"))));
@@ -56,6 +57,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("writer", "sftp", "SFTP Writer 参数", buildFileTableWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "minio", "MinIO Writer 参数", buildFileTableWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "http", "HTTP Writer 参数", buildHttpWriterFields()));
+        result.add(ensureRuntimeOptionSchema("writer", "http-soap", "HTTP SOAP Writer 参数", buildHttpSoapWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "odps", "ODPS Writer 参数", buildOdpsWriterFields()));
         return result;
     }
@@ -149,6 +151,40 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         fields.add(field("retryIntervalMs", "重试间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 130, "1000"));
         fields.add(field("connectTimeoutMs", "连接超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 140, "3000"));
         fields.add(field("socketTimeoutMs", "响应超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 150, "3000"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildHttpSoapReaderFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("soapVersion", "SOAP 版本", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 10,
+                "SOAP_11", Arrays.asList("SOAP_11", "SOAP_12")));
+        fields.add(field("soapAction", "SOAPAction", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+        fields.add(field("contentType", "Content-Type", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
+        fields.add(field("header", "HTTP Headers", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 40, "{}"));
+        fields.add(field("params", "Query 参数", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 50, "{}"));
+        fields.add(field("requestBody", "SOAP Envelope XML", FieldValueType.STRING, FieldComponentType.CODE_EDITOR, true, false, 60, ""));
+        fields.add(field("soapFaultFail", "SOAP Fault 失败", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 70, "true"));
+        fields.add(field("pageRead", "启用分页读取", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 80, "false"));
+        fields.add(field("pageSize", "分页大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 90, "500"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildHttpSoapWriterFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("soapVersion", "SOAP 版本", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 10,
+                "SOAP_11", Arrays.asList("SOAP_11", "SOAP_12")));
+        fields.add(field("soapAction", "SOAPAction", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+        fields.add(field("contentType", "Content-Type", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
+        fields.add(field("header", "HTTP Headers", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 40, "{}"));
+        fields.add(field("params", "Query 参数", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 50, "{}"));
+        fields.add(field("requestBody", "SOAP Envelope XML 模板", FieldValueType.STRING, FieldComponentType.CODE_EDITOR, true, false, 60, ""));
+        fields.add(field("soapFaultFail", "SOAP Fault 失败", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 70, "true"));
+        fields.add(field("responseStatus.path", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
+        fields.add(field("responseStatus.code", "业务成功状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, "200"));
+        fields.add(field("retryTimes", "重试次数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 100, "3"));
+        fields.add(field("retryIntervalMs", "重试间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 110, "1000"));
+        fields.add(field("connectTimeoutMs", "连接超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 120, "3000"));
+        fields.add(field("socketTimeoutMs", "响应超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 130, "3000"));
         return fields;
     }
 

@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -111,6 +111,7 @@ import CollectionTaskMappingSection from "@/components/collection-task/Collectio
 import CollectionTaskReviewSection from "@/components/collection-task/CollectionTaskReviewSection.vue";
 import CollectionTaskScheduleSection from "@/components/collection-task/CollectionTaskScheduleSection.vue";
 import CollectionTaskStepIndicator from "@/components/collection-task/CollectionTaskStepIndicator.vue";
+import { parseJsonObjectText, parseSoapEnvelope } from "@/components/open-service/openServiceDebugSupport";
 import { cloneDeep } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -124,6 +125,7 @@ const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
 const modelCache = ref<Record<string, DataModelDefinition[]>>({});
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
 const runtimeSchemaLoading = ref<Record<string, boolean>>({});
+const runtimeSchemaRequests = new Map<string, Promise<void>>();
 const saving = ref(false);
 const previewLoading = ref(false);
 const previewDirty = ref(true);
@@ -208,7 +210,7 @@ const joinType = computed<string>({
 });
 
 const writerAdvancedFields = computed<MetadataFieldDefinition[]>(() =>
-  (runtimeSchemaFor("writer", form.targetBinding.datasourceId)?.fields ?? []).map(enhanceWriterAdvancedField),
+  (runtimeSchemaFor("writer", form.targetBinding.datasourceId, form.targetBinding.modelId)?.fields ?? []).map(enhanceWriterAdvancedField),
 );
 
 const fusionReaderAdvancedFields = computed<MetadataFieldDefinition[]>(() =>
@@ -248,11 +250,17 @@ const bindingSectionActions = {
   resetIncrementalCursor,
   readerAdvancedFields,
   isHttpReaderSource,
+  isHttpSoapReaderSource,
+  readerSoapContract,
+  readerSoapFieldNames,
   readerDynamicFunctionFields,
   updateSourceReaderOptions,
   handleTargetDatasourceChange,
   handleTargetModelChange,
   isHttpWriterTarget,
+  isHttpSoapWriterTarget,
+  writerSoapContract,
+  writerSoapFieldNames,
   writerDynamicFunctionFields,
   updateTargetWriterOptions,
 };
@@ -435,8 +443,8 @@ function syncCurrentIncrementalCursor(source: CollectionTaskSourceBinding) {
 
 async function ensureRuntimeSchemas() {
   const jobs = [
-    ...form.sourceBindings.map((source) => ensureRuntimeSchemaForDatasource("reader", source.datasourceId)),
-    ensureRuntimeSchemaForDatasource("writer", form.targetBinding.datasourceId),
+    ...form.sourceBindings.map((source) => ensureRuntimeSchemaForDatasource("reader", source.datasourceId, source.modelId)),
+    ensureRuntimeSchemaForDatasource("writer", form.targetBinding.datasourceId, form.targetBinding.modelId),
   ];
   if (isFusionTask.value) {
     jobs.push(ensureRuntimeSchemaForType("reader", "fusion"));
@@ -445,46 +453,64 @@ async function ensureRuntimeSchemas() {
   applyRuntimeDefaults();
 }
 
-async function ensureRuntimeSchemaForDatasource(role: RuntimeOptionRole, datasourceId: unknown) {
+async function ensureRuntimeSchemaForDatasource(role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) {
   const datasourceType = resolveDatasourceTypeCode(datasourceId);
   if (!datasourceType) {
     return;
   }
-  await ensureRuntimeSchemaForType(role, datasourceType);
+  await ensureRuntimeSchemaForType(role, datasourceType, runtimeProtocolMode(datasourceType, modelId));
 }
 
-async function ensureRuntimeSchemaForType(role: RuntimeOptionRole, datasourceType: string) {
-  const key = runtimeSchemaKey(role, datasourceType);
-  if (runtimeSchemaCache.value[key] || runtimeSchemaLoading.value[key]) {
+async function ensureRuntimeSchemaForType(role: RuntimeOptionRole, datasourceType: string, protocolMode?: string) {
+  const key = runtimeSchemaKey(role, datasourceType, protocolMode);
+  if (runtimeSchemaCache.value[key]) {
+    return;
+  }
+  const pending = runtimeSchemaRequests.get(key);
+  if (pending) {
+    try {
+      await pending;
+    } catch {
+      // 首个请求会负责展示错误；等待方保持调用链可继续恢复。
+    }
     return;
   }
   runtimeSchemaLoading.value[key] = true;
+  const request = (async () => {
+    runtimeSchemaCache.value[key] = await studioApi.catalog.runtimeOptionSchema({
+      role,
+      datasourceType,
+      protocolMode,
+    });
+  })();
+  runtimeSchemaRequests.set(key, request);
   try {
-    runtimeSchemaCache.value[key] = await studioApi.catalog.runtimeOptionSchema({ role, datasourceType });
+    await request;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.advancedLoadFailed"));
   } finally {
     runtimeSchemaLoading.value[key] = false;
+    runtimeSchemaRequests.delete(key);
   }
 }
 
-function runtimeSchemaFor(role: RuntimeOptionRole, datasourceId: unknown) {
+function runtimeSchemaFor(role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) {
   const datasourceType = resolveDatasourceTypeCode(datasourceId);
   if (!datasourceType) {
     return undefined;
   }
-  return runtimeSchemaForType(role, datasourceType);
+  return runtimeSchemaForType(role, datasourceType, runtimeProtocolMode(datasourceType, modelId));
 }
 
-function runtimeSchemaForType(role: RuntimeOptionRole, datasourceType: string) {
-  return runtimeSchemaCache.value[runtimeSchemaKey(role, datasourceType)];
+function runtimeSchemaForType(role: RuntimeOptionRole, datasourceType: string, protocolMode?: string) {
+  return runtimeSchemaCache.value[runtimeSchemaKey(role, datasourceType, protocolMode)];
 }
 
 function sourceIncrementalSupported(source: CollectionTaskSourceBinding) {
   if (!source.datasourceId) {
     return true;
   }
-  const schema = runtimeSchemaFor("reader", source.datasourceId);
+  const schema = runtimeSchemaFor("reader", source.datasourceId, source.modelId);
   return schema ? schema.incrementalSupported === true : true;
 }
 
@@ -494,7 +520,7 @@ function sourceIncrementalVisible(source: CollectionTaskSourceBinding) {
 }
 
 function readerAdvancedFields(source: CollectionTaskSourceBinding): MetadataFieldDefinition[] {
-  return runtimeSchemaFor("reader", source.datasourceId)?.fields ?? [];
+  return runtimeSchemaFor("reader", source.datasourceId, source.modelId)?.fields ?? [];
 }
 
 function updateSourceReaderOptions(source: CollectionTaskSourceBinding, value: Record<string, unknown>) {
@@ -521,6 +547,10 @@ function isHttpReaderSource(source: CollectionTaskSourceBinding) {
   return resolveDatasourceTypeCode(source.datasourceId) === "http";
 }
 
+function isHttpSoapReaderSource(source: CollectionTaskSourceBinding) {
+  return isHttpReaderSource(source) && runtimeProtocolMode("http", source.modelId) === "SOAP";
+}
+
 function writerDynamicFunctionFields() {
   const datasourceType = resolveDatasourceTypeCode(form.targetBinding.datasourceId);
   if (fileWriterDatasourceTypes.has(datasourceType)) {
@@ -536,6 +566,39 @@ function isHttpWriterTarget() {
   return resolveDatasourceTypeCode(form.targetBinding.datasourceId) === "http";
 }
 
+function isHttpSoapWriterTarget() {
+  return isHttpWriterTarget() && runtimeProtocolMode("http", form.targetBinding.modelId) === "SOAP";
+}
+
+function readerSoapContract(source: CollectionTaskSourceBinding) {
+  return soapContractForModel(source.modelId);
+}
+
+function readerSoapFieldNames(_source: CollectionTaskSourceBinding) {
+  return [];
+}
+
+function writerSoapContract() {
+  return soapContractForModel(form.targetBinding.modelId);
+}
+
+function writerSoapFieldNames() {
+  const mappedFields = form.fieldMappings
+    .map((mapping) => mapping.targetField?.trim())
+    .filter((field): field is string => Boolean(field));
+  return mappedFields.length ? uniqueFieldNames(mappedFields) : targetFieldOptions.value;
+}
+
+function soapContractForModel(modelId: unknown) {
+  const metadata = resolveModelById(modelId)?.technicalMetadata ?? {};
+  return {
+    soapVersion: String(metadata.soapVersion ?? "").trim() || undefined,
+    namespaceUri: String(metadata.namespaceUri ?? "").trim() || undefined,
+    operationName: String(metadata.operationName ?? "").trim() || undefined,
+    requestRootName: String(metadata.requestRootName ?? metadata.operationName ?? "").trim() || undefined,
+  };
+}
+
 function updateTargetWriterOptions(value: Record<string, unknown>) {
   form.targetBinding.writerOptions = value ?? {};
 }
@@ -547,39 +610,39 @@ function updateFusionReaderOptions(value: Record<string, unknown>) {
   };
 }
 
-function runtimeSchemaTitle(role: RuntimeOptionRole, datasourceId: unknown) {
+function runtimeSchemaTitle(role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) {
   const datasourceType = resolveDatasourceTypeCode(datasourceId);
   if (!datasourceType) {
     return "";
   }
-  return runtimeSchemaTitleByType(role, datasourceType);
+  return runtimeSchemaTitleByType(role, datasourceType, runtimeProtocolMode(datasourceType, modelId));
 }
 
-function runtimeSchemaTitleByType(role: RuntimeOptionRole, datasourceType: string) {
-  const schema = runtimeSchemaForType(role, datasourceType);
+function runtimeSchemaTitleByType(role: RuntimeOptionRole, datasourceType: string, protocolMode?: string) {
+  const schema = runtimeSchemaForType(role, datasourceType, protocolMode);
   return schema?.pluginType ? `${schema.pluginType}${role}` : datasourceType;
 }
 
-function runtimeStatusType(role: RuntimeOptionRole, datasourceId: unknown) {
+function runtimeStatusType(role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) {
   const datasourceType = resolveDatasourceTypeCode(datasourceId);
-  return runtimeStatusTypeByType(role, datasourceType);
+  return runtimeStatusTypeByType(role, datasourceType, runtimeProtocolMode(datasourceType, modelId));
 }
 
-function runtimeStatusTypeByType(role: RuntimeOptionRole, datasourceType: string) {
-  const schema = runtimeSchemaForType(role, datasourceType);
+function runtimeStatusTypeByType(role: RuntimeOptionRole, datasourceType: string, protocolMode?: string) {
+  const schema = runtimeSchemaForType(role, datasourceType, protocolMode);
   if (!schema?.runtimeSupported) {
     return "warning";
   }
   return schema.fields?.length ? "success" : "info";
 }
 
-function runtimeStatusLabel(role: RuntimeOptionRole, datasourceId: unknown) {
+function runtimeStatusLabel(role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) {
   const datasourceType = resolveDatasourceTypeCode(datasourceId);
-  return runtimeStatusLabelByType(role, datasourceType);
+  return runtimeStatusLabelByType(role, datasourceType, runtimeProtocolMode(datasourceType, modelId));
 }
 
-function runtimeStatusLabelByType(role: RuntimeOptionRole, datasourceType: string) {
-  const schema = runtimeSchemaForType(role, datasourceType);
+function runtimeStatusLabelByType(role: RuntimeOptionRole, datasourceType: string, protocolMode?: string) {
+  const schema = runtimeSchemaForType(role, datasourceType, protocolMode);
   if (!schema?.runtimeSupported) {
     return t("web.collectionTasks.runtimeUnsupported");
   }
@@ -588,8 +651,22 @@ function runtimeStatusLabelByType(role: RuntimeOptionRole, datasourceType: strin
     : t("web.collectionTasks.runtimeSchemaMissingShort");
 }
 
-function runtimeSchemaKey(role: RuntimeOptionRole, datasourceType: string) {
-  return `${role}:${datasourceType}`;
+function runtimeSchemaKey(role: RuntimeOptionRole, datasourceType: string, protocolMode?: string) {
+  const mode = protocolMode === "SOAP" ? ":SOAP" : "";
+  return `${role}:${datasourceType}${mode}`;
+}
+
+function runtimeProtocolMode(datasourceType: string, modelId?: unknown) {
+  if (datasourceType !== "http") {
+    return undefined;
+  }
+  const metadata = resolveModelById(modelId)?.technicalMetadata ?? {};
+  const mode = String(metadata.protocolMode ?? "").trim().toUpperCase();
+  if (mode === "SOAP") {
+    return "SOAP";
+  }
+  const resultType = String(metadata.resultType ?? "").trim().toLowerCase();
+  return resultType === "soap" ? "SOAP" : undefined;
 }
 
 function resolveDatasourceTypeCode(datasourceId: unknown) {
@@ -603,13 +680,16 @@ async function handleSourceDatasourceChange(row: CollectionTaskSourceBinding, va
   row.readerOptions = {};
   row.incremental = normalizeIncremental(row.incremental, collectionMode.value);
   await ensureModels(value);
-  await ensureRuntimeSchemaForDatasource("reader", value);
+  await ensureRuntimeSchemaForDatasource("reader", value, row.modelId);
   row.incremental = normalizeIncremental(row.incremental, sourceIncrementalSupported(row) ? collectionMode.value : "FULL");
   applyRuntimeDefaultsForSource(row);
 }
 
-function handleSourceModelChange(row: CollectionTaskSourceBinding, value: string) {
+async function handleSourceModelChange(row: CollectionTaskSourceBinding, value: string) {
   row.modelId = value;
+  row.readerOptions = {};
+  await ensureRuntimeSchemaForDatasource("reader", row.datasourceId, value);
+  applyRuntimeDefaultsForSource(row);
 }
 
 function selectSqlText(source: CollectionTaskSourceBinding) {
@@ -857,7 +937,7 @@ async function handleTargetDatasourceChange(value: string) {
   form.targetBinding.modelId = "";
   form.targetBinding.writerOptions = {};
   await ensureModels(value);
-  await ensureRuntimeSchemaForDatasource("writer", value);
+  await ensureRuntimeSchemaForDatasource("writer", value, form.targetBinding.modelId);
   applyRuntimeDefaultsForTarget();
 }
 
@@ -913,8 +993,10 @@ function enhanceWriterAdvancedField(field: MetadataFieldDefinition): MetadataFie
   };
 }
 
-function handleTargetModelChange(value: string) {
+async function handleTargetModelChange(value: string) {
   form.targetBinding.modelId = value;
+  form.targetBinding.writerOptions = {};
+  await ensureRuntimeSchemaForDatasource("writer", form.targetBinding.datasourceId, value);
   applyRuntimeDefaultsForTarget();
   if (!form.fieldMappings.length) {
     initializeMappings();
@@ -941,6 +1023,9 @@ async function loadPreviewConfig() {
     previewConfig.value = null;
     return;
   }
+  if (!validateHttpSoapRuntimeOptions()) {
+    return;
+  }
   previewLoading.value = true;
   try {
     previewConfig.value = await studioApi.collectionTasks.preview(buildRequestPayload());
@@ -953,6 +1038,9 @@ async function loadPreviewConfig() {
 }
 
 async function saveTask() {
+  if (!validateHttpSoapRuntimeOptions()) {
+    return;
+  }
   saving.value = true;
   try {
     const saved = await studioApi.collectionTasks.save(buildRequestPayload());
@@ -963,6 +1051,53 @@ async function saveTask() {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.saveFailed"));
   } finally {
     saving.value = false;
+  }
+}
+
+function validateHttpSoapRuntimeOptions() {
+  try {
+    form.sourceBindings.forEach((source, index) => {
+      if (isHttpSoapReaderSource(source)) {
+        validateHttpSoapOptions(source.readerOptions ?? {}, `第 ${index + 1} 个 SOAP Reader`);
+      }
+    });
+    if (isHttpSoapWriterTarget()) {
+      validateHttpSoapOptions(form.targetBinding.writerOptions ?? {}, "SOAP Writer");
+    }
+    return true;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.saveFailed"));
+    return false;
+  }
+}
+
+function validateHttpSoapOptions(options: Record<string, unknown>, label: string) {
+  const requestBody = String(options.requestBody ?? "");
+  if (!requestBody.trim()) {
+    throw new Error(`${label} 的 SOAP Envelope 不能为空`);
+  }
+  const parsedEnvelope = parseSoapEnvelope(requestBody);
+  if (!parsedEnvelope.ok) {
+    throw new Error(`${label} ${parsedEnvelope.error}`);
+  }
+  const headers = stringifyJsonObjectOption(options.header, "{}");
+  const parsedHeaders = parseJsonObjectText(headers, `${label} HTTP Headers`);
+  if (!parsedHeaders.ok) {
+    throw new Error(parsedHeaders.error);
+  }
+}
+
+function stringifyJsonObjectOption(value: unknown, fallback: string) {
+  if (value == null || value === "") {
+    return fallback;
+  }
+  if (typeof value === "string") {
+    return value.trim() ? value : fallback;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
 
@@ -1014,6 +1149,7 @@ watch(
 );
 
 watch(taskId, async () => {
+  await loadReferenceData();
   await loadTask();
 }, { immediate: true });
 
@@ -1053,7 +1189,6 @@ watch(collectionModeVisible, (visible) => {
   }
 });
 
-onMounted(loadReferenceData);
 onBeforeUnmount(() => {
   customSqlResolveTimers.forEach((timer) => window.clearTimeout(timer));
   customSqlResolveTimers.clear();

@@ -103,6 +103,8 @@ abstract class CollectionTaskAssemblerTestSupport {
         DataModelDefinition httpModel = buildHttpModel(false);
         DataModelDefinition invalidHttpModel = buildHttpModel(true);
         DataModelDefinition httpWriterModel = buildHttpWriterModel();
+        DataModelDefinition httpSoapReaderModel = buildHttpSoapReaderModel();
+        DataModelDefinition httpSoapWriterModel = buildHttpSoapWriterModel();
         DataModelDefinition odpsSourceModel = buildOdpsModel(50L, "odps_source_table", true);
         DataModelDefinition odpsTargetModel = buildOdpsModel(51L, "odps_target_pt", true);
         when(service.get(10L)).thenReturn(sourceModel);
@@ -115,6 +117,8 @@ abstract class CollectionTaskAssemblerTestSupport {
         when(service.get(40L)).thenReturn(httpModel);
         when(service.get(41L)).thenReturn(invalidHttpModel);
         when(service.get(42L)).thenReturn(httpWriterModel);
+        when(service.get(43L)).thenReturn(httpSoapReaderModel);
+        when(service.get(44L)).thenReturn(httpSoapWriterModel);
         when(service.get(50L)).thenReturn(odpsSourceModel);
         when(service.get(51L)).thenReturn(odpsTargetModel);
         return service;
@@ -193,6 +197,51 @@ abstract class CollectionTaskAssemblerTestSupport {
         model.setPhysicalLocator("/orders");
         Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
         technicalMetadata.put("mode", "POST");
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> id = column("id");
+        id.put("type", "LONG");
+        columns.add(id);
+        Map<String, Object> name = column("name");
+        name.put("type", "TEXT");
+        columns.add(name);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    protected DataModelDefinition buildHttpSoapReaderModel() {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(43L);
+        model.setPhysicalLocator("/services/source/ws");
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("protocolMode", "SOAP");
+        technicalMetadata.put("soapVersion", "SOAP_11");
+        technicalMetadata.put("operationName", "QueryRows");
+        technicalMetadata.put("soapAction", "urn:studio/QueryRows");
+        technicalMetadata.put("resultType", "soap");
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        Map<String, Object> id = column("id");
+        id.put("parentNode", "QueryRowsResponse.items");
+        id.put("type", "LONG");
+        columns.add(id);
+        Map<String, Object> name = column("name");
+        name.put("parentNode", "QueryRowsResponse.items");
+        name.put("type", "TEXT");
+        columns.add(name);
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
+    }
+
+    protected DataModelDefinition buildHttpSoapWriterModel() {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(44L);
+        model.setPhysicalLocator("/ingestion/target/ws");
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        technicalMetadata.put("protocolMode", "SOAP");
+        technicalMetadata.put("soapVersion", "SOAP_12");
+        technicalMetadata.put("operationName", "WriteRow");
+        technicalMetadata.put("soapAction", "urn:studio/WriteRow");
         List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
         Map<String, Object> id = column("id");
         id.put("type", "LONG");

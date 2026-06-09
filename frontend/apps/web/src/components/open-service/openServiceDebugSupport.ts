@@ -22,6 +22,7 @@ export interface SoapEnvelopeBuildOptions {
   soapVersion?: string;
   namespaceUri?: string;
   requestRootName?: string;
+  includeToken?: boolean;
   tokenElementName?: string;
   tokenValue?: string;
   headerFields?: SoapFieldSpec[];
@@ -186,7 +187,7 @@ export function buildSoapEnvelope(options: SoapEnvelopeBuildOptions) {
   const tokenElementName = safeXmlName(options.tokenElementName) || "token";
   const tokenValue = options.tokenValue ?? "your-token";
   const headerXml = [
-    `    <tns:${tokenElementName}>${escapeXml(tokenValue)}</tns:${tokenElementName}>`,
+    options.includeToken === false ? "" : `    <tns:${tokenElementName}>${escapeXml(tokenValue)}</tns:${tokenElementName}>`,
     ...(options.headerFields ?? []).map((field) => appendXmlValue(field.elementName, field.value, 4, "tns")),
   ].filter(Boolean).join("\n");
   const fieldXml = options.bodyPayload

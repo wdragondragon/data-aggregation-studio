@@ -50,7 +50,8 @@ public class CatalogController {
     @Operation(summary = "Get runtime reader/writer option schema")
     @GetMapping("/runtime-option-schemas")
     public Result<PluginRuntimeOptionSchemaView> runtimeOptionSchema(@RequestParam("role") String role,
-                                                                     @RequestParam("datasourceType") String datasourceType) {
-        return Result.success(pluginRuntimeOptionSchemaService.schema(role, datasourceType));
+                                                                     @RequestParam("datasourceType") String datasourceType,
+                                                                     @RequestParam(value = "protocolMode", required = false) String protocolMode) {
+        return Result.success(pluginRuntimeOptionSchemaService.schema(role, datasourceType, protocolMode));
     }
 }

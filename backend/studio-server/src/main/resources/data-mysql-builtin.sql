@@ -744,3 +744,14 @@ insert into quality_rule_output_param (id, deleted, created_at, updated_at, rule
 (2047489216606134318, 0, '2026-04-24 09:34:04', '2026-04-24 09:34:04', 2047489216606134315, 1, 'negative_count', 'NUMBER', '小于 0 的记录数'),
 (2047489216606134322, 0, '2026-04-24 09:34:04', '2026-04-24 09:34:04', 2047489216606134319, 1, 'zero_or_null_count', 'NUMBER', '为空或等于 0 的记录数');
 
+-- HTTP WebService/SOAP table metadata fields. Existing REST/XML fields stay for compatibility.
+insert into meta_field_definition (id, tenant_id, deleted, created_at, updated_at, schema_version_id, field_key, field_name, description, scope, value_type, component_type, required_flag, sensitive_flag, sort_order, validation_rule, placeholder, default_value, searchable_flag, sortable_flag, query_operators, query_default_operator, options) values
+(2047489300000010030, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'protocolMode', '协议模式', '协议模式', 'TECHNICAL', 'STRING', 'SELECT', 1, 0, 30, null, null, 'REST_JSON', 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '["REST_JSON", "REST_XML", "SOAP"]'),
+(2047489300000010031, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'soapVersion', 'SOAP 版本', 'SOAP 版本', 'TECHNICAL', 'STRING', 'SELECT', 0, 0, 60, null, null, 'SOAP_11', 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '["SOAP_11", "SOAP_12"]'),
+(2047489300000010032, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'namespaceUri', 'Namespace URI', 'Namespace URI', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 70, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
+(2047489300000010033, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'operationName', 'Operation', 'Operation', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 80, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
+(2047489300000010034, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'soapAction', 'SOAPAction', 'SOAPAction', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 90, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
+(2047489300000010035, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'requestRootName', '请求根节点', '请求根节点', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 100, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
+(2047489300000010036, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'responseRootName', '响应根节点', '响应根节点', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 110, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
+(2047489300000010037, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'wsdlUrl', 'WSDL 地址', 'WSDL 地址', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 120, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]');
+

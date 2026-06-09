@@ -372,8 +372,13 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       datasourceTypes() {
         return request<DatasourceTypeCapabilityView[]>({ url: "/catalog/datasource-types", method: "GET" });
       },
-      runtimeOptionSchema(params: { role: string; datasourceType: string }) {
-        return request<PluginRuntimeOptionSchemaView>({ url: "/catalog/runtime-option-schemas", method: "GET", params });
+      runtimeOptionSchema(params: { role: string; datasourceType: string; protocolMode?: string }) {
+        return request<PluginRuntimeOptionSchemaView>({
+          url: "/catalog/runtime-option-schemas",
+          method: "GET",
+          params,
+          studioSkipGlobalLoading: true,
+        });
       },
     },
     fieldMappingRules: {

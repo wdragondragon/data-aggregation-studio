@@ -48,7 +48,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/dfs/data-aggregation-studio': {
+      '^/dfs/data-aggregation-studio/(api|openapi|v3/api-docs|swagger-ui|doc\.html)(/.*)?$': {
         target: 'http://127.0.0.1:31649',
         changeOrigin: true,
         rewrite: (proxyPath) => proxyPath.replace(/^\/dfs/, '')

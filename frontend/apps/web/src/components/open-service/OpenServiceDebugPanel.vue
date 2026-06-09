@@ -153,172 +153,27 @@
     </template>
 
     <template v-else>
-      <el-alert
-        class="service-debug-alert"
-        type="info"
-        show-icon
-        :closable="false"
-        title="SOAP Envelope 会作为本次 SOAP 调用的完整 XML 请求 Body 发送；HTTP Headers 只表示 HTTP 层请求头。"
+      <OpenServiceSoapRequestBuilder
+        show-hint
+        show-wsdl
+        :wsdl-url="wsdlUrl"
+        :headers="soapHeaders"
+        :headers-placeholder="soapHeadersPlaceholder"
+        :headers-mode="soapHeadersMode"
+        :headers-error="soapHeadersError"
+        :header-rows="soapHeaderRows"
+        :field-groups="soapFieldGroups"
+        :empty-description="emptyFormDescription"
+        :envelope="soapEnvelope"
+        :envelope-error="soapEnvelopeError"
+        :envelope-description="soapDescription"
+        envelope-placeholder="点击生成 SOAP 样例后展示完整 XML 请求 Body"
+        @update:headers="emit('update:soapHeaders', $event)"
+        @update:headers-mode="emit('update:soapHeadersMode', $event)"
+        @update:envelope="emit('update:soapEnvelope', $event)"
+        @update-header-value="(key, value) => emit('updateSoapHeaderValue', key, value)"
+        @update-field-value="(key, value) => emit('updateSoapFieldValue', key, value)"
       />
-      <el-form-item label="WSDL 地址">
-        <el-input :model-value="wsdlUrl" readonly placeholder="保存并启用 WebService 后生成" />
-      </el-form-item>
-      <div class="service-debug-soap-grid">
-        <div class="service-debug-soap-side">
-          <section class="service-debug-option service-debug-option--HEADER">
-            <div class="service-debug-option__header">
-              <div class="service-debug-option__title">
-                <span class="service-debug-option__index">1</span>
-                <div>
-                  <strong>HTTP Headers</strong>
-                  <p>HTTP 层请求头，可在表格和原始 JSON 之间双向切换。</p>
-                </div>
-              </div>
-              <el-radio-group
-                :model-value="soapHeadersMode"
-                size="small"
-                @update:model-value="emit('update:soapHeadersMode', $event as HeaderEditorMode)"
-              >
-                <el-radio-button value="form">表格</el-radio-button>
-                <el-radio-button value="raw">原始</el-radio-button>
-              </el-radio-group>
-            </div>
-            <div class="service-debug-option__body">
-              <template v-if="soapHeadersMode === 'form'">
-                <el-table :data="soapHeaderRows" border size="small" table-layout="fixed" class="service-debug-table">
-                  <el-table-column label="Header" min-width="170">
-                    <template #default="{ row }">
-                      <div class="service-debug-field-name">
-                        <span>{{ row.label }}</span>
-                        <el-tag v-if="row.required" size="small" type="danger" effect="plain">必填</el-tag>
-                      </div>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="值" min-width="260">
-                    <template #default="{ row }">
-                      <el-input
-                        :model-value="stringValue(row.value)"
-                        @update:model-value="emit('updateSoapHeaderValue', row.key, $event)"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="说明" min-width="160">
-                    <template #default="{ row }">
-                      <span class="service-debug-field-meta">{{ row.meta }}</span>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </template>
-              <template v-else>
-                <el-alert
-                  v-if="soapHeadersError"
-                  class="service-debug-parse-alert"
-                  type="error"
-                  show-icon
-                  :closable="false"
-                  :title="soapHeadersError"
-                />
-                <el-input
-                  :model-value="soapHeaders"
-                  type="textarea"
-                  :rows="7"
-                  :placeholder="soapHeadersPlaceholder"
-                  class="service-debug-raw-input"
-                  @update:model-value="emit('update:soapHeaders', String($event ?? ''))"
-                />
-              </template>
-            </div>
-          </section>
-
-          <section class="service-debug-option service-debug-option--BODY">
-            <div class="service-debug-option__header">
-              <div class="service-debug-option__title">
-                <span class="service-debug-option__index">2</span>
-                <div>
-                  <strong>SOAP 参数表单</strong>
-                  <p>字段值会实时构造成完整 SOAP Envelope。</p>
-                </div>
-              </div>
-            </div>
-            <div class="service-debug-option__body">
-              <div v-if="soapFieldGroups.length" class="service-debug-options service-debug-options--inner">
-                <section v-for="group in soapFieldGroups" :key="group.key">
-                  <div class="service-debug-subtitle">
-                    <strong>{{ group.title }}</strong>
-                    <span>{{ group.description }}</span>
-                  </div>
-                  <el-table :data="group.rows" border size="small" table-layout="fixed" class="service-debug-table">
-                    <el-table-column label="参数" min-width="160">
-                      <template #default="{ row }">
-                        <div class="service-debug-field-name">
-                          <span>{{ row.label }}</span>
-                          <el-tag v-if="row.required" size="small" type="danger" effect="plain">必填</el-tag>
-                        </div>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="值" min-width="240">
-                      <template #default="{ row }">
-                        <el-switch
-                          v-if="row.controlType === 'boolean'"
-                          :model-value="Boolean(row.value)"
-                          @update:model-value="emit('updateSoapFieldValue', row.key, $event)"
-                        />
-                        <el-input-number
-                          v-else-if="row.controlType === 'number'"
-                          :model-value="typeof row.value === 'number' ? row.value : null"
-                          :controls="false"
-                          class="service-debug-number"
-                          @update:model-value="emit('updateSoapFieldValue', row.key, $event)"
-                        />
-                        <el-input
-                          v-else-if="row.controlType === 'textarea'"
-                          type="textarea"
-                          :rows="3"
-                          :model-value="stringValue(row.value)"
-                          @update:model-value="emit('updateSoapFieldValue', row.key, $event)"
-                        />
-                        <el-input
-                          v-else
-                          :model-value="stringValue(row.value)"
-                          @update:model-value="emit('updateSoapFieldValue', row.key, $event)"
-                        />
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="映射" min-width="150">
-                      <template #default="{ row }">
-                        <span class="service-debug-field-meta">{{ row.meta }}</span>
-                      </template>
-                    </el-table-column>
-                  </el-table>
-                </section>
-              </div>
-              <el-empty v-else :description="emptyFormDescription" />
-            </div>
-          </section>
-        </div>
-
-        <div class="service-debug-xml-editor">
-          <div class="service-debug-xml-editor__header">
-            <strong>SOAP 请求 Body（Envelope）</strong>
-            <span>{{ soapDescription }}</span>
-          </div>
-          <el-alert
-            v-if="soapEnvelopeError"
-            class="service-debug-parse-alert"
-            type="error"
-            show-icon
-            :closable="false"
-            :title="soapEnvelopeError"
-          />
-          <el-input
-            :model-value="soapEnvelope"
-            type="textarea"
-            :rows="18"
-            placeholder="点击生成 SOAP 样例后展示完整 XML 请求 Body"
-            @update:model-value="emit('update:soapEnvelope', String($event ?? ''))"
-          />
-        </div>
-      </div>
     </template>
 
     <div v-if="mode === 'soap'" class="service-debug-xml-editor service-debug-response-editor">
@@ -362,6 +217,7 @@
 import { computed } from "vue";
 import { SectionCard } from "@studio/ui";
 import JsonEditor from "@/components/JsonEditor.vue";
+import OpenServiceSoapRequestBuilder from "@/components/open-service/OpenServiceSoapRequestBuilder.vue";
 
 export type DebugMode = "form" | "raw" | "soap";
 export type HeaderEditorMode = "form" | "raw";

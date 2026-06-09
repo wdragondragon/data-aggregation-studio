@@ -108,6 +108,13 @@
         </template>
 
         <MetaFormRenderer
+          v-else-if="!isHttpTechnicalSingleSection(section)"
+          :fields="section.fields"
+          :model-value="actions.sectionModelValue(section, true)"
+          :dynamic-function-fields="dynamicFunctionFields"
+          @update:model-value="actions.updateSectionModelValue(section, $event)"
+        />
+        <HttpWebServiceContractEditor
           v-else
           :fields="section.fields"
           :model-value="actions.sectionModelValue(section, true)"
@@ -129,6 +136,7 @@ import type { DataSourceDefinition, MetadataFieldDefinition, MetadataSchemaDefin
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { useI18n } from "vue-i18n";
+import HttpWebServiceContractEditor from "@/components/HttpWebServiceContractEditor.vue";
 import type { ModelFormState, ModelMetaSection } from "./modelViewTypes";
 
 interface ModelEditorActions {
@@ -145,7 +153,7 @@ interface ModelEditorActions {
   saveModel: () => void | Promise<void>;
 }
 
-defineProps<{
+const props = defineProps<{
   modelValue: boolean;
   isEditingModel: boolean;
   panelTitle: string;
@@ -170,6 +178,14 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+function isHttpTechnicalSingleSection(section: ModelMetaSection) {
+  if (section.binding !== "TECHNICAL" || section.displayMode === "MULTIPLE") {
+    return false;
+  }
+  const datasource = props.datasourceOptions.find((item) => String(item.id ?? "") === String(props.form.datasourceId ?? ""));
+  return String(datasource?.typeCode ?? "").trim().toLowerCase() === "http";
+}
 </script>
 
 <style scoped>

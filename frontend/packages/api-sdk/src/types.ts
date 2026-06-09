@@ -173,6 +173,7 @@ export type DataIngestionSourcePosition = "BODY" | "FORM" | "QUERY" | "HEADER";
 export type DataIngestionTargetType = "DATABASE" | "FILE";
 export type ServiceOpenProtocol = "REST" | "SOAP";
 export type WebServiceSoapVersion = "SOAP_11" | "SOAP_12";
+export type HttpProtocolMode = "REST_JSON" | "REST_XML" | "SOAP";
 export type ModelSyncTaskSource = "MANUAL" | "AUTO_PAGE";
 export type ModelSyncTaskStatus = "PENDING" | "RUNNING" | "STOPPING" | "SUCCESS" | "FAILED" | "STOPPED";
 export type ModelSyncTaskItemStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED" | "STOPPED";

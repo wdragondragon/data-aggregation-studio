@@ -31,13 +31,18 @@ public class PluginRuntimeOptionSchemaService {
     }
 
     public PluginRuntimeOptionSchemaView schema(String role, String datasourceType) {
+        return schema(role, datasourceType, null);
+    }
+
+    public PluginRuntimeOptionSchemaView schema(String role, String datasourceType, String protocolMode) {
         String normalizedRole = normalizeRole(role);
         String normalizedType = normalize(datasourceType);
         boolean virtualFusionReader = isVirtualFusionReader(normalizedRole, normalizedType);
         DatasourceTypeCapabilityView capability = virtualFusionReader ? null : findCapability(normalizedType);
         String sourceCategory = capability == null ? null : capability.getSourceCategory();
         String pluginType = virtualFusionReader ? "fusion" : resolvePluginType(normalizedType, normalizedRole);
-        MetadataSchemaDefinition schema = metadataSchemaService.findRuntimeOptionSchema(normalizedRole, pluginType);
+        String schemaPluginType = resolveRuntimeSchemaPluginType(normalizedType, pluginType, protocolMode);
+        MetadataSchemaDefinition schema = metadataSchemaService.findRuntimeOptionSchema(normalizedRole, schemaPluginType);
 
         PluginRuntimeOptionSchemaView view = new PluginRuntimeOptionSchemaView();
         view.setRole(normalizedRole);
@@ -86,12 +91,20 @@ public class PluginRuntimeOptionSchemaService {
         if (ROLE_WRITER.equals(normalizeRole(role))) {
             return Arrays.asList("connect", "table", "topic", "measurement", "columns", "sourceAlias",
                     "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile",
-                    "url", "mode");
+                    "url", "mode", "protocolMode", "payloadFormat", "responseType");
         }
         return Arrays.asList("connect", "config", "table", "topic", "measurement", "columns", "sourceAlias",
                 "sources", "join", "fieldMappings", "incrColumn", "incrModel", "pkValue", "dataTag",
                 "rootPath", "partitionType", "partition", "pattern", "fileType", "encoding", "delimiter",
-                "url", "mode", "resultType", "responseStatus", "totalCodePath");
+                "url", "mode", "protocolMode", "resultType", "responseStatus", "totalCodePath");
+    }
+
+    private String resolveRuntimeSchemaPluginType(String datasourceType, String pluginType, String protocolMode) {
+        if ("http".equals(normalize(datasourceType)) && "http".equals(normalizePlugin(pluginType))
+                && "SOAP".equalsIgnoreCase(protocolMode == null ? "" : protocolMode.trim())) {
+            return "http-soap";
+        }
+        return pluginType;
     }
 
     public boolean runtimeSupported(String role, DatasourceTypeCapabilityView capability, String pluginType) {

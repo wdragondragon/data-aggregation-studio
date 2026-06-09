@@ -597,4 +597,83 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("TEXT", columns.get(1).get("type"));
     }
 
+    @Test
+    void httpSoapReaderConfigShouldUseSoapProfileAndPreserveEnvelope() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpDefinition(43L);
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("header", "{\"X-Trace\":\"test\"}");
+        readerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tns=\"urn:studio\"><soap:Body><tns:QueryRows/></soap:Body></soap:Envelope>");
+        definition.getSourceBindings().get(0).setReaderOptions(readerOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        assertEquals("http", reader.get("type"));
+        assertEquals("http://api.example.com/base/services/source/ws", readerConfig.get("url"));
+        assertEquals("POST", readerConfig.get("mode"));
+        assertEquals("SOAP", readerConfig.get("protocolMode"));
+        assertEquals("SOAP_11", readerConfig.get("soapVersion"));
+        assertEquals("soap", readerConfig.get("resultType"));
+        assertEquals("text/xml;charset=UTF-8", readerConfig.get("contentType"));
+        assertTrue(String.valueOf(readerConfig.get("header")).contains("SOAPAction"));
+        assertTrue(String.valueOf(readerConfig.get("requestBody")).contains("QueryRows"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> columns = (List<Map<String, Object>>) readerConfig.get("columns");
+        assertEquals("QueryRowsResponse.items", columns.get(0).get("parentNode"));
+        assertEquals("id", columns.get(0).get("name"));
+    }
+
+    @Test
+    void httpSoapWriterConfigShouldUseSoapTemplateAndRejectArrayPayload() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpWriterDefinition();
+        definition.getTargetBinding().setModelId(44L);
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRow><tns:id>{{id}}</tns:id><tns:name>{{name}}</tns:name></tns:WriteRow></soap:Body></soap:Envelope>");
+        writerOptions.put("responseStatus.path", "WriteRowResponse.code");
+        writerOptions.put("responseStatus.code", "200");
+        definition.getTargetBinding().setWriterOptions(writerOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        assertEquals("http", writer.get("type"));
+        assertEquals("http://api.example.com/base/ingestion/target/ws", writerConfig.get("url"));
+        assertEquals("POST", writerConfig.get("mode"));
+        assertEquals("SOAP", writerConfig.get("protocolMode"));
+        assertEquals("SOAP_12", writerConfig.get("soapVersion"));
+        assertEquals("soap", writerConfig.get("payloadFormat"));
+        assertEquals("soap", writerConfig.get("responseType"));
+        assertEquals("application/soap+xml;charset=UTF-8", writerConfig.get("contentType"));
+        assertEquals("object", writerConfig.get("payloadMode"));
+        assertTrue(String.valueOf(writerConfig.get("header")).contains("SOAPAction"));
+        assertTrue(String.valueOf(writerConfig.get("requestBody")).contains("{{id}}"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> responseStatus = (Map<String, Object>) writerConfig.get("responseStatus");
+        assertEquals("WriteRowResponse.code", responseStatus.get("path"));
+        assertEquals("200", responseStatus.get("code"));
+
+        writerOptions.put("payloadMode", "array");
+        assertThrows(StudioException.class, () -> assemblerService.assemble(definition));
+    }
+
 }

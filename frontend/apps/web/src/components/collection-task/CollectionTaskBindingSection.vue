@@ -85,10 +85,10 @@
                 ? `${t("web.collectionTasks.readerAdvancedOptions")} - ${source.sourceAlias || t("common.none")}`
                 : t("web.collectionTasks.readerAdvancedOptions") }}
             </strong>
-            <p>{{ bindingActions.runtimeSchemaTitle("reader", source.datasourceId) }}</p>
+            <p>{{ bindingActions.runtimeSchemaTitle("reader", source.datasourceId, source.modelId) }}</p>
           </div>
-          <el-tag v-if="bindingActions.runtimeSchemaFor('reader', source.datasourceId)" :type="bindingActions.runtimeStatusType('reader', source.datasourceId)">
-            {{ bindingActions.runtimeStatusLabel("reader", source.datasourceId) }}
+          <el-tag v-if="bindingActions.runtimeSchemaFor('reader', source.datasourceId, source.modelId)" :type="bindingActions.runtimeStatusType('reader', source.datasourceId, source.modelId)">
+            {{ bindingActions.runtimeStatusLabel("reader", source.datasourceId, source.modelId) }}
           </el-tag>
         </div>
 
@@ -138,8 +138,17 @@
           </el-form-item>
         </div>
 
+        <HttpWebServiceOptionsEditor
+          v-if="bindingActions.readerAdvancedFields(source).length && bindingActions.isHttpSoapReaderSource(source)"
+          :fields="bindingActions.readerAdvancedFields(source)"
+          :model-value="source.readerOptions ?? {}"
+          :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
+          :soap-contract="bindingActions.readerSoapContract(source)"
+          :soap-field-names="bindingActions.readerSoapFieldNames(source)"
+          @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
+        />
         <HttpRequestOptionsEditor
-          v-if="bindingActions.readerAdvancedFields(source).length && bindingActions.isHttpReaderSource(source)"
+          v-else-if="bindingActions.readerAdvancedFields(source).length && bindingActions.isHttpReaderSource(source)"
           :fields="bindingActions.readerAdvancedFields(source)"
           :model-value="source.readerOptions ?? {}"
           :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
@@ -153,14 +162,14 @@
           @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
         />
         <el-alert
-          v-else-if="bindingActions.runtimeSchemaFor('reader', source.datasourceId) && !bindingActions.runtimeSchemaFor('reader', source.datasourceId)?.runtimeSupported"
+          v-else-if="bindingActions.runtimeSchemaFor('reader', source.datasourceId, source.modelId) && !bindingActions.runtimeSchemaFor('reader', source.datasourceId, source.modelId)?.runtimeSupported"
           type="warning"
           :closable="false"
           show-icon
           :title="t('web.collectionTasks.runtimeUnsupported')"
         />
         <el-alert
-          v-else-if="bindingActions.runtimeSchemaFor('reader', source.datasourceId)"
+          v-else-if="bindingActions.runtimeSchemaFor('reader', source.datasourceId, source.modelId)"
           type="info"
           :closable="false"
           show-icon
@@ -204,14 +213,24 @@
         <div class="runtime-option-header">
           <div>
             <strong>{{ t("web.collectionTasks.writerAdvancedOptions") }}</strong>
-            <p>{{ bindingActions.runtimeSchemaTitle("writer", form.targetBinding.datasourceId) }}</p>
+            <p>{{ bindingActions.runtimeSchemaTitle("writer", form.targetBinding.datasourceId, form.targetBinding.modelId) }}</p>
           </div>
-          <el-tag v-if="bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId)" :type="bindingActions.runtimeStatusType('writer', form.targetBinding.datasourceId)">
-            {{ bindingActions.runtimeStatusLabel("writer", form.targetBinding.datasourceId) }}
+          <el-tag v-if="bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId, form.targetBinding.modelId)" :type="bindingActions.runtimeStatusType('writer', form.targetBinding.datasourceId, form.targetBinding.modelId)">
+            {{ bindingActions.runtimeStatusLabel("writer", form.targetBinding.datasourceId, form.targetBinding.modelId) }}
           </el-tag>
         </div>
+        <HttpWebServiceOptionsEditor
+          v-if="writerAdvancedFields.length && bindingActions.isHttpSoapWriterTarget()"
+          :fields="writerAdvancedFields"
+          :model-value="form.targetBinding.writerOptions ?? {}"
+          :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
+          :soap-contract="bindingActions.writerSoapContract()"
+          :soap-field-names="bindingActions.writerSoapFieldNames()"
+          soap-template-mode
+          @update:model-value="bindingActions.updateTargetWriterOptions($event)"
+        />
         <HttpRequestOptionsEditor
-          v-if="writerAdvancedFields.length && bindingActions.isHttpWriterTarget()"
+          v-else-if="writerAdvancedFields.length && bindingActions.isHttpWriterTarget()"
           :fields="writerAdvancedFields"
           :model-value="form.targetBinding.writerOptions ?? {}"
           :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
@@ -225,14 +244,14 @@
           @update:model-value="bindingActions.updateTargetWriterOptions($event)"
         />
         <el-alert
-          v-else-if="bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId) && !bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId)?.runtimeSupported"
+          v-else-if="bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId, form.targetBinding.modelId) && !bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId, form.targetBinding.modelId)?.runtimeSupported"
           type="warning"
           :closable="false"
           show-icon
           :title="t('web.collectionTasks.runtimeUnsupported')"
         />
         <el-alert
-          v-else-if="bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId)"
+          v-else-if="bindingActions.runtimeSchemaFor('writer', form.targetBinding.datasourceId, form.targetBinding.modelId)"
           type="info"
           :closable="false"
           show-icon
@@ -257,6 +276,7 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import HttpRequestOptionsEditor from "@web/components/HttpRequestOptionsEditor.vue";
+import HttpWebServiceOptionsEditor from "@web/components/HttpWebServiceOptionsEditor.vue";
 
 type RuntimeOptionRole = "reader" | "writer";
 
@@ -272,10 +292,10 @@ interface CollectionTaskBindingActions {
   handleSourceDatasourceChange: (row: CollectionTaskSourceBinding, value: string) => void | Promise<void>;
   handleSourceModelChange: (row: CollectionTaskSourceBinding, value: string) => void;
   resolveModelsByDatasource: (datasourceId: unknown) => DataModelDefinition[];
-  runtimeSchemaTitle: (role: RuntimeOptionRole, datasourceId: unknown) => string;
-  runtimeSchemaFor: (role: RuntimeOptionRole, datasourceId: unknown) => PluginRuntimeOptionSchemaView | undefined;
-  runtimeStatusType: (role: RuntimeOptionRole, datasourceId: unknown) => string;
-  runtimeStatusLabel: (role: RuntimeOptionRole, datasourceId: unknown) => string;
+  runtimeSchemaTitle: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
+  runtimeSchemaFor: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => PluginRuntimeOptionSchemaView | undefined;
+  runtimeStatusType: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
+  runtimeStatusLabel: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
   sourceIncrementalVisible: (source: CollectionTaskSourceBinding) => boolean;
   syncCurrentIncrementalCursor: (source: CollectionTaskSourceBinding) => void;
   sourceFieldOptions: (source: CollectionTaskSourceBinding) => string[];
@@ -286,12 +306,18 @@ interface CollectionTaskBindingActions {
   resetIncrementalCursor: (source: CollectionTaskSourceBinding) => void | Promise<void>;
   readerAdvancedFields: (source: CollectionTaskSourceBinding) => MetadataFieldDefinition[];
   isHttpReaderSource: (source: CollectionTaskSourceBinding) => boolean;
+  isHttpSoapReaderSource: (source: CollectionTaskSourceBinding) => boolean;
   readerDynamicFunctionFields: (source: CollectionTaskSourceBinding) => string[];
+  readerSoapContract: (source: CollectionTaskSourceBinding) => Record<string, unknown>;
+  readerSoapFieldNames: (source: CollectionTaskSourceBinding) => string[];
   updateSourceReaderOptions: (source: CollectionTaskSourceBinding, value: Record<string, unknown>) => void;
   handleTargetDatasourceChange: (value: string) => void | Promise<void>;
   handleTargetModelChange: (value: string) => void;
   isHttpWriterTarget: () => boolean;
+  isHttpSoapWriterTarget: () => boolean;
   writerDynamicFunctionFields: () => string[];
+  writerSoapContract: () => Record<string, unknown>;
+  writerSoapFieldNames: () => string[];
   updateTargetWriterOptions: (value: Record<string, unknown>) => void;
 }
 

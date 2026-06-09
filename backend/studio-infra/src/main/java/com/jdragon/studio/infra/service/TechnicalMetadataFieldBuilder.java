@@ -207,13 +207,23 @@ final class TechnicalMetadataFieldBuilder {
         if ("http".equals(normalized)) {
             fields.add(field("physicalName", "请求路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
             fields.add(field("description", "描述", FieldValueType.STRING, FieldComponentType.TEXTAREA, false, false, 20, null));
-            fields.add(field("mode", "请求类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 30,
+            fields.add(field("protocolMode", "协议模式", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 30,
+                    "REST_JSON", Arrays.asList("REST_JSON", "REST_XML", "SOAP")));
+            fields.add(field("mode", "请求类型", FieldValueType.STRING, FieldComponentType.SELECT, true, false, 40,
                     "GET", Arrays.asList("GET", "POST")));
-            fields.add(field("resultType", "返回数据类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 40,
+            fields.add(field("resultType", "返回数据类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 50,
                     "json", Arrays.asList("json", "xml", "soap")));
-            fields.add(field("businessStatusPath", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
-            fields.add(field("businessStatusCode", "业务状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
-            fields.add(field("totalCodePath", "总量节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            fields.add(field("soapVersion", "SOAP 版本", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 60,
+                    "SOAP_11", Arrays.asList("SOAP_11", "SOAP_12")));
+            fields.add(field("namespaceUri", "Namespace URI", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            fields.add(field("operationName", "Operation", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
+            fields.add(field("soapAction", "SOAPAction", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
+            fields.add(field("requestRootName", "请求根节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, null));
+            fields.add(field("responseRootName", "响应根节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 110, null));
+            fields.add(field("wsdlUrl", "WSDL 地址", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 120, null));
+            fields.add(field("businessStatusPath", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 130, null));
+            fields.add(field("businessStatusCode", "业务状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 140, null));
+            fields.add(field("totalCodePath", "总量节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 150, null));
             return fields;
         }
         fields.add(field("sourceType", "数据源类型", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10, datasourceType));

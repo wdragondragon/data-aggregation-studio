@@ -51,6 +51,7 @@ class StudioSchemaDriftRegressionTest {
             runtime("reader", "sftp"),
             runtime("reader", "minio"),
             runtime("reader", "http"),
+            runtime("reader", "http-soap"),
             runtime("reader", "odps"),
             runtime("writer", "mysql8"),
             runtime("writer", "dm"),
@@ -60,6 +61,7 @@ class StudioSchemaDriftRegressionTest {
             runtime("writer", "sftp"),
             runtime("writer", "minio"),
             runtime("writer", "http"),
+            runtime("writer", "http-soap"),
             runtime("writer", "odps")
     );
 
@@ -74,6 +76,15 @@ class StudioSchemaDriftRegressionTest {
             "responseStatus.path", "responseStatus.code", "retryTimes", "retryIntervalMs",
             "connectTimeoutMs", "socketTimeoutMs");
 
+    private static final List<String> HTTP_SOAP_READER_FIELDS = Arrays.asList(
+            "soapVersion", "soapAction", "contentType", "header", "params", "requestBody",
+            "soapFaultFail", "pageRead", "pageSize");
+
+    private static final List<String> HTTP_SOAP_WRITER_FIELDS = Arrays.asList(
+            "soapVersion", "soapAction", "contentType", "header", "params", "requestBody",
+            "soapFaultFail", "responseStatus.path", "responseStatus.code", "retryTimes",
+            "retryIntervalMs", "connectTimeoutMs", "socketTimeoutMs");
+
     private static final List<String> ODPS_READER_FIELDS = Arrays.asList(
             "readMode", "selectSql", "partitionSpec", "includePartitionColumns", "offset", "maxRows");
 
@@ -82,7 +93,9 @@ class StudioSchemaDriftRegressionTest {
             "emptyAsNull", "autoCreatePartition", "preSql", "postSql");
 
     private static final List<String> HTTP_TABLE_FIELDS = Arrays.asList(
-            "physicalName", "description", "mode", "resultType",
+            "physicalName", "description", "protocolMode", "mode", "resultType",
+            "soapVersion", "namespaceUri", "operationName", "soapAction",
+            "requestRootName", "responseRootName", "wsdlUrl",
             "businessStatusPath", "businessStatusCode", "totalCodePath");
 
     private static final List<String> HTTP_FIELD_FIELDS = Arrays.asList(
@@ -158,10 +171,12 @@ class StudioSchemaDriftRegressionTest {
     void httpRuntimeOptionSchemasShouldStayAlignedAcrossBootstrapMysqlAndDeltaScripts() throws Exception {
         String runtimeBootstrap = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StandardRuntimeOptionSchemaBootstrapService.java");
         String mysqlRuntimeOptions = readBackendFile("studio-server/src/main/resources/data-mysql-runtime-options.sql");
-        String httpDelta = readBackendFile("studio-server/src/main/resources/update/20260524/20260508-to-20260524-http-reader-writer-delta.sql");
+        String httpDelta = readBackendFile("studio-server/src/main/resources/update/20260524/20260508-to-20260524-http-reader-writer-delta.sql")
+                + readBackendFile("studio-server/src/main/resources/update/20260609/20260609-http-webservice-runtime-delta.sql");
 
         assertThat(runtimeBootstrap).contains("buildHttpReaderFields", "buildHttpWriterFields");
-        assertThat(mysqlRuntimeOptions).contains("runtime:reader:http", "runtime:writer:http");
+        assertThat(runtimeBootstrap).contains("buildHttpSoapReaderFields", "buildHttpSoapWriterFields");
+        assertThat(mysqlRuntimeOptions).contains("runtime:reader:http", "runtime:writer:http", "runtime:reader:http-soap", "runtime:writer:http-soap");
         assertThat(httpDelta).contains("runtime:reader:http", "runtime:writer:http");
 
         assertFieldsPresent("Java HTTP reader runtime fields", runtimeBootstrap, HTTP_READER_FIELDS);
@@ -170,6 +185,10 @@ class StudioSchemaDriftRegressionTest {
         assertFieldsPresent("Java HTTP writer runtime fields", runtimeBootstrap, HTTP_WRITER_FIELDS);
         assertFieldsPresent("MySQL HTTP writer runtime fields", mysqlRuntimeOptions, HTTP_WRITER_FIELDS);
         assertFieldsPresent("Delta HTTP writer runtime fields", httpDelta, HTTP_WRITER_FIELDS);
+        assertFieldsPresent("Java HTTP SOAP reader runtime fields", runtimeBootstrap, HTTP_SOAP_READER_FIELDS);
+        assertFieldsPresent("MySQL HTTP SOAP reader runtime fields", mysqlRuntimeOptions, HTTP_SOAP_READER_FIELDS);
+        assertFieldsPresent("Java HTTP SOAP writer runtime fields", runtimeBootstrap, HTTP_SOAP_WRITER_FIELDS);
+        assertFieldsPresent("MySQL HTTP SOAP writer runtime fields", mysqlRuntimeOptions, HTTP_SOAP_WRITER_FIELDS);
     }
 
     @Test
@@ -211,7 +230,8 @@ class StudioSchemaDriftRegressionTest {
     void httpTechnicalMetadataSchemasShouldStayAlignedAcrossBootstrapMysqlAndDeltaScripts() throws Exception {
         String technicalFieldBuilder = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/TechnicalMetadataFieldBuilder.java");
         String mysqlBuiltin = readBackendFile("studio-server/src/main/resources/data-mysql-builtin.sql");
-        String httpDelta = readBackendFile("studio-server/src/main/resources/update/20260524/20260508-to-20260524-http-reader-writer-delta.sql");
+        String httpDelta = readBackendFile("studio-server/src/main/resources/update/20260524/20260508-to-20260524-http-reader-writer-delta.sql")
+                + readBackendFile("studio-server/src/main/resources/update/20260609/20260609-http-webservice-runtime-delta.sql");
 
         assertThat(technicalFieldBuilder).contains("http", "businessStatusPath", "parentNode");
         assertThat(mysqlBuiltin).contains("technical:http:source", "technical:http:table", "technical:http:field");
