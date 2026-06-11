@@ -151,7 +151,8 @@ final class WebServiceSupport {
         StringBuilder builder = new StringBuilder(2048);
         builder.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         builder.append("<soap:Envelope xmlns:soap=\"").append(soapNs).append("\" xmlns:tns=\"")
-                .append(escapeXml(config.getNamespaceUri())).append("\">");
+                .append(escapeXml(config.getNamespaceUri()))
+                .append("\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">");
         builder.append("<soap:Body>");
         builder.append("<tns:").append(config.getResponseRootName()).append(">");
         appendValue(builder, payload, "result");
@@ -353,6 +354,8 @@ final class WebServiceSupport {
                 Object child = entry.getValue();
                 if (child instanceof List<?>) {
                     appendList(builder, key, (List<?>) child);
+                } else if (child == null) {
+                    appendNilElement(builder, key);
                 } else {
                     builder.append('<').append(key).append('>');
                     appendValue(builder, child, key);
@@ -369,10 +372,18 @@ final class WebServiceSupport {
     private void appendList(StringBuilder builder, String key, List<?> values) {
         String itemName = "bodies".equals(key) ? "row" : "item";
         for (Object item : values) {
-            builder.append('<').append(itemName).append('>');
-            appendValue(builder, item, itemName);
-            builder.append("</").append(itemName).append('>');
+            if (item == null) {
+                appendNilElement(builder, itemName);
+            } else {
+                builder.append('<').append(itemName).append('>');
+                appendValue(builder, item, itemName);
+                builder.append("</").append(itemName).append('>');
+            }
         }
+    }
+
+    private void appendNilElement(StringBuilder builder, String key) {
+        builder.append('<').append(key).append(" xsi:nil=\"true\"/>");
     }
 
     private Map<String, Object> childrenToMap(Element parent) {
@@ -391,11 +402,25 @@ final class WebServiceSupport {
     }
 
     private Object elementValue(Element element) {
+        if (isNilElement(element)) {
+            return null;
+        }
         Map<String, Object> children = childrenToMap(element);
         if (!children.isEmpty()) {
             return children;
         }
         return element.getTextContent() == null ? null : element.getTextContent().trim();
+    }
+
+    private boolean isNilElement(Element element) {
+        if (element == null) {
+            return false;
+        }
+        String nil = element.getAttributeNS(XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI, "nil");
+        if (!hasText(nil)) {
+            nil = element.getAttribute("nil");
+        }
+        return "true".equalsIgnoreCase(nil) || "1".equals(nil);
     }
 
     private void putRepeated(Map<String, Object> target, String key, Object value) {

@@ -178,13 +178,20 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         fields.add(field("header", "HTTP Headers", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 40, "{}"));
         fields.add(field("params", "Query 参数", FieldValueType.STRING, FieldComponentType.JSON_EDITOR, false, false, 50, "{}"));
         fields.add(field("requestBody", "SOAP Envelope XML 模板", FieldValueType.STRING, FieldComponentType.CODE_EDITOR, true, false, 60, ""));
-        fields.add(field("soapFaultFail", "SOAP Fault 失败", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 70, "true"));
-        fields.add(field("responseStatus.path", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
-        fields.add(field("responseStatus.code", "业务成功状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, "200"));
-        fields.add(field("retryTimes", "重试次数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 100, "3"));
-        fields.add(field("retryIntervalMs", "重试间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 110, "1000"));
-        fields.add(field("connectTimeoutMs", "连接超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 120, "3000"));
-        fields.add(field("socketTimeoutMs", "响应超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 130, "3000"));
+        fields.add(field("payloadMode", "发送数据形态", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 70,
+                "object", Arrays.asList("object", "array")));
+        MetadataFieldDefinition dataNodePath = field("dataNodePath", "目标数据节点", FieldValueType.STRING,
+                FieldComponentType.INPUT, false, false, 80, null);
+        dataNodePath.setPlaceholder("例如：records.record");
+        fields.add(dataNodePath);
+        fields.add(field("batchSize", "数组批量大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 90, "500"));
+        fields.add(field("soapFaultFail", "SOAP Fault 失败", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 100, "true"));
+        fields.add(field("responseStatus.path", "业务状态节点", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 110, null));
+        fields.add(field("responseStatus.code", "业务成功状态码", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 120, "200"));
+        fields.add(field("retryTimes", "重试次数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 130, "3"));
+        fields.add(field("retryIntervalMs", "重试间隔(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 140, "1000"));
+        fields.add(field("connectTimeoutMs", "连接超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 150, "3000"));
+        fields.add(field("socketTimeoutMs", "响应超时(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 160, "3000"));
         return fields;
     }
 

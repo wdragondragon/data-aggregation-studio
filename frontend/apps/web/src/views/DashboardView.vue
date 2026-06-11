@@ -300,7 +300,7 @@ async function loadDashboard() {
       studioApi.datasources.list(),
       studioApi.workflows.list(),
       studioApi.catalog.capabilities(),
-      studioApi.runs.list(),
+      studioApi.runs.list({ includeRunRecords: false }),
       studioApi.collectionTasks.list(),
       studioApi.dataDevelopment.listScripts(),
       studioApi.workflowRuns.list({ pageNo: 1, pageSize: 6 }),

@@ -115,7 +115,9 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
 
         assertThat(extractFieldKeys(httpSource)).containsExactly("url");
         assertThat(extractFieldKeys(httpTable))
-                .containsExactly("physicalName", "description", "mode", "resultType",
+                .containsExactly("physicalName", "description", "protocolMode", "mode", "resultType",
+                        "soapVersion", "namespaceUri", "operationName", "soapAction",
+                        "requestRootName", "responseRootName", "wsdlUrl",
                         "businessStatusPath", "businessStatusCode", "totalCodePath");
         assertThat(fieldByKey(httpTable, "physicalName").path("fieldName").asText()).isEqualTo("请求路径");
         assertThat(extractFieldKeys(httpField))
@@ -302,6 +304,28 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
         assertThat(fieldByKey(httpWriterSchema, "payloadMode").path("defaultValue").asText()).isEqualTo("object");
         assertThat(fieldByKey(httpWriterSchema, "batchSize").path("defaultValue").asText()).isEqualTo("500");
 
+        MvcResult httpSoapWriterResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
+                        .param("role", "writer")
+                        .param("datasourceType", "http")
+                        .param("protocolMode", "SOAP")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.pluginType").value("http"))
+                .andExpect(jsonPath("$.data.runtimeSupported").value(true))
+                .andExpect(jsonPath("$.data.fields", hasSize(16)))
+                .andReturn();
+        JsonNode httpSoapWriterSchema = readBody(httpSoapWriterResult).path("data");
+        assertThat(extractFieldKeys(httpSoapWriterSchema))
+                .containsExactly("soapVersion", "soapAction", "contentType", "header", "params", "requestBody",
+                        "payloadMode", "dataNodePath", "batchSize", "soapFaultFail", "responseStatus.path",
+                        "responseStatus.code", "retryTimes", "retryIntervalMs", "connectTimeoutMs", "socketTimeoutMs")
+                .doesNotContain("url", "mode", "payloadFormat", "responseType", "columns");
+        assertThat(fieldByKey(httpSoapWriterSchema, "payloadMode").path("defaultValue").asText()).isEqualTo("object");
+        assertThat(fieldByKey(httpSoapWriterSchema, "dataNodePath").path("defaultValue").isNull()).isTrue();
+        assertThat(fieldByKey(httpSoapWriterSchema, "batchSize").path("defaultValue").asText()).isEqualTo("500");
+
         MvcResult odpsReaderResult = mockMvc.perform(get("/api/v1/catalog/runtime-option-schemas")
                         .param("role", "reader")
                         .param("datasourceType", "odps")
@@ -340,16 +364,18 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(20)))
+                .andExpect(jsonPath("$.data", hasSize(22)))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:http")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:http-soap")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:odps")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:minio")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http-soap")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:odps")));
     }
 

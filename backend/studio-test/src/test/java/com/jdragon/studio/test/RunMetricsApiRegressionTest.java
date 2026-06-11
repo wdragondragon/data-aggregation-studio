@@ -107,6 +107,14 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
         assertThat(findRunRecord(runRecords, "41001").path("metricSummary").path("writeSucceedRecords").asLong()).isEqualTo(11L);
         assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("collectedRecords").asLong()).isEqualTo(8L);
 
+        MvcResult queuedOnlyResult = mockMvc.perform(get("/api/v1/runs")
+                        .header("Authorization", authorization)
+                        .param("collectionTaskId", String.valueOf(task.getId()))
+                        .param("includeRunRecords", "false"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(readBody(queuedOnlyResult).path("data").path("runRecords")).hasSize(0);
+
         mockMvc.perform(get("/api/v1/runs/{id}", preciseRun.getId())
                         .header("Authorization", authorization))
                 .andExpect(status().isOk())

@@ -6,7 +6,7 @@
       :actions="editorHeaderActions"
     />
 
-    <CollectionTaskStepIndicator :active-step="activeStep" />
+    <CollectionTaskStepIndicator v-model:active-step="activeStep" />
 
     <CollectionTaskBindingSection
       v-if="activeStep === 1"
@@ -34,6 +34,8 @@
       :source-field-options-by-alias="sourceFieldOptionsByAlias"
       :target-field-options="targetFieldOptions"
       :field-mapping-rules="fieldMappingRules"
+      :writer-soap-body-preview-fields="writerSoapBodyPreviewFields"
+      :writer-options="form.targetBinding.writerOptions ?? {}"
       :mapping-actions="mappingSectionActions"
     />
 
@@ -111,7 +113,16 @@ import CollectionTaskMappingSection from "@/components/collection-task/Collectio
 import CollectionTaskReviewSection from "@/components/collection-task/CollectionTaskReviewSection.vue";
 import CollectionTaskScheduleSection from "@/components/collection-task/CollectionTaskScheduleSection.vue";
 import CollectionTaskStepIndicator from "@/components/collection-task/CollectionTaskStepIndicator.vue";
-import { parseJsonObjectText, parseSoapEnvelope } from "@/components/open-service/openServiceDebugSupport";
+import {
+  buildSoapEnvelope,
+  buildSoapFieldsXmlByParentPath,
+  buildSoapRecordsRepeatXmlByPath,
+  parseJsonObjectText,
+  parseSoapEnvelope,
+  resolveCommonSoapFieldParentPath,
+  validateSoapArrayFieldParents,
+  type SoapFieldSpec,
+} from "@/components/open-service/openServiceDebugSupport";
 import { cloneDeep } from "@/utils/studio";
 
 const { t } = useI18n();
@@ -213,6 +224,10 @@ const writerAdvancedFields = computed<MetadataFieldDefinition[]>(() =>
   (runtimeSchemaFor("writer", form.targetBinding.datasourceId, form.targetBinding.modelId)?.fields ?? []).map(enhanceWriterAdvancedField),
 );
 
+const writerSoapBodyPreviewFields = computed<MetadataFieldDefinition[]>(() =>
+  writerAdvancedFields.value.filter((field) => field.fieldKey === "requestBody"),
+);
+
 const fusionReaderAdvancedFields = computed<MetadataFieldDefinition[]>(() =>
   runtimeSchemaForType("reader", "fusion")?.fields ?? [],
 );
@@ -261,17 +276,23 @@ const bindingSectionActions = {
   isHttpSoapWriterTarget,
   writerSoapContract,
   writerSoapFieldNames,
+  writerSoapFields,
   writerDynamicFunctionFields,
   updateTargetWriterOptions,
 };
 
 const mappingSectionActions = {
   initializeMappings,
+  isHttpSoapWriterTarget,
+  writerSoapContract,
+  writerSoapFieldNames,
+  writerSoapFields,
   runtimeSchemaTitleByType,
   runtimeSchemaForType,
   runtimeStatusTypeByType,
   runtimeStatusLabelByType,
   updateFusionReaderOptions,
+  updateTargetWriterOptions,
   updateFieldMappings,
 };
 
@@ -287,6 +308,7 @@ async function loadReferenceData() {
     await ensureModels(form.targetBinding.datasourceId);
     await ensureRuntimeSchemas();
     await resolveCustomSqlFieldsForActiveStep();
+    syncHttpSoapWriterRequestBodyFromMappings();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }
@@ -303,6 +325,7 @@ async function loadTask() {
     await ensureModels(form.targetBinding.datasourceId);
     await ensureRuntimeSchemas();
     await resolveCustomSqlFieldsForActiveStep();
+    syncHttpSoapWriterRequestBodyFromMappings();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }
@@ -400,6 +423,7 @@ function syncIncrementalEnabled(mode: string) {
 }
 
 function buildRequestPayload(): CollectionTaskSaveRequest {
+  syncHttpSoapWriterRequestBodyFromMappings();
   const payload = cloneDeep(form) as CollectionTaskSaveRequest;
   const mode = String(payload.executionOptions.collectionMode ?? "FULL");
   delete payload.executionOptions.writeMode;
@@ -583,10 +607,92 @@ function writerSoapContract() {
 }
 
 function writerSoapFieldNames() {
-  const mappedFields = form.fieldMappings
+  return uniqueFieldNames(effectiveWriterSoapMappedFieldNames());
+}
+
+function writerSoapFields() {
+  const metadata = resolveModelColumnMetadata(targetModel.value);
+  return effectiveWriterSoapMappings().map((mapping) => {
+    const name = mapping.targetField?.trim() || "";
+    const field = metadata.get(name);
+    const parentNode = String(field?.parentNode ?? "").trim();
+    return {
+      name,
+      parentNode: parentNode || undefined,
+    };
+  }).filter((field) => Boolean(field.name));
+}
+
+function syncHttpSoapWriterRequestBodyFromMappings() {
+  if (!isHttpSoapWriterTarget()) {
+    return;
+  }
+  const writerOptions = form.targetBinding.writerOptions ?? {};
+  const soapFields = writerSoapFields();
+  const bodyFields: SoapFieldSpec[] = soapFields.map((field) => ({
+    key: field.name,
+    elementName: field.name,
+    value: `{{${field.name}}}`,
+    parentNode: field.parentNode,
+  }));
+  const payloadMode = String(writerOptions.payloadMode ?? "object").trim().toLowerCase();
+  const arrayMode = payloadMode === "array";
+  let dataNodePath = String(writerOptions.dataNodePath ?? "").trim();
+  if (arrayMode && !dataNodePath) {
+    dataNodePath = resolveCommonSoapFieldParentPath(soapFields);
+  }
+  if (arrayMode && !dataNodePath) {
+    return;
+  }
+  if (arrayMode && validateSoapArrayFieldParents(bodyFields, dataNodePath)) {
+    return;
+  }
+  const contract = writerSoapContract();
+  const requestBody = buildSoapEnvelope({
+    soapVersion: String(writerOptions.soapVersion || contract.soapVersion || "SOAP_11"),
+    namespaceUri: contract.namespaceUri || "urn:studio",
+    requestRootName: contract.requestRootName || contract.operationName || "Operation",
+    includeToken: false,
+    headerFields: [],
+    fields: [],
+    bodyInnerXml: arrayMode
+      ? buildSoapRecordsRepeatXmlByPath(bodyFields, dataNodePath)
+      : buildSoapFieldsXmlByParentPath(bodyFields),
+  });
+  const nextOptions: Record<string, unknown> = {
+    ...writerOptions,
+    requestBody,
+  };
+  if (arrayMode && dataNodePath) {
+    nextOptions.dataNodePath = dataNodePath;
+  }
+  if (
+    String(writerOptions.requestBody ?? "") === requestBody
+    && (!arrayMode || String(writerOptions.dataNodePath ?? "").trim() === dataNodePath)
+  ) {
+    return;
+  }
+  form.targetBinding.writerOptions = nextOptions;
+}
+
+function effectiveWriterSoapMappedFieldNames() {
+  return effectiveWriterSoapMappings()
     .map((mapping) => mapping.targetField?.trim())
     .filter((field): field is string => Boolean(field));
-  return mappedFields.length ? uniqueFieldNames(mappedFields) : targetFieldOptions.value;
+}
+
+function effectiveWriterSoapMappings() {
+  return form.fieldMappings.filter(isEffectiveWriterMapping);
+}
+
+function isEffectiveWriterMapping(mapping: FieldMappingDefinition) {
+  return Boolean(
+    mapping.targetField?.trim()
+    && (
+      mapping.sourceField?.trim()
+      || mapping.expression?.trim()
+    ),
+  );
 }
 
 function soapContractForModel(modelId: unknown) {
@@ -599,8 +705,28 @@ function soapContractForModel(modelId: unknown) {
   };
 }
 
+function resolveModelColumnMetadata(model: DataModelDefinition | undefined) {
+  const columns = model?.technicalMetadata?.columns;
+  const result = new Map<string, Record<string, unknown>>();
+  if (!Array.isArray(columns)) {
+    return result;
+  }
+  for (const item of columns) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const name = String(record.name ?? "").trim();
+    if (name) {
+      result.set(name, record);
+    }
+  }
+  return result;
+}
+
 function updateTargetWriterOptions(value: Record<string, unknown>) {
   form.targetBinding.writerOptions = value ?? {};
+  syncHttpSoapWriterRequestBodyFromMappings();
 }
 
 function updateFusionReaderOptions(value: Record<string, unknown>) {
@@ -939,6 +1065,7 @@ async function handleTargetDatasourceChange(value: string) {
   await ensureModels(value);
   await ensureRuntimeSchemaForDatasource("writer", value, form.targetBinding.modelId);
   applyRuntimeDefaultsForTarget();
+  syncHttpSoapWriterRequestBodyFromMappings();
 }
 
 function applyRuntimeDefaults() {
@@ -1001,6 +1128,7 @@ async function handleTargetModelChange(value: string) {
   if (!form.fieldMappings.length) {
     initializeMappings();
   }
+  syncHttpSoapWriterRequestBodyFromMappings();
 }
 
 function initializeMappings() {
@@ -1012,10 +1140,12 @@ function initializeMappings() {
     expression: "",
     transformers: [],
   }));
+  syncHttpSoapWriterRequestBodyFromMappings();
 }
 
 function updateFieldMappings(value: FieldMappingDefinition[]) {
   form.fieldMappings = value;
+  syncHttpSoapWriterRequestBodyFromMappings();
 }
 
 async function loadPreviewConfig() {
@@ -1055,14 +1185,16 @@ async function saveTask() {
 }
 
 function validateHttpSoapRuntimeOptions() {
+  syncHttpSoapWriterRequestBodyFromMappings();
   try {
     form.sourceBindings.forEach((source, index) => {
       if (isHttpSoapReaderSource(source)) {
-        validateHttpSoapOptions(source.readerOptions ?? {}, `第 ${index + 1} 个 SOAP Reader`);
+        validateHttpSoapOptions(source.readerOptions ?? {}, `第 ${index + 1} 个 SOAP Reader`, false);
       }
     });
     if (isHttpSoapWriterTarget()) {
-      validateHttpSoapOptions(form.targetBinding.writerOptions ?? {}, "SOAP Writer");
+      const writerOptions = form.targetBinding.writerOptions ?? {};
+      validateHttpSoapOptions(writerOptions, "SOAP Writer", isArrayPayloadMode(writerOptions));
     }
     return true;
   } catch (error) {
@@ -1071,7 +1203,7 @@ function validateHttpSoapRuntimeOptions() {
   }
 }
 
-function validateHttpSoapOptions(options: Record<string, unknown>, label: string) {
+function validateHttpSoapOptions(options: Record<string, unknown>, label: string, requireRecordsRepeat: boolean) {
   const requestBody = String(options.requestBody ?? "");
   if (!requestBody.trim()) {
     throw new Error(`${label} 的 SOAP Envelope 不能为空`);
@@ -1080,11 +1212,38 @@ function validateHttpSoapOptions(options: Record<string, unknown>, label: string
   if (!parsedEnvelope.ok) {
     throw new Error(`${label} ${parsedEnvelope.error}`);
   }
+  if (requireRecordsRepeat) {
+    const repeatError = validateRecordsRepeatBlock(requestBody);
+    if (repeatError) {
+      throw new Error(`${label} ${repeatError}`);
+    }
+  }
   const headers = stringifyJsonObjectOption(options.header, "{}");
   const parsedHeaders = parseJsonObjectText(headers, `${label} HTTP Headers`);
   if (!parsedHeaders.ok) {
     throw new Error(parsedHeaders.error);
   }
+}
+
+function isArrayPayloadMode(options: Record<string, unknown>) {
+  return String(options.payloadMode ?? "object").trim().toLowerCase() === "array";
+}
+
+function validateRecordsRepeatBlock(value: string) {
+  const startToken = "{{#records}}";
+  const endToken = "{{/records}}";
+  const start = value.indexOf(startToken);
+  const end = value.indexOf(endToken);
+  if (start < 0 || end < 0) {
+    return "array 模式必须包含 {{#records}}...{{/records}} repeat 块";
+  }
+  if (start !== value.lastIndexOf(startToken) || end !== value.lastIndexOf(endToken)) {
+    return "array 模式只能包含一个 {{#records}}...{{/records}} repeat 块";
+  }
+  if (!value.slice(start + startToken.length, end).trim()) {
+    return "array 模式 repeat 块不能为空";
+  }
+  return "";
 }
 
 function stringifyJsonObjectOption(value: unknown, fallback: string) {
@@ -1167,6 +1326,7 @@ watch(
 );
 
 watch(activeStep, async (value) => {
+  syncStepQuery(value);
   if (value === 2) {
     await resolveCustomSqlFieldsForActiveStep(false);
   }
@@ -1174,6 +1334,19 @@ watch(activeStep, async (value) => {
     await loadPreviewConfig();
   }
 }, { immediate: true });
+
+function syncStepQuery(value: number) {
+  const nextStep = String(value);
+  if (route.query.step === nextStep) {
+    return;
+  }
+  void router.replace({
+    query: {
+      ...route.query,
+      step: nextStep,
+    },
+  });
+}
 
 watch(isFusionTask, async (value) => {
   if (!value) {

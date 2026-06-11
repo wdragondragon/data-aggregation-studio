@@ -226,6 +226,10 @@
           :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
           :soap-contract="bindingActions.writerSoapContract()"
           :soap-field-names="bindingActions.writerSoapFieldNames()"
+          :soap-fields="bindingActions.writerSoapFields()"
+          :body-section-visible="false"
+          :body-form-visible="false"
+          envelope-readonly
           soap-template-mode
           @update:model-value="bindingActions.updateTargetWriterOptions($event)"
         />
@@ -318,6 +322,7 @@ interface CollectionTaskBindingActions {
   writerDynamicFunctionFields: () => string[];
   writerSoapContract: () => Record<string, unknown>;
   writerSoapFieldNames: () => string[];
+  writerSoapFields: () => Array<{ name: string; parentNode?: string }>;
   updateTargetWriterOptions: (value: Record<string, unknown>) => void;
 }
 

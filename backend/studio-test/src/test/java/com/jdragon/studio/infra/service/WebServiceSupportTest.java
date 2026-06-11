@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,7 +29,7 @@ class WebServiceSupportTest {
     @Test
     void shouldParseSoap11HeaderAndBodyByLocalName() {
         WebServiceSupport.ParsedSoapRequest parsed = support.parse("""
-                <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:svc="urn:test">
+                <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:svc="urn:test" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
                   <soapenv:Header>
                     <svc:dataIngestionToken>token-123</svc:dataIngestionToken>
                   </soapenv:Header>
@@ -39,7 +40,7 @@ class WebServiceSupportTest {
                       </svc:customer>
                       <svc:records>
                         <svc:record><svc:id>1</svc:id></svc:record>
-                        <svc:record><svc:id>2</svc:id></svc:record>
+                        <svc:record><svc:id>2</svc:id><svc:name xsi:nil="true"/></svc:record>
                       </svc:records>
                     </svc:SubmitOrder>
                   </soapenv:Body>
@@ -53,6 +54,9 @@ class WebServiceSupportTest {
         Object records = nested(parsed.getBody(), "records", "record");
         assertInstanceOf(List.class, records);
         assertEquals(2, ((List<?>) records).size());
+        Object second = ((List<?>) records).get(1);
+        assertInstanceOf(Map.class, second);
+        assertNull(((Map<?, ?>) second).get("name"));
     }
 
     @Test

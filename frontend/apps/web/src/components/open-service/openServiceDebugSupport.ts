@@ -16,6 +16,7 @@ export interface SoapFieldSpec {
   key: string;
   elementName: string;
   value: unknown;
+  parentNode?: string;
 }
 
 export interface SoapEnvelopeBuildOptions {
@@ -28,6 +29,7 @@ export interface SoapEnvelopeBuildOptions {
   headerFields?: SoapFieldSpec[];
   fields?: SoapFieldSpec[];
   bodyPayload?: DebugObject;
+  bodyInnerXml?: string;
 }
 
 export interface SoapEnvelopeParseResult {
@@ -190,7 +192,9 @@ export function buildSoapEnvelope(options: SoapEnvelopeBuildOptions) {
     options.includeToken === false ? "" : `    <tns:${tokenElementName}>${escapeXml(tokenValue)}</tns:${tokenElementName}>`,
     ...(options.headerFields ?? []).map((field) => appendXmlValue(field.elementName, field.value, 4, "tns")),
   ].filter(Boolean).join("\n");
-  const fieldXml = options.bodyPayload
+  const fieldXml = options.bodyInnerXml != null
+    ? options.bodyInnerXml
+    : options.bodyPayload
     ? appendObjectChildren(options.bodyPayload, 6)
     : (options.fields ?? [])
       .map((field) => appendXmlValue(field.elementName, field.value, 6))
@@ -209,6 +213,112 @@ export function buildSoapEnvelope(options: SoapEnvelopeBuildOptions) {
     "  </soap:Body>",
     "</soap:Envelope>",
   ].join("\n");
+}
+
+export function buildSoapRecordsRepeatXml(fields: SoapFieldSpec[] = [], wrapperName = "records", recordName = "record", indentSize = 6) {
+  const wrapper = safeXmlName(wrapperName) || "records";
+  const record = safeXmlName(recordName) || "record";
+  const indent = " ".repeat(indentSize);
+  const blockIndent = " ".repeat(indentSize + 2);
+  const fieldXml = fields
+    .map((field) => appendXmlValue(field.elementName, field.value, indentSize + 4))
+    .filter(Boolean)
+    .join("\n");
+  return [
+    `${indent}<${wrapper}>`,
+    `${blockIndent}{{#records}}`,
+    `${blockIndent}<${record}>`,
+    fieldXml,
+    `${blockIndent}</${record}>`,
+    `${blockIndent}{{/records}}`,
+    `${indent}</${wrapper}>`,
+  ].join("\n");
+}
+
+export function buildSoapRecordsRepeatXmlByPath(fields: SoapFieldSpec[] = [], dataNodePath = "records.record", indentSize = 6) {
+  const segments = normalizeXmlPathSegments(dataNodePath);
+  if (!segments.length) {
+    return "";
+  }
+  const recordFieldXml = buildSoapFieldsXmlByParentPath(fields, dataNodePath, indentSize + segments.length * 2);
+  const lines: string[] = [];
+  segments.slice(0, -1).forEach((segment, index) => {
+    lines.push(`${" ".repeat(indentSize + index * 2)}<${segment}>`);
+  });
+  const repeatIndent = " ".repeat(indentSize + (segments.length - 1) * 2);
+  const recordIndent = " ".repeat(indentSize + segments.length * 2);
+  const recordName = segments[segments.length - 1];
+  lines.push(`${repeatIndent}{{#records}}`);
+  lines.push(`${repeatIndent}<${recordName}>`);
+  if (recordFieldXml) {
+    lines.push(recordFieldXml);
+  }
+  lines.push(`${repeatIndent}</${recordName}>`);
+  lines.push(`${repeatIndent}{{/records}}`);
+  segments.slice(0, -1).reverse().forEach((segment, index) => {
+    lines.push(`${" ".repeat(indentSize + (segments.length - 2 - index) * 2)}</${segment}>`);
+  });
+  return lines.join("\n");
+}
+
+export function normalizeXmlPathSegments(dataNodePath?: string) {
+  return String(dataNodePath ?? "")
+    .split(".")
+    .map((segment) => safeXmlName(segment))
+    .filter(Boolean);
+}
+
+export function buildSoapFieldsXmlByParentPath(fields: SoapFieldSpec[] = [], basePath = "", indentSize = 6) {
+  const payload: DebugObject = {};
+  const baseSegments = normalizeXmlPathSegments(basePath);
+  fields.forEach((field) => {
+    const elementName = safeXmlName(field.elementName);
+    if (!elementName) {
+      return;
+    }
+    const parentSegments = normalizeXmlPathSegments(field.parentNode);
+    const relativeParentSegments = startsWithSegments(parentSegments, baseSegments)
+      ? parentSegments.slice(baseSegments.length)
+      : parentSegments;
+    assignPath(payload, [...relativeParentSegments, elementName].join("."), field.value);
+  });
+  return appendObjectChildren(payload, indentSize);
+}
+
+export function resolveCommonSoapFieldParentPath(fields: Array<{ parentNode?: string }> = []) {
+  const parents = new Set<string>();
+  fields.forEach((field) => {
+    const path = normalizeXmlPathSegments(field.parentNode).join(".");
+    if (path) {
+      parents.add(path);
+    }
+  });
+  return parents.size === 1 ? Array.from(parents)[0] : "";
+}
+
+export function validateSoapArrayFieldParents(fields: SoapFieldSpec[] = [], dataNodePath = "") {
+  const dataSegments = normalizeXmlPathSegments(dataNodePath);
+  if (!dataSegments.length) {
+    return "SOAP array 模式需要明确目标数据节点";
+  }
+  for (const field of fields) {
+    const parentSegments = normalizeXmlPathSegments(field.parentNode);
+    if (!parentSegments.length || startsWithSegments(parentSegments, dataSegments)) {
+      continue;
+    }
+    return `字段 ${field.elementName} 的父节点 ${field.parentNode} 不属于目标数据节点 ${dataNodePath}`;
+  }
+  return "";
+}
+
+function startsWithSegments(value: string[], prefix: string[]) {
+  if (!prefix.length) {
+    return true;
+  }
+  if (value.length < prefix.length) {
+    return false;
+  }
+  return prefix.every((segment, index) => value[index] === segment);
 }
 
 export function parseSoapEnvelope(value: string): SoapEnvelopeParseResult {

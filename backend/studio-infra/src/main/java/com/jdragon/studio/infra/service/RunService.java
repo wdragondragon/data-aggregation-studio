@@ -54,7 +54,8 @@ public class RunService {
                             Long qualityTaskId,
                             Long workflowDefinitionId,
                             LocalDateTime startTime,
-                            LocalDateTime endTime) {
+                            LocalDateTime endTime,
+                            Boolean includeRunRecords) {
         RunListView view = new RunListView();
         Map<Long, String> collectionTaskNames = collectionTaskNames();
         Map<Long, String> qualityTaskNames = qualityTaskNames();
@@ -73,6 +74,9 @@ public class RunService {
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
         for (DispatchTaskEntity entity : queued) {
             view.getQueuedTasks().add(toQueuedTaskView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
+        }
+        if (Boolean.FALSE.equals(includeRunRecords)) {
+            return view;
         }
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getTenantId, currentTenantId)

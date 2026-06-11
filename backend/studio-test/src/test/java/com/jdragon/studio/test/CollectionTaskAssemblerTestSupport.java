@@ -105,6 +105,8 @@ abstract class CollectionTaskAssemblerTestSupport {
         DataModelDefinition httpWriterModel = buildHttpWriterModel();
         DataModelDefinition httpSoapReaderModel = buildHttpSoapReaderModel();
         DataModelDefinition httpSoapWriterModel = buildHttpSoapWriterModel();
+        DataModelDefinition httpSoapWriterRecordModel = buildHttpSoapWriterModel(45L, "record");
+        DataModelDefinition httpSoapWriterPayloadModel = buildHttpSoapWriterModel(46L, "payload.item");
         DataModelDefinition odpsSourceModel = buildOdpsModel(50L, "odps_source_table", true);
         DataModelDefinition odpsTargetModel = buildOdpsModel(51L, "odps_target_pt", true);
         when(service.get(10L)).thenReturn(sourceModel);
@@ -119,6 +121,8 @@ abstract class CollectionTaskAssemblerTestSupport {
         when(service.get(42L)).thenReturn(httpWriterModel);
         when(service.get(43L)).thenReturn(httpSoapReaderModel);
         when(service.get(44L)).thenReturn(httpSoapWriterModel);
+        when(service.get(45L)).thenReturn(httpSoapWriterRecordModel);
+        when(service.get(46L)).thenReturn(httpSoapWriterPayloadModel);
         when(service.get(50L)).thenReturn(odpsSourceModel);
         when(service.get(51L)).thenReturn(odpsTargetModel);
         return service;
@@ -234,8 +238,12 @@ abstract class CollectionTaskAssemblerTestSupport {
     }
 
     protected DataModelDefinition buildHttpSoapWriterModel() {
+        return buildHttpSoapWriterModel(44L, null);
+    }
+
+    protected DataModelDefinition buildHttpSoapWriterModel(Long id, String parentNode) {
         DataModelDefinition model = new DataModelDefinition();
-        model.setId(44L);
+        model.setId(id);
         model.setPhysicalLocator("/ingestion/target/ws");
         Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
         technicalMetadata.put("protocolMode", "SOAP");
@@ -243,11 +251,17 @@ abstract class CollectionTaskAssemblerTestSupport {
         technicalMetadata.put("operationName", "WriteRow");
         technicalMetadata.put("soapAction", "urn:studio/WriteRow");
         List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
-        Map<String, Object> id = column("id");
-        id.put("type", "LONG");
-        columns.add(id);
+        Map<String, Object> idColumn = column("id");
+        idColumn.put("type", "LONG");
+        if (parentNode != null) {
+            idColumn.put("parentNode", parentNode);
+        }
+        columns.add(idColumn);
         Map<String, Object> name = column("name");
         name.put("type", "TEXT");
+        if (parentNode != null) {
+            name.put("parentNode", parentNode);
+        }
         columns.add(name);
         technicalMetadata.put("columns", columns);
         model.setTechnicalMetadata(technicalMetadata);

@@ -281,7 +281,7 @@ final class TechnicalMetadataFieldBuilder {
             fields.add(field("primaryKey", "是否主键", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 50, "false"));
             fields.add(field("nullable", "能否为空", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "true"));
             fields.add(field("type", "类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 70,
-                    null, Arrays.asList("STRING", "TEXT", "LONG", "INT", "INTEGER", "NUMBER", "DOUBLE", "FLOAT", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP")));
+                    null, Arrays.asList("STRING", "TEXT", "LONG", "INT", "INTEGER", "NUMBER", "DECIMAL", "DOUBLE", "FLOAT", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP")));
             fields.add(field("size", "长度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 80, null));
             fields.add(field("scale", "精度", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 90, null));
             return fields;
@@ -289,7 +289,7 @@ final class TechnicalMetadataFieldBuilder {
         fields.add(field("name", "字段名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 10, null));
         if (isFileType(datasourceType)) {
             fields.add(field("type", "字段类型", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 20,
-                    "STRING", Arrays.asList("STRING", "TEXT", "LONG", "INT", "INTEGER", "NUMBER", "DOUBLE", "FLOAT", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP")));
+                    "STRING", Arrays.asList("STRING", "TEXT", "LONG", "INT", "INTEGER", "NUMBER", "DECIMAL", "DOUBLE", "FLOAT", "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP")));
             fields.add(field("index", "字段下标", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 25, null));
             fields.add(field("sourceKind", "字段来源", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 26,
                     "DATA", Arrays.asList("DATA", "TAG")));

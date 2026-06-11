@@ -14,10 +14,10 @@
     </el-form-item>
 
     <div class="soap-request-builder__grid">
-      <section class="soap-request-builder__option soap-request-builder__option--header">
+      <section v-if="headersSectionVisible" class="soap-request-builder__option soap-request-builder__option--header">
         <div class="soap-request-builder__option-header">
           <div class="soap-request-builder__option-title">
-            <span class="soap-request-builder__index">1</span>
+            <span class="soap-request-builder__index">{{ headersIndex }}</span>
             <div>
               <strong>{{ headersTitle }}</strong>
               <p>{{ headersDescription }}</p>
@@ -111,25 +111,25 @@
         </div>
       </section>
 
-      <section class="soap-request-builder__option soap-request-builder__option--body">
+      <section v-if="bodySectionVisible" class="soap-request-builder__option soap-request-builder__option--body">
         <div class="soap-request-builder__option-header">
           <div class="soap-request-builder__option-title">
-            <span class="soap-request-builder__index">2</span>
+            <span class="soap-request-builder__index">{{ bodyIndex }}</span>
             <div>
               <strong>{{ fieldsTitle }}</strong>
               <p>{{ fieldsDescription }}</p>
             </div>
           </div>
           <div class="soap-request-builder__option-actions">
-            <el-button v-if="envelopeMode === 'raw'" plain size="small" @click="formatEnvelope">格式化 XML</el-button>
-            <el-radio-group v-model="envelopeMode" size="small">
+            <el-button v-if="envelopeMode === 'raw' && !envelopeReadonly" plain size="small" @click="formatEnvelope">格式化 XML</el-button>
+            <el-radio-group v-if="bodyFormVisible" v-model="envelopeMode" size="small">
               <el-radio-button value="form">表单</el-radio-button>
               <el-radio-button value="raw">原始 XML</el-radio-button>
             </el-radio-group>
           </div>
         </div>
         <div class="soap-request-builder__option-body">
-          <template v-if="envelopeMode === 'form'">
+          <template v-if="bodyFormVisible && envelopeMode === 'form'">
             <div v-if="fieldGroups.length" class="soap-request-builder__options soap-request-builder__options--inner">
               <section v-for="group in fieldGroups" :key="group.key">
                 <div class="soap-request-builder__subtitle">
@@ -201,8 +201,9 @@
               type="textarea"
               :rows="envelopeRows"
               :placeholder="envelopePlaceholder"
+              :readonly="envelopeReadonly"
               class="soap-request-builder__raw-input"
-              @update:model-value="emit('update:envelope', String($event ?? ''))"
+              @update:model-value="handleEnvelopeInput"
             />
           </template>
         </div>
@@ -247,6 +248,8 @@ const props = withDefaults(
     showWsdl?: boolean;
     wsdlUrl?: string;
     wsdlPlaceholder?: string;
+    headersSectionVisible?: boolean;
+    headersIndex?: string;
     headersTitle?: string;
     headersDescription?: string;
     headersMode?: HeaderEditorMode;
@@ -256,12 +259,16 @@ const props = withDefaults(
     headerRows?: SoapRequestBuilderField[];
     fieldsTitle?: string;
     fieldsDescription?: string;
+    bodySectionVisible?: boolean;
+    bodyIndex?: string;
+    bodyFormVisible?: boolean;
     fieldGroups?: SoapRequestBuilderFieldGroup[];
     emptyDescription?: string;
     envelopeTitle?: string;
     envelopeDescription?: string;
     envelope?: string;
     envelopeError?: string;
+    envelopeReadonly?: boolean;
     envelopePlaceholder?: string;
     envelopeRows?: number;
   }>(),
@@ -271,6 +278,8 @@ const props = withDefaults(
     showWsdl: false,
     wsdlUrl: "",
     wsdlPlaceholder: "保存并启用 WebService 后生成",
+    headersSectionVisible: true,
+    headersIndex: "1",
     headersTitle: "HTTP Headers",
     headersDescription: "HTTP 层请求头，可在表格和原始 JSON 之间双向切换。",
     headersMode: "form",
@@ -280,12 +289,16 @@ const props = withDefaults(
     headerRows: () => [],
     fieldsTitle: "SOAP 参数表单",
     fieldsDescription: "字段值会实时构造成完整 SOAP Envelope。",
+    bodySectionVisible: true,
+    bodyIndex: "2",
+    bodyFormVisible: true,
     fieldGroups: () => [],
     emptyDescription: "请先配置字段映射",
     envelopeTitle: "SOAP 请求 Body（Envelope）",
     envelopeDescription: "SOAP Envelope 是完整 XML 请求体。",
     envelope: "",
     envelopeError: "",
+    envelopeReadonly: false,
     envelopePlaceholder: "填写完整 SOAP Envelope XML",
     envelopeRows: 18,
   },
@@ -303,6 +316,16 @@ const emit = defineEmits<{
 const envelopeMode = ref<EnvelopeEditorMode>("form");
 
 watch(
+  () => props.bodyFormVisible,
+  (visible) => {
+    if (!visible) {
+      envelopeMode.value = "raw";
+    }
+  },
+  { immediate: true },
+);
+
+watch(
   [() => props.headersError, () => props.envelopeError],
   () => emit("validChange", !props.headersError && !props.envelopeError),
   { immediate: true },
@@ -310,6 +333,13 @@ watch(
 
 function stringValue(value: DebugFieldValue) {
   return value == null ? "" : String(value);
+}
+
+function handleEnvelopeInput(value: string) {
+  if (props.envelopeReadonly) {
+    return;
+  }
+  emit("update:envelope", String(value ?? ""));
 }
 
 function appendHeaderRow() {

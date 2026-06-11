@@ -82,7 +82,7 @@ class StudioSchemaDriftRegressionTest {
 
     private static final List<String> HTTP_SOAP_WRITER_FIELDS = Arrays.asList(
             "soapVersion", "soapAction", "contentType", "header", "params", "requestBody",
-            "soapFaultFail", "responseStatus.path", "responseStatus.code", "retryTimes",
+            "payloadMode", "dataNodePath", "batchSize", "soapFaultFail", "responseStatus.path", "responseStatus.code", "retryTimes",
             "retryIntervalMs", "connectTimeoutMs", "socketTimeoutMs");
 
     private static final List<String> ODPS_READER_FIELDS = Arrays.asList(

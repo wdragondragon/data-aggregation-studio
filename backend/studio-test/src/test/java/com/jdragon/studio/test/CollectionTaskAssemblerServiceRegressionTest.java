@@ -634,7 +634,7 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
     }
 
     @Test
-    void httpSoapWriterConfigShouldUseSoapTemplateAndRejectArrayPayload() {
+    void httpSoapWriterConfigShouldUseSoapTemplateAndSupportArrayPayload() {
         CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
                 mockDataSourceService(),
                 mockDataModelService(),
@@ -666,6 +666,7 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("object", writerConfig.get("payloadMode"));
         assertTrue(String.valueOf(writerConfig.get("header")).contains("SOAPAction"));
         assertTrue(String.valueOf(writerConfig.get("requestBody")).contains("{{id}}"));
+        assertEquals(Integer.valueOf(500), writerConfig.get("batchSize"));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> responseStatus = (Map<String, Object>) writerConfig.get("responseStatus");
@@ -673,7 +674,114 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("200", responseStatus.get("code"));
 
         writerOptions.put("payloadMode", "array");
-        assertThrows(StudioException.class, () -> assemblerService.assemble(definition));
+        writerOptions.put("batchSize", Integer.valueOf(2));
+        writerOptions.put("dataNodePath", "payload.items.item");
+        writerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRows><tns:records>{{#records}}<tns:record><tns:id>{{id}}</tns:id><tns:name>{{name}}</tns:name></tns:record>{{/records}}</tns:records></tns:WriteRows></soap:Body></soap:Envelope>");
+
+        Map<String, Object> arrayConfig = assemblerService.assemble(definition);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> arrayWriter = (Map<String, Object>) arrayConfig.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> arrayWriterConfig = (Map<String, Object>) arrayWriter.get("config");
+        assertEquals("array", arrayWriterConfig.get("payloadMode"));
+        assertEquals(Integer.valueOf(2), arrayWriterConfig.get("batchSize"));
+        assertEquals("payload.items.item", arrayWriterConfig.get("dataNodePath"));
+        assertTrue(String.valueOf(arrayWriterConfig.get("requestBody")).contains("{{#records}}"));
+        assertTrue(String.valueOf(arrayWriterConfig.get("requestBody")).contains("{{/records}}"));
+
+        writerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRow><tns:id>{{id}}</tns:id></tns:WriteRow></soap:Body></soap:Envelope>");
+        Map<String, Object> regeneratedConfig = assemblerService.assemble(definition);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> regeneratedWriter = (Map<String, Object>) regeneratedConfig.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> regeneratedWriterConfig = (Map<String, Object>) regeneratedWriter.get("config");
+        assertTrue(String.valueOf(regeneratedWriterConfig.get("requestBody")).contains("{{#records}}"));
+        assertTrue(String.valueOf(regeneratedWriterConfig.get("requestBody")).contains("{{name}}"));
+    }
+
+    @Test
+    void httpSoapWriterArrayShouldInferDataNodePathFromTargetParentNode() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpWriterDefinition();
+        definition.getTargetBinding().setModelId(45L);
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("payloadMode", "array");
+        writerOptions.put("batchSize", Integer.valueOf(2));
+        writerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRows>{{#records}}<tns:record><tns:id>{{id}}</tns:id><tns:name>{{name}}</tns:name></tns:record>{{/records}}</tns:WriteRows></soap:Body></soap:Envelope>");
+        definition.getTargetBinding().setWriterOptions(writerOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        assertEquals("record", writerConfig.get("dataNodePath"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> columns = (List<Map<String, Object>>) writerConfig.get("columns");
+        assertEquals("record", columns.get(0).get("parentNode"));
+    }
+
+    @Test
+    void httpSoapWriterBodyShouldBeGeneratedFromEffectiveFieldMappings() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpWriterDefinition();
+        definition.getTargetBinding().setModelId(44L);
+        FieldMappingDefinition idMapping = new FieldMappingDefinition();
+        idMapping.setSourceAlias("src1");
+        idMapping.setSourceField("source_col");
+        idMapping.setTargetField("id");
+        definition.setFieldMappings(Collections.singletonList(idMapping));
+
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRow><tns:id>{{id}}</tns:id><tns:name>{{name}}</tns:name></tns:WriteRow></soap:Body></soap:Envelope>");
+        definition.getTargetBinding().setWriterOptions(writerOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        String requestBody = String.valueOf(writerConfig.get("requestBody"));
+        assertTrue(requestBody.contains("{{id}}"));
+        assertFalse(requestBody.contains("{{name}}"));
+    }
+
+    @Test
+    void httpSoapWriterArrayShouldRejectMissingOrIncompatibleDataNodePath() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView noParentDefinition = buildHttpWriterDefinition();
+        noParentDefinition.getTargetBinding().setModelId(44L);
+        Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
+        writerOptions.put("payloadMode", "array");
+        writerOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRows>{{#records}}<tns:record><tns:id>{{id}}</tns:id></tns:record>{{/records}}</tns:WriteRows></soap:Body></soap:Envelope>");
+        noParentDefinition.getTargetBinding().setWriterOptions(writerOptions);
+        assertThrows(StudioException.class, () -> assemblerService.assemble(noParentDefinition));
+
+        CollectionTaskDefinitionView incompatibleDefinition = buildHttpWriterDefinition();
+        incompatibleDefinition.getTargetBinding().setModelId(46L);
+        Map<String, Object> incompatibleOptions = new LinkedHashMap<String, Object>();
+        incompatibleOptions.put("payloadMode", "array");
+        incompatibleOptions.put("dataNodePath", "record");
+        incompatibleOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRows>{{#records}}<tns:record><tns:id>{{id}}</tns:id></tns:record>{{/records}}</tns:WriteRows></soap:Body></soap:Envelope>");
+        incompatibleDefinition.getTargetBinding().setWriterOptions(incompatibleOptions);
+        assertThrows(StudioException.class, () -> assemblerService.assemble(incompatibleDefinition));
     }
 
 }

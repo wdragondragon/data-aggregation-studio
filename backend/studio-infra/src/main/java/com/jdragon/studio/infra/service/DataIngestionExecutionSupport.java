@@ -392,9 +392,12 @@ final class DataIngestionExecutionSupport {
             }
             if (type == FieldValueType.DECIMAL) {
                 if (value instanceof Number) {
-                    return Double.valueOf(((Number) value).doubleValue());
+                    if (value instanceof BigDecimal) {
+                        return value;
+                    }
+                    return BigDecimal.valueOf(((Number) value).doubleValue());
                 }
-                return new BigDecimal(String.valueOf(value).trim()).doubleValue();
+                return new BigDecimal(String.valueOf(value).trim());
             }
             if (type == FieldValueType.BOOLEAN) {
                 if (value instanceof Boolean) {
@@ -423,10 +426,13 @@ final class DataIngestionExecutionSupport {
             return new LongColumn(Long.valueOf(String.valueOf(value).trim()));
         }
         if (type == FieldValueType.DECIMAL) {
-            if (value instanceof Number) {
-                return new DoubleColumn(((Number) value).doubleValue());
+            if (value instanceof BigDecimal) {
+                return new DoubleColumn((BigDecimal) value);
             }
-            return new DoubleColumn(Double.valueOf(String.valueOf(value).trim()));
+            if (value instanceof Number) {
+                return new DoubleColumn(BigDecimal.valueOf(((Number) value).doubleValue()));
+            }
+            return new DoubleColumn(new BigDecimal(String.valueOf(value).trim()));
         }
         if (type == FieldValueType.BOOLEAN) {
             if (value instanceof Boolean) {

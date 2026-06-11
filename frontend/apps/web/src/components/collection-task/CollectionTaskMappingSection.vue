@@ -65,6 +65,26 @@
       :show-expression="isFusionTask"
       @update:model-value="mappingActions.updateFieldMappings"
     />
+
+    <div v-if="mappingActions.isHttpSoapWriterTarget() && writerSoapBodyPreviewFields.length" class="soap-body-preview">
+      <div class="soap-body-preview__header">
+        <strong>SOAP Body XML 预览</strong>
+        <p>根据上方字段映射生成最终 SOAP Envelope；XML 中的占位符使用映射后的目标字段变量。</p>
+      </div>
+      <HttpWebServiceOptionsEditor
+        :fields="writerSoapBodyPreviewFields"
+        :model-value="writerOptions"
+        :soap-contract="mappingActions.writerSoapContract()"
+        :soap-field-names="mappingActions.writerSoapFieldNames()"
+        :soap-fields="mappingActions.writerSoapFields()"
+        :headers-section-visible="false"
+        body-index="1"
+        :body-form-visible="false"
+        envelope-readonly
+        soap-template-mode
+        @update:model-value="mappingActions.updateTargetWriterOptions($event)"
+      />
+    </div>
   </SectionCard>
 </template>
 
@@ -80,6 +100,7 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard } from "@studio/ui";
 import CollectionTaskFieldMappingEditor from "@web/components/CollectionTaskFieldMappingEditor.vue";
+import HttpWebServiceOptionsEditor from "@/components/HttpWebServiceOptionsEditor.vue";
 
 type RuntimeOptionRole = "reader" | "writer";
 
@@ -89,11 +110,16 @@ interface MappingSectionForm {
 
 interface CollectionTaskMappingActions {
   initializeMappings: () => void;
+  isHttpSoapWriterTarget: () => boolean;
+  writerSoapContract: () => Record<string, unknown>;
+  writerSoapFieldNames: () => string[];
+  writerSoapFields: () => Array<{ name: string; parentNode?: string }>;
   runtimeSchemaTitleByType: (role: RuntimeOptionRole, datasourceType: string) => string;
   runtimeSchemaForType: (role: RuntimeOptionRole, datasourceType: string) => PluginRuntimeOptionSchemaView | undefined;
   runtimeStatusTypeByType: (role: RuntimeOptionRole, datasourceType: string) => string;
   runtimeStatusLabelByType: (role: RuntimeOptionRole, datasourceType: string) => string;
   updateFusionReaderOptions: (value: Record<string, unknown>) => void;
+  updateTargetWriterOptions: (value: Record<string, unknown>) => void;
   updateFieldMappings: (value: FieldMappingDefinition[]) => void;
 }
 
@@ -109,6 +135,8 @@ const props = defineProps<{
   sourceFieldOptionsByAlias: Record<string, string[]>;
   targetFieldOptions: string[];
   fieldMappingRules: FieldMappingRuleView[];
+  writerSoapBodyPreviewFields: MetadataFieldDefinition[];
+  writerOptions: Record<string, unknown>;
   mappingActions: CollectionTaskMappingActions;
 }>();
 
@@ -169,5 +197,21 @@ p {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.soap-body-preview {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.soap-body-preview__header {
+  display: grid;
+  gap: 4px;
+}
+
+.soap-body-preview__header strong {
+  color: var(--studio-text);
+  font-size: 14px;
 }
 </style>

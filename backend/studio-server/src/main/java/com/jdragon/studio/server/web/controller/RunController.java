@@ -38,8 +38,9 @@ public class RunController {
                                     @RequestParam(value = "startTime", required = false)
                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
                                     @RequestParam(value = "endTime", required = false)
-                                    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime) {
-        return Result.success(runService.list(collectionTaskId, qualityTaskId, workflowDefinitionId, startTime, endTime));
+                                    @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime,
+                                    @RequestParam(value = "includeRunRecords", required = false) Boolean includeRunRecords) {
+        return Result.success(runService.list(collectionTaskId, qualityTaskId, workflowDefinitionId, startTime, endTime, includeRunRecords));
     }
 
     @Operation(summary = "Get run record detail")

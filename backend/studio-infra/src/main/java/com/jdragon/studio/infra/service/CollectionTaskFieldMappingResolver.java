@@ -126,6 +126,10 @@ final class CollectionTaskFieldMappingResolver {
             item.put("index", Integer.valueOf(i));
             item.put("name", fieldName);
             item.put("type", resolveHttpColumnType(fieldMetadata));
+            Object parentNode = fieldMetadata == null ? null : fieldMetadata.get("parentNode");
+            if (!isBlankValue(parentNode)) {
+                item.put("parentNode", String.valueOf(parentNode).trim());
+            }
             result.add(item);
         }
         return result;

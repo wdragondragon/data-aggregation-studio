@@ -1841,6 +1841,7 @@ export interface RunListQuery {
   workflowDefinitionId?: EntityId;
   startTime?: string;
   endTime?: string;
+  includeRunRecords?: boolean;
 }
 
 export type OpsCenterHealthStatus = "HEALTHY" | "WARNING" | "CRITICAL";

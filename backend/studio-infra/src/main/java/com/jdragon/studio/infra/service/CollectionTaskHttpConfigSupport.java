@@ -10,6 +10,7 @@ import org.xml.sax.InputSource;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -23,6 +24,8 @@ final class CollectionTaskHttpConfigSupport {
     private static final ObjectMapper RUNTIME_OPTION_OBJECT_MAPPER = new ObjectMapper();
     private static final Object NO_VALUE = null;
     private static final Map<String, Object> NO_RESPONSE_STATUS = null;
+    private static final String RECORDS_REPEAT_START = "{{#records}}";
+    private static final String RECORDS_REPEAT_END = "{{/records}}";
 
     private final CollectionTaskFieldMappingResolver fieldMappingResolver;
 
@@ -70,6 +73,9 @@ final class CollectionTaskHttpConfigSupport {
         writerConfig.put("protocolMode", soap ? "SOAP" : resolveProtocolMode(metadata));
         writerConfig.put("soapVersion", resolveSoapVersion(metadata));
         putIfPresent(writerConfig, "soapAction", metadata.get("soapAction"), null);
+        putIfPresent(writerConfig, "namespaceUri", metadata.get("namespaceUri"), null);
+        putIfPresent(writerConfig, "operationName", metadata.get("operationName"), null);
+        putIfPresent(writerConfig, "requestRootName", firstPresent(metadata, "requestRootName", "operationName"), null);
         writerConfig.put("soapFaultFail", Boolean.TRUE);
         writerConfig.put("contentType", soap ? resolveSoapContentType(resolveSoapVersion(metadata)) : "application/json;charset=utf-8");
         writerConfig.put("header", "{}");
@@ -117,29 +123,33 @@ final class CollectionTaskHttpConfigSupport {
         normalizeHttpJsonObjectString(config, "header", "HTTP writer");
         normalizeHttpJsonObjectString(config, "params", "HTTP writer");
         normalizeHttpStringOption(config, "requestBody", "");
+        if (isBlankValue(config.get("payloadMode"))) {
+            config.put("payloadMode", "object");
+        } else {
+            config.put("payloadMode", String.valueOf(config.get("payloadMode")).trim().toLowerCase(Locale.ENGLISH));
+        }
+        if (isBlankValue(config.get("batchSize"))) {
+            config.put("batchSize", Integer.valueOf(500));
+        }
         if (soap) {
-            if ("array".equalsIgnoreCase(String.valueOf(config.get("payloadMode")))) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP SOAP writer does not support array payloadMode in this version");
-            }
             config.put("mode", "POST");
             config.put("protocolMode", "SOAP");
             config.put("payloadFormat", "soap");
             config.put("responseType", "soap");
-            config.put("payloadMode", "object");
             if (isBlankValue(config.get("soapFaultFail"))) {
                 config.put("soapFaultFail", Boolean.TRUE);
             }
-            if (isBlankValue(config.get("requestBody"))) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP SOAP writer requestBody is required");
+            if ("array".equalsIgnoreCase(String.valueOf(config.get("payloadMode")))) {
+                String dataNodePath = resolveArrayDataNodePath(config);
+                config.put("dataNodePath", dataNodePath);
+                validateArrayColumnParents(config, dataNodePath);
             }
+            config.put("requestBody", buildSoapWriterRequestBody(config));
             validateSoapEnvelope(String.valueOf(config.get("requestBody")), "HTTP SOAP writer requestBody");
+            if ("array".equalsIgnoreCase(String.valueOf(config.get("payloadMode")))) {
+                validateRecordsRepeatBlock(String.valueOf(config.get("requestBody")), "HTTP SOAP writer requestBody");
+            }
             ensureSoapActionHeader(config);
-        }
-        if (isBlankValue(config.get("payloadMode"))) {
-            config.put("payloadMode", "object");
-        }
-        if (isBlankValue(config.get("batchSize"))) {
-            config.put("batchSize", Integer.valueOf(500));
         }
         boolean includeTotal = booleanValue(config.get("includeTotal"));
         config.put("includeTotal", Boolean.valueOf(includeTotal));
@@ -355,6 +365,323 @@ final class CollectionTaskHttpConfigSupport {
         } catch (Exception e) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, label + " must be valid XML: " + e.getMessage());
         }
+    }
+
+    private void validateRecordsRepeatBlock(String template, String label) {
+        int start = template.indexOf(RECORDS_REPEAT_START);
+        int end = template.indexOf(RECORDS_REPEAT_END);
+        if (start < 0 || end < 0) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    label + " must contain repeat block {{#records}}...{{/records}} when payloadMode is array");
+        }
+        if (start != template.lastIndexOf(RECORDS_REPEAT_START) || end != template.lastIndexOf(RECORDS_REPEAT_END)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    label + " must contain exactly one repeat block {{#records}}...{{/records}} when payloadMode is array");
+        }
+        int innerStart = start + RECORDS_REPEAT_START.length();
+        if (end <= innerStart || template.substring(innerStart, end).trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    label + " repeat block {{#records}}...{{/records}} must not be empty");
+        }
+    }
+
+    private String buildSoapWriterRequestBody(Map<String, Object> config) {
+        boolean soap12 = "SOAP_12".equalsIgnoreCase(resolveSoapVersion(config));
+        String soapNs = soap12 ? "http://www.w3.org/2003/05/soap-envelope" : "http://schemas.xmlsoap.org/soap/envelope/";
+        String namespaceUri = resolveSoapNamespaceUri(config);
+        String requestRootName = safeXmlName(resolveSoapRequestRootName(config));
+        String bodyInnerXml;
+        if ("array".equalsIgnoreCase(String.valueOf(config.get("payloadMode")))) {
+            bodyInnerXml = buildSoapRecordsRepeatXmlByPath(config.get("columns"), String.valueOf(config.get("dataNodePath")), 6);
+        } else {
+            bodyInnerXml = buildSoapFieldsXmlByParentPath(config.get("columns"), "", 6);
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        builder.append("<soap:Envelope xmlns:soap=\"").append(escapeXml(soapNs))
+                .append("\" xmlns:tns=\"").append(escapeXml(namespaceUri)).append("\">\n");
+        builder.append("  <soap:Header>\n");
+        builder.append("  </soap:Header>\n");
+        builder.append("  <soap:Body>\n");
+        builder.append("    <tns:").append(isBlank(requestRootName) ? "Operation" : requestRootName).append(">\n");
+        if (!isBlank(bodyInnerXml)) {
+            builder.append(bodyInnerXml).append('\n');
+        }
+        builder.append("    </tns:").append(isBlank(requestRootName) ? "Operation" : requestRootName).append(">\n");
+        builder.append("  </soap:Body>\n");
+        builder.append("</soap:Envelope>");
+        return builder.toString();
+    }
+
+    private String buildSoapRecordsRepeatXmlByPath(Object columnsValue, String dataNodePath, int indentSize) {
+        List<String> segments = splitXmlPath(dataNodePath);
+        if (segments.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < segments.size() - 1; i++) {
+            appendIndent(builder, indentSize + i * 2).append('<').append(segments.get(i)).append(">\n");
+        }
+        int repeatIndent = indentSize + (segments.size() - 1) * 2;
+        String recordName = segments.get(segments.size() - 1);
+        appendIndent(builder, repeatIndent).append(RECORDS_REPEAT_START).append('\n');
+        appendIndent(builder, repeatIndent).append('<').append(recordName).append(">\n");
+        String fieldXml = buildSoapFieldsXmlByParentPath(columnsValue, dataNodePath, indentSize + segments.size() * 2);
+        if (!isBlank(fieldXml)) {
+            builder.append(fieldXml).append('\n');
+        }
+        appendIndent(builder, repeatIndent).append("</").append(recordName).append(">\n");
+        appendIndent(builder, repeatIndent).append(RECORDS_REPEAT_END).append('\n');
+        for (int i = segments.size() - 2; i >= 0; i--) {
+            appendIndent(builder, indentSize + i * 2).append("</").append(segments.get(i)).append(">\n");
+        }
+        return trimTrailingNewline(builder.toString());
+    }
+
+    private String buildSoapFieldsXmlByParentPath(Object columnsValue, String basePath, int indentSize) {
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        List<String> baseSegments = splitPath(basePath);
+        for (Object column : listValue(columnsValue)) {
+            if (!(column instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<?, ?> columnMap = (Map<?, ?>) column;
+            Object rawName = columnMap.get("name");
+            if (isBlankValue(rawName)) {
+                continue;
+            }
+            String name = String.valueOf(rawName).trim();
+            String elementName = safeXmlName(name);
+            if (isBlank(elementName)) {
+                continue;
+            }
+            List<String> parentSegments = splitPath(String.valueOf(columnMap.get("parentNode") == null ? "" : columnMap.get("parentNode")));
+            List<String> relativeParentSegments = startsWithSegments(parentSegments, baseSegments)
+                    ? parentSegments.subList(baseSegments.size(), parentSegments.size())
+                    : parentSegments;
+            List<String> path = new ArrayList<String>(relativeParentSegments);
+            path.add(elementName);
+            putXmlPath(payload, path, "{{" + name + "}}");
+        }
+        StringBuilder builder = new StringBuilder();
+        appendXmlObjectChildren(builder, payload, indentSize);
+        return trimTrailingNewline(builder.toString());
+    }
+
+    private List<?> listValue(Object value) {
+        return value instanceof List<?> ? (List<?>) value : Collections.emptyList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void putXmlPath(Map<String, Object> root, List<String> path, String value) {
+        Map<String, Object> current = root;
+        for (int i = 0; i < path.size(); i++) {
+            String segment = safeXmlName(path.get(i));
+            if (isBlank(segment)) {
+                continue;
+            }
+            if (i == path.size() - 1) {
+                current.put(segment, value);
+                return;
+            }
+            Object child = current.get(segment);
+            if (!(child instanceof Map<?, ?>)) {
+                child = new LinkedHashMap<String, Object>();
+                current.put(segment, child);
+            }
+            current = (Map<String, Object>) child;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void appendXmlObjectChildren(StringBuilder builder, Map<String, Object> payload, int indentSize) {
+        for (Map.Entry<String, Object> entry : payload.entrySet()) {
+            String name = safeXmlName(entry.getKey());
+            if (isBlank(name)) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (value instanceof Map<?, ?>) {
+                appendIndent(builder, indentSize).append('<').append(name).append(">\n");
+                appendXmlObjectChildren(builder, (Map<String, Object>) value, indentSize + 2);
+                appendIndent(builder, indentSize).append("</").append(name).append(">\n");
+            } else {
+                appendIndent(builder, indentSize).append('<').append(name).append('>')
+                        .append(value == null ? "" : value)
+                        .append("</").append(name).append(">\n");
+            }
+        }
+    }
+
+    private String resolveSoapNamespaceUri(Map<String, Object> config) {
+        Object namespaceUri = config.get("namespaceUri");
+        if (!isBlankValue(namespaceUri)) {
+            return String.valueOf(namespaceUri).trim();
+        }
+        Object soapAction = config.get("soapAction");
+        if (!isBlankValue(soapAction)) {
+            String value = String.valueOf(soapAction).trim();
+            int index = Math.max(value.lastIndexOf('/'), value.lastIndexOf('#'));
+            if (index > 0) {
+                return value.substring(0, index);
+            }
+        }
+        return "urn:studio";
+    }
+
+    private String resolveSoapRequestRootName(Map<String, Object> config) {
+        Object configured = firstPresent(config, "requestRootName", "operationName");
+        if (!isBlankValue(configured)) {
+            return String.valueOf(configured).trim();
+        }
+        Object soapAction = config.get("soapAction");
+        if (!isBlankValue(soapAction)) {
+            String value = String.valueOf(soapAction).trim();
+            int index = Math.max(value.lastIndexOf('/'), value.lastIndexOf('#'));
+            if (index >= 0 && index < value.length() - 1) {
+                return value.substring(index + 1);
+            }
+        }
+        return "Operation";
+    }
+
+    private String safeXmlName(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.trim().replaceAll("[^A-Za-z0-9_.-]", "_");
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        char first = normalized.charAt(0);
+        if ((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') || first == '_') {
+            return normalized;
+        }
+        return "_" + normalized;
+    }
+
+    private List<String> splitXmlPath(String value) {
+        List<String> result = new ArrayList<String>();
+        for (String segment : splitPath(value)) {
+            String name = safeXmlName(segment);
+            if (!isBlank(name)) {
+                result.add(name);
+            }
+        }
+        return result;
+    }
+
+    private StringBuilder appendIndent(StringBuilder builder, int indentSize) {
+        for (int i = 0; i < indentSize; i++) {
+            builder.append(' ');
+        }
+        return builder;
+    }
+
+    private String trimTrailingNewline(String value) {
+        String result = value;
+        while (result.endsWith("\n") || result.endsWith("\r")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
+    private String escapeXml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
+    }
+
+    private String resolveArrayDataNodePath(Map<String, Object> config) {
+        Object configured = config.get("dataNodePath");
+        if (!isBlankValue(configured)) {
+            return String.valueOf(configured).trim();
+        }
+        String inferred = resolveCommonColumnParentNode(config.get("columns"));
+        if (!isBlank(inferred)) {
+            return inferred;
+        }
+        throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                "HTTP SOAP writer dataNodePath is required when payloadMode is array and target fields have no single parentNode");
+    }
+
+    private String resolveCommonColumnParentNode(Object columnsValue) {
+        if (!(columnsValue instanceof List<?>)) {
+            return null;
+        }
+        Set<String> parents = new LinkedHashSet<String>();
+        for (Object column : (List<?>) columnsValue) {
+            if (!(column instanceof Map<?, ?>)) {
+                continue;
+            }
+            Object parentNode = ((Map<?, ?>) column).get("parentNode");
+            if (!isBlankValue(parentNode)) {
+                parents.add(String.valueOf(parentNode).trim());
+            }
+        }
+        return parents.size() == 1 ? parents.iterator().next() : null;
+    }
+
+    private void validateArrayColumnParents(Map<String, Object> config, String dataNodePath) {
+        Object columnsValue = config.get("columns");
+        if (!(columnsValue instanceof List<?>)) {
+            return;
+        }
+        List<String> dataSegments = splitPath(dataNodePath);
+        for (Object column : (List<?>) columnsValue) {
+            if (!(column instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<?, ?> columnMap = (Map<?, ?>) column;
+            Object parentNode = columnMap.get("parentNode");
+            if (isBlankValue(parentNode)) {
+                continue;
+            }
+            String parentPath = String.valueOf(parentNode).trim();
+            List<String> parentSegments = splitPath(parentPath);
+            if (!startsWithSegments(parentSegments, dataSegments)) {
+                Object name = columnMap.get("name");
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "HTTP SOAP writer field " + name + " parentNode " + parentPath
+                                + " must be under dataNodePath " + dataNodePath
+                                + " when payloadMode is array");
+            }
+        }
+    }
+
+    private List<String> splitPath(String value) {
+        List<String> result = new ArrayList<String>();
+        if (value == null) {
+            return result;
+        }
+        String[] segments = value.split("\\.");
+        for (String segment : segments) {
+            if (!segment.trim().isEmpty()) {
+                result.add(segment.trim());
+            }
+        }
+        return result;
+    }
+
+    private boolean startsWithSegments(List<String> value, List<String> prefix) {
+        if (prefix.isEmpty()) {
+            return true;
+        }
+        if (value.size() < prefix.size()) {
+            return false;
+        }
+        for (int i = 0; i < prefix.size(); i++) {
+            if (!prefix.get(i).equals(value.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Object firstPresent(Map<String, Object> metadata, String... keys) {
