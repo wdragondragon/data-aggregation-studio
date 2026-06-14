@@ -105,6 +105,7 @@ public class StudioSchemaUpgradeService {
         ensureDataServiceTablesMysql();
         ensureColumn("data_service_response_param", "transformers_json", "alter table data_service_response_param add column transformers_json json");
         ensureDataIngestionTablesMysql();
+        ensureProtocolConversionTablesMysql();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesMysql();
         ensureOdpsFieldMetadataDefinitionsMysql();
         ensureCurrentOdpsFieldMetadataDefinitions();
@@ -704,6 +705,7 @@ public class StudioSchemaUpgradeService {
         ensureDataServiceTablesSqlite();
         ensureColumn("data_service_response_param", "transformers_json", "alter table data_service_response_param add column transformers_json text");
         ensureDataIngestionTablesSqlite();
+        ensureProtocolConversionTablesSqlite();
         datasourceCapabilityUpgradeSupport.ensureDatasourceTypeCapabilityTablesSqlite();
         ensureOdpsFieldMetadataDefinitionsSqlite();
         ensureCurrentOdpsFieldMetadataDefinitions();
@@ -1452,6 +1454,40 @@ public class StudioSchemaUpgradeService {
         schemaIntrospector.ensureColumn(tableName, columnName, ddl);
     }
 
+    private void ensureInvocationLogArchiveColumnsMysql(String tableName) {
+        ensureColumn(tableName, "log_storage_type",
+                "alter table " + tableName + " add column log_storage_type varchar(64)");
+        ensureColumn(tableName, "log_object_bucket",
+                "alter table " + tableName + " add column log_object_bucket varchar(255)");
+        ensureColumn(tableName, "log_object_key",
+                "alter table " + tableName + " add column log_object_key varchar(1000)");
+        ensureColumn(tableName, "log_size_bytes",
+                "alter table " + tableName + " add column log_size_bytes bigint");
+        ensureColumn(tableName, "log_charset",
+                "alter table " + tableName + " add column log_charset varchar(64)");
+        ensureColumn(tableName, "log_archive_status",
+                "alter table " + tableName + " add column log_archive_status varchar(64)");
+        ensureColumn(tableName, "log_archive_error",
+                "alter table " + tableName + " add column log_archive_error varchar(1000)");
+    }
+
+    private void ensureInvocationLogArchiveColumnsSqlite(String tableName) {
+        ensureColumn(tableName, "log_storage_type",
+                "alter table " + tableName + " add column log_storage_type text");
+        ensureColumn(tableName, "log_object_bucket",
+                "alter table " + tableName + " add column log_object_bucket text");
+        ensureColumn(tableName, "log_object_key",
+                "alter table " + tableName + " add column log_object_key text");
+        ensureColumn(tableName, "log_size_bytes",
+                "alter table " + tableName + " add column log_size_bytes integer");
+        ensureColumn(tableName, "log_charset",
+                "alter table " + tableName + " add column log_charset text");
+        ensureColumn(tableName, "log_archive_status",
+                "alter table " + tableName + " add column log_archive_status text");
+        ensureColumn(tableName, "log_archive_error",
+                "alter table " + tableName + " add column log_archive_error text");
+    }
+
     private void ensureQualityTablesMysql() {
         if (!tableExists("quality_rule")) {
             jdbcTemplate.execute("create table quality_rule (" +
@@ -2108,6 +2144,7 @@ public class StudioSchemaUpgradeService {
                     "service_status_snapshot varchar(64)," +
                     "subscription_id bigint," +
                     "subscription_name_snapshot varchar(255)," +
+                    "request_id varchar(128)," +
                     "request_method varchar(16)," +
                     "occurred_at datetime," +
                     "duration_ms bigint," +
@@ -2115,15 +2152,29 @@ public class StudioSchemaUpgradeService {
                     "http_status int," +
                     "error_code varchar(128)," +
                     "error_message varchar(1000)," +
+                    "system_log mediumtext," +
                     "client_ip varchar(128)," +
                     "user_agent varchar(500)," +
                     "cache_enabled int default 0," +
                     "cache_hit int default 0," +
-                    "row_count bigint default 0" +
+                    "row_count bigint default 0," +
+                    "log_storage_type varchar(64)," +
+                    "log_object_bucket varchar(255)," +
+                    "log_object_key varchar(1000)," +
+                    "log_size_bytes bigint," +
+                    "log_charset varchar(64)," +
+                    "log_archive_status varchar(64)," +
+                    "log_archive_error varchar(1000)" +
                     ")");
         }
+        ensureColumn("data_service_access_log", "request_id",
+                "alter table data_service_access_log add column request_id varchar(128) after subscription_name_snapshot");
+        ensureColumn("data_service_access_log", "system_log",
+                "alter table data_service_access_log add column system_log mediumtext after error_message");
+        jdbcTemplate.execute("alter table data_service_access_log modify column system_log mediumtext");
         ensureColumn("data_service_access_log", "cache_enabled",
                 "alter table data_service_access_log add column cache_enabled int default 0 after user_agent");
+        ensureInvocationLogArchiveColumnsMysql("data_service_access_log");
         jdbcTemplate.execute("update data_service_access_log set cache_enabled = 1 where cache_hit = 1 and (cache_enabled is null or cache_enabled <> 1)");
         ensureIndex("data_service_access_log", "idx_data_service_access_project_time",
                 "alter table data_service_access_log add key idx_data_service_access_project_time (tenant_id, project_id, occurred_at)");
@@ -2314,6 +2365,7 @@ public class StudioSchemaUpgradeService {
                 "service_status_snapshot text," +
                 "subscription_id integer," +
                 "subscription_name_snapshot text," +
+                "request_id text," +
                 "request_method text," +
                 "occurred_at text," +
                 "duration_ms integer," +
@@ -2321,14 +2373,27 @@ public class StudioSchemaUpgradeService {
                 "http_status integer," +
                 "error_code text," +
                 "error_message text," +
+                "system_log text," +
                 "client_ip text," +
                 "user_agent text," +
                 "cache_enabled integer default 0," +
                 "cache_hit integer default 0," +
-                "row_count integer default 0" +
+                "row_count integer default 0," +
+                "log_storage_type text," +
+                "log_object_bucket text," +
+                "log_object_key text," +
+                "log_size_bytes integer," +
+                "log_charset text," +
+                "log_archive_status text," +
+                "log_archive_error text" +
                 ")");
+        ensureColumn("data_service_access_log", "request_id",
+                "alter table data_service_access_log add column request_id text");
+        ensureColumn("data_service_access_log", "system_log",
+                "alter table data_service_access_log add column system_log text");
         ensureColumn("data_service_access_log", "cache_enabled",
                 "alter table data_service_access_log add column cache_enabled integer default 0");
+        ensureInvocationLogArchiveColumnsSqlite("data_service_access_log");
         jdbcTemplate.execute("update data_service_access_log set cache_enabled = 1 where cache_hit = 1 and (cache_enabled is null or cache_enabled <> 1)");
         jdbcTemplate.execute("create index if not exists idx_data_service_access_project_time on data_service_access_log(tenant_id, project_id, occurred_at)");
         jdbcTemplate.execute("create index if not exists idx_data_service_access_service_time on data_service_access_log(service_id, occurred_at)");
@@ -2482,12 +2547,22 @@ public class StudioSchemaUpgradeService {
                     "user_agent varchar(500)," +
                     "received_count bigint default 0," +
                     "success_count bigint default 0," +
-                    "failed_count bigint default 0" +
+                    "failed_count bigint default 0," +
+                    "log_storage_type varchar(64)," +
+                    "log_object_bucket varchar(255)," +
+                    "log_object_key varchar(1000)," +
+                    "log_size_bytes bigint," +
+                    "log_charset varchar(64)," +
+                    "log_archive_status varchar(64)," +
+                    "log_archive_error varchar(1000)" +
                     ")");
         }
+        ensureColumn("data_ingestion_access_log", "request_id",
+                "alter table data_ingestion_access_log add column request_id varchar(128) after subscription_name_snapshot");
         ensureColumn("data_ingestion_access_log", "system_log",
                 "alter table data_ingestion_access_log add column system_log mediumtext after error_message");
         jdbcTemplate.execute("alter table data_ingestion_access_log modify column system_log mediumtext");
+        ensureInvocationLogArchiveColumnsMysql("data_ingestion_access_log");
         ensureIndex("data_ingestion_access_log", "idx_data_ingestion_access_project_time",
                 "alter table data_ingestion_access_log add key idx_data_ingestion_access_project_time (tenant_id, project_id, occurred_at)");
         ensureIndex("data_ingestion_access_log", "idx_data_ingestion_access_service_time",
@@ -2619,10 +2694,20 @@ public class StudioSchemaUpgradeService {
                 "user_agent text," +
                 "received_count integer default 0," +
                 "success_count integer default 0," +
-                "failed_count integer default 0" +
+                "failed_count integer default 0," +
+                "log_storage_type text," +
+                "log_object_bucket text," +
+                "log_object_key text," +
+                "log_size_bytes integer," +
+                "log_charset text," +
+                "log_archive_status text," +
+                "log_archive_error text" +
                 ")");
+        ensureColumn("data_ingestion_access_log", "request_id",
+                "alter table data_ingestion_access_log add column request_id text");
         ensureColumn("data_ingestion_access_log", "system_log",
                 "alter table data_ingestion_access_log add column system_log text");
+        ensureInvocationLogArchiveColumnsSqlite("data_ingestion_access_log");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_project_time on data_ingestion_access_log(tenant_id, project_id, occurred_at)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_service_time on data_ingestion_access_log(service_id, occurred_at)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_access_subscription_time on data_ingestion_access_log(subscription_id, occurred_at)");
@@ -2647,6 +2732,394 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_access_counter on data_ingestion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_counter_project_bucket on data_ingestion_access_counter(tenant_id, project_id, bucket_start)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_counter_service_bucket on data_ingestion_access_counter(service_id, bucket_start)");
+    }
+
+    private void ensureProtocolConversionTablesMysql() {
+        if (!tableExists("protocol_conversion_service")) {
+            jdbcTemplate.execute("create table protocol_conversion_service (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "created_by bigint," +
+                    "service_code varchar(128) not null," +
+                    "service_name varchar(255) not null," +
+                    "status varchar(64) not null," +
+                    "endpoint_path varchar(1000)," +
+                    "webservice_endpoint_path varchar(1000)," +
+                    "service_key varchar(128)," +
+                    "token_required int default 1," +
+                    "default_subscription_name varchar(255)," +
+                    "source_protocol varchar(32) not null," +
+                    "source_method varchar(16)," +
+                    "source_data_node_path varchar(500)," +
+                    "webservice_config_json json," +
+                    "conversion_mode varchar(32) not null," +
+                    "field_mappings_json json," +
+                    "raw_transformers_json json," +
+                    "fixed_fields_json json," +
+                    "body_bridge_options_json json," +
+                    "request_passthrough_json json," +
+                    "target_datasource_id bigint," +
+                    "target_datasource_name_snapshot varchar(255)," +
+                    "target_path varchar(1000)," +
+                    "target_protocol varchar(32) not null," +
+                    "target_method varchar(16)," +
+                    "target_headers_json json," +
+                    "target_query_json json," +
+                    "target_webservice_config_json json," +
+                    "target_body_template mediumtext," +
+                    "target_data_node_path varchar(500)," +
+                    "payload_mode varchar(32)," +
+                    "batch_size int default 1," +
+                    "response_status_json json" +
+                    ")");
+        }
+        ensureColumn("protocol_conversion_service", "webservice_endpoint_path",
+                "alter table protocol_conversion_service add column webservice_endpoint_path varchar(1000)");
+        ensureColumn("protocol_conversion_service", "token_required",
+                "alter table protocol_conversion_service add column token_required int default 1");
+        ensureColumn("protocol_conversion_service", "default_subscription_name",
+                "alter table protocol_conversion_service add column default_subscription_name varchar(255)");
+        ensureColumn("protocol_conversion_service", "source_method",
+                "alter table protocol_conversion_service add column source_method varchar(16)");
+        ensureColumn("protocol_conversion_service", "source_data_node_path",
+                "alter table protocol_conversion_service add column source_data_node_path varchar(500)");
+        ensureColumn("protocol_conversion_service", "webservice_config_json",
+                "alter table protocol_conversion_service add column webservice_config_json json");
+        ensureColumn("protocol_conversion_service", "raw_transformers_json",
+                "alter table protocol_conversion_service add column raw_transformers_json json");
+        ensureColumn("protocol_conversion_service", "fixed_fields_json",
+                "alter table protocol_conversion_service add column fixed_fields_json json");
+        ensureColumn("protocol_conversion_service", "body_bridge_options_json",
+                "alter table protocol_conversion_service add column body_bridge_options_json json");
+        ensureColumn("protocol_conversion_service", "request_passthrough_json",
+                "alter table protocol_conversion_service add column request_passthrough_json json");
+        ensureColumn("protocol_conversion_service", "target_query_json",
+                "alter table protocol_conversion_service add column target_query_json json");
+        ensureColumn("protocol_conversion_service", "target_webservice_config_json",
+                "alter table protocol_conversion_service add column target_webservice_config_json json");
+        ensureColumn("protocol_conversion_service", "target_data_node_path",
+                "alter table protocol_conversion_service add column target_data_node_path varchar(500)");
+        ensureColumn("protocol_conversion_service", "payload_mode",
+                "alter table protocol_conversion_service add column payload_mode varchar(32)");
+        ensureColumn("protocol_conversion_service", "batch_size",
+                "alter table protocol_conversion_service add column batch_size int default 1");
+        ensureColumn("protocol_conversion_service", "response_status_json",
+                "alter table protocol_conversion_service add column response_status_json json");
+        ensureIndex("protocol_conversion_service", "uk_protocol_conversion_project_code",
+                "alter table protocol_conversion_service add unique key uk_protocol_conversion_project_code (tenant_id, project_id, service_code)");
+        ensureIndex("protocol_conversion_service", "idx_protocol_conversion_project_status",
+                "alter table protocol_conversion_service add key idx_protocol_conversion_project_status (project_id, status)");
+        ensureIndex("protocol_conversion_service", "idx_protocol_conversion_code_key",
+                "alter table protocol_conversion_service add key idx_protocol_conversion_code_key (service_code, service_key)");
+
+        if (!tableExists("protocol_conversion_subscription")) {
+            jdbcTemplate.execute("create table protocol_conversion_subscription (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null," +
+                    "subscription_name varchar(255) not null," +
+                    "token_hash varchar(128) not null," +
+                    "token_masked varchar(64)," +
+                    "enabled int default 1," +
+                    "created_by bigint," +
+                    "last_used_at datetime," +
+                    "rotated_at datetime," +
+                    "rotated_by bigint" +
+                    ")");
+        }
+        ensureColumn("protocol_conversion_subscription", "last_used_at",
+                "alter table protocol_conversion_subscription add column last_used_at datetime");
+        ensureColumn("protocol_conversion_subscription", "rotated_at",
+                "alter table protocol_conversion_subscription add column rotated_at datetime");
+        ensureColumn("protocol_conversion_subscription", "rotated_by",
+                "alter table protocol_conversion_subscription add column rotated_by bigint");
+        ensureIndex("protocol_conversion_subscription", "idx_protocol_conversion_sub_service_enabled",
+                "alter table protocol_conversion_subscription add key idx_protocol_conversion_sub_service_enabled (service_id, enabled)");
+        ensureIndex("protocol_conversion_subscription", "idx_protocol_conversion_sub_token",
+                "alter table protocol_conversion_subscription add key idx_protocol_conversion_sub_token (token_hash)");
+
+        if (!tableExists("protocol_conversion_access_log")) {
+            jdbcTemplate.execute("create table protocol_conversion_access_log (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint," +
+                    "service_code_snapshot varchar(255)," +
+                    "service_name_snapshot varchar(255)," +
+                    "service_status_snapshot varchar(64)," +
+                    "subscription_id bigint," +
+                    "subscription_name_snapshot varchar(255)," +
+                    "request_id varchar(128)," +
+                    "request_method varchar(16)," +
+                    "source_protocol_snapshot varchar(32)," +
+                    "target_protocol_snapshot varchar(32)," +
+                    "occurred_at datetime," +
+                    "duration_ms bigint," +
+                    "success int default 0," +
+                    "http_status int," +
+                    "target_http_status int," +
+                    "error_code varchar(128)," +
+                    "error_message varchar(1000)," +
+                    "system_log mediumtext," +
+                    "client_ip varchar(128)," +
+                    "user_agent varchar(500)," +
+                    "received_count bigint default 0," +
+                    "success_count bigint default 0," +
+                    "failed_count bigint default 0," +
+                    "log_storage_type varchar(64)," +
+                    "log_object_bucket varchar(255)," +
+                    "log_object_key varchar(1000)," +
+                    "log_size_bytes bigint," +
+                    "log_charset varchar(64)," +
+                    "log_archive_status varchar(64)," +
+                    "log_archive_error varchar(1000)" +
+                    ")");
+        }
+        ensureColumn("protocol_conversion_access_log", "request_id",
+                "alter table protocol_conversion_access_log add column request_id varchar(128) after subscription_name_snapshot");
+        ensureColumn("protocol_conversion_access_log", "source_protocol_snapshot",
+                "alter table protocol_conversion_access_log add column source_protocol_snapshot varchar(32)");
+        ensureColumn("protocol_conversion_access_log", "target_protocol_snapshot",
+                "alter table protocol_conversion_access_log add column target_protocol_snapshot varchar(32)");
+        ensureColumn("protocol_conversion_access_log", "target_http_status",
+                "alter table protocol_conversion_access_log add column target_http_status int");
+        ensureColumn("protocol_conversion_access_log", "system_log",
+                "alter table protocol_conversion_access_log add column system_log mediumtext after error_message");
+        ensureColumn("protocol_conversion_access_log", "received_count",
+                "alter table protocol_conversion_access_log add column received_count bigint default 0");
+        ensureColumn("protocol_conversion_access_log", "success_count",
+                "alter table protocol_conversion_access_log add column success_count bigint default 0");
+        ensureColumn("protocol_conversion_access_log", "failed_count",
+                "alter table protocol_conversion_access_log add column failed_count bigint default 0");
+        ensureInvocationLogArchiveColumnsMysql("protocol_conversion_access_log");
+        ensureIndex("protocol_conversion_access_log", "idx_protocol_conversion_access_project_time",
+                "alter table protocol_conversion_access_log add key idx_protocol_conversion_access_project_time (tenant_id, project_id, occurred_at)");
+        ensureIndex("protocol_conversion_access_log", "idx_protocol_conversion_access_service_time",
+                "alter table protocol_conversion_access_log add key idx_protocol_conversion_access_service_time (service_id, occurred_at)");
+        ensureIndex("protocol_conversion_access_log", "idx_protocol_conversion_access_subscription_time",
+                "alter table protocol_conversion_access_log add key idx_protocol_conversion_access_subscription_time (subscription_id, occurred_at)");
+        ensureIndex("protocol_conversion_access_log", "idx_protocol_conversion_access_success",
+                "alter table protocol_conversion_access_log add key idx_protocol_conversion_access_success (project_id, success, occurred_at)");
+
+        if (!tableExists("protocol_conversion_access_counter")) {
+            jdbcTemplate.execute("create table protocol_conversion_access_counter (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "service_id bigint not null default 0," +
+                    "subscription_id bigint not null default 0," +
+                    "bucket_start datetime not null," +
+                    "success int not null default 0," +
+                    "access_count bigint default 0," +
+                    "received_count bigint default 0," +
+                    "success_count bigint default 0," +
+                    "failed_count bigint default 0" +
+                    ")");
+        }
+        ensureIndex("protocol_conversion_access_counter", "uk_protocol_conversion_access_counter",
+                "alter table protocol_conversion_access_counter add unique key uk_protocol_conversion_access_counter (tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
+        ensureIndex("protocol_conversion_access_counter", "idx_protocol_conversion_counter_project_bucket",
+                "alter table protocol_conversion_access_counter add key idx_protocol_conversion_counter_project_bucket (tenant_id, project_id, bucket_start)");
+        ensureIndex("protocol_conversion_access_counter", "idx_protocol_conversion_counter_service_bucket",
+                "alter table protocol_conversion_access_counter add key idx_protocol_conversion_counter_service_bucket (service_id, bucket_start)");
+    }
+
+    private void ensureProtocolConversionTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists protocol_conversion_service (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "created_by integer," +
+                "service_code text not null," +
+                "service_name text not null," +
+                "status text not null," +
+                "endpoint_path text," +
+                "webservice_endpoint_path text," +
+                "service_key text," +
+                "token_required integer default 1," +
+                "default_subscription_name text," +
+                "source_protocol text not null," +
+                "source_method text," +
+                "source_data_node_path text," +
+                "webservice_config_json text," +
+                "conversion_mode text not null," +
+                "field_mappings_json text," +
+                "raw_transformers_json text," +
+                "fixed_fields_json text," +
+                "body_bridge_options_json text," +
+                "request_passthrough_json text," +
+                "target_datasource_id integer," +
+                "target_datasource_name_snapshot text," +
+                "target_path text," +
+                "target_protocol text not null," +
+                "target_method text," +
+                "target_headers_json text," +
+                "target_query_json text," +
+                "target_webservice_config_json text," +
+                "target_body_template text," +
+                "target_data_node_path text," +
+                "payload_mode text," +
+                "batch_size integer default 1," +
+                "response_status_json text" +
+                ")");
+        ensureColumn("protocol_conversion_service", "webservice_endpoint_path",
+                "alter table protocol_conversion_service add column webservice_endpoint_path text");
+        ensureColumn("protocol_conversion_service", "token_required",
+                "alter table protocol_conversion_service add column token_required integer default 1");
+        ensureColumn("protocol_conversion_service", "default_subscription_name",
+                "alter table protocol_conversion_service add column default_subscription_name text");
+        ensureColumn("protocol_conversion_service", "source_method",
+                "alter table protocol_conversion_service add column source_method text");
+        ensureColumn("protocol_conversion_service", "source_data_node_path",
+                "alter table protocol_conversion_service add column source_data_node_path text");
+        ensureColumn("protocol_conversion_service", "webservice_config_json",
+                "alter table protocol_conversion_service add column webservice_config_json text");
+        ensureColumn("protocol_conversion_service", "raw_transformers_json",
+                "alter table protocol_conversion_service add column raw_transformers_json text");
+        ensureColumn("protocol_conversion_service", "fixed_fields_json",
+                "alter table protocol_conversion_service add column fixed_fields_json text");
+        ensureColumn("protocol_conversion_service", "body_bridge_options_json",
+                "alter table protocol_conversion_service add column body_bridge_options_json text");
+        ensureColumn("protocol_conversion_service", "request_passthrough_json",
+                "alter table protocol_conversion_service add column request_passthrough_json text");
+        ensureColumn("protocol_conversion_service", "target_query_json",
+                "alter table protocol_conversion_service add column target_query_json text");
+        ensureColumn("protocol_conversion_service", "target_webservice_config_json",
+                "alter table protocol_conversion_service add column target_webservice_config_json text");
+        ensureColumn("protocol_conversion_service", "target_data_node_path",
+                "alter table protocol_conversion_service add column target_data_node_path text");
+        ensureColumn("protocol_conversion_service", "payload_mode",
+                "alter table protocol_conversion_service add column payload_mode text");
+        ensureColumn("protocol_conversion_service", "batch_size",
+                "alter table protocol_conversion_service add column batch_size integer default 1");
+        ensureColumn("protocol_conversion_service", "response_status_json",
+                "alter table protocol_conversion_service add column response_status_json text");
+        jdbcTemplate.execute("create unique index if not exists uk_protocol_conversion_project_code on protocol_conversion_service(tenant_id, project_id, service_code)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_project_status on protocol_conversion_service(project_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_code_key on protocol_conversion_service(service_code, service_key)");
+
+        jdbcTemplate.execute("create table if not exists protocol_conversion_subscription (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null," +
+                "subscription_name text not null," +
+                "token_hash text not null," +
+                "token_masked text," +
+                "enabled integer default 1," +
+                "created_by integer," +
+                "last_used_at text," +
+                "rotated_at text," +
+                "rotated_by integer" +
+                ")");
+        ensureColumn("protocol_conversion_subscription", "last_used_at",
+                "alter table protocol_conversion_subscription add column last_used_at text");
+        ensureColumn("protocol_conversion_subscription", "rotated_at",
+                "alter table protocol_conversion_subscription add column rotated_at text");
+        ensureColumn("protocol_conversion_subscription", "rotated_by",
+                "alter table protocol_conversion_subscription add column rotated_by integer");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_sub_service_enabled on protocol_conversion_subscription(service_id, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_sub_token on protocol_conversion_subscription(token_hash)");
+
+        jdbcTemplate.execute("create table if not exists protocol_conversion_access_log (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer," +
+                "service_code_snapshot text," +
+                "service_name_snapshot text," +
+                "service_status_snapshot text," +
+                "subscription_id integer," +
+                "subscription_name_snapshot text," +
+                "request_id text," +
+                "request_method text," +
+                "source_protocol_snapshot text," +
+                "target_protocol_snapshot text," +
+                "occurred_at text," +
+                "duration_ms integer," +
+                "success integer default 0," +
+                "http_status integer," +
+                "target_http_status integer," +
+                "error_code text," +
+                "error_message text," +
+                "system_log text," +
+                "client_ip text," +
+                "user_agent text," +
+                "received_count integer default 0," +
+                "success_count integer default 0," +
+                "failed_count integer default 0," +
+                "log_storage_type text," +
+                "log_object_bucket text," +
+                "log_object_key text," +
+                "log_size_bytes integer," +
+                "log_charset text," +
+                "log_archive_status text," +
+                "log_archive_error text" +
+                ")");
+        ensureColumn("protocol_conversion_access_log", "request_id",
+                "alter table protocol_conversion_access_log add column request_id text");
+        ensureColumn("protocol_conversion_access_log", "source_protocol_snapshot",
+                "alter table protocol_conversion_access_log add column source_protocol_snapshot text");
+        ensureColumn("protocol_conversion_access_log", "target_protocol_snapshot",
+                "alter table protocol_conversion_access_log add column target_protocol_snapshot text");
+        ensureColumn("protocol_conversion_access_log", "target_http_status",
+                "alter table protocol_conversion_access_log add column target_http_status integer");
+        ensureColumn("protocol_conversion_access_log", "system_log",
+                "alter table protocol_conversion_access_log add column system_log text");
+        ensureColumn("protocol_conversion_access_log", "received_count",
+                "alter table protocol_conversion_access_log add column received_count integer default 0");
+        ensureColumn("protocol_conversion_access_log", "success_count",
+                "alter table protocol_conversion_access_log add column success_count integer default 0");
+        ensureColumn("protocol_conversion_access_log", "failed_count",
+                "alter table protocol_conversion_access_log add column failed_count integer default 0");
+        ensureInvocationLogArchiveColumnsSqlite("protocol_conversion_access_log");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_access_project_time on protocol_conversion_access_log(tenant_id, project_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_access_service_time on protocol_conversion_access_log(service_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_access_subscription_time on protocol_conversion_access_log(subscription_id, occurred_at)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_access_success on protocol_conversion_access_log(project_id, success, occurred_at)");
+
+        jdbcTemplate.execute("create table if not exists protocol_conversion_access_counter (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "service_id integer not null default 0," +
+                "subscription_id integer not null default 0," +
+                "bucket_start text not null," +
+                "success integer not null default 0," +
+                "access_count integer default 0," +
+                "received_count integer default 0," +
+                "success_count integer default 0," +
+                "failed_count integer default 0" +
+                ")");
+        jdbcTemplate.execute("create unique index if not exists uk_protocol_conversion_access_counter on protocol_conversion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_counter_project_bucket on protocol_conversion_access_counter(tenant_id, project_id, bucket_start)");
+        jdbcTemplate.execute("create index if not exists idx_protocol_conversion_counter_service_bucket on protocol_conversion_access_counter(service_id, bucket_start)");
     }
 
     private void ensureClusterLockTableMysql() {

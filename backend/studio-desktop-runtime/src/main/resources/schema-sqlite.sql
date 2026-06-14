@@ -683,7 +683,14 @@ create table if not exists data_ingestion_access_log (
     user_agent text,
     received_count integer default 0,
     success_count integer default 0,
-    failed_count integer default 0
+    failed_count integer default 0,
+    log_storage_type text,
+    log_object_bucket text,
+    log_object_key text,
+    log_size_bytes integer,
+    log_charset text,
+    log_archive_status text,
+    log_archive_error text
 );
 
 create index if not exists idx_data_ingestion_access_project_time
@@ -718,6 +725,149 @@ create index if not exists idx_data_ingestion_counter_project_bucket
     on data_ingestion_access_counter(tenant_id, project_id, bucket_start);
 create index if not exists idx_data_ingestion_counter_service_bucket
     on data_ingestion_access_counter(service_id, bucket_start);
+
+create table if not exists protocol_conversion_service (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    created_by integer,
+    service_code text not null,
+    service_name text not null,
+    status text not null,
+    endpoint_path text,
+    webservice_endpoint_path text,
+    service_key text,
+    token_required integer default 1,
+    default_subscription_name text,
+    source_protocol text not null,
+    source_method text,
+    source_data_node_path text,
+    webservice_config_json text,
+    conversion_mode text not null,
+    field_mappings_json text,
+    raw_transformers_json text,
+    fixed_fields_json text,
+    body_bridge_options_json text,
+    request_passthrough_json text,
+    target_datasource_id integer,
+    target_datasource_name_snapshot text,
+    target_path text,
+    target_protocol text not null,
+    target_method text,
+    target_headers_json text,
+    target_query_json text,
+    target_webservice_config_json text,
+    target_body_template text,
+    target_data_node_path text,
+    payload_mode text,
+    batch_size integer default 1,
+    response_status_json text
+);
+
+create unique index if not exists uk_protocol_conversion_project_code
+    on protocol_conversion_service(tenant_id, project_id, service_code);
+create index if not exists idx_protocol_conversion_project_status
+    on protocol_conversion_service(project_id, status);
+create index if not exists idx_protocol_conversion_code_key
+    on protocol_conversion_service(service_code, service_key);
+
+create table if not exists protocol_conversion_subscription (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null,
+    subscription_name text not null,
+    token_hash text not null,
+    token_masked text,
+    enabled integer default 1,
+    created_by integer,
+    last_used_at text,
+    rotated_at text,
+    rotated_by integer
+);
+
+create index if not exists idx_protocol_conversion_sub_service_enabled
+    on protocol_conversion_subscription(service_id, enabled);
+create index if not exists idx_protocol_conversion_sub_token
+    on protocol_conversion_subscription(token_hash);
+
+create table if not exists protocol_conversion_access_log (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer,
+    service_code_snapshot text,
+    service_name_snapshot text,
+    service_status_snapshot text,
+    subscription_id integer,
+    subscription_name_snapshot text,
+    request_id text,
+    request_method text,
+    source_protocol_snapshot text,
+    target_protocol_snapshot text,
+    occurred_at text,
+    duration_ms integer,
+    success integer default 0,
+    http_status integer,
+    target_http_status integer,
+    error_code text,
+    error_message text,
+    system_log text,
+    client_ip text,
+    user_agent text,
+    received_count integer default 0,
+    success_count integer default 0,
+    failed_count integer default 0,
+    log_storage_type text,
+    log_object_bucket text,
+    log_object_key text,
+    log_size_bytes integer,
+    log_charset text,
+    log_archive_status text,
+    log_archive_error text
+);
+
+create index if not exists idx_protocol_conversion_access_project_time
+    on protocol_conversion_access_log(tenant_id, project_id, occurred_at);
+create index if not exists idx_protocol_conversion_access_service_time
+    on protocol_conversion_access_log(service_id, occurred_at);
+create index if not exists idx_protocol_conversion_access_subscription_time
+    on protocol_conversion_access_log(subscription_id, occurred_at);
+create index if not exists idx_protocol_conversion_access_success
+    on protocol_conversion_access_log(project_id, success, occurred_at);
+
+create table if not exists protocol_conversion_access_counter (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null default 0,
+    subscription_id integer not null default 0,
+    bucket_start text not null,
+    success integer not null default 0,
+    access_count integer default 0,
+    received_count integer default 0,
+    success_count integer default 0,
+    failed_count integer default 0
+);
+
+create unique index if not exists uk_protocol_conversion_access_counter
+    on protocol_conversion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success);
+create index if not exists idx_protocol_conversion_counter_project_bucket
+    on protocol_conversion_access_counter(tenant_id, project_id, bucket_start);
+create index if not exists idx_protocol_conversion_counter_service_bucket
+    on protocol_conversion_access_counter(service_id, bucket_start);
 
 create table if not exists data_dev_directory (
     id integer primary key,
