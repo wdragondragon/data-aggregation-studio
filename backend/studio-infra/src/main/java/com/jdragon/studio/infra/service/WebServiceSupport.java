@@ -37,6 +37,8 @@ final class WebServiceSupport {
     private static final String WSDL_NS = "http://schemas.xmlsoap.org/wsdl/";
     private static final String XSD_NS = "http://www.w3.org/2001/XMLSchema";
     private static final String SOAP_WSDL_NS = "http://schemas.xmlsoap.org/wsdl/soap/";
+    private static final String DATA_SERVICE_DOMAIN = "data-service";
+    private static final String DEFAULT_RESPONSE_DATA_NODE_PATH = "table.row";
 
     WebServiceConfig normalizeConfig(WebServiceConfig input, String domain, String serviceCode) {
         WebServiceConfig result = new WebServiceConfig();
@@ -51,6 +53,9 @@ final class WebServiceSupport {
         result.setRequestRootName(normalizeName(input == null ? null : input.getRequestRootName(), result.getOperationName()));
         result.setResponseRootName(normalizeName(input == null ? null : input.getResponseRootName(),
                 result.getOperationName() + "Response"));
+        result.setResponseDataNodePath(DATA_SERVICE_DOMAIN.equals(domain)
+                ? normalizeDataNodePath(input == null ? null : input.getResponseDataNodePath(), DEFAULT_RESPONSE_DATA_NODE_PATH)
+                : null);
         return result;
     }
 
@@ -130,7 +135,7 @@ final class WebServiceSupport {
         outputFields.add(new FieldSpec("pageNum", "int", "1"));
         outputFields.add(new FieldSpec("pageSize", "int", "10"));
         outputFields.add(new FieldSpec("pages", "long", "1"));
-        outputFields.add(new FieldSpec("table", "string", null));
+        outputFields.add(new FieldSpec(firstSegment(config.getResponseDataNodePath()), "string", null));
         return wsdl(service.getServiceName(), config, endpointPath, inputFields, outputFields);
     }
 
@@ -155,7 +160,7 @@ final class WebServiceSupport {
                 .append("\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">");
         builder.append("<soap:Body>");
         builder.append("<tns:").append(config.getResponseRootName()).append(">");
-        appendValue(builder, payload, "result");
+        appendValue(builder, responsePayload(config, payload), "result");
         builder.append("</tns:").append(config.getResponseRootName()).append(">");
         builder.append("</soap:Body></soap:Envelope>");
         return builder.toString();
@@ -267,6 +272,33 @@ final class WebServiceSupport {
         return root;
     }
 
+    private Object responsePayload(WebServiceConfig config, Object payload) {
+        if (config == null || !hasText(config.getResponseDataNodePath()) || !(payload instanceof Map<?, ?>)) {
+            return payload;
+        }
+        Map<String, Object> source = castMap((Map<?, ?>) payload);
+        Object rowsValue = readPath(source, "table.bodies");
+        if (!(rowsValue instanceof List<?>)) {
+            Object configuredValue = readPath(source, config.getResponseDataNodePath());
+            if (configuredValue instanceof List<?>) {
+                rowsValue = configuredValue;
+            } else if (configuredValue != null) {
+                List<Object> singleton = new ArrayList<Object>();
+                singleton.add(configuredValue);
+                rowsValue = singleton;
+            }
+        }
+        List<?> rows = rowsValue instanceof List<?> ? (List<?>) rowsValue : new ArrayList<Object>();
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            if (!"table".equals(entry.getKey())) {
+                result.put(entry.getKey(), entry.getValue());
+            }
+        }
+        putRepeatedPath(result, config.getResponseDataNodePath(), rows);
+        return result;
+    }
+
     private Map<String, Object> sampleIngestionResult(DataIngestionServiceView service) {
         Map<String, Object> root = new LinkedHashMap<String, Object>();
         root.put("requestId", "1");
@@ -347,12 +379,16 @@ final class WebServiceSupport {
 
     @SuppressWarnings("unchecked")
     private void appendValue(StringBuilder builder, Object value, String fallbackName) {
-        if (value instanceof Map<?, ?>) {
+        if (value instanceof RepeatedElements) {
+            appendRepeatedElements(builder, (RepeatedElements) value);
+        } else if (value instanceof Map<?, ?>) {
             Map<?, ?> map = (Map<?, ?>) value;
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 String key = normalizeName(String.valueOf(entry.getKey()), fallbackName);
                 Object child = entry.getValue();
-                if (child instanceof List<?>) {
+                if (child instanceof RepeatedElements) {
+                    appendRepeatedElements(builder, (RepeatedElements) child);
+                } else if (child instanceof List<?>) {
                     appendList(builder, key, (List<?>) child);
                 } else if (child == null) {
                     appendNilElement(builder, key);
@@ -366,6 +402,22 @@ final class WebServiceSupport {
             appendList(builder, fallbackName, (List<?>) value);
         } else if (value != null) {
             builder.append(escapeXml(String.valueOf(value)));
+        }
+    }
+
+    private void appendRepeatedElements(StringBuilder builder, RepeatedElements repeated) {
+        if (repeated == null || repeated.values == null || repeated.values.isEmpty()) {
+            appendNilElement(builder, repeated == null ? "item" : repeated.elementName);
+            return;
+        }
+        for (Object item : repeated.values) {
+            if (item == null) {
+                appendNilElement(builder, repeated.elementName);
+            } else {
+                builder.append('<').append(repeated.elementName).append('>');
+                appendValue(builder, item, repeated.elementName);
+                builder.append("</").append(repeated.elementName).append('>');
+            }
         }
     }
 
@@ -384,6 +436,53 @@ final class WebServiceSupport {
 
     private void appendNilElement(StringBuilder builder, String key) {
         builder.append('<').append(key).append(" xsi:nil=\"true\"/>");
+    }
+
+    @SuppressWarnings("unchecked")
+    private void putRepeatedPath(Map<String, Object> root, String path, List<?> values) {
+        List<String> segments = pathSegments(path);
+        if (segments.isEmpty()) {
+            return;
+        }
+        Map<String, Object> current = root;
+        for (int index = 0; index < segments.size() - 1; index++) {
+            String segment = segments.get(index);
+            Object next = current.get(segment);
+            if (!(next instanceof Map<?, ?>)) {
+                next = new LinkedHashMap<String, Object>();
+                current.put(segment, next);
+            }
+            current = (Map<String, Object>) next;
+        }
+        String elementName = segments.get(segments.size() - 1);
+        current.put(elementName, new RepeatedElements(elementName, values));
+    }
+
+    private Object readPath(Object source, String path) {
+        Object current = source;
+        for (String segment : pathSegments(path)) {
+            if (!(current instanceof Map<?, ?>)) {
+                return null;
+            }
+            current = castMap((Map<?, ?>) current).get(segment);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
+    }
+
+    private Map<String, Object> castMap(Map<?, ?> source) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (source == null) {
+            return result;
+        }
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() != null) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return result;
     }
 
     private Map<String, Object> childrenToMap(Element parent) {
@@ -539,6 +638,32 @@ final class WebServiceSupport {
         return hasText(value) ? value.trim() : defaultValue;
     }
 
+    private String normalizeDataNodePath(String value, String defaultValue) {
+        String raw = hasText(value) ? value.trim() : defaultValue;
+        List<String> segments = pathSegments(raw);
+        if (segments.isEmpty()) {
+            return defaultValue;
+        }
+        List<String> normalized = new ArrayList<String>();
+        for (String segment : segments) {
+            normalized.add(normalizeName(segment, "node"));
+        }
+        return String.join(".", normalized);
+    }
+
+    private List<String> pathSegments(String path) {
+        List<String> segments = new ArrayList<String>();
+        if (!hasText(path)) {
+            return segments;
+        }
+        for (String segment : path.trim().split("\\.")) {
+            if (hasText(segment)) {
+                segments.add(segment.trim());
+            }
+        }
+        return segments;
+    }
+
     private String normalizeName(String value, String defaultValue) {
         String raw = hasText(value) ? value.trim() : defaultValue;
         StringBuilder builder = new StringBuilder();
@@ -571,6 +696,16 @@ final class WebServiceSupport {
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
                 .replace("'", "&apos;");
+    }
+
+    private static final class RepeatedElements {
+        private final String elementName;
+        private final List<?> values;
+
+        private RepeatedElements(String elementName, List<?> values) {
+            this.elementName = elementName;
+            this.values = values;
+        }
     }
 
     private boolean hasText(String value) {

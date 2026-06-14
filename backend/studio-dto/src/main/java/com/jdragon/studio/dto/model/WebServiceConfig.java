@@ -12,4 +12,5 @@ public class WebServiceConfig {
     private String soapAction;
     private String requestRootName;
     private String responseRootName;
+    private String responseDataNodePath;
 }

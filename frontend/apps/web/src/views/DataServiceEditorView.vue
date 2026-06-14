@@ -96,12 +96,12 @@
       <div class="section-toolbar">
         <div>
           <strong>请求参数</strong>
-          <p>pageNum 与 pageSize 为固定分页参数，其他参数可从模型字段中选择。</p>
+          <p>pageNum 与 pageSize 为固定分页参数，其他参数绑定模型字段；如需对外改名，请在发布参数映射中调整。</p>
         </div>
         <el-button plain @click="addRequestParam">新增请求参数</el-button>
       </div>
       <el-table :data="form.requestParams" border>
-        <el-table-column label="参数名称" min-width="180">
+        <el-table-column label="绑定模型字段" min-width="180">
           <template #default="{ row }">
             <el-select v-if="!row.fixedParam" v-model="row.paramName" allow-create filterable default-first-option placeholder="参数名" @change="handleRequestParamNameChange(row)">
               <el-option v-for="field in fieldOptions" :key="field.fieldName" :label="field.fieldName" :value="field.fieldName" />
@@ -239,6 +239,9 @@
             <el-form-item label="响应根节点">
               <el-input v-model="form.webserviceConfig.responseRootName" :disabled="!form.webserviceEnabled" placeholder="默认 OperationResponse" />
             </el-form-item>
+            <el-form-item label="响应数据节点">
+              <el-input v-model="form.webserviceConfig.responseDataNodePath" :disabled="!form.webserviceEnabled" placeholder="默认 table.row" />
+            </el-form-item>
           </div>
           <el-form-item label="WSDL 地址">
             <el-input :model-value="webserviceWsdlUrl" readonly placeholder="保存并启用后可预览 WSDL">
@@ -273,7 +276,7 @@
         <el-table-column label="参数名称" min-width="160">
           <template #default="{ row }"><el-input v-model="row.frontendParamName" /></template>
         </el-table-column>
-        <el-table-column label="后端参数" min-width="150">
+        <el-table-column label="绑定请求参数" min-width="150">
           <template #default="{ row }"><el-input v-model="row.backendParamName" disabled /></template>
         </el-table-column>
         <el-table-column label="位置" width="130">
@@ -762,6 +765,7 @@ function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): We
     soapAction: config?.soapAction || "",
     requestRootName: config?.requestRootName || "",
     responseRootName: config?.responseRootName || "",
+    responseDataNodePath: config?.responseDataNodePath || "table.row",
   };
 }
 
@@ -816,6 +820,7 @@ function applyDetail(detail: DataServiceDefinitionView) {
     soapEnvelope.value = "";
   }
   fieldOptions.value = buildFieldsFromResponseParams(form.responseParams);
+  normalizeRequestParamAliases();
   ensureFixedParams();
   syncPublishParams();
   syncDebugTemplate({ notify: false });
@@ -921,6 +926,38 @@ function handleRequestParamNameChange(row: DataServiceRequestParam) {
   syncPublishParams();
 }
 
+function normalizeRequestParamAliases() {
+  const aliasMap = new Map<string, string>();
+  form.requestParams = (form.requestParams || []).map((param) => {
+    if (!param || param.fixedParam) {
+      return param;
+    }
+    const paramName = param.paramName?.trim() || "";
+    const fieldName = param.fieldName?.trim() || "";
+    const canonicalName = fieldName || paramName;
+    if (paramName && fieldName && paramName !== fieldName) {
+      aliasMap.set(paramName, fieldName);
+    }
+    return {
+      ...param,
+      paramName: canonicalName,
+      fieldName: canonicalName,
+    };
+  });
+  if (!aliasMap.size) {
+    return;
+  }
+  form.publishParams = (form.publishParams || []).map((param) => {
+    const nextBackendParamName = param.backendParamName ? aliasMap.get(param.backendParamName) : undefined;
+    return nextBackendParamName
+      ? {
+          ...param,
+          backendParamName: nextBackendParamName,
+        }
+      : param;
+  });
+}
+
 function ensureFixedParams() {
   const custom = (form.requestParams || []).filter((item) => item && item.paramName !== "pageNum" && item.paramName !== "pageSize");
   form.requestParams = [...defaultFixedParams(), ...custom].map((item, index) => ({
@@ -1004,6 +1041,7 @@ function saveResponseTransformers(transformers: TransformerBinding[]) {
 async function saveService() {
   saving.value = true;
   try {
+    normalizeRequestParamAliases();
     ensureFixedParams();
     syncPublishParams();
     const saved = await studioApi.dataServices.save({
@@ -1036,6 +1074,7 @@ function normalizeWebServiceConfigForSave(): WebServiceConfig {
     soapAction: config.soapAction?.trim() || undefined,
     requestRootName: config.requestRootName?.trim() || undefined,
     responseRootName: config.responseRootName?.trim() || undefined,
+    responseDataNodePath: config.responseDataNodePath?.trim() || "table.row",
   };
 }
 

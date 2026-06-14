@@ -355,6 +355,7 @@ export interface WebServiceConfig {
   soapAction?: string;
   requestRootName?: string;
   responseRootName?: string;
+  responseDataNodePath?: string;
 }
 
 export interface WebServicePreviewView {
