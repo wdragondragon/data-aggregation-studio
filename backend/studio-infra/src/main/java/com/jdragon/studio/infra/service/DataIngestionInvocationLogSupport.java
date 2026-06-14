@@ -6,6 +6,7 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.PatternLayout;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
@@ -20,7 +21,7 @@ import java.util.regex.Pattern;
 
 final class DataIngestionInvocationLogSupport {
 
-    static final String MDC_KEY = "dataIngestionRequestId";
+    static final String MDC_KEY = StudioConstants.MDC_DATA_INGESTION_REQUEST_ID;
     static final int MAX_LOG_CHARS = 1024 * 1024;
     private static final Object LEVEL_LOCK = new Object();
     private static final Map<Logger, LevelReference> LEVEL_REFERENCES = new IdentityHashMap<Logger, LevelReference>();

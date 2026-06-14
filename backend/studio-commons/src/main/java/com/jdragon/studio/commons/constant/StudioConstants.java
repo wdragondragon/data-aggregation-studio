@@ -60,6 +60,8 @@ public final class StudioConstants {
     public static final long WORKER_HEARTBEAT_TIMEOUT_SECONDS = 30L;
     public static final String MDC_RUN_LOG_ID = "runLogId";
     public static final String MDC_RUN_LOG_PATH = "runLogPath";
+    public static final String MDC_OPEN_SERVICE_INVOCATION_LOG_ID = "studioInvocationLogId";
+    public static final String MDC_DATA_INGESTION_REQUEST_ID = "dataIngestionRequestId";
 
     private StudioConstants() {
     }
