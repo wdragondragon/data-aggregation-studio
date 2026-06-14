@@ -185,8 +185,8 @@ public class NotificationService {
                 entity.setTenantId(command.getTargetTenantId());
                 entity.setProjectId(command.getTargetProjectId());
                 entity.setCategory(command.getCategory());
-                entity.setTitle(command.getTitle());
-                entity.setContent(command.getContent());
+                entity.setTitle(NotificationTextSanitizer.sanitize(command.getTitle()));
+                entity.setContent(NotificationTextSanitizer.sanitize(command.getContent()));
                 entity.setTargetType(command.getTargetType());
                 entity.setTargetId(command.getTargetId());
                 entity.setTargetPath(command.getTargetPath());
@@ -319,8 +319,8 @@ public class NotificationService {
         NotificationView view = new NotificationView();
         view.setId(entity.getId());
         view.setCategory(entity.getCategory());
-        view.setTitle(entity.getTitle());
-        view.setContent(entity.getContent());
+        view.setTitle(NotificationTextSanitizer.sanitize(entity.getTitle()));
+        view.setContent(NotificationTextSanitizer.sanitize(entity.getContent()));
         view.setTargetType(entity.getTargetType());
         view.setTargetId(entity.getTargetId());
         view.setTargetPath(entity.getTargetPath());
