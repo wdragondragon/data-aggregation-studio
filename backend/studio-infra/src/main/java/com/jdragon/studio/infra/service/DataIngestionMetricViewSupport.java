@@ -41,6 +41,13 @@ final class DataIngestionMetricViewSupport {
         view.setReceivedCount(entity.getReceivedCount());
         view.setSuccessCount(entity.getSuccessCount());
         view.setFailedCount(entity.getFailedCount());
+        view.setLogStorageType(entity.getLogStorageType());
+        view.setLogObjectBucket(entity.getLogObjectBucket());
+        view.setLogObjectKey(entity.getLogObjectKey());
+        view.setLogSizeBytes(entity.getLogSizeBytes());
+        view.setLogCharset(entity.getLogCharset());
+        view.setLogArchiveStatus(entity.getLogArchiveStatus());
+        view.setLogArchiveError(entity.getLogArchiveError());
         return view;
     }
 

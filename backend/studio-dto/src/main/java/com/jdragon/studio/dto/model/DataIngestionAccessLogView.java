@@ -28,4 +28,11 @@ public class DataIngestionAccessLogView extends BaseDefinition {
     private Long receivedCount;
     private Long successCount;
     private Long failedCount;
+    private String logStorageType;
+    private String logObjectBucket;
+    private String logObjectKey;
+    private Long logSizeBytes;
+    private String logCharset;
+    private String logArchiveStatus;
+    private String logArchiveError;
 }

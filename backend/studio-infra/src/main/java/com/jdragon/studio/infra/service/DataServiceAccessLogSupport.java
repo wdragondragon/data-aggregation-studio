@@ -33,6 +33,7 @@ final class DataServiceAccessLogSupport {
     void recordAccessLog(DataServiceDefinitionEntity service,
                          DataServiceSubscriptionEntity subscription,
                          String defaultSubscriptionName,
+                         String requestId,
                          String requestMethod,
                          LocalDateTime occurredAt,
                          long startedAt,
@@ -40,11 +41,13 @@ final class DataServiceAccessLogSupport {
                          int httpStatus,
                          String errorCode,
                          String errorMessage,
+                         String systemLog,
                          String clientIp,
                          String userAgent,
                          boolean cacheEnabled,
                          boolean cacheHit,
-                         long rowCount) {
+                         long rowCount,
+                         OpenServiceInvocationLogService.ArchiveResult archiveResult) {
         try {
             DataServiceAccessLogEntity entity = new DataServiceAccessLogEntity();
             entity.setTenantId(service == null || !invocationSupport.hasText(service.getTenantId()) ? StudioConstants.DEFAULT_TENANT_ID : service.getTenantId());
@@ -55,6 +58,7 @@ final class DataServiceAccessLogSupport {
             entity.setServiceStatusSnapshot(service == null ? null : service.getStatus());
             entity.setSubscriptionId(subscription == null ? null : subscription.getId());
             entity.setSubscriptionNameSnapshot(subscription == null ? defaultSubscriptionName : subscription.getSubscriptionName());
+            entity.setRequestId(truncate(requestId, 128));
             entity.setRequestMethod(invocationSupport.hasText(requestMethod) ? requestMethod.toUpperCase(Locale.ROOT) : null);
             entity.setOccurredAt(occurredAt == null ? LocalDateTime.now() : occurredAt);
             entity.setDurationMs(Long.valueOf(Math.max(0L, (System.nanoTime() - startedAt) / 1000000L)));
@@ -62,11 +66,13 @@ final class DataServiceAccessLogSupport {
             entity.setHttpStatus(Integer.valueOf(httpStatus));
             entity.setErrorCode(truncate(errorCode, 128));
             entity.setErrorMessage(truncate(errorMessage, 1000));
+            entity.setSystemLog(truncate(systemLog, 20000));
             entity.setClientIp(truncate(clientIp, 128));
             entity.setUserAgent(truncate(userAgent, 500));
             entity.setCacheEnabled(cacheEnabled ? Integer.valueOf(1) : Integer.valueOf(0));
             entity.setCacheHit(cacheHit ? Integer.valueOf(1) : Integer.valueOf(0));
             entity.setRowCount(Long.valueOf(Math.max(0L, rowCount)));
+            applyArchiveResult(entity, archiveResult);
             accessLogMapper.insert(entity);
             recordAccessCounter(entity);
         } catch (RuntimeException ex) {
@@ -121,5 +127,18 @@ final class DataServiceAccessLogSupport {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private void applyArchiveResult(DataServiceAccessLogEntity entity, OpenServiceInvocationLogService.ArchiveResult archiveResult) {
+        if (entity == null || archiveResult == null) {
+            return;
+        }
+        entity.setLogStorageType(archiveResult.getLogStorageType());
+        entity.setLogObjectBucket(archiveResult.getLogObjectBucket());
+        entity.setLogObjectKey(archiveResult.getLogObjectKey());
+        entity.setLogSizeBytes(archiveResult.getLogSizeBytes());
+        entity.setLogCharset(archiveResult.getLogCharset());
+        entity.setLogArchiveStatus(archiveResult.getLogArchiveStatus());
+        entity.setLogArchiveError(truncate(archiveResult.getLogArchiveError(), 1000));
     }
 }

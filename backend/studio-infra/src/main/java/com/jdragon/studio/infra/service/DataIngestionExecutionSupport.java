@@ -122,7 +122,7 @@ final class DataIngestionExecutionSupport {
         Future<?> future = executor.submit(new Runnable() {
             @Override
             public void run() {
-                DataIngestionInvocationLogSupport.withMdc(logCaptureId, new Runnable() {
+                OpenServiceInvocationLogSupport.withMdc(logCaptureId, new Runnable() {
                     @Override
                     public void run() {
                         try {

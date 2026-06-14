@@ -96,6 +96,12 @@ studio:
       region: ${STUDIO_RUN_LOG_OBJECT_REGION:}
       prefix: ${STUDIO_RUN_LOG_OBJECT_PREFIX:studio/run-logs}
       create-bucket: ${STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET:true}
+  invocation-log:
+    enabled: ${STUDIO_INVOCATION_LOG_ENABLED:true}
+    storage-type: ${STUDIO_INVOCATION_LOG_STORAGE_TYPE:}
+    object-prefix: ${STUDIO_INVOCATION_LOG_OBJECT_PREFIX:studio/invocation-logs}
+    max-log-chars: ${STUDIO_INVOCATION_LOG_MAX_LOG_CHARS:1048576}
+    max-body-chars: ${STUDIO_INVOCATION_LOG_MAX_BODY_CHARS:65536}
   python:
     executable: ${STUDIO_PYTHON_EXECUTABLE:}
     execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}

@@ -28,6 +28,7 @@ import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataServiceResponseCacheService;
 import com.jdragon.studio.infra.service.DataServiceService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
@@ -161,7 +162,8 @@ class SubscriptionTokenRotationRegressionTest {
                 securityService,
                 accessService,
                 mock(DataServiceResponseCacheService.class),
-                new StudioTransformerSupport(new ObjectMapper())
+                new StudioTransformerSupport(new ObjectMapper()),
+                mock(OpenServiceInvocationLogService.class)
         );
     }
 
@@ -181,7 +183,8 @@ class SubscriptionTokenRotationRegressionTest {
                 accessService,
                 mock(PluginRuntimeOptionSchemaService.class),
                 mock(CollectionTaskAssemblerService.class),
-                new ObjectMapper()
+                new ObjectMapper(),
+                mock(OpenServiceInvocationLogService.class)
         );
     }
 

@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -70,6 +71,8 @@ public class DataServiceService {
     private final DataServiceInvocationSupport dataServiceInvocationSupport = new DataServiceInvocationSupport();
     private final DataServiceParamSupport dataServiceParamSupport;
     private final DataServiceAccessLogSupport dataServiceAccessLogSupport;
+    private final OpenServiceInvocationLogService invocationLogService;
+    private final OpenServiceInvocationLogSupport invocationLogSupport;
     private final DataServiceTokenSupport dataServiceTokenSupport = new DataServiceTokenSupport();
     private final WebServiceSupport webServiceSupport = new WebServiceSupport();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -87,7 +90,8 @@ public class DataServiceService {
                               StudioSecurityService securityService,
                               ProjectResourceAccessService projectResourceAccessService,
                               DataServiceResponseCacheService responseCacheService,
-                              StudioTransformerSupport transformerSupport) {
+                              StudioTransformerSupport transformerSupport,
+                              OpenServiceInvocationLogService invocationLogService) {
         this.definitionMapper = definitionMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.dataSourceService = dataSourceService;
@@ -97,6 +101,8 @@ public class DataServiceService {
         this.projectResourceAccessService = projectResourceAccessService;
         this.responseCacheService = responseCacheService;
         this.transformerSupport = transformerSupport;
+        this.invocationLogService = invocationLogService;
+        this.invocationLogSupport = new OpenServiceInvocationLogSupport();
         this.dataServiceParamSupport = new DataServiceParamSupport(requestParamMapper, responseParamMapper, publishParamMapper, dataServiceInvocationSupport, transformerSupport);
         this.dataServiceAccessLogSupport = new DataServiceAccessLogSupport(accessLogMapper, accessCounterMapper, dataServiceInvocationSupport);
     }
@@ -225,10 +231,11 @@ public class DataServiceService {
         }
 
         DataServiceResolveFieldsView resolvedFields = resolveFieldsForDefinition(sourceType, datasource, model, normalizedSql);
+        Map<String, String> requestParamAliases = dataServiceParamSupport.requestParamAliases(request.getRequestParams());
         List<DataServiceRequestParamView> requestParams = dataServiceParamSupport.normalizeRequestParams(request.getRequestParams());
         List<DataServiceResponseParamView> responseParams = dataServiceParamSupport.normalizeResponseParams(request.getResponseParams(), resolvedFields.getResponseParams());
         transformerSupport.validateOnlineResponseTransformers(responseParams);
-        List<DataServicePublishParamView> publishParams = dataServiceParamSupport.normalizePublishParams(request.getPublishParams(), requestParams, requestMethod);
+        List<DataServicePublishParamView> publishParams = dataServiceParamSupport.normalizePublishParams(request.getPublishParams(), requestParams, requestMethod, requestParamAliases);
         dataServiceParamSupport.saveChildren(entity.getId(), requestParams, responseParams, publishParams);
         return get(entity.getId());
     }
@@ -382,8 +389,10 @@ public class DataServiceService {
                                       String userAgent) {
         long startedAt = System.nanoTime();
         LocalDateTime occurredAt = LocalDateTime.now();
+        String requestId = newRequestId();
         DataServiceDefinitionEntity entity = null;
         DataServiceSubscriptionEntity subscription = null;
+        DataServiceExecutionResult result = null;
         boolean success = false;
         int httpStatus = 200;
         String errorCode = null;
@@ -391,6 +400,9 @@ public class DataServiceService {
         boolean cacheEnabled = false;
         boolean cacheHit = false;
         long rowCount = 0L;
+        OpenServiceInvocationLogSupport.LogScope logScope = invocationLogSupport.open(requestId,
+                OpenServiceInvocationLogService.DOMAIN_DATA_SERVICES,
+                null);
         try {
             entity = definitionMapper.selectOne(new LambdaQueryWrapper<DataServiceDefinitionEntity>()
                     .eq(DataServiceDefinitionEntity::getServiceCode, dataServiceInvocationSupport.normalizeRequiredText(serviceCode, "Service code is required"))
@@ -401,7 +413,7 @@ public class DataServiceService {
             }
             cacheEnabled = Integer.valueOf(1).equals(entity.getCacheEnabled());
             subscription = resolveInvocationSubscription(entity, token);
-            DataServiceExecutionResult result = execute(toView(entity, true), headers, query, body, true);
+            result = execute(toView(entity, true), headers, query, body, true);
             success = true;
             cacheHit = result.cacheHit;
             rowCount = result.rowCount;
@@ -417,8 +429,21 @@ public class DataServiceService {
             errorMessage = ex.getMessage();
             throw ex;
         } finally {
-            dataServiceAccessLogSupport.recordAccessLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestMethod, occurredAt, startedAt, success, httpStatus,
-                    errorCode, errorMessage, clientIp, userAgent, cacheEnabled, cacheHit, rowCount);
+            if (logScope != null) {
+                logScope.close();
+            }
+            String capturedLog = logScope == null ? null : logScope.content();
+            String systemLog = buildInvocationSystemLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod,
+                    occurredAt, startedAt, success, httpStatus, errorCode, errorMessage, cacheEnabled, cacheHit, rowCount);
+            String archiveContent = buildInvocationArchiveLog(systemLog, headers, query, body, result == null ? null : result.data, capturedLog);
+            OpenServiceInvocationLogService.ArchiveResult archiveResult = invocationLogService.archive(
+                    OpenServiceInvocationLogService.DOMAIN_DATA_SERVICES,
+                    "data-service",
+                    requestId,
+                    occurredAt,
+                    archiveContent);
+            dataServiceAccessLogSupport.recordAccessLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod, occurredAt, startedAt, success, httpStatus,
+                    errorCode, errorMessage, systemLog, clientIp, userAgent, cacheEnabled, cacheHit, rowCount, archiveResult);
         }
     }
 
@@ -514,6 +539,71 @@ public class DataServiceService {
         entity.setEnabled(1);
         subscriptionMapper.updateById(entity);
         return toSubscriptionView(entity, null);
+    }
+
+    private String buildInvocationSystemLog(DataServiceDefinitionEntity service,
+                                            DataServiceSubscriptionEntity subscription,
+                                            String defaultSubscriptionName,
+                                            String requestId,
+                                            String requestMethod,
+                                            LocalDateTime occurredAt,
+                                            long startedAt,
+                                            boolean success,
+                                            int httpStatus,
+                                            String errorCode,
+                                            String errorMessage,
+                                            boolean cacheEnabled,
+                                            boolean cacheHit,
+                                            long rowCount) {
+        Map<String, Object> values = new LinkedHashMap<String, Object>();
+        values.put("requestId", requestId);
+        values.put("occurredAt", occurredAt == null ? null : occurredAt.toString());
+        values.put("requestMethod", requestMethod);
+        values.put("serviceCode", service == null ? null : service.getServiceCode());
+        values.put("serviceName", service == null ? null : service.getServiceName());
+        values.put("serviceStatus", service == null ? null : service.getStatus());
+        values.put("subscription", subscription == null ? defaultSubscriptionName : subscription.getSubscriptionName());
+        values.put("datasource", service == null ? null : service.getDatasourceNameSnapshot());
+        values.put("datasourceType", service == null ? null : service.getDatasourceTypeCode());
+        values.put("model", service == null ? null : service.getModelNameSnapshot());
+        values.put("sourceType", service == null ? null : service.getSourceType());
+        values.put("cacheEnabled", cacheEnabled);
+        values.put("cacheHit", cacheHit);
+        values.put("rowCount", rowCount);
+        values.put("httpStatus", httpStatus);
+        values.put("result", success ? "SUCCESS" : "FAILED");
+        if (dataServiceInvocationSupport.hasText(errorCode) || dataServiceInvocationSupport.hasText(errorMessage)) {
+            values.put("error", joinError(errorCode, errorMessage));
+        }
+        values.put("durationMs", Math.max(0L, (System.nanoTime() - startedAt) / 1000000L));
+        return invocationLogService.summaryLog("Invocation Summary", values);
+    }
+
+    private String buildInvocationArchiveLog(String systemLog,
+                                             Map<String, Object> headers,
+                                             Map<String, Object> query,
+                                             Map<String, Object> body,
+                                             Object responseBody,
+                                             String capturedLog) {
+        StringBuilder builder = new StringBuilder(4096);
+        invocationLogService.appendSection(builder, "Invocation Summary", systemLog);
+        invocationLogService.appendSection(builder, "Request Headers", invocationLogService.previewValue(invocationLogService.sanitizeHeaders(headers)));
+        invocationLogService.appendSection(builder, "Request Query", invocationLogService.previewValue(query));
+        invocationLogService.appendSection(builder, "Request Body", invocationLogService.previewValue(body));
+        invocationLogService.appendSection(builder, "Response Body", invocationLogService.previewValue(responseBody));
+        invocationLogService.appendSection(builder, "Captured Console Logs",
+                dataServiceInvocationSupport.hasText(capturedLog) ? capturedLog : "No console log was captured for this invocation.");
+        return builder.toString();
+    }
+
+    private String joinError(String errorCode, String errorMessage) {
+        String code = dataServiceInvocationSupport.hasText(errorCode) ? errorCode.trim() : "";
+        String message = dataServiceInvocationSupport.hasText(errorMessage) ? errorMessage.trim() : "";
+        return (code + " " + message).trim();
+    }
+
+    private String newRequestId() {
+        return String.valueOf(IdWorker.getId());
     }
 
     private DataServiceExecutionResult execute(DataServiceDefinitionView service,

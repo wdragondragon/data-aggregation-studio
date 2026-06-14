@@ -14,6 +14,7 @@ public class DataServiceAccessLogView extends BaseDefinition {
     private String serviceStatus;
     private Long subscriptionId;
     private String subscriptionName;
+    private String requestId;
     private String requestMethod;
     private LocalDateTime occurredAt;
     private Long durationMs;
@@ -21,9 +22,17 @@ public class DataServiceAccessLogView extends BaseDefinition {
     private Integer httpStatus;
     private String errorCode;
     private String errorMessage;
+    private String systemLog;
     private String clientIp;
     private String userAgent;
     private Boolean cacheEnabled;
     private Boolean cacheHit;
     private Long rowCount;
+    private String logStorageType;
+    private String logObjectBucket;
+    private String logObjectKey;
+    private Long logSizeBytes;
+    private String logCharset;
+    private String logArchiveStatus;
+    private String logArchiveError;
 }

@@ -27,6 +27,7 @@ public class StudioPlatformProperties {
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
     private DispatchProperties dispatch = new DispatchProperties();
     private RunLogProperties runLog = new RunLogProperties();
+    private InvocationLogProperties invocationLog = new InvocationLogProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -70,6 +71,15 @@ public class StudioPlatformProperties {
     public static class RunLogProperties {
         private String storageType = "LOCAL";
         private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
+    }
+
+    @Data
+    public static class InvocationLogProperties {
+        private boolean enabled = true;
+        private String storageType;
+        private String objectPrefix = "studio/invocation-logs";
+        private Integer maxLogChars = 1024 * 1024;
+        private Integer maxBodyChars = 64 * 1024;
     }
 
     @Data

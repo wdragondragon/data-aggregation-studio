@@ -48,6 +48,27 @@ final class DataServiceParamSupport {
         return result;
     }
 
+    Map<String, String> requestParamAliases(List<DataServiceRequestParamView> input) {
+        Map<String, String> aliases = new LinkedHashMap<String, String>();
+        if (input == null) {
+            return aliases;
+        }
+        for (DataServiceRequestParamView item : input) {
+            if (item == null || invocationSupport.isPageParam(item.getParamName())) {
+                continue;
+            }
+            if (!invocationSupport.hasText(item.getParamName()) || !invocationSupport.hasText(item.getFieldName())) {
+                continue;
+            }
+            String paramName = item.getParamName().trim();
+            String fieldName = item.getFieldName().trim();
+            if (!paramName.equals(fieldName)) {
+                aliases.put(paramName, fieldName);
+            }
+        }
+        return aliases;
+    }
+
     List<DataServiceResponseParamView> defaultResponseParams(List<DataServiceFieldView> fields) {
         List<DataServiceResponseParamView> result = new ArrayList<DataServiceResponseParamView>();
         int order = 1;
@@ -75,10 +96,11 @@ final class DataServiceParamSupport {
                     continue;
                 }
                 String paramName = invocationSupport.normalizeRequiredText(item.getParamName(), "Request parameter name is required");
+                String fieldName = invocationSupport.hasText(item.getFieldName()) ? item.getFieldName().trim() : paramName;
                 DataServiceRequestParamView view = new DataServiceRequestParamView();
                 view.setSortOrder(item.getSortOrder() == null ? Integer.valueOf(order) : item.getSortOrder());
-                view.setParamName(paramName);
-                view.setFieldName(invocationSupport.hasText(item.getFieldName()) ? item.getFieldName().trim() : paramName);
+                view.setParamName(fieldName);
+                view.setFieldName(fieldName);
                 view.setValueType(item.getValueType() == null ? DataServiceValueType.STRING : item.getValueType());
                 view.setQueryOperator(item.getQueryOperator() == null ? DataServiceQueryOperator.EQ : item.getQueryOperator());
                 view.setRequired(Boolean.TRUE.equals(item.getRequired()));
@@ -121,14 +143,20 @@ final class DataServiceParamSupport {
     }
 
     List<DataServicePublishParamView> normalizePublishParams(List<DataServicePublishParamView> input,
-                                                             List<DataServiceRequestParamView> requestParams,
-                                                             DataServiceRequestMethod requestMethod) {
+                                                              List<DataServiceRequestParamView> requestParams,
+                                                              DataServiceRequestMethod requestMethod,
+                                                              Map<String, String> requestParamAliases) {
         List<DataServicePublishParamView> result = new ArrayList<DataServicePublishParamView>();
         Map<String, DataServicePublishParamView> existing = new LinkedHashMap<String, DataServicePublishParamView>();
         if (input != null) {
             for (DataServicePublishParamView item : input) {
                 if (item != null && invocationSupport.hasText(item.getBackendParamName())) {
-                    existing.put(item.getBackendParamName(), item);
+                    String backendParamName = item.getBackendParamName().trim();
+                    existing.put(backendParamName, item);
+                    String canonicalParamName = requestParamAliases == null ? null : requestParamAliases.get(backendParamName);
+                    if (invocationSupport.hasText(canonicalParamName)) {
+                        existing.putIfAbsent(canonicalParamName, item);
+                    }
                 }
             }
         }

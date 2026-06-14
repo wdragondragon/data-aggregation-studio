@@ -70,8 +70,31 @@ public class RunLogStorageService {
         if (entity == null || !StringUtils.hasText(entity.getLogObjectBucket()) || !StringUtils.hasText(entity.getLogObjectKey())) {
             throw new IllegalStateException("Run log object metadata is missing");
         }
-        byte[] bytes = objectStore.get(entity.getLogObjectBucket(), entity.getLogObjectKey());
-        Charset charset = Charset.forName(StringUtils.hasText(entity.getLogCharset()) ? entity.getLogCharset() : StandardCharsets.UTF_8.name());
+        return readObjectLog(entity.getId(),
+                entity.getLogObjectBucket(),
+                entity.getLogObjectKey(),
+                entity.getLogCharset(),
+                downloadName(entity),
+                entity.getUpdatedAt(),
+                pageNo,
+                pageSizeBytes,
+                full);
+    }
+
+    public RunLogView readObjectLog(Long ownerId,
+                                    String bucket,
+                                    String objectKey,
+                                    String charsetName,
+                                    String downloadName,
+                                    LocalDateTime updatedAt,
+                                    Integer pageNo,
+                                    Integer pageSizeBytes,
+                                    boolean full) {
+        if (!StringUtils.hasText(bucket) || !StringUtils.hasText(objectKey)) {
+            throw new IllegalStateException("Log object metadata is missing");
+        }
+        byte[] bytes = objectStore.get(bucket, objectKey);
+        Charset charset = Charset.forName(StringUtils.hasText(charsetName) ? charsetName : StandardCharsets.UTF_8.name());
         int safePageSizeBytes = normalizePageSizeBytes(pageSizeBytes == null || pageSizeBytes.intValue() <= 0
                 ? DEFAULT_PAGE_BYTES
                 : pageSizeBytes.intValue());
@@ -80,15 +103,15 @@ public class RunLogStorageService {
         byte[] pageBytes = full ? bytes : slice(bytes, safePageNo, safePageSizeBytes, charset);
 
         RunLogView view = new RunLogView();
-        view.setRunRecordId(entity.getId());
+        view.setRunRecordId(ownerId);
         view.setCharset(charset.name());
         view.setContentType("text/plain;charset=" + charset.name());
         view.setContent(new String(pageBytes, charset));
         view.setSizeBytes(Long.valueOf(bytes.length));
         view.setTruncated(false);
         view.setPaged(!full && totalPages > 1);
-        view.setUpdatedAt(entity.getUpdatedAt() == null ? LocalDateTime.now() : entity.getUpdatedAt());
-        view.setDownloadName(downloadName(entity));
+        view.setUpdatedAt(updatedAt == null ? LocalDateTime.now() : updatedAt);
+        view.setDownloadName(StringUtils.hasText(downloadName) ? downloadName : defaultDownloadName(ownerId));
         view.setHistoricalFallback(false);
         view.setPageNo(Integer.valueOf(safePageNo));
         view.setTotalPages(Integer.valueOf(totalPages));
@@ -190,6 +213,10 @@ public class RunLogStorageService {
             return index >= 0 ? path.substring(index + 1) : path;
         }
         return "run-" + entity.getId() + ".log";
+    }
+
+    private String defaultDownloadName(Long ownerId) {
+        return "log-" + (ownerId == null ? "unknown" : ownerId) + ".log";
     }
 
     private String trimSlashes(String value) {

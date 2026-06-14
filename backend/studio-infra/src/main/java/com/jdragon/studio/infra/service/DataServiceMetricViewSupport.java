@@ -27,6 +27,7 @@ final class DataServiceMetricViewSupport {
         view.setServiceStatus(entity.getServiceStatusSnapshot());
         view.setSubscriptionId(entity.getSubscriptionId());
         view.setSubscriptionName(entity.getSubscriptionNameSnapshot());
+        view.setRequestId(entity.getRequestId());
         view.setRequestMethod(entity.getRequestMethod());
         view.setOccurredAt(entity.getOccurredAt());
         view.setDurationMs(entity.getDurationMs());
@@ -34,11 +35,19 @@ final class DataServiceMetricViewSupport {
         view.setHttpStatus(entity.getHttpStatus());
         view.setErrorCode(entity.getErrorCode());
         view.setErrorMessage(entity.getErrorMessage());
+        view.setSystemLog(entity.getSystemLog());
         view.setClientIp(entity.getClientIp());
         view.setUserAgent(entity.getUserAgent());
         view.setCacheEnabled(Integer.valueOf(1).equals(entity.getCacheEnabled()));
         view.setCacheHit(Integer.valueOf(1).equals(entity.getCacheHit()));
         view.setRowCount(entity.getRowCount());
+        view.setLogStorageType(entity.getLogStorageType());
+        view.setLogObjectBucket(entity.getLogObjectBucket());
+        view.setLogObjectKey(entity.getLogObjectKey());
+        view.setLogSizeBytes(entity.getLogSizeBytes());
+        view.setLogCharset(entity.getLogCharset());
+        view.setLogArchiveStatus(entity.getLogArchiveStatus());
+        view.setLogArchiveError(entity.getLogArchiveError());
         return view;
     }
 

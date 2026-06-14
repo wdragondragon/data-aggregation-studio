@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
 import com.jdragon.studio.infra.service.DataIngestionService;
+import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
 
 class DataIngestionFlexibleSourceParsingTest {
 
@@ -79,7 +81,8 @@ class DataIngestionFlexibleSourceParsingTest {
                 null,
                 null,
                 null,
-                new ObjectMapper());
+                new ObjectMapper(),
+                mock(OpenServiceInvocationLogService.class));
     }
 
     private static DataIngestionFieldMapping mapping(DataIngestionSourcePosition position, String field) {

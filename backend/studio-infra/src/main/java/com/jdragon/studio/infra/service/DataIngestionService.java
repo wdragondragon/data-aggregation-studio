@@ -73,7 +73,8 @@ public class DataIngestionService {
     private final DataIngestionAccessLogSupport accessLogSupport;
     private final DataIngestionExecutionSupport executionSupport;
     private final DataIngestionFieldSupport fieldSupport;
-    private final DataIngestionInvocationLogSupport invocationLogSupport;
+    private final OpenServiceInvocationLogSupport invocationLogSupport;
+    private final OpenServiceInvocationLogService invocationLogService;
     private final WebServiceSupport webServiceSupport = new WebServiceSupport();
 
     public DataIngestionService(DataIngestionServiceMapper serviceMapper,
@@ -87,7 +88,8 @@ public class DataIngestionService {
                                 ProjectResourceAccessService projectResourceAccessService,
                                 PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService,
                                 CollectionTaskAssemblerService collectionTaskAssemblerService,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                OpenServiceInvocationLogService invocationLogService) {
         this.serviceMapper = serviceMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.dataSourceService = dataSourceService;
@@ -99,7 +101,8 @@ public class DataIngestionService {
         this.accessLogSupport = new DataIngestionAccessLogSupport(accessLogMapper, accessCounterMapper);
         this.executionSupport = new DataIngestionExecutionSupport(collectionTaskAssemblerService, objectMapper);
         this.fieldSupport = new DataIngestionFieldSupport(sqlExecutor);
-        this.invocationLogSupport = new DataIngestionInvocationLogSupport();
+        this.invocationLogSupport = new OpenServiceInvocationLogSupport();
+        this.invocationLogService = invocationLogService;
     }
 
     public PageView<DataIngestionServiceView> list(Integer pageNo,
@@ -355,7 +358,9 @@ public class DataIngestionService {
         String errorCode = null;
         String errorMessage = null;
         Long jobId = IdWorker.getId();
-        DataIngestionInvocationLogSupport.LogScope logScope = invocationLogSupport.open(requestId, jobId);
+        OpenServiceInvocationLogSupport.LogScope logScope = invocationLogSupport.open(requestId,
+                OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
+                jobId);
         try {
             entity = serviceMapper.selectOne(new LambdaQueryWrapper<DataIngestionServiceEntity>()
                     .eq(DataIngestionServiceEntity::getServiceCode, normalizeRequiredText(serviceCode, "Service code is required"))
@@ -387,9 +392,16 @@ public class DataIngestionService {
             }
             String capturedLog = logScope == null ? null : logScope.content();
             String systemLog = buildInvocationSystemLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod,
-                    occurredAt, startedAt, success, httpStatus, errorCode, errorMessage, receivedCount, successCount, failedCount, capturedLog);
+                    occurredAt, startedAt, success, httpStatus, errorCode, errorMessage, receivedCount, successCount, failedCount);
+            String archiveContent = buildInvocationArchiveLog(systemLog, headers, query, form, body, result, capturedLog);
+            OpenServiceInvocationLogService.ArchiveResult archiveResult = invocationLogService.archive(
+                    OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
+                    "data-ingestion",
+                    requestId,
+                    occurredAt,
+                    archiveContent);
             accessLogSupport.recordAccessLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod, occurredAt, startedAt, success,
-                    httpStatus, errorCode, errorMessage, systemLog, clientIp, userAgent, receivedCount, successCount, failedCount);
+                    httpStatus, errorCode, errorMessage, systemLog, clientIp, userAgent, receivedCount, successCount, failedCount, archiveResult);
         }
     }
 
@@ -732,54 +744,50 @@ public class DataIngestionService {
                                             String errorMessage,
                                             long receivedCount,
                                             long successCount,
-                                            long failedCount,
-                                            String capturedLog) {
-        long durationMs = Math.max(0L, (System.nanoTime() - startedAt) / 1000000L);
-        StringBuilder builder = new StringBuilder(4096);
-        builder.append("Invocation Summary").append(System.lineSeparator());
-        builder.append("------------------").append(System.lineSeparator());
-        appendSystemLogLine(builder, "requestId", requestId);
-        appendSystemLogLine(builder, "occurredAt", occurredAt == null ? null : occurredAt.toString());
-        appendSystemLogLine(builder, "requestMethod", requestMethod);
-        appendSystemLogLine(builder, "serviceCode", service == null ? null : service.getServiceCode());
-        appendSystemLogLine(builder, "serviceName", service == null ? null : service.getServiceName());
-        appendSystemLogLine(builder, "serviceStatus", service == null ? null : service.getStatus());
-        appendSystemLogLine(builder, "authMode", service == null ? "UNKNOWN" : (isTokenRequired(service) ? "TOKEN_REQUIRED" : "TOKEN_OPTIONAL"));
-        appendSystemLogLine(builder, "subscription", subscription == null ? defaultSubscriptionName : subscription.getSubscriptionName());
-        appendSystemLogLine(builder, "targetType", service == null ? null : service.getTargetType());
-        appendSystemLogLine(builder, "datasource", service == null ? null : service.getDatasourceNameSnapshot());
-        appendSystemLogLine(builder, "datasourceType", service == null ? null : service.getDatasourceTypeCode());
-        appendSystemLogLine(builder, "model", service == null ? null : service.getModelNameSnapshot());
-        appendSystemLogLine(builder, "modelLocator", service == null ? null : service.getModelPhysicalLocator());
-        appendSystemLogLine(builder, "receivedCount", String.valueOf(receivedCount));
-        appendSystemLogLine(builder, "successCount", String.valueOf(successCount));
-        appendSystemLogLine(builder, "failedCount", String.valueOf(failedCount));
-        appendSystemLogLine(builder, "httpStatus", String.valueOf(httpStatus));
-        appendSystemLogLine(builder, "result", success ? "SUCCESS" : "FAILED");
+                                            long failedCount) {
+        Map<String, Object> values = new LinkedHashMap<String, Object>();
+        values.put("requestId", requestId);
+        values.put("occurredAt", occurredAt == null ? null : occurredAt.toString());
+        values.put("requestMethod", requestMethod);
+        values.put("serviceCode", service == null ? null : service.getServiceCode());
+        values.put("serviceName", service == null ? null : service.getServiceName());
+        values.put("serviceStatus", service == null ? null : service.getStatus());
+        values.put("authMode", service == null ? "UNKNOWN" : (isTokenRequired(service) ? "TOKEN_REQUIRED" : "TOKEN_OPTIONAL"));
+        values.put("subscription", subscription == null ? defaultSubscriptionName : subscription.getSubscriptionName());
+        values.put("targetType", service == null ? null : service.getTargetType());
+        values.put("datasource", service == null ? null : service.getDatasourceNameSnapshot());
+        values.put("datasourceType", service == null ? null : service.getDatasourceTypeCode());
+        values.put("model", service == null ? null : service.getModelNameSnapshot());
+        values.put("modelLocator", service == null ? null : service.getModelPhysicalLocator());
+        values.put("receivedCount", receivedCount);
+        values.put("successCount", successCount);
+        values.put("failedCount", failedCount);
+        values.put("httpStatus", httpStatus);
+        values.put("result", success ? "SUCCESS" : "FAILED");
         if (hasText(errorCode) || hasText(errorMessage)) {
-            appendSystemLogLine(builder, "error", joinError(errorCode, errorMessage));
+            values.put("error", joinError(errorCode, errorMessage));
         }
-        appendSystemLogLine(builder, "durationMs", String.valueOf(durationMs));
-        builder.append(System.lineSeparator());
-        builder.append("JobContainer Logs").append(System.lineSeparator());
-        builder.append("-----------------").append(System.lineSeparator());
-        if (hasText(capturedLog)) {
-            builder.append(capturedLog.trim());
-            builder.append(System.lineSeparator());
-        } else {
-            builder.append("No task thread log was captured for this invocation.");
-            builder.append(System.lineSeparator());
-        }
-        return builder.toString();
+        values.put("durationMs", Math.max(0L, (System.nanoTime() - startedAt) / 1000000L));
+        return invocationLogService.summaryLog("Invocation Summary", values);
     }
 
-    private void appendSystemLogLine(StringBuilder builder, String key, String value) {
-        if (builder == null || !hasText(key)) {
-            return;
-        }
-        builder.append('[').append(key).append("] ");
-        builder.append(hasText(value) ? value.trim() : "-");
-        builder.append(System.lineSeparator());
+    private String buildInvocationArchiveLog(String systemLog,
+                                             Map<String, Object> headers,
+                                             Map<String, Object> query,
+                                             Map<String, Object> form,
+                                             Object body,
+                                             DataIngestionInvokeResult result,
+                                             String capturedLog) {
+        StringBuilder builder = new StringBuilder(4096);
+        invocationLogService.appendSection(builder, "Invocation Summary", systemLog);
+        invocationLogService.appendSection(builder, "Request Headers", invocationLogService.previewValue(invocationLogService.sanitizeHeaders(headers)));
+        invocationLogService.appendSection(builder, "Request Query", invocationLogService.previewValue(query));
+        invocationLogService.appendSection(builder, "Request Form", invocationLogService.previewValue(form));
+        invocationLogService.appendSection(builder, "Request Body", invocationLogService.previewValue(body));
+        invocationLogService.appendSection(builder, "Response Summary", invocationLogService.previewValue(result));
+        invocationLogService.appendSection(builder, "Captured Console Logs",
+                hasText(capturedLog) ? capturedLog : "No console log was captured for this invocation.");
+        return builder.toString();
     }
 
     private String joinError(String errorCode, String errorMessage) {

@@ -43,7 +43,8 @@ final class DataIngestionAccessLogSupport {
                          String userAgent,
                          long receivedCount,
                          long successCount,
-                         long failedCount) {
+                         long failedCount,
+                         OpenServiceInvocationLogService.ArchiveResult archiveResult) {
         try {
             DataIngestionAccessLogEntity entity = new DataIngestionAccessLogEntity();
             entity.setTenantId(service == null || isBlank(service.getTenantId()) ? StudioConstants.DEFAULT_TENANT_ID : service.getTenantId());
@@ -62,12 +63,13 @@ final class DataIngestionAccessLogSupport {
             entity.setHttpStatus(Integer.valueOf(httpStatus));
             entity.setErrorCode(truncate(errorCode, 128));
             entity.setErrorMessage(truncate(errorMessage, 1000));
-            entity.setSystemLog(truncate(systemLog, DataIngestionInvocationLogSupport.MAX_LOG_CHARS + 4096));
+            entity.setSystemLog(truncate(systemLog, OpenServiceInvocationLogSupport.MAX_LOG_CHARS + 4096));
             entity.setClientIp(truncate(clientIp, 128));
             entity.setUserAgent(truncate(userAgent, 500));
             entity.setReceivedCount(Long.valueOf(Math.max(0L, receivedCount)));
             entity.setSuccessCount(Long.valueOf(Math.max(0L, successCount)));
             entity.setFailedCount(Long.valueOf(Math.max(0L, failedCount)));
+            applyArchiveResult(entity, archiveResult);
             accessLogMapper.insert(entity);
             recordAccessCounter(entity);
         } catch (RuntimeException ex) {
@@ -124,6 +126,19 @@ final class DataIngestionAccessLogSupport {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private void applyArchiveResult(DataIngestionAccessLogEntity entity, OpenServiceInvocationLogService.ArchiveResult archiveResult) {
+        if (entity == null || archiveResult == null) {
+            return;
+        }
+        entity.setLogStorageType(archiveResult.getLogStorageType());
+        entity.setLogObjectBucket(archiveResult.getLogObjectBucket());
+        entity.setLogObjectKey(archiveResult.getLogObjectKey());
+        entity.setLogSizeBytes(archiveResult.getLogSizeBytes());
+        entity.setLogCharset(archiveResult.getLogCharset());
+        entity.setLogArchiveStatus(archiveResult.getLogArchiveStatus());
+        entity.setLogArchiveError(truncate(archiveResult.getLogArchiveError(), 1000));
     }
 
     private boolean isBlank(String value) {

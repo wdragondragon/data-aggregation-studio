@@ -16,6 +16,7 @@ public class DataServiceAccessLogEntity extends BaseProjectTenantEntity {
     private String serviceStatusSnapshot;
     private Long subscriptionId;
     private String subscriptionNameSnapshot;
+    private String requestId;
     private String requestMethod;
     private LocalDateTime occurredAt;
     private Long durationMs;
@@ -23,9 +24,17 @@ public class DataServiceAccessLogEntity extends BaseProjectTenantEntity {
     private Integer httpStatus;
     private String errorCode;
     private String errorMessage;
+    private String systemLog;
     private String clientIp;
     private String userAgent;
     private Integer cacheEnabled;
     private Integer cacheHit;
     private Long rowCount;
+    private String logStorageType;
+    private String logObjectBucket;
+    private String logObjectKey;
+    private Long logSizeBytes;
+    private String logCharset;
+    private String logArchiveStatus;
+    private String logArchiveError;
 }
