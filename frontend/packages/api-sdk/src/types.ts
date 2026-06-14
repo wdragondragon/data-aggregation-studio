@@ -171,6 +171,9 @@ export type DataIngestionRequestFormat = "JSON" | "FORM" | "SOAP";
 export type DataIngestionPayloadMode = "OBJECT" | "ARRAY";
 export type DataIngestionSourcePosition = "BODY" | "FORM" | "QUERY" | "HEADER";
 export type DataIngestionTargetType = "DATABASE" | "FILE";
+export type ProtocolConversionStatus = "DRAFT" | "ONLINE" | "OFFLINE";
+export type ProtocolConversionProtocol = "HTTP_JSON" | "HTTP_XML" | "SOAP_11" | "SOAP_12";
+export type ProtocolConversionMode = "FIELD_MAPPING" | "RAW_MESSAGE_FIELD" | "BODY_BRIDGE";
 export type ServiceOpenProtocol = "REST" | "SOAP";
 export type WebServiceSoapVersion = "SOAP_11" | "SOAP_12";
 export type HttpProtocolMode = "REST_JSON" | "REST_XML" | "SOAP";
@@ -563,6 +566,162 @@ export interface DataIngestionSubscriptionView extends BaseRecord {
   rotatedBy?: EntityId;
 }
 
+export interface ProtocolConversionFieldMapping {
+  sortOrder?: number;
+  sourcePosition?: DataIngestionSourcePosition;
+  sourceField?: string;
+  targetField: string;
+  targetPath?: string;
+  valueType?: FieldValueType;
+  required?: boolean;
+  defaultValue?: string;
+  description?: string;
+  transformers?: TransformerBinding[];
+}
+
+export interface ProtocolConversionFixedField {
+  targetField: string;
+  targetPath?: string;
+  value?: unknown;
+  valueType?: FieldValueType;
+  description?: string;
+}
+
+export interface ProtocolConversionServiceView extends BaseRecord {
+  createdBy?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  status?: ProtocolConversionStatus;
+  endpointPath?: string;
+  webserviceEndpointPath?: string;
+  serviceKey?: string;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  sourceProtocol?: ProtocolConversionProtocol;
+  sourceMethod?: string;
+  sourceDataNodePath?: string;
+  webserviceConfig?: WebServiceConfig;
+  conversionMode?: ProtocolConversionMode;
+  fieldMappings: ProtocolConversionFieldMapping[];
+  rawTransformers?: TransformerBinding[];
+  fixedFields?: ProtocolConversionFixedField[];
+  bodyBridgeOptions?: Record<string, unknown>;
+  requestPassthrough?: Record<string, unknown>;
+  targetDatasourceId?: EntityId;
+  targetDatasourceName?: string;
+  targetPath?: string;
+  targetProtocol?: ProtocolConversionProtocol;
+  targetMethod?: string;
+  targetHeaders?: Record<string, unknown>;
+  targetQuery?: Record<string, unknown>;
+  targetWebserviceConfig?: WebServiceConfig;
+  targetBodyTemplate?: string;
+  targetDataNodePath?: string;
+  payloadMode?: DataIngestionPayloadMode;
+  batchSize?: number;
+  responseStatus?: Record<string, unknown>;
+}
+
+export interface ProtocolConversionServiceSaveRequest {
+  id?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  sourceProtocol?: ProtocolConversionProtocol;
+  sourceMethod?: string;
+  sourceDataNodePath?: string;
+  webserviceConfig?: WebServiceConfig;
+  conversionMode?: ProtocolConversionMode;
+  fieldMappings: ProtocolConversionFieldMapping[];
+  rawTransformers?: TransformerBinding[];
+  fixedFields?: ProtocolConversionFixedField[];
+  bodyBridgeOptions?: Record<string, unknown>;
+  requestPassthrough?: Record<string, unknown>;
+  targetDatasourceId?: EntityId;
+  targetPath?: string;
+  targetProtocol?: ProtocolConversionProtocol;
+  targetMethod?: string;
+  targetHeaders?: Record<string, unknown>;
+  targetQuery?: Record<string, unknown>;
+  targetWebserviceConfig?: WebServiceConfig;
+  targetBodyTemplate?: string;
+  targetDataNodePath?: string;
+  payloadMode?: DataIngestionPayloadMode;
+  batchSize?: number;
+  responseStatus?: Record<string, unknown>;
+}
+
+export interface ProtocolConversionDebugRequest {
+  headers?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  form?: Record<string, unknown>;
+  body?: unknown;
+  rawBody?: string;
+}
+
+export interface ProtocolConversionInvokeResult {
+  requestId?: string;
+  serviceCode?: string;
+  status?: string;
+  targetHttpStatus?: number;
+  targetContentType?: string;
+  targetBody?: unknown;
+  responseBody?: unknown;
+  receivedCount?: number;
+  successCount?: number;
+  failedCount?: number;
+}
+
+export interface ProtocolConversionDebugResult extends ProtocolConversionInvokeResult {
+  targetRequest?: Record<string, unknown>;
+}
+
+export interface ProtocolConversionAccessLogView extends BaseRecord {
+  serviceId?: EntityId;
+  serviceCode?: string;
+  serviceName?: string;
+  serviceStatus?: string;
+  subscriptionId?: EntityId;
+  subscriptionName?: string;
+  requestId?: string;
+  requestMethod?: string;
+  sourceProtocol?: string;
+  targetProtocol?: string;
+  occurredAt?: string;
+  durationMs?: number;
+  success?: boolean;
+  httpStatus?: number;
+  targetHttpStatus?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  systemLog?: string;
+  clientIp?: string;
+  userAgent?: string;
+  receivedCount?: number;
+  successCount?: number;
+  failedCount?: number;
+  logStorageType?: string;
+  logObjectBucket?: string;
+  logObjectKey?: string;
+  logSizeBytes?: number;
+  logCharset?: string;
+  logArchiveStatus?: string;
+  logArchiveError?: string;
+}
+
+export interface ProtocolConversionSubscriptionView extends BaseRecord {
+  serviceId?: EntityId;
+  subscriptionName: string;
+  token?: string;
+  tokenMasked?: string;
+  enabled?: boolean;
+  createdBy?: EntityId;
+  lastUsedAt?: string;
+  rotatedAt?: string;
+  rotatedBy?: EntityId;
+}
+
 export interface DataServiceMetricOptionView {
   id?: EntityId;
   name?: string;
@@ -633,6 +792,7 @@ export interface DataServiceAccessLogView extends BaseRecord {
   serviceStatus?: string;
   subscriptionId?: EntityId;
   subscriptionName?: string;
+  requestId?: string;
   requestMethod?: string;
   occurredAt?: string;
   durationMs?: number;
@@ -640,11 +800,19 @@ export interface DataServiceAccessLogView extends BaseRecord {
   httpStatus?: number;
   errorCode?: string;
   errorMessage?: string;
+  systemLog?: string;
   clientIp?: string;
   userAgent?: string;
   cacheEnabled?: boolean;
   cacheHit?: boolean;
   rowCount?: number;
+  logStorageType?: string;
+  logObjectBucket?: string;
+  logObjectKey?: string;
+  logSizeBytes?: number;
+  logCharset?: string;
+  logArchiveStatus?: string;
+  logArchiveError?: string;
 }
 
 export interface DataServiceMetricDashboardView {
@@ -675,6 +843,19 @@ export interface DataServiceMetricQueryRequest {
   logFocus?: "ALL" | "ERROR" | "SLOW" | "ERROR_OR_SLOW";
   minDurationMs?: number;
   topN?: number;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface ProtocolConversionMetricQueryRequest {
+  serviceId?: EntityId;
+  subscriptionId?: EntityId;
+  serviceStatus?: string;
+  success?: boolean;
+  startTime?: string;
+  endTime?: string;
+  logFocus?: string;
+  minDurationMs?: number;
   pageNo?: number;
   pageSize?: number;
 }
@@ -739,6 +920,13 @@ export interface DataIngestionAccessLogView extends BaseRecord {
   receivedCount?: number;
   successCount?: number;
   failedCount?: number;
+  logStorageType?: string;
+  logObjectBucket?: string;
+  logObjectKey?: string;
+  logSizeBytes?: number;
+  logCharset?: string;
+  logArchiveStatus?: string;
+  logArchiveError?: string;
 }
 
 export interface DataIngestionMetricDashboardView {

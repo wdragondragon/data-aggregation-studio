@@ -84,6 +84,13 @@ import type {
   PermissionEntity,
   PageResult,
   PluginRuntimeOptionSchemaView,
+  ProtocolConversionAccessLogView,
+  ProtocolConversionDebugResult,
+  ProtocolConversionDebugRequest,
+  ProtocolConversionMetricQueryRequest,
+  ProtocolConversionServiceSaveRequest,
+  ProtocolConversionServiceView,
+  ProtocolConversionSubscriptionView,
   QualityRuleParseRequest,
   QualityRuleParseResult,
   QualityRuleSaveRequest,
@@ -646,6 +653,70 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         });
       },
     },
+    protocolConversions: {
+      list(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+        status?: string;
+      }) {
+        return request<PageResult<ProtocolConversionServiceView>>({ url: "/protocol-conversions", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}`, method: "GET" });
+      },
+      save(payload: ProtocolConversionServiceSaveRequest) {
+        return request<ProtocolConversionServiceView>({ url: "/protocol-conversions", method: "POST", data: payload });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/protocol-conversions/${id}`, method: "DELETE" });
+      },
+      publish(id: EntityId) {
+        return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}/publish`, method: "POST" });
+      },
+      offline(id: EntityId) {
+        return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}/offline`, method: "POST" });
+      },
+      debug(id: EntityId, payload: ProtocolConversionDebugRequest) {
+        return request<ProtocolConversionDebugResult>({ url: `/protocol-conversions/${id}/debug`, method: "POST", data: payload });
+      },
+      listSubscriptions(id: EntityId) {
+        return request<ProtocolConversionSubscriptionView[]>({ url: `/protocol-conversions/${id}/subscriptions`, method: "GET" });
+      },
+      createSubscription(id: EntityId, subscriptionName: string) {
+        return request<ProtocolConversionSubscriptionView>({
+          url: `/protocol-conversions/${id}/subscriptions`,
+          method: "POST",
+          data: { subscriptionName },
+        });
+      },
+      disableSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<ProtocolConversionSubscriptionView>({
+          url: `/protocol-conversions/${id}/subscriptions/${subscriptionId}/disable`,
+          method: "POST",
+        });
+      },
+      rotateSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<ProtocolConversionSubscriptionView>({
+          url: `/protocol-conversions/${id}/subscriptions/${subscriptionId}/rotate`,
+          method: "POST",
+        });
+      },
+      enableSubscription(id: EntityId, subscriptionId: EntityId) {
+        return request<ProtocolConversionSubscriptionView>({
+          url: `/protocol-conversions/${id}/subscriptions/${subscriptionId}/enable`,
+          method: "POST",
+        });
+      },
+    },
+    protocolConversionMetrics: {
+      options() {
+        return request<DataServiceMetricOptionsView>({ url: "/protocol-conversion-metrics/options", method: "GET" });
+      },
+      queryAccessLogs(payload?: ProtocolConversionMetricQueryRequest) {
+        return request<PageResult<ProtocolConversionAccessLogView>>({ url: "/protocol-conversion-metrics/access-logs/query", method: "POST", data: payload });
+      },
+    },
     dataServiceMetrics: {
       options() {
         return request<DataServiceMetricOptionsView>({ url: "/data-service-metrics/options", method: "GET" });
@@ -1123,6 +1194,21 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       downloadLog(id: EntityId) {
         return request<RunLogView>({ url: `/runs/${id}/log/download`, method: "GET" });
+      },
+    },
+    invocationLogs: {
+      get(domain: string, accessLogId: EntityId, params?: RunLogQuery) {
+        return request<RunLogView>({
+          url: `/invocation-logs/${encodeURIComponent(domain)}/${accessLogId}`,
+          method: "GET",
+          params,
+        });
+      },
+      download(domain: string, accessLogId: EntityId) {
+        return request<RunLogView>({
+          url: `/invocation-logs/${encodeURIComponent(domain)}/${accessLogId}/download`,
+          method: "GET",
+        });
       },
     },
     runMetrics: {

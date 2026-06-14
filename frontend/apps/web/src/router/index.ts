@@ -75,6 +75,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     items: [
       { path: "/data-services", labelKey: "routes.web.dataServices.title", captionKey: "routes.web.dataServices.menuCaption", requiresProject: true },
       { path: "/data-ingestion-services", labelKey: "routes.web.dataIngestionServices.title", captionKey: "routes.web.dataIngestionServices.menuCaption", requiresProject: true },
+      { path: "/protocol-conversions", labelKey: "routes.web.protocolConversions.title", captionKey: "routes.web.protocolConversions.menuCaption", requiresProject: true },
       { path: "/data-ingestion-metrics", labelKey: "routes.web.dataIngestionMetrics.title", captionKey: "routes.web.dataIngestionMetrics.menuCaption", requiresProject: true },
       { path: "/data-service-metrics", labelKey: "routes.web.dataServiceMetrics.title", captionKey: "routes.web.dataServiceMetrics.menuCaption", requiresProject: true },
     ],
@@ -333,6 +334,42 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.dataIngestionServices.editTitle",
           subtitleKey: "routes.web.dataIngestionServices.editSubtitle",
+        },
+      },
+      {
+        path: "/protocol-conversions",
+        name: "protocol-conversions",
+        component: () => import("@/views/ProtocolConversionServicesView.vue"),
+        meta: {
+          titleKey: "routes.web.protocolConversions.title",
+          subtitleKey: "routes.web.protocolConversions.subtitle",
+        },
+      },
+      {
+        path: "/protocol-conversions/new",
+        name: "protocol-conversion-create",
+        component: () => import("@/views/ProtocolConversionServiceEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.protocolConversions.createTitle",
+          subtitleKey: "routes.web.protocolConversions.createSubtitle",
+        },
+      },
+      {
+        path: "/protocol-conversions/access-logs",
+        name: "protocol-conversion-access-logs",
+        component: () => import("@/views/ProtocolConversionAccessLogsView.vue"),
+        meta: {
+          titleKey: "routes.web.protocolConversions.logsTitle",
+          subtitleKey: "routes.web.protocolConversions.logsSubtitle",
+        },
+      },
+      {
+        path: "/protocol-conversions/:serviceId/edit",
+        name: "protocol-conversion-edit",
+        component: () => import("@/views/ProtocolConversionServiceEditorView.vue"),
+        meta: {
+          titleKey: "routes.web.protocolConversions.editTitle",
+          subtitleKey: "routes.web.protocolConversions.editSubtitle",
         },
       },
       {

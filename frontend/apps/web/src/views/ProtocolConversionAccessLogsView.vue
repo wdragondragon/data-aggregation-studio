@@ -1,17 +1,17 @@
 <template>
-  <div class="studio-page data-ingestion-access-logs-page">
+  <div class="studio-page protocol-conversion-access-logs-page">
     <div class="studio-toolbar">
       <div>
-        <h3>接入运行日志</h3>
-        <p>查看数据接入服务开放 API 的异常、慢调用和写入数量摘要。</p>
+        <h3>协议转换调用日志</h3>
+        <p>查看开放调用的协议转换结果、目标 HTTP 状态和错误摘要。</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button plain @click="router.push('/data-ingestion-metrics')">返回监控</el-button>
+        <el-button plain @click="router.push('/protocol-conversions')">返回服务列表</el-button>
         <el-button type="primary" :loading="isLoading" @click="loadLogs">刷新</el-button>
       </div>
     </div>
 
-    <SectionCard title="日志筛选" description="默认查看异常或慢调用；慢调用阈值可按排查需要调整。">
+    <SectionCard title="日志筛选" description="默认查看异常或慢调用；可按服务、订阅方和结果筛选。">
       <div class="logs-filter-grid">
         <div class="time-filter-shell">
           <el-radio-group v-model="timePreset" size="small" @change="changeTimePreset">
@@ -31,7 +31,7 @@
             @change="timePreset = 'custom'"
           />
         </div>
-        <el-select v-model="filters.serviceId" clearable filterable placeholder="全部接入服务">
+        <el-select v-model="filters.serviceId" clearable filterable placeholder="全部服务">
           <el-option v-for="item in options.services" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
         </el-select>
         <el-select v-model="filters.subscriptionId" clearable filterable placeholder="全部订阅方">
@@ -41,7 +41,7 @@
           <el-option label="异常或慢调用" value="ERROR_OR_SLOW" />
           <el-option label="仅异常调用" value="ERROR" />
           <el-option label="仅慢调用" value="SLOW" />
-          <el-option label="全部调用" value="ALL" />
+          <el-option label="全部访问" value="ALL" />
         </el-select>
         <el-input-number
           v-model="filters.minDurationMs"
@@ -61,7 +61,7 @@
       </div>
     </SectionCard>
 
-    <SectionCard title="运行日志明细" description="表格重点展示异常摘要、响应耗时、接收行数、写入结果和调用方。">
+    <SectionCard title="调用日志明细" description="目标请求详情只在调试接口中脱敏返回，开放调用日志保留系统摘要。">
       <StudioTableShell min-width="1680px">
         <el-table :data="logs" border size="small">
           <el-table-column prop="occurredAt" label="调用时间" min-width="170">
@@ -77,16 +77,20 @@
               <MessagePreviewText :text="errorSummary(row)" />
             </template>
           </el-table-column>
+          <el-table-column label="协议" min-width="170">
+            <template #default="{ row }">{{ protocolLabel(row.sourceProtocol) }} → {{ protocolLabel(row.targetProtocol) }}</template>
+          </el-table-column>
           <el-table-column label="耗时" width="110" align="right" header-align="right">
             <template #default="{ row }">{{ formatMs(row.durationMs) }}</template>
           </el-table-column>
-          <el-table-column prop="httpStatus" label="HTTP" width="90" align="center" header-align="center" />
+          <el-table-column prop="httpStatus" label="入口 HTTP" width="100" align="center" header-align="center" />
+          <el-table-column prop="targetHttpStatus" label="目标 HTTP" width="100" align="center" header-align="center" />
           <el-table-column label="结果" width="100" align="center" header-align="center">
             <template #default="{ row }">
               <StatusPill :label="row.success ? '成功' : '失败'" :tone="row.success ? 'success' : 'danger'" />
             </template>
           </el-table-column>
-          <el-table-column label="接入服务" min-width="190">
+          <el-table-column label="服务" min-width="190">
             <template #default="{ row }">
               <div class="table-entity-cell">
                 <span class="table-entity-cell__title">{{ row.serviceName || "-" }}</span>
@@ -96,14 +100,8 @@
           </el-table-column>
           <el-table-column prop="subscriptionName" label="订阅方" min-width="150" />
           <el-table-column prop="requestMethod" label="方法" width="90" align="center" header-align="center" />
-          <el-table-column label="接收" width="100" align="right" header-align="right">
-            <template #default="{ row }">{{ formatNumber(row.receivedCount) }}</template>
-          </el-table-column>
-          <el-table-column label="写入成功" width="110" align="right" header-align="right">
-            <template #default="{ row }">{{ formatNumber(row.successCount) }}</template>
-          </el-table-column>
-          <el-table-column label="写入失败" width="110" align="right" header-align="right">
-            <template #default="{ row }">{{ formatNumber(row.failedCount) }}</template>
+          <el-table-column label="数量" min-width="150" align="right" header-align="right">
+            <template #default="{ row }">{{ formatNumber(row.receivedCount) }} / {{ formatNumber(row.successCount) }} / {{ formatNumber(row.failedCount) }}</template>
           </el-table-column>
           <el-table-column prop="clientIp" label="客户端 IP" min-width="140" />
           <el-table-column prop="userAgent" label="User-Agent" min-width="220" show-overflow-tooltip />
@@ -129,31 +127,27 @@
       </div>
     </SectionCard>
 
-    <el-drawer v-model="logDetailVisible" title="接入运行日志详情" size="52%">
+    <el-drawer v-model="logDetailVisible" title="协议转换调用日志详情" size="52%">
       <template v-if="activeLog">
         <div class="log-detail-grid">
           <div class="log-detail-item">
-            <span class="log-detail-item__label">请求 ID</span>
-            <strong>{{ activeLog.requestId || "-" }}</strong>
-          </div>
-          <div class="log-detail-item">
             <span class="log-detail-item__label">调用时间</span>
             <strong>{{ formatDateTime(activeLog.occurredAt) }}</strong>
-          </div>
-          <div class="log-detail-item">
-            <span class="log-detail-item__label">日志类型</span>
-            <StatusPill :label="logTypeLabel(activeLog)" :tone="logTypeTone(activeLog)" />
           </div>
           <div class="log-detail-item">
             <span class="log-detail-item__label">调用结果</span>
             <StatusPill :label="activeLog.success ? '成功' : '失败'" :tone="activeLog.success ? 'success' : 'danger'" />
           </div>
           <div class="log-detail-item">
-            <span class="log-detail-item__label">HTTP 状态</span>
+            <span class="log-detail-item__label">入口 HTTP</span>
             <strong>{{ activeLog.httpStatus || "-" }}</strong>
           </div>
           <div class="log-detail-item">
-            <span class="log-detail-item__label">接入服务</span>
+            <span class="log-detail-item__label">目标 HTTP</span>
+            <strong>{{ activeLog.targetHttpStatus || "-" }}</strong>
+          </div>
+          <div class="log-detail-item">
+            <span class="log-detail-item__label">服务</span>
             <strong>{{ activeLog.serviceName || "-" }}</strong>
             <span>{{ activeLog.serviceCode || "-" }}</span>
           </div>
@@ -162,20 +156,16 @@
             <strong>{{ activeLog.subscriptionName || "-" }}</strong>
           </div>
           <div class="log-detail-item">
-            <span class="log-detail-item__label">请求方法</span>
-            <strong>{{ activeLog.requestMethod || "-" }}</strong>
+            <span class="log-detail-item__label">协议转换</span>
+            <strong>{{ protocolLabel(activeLog.sourceProtocol) }} → {{ protocolLabel(activeLog.targetProtocol) }}</strong>
           </div>
           <div class="log-detail-item">
             <span class="log-detail-item__label">耗时</span>
             <strong>{{ formatMs(activeLog.durationMs) }}</strong>
           </div>
-          <div class="log-detail-item">
-            <span class="log-detail-item__label">接收/成功/失败</span>
-            <strong>{{ formatNumber(activeLog.receivedCount) }} / {{ formatNumber(activeLog.successCount) }} / {{ formatNumber(activeLog.failedCount) }}</strong>
-          </div>
-          <div class="log-detail-item">
-            <span class="log-detail-item__label">客户端 IP</span>
-            <strong>{{ activeLog.clientIp || "-" }}</strong>
+          <div class="log-detail-item log-detail-item--wide">
+            <span class="log-detail-item__label">请求 ID</span>
+            <strong>{{ activeLog.requestId || "-" }}</strong>
           </div>
           <div class="log-detail-item log-detail-item--wide">
             <span class="log-detail-item__label">User-Agent</span>
@@ -183,20 +173,16 @@
           </div>
         </div>
 
-        <SectionCard title="完整消息" description="列表中已缩略展示，这里保留完整异常摘要或慢调用说明。">
-          <pre class="log-detail-message">{{ errorSummary(activeLog) }}</pre>
-        </SectionCard>
-
-        <SectionCard title="系统日志" description="隔离展示本次接入请求的任务线程日志，与采集任务日志保持一致。">
-          <pre class="log-detail-system-log">{{ systemLogContent(activeLog) }}</pre>
+        <SectionCard title="系统日志" description="包含转换模式、目标状态和失败摘要。">
+          <pre class="log-detail-message">{{ activeLog.systemLog || errorSummary(activeLog) }}</pre>
         </SectionCard>
       </template>
     </el-drawer>
     <InvocationLogDrawer
       v-model="invocationLogVisible"
-      domain="data-ingestion-services"
+      domain="protocol-conversions"
       :access-log-id="activeInvocationLogId"
-      title="数据接入服务调用完整日志"
+      title="协议转换调用完整日志"
     />
   </div>
 </template>
@@ -206,15 +192,15 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
-  DataIngestionAccessLogView,
-  DataIngestionMetricQueryRequest,
   DataServiceMetricOptionsView,
   EntityId,
+  ProtocolConversionAccessLogView,
+  ProtocolConversionMetricQueryRequest,
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
-import { studioApi } from "@/api/studio";
-import InvocationLogDrawer from "@/components/InvocationLogDrawer.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
+import InvocationLogDrawer from "@/components/InvocationLogDrawer.vue";
+import { studioApi } from "@/api/studio";
 
 type TriState = "" | "true" | "false";
 type LogFocus = "ALL" | "ERROR" | "SLOW" | "ERROR_OR_SLOW";
@@ -239,11 +225,11 @@ const filters = reactive<{
   success: "",
 });
 const pagination = reactive({ page: 1, pageSize: 20 });
-const logs = ref<DataIngestionAccessLogView[]>([]);
+const logs = ref<ProtocolConversionAccessLogView[]>([]);
 const total = ref(0);
 const isLoading = ref(false);
 const logDetailVisible = ref(false);
-const activeLog = ref<DataIngestionAccessLogView | null>(null);
+const activeLog = ref<ProtocolConversionAccessLogView | null>(null);
 const invocationLogVisible = ref(false);
 const activeInvocationLogId = ref<EntityId | null>(null);
 
@@ -260,7 +246,7 @@ onMounted(async () => {
 });
 
 async function loadOptions() {
-  const payload = await studioApi.dataIngestionMetrics.options();
+  const payload = await studioApi.protocolConversionMetrics.options();
   options.services = payload.services || [];
   options.subscriptions = payload.subscriptions || [];
 }
@@ -268,20 +254,20 @@ async function loadOptions() {
 async function loadLogs() {
   isLoading.value = true;
   try {
-    const page = await studioApi.dataIngestionMetrics.queryAccessLogs(buildQuery({
+    const page = await studioApi.protocolConversionMetrics.queryAccessLogs(buildQuery({
       pageNo: pagination.page,
       pageSize: pagination.pageSize,
     }));
     logs.value = page.items || [];
-    total.value = Number(page.total || 0);
+    total.value = page.total || 0;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载接入运行日志失败");
+    ElMessage.error(error instanceof Error ? error.message : "加载协议转换调用日志失败");
   } finally {
     isLoading.value = false;
   }
 }
 
-function buildQuery(extra: Partial<DataIngestionMetricQueryRequest> = {}): DataIngestionMetricQueryRequest {
+function buildQuery(extra: Partial<ProtocolConversionMetricQueryRequest> = {}): ProtocolConversionMetricQueryRequest {
   return {
     startTime: timeRange.value?.[0],
     endTime: timeRange.value?.[1],
@@ -314,12 +300,12 @@ function handlePageSizeChange() {
   void loadLogs();
 }
 
-function openLogDetail(row: DataIngestionAccessLogView) {
+function openLogDetail(row: ProtocolConversionAccessLogView) {
   activeLog.value = row;
   logDetailVisible.value = true;
 }
 
-function openInvocationLog(row: DataIngestionAccessLogView) {
+function openInvocationLog(row: ProtocolConversionAccessLogView) {
   activeInvocationLogId.value = row.id || null;
   invocationLogVisible.value = Boolean(activeInvocationLogId.value);
 }
@@ -347,7 +333,7 @@ function parseTriState(value: TriState) {
   return undefined;
 }
 
-function logTypeLabel(row: DataIngestionAccessLogView) {
+function logTypeLabel(row: ProtocolConversionAccessLogView) {
   if (!row.success) {
     return "异常";
   }
@@ -357,7 +343,7 @@ function logTypeLabel(row: DataIngestionAccessLogView) {
   return "正常";
 }
 
-function logTypeTone(row: DataIngestionAccessLogView): "success" | "warning" | "neutral" | "primary" | "danger" {
+function logTypeTone(row: ProtocolConversionAccessLogView): "success" | "warning" | "neutral" | "primary" | "danger" {
   if (!row.success) {
     return "danger";
   }
@@ -367,7 +353,7 @@ function logTypeTone(row: DataIngestionAccessLogView): "success" | "warning" | "
   return "success";
 }
 
-function errorSummary(row: DataIngestionAccessLogView) {
+function errorSummary(row: ProtocolConversionAccessLogView) {
   if (row.errorCode || row.errorMessage) {
     return `${row.errorCode || ""} ${row.errorMessage || ""}`.trim();
   }
@@ -377,33 +363,27 @@ function errorSummary(row: DataIngestionAccessLogView) {
   return "-";
 }
 
-function systemLogContent(row: DataIngestionAccessLogView) {
-  if (row.systemLog?.trim()) {
-    return row.systemLog.trim();
+function protocolLabel(value?: string) {
+  if (value === "HTTP_JSON") {
+    return "HTTP JSON";
   }
-  return [
-    `[requestId] ${row.requestId || "-"}`,
-    `[occurredAt] ${formatDateTime(row.occurredAt)}`,
-    `[requestMethod] ${row.requestMethod || "-"}`,
-    `[serviceCode] ${row.serviceCode || "-"}`,
-    `[serviceName] ${row.serviceName || "-"}`,
-    `[serviceStatus] ${row.serviceStatus || "-"}`,
-    `[subscription] ${row.subscriptionName || "-"}`,
-    `[receivedCount] ${formatNumber(row.receivedCount)}`,
-    `[successCount] ${formatNumber(row.successCount)}`,
-    `[failedCount] ${formatNumber(row.failedCount)}`,
-    `[httpStatus] ${row.httpStatus || "-"}`,
-    `[result] ${row.success ? "SUCCESS" : "FAILED"}`,
-    `[message] ${errorSummary(row)}`,
-    `[durationMs] ${Number(row.durationMs || 0)}`,
-  ].join("\n");
+  if (value === "HTTP_XML") {
+    return "HTTP XML";
+  }
+  if (value === "SOAP_11") {
+    return "SOAP 1.1";
+  }
+  if (value === "SOAP_12") {
+    return "SOAP 1.2";
+  }
+  return value || "-";
 }
 
-function formatNumber(value?: number | string) {
+function formatNumber(value?: number) {
   return Number(value || 0).toLocaleString();
 }
 
-function formatMs(value?: number | string) {
+function formatMs(value?: number) {
   return `${Number(value || 0).toLocaleString()}ms`;
 }
 
@@ -439,8 +419,24 @@ function addHours(date: Date, hours: number) {
 </script>
 
 <style scoped>
-.data-ingestion-access-logs-page {
+.protocol-conversion-access-logs-page {
   gap: 14px;
+}
+
+.protocol-conversion-access-logs-page :deep(.section-card) {
+  border-radius: 18px;
+}
+
+.protocol-conversion-access-logs-page :deep(.section-card__header) {
+  padding: 12px 14px 0;
+}
+
+.protocol-conversion-access-logs-page :deep(.section-card__title) {
+  font-size: 15px;
+}
+
+.protocol-conversion-access-logs-page :deep(.section-card__body) {
+  padding: 10px 14px 14px;
 }
 
 .logs-filter-grid {
@@ -454,6 +450,14 @@ function addHours(date: Date, hours: number) {
   min-width: 0;
 }
 
+.logs-filter-grid :deep(.el-select__wrapper),
+.logs-filter-grid :deep(.el-input__wrapper),
+.logs-filter-grid :deep(.el-date-editor) {
+  min-height: 34px;
+  height: 34px;
+  box-sizing: border-box;
+}
+
 .logs-filter-grid :deep(.el-input-number) {
   width: 100%;
 }
@@ -461,74 +465,75 @@ function addHours(date: Date, hours: number) {
 .time-filter-shell {
   grid-column: span 2;
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: center;
 }
 
+.time-filter-shell :deep(.el-radio-group),
 .time-filter-shell :deep(.el-date-editor) {
-  flex: 1;
+  min-height: 34px;
+  height: 34px;
+}
+
+.time-filter-shell :deep(.el-radio-group) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.time-filter-shell :deep(.el-date-editor) {
+  flex: 1 1 320px;
+  min-width: min(100%, 320px);
+  width: 100%;
 }
 
 .logs-filter-actions {
-  display: flex;
+  display: inline-flex;
   gap: 8px;
-  justify-content: flex-end;
-}
-
-.table-pagination {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 12px;
+  justify-self: start;
+  white-space: nowrap;
 }
 
 .log-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .log-detail-item {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
+  display: grid;
   gap: 4px;
-  padding: 10px 12px;
+  padding: 12px;
   border: 1px solid var(--studio-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .log-detail-item--wide {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .log-detail-item__label {
-  color: var(--studio-text-muted);
+  color: var(--studio-text-soft);
   font-size: 12px;
 }
 
 .log-detail-message {
-  max-height: 260px;
-  margin: 0;
-  overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  margin: 0;
+  font-family: Consolas, "Courier New", monospace;
 }
 
-.log-detail-system-log {
-  min-height: 220px;
-  max-height: 380px;
-  margin: 0;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid var(--studio-border);
-  border-radius: 8px;
-  background: var(--studio-surface-soft, #f7f9fd);
-  color: var(--studio-text);
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
+@media (max-width: 1280px) {
+  .logs-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .time-filter-shell {
+    grid-column: span 2;
+  }
 }
 
 @media (max-width: 760px) {
@@ -537,12 +542,8 @@ function addHours(date: Date, hours: number) {
     grid-template-columns: 1fr;
   }
 
-  .time-filter-shell,
-  .log-detail-item--wide {
-    grid-column: span 1;
-  }
-
   .time-filter-shell {
+    grid-column: span 1;
     align-items: stretch;
     flex-direction: column;
   }

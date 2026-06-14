@@ -108,9 +108,10 @@
         </el-table-column>
         <el-table-column prop="clientIp" label="客户端 IP" min-width="140" />
         <el-table-column prop="userAgent" label="User-Agent" min-width="220" show-overflow-tooltip />
-        <el-table-column label="操作" width="100" align="center" header-align="center" fixed="right">
+        <el-table-column label="操作" width="150" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openLogDetail(row)">详情</el-button>
+            <el-button link type="primary" @click="openInvocationLog(row)">完整日志</el-button>
           </template>
         </el-table-column>
         </el-table>
@@ -188,6 +189,12 @@
         </SectionCard>
       </template>
     </el-drawer>
+    <InvocationLogDrawer
+      v-model="invocationLogVisible"
+      domain="data-services"
+      :access-log-id="activeInvocationLogId"
+      title="数据服务调用完整日志"
+    />
   </div>
 </template>
 
@@ -203,6 +210,7 @@ import type {
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import InvocationLogDrawer from "@/components/InvocationLogDrawer.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 
 type TriState = "" | "true" | "false";
@@ -238,6 +246,8 @@ const total = ref(0);
 const isLoading = ref(false);
 const logDetailVisible = ref(false);
 const activeLog = ref<DataServiceAccessLogView | null>(null);
+const invocationLogVisible = ref(false);
+const activeInvocationLogId = ref<EntityId | null>(null);
 
 const filteredSubscriptions = computed(() => {
   if (!filters.serviceId) {
@@ -311,6 +321,11 @@ function handlePageSizeChange() {
 function openLogDetail(row: DataServiceAccessLogView) {
   activeLog.value = row;
   logDetailVisible.value = true;
+}
+
+function openInvocationLog(row: DataServiceAccessLogView) {
+  activeInvocationLogId.value = row.id || null;
+  invocationLogVisible.value = Boolean(activeInvocationLogId.value);
 }
 
 function changeTimePreset(value: string | number | boolean) {
