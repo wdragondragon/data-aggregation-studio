@@ -17,6 +17,7 @@ import com.jdragon.studio.dto.model.WebServiceConfig;
 import com.jdragon.studio.dto.model.WebServicePreviewView;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -245,6 +246,32 @@ class WebServiceSupportTest {
 
         assertInstanceOf(Map.class, body);
         assertNull(nested((Map<String, Object>) body, "table", "row"));
+    }
+
+    @Test
+    void shouldValidateProtocolConversionSoapTargetStatusFromBusinessBody() throws Exception {
+        ProtocolConversionService service = protocolConversionService();
+        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+        view.setTargetProtocol(ProtocolConversionProtocol.SOAP_12);
+        view.setResponseStatus(Map.of("path", "status", "code", "SUCCESS"));
+        Class<?> targetResponseType = Class.forName(ProtocolConversionService.class.getName() + "$TargetResponse");
+        Constructor<?> constructor = targetResponseType.getDeclaredConstructor(int.class, String.class, String.class);
+        constructor.setAccessible(true);
+        Object targetResponse = constructor.newInstance(200, "application/soap+xml;charset=UTF-8", """
+                <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+                  <soap:Body>
+                    <submitProtocolConversionRowsResponse>
+                      <status>SUCCESS</status>
+                      <receivedCount>3</receivedCount>
+                    </submitProtocolConversionRowsResponse>
+                  </soap:Body>
+                </soap:Envelope>
+                """);
+        Method validateTargetResponse = ProtocolConversionService.class.getDeclaredMethod(
+                "validateTargetResponse", ProtocolConversionServiceView.class, targetResponseType);
+        validateTargetResponse.setAccessible(true);
+
+        validateTargetResponse.invoke(service, view, targetResponse);
     }
 
     @SuppressWarnings("unchecked")

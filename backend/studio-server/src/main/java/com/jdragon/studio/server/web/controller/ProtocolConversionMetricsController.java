@@ -4,9 +4,11 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionsView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.ProtocolConversionAccessLogView;
+import com.jdragon.studio.dto.model.ProtocolConversionTraceView;
 import com.jdragon.studio.dto.model.request.ProtocolConversionMetricQueryRequest;
 import com.jdragon.studio.infra.service.ProtocolConversionMetricsService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,5 +32,10 @@ public class ProtocolConversionMetricsController {
     @PostMapping("/access-logs/query")
     public Result<PageView<ProtocolConversionAccessLogView>> queryAccessLogs(@RequestBody(required = false) ProtocolConversionMetricQueryRequest request) {
         return Result.success(protocolConversionMetricsService.queryAccessLogs(request));
+    }
+
+    @GetMapping("/access-logs/{id}/trace")
+    public Result<ProtocolConversionTraceView> accessLogTrace(@PathVariable("id") Long id) {
+        return Result.success(protocolConversionMetricsService.accessLogTrace(id));
     }
 }

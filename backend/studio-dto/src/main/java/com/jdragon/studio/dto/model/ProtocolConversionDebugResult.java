@@ -10,4 +10,5 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 public class ProtocolConversionDebugResult extends ProtocolConversionInvokeResult {
     private Map<String, Object> targetRequest = new LinkedHashMap<String, Object>();
+    private ProtocolConversionTraceView conversionTrace;
 }

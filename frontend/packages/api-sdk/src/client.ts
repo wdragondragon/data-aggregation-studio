@@ -91,6 +91,7 @@ import type {
   ProtocolConversionServiceSaveRequest,
   ProtocolConversionServiceView,
   ProtocolConversionSubscriptionView,
+  ProtocolConversionTraceView,
   QualityRuleParseRequest,
   QualityRuleParseResult,
   QualityRuleSaveRequest,
@@ -715,6 +716,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       queryAccessLogs(payload?: ProtocolConversionMetricQueryRequest) {
         return request<PageResult<ProtocolConversionAccessLogView>>({ url: "/protocol-conversion-metrics/access-logs/query", method: "POST", data: payload });
+      },
+      getAccessLogTrace(id: EntityId) {
+        return request<ProtocolConversionTraceView>({ url: `/protocol-conversion-metrics/access-logs/${id}/trace`, method: "GET" });
       },
     },
     dataServiceMetrics: {

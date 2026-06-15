@@ -173,6 +173,13 @@
           </div>
         </div>
 
+        <SectionCard title="四阶段转换过程" description="展示原请求、请求参数转换、原响应和响应转换。">
+          <div v-loading="traceLoading">
+            <ProtocolConversionTraceTimeline v-if="activeTrace" :trace="activeTrace" />
+            <el-empty v-else description="暂无结构化转换过程" />
+          </div>
+        </SectionCard>
+
         <SectionCard title="系统日志" description="包含转换模式、目标状态和失败摘要。">
           <pre class="log-detail-message">{{ activeLog.systemLog || errorSummary(activeLog) }}</pre>
         </SectionCard>
@@ -196,10 +203,12 @@ import type {
   EntityId,
   ProtocolConversionAccessLogView,
   ProtocolConversionMetricQueryRequest,
+  ProtocolConversionTraceView,
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import InvocationLogDrawer from "@/components/InvocationLogDrawer.vue";
+import ProtocolConversionTraceTimeline from "@/components/protocol-conversion/ProtocolConversionTraceTimeline.vue";
 import { studioApi } from "@/api/studio";
 
 type TriState = "" | "true" | "false";
@@ -230,6 +239,8 @@ const total = ref(0);
 const isLoading = ref(false);
 const logDetailVisible = ref(false);
 const activeLog = ref<ProtocolConversionAccessLogView | null>(null);
+const activeTrace = ref<ProtocolConversionTraceView | null>(null);
+const traceLoading = ref(false);
 const invocationLogVisible = ref(false);
 const activeInvocationLogId = ref<EntityId | null>(null);
 
@@ -300,9 +311,21 @@ function handlePageSizeChange() {
   void loadLogs();
 }
 
-function openLogDetail(row: ProtocolConversionAccessLogView) {
+async function openLogDetail(row: ProtocolConversionAccessLogView) {
   activeLog.value = row;
+  activeTrace.value = null;
   logDetailVisible.value = true;
+  if (!row.id) {
+    return;
+  }
+  traceLoading.value = true;
+  try {
+    activeTrace.value = await studioApi.protocolConversionMetrics.getAccessLogTrace(row.id);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "加载四阶段转换过程失败");
+  } finally {
+    traceLoading.value = false;
+  }
 }
 
 function openInvocationLog(row: ProtocolConversionAccessLogView) {

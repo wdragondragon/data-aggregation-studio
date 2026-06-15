@@ -24,6 +24,8 @@ import com.jdragon.studio.dto.model.ProtocolConversionFixedField;
 import com.jdragon.studio.dto.model.ProtocolConversionInvokeResult;
 import com.jdragon.studio.dto.model.ProtocolConversionServiceView;
 import com.jdragon.studio.dto.model.ProtocolConversionSubscriptionView;
+import com.jdragon.studio.dto.model.ProtocolConversionTraceStepView;
+import com.jdragon.studio.dto.model.ProtocolConversionTraceView;
 import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.dto.model.WebServiceConfig;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
@@ -78,6 +80,10 @@ public class ProtocolConversionService {
     private static final int DEFAULT_BATCH_SIZE = 1;
     private static final String OPEN_PATH_PREFIX = "/openapi/protocol-conversions";
     private static final String WS_OPEN_PATH_PREFIX = "/openapi/ws/protocol-conversions";
+    private static final String TRACE_SECTION_TITLE = "Protocol Conversion Trace";
+    private static final String TRACE_JSON_SECTION_TITLE = "Protocol Conversion Trace JSON";
+    private static final String TRACE_STATUS_SUCCESS = "SUCCESS";
+    private static final String TRACE_STATUS_FAILED = "FAILED";
     private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
     private static final Pattern SIMPLE_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern RECORDS_REPEAT_PATTERN = Pattern.compile("\\{\\{#records}}([\\s\\S]*?)\\{\\{/records}}");
@@ -262,15 +268,24 @@ public class ProtocolConversionService {
         ProtocolConversionServiceView view = get(id);
         validateExecutable(view);
         String rawBody = debugRawBody(view, request);
-        return execute(view,
-                request == null ? new LinkedHashMap<String, Object>() : request.getHeaders(),
-                request == null ? new LinkedHashMap<String, Object>() : request.getQuery(),
-                request == null ? new LinkedHashMap<String, Object>() : request.getForm(),
-                request == null ? null : request.getBody(),
-                rawBody,
-                newRequestId(),
-                false,
-                true);
+        String requestId = newRequestId();
+        ProtocolConversionTraceView trace = newTrace(requestId);
+        try {
+            return execute(view,
+                    request == null ? new LinkedHashMap<String, Object>() : request.getHeaders(),
+                    request == null ? new LinkedHashMap<String, Object>() : request.getQuery(),
+                    request == null ? new LinkedHashMap<String, Object>() : request.getForm(),
+                    request == null ? null : request.getBody(),
+                    rawBody,
+                    requestId,
+                    false,
+                    true,
+                    trace);
+        } catch (StudioException ex) {
+            return failedDebugResult(view, requestId, trace, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return failedDebugResult(view, requestId, trace, rootMessage(ex));
+        }
     }
 
     public ProtocolConversionInvokeResult invoke(String serviceCode,
@@ -347,6 +362,8 @@ public class ProtocolConversionService {
         Integer targetHttpStatus = null;
         String errorCode = null;
         String errorMessage = null;
+        ProtocolConversionTraceView trace = newTrace(requestId);
+        trace.setSourceRequest(sourceRequestTraceStep(null, requestMethod, headers, query, form, rawBody));
         OpenServiceInvocationLogSupport.LogScope logScope = invocationLogSupport.open(requestId,
                 OpenServiceInvocationLogService.DOMAIN_PROTOCOL_CONVERSIONS,
                 null);
@@ -358,7 +375,7 @@ public class ProtocolConversionService {
             if (parsedSoap != null) {
                 validateSoapSource(view, parsedSoap);
             }
-            result = execute(view, headers, query, form, parsedSoap == null ? null : parsedSoap.getBody(), rawBody, requestId, true, false);
+            result = execute(view, headers, query, form, parsedSoap == null ? null : parsedSoap.getBody(), rawBody, requestId, true, false, trace);
             targetHttpStatus = result.getTargetHttpStatus();
             success = true;
             return result;
@@ -366,6 +383,10 @@ public class ProtocolConversionService {
             httpStatus = statusForException(ex);
             errorCode = ex.getCode();
             errorMessage = ex.getMessage();
+            if (ex instanceof TargetResponseException) {
+                TargetResponse response = ((TargetResponseException) ex).getTargetResponse();
+                targetHttpStatus = response == null ? null : Integer.valueOf(response.status);
+            }
             throw ex;
         } catch (RuntimeException ex) {
             httpStatus = 500;
@@ -382,7 +403,7 @@ public class ProtocolConversionService {
             String capturedLog = logScope == null ? null : logScope.content();
             String systemLog = buildInvocationSystemLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod,
                     occurredAt, startedAt, success, httpStatus, targetHttpStatus, errorCode, errorMessage, receivedCount, successCount, failedCount);
-            String archiveContent = buildInvocationArchiveLog(systemLog, headers, query, form, rawBody, result, capturedLog);
+            String archiveContent = buildInvocationArchiveLog(systemLog, headers, query, form, rawBody, result, trace, capturedLog);
             OpenServiceInvocationLogService.ArchiveResult archiveResult = invocationLogService.archive(
                     OpenServiceInvocationLogService.DOMAIN_PROTOCOL_CONVERSIONS,
                     "protocol-conversion",
@@ -403,34 +424,213 @@ public class ProtocolConversionService {
                                                                  String rawBody,
                                                                  String requestId,
                                                                  boolean enforceStatus,
-                                                                 boolean includeTargetRequest) {
+                                                                 boolean includeTargetRequest,
+                                                                 ProtocolConversionTraceView trace) {
         if (enforceStatus && service.getStatus() != ProtocolConversionStatus.ONLINE) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Protocol conversion service is not available");
         }
         validateExecutable(service);
-        SourcePayload sourcePayload = parseSourcePayload(service, parsedSoapBody, rawBody);
-        List<Map<String, Object>> rows = buildRows(service, sourcePayload, headers, query, form, rawBody);
-        TargetRequest targetRequest = buildTargetRequest(service, rows, sourcePayload, headers, query, form, rawBody);
-        TargetResponse targetResponse = sendTarget(service, targetRequest);
-        validateTargetResponse(service, targetResponse);
+        SourcePayload sourcePayload;
+        List<Map<String, Object>> rows;
+        TargetRequest targetRequest;
+        TargetResponse targetResponse;
+        try {
+            sourcePayload = parseSourcePayload(service, parsedSoapBody, rawBody);
+            setSourceTrace(trace, sourceRequestTraceStep(service, service.getSourceMethod(), headers, query, form,
+                    hasText(rawBody) ? rawBody : sourcePayload.body));
+        } catch (RuntimeException ex) {
+            setSourceTrace(trace, failedStep(sourceRequestTraceStep(service, service.getSourceMethod(), headers, query, form, rawBody), rootMessage(ex)));
+            throw ex;
+        }
+        try {
+            rows = buildRows(service, sourcePayload, headers, query, form, rawBody);
+            targetRequest = buildTargetRequest(service, rows, sourcePayload, headers, query, form, rawBody);
+            setConvertedRequestTrace(trace, convertedRequestTraceStep(service, targetRequest, rows.size()));
+        } catch (RuntimeException ex) {
+            setConvertedRequestTrace(trace, failedStep(baseStep("convertedRequest", "请求参数转换", service.getTargetProtocol()), rootMessage(ex)));
+            throw ex;
+        }
+        try {
+            targetResponse = sendTarget(service, targetRequest);
+            setTargetResponseTrace(trace, targetResponseTraceStep(service, targetResponse));
+        } catch (TargetResponseException ex) {
+            setTargetResponseTrace(trace, failedStep(targetResponseTraceStep(service, ex.getTargetResponse()), rootMessage(ex)));
+            throw ex;
+        } catch (RuntimeException ex) {
+            setTargetResponseTrace(trace, failedStep(baseStep("targetResponse", "原响应", service.getTargetProtocol()), rootMessage(ex)));
+            throw ex;
+        }
 
         @SuppressWarnings("unchecked")
         T result = (T) (includeTargetRequest ? new ProtocolConversionDebugResult() : new ProtocolConversionInvokeResult());
         result.setRequestId(requestId);
         result.setServiceCode(service.getServiceCode());
         result.setStatus("SUCCESS");
-        Object targetBody = parseResponseBody(service.getTargetProtocol(), targetResponse.body);
+        Object targetBody;
+        Object responseBody;
+        try {
+            validateTargetResponse(service, targetResponse);
+            targetBody = parseResponseBody(service.getTargetProtocol(), targetResponse.body);
+            responseBody = extractResponseBody(service.getTargetProtocol(), targetBody);
+            setConvertedResponseTrace(trace, convertedResponseTraceStep(service, responseBody));
+        } catch (RuntimeException ex) {
+            setConvertedResponseTrace(trace, failedStep(baseStep("convertedResponse", "响应转换", service.getTargetProtocol()), rootMessage(ex)));
+            throw ex;
+        }
         result.setTargetHttpStatus(Integer.valueOf(targetResponse.status));
         result.setTargetContentType(targetResponse.contentType);
         result.setTargetBody(targetBody);
-        result.setResponseBody(extractResponseBody(service.getTargetProtocol(), targetBody));
+        result.setResponseBody(responseBody);
         result.setReceivedCount(Long.valueOf(rows.size()));
         result.setSuccessCount(Long.valueOf(rows.size()));
         result.setFailedCount(Long.valueOf(0L));
         if (result instanceof ProtocolConversionDebugResult) {
             ((ProtocolConversionDebugResult) result).setTargetRequest(sanitizeTargetRequest(targetRequest.snapshot()));
+            ((ProtocolConversionDebugResult) result).setConversionTrace(trace);
         }
         return result;
+    }
+
+    private ProtocolConversionDebugResult failedDebugResult(ProtocolConversionServiceView service,
+                                                            String requestId,
+                                                            ProtocolConversionTraceView trace,
+                                                            String errorMessage) {
+        ProtocolConversionDebugResult result = new ProtocolConversionDebugResult();
+        result.setRequestId(requestId);
+        result.setServiceCode(service == null ? null : service.getServiceCode());
+        result.setStatus(TRACE_STATUS_FAILED);
+        result.setReceivedCount(Long.valueOf(0L));
+        result.setSuccessCount(Long.valueOf(0L));
+        result.setFailedCount(Long.valueOf(1L));
+        result.setResponseBody(Collections.singletonMap("error", errorMessage));
+        result.setConversionTrace(trace);
+        return result;
+    }
+
+    private ProtocolConversionTraceView newTrace(String requestId) {
+        ProtocolConversionTraceView trace = new ProtocolConversionTraceView();
+        trace.setRequestId(requestId);
+        return trace;
+    }
+
+    private ProtocolConversionTraceStepView sourceRequestTraceStep(ProtocolConversionServiceView service,
+                                                                   String method,
+                                                                   Map<String, Object> headers,
+                                                                   Map<String, Object> query,
+                                                                   Map<String, Object> form,
+                                                                   Object body) {
+        ProtocolConversionProtocol protocol = service == null ? null : service.getSourceProtocol();
+        ProtocolConversionTraceStepView step = baseStep("sourceRequest", "原请求", protocol);
+        step.setMethod(normalizeMethod(method, "POST"));
+        step.setHeaders(sanitizeHeaders(headers));
+        step.setQuery(safeMap(query));
+        step.setForm(safeMap(form));
+        step.setBodyFormat(bodyFormat(protocol));
+        step.setBodyPreview(previewForTrace(body));
+        step.setSummary("调用方传入的 Header / Query / Form / Body");
+        return step;
+    }
+
+    private ProtocolConversionTraceStepView convertedRequestTraceStep(ProtocolConversionServiceView service,
+                                                                      TargetRequest request,
+                                                                      int rowCount) {
+        ProtocolConversionTraceStepView step = baseStep("convertedRequest", "请求参数转换", service == null ? null : service.getTargetProtocol());
+        step.setMethod(request == null ? null : request.method);
+        step.setUrl(request == null ? null : request.url);
+        step.setContentType(request == null ? null : request.contentType);
+        step.setHeaders(sanitizeHeaders(request == null ? null : request.headers));
+        step.setBodyFormat(bodyFormat(service == null ? null : service.getTargetProtocol()));
+        step.setBodyPreview(previewForTrace(request == null ? null : request.body));
+        step.setSummary("已根据映射、透传、固定字段和模板生成目标请求，记录数 " + rowCount);
+        return step;
+    }
+
+    private ProtocolConversionTraceStepView targetResponseTraceStep(ProtocolConversionServiceView service,
+                                                                    TargetResponse response) {
+        ProtocolConversionTraceStepView step = baseStep("targetResponse", "原响应", service == null ? null : service.getTargetProtocol());
+        step.setHttpStatus(response == null ? null : Integer.valueOf(response.status));
+        step.setContentType(response == null ? null : response.contentType);
+        step.setBodyFormat(bodyFormat(service == null ? null : service.getTargetProtocol()));
+        step.setBodyPreview(previewForTrace(response == null ? null : response.body));
+        step.setSummary("目标服务返回的 HTTP 状态、Content-Type 和原始响应体");
+        return step;
+    }
+
+    private ProtocolConversionTraceStepView convertedResponseTraceStep(ProtocolConversionServiceView service,
+                                                                       Object responseBody) {
+        ProtocolConversionTraceStepView step = baseStep("convertedResponse", "响应转换", service == null ? null : service.getTargetProtocol());
+        step.setBodyFormat("JSON");
+        step.setBodyPreview(previewForTrace(responseBody));
+        step.setSummary("已解析目标响应并转换为开放调用返回的业务响应体");
+        return step;
+    }
+
+    private ProtocolConversionTraceStepView baseStep(String key, String title, ProtocolConversionProtocol protocol) {
+        ProtocolConversionTraceStepView step = new ProtocolConversionTraceStepView();
+        step.setKey(key);
+        step.setTitle(title);
+        step.setProtocol(protocol == null ? null : protocol.name());
+        step.setStatus(TRACE_STATUS_SUCCESS);
+        return step;
+    }
+
+    private ProtocolConversionTraceStepView failedStep(ProtocolConversionTraceStepView step, String errorMessage) {
+        ProtocolConversionTraceStepView safeStep = step == null ? new ProtocolConversionTraceStepView() : step;
+        safeStep.setStatus(TRACE_STATUS_FAILED);
+        safeStep.setErrorMessage(errorMessage);
+        safeStep.setSummary(hasText(errorMessage) ? errorMessage : safeStep.getSummary());
+        return safeStep;
+    }
+
+    private void setSourceTrace(ProtocolConversionTraceView trace, ProtocolConversionTraceStepView step) {
+        if (trace != null) {
+            trace.setSourceRequest(step);
+        }
+    }
+
+    private void setConvertedRequestTrace(ProtocolConversionTraceView trace, ProtocolConversionTraceStepView step) {
+        if (trace != null) {
+            trace.setConvertedRequest(step);
+        }
+    }
+
+    private void setTargetResponseTrace(ProtocolConversionTraceView trace, ProtocolConversionTraceStepView step) {
+        if (trace != null) {
+            trace.setTargetResponse(step);
+        }
+    }
+
+    private void setConvertedResponseTrace(ProtocolConversionTraceView trace, ProtocolConversionTraceStepView step) {
+        if (trace != null) {
+            trace.setConvertedResponse(step);
+        }
+    }
+
+    private String bodyFormat(ProtocolConversionProtocol protocol) {
+        if (protocol == ProtocolConversionProtocol.HTTP_JSON) {
+            return "JSON";
+        }
+        if (protocol == ProtocolConversionProtocol.HTTP_XML || isSoapTarget(protocol)) {
+            return "XML";
+        }
+        return "TEXT";
+    }
+
+    private String previewForTrace(Object value) {
+        if (invocationLogService != null) {
+            return invocationLogService.previewValue(value);
+        }
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof String) {
+            return truncate(String.valueOf(value), 4000);
+        }
+        try {
+            return truncate(objectMapper.writeValueAsString(value), 4000);
+        } catch (Exception ex) {
+            return truncate(String.valueOf(value), 4000);
+        }
     }
 
     private SourcePayload parseSourcePayload(ProtocolConversionServiceView service, Object parsedSoapBody, String rawBody) {
@@ -841,15 +1041,19 @@ public class ProtocolConversionService {
                 builder.method(method, HttpRequest.BodyPublishers.ofString(targetRequest.body == null ? "" : targetRequest.body, StandardCharsets.UTF_8));
             }
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            String contentType = response.headers().firstValue("Content-Type").orElse(null);
+            TargetResponse targetResponse = new TargetResponse(response.statusCode(), contentType, response.body());
             if (isSoapTarget(service.getTargetProtocol()) && hasSoapFault(response.body())) {
-                throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "SOAP Fault: " + soapFaultMessage(response.body()));
+                throw new TargetResponseException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                        "SOAP Fault: " + soapFaultMessage(response.body()),
+                        targetResponse);
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                        "Target HTTP request failed: " + response.statusCode() + " " + truncate(response.body(), 500));
+                throw new TargetResponseException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                        "Target HTTP request failed: " + response.statusCode() + " " + truncate(response.body(), 500),
+                        targetResponse);
             }
-            String contentType = response.headers().firstValue("Content-Type").orElse(null);
-            return new TargetResponse(response.statusCode(), contentType, response.body());
+            return targetResponse;
         } catch (StudioException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -868,7 +1072,11 @@ public class ProtocolConversionService {
             return;
         }
         Object parsed = parseResponseBody(service.getTargetProtocol(), response.body);
-        Object actual = readPath(parsed, path);
+        Object responseBody = extractResponseBody(service.getTargetProtocol(), parsed);
+        Object actual = readPath(responseBody, path);
+        if (actual == null && responseBody != parsed) {
+            actual = readPath(parsed, path);
+        }
         if (!String.valueOf(code).equals(String.valueOf(actual))) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
                     "Target response business status mismatch: path=" + path + ", expected=" + code + ", actual=" + actual);
@@ -1928,9 +2136,12 @@ public class ProtocolConversionService {
                                              Map<String, Object> form,
                                              String rawBody,
                                              ProtocolConversionInvokeResult result,
+                                             ProtocolConversionTraceView trace,
                                              String capturedLog) {
         StringBuilder builder = new StringBuilder(4096);
         invocationLogService.appendSection(builder, "Invocation Summary", systemLog);
+        invocationLogService.appendSection(builder, TRACE_SECTION_TITLE, renderTraceText(trace));
+        invocationLogService.appendSection(builder, TRACE_JSON_SECTION_TITLE, traceJson(trace));
         invocationLogService.appendSection(builder, "Source Request Headers", invocationLogService.previewValue(invocationLogService.sanitizeHeaders(headers)));
         invocationLogService.appendSection(builder, "Source Request Query", invocationLogService.previewValue(query));
         invocationLogService.appendSection(builder, "Source Request Form", invocationLogService.previewValue(form));
@@ -1940,6 +2151,49 @@ public class ProtocolConversionService {
         invocationLogService.appendSection(builder, "Captured Console Logs",
                 hasText(capturedLog) ? capturedLog : "No console log was captured for this invocation.");
         return builder.toString();
+    }
+
+    private String renderTraceText(ProtocolConversionTraceView trace) {
+        if (trace == null) {
+            return "-";
+        }
+        StringBuilder builder = new StringBuilder(2048);
+        appendTraceStep(builder, trace.getSourceRequest());
+        appendTraceStep(builder, trace.getConvertedRequest());
+        appendTraceStep(builder, trace.getTargetResponse());
+        appendTraceStep(builder, trace.getConvertedResponse());
+        return builder.length() == 0 ? "-" : builder.toString();
+    }
+
+    private void appendTraceStep(StringBuilder builder, ProtocolConversionTraceStepView step) {
+        if (builder == null || step == null) {
+            return;
+        }
+        if (builder.length() > 0) {
+            builder.append(System.lineSeparator());
+        }
+        builder.append("[").append(step.getTitle()).append("] ")
+                .append(step.getStatus() == null ? "-" : step.getStatus()).append(System.lineSeparator());
+        invocationLogService.appendLine(builder, "protocol", step.getProtocol());
+        invocationLogService.appendLine(builder, "method", step.getMethod());
+        invocationLogService.appendLine(builder, "url", step.getUrl());
+        invocationLogService.appendLine(builder, "httpStatus", step.getHttpStatus());
+        invocationLogService.appendLine(builder, "contentType", step.getContentType());
+        invocationLogService.appendLine(builder, "summary", step.getSummary());
+        if (hasText(step.getErrorMessage())) {
+            invocationLogService.appendLine(builder, "error", step.getErrorMessage());
+        }
+    }
+
+    private String traceJson(ProtocolConversionTraceView trace) {
+        if (trace == null) {
+            return "{}";
+        }
+        try {
+            return objectMapper.writeValueAsString(trace);
+        } catch (Exception ex) {
+            return "{}";
+        }
     }
 
     private String joinError(String errorCode, String errorMessage) {
@@ -2306,6 +2560,19 @@ public class ProtocolConversionService {
             this.status = status;
             this.contentType = contentType;
             this.body = body;
+        }
+    }
+
+    private static final class TargetResponseException extends StudioException {
+        private final TargetResponse targetResponse;
+
+        private TargetResponseException(String code, String message, TargetResponse targetResponse) {
+            super(code, message);
+            this.targetResponse = targetResponse;
+        }
+
+        private TargetResponse getTargetResponse() {
+            return targetResponse;
         }
     }
 }

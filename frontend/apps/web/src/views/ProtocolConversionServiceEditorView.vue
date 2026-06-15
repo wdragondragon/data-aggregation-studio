@@ -439,6 +439,15 @@
         />
       </div>
       <el-alert v-if="debugError" type="error" show-icon :closable="false" :title="debugError" />
+      <div v-if="debugTrace" class="trace-panel">
+        <div class="debug-body-editor__header">
+          <div>
+            <strong>四阶段转换过程</strong>
+            <p>按原请求、请求参数转换、原响应、响应转换展示本次调试的关键过程。</p>
+          </div>
+        </div>
+        <ProtocolConversionTraceTimeline :trace="debugTrace" />
+      </div>
       <div class="debug-result-panel">
         <div class="debug-body-editor__header">
           <div>
@@ -489,6 +498,7 @@ import type {
   ProtocolConversionFixedField,
   ProtocolConversionServiceSaveRequest,
   ProtocolConversionServiceView,
+  ProtocolConversionTraceView,
   TransformerBinding,
   WebServiceConfig,
 } from "@studio/api-sdk";
@@ -503,6 +513,7 @@ import {
   type SoapFieldSpec,
 } from "@/components/open-service/openServiceDebugSupport";
 import ProtocolConversionJsonObjectEditor from "@/components/protocol-conversion/ProtocolConversionJsonObjectEditor.vue";
+import ProtocolConversionTraceTimeline from "@/components/protocol-conversion/ProtocolConversionTraceTimeline.vue";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import { copyTextFallback } from "@/components/data-service/dataServiceEditorSupport";
 
@@ -518,6 +529,7 @@ const debugResultText = ref("");
 const debugMetaText = ref("");
 const debugTargetRequestText = ref("");
 const debugError = ref("");
+const debugTrace = ref<ProtocolConversionTraceView | null>(null);
 const curlCommand = ref("");
 const advancedPanels = ref<string[]>([]);
 
@@ -820,6 +832,7 @@ async function debugService() {
   debugResultText.value = "";
   debugMetaText.value = "";
   debugTargetRequestText.value = "";
+  debugTrace.value = null;
   try {
     const soapDebug = isSoapSource.value;
     const result = await studioApi.protocolConversions.debug(form.id, {
@@ -830,6 +843,7 @@ async function debugService() {
     debugResultText.value = formatDebugResult(result);
     debugMetaText.value = formatDebugMeta(result);
     debugTargetRequestText.value = result.targetRequest ? stringifyJson(result.targetRequest) : "";
+    debugTrace.value = result.conversionTrace || null;
   } catch (error) {
     debugError.value = error instanceof Error ? error.message : "调试失败";
   } finally {
@@ -1474,6 +1488,7 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
 .mode-panel,
 .body-preview,
 .curl-panel,
+.trace-panel,
 .debug-result-panel,
 .debug-body-editor {
   display: grid;

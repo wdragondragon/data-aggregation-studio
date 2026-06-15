@@ -673,8 +673,35 @@ export interface ProtocolConversionInvokeResult {
   failedCount?: number;
 }
 
+export interface ProtocolConversionTraceStepView {
+  key?: string;
+  title?: string;
+  status?: string;
+  protocol?: string;
+  method?: string;
+  url?: string;
+  httpStatus?: number;
+  contentType?: string;
+  bodyFormat?: string;
+  summary?: string;
+  errorMessage?: string;
+  headers?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  form?: Record<string, unknown>;
+  bodyPreview?: string;
+}
+
+export interface ProtocolConversionTraceView {
+  requestId?: string;
+  sourceRequest?: ProtocolConversionTraceStepView;
+  convertedRequest?: ProtocolConversionTraceStepView;
+  targetResponse?: ProtocolConversionTraceStepView;
+  convertedResponse?: ProtocolConversionTraceStepView;
+}
+
 export interface ProtocolConversionDebugResult extends ProtocolConversionInvokeResult {
   targetRequest?: Record<string, unknown>;
+  conversionTrace?: ProtocolConversionTraceView;
 }
 
 export interface ProtocolConversionAccessLogView extends BaseRecord {

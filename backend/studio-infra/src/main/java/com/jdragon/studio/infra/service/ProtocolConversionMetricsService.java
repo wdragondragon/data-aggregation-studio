@@ -2,11 +2,17 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionView;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionsView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.ProtocolConversionAccessLogView;
+import com.jdragon.studio.dto.model.ProtocolConversionTraceStepView;
+import com.jdragon.studio.dto.model.ProtocolConversionTraceView;
+import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.dto.model.request.ProtocolConversionMetricQueryRequest;
+import com.jdragon.studio.commons.exception.StudioErrorCode;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.entity.ProtocolConversionAccessLogEntity;
 import com.jdragon.studio.infra.entity.ProtocolConversionServiceEntity;
 import com.jdragon.studio.infra.entity.ProtocolConversionSubscriptionEntity;
@@ -29,6 +35,9 @@ public class ProtocolConversionMetricsService {
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 200;
     private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
+    private static final String TRACE_JSON_SECTION_TITLE = "Protocol Conversion Trace JSON";
+    private static final String TRACE_STATUS_SUCCESS = "SUCCESS";
+    private static final String TRACE_STATUS_FAILED = "FAILED";
     private static final DateTimeFormatter REQUEST_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ProtocolConversionAccessLogMapper accessLogMapper;
@@ -36,17 +45,23 @@ public class ProtocolConversionMetricsService {
     private final ProtocolConversionSubscriptionMapper subscriptionMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final OpenServiceInvocationLogService invocationLogService;
+    private final ObjectMapper objectMapper;
 
     public ProtocolConversionMetricsService(ProtocolConversionAccessLogMapper accessLogMapper,
-                                            ProtocolConversionServiceMapper serviceMapper,
-                                            ProtocolConversionSubscriptionMapper subscriptionMapper,
-                                            StudioSecurityService securityService,
-                                            ProjectResourceAccessService projectResourceAccessService) {
+                                             ProtocolConversionServiceMapper serviceMapper,
+                                             ProtocolConversionSubscriptionMapper subscriptionMapper,
+                                             StudioSecurityService securityService,
+                                             ProjectResourceAccessService projectResourceAccessService,
+                                             OpenServiceInvocationLogService invocationLogService,
+                                             ObjectMapper objectMapper) {
         this.accessLogMapper = accessLogMapper;
         this.serviceMapper = serviceMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.invocationLogService = invocationLogService;
+        this.objectMapper = objectMapper;
     }
 
     public DataServiceMetricOptionsView options() {
@@ -117,6 +132,20 @@ public class ProtocolConversionMetricsService {
             items.add(toAccessLogView(entity));
         }
         return PageView.of(pageNo, pageSize, entityPage.getTotal(), items);
+    }
+
+    public ProtocolConversionTraceView accessLogTrace(Long accessLogId) {
+        ProtocolConversionAccessLogEntity entity = requireReadableAccessLog(accessLogId);
+        try {
+            RunLogView log = invocationLogService.downloadLog(OpenServiceInvocationLogService.DOMAIN_PROTOCOL_CONVERSIONS, accessLogId);
+            ProtocolConversionTraceView parsed = parseTraceFromLog(log == null ? null : log.getContent());
+            if (parsed != null) {
+                return parsed;
+            }
+        } catch (RuntimeException ignored) {
+            // Fall back to access_log summary for old logs or unavailable archives.
+        }
+        return fallbackTrace(entity);
     }
 
     private LambdaQueryWrapper<ProtocolConversionAccessLogEntity> baseLogQuery(ProtocolConversionMetricQueryRequest request,
@@ -192,6 +221,116 @@ public class ProtocolConversionMetricsService {
         view.setLogArchiveStatus(entity.getLogArchiveStatus());
         view.setLogArchiveError(entity.getLogArchiveError());
         return view;
+    }
+
+    private ProtocolConversionAccessLogEntity requireReadableAccessLog(Long accessLogId) {
+        if (accessLogId == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Access log id is required");
+        }
+        ProtocolConversionAccessLogEntity entity = accessLogMapper.selectById(accessLogId);
+        Long projectId = projectResourceAccessService.currentProjectId();
+        if (entity == null
+                || projectId == null
+                || entity.getProjectId() == null
+                || entity.getProjectId().longValue() != projectId.longValue()
+                || !securityService.currentTenantId().equals(entity.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Access log not found: " + accessLogId);
+        }
+        return entity;
+    }
+
+    private ProtocolConversionTraceView parseTraceFromLog(String content) {
+        String json = traceJsonSection(content);
+        if (!hasText(json)) {
+            return null;
+        }
+        try {
+            ProtocolConversionTraceView trace = objectMapper.readValue(json, ProtocolConversionTraceView.class);
+            return hasAnyTraceStep(trace) ? trace : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String traceJsonSection(String content) {
+        if (!hasText(content)) {
+            return null;
+        }
+        String[] lines = content.split("\\R", -1);
+        for (int i = 0; i < lines.length; i++) {
+            if (!TRACE_JSON_SECTION_TITLE.equals(lines[i].trim())) {
+                continue;
+            }
+            int cursor = i + 1;
+            if (cursor < lines.length && lines[cursor].trim().matches("-+")) {
+                cursor++;
+            }
+            StringBuilder builder = new StringBuilder();
+            for (; cursor < lines.length; cursor++) {
+                String line = lines[cursor];
+                if (builder.length() > 0 && !hasText(line)) {
+                    break;
+                }
+                if (hasText(line)) {
+                    if (builder.length() > 0) {
+                        builder.append('\n');
+                    }
+                    builder.append(line.trim());
+                }
+            }
+            return builder.toString();
+        }
+        return null;
+    }
+
+    private boolean hasAnyTraceStep(ProtocolConversionTraceView trace) {
+        return trace != null
+                && (trace.getSourceRequest() != null
+                || trace.getConvertedRequest() != null
+                || trace.getTargetResponse() != null
+                || trace.getConvertedResponse() != null);
+    }
+
+    private ProtocolConversionTraceView fallbackTrace(ProtocolConversionAccessLogEntity entity) {
+        ProtocolConversionTraceView trace = new ProtocolConversionTraceView();
+        trace.setRequestId(entity.getRequestId());
+        boolean success = Integer.valueOf(1).equals(entity.getSuccess());
+        String summary = "历史调用日志未包含结构化四阶段 Trace，以下内容来自访问日志摘要。";
+        trace.setSourceRequest(fallbackStep("sourceRequest", "原请求", entity.getSourceProtocolSnapshot(), TRACE_STATUS_SUCCESS,
+                entity.getRequestMethod(), null, entity.getHttpStatus(), null, summary, null));
+        trace.setConvertedRequest(fallbackStep("convertedRequest", "请求参数转换", entity.getTargetProtocolSnapshot(), TRACE_STATUS_SUCCESS,
+                null, null, null, null, summary, null));
+        trace.setTargetResponse(fallbackStep("targetResponse", "原响应", entity.getTargetProtocolSnapshot(),
+                entity.getTargetHttpStatus() == null && !success ? TRACE_STATUS_FAILED : TRACE_STATUS_SUCCESS,
+                null, null, entity.getTargetHttpStatus(), null, summary, entity.getTargetHttpStatus() == null && !success ? entity.getErrorMessage() : null));
+        trace.setConvertedResponse(fallbackStep("convertedResponse", "响应转换", entity.getTargetProtocolSnapshot(),
+                success ? TRACE_STATUS_SUCCESS : TRACE_STATUS_FAILED,
+                null, null, entity.getHttpStatus(), null, summary, success ? null : entity.getErrorMessage()));
+        return trace;
+    }
+
+    private ProtocolConversionTraceStepView fallbackStep(String key,
+                                                         String title,
+                                                         String protocol,
+                                                         String status,
+                                                         String method,
+                                                         String url,
+                                                         Integer httpStatus,
+                                                         String contentType,
+                                                         String summary,
+                                                         String errorMessage) {
+        ProtocolConversionTraceStepView step = new ProtocolConversionTraceStepView();
+        step.setKey(key);
+        step.setTitle(title);
+        step.setProtocol(protocol);
+        step.setStatus(status);
+        step.setMethod(method);
+        step.setUrl(url);
+        step.setHttpStatus(httpStatus);
+        step.setContentType(contentType);
+        step.setSummary(summary);
+        step.setErrorMessage(errorMessage);
+        return step;
     }
 
     private int normalizePageNo(Integer pageNo) {
