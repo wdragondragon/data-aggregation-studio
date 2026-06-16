@@ -663,6 +663,7 @@ export interface ProtocolConversionDebugRequest {
 export interface ProtocolConversionInvokeResult {
   requestId?: string;
   serviceCode?: string;
+  sourceProtocol?: ProtocolConversionProtocol;
   status?: string;
   targetHttpStatus?: number;
   targetContentType?: string;

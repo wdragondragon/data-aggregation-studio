@@ -63,7 +63,7 @@ const props = defineProps<{
   trace?: ProtocolConversionTraceView | null;
 }>();
 
-const defaultTitles = ["原请求", "请求参数转换", "原响应", "响应转换"];
+const defaultTitles = ["对外原请求", "目标请求生成", "目标原响应", "对外响应生成"];
 const emptySummary = "暂无结构化明细。";
 
 const traceSteps = computed<ProtocolConversionTraceStepView[]>(() => [

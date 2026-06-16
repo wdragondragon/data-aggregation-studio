@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.enums.ProtocolConversionProtocol;
 import com.jdragon.studio.dto.model.ProtocolConversionInvokeResult;
 import com.jdragon.studio.infra.service.ProtocolConversionService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,7 +45,9 @@ public class OpenProtocolConversionController {
                        @RequestParam(required = false) Map<String, Object> query,
                        HttpServletRequest request,
                        HttpServletResponse response) throws IOException {
+        ProtocolConversionProtocol sourceProtocol = null;
         try {
+            sourceProtocol = protocolConversionService.openSourceProtocol(serviceCode, serviceKey);
             ProtocolConversionInvokeResult result = protocolConversionService.invoke(serviceCode,
                     serviceKey,
                     token,
@@ -55,11 +58,11 @@ public class OpenProtocolConversionController {
                     request.getMethod(),
                     resolveClientIp(request),
                     request.getHeader("User-Agent"));
-            writeJson(response, 200, Result.success(result.getResponseBody()));
+            writeSuccess(response, sourceProtocol, result.getResponseBody());
         } catch (StudioException ex) {
-            writeJson(response, statusFor(ex), Result.error(ex.getCode(), ex.getMessage()));
+            writeError(response, sourceProtocol, statusFor(ex), ex.getCode(), ex.getMessage());
         } catch (Exception ex) {
-            writeJson(response, 500, Result.error(StudioErrorCode.INTERNAL_SERVER_ERROR, ex.getMessage()));
+            writeError(response, sourceProtocol, 500, StudioErrorCode.INTERNAL_SERVER_ERROR, ex.getMessage());
         }
     }
 
@@ -72,6 +75,38 @@ public class OpenProtocolConversionController {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(objectMapper.writeValueAsString(body));
+    }
+
+    private void writeXml(HttpServletResponse response, int status, String body) throws IOException {
+        response.setStatus(status);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.setContentType("application/xml;charset=UTF-8");
+        response.getWriter().write(body == null ? "" : body);
+    }
+
+    private void writeSuccess(HttpServletResponse response,
+                              ProtocolConversionProtocol sourceProtocol,
+                              Object responseBody) throws IOException {
+        if (sourceProtocol == ProtocolConversionProtocol.HTTP_XML) {
+            writeXml(response, 200, protocolConversionService.httpXmlResponseBody(responseBody));
+            return;
+        }
+        writeJson(response, 200, responseBody);
+    }
+
+    private void writeError(HttpServletResponse response,
+                            ProtocolConversionProtocol sourceProtocol,
+                            int status,
+                            String code,
+                            String message) throws IOException {
+        if (sourceProtocol == ProtocolConversionProtocol.HTTP_XML) {
+            Map<String, Object> error = new LinkedHashMap<String, Object>();
+            error.put("code", code);
+            error.put("message", message);
+            writeXml(response, status, protocolConversionService.httpXmlResponseBody(error));
+            return;
+        }
+        writeJson(response, status, Result.error(code, message));
     }
 
     private Map<String, Object> headers(HttpServletRequest request) {

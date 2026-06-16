@@ -6,6 +6,7 @@ import lombok.Data;
 public class ProtocolConversionInvokeResult {
     private String requestId;
     private String serviceCode;
+    private String sourceProtocol;
     private String status;
     private Integer targetHttpStatus;
     private String targetContentType;

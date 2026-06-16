@@ -298,12 +298,12 @@ public class ProtocolConversionMetricsService {
         String summary = "历史调用日志未包含结构化四阶段 Trace，以下内容来自访问日志摘要。";
         trace.setSourceRequest(fallbackStep("sourceRequest", "原请求", entity.getSourceProtocolSnapshot(), TRACE_STATUS_SUCCESS,
                 entity.getRequestMethod(), null, entity.getHttpStatus(), null, summary, null));
-        trace.setConvertedRequest(fallbackStep("convertedRequest", "请求参数转换", entity.getTargetProtocolSnapshot(), TRACE_STATUS_SUCCESS,
+        trace.setConvertedRequest(fallbackStep("convertedRequest", "目标请求生成", entity.getTargetProtocolSnapshot(), TRACE_STATUS_SUCCESS,
                 null, null, null, null, summary, null));
         trace.setTargetResponse(fallbackStep("targetResponse", "原响应", entity.getTargetProtocolSnapshot(),
                 entity.getTargetHttpStatus() == null && !success ? TRACE_STATUS_FAILED : TRACE_STATUS_SUCCESS,
                 null, null, entity.getTargetHttpStatus(), null, summary, entity.getTargetHttpStatus() == null && !success ? entity.getErrorMessage() : null));
-        trace.setConvertedResponse(fallbackStep("convertedResponse", "响应转换", entity.getTargetProtocolSnapshot(),
+        trace.setConvertedResponse(fallbackStep("convertedResponse", "对外响应生成", entity.getSourceProtocolSnapshot(),
                 success ? TRACE_STATUS_SUCCESS : TRACE_STATUS_FAILED,
                 null, null, entity.getHttpStatus(), null, summary, success ? null : entity.getErrorMessage()));
         return trace;

@@ -289,16 +289,24 @@ public class ProtocolConversionService {
     }
 
     public ProtocolConversionInvokeResult invoke(String serviceCode,
-                                                 String serviceKey,
-                                                 String token,
+                                                  String serviceKey,
+                                                  String token,
                                                  Map<String, Object> headers,
                                                  Map<String, Object> query,
                                                  Map<String, Object> form,
                                                  String rawBody,
                                                  String requestMethod,
                                                  String clientIp,
-                                                 String userAgent) {
+                                                  String userAgent) {
         return invokeInternal(serviceCode, serviceKey, token, headers, query, form, rawBody, requestMethod, clientIp, userAgent, null);
+    }
+
+    public ProtocolConversionProtocol openSourceProtocol(String serviceCode, String serviceKey) {
+        return toView(requireOpenEntity(serviceCode, serviceKey)).getSourceProtocol();
+    }
+
+    public String httpXmlResponseBody(Object responseBody) {
+        return objectToXml("root", responseBody == null ? new LinkedHashMap<String, Object>() : responseBody);
     }
 
     public String invokeWebService(String serviceCode,
@@ -447,7 +455,7 @@ public class ProtocolConversionService {
             targetRequest = buildTargetRequest(service, rows, sourcePayload, headers, query, form, rawBody);
             setConvertedRequestTrace(trace, convertedRequestTraceStep(service, targetRequest, rows.size()));
         } catch (RuntimeException ex) {
-            setConvertedRequestTrace(trace, failedStep(baseStep("convertedRequest", "请求参数转换", service.getTargetProtocol()), rootMessage(ex)));
+            setConvertedRequestTrace(trace, failedStep(baseStep("convertedRequest", "目标请求生成", service.getTargetProtocol()), rootMessage(ex)));
             throw ex;
         }
         try {
@@ -465,6 +473,7 @@ public class ProtocolConversionService {
         T result = (T) (includeTargetRequest ? new ProtocolConversionDebugResult() : new ProtocolConversionInvokeResult());
         result.setRequestId(requestId);
         result.setServiceCode(service.getServiceCode());
+        result.setSourceProtocol(service.getSourceProtocol() == null ? null : service.getSourceProtocol().name());
         result.setStatus("SUCCESS");
         Object targetBody;
         Object responseBody;
@@ -474,7 +483,7 @@ public class ProtocolConversionService {
             responseBody = extractResponseBody(service.getTargetProtocol(), targetBody);
             setConvertedResponseTrace(trace, convertedResponseTraceStep(service, responseBody));
         } catch (RuntimeException ex) {
-            setConvertedResponseTrace(trace, failedStep(baseStep("convertedResponse", "响应转换", service.getTargetProtocol()), rootMessage(ex)));
+            setConvertedResponseTrace(trace, failedStep(baseStep("convertedResponse", "对外响应生成", service.getSourceProtocol()), rootMessage(ex)));
             throw ex;
         }
         result.setTargetHttpStatus(Integer.valueOf(targetResponse.status));
@@ -498,6 +507,7 @@ public class ProtocolConversionService {
         ProtocolConversionDebugResult result = new ProtocolConversionDebugResult();
         result.setRequestId(requestId);
         result.setServiceCode(service == null ? null : service.getServiceCode());
+        result.setSourceProtocol(service == null || service.getSourceProtocol() == null ? null : service.getSourceProtocol().name());
         result.setStatus(TRACE_STATUS_FAILED);
         result.setReceivedCount(Long.valueOf(0L));
         result.setSuccessCount(Long.valueOf(0L));
@@ -534,14 +544,14 @@ public class ProtocolConversionService {
     private ProtocolConversionTraceStepView convertedRequestTraceStep(ProtocolConversionServiceView service,
                                                                       TargetRequest request,
                                                                       int rowCount) {
-        ProtocolConversionTraceStepView step = baseStep("convertedRequest", "请求参数转换", service == null ? null : service.getTargetProtocol());
+        ProtocolConversionTraceStepView step = baseStep("convertedRequest", "目标请求生成", service == null ? null : service.getTargetProtocol());
         step.setMethod(request == null ? null : request.method);
         step.setUrl(request == null ? null : request.url);
         step.setContentType(request == null ? null : request.contentType);
         step.setHeaders(sanitizeHeaders(request == null ? null : request.headers));
         step.setBodyFormat(bodyFormat(service == null ? null : service.getTargetProtocol()));
         step.setBodyPreview(previewForTrace(request == null ? null : request.body));
-        step.setSummary("已根据映射、透传、固定字段和模板生成目标请求，记录数 " + rowCount);
+        step.setSummary("已根据透传、显式参数、字段映射或 Body Bridge 生成目标请求，记录数 " + rowCount);
         return step;
     }
 
@@ -558,11 +568,29 @@ public class ProtocolConversionService {
 
     private ProtocolConversionTraceStepView convertedResponseTraceStep(ProtocolConversionServiceView service,
                                                                        Object responseBody) {
-        ProtocolConversionTraceStepView step = baseStep("convertedResponse", "响应转换", service == null ? null : service.getTargetProtocol());
-        step.setBodyFormat("JSON");
-        step.setBodyPreview(previewForTrace(responseBody));
-        step.setSummary("已解析目标响应并转换为开放调用返回的业务响应体");
+        ProtocolConversionProtocol protocol = service == null ? null : service.getSourceProtocol();
+        ProtocolConversionTraceStepView step = baseStep("convertedResponse", "对外响应生成", protocol);
+        step.setBodyFormat(bodyFormat(protocol));
+        step.setBodyPreview(previewForTrace(externalResponsePreviewBody(service, responseBody)));
+        step.setSummary("已解析目标响应并按对外入口协议生成返回体");
         return step;
+    }
+
+    private Object externalResponsePreviewBody(ProtocolConversionServiceView service, Object responseBody) {
+        if (service == null || service.getSourceProtocol() == null) {
+            return responseBody;
+        }
+        if (service.getSourceProtocol() == ProtocolConversionProtocol.HTTP_XML) {
+            return httpXmlResponseBody(responseBody);
+        }
+        if (service.getSourceProtocol() == ProtocolConversionProtocol.SOAP_11
+                || service.getSourceProtocol() == ProtocolConversionProtocol.SOAP_12) {
+            WebServiceSoapVersion version = service.getSourceProtocol() == ProtocolConversionProtocol.SOAP_12
+                    ? WebServiceSoapVersion.SOAP_12
+                    : WebServiceSoapVersion.SOAP_11;
+            return webServiceSupport.successEnvelope(normalizedSourceWebServiceConfig(service), responseBodyOrEmpty(responseBody), version);
+        }
+        return responseBody;
     }
 
     private ProtocolConversionTraceStepView baseStep(String key, String title, ProtocolConversionProtocol protocol) {
@@ -672,8 +700,8 @@ public class ProtocolConversionService {
             return Collections.singletonList(row);
         }
         if (mode == ProtocolConversionMode.BODY_BRIDGE) {
-            Map<String, Object> row = passthroughBodyBase(service, sourcePayload.body, null);
-            applyBodyBridgeRow(service, row, sourcePayload, rawBody);
+            Map<String, Object> row = asObjectMap(bodyBridgePayload(service, sourcePayload, rawBody));
+            applyFixedFields(row, service.getFixedFields());
             return Collections.singletonList(row);
         }
         List<Map<String, Object>> sourceRows = sourceRows(service, sourcePayload.body);
@@ -720,37 +748,14 @@ public class ProtocolConversionService {
         applyFixedFields(row, service.getFixedFields());
     }
 
-    private void applyBodyBridgeRow(ProtocolConversionServiceView service,
-                                    Map<String, Object> row,
-                                    SourcePayload sourcePayload,
-                                    String rawBody) {
-        Object bridged = bridgeBodyValue(service, sourcePayload, rawBody);
-        String targetField = optionText(service.getBodyBridgeOptions(), "targetField");
-        if (hasText(targetField)) {
-            putPath(row, targetField, bridged);
-        } else if (bridged instanceof Map<?, ?>) {
-            row.putAll(castMap(bridged));
-        } else {
-            putPath(row, "body", bridged);
-        }
-        applyFixedFields(row, service.getFixedFields());
-    }
-
-    private Object bridgeBodyValue(ProtocolConversionServiceView service, SourcePayload sourcePayload, String rawBody) {
+    private Object bodyBridgePayload(ProtocolConversionServiceView service, SourcePayload sourcePayload, String rawBody) {
         String mode = optionText(service.getBodyBridgeOptions(), "mode", "CONVERT");
         if ("RAW".equalsIgnoreCase(mode)) {
             return rawBody == null ? "" : rawBody;
         }
-        if (service.getTargetProtocol() == ProtocolConversionProtocol.HTTP_JSON) {
-            return sourcePayload.body;
-        }
-        if (service.getTargetProtocol() == ProtocolConversionProtocol.HTTP_XML) {
-            return objectToXml("root", sourcePayload.body);
-        }
-        if (service.getTargetProtocol() == ProtocolConversionProtocol.SOAP_11 || service.getTargetProtocol() == ProtocolConversionProtocol.SOAP_12) {
-            return sourcePayload.body;
-        }
-        return sourcePayload.body;
+        return sourcePayload == null || sourcePayload.body == null
+                ? new LinkedHashMap<String, Object>()
+                : sourcePayload.body;
     }
 
     private Map<String, Object> passthroughBodyBase(ProtocolConversionServiceView service, Object sourceBody, Map<String, Object> sourceRow) {
@@ -890,6 +895,9 @@ public class ProtocolConversionService {
             }
             return renderTemplate(service.getTargetBodyTemplate(), variables, isXmlTarget(service.getTargetProtocol()));
         }
+        if (service.getConversionMode() == ProtocolConversionMode.BODY_BRIDGE) {
+            return buildBodyBridgeTargetBody(service, sourcePayload, rawBody);
+        }
         if (service.getTargetProtocol() == ProtocolConversionProtocol.HTTP_JSON) {
             Object payload = payloadMode == DataIngestionPayloadMode.ARRAY ? arrayPayload(service, rows) : first;
             return toJson(payload);
@@ -899,6 +907,24 @@ public class ProtocolConversionService {
             return objectToXml("root", payload);
         }
         return buildTargetSoapEnvelope(service, payloadMode == DataIngestionPayloadMode.ARRAY ? arrayPayload(service, rows, true) : first);
+    }
+
+    private String buildBodyBridgeTargetBody(ProtocolConversionServiceView service, SourcePayload sourcePayload, String rawBody) {
+        String mode = optionText(service.getBodyBridgeOptions(), "mode", "CONVERT");
+        boolean rawMode = "RAW".equalsIgnoreCase(mode);
+        Object payload = bodyBridgePayload(service, sourcePayload, rawBody);
+        if (!rawMode && service.getFixedFields() != null && !service.getFixedFields().isEmpty()) {
+            Map<String, Object> enriched = asObjectMap(payload);
+            applyFixedFields(enriched, service.getFixedFields());
+            payload = enriched;
+        }
+        if (service.getTargetProtocol() == ProtocolConversionProtocol.HTTP_JSON) {
+            return rawMode ? String.valueOf(payload == null ? "" : payload) : toJson(payload);
+        }
+        if (service.getTargetProtocol() == ProtocolConversionProtocol.HTTP_XML) {
+            return rawMode ? String.valueOf(payload == null ? "" : payload) : objectToXml("root", payload);
+        }
+        return buildTargetSoapEnvelope(service, payload);
     }
 
     private Object arrayPayload(ProtocolConversionServiceView service, List<Map<String, Object>> rows) {
@@ -1685,6 +1711,10 @@ public class ProtocolConversionService {
 
     private Object responseBodyOrEmpty(ProtocolConversionInvokeResult result) {
         Object responseBody = result == null ? null : result.getResponseBody();
+        return responseBodyOrEmpty(responseBody);
+    }
+
+    private Object responseBodyOrEmpty(Object responseBody) {
         return responseBody == null ? new LinkedHashMap<String, Object>() : responseBody;
     }
 

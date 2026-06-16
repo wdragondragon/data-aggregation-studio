@@ -3,7 +3,7 @@
     <div class="studio-toolbar">
       <div>
         <h3>{{ isCreateMode ? "新建协议转换服务" : "编辑协议转换服务" }}</h3>
-        <p>按源协议解析请求，再根据转换模式构造目标 HTTP 或 WebService 请求。</p>
+        <p>按对外入口协议接收并返回，内部按下游目标协议完成转发调用。</p>
       </div>
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/protocol-conversions')">返回列表</el-button>
@@ -29,7 +29,7 @@
       </button>
     </div>
 
-    <SectionCard v-if="activeStep === 0" title="一、基础与源协议" description="源协议决定开放入口的调用方式；SOAP 源必须走 WebService 入口。">
+    <SectionCard v-if="activeStep === 0" title="一、基础与入口协议" description="入口协议决定开放服务的调用方式和最终响应格式；SOAP 入口必须走 WebService 地址。">
       <el-form label-width="120px" class="protocol-form-grid">
         <el-form-item label="服务编码">
           <el-input v-model="form.serviceCode" :disabled="!isCreateMode" placeholder="customer_protocol_bridge" />
@@ -40,7 +40,7 @@
         <el-form-item label="Token 校验">
           <el-switch v-model="form.tokenRequired" active-text="需要" inactive-text="不需要" />
         </el-form-item>
-        <el-form-item label="源协议">
+        <el-form-item label="入口协议">
           <el-select v-model="form.sourceProtocol">
             <el-option label="HTTP JSON" value="HTTP_JSON" />
             <el-option label="HTTP XML" value="HTTP_XML" />
@@ -48,7 +48,7 @@
             <el-option label="SOAP 1.2" value="SOAP_12" />
           </el-select>
         </el-form-item>
-        <el-form-item label="源方法">
+        <el-form-item label="入口方法">
           <el-select v-model="form.sourceMethod" :disabled="isSoapSource">
             <el-option label="POST" value="POST" />
             <el-option label="GET" value="GET" />
@@ -56,14 +56,14 @@
             <el-option label="PATCH" value="PATCH" />
           </el-select>
         </el-form-item>
-        <el-form-item label="源数据节点">
+        <el-form-item label="入口数据节点">
           <el-input v-model="form.sourceDataNodePath" placeholder="records.record，可选" />
         </el-form-item>
         <el-form-item label="转换模式">
           <el-select v-model="form.conversionMode">
             <el-option label="字段映射互转" value="FIELD_MAPPING" />
-            <el-option label="整报文塞入字段" value="RAW_MESSAGE_FIELD" />
-            <el-option label="Body Bridge" value="BODY_BRIDGE" />
+            <el-option label="整报文装载字段" value="RAW_MESSAGE_FIELD" />
+            <el-option label="Body 直接桥接" value="BODY_BRIDGE" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -99,7 +99,7 @@
       </div>
     </SectionCard>
 
-    <SectionCard v-if="activeStep === 1" title="二、目标协议" description="目标地址由 HTTP 数据源 URL 与目标路径拼接，不允许任意绝对 URL。">
+    <SectionCard v-if="activeStep === 1" title="二、下游目标协议" description="下游目标地址由 HTTP 数据源 URL 与目标路径拼接，不允许任意绝对 URL。">
       <el-form label-width="120px" class="protocol-form-grid">
         <el-form-item label="目标数据源">
           <el-select v-model="form.targetDatasourceId" filterable placeholder="选择 HTTP 数据源">
@@ -109,7 +109,7 @@
         <el-form-item label="目标路径">
           <el-input v-model="form.targetPath" placeholder="/openapi/data-ingestion-services/code/key" />
         </el-form-item>
-        <el-form-item label="目标协议">
+        <el-form-item label="下游协议">
           <el-select v-model="form.targetProtocol">
             <el-option label="HTTP JSON" value="HTTP_JSON" />
             <el-option label="HTTP XML" value="HTTP_XML" />
@@ -163,7 +163,7 @@
       <div class="sub-panel">
         <div class="sub-panel__header">
           <strong>请求参数透传</strong>
-          <p>启用后先将源请求参数透传到目标请求；下方页面配置的 Header、Query 和字段映射会继续追加，重名时覆盖透传值。</p>
+          <p>启用后先透传调用方 Header、Query 和 Body，再叠加下方目标请求参数配置；重名时下方配置覆盖透传值。</p>
         </div>
         <el-checkbox-group v-model="requestPassthroughSelection" class="passthrough-options">
           <el-checkbox label="headers">透传 Header</el-checkbox>
@@ -220,7 +220,7 @@
       </el-collapse>
     </SectionCard>
 
-    <SectionCard v-if="activeStep === 2" title="三、字段与 Body" description="字段映射决定目标 Body 的真实结构；预览会随映射即时刷新。">
+    <SectionCard v-if="activeStep === 2" title="三、字段与 Body" description="字段映射或 Body Bridge 决定下游目标 Body 的真实结构；预览会随配置即时刷新。">
       <template v-if="form.conversionMode === 'FIELD_MAPPING'">
         <div class="section-actions">
           <el-button type="primary" plain @click="addMapping">添加字段映射</el-button>
@@ -331,10 +331,15 @@
                 <el-option label="原样转发" value="RAW" />
               </el-select>
             </el-form-item>
-            <el-form-item label="目标字段">
-              <el-input v-model="bodyBridgeTargetField" placeholder="body 或 payload，可选" />
-            </el-form-item>
           </el-form>
+          <el-alert
+            v-if="showRawBodyBridgeProtocolWarning"
+            class="bridge-warning"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="原样转发不会做协议转换，入口 Body 会按原始文本发送到下游。当前入口协议和下游协议不同，通常应选择“协议转换”。"
+          />
         </div>
       </template>
 
@@ -383,7 +388,36 @@
     </SectionCard>
 
     <SectionCard v-if="activeStep === 3" title="四、调试确认" description="调试接口会返回脱敏后的目标请求详情；开放接口不会暴露目标请求。">
-      <template v-if="isSoapSource">
+      <template v-if="isSoapSource && isBodyBridgeMode">
+        <div class="protocol-json-grid protocol-json-grid--debug">
+          <ProtocolConversionJsonObjectEditor
+            v-model="debugSoapHeadersModel"
+            index="1"
+            title="入口 SOAP HTTP Header"
+            description="模拟调用方传入的 SOAP HTTP Header。"
+            @valid-change="debugHeadersValid = $event"
+          />
+        </div>
+        <div class="debug-body-editor">
+          <div class="debug-body-editor__header">
+            <div>
+              <strong>入口 SOAP 实体内容</strong>
+              <p>系统会按 SOAP 版本、Namespace 和 Operation 自动生成 Envelope，调试时只填写操作实体内部内容。</p>
+            </div>
+            <div class="debug-body-editor__actions">
+              <el-button plain size="small" @click="generateBodyBridgeSoapSample">生成实体样例</el-button>
+              <el-button plain size="small" @click="formatDebugSoapEntityBody">格式化 XML</el-button>
+            </div>
+          </div>
+          <el-input
+            v-model="debugSoapEntityBody"
+            type="textarea"
+            :rows="12"
+            :placeholder="debugSoapEntityBodyPlaceholder"
+          />
+        </div>
+      </template>
+      <template v-else-if="isSoapSource">
         <HttpWebServiceOptionsEditor
           :fields="debugSoapFields"
           :model-value="debugSoapOptions"
@@ -397,21 +431,21 @@
           <ProtocolConversionJsonObjectEditor
             v-model="debugHeadersModel"
             index="1"
-            title="源请求 Header"
+            title="入口请求 Header"
             description="模拟调用方传入的 HTTP Header。"
             @valid-change="debugHeadersValid = $event"
           />
           <ProtocolConversionJsonObjectEditor
             v-model="debugQueryModel"
             index="2"
-            title="源请求 Query"
+            title="入口请求 Query"
             description="模拟调用方传入的 Query 参数。"
             @valid-change="debugQueryValid = $event"
           />
         </div>
         <div class="debug-body-editor">
           <div class="debug-body-editor__header">
-            <strong>源请求 Body</strong>
+            <strong>入口请求 Body</strong>
             <el-button v-if="isXmlSource" plain size="small" @click="formatDebugBody">格式化 XML</el-button>
           </div>
           <el-input v-model="debugRawBody" type="textarea" :rows="10" :placeholder="debugBodyPlaceholder" />
@@ -443,7 +477,7 @@
         <div class="debug-body-editor__header">
           <div>
             <strong>四阶段转换过程</strong>
-            <p>按原请求、请求参数转换、原响应、响应转换展示本次调试的关键过程。</p>
+            <p>按对外原请求、目标请求生成、目标原响应、对外响应生成展示本次调试的关键过程。</p>
           </div>
         </div>
         <ProtocolConversionTraceTimeline :trace="debugTrace" />
@@ -534,9 +568,9 @@ const curlCommand = ref("");
 const advancedPanels = ref<string[]>([]);
 
 const wizardSteps = [
-  { title: "基础与源协议", description: "服务编码、开放方式和源请求解析" },
-  { title: "目标协议", description: "目标地址、协议和转发参数" },
-  { title: "字段与 Body", description: "字段映射和目标报文预览" },
+  { title: "基础与入口协议", description: "服务编码、开放方式和入口请求解析" },
+  { title: "下游目标协议", description: "目标地址、协议和转发参数" },
+  { title: "字段与 Body", description: "字段映射或 Body 桥接预览" },
   { title: "调试确认", description: "模拟调用并查看脱敏目标请求" },
 ];
 
@@ -596,10 +630,13 @@ const debugHeaders = ref<Record<string, unknown>>({});
 const debugQuery = ref<Record<string, unknown>>({});
 const debugRawBody = ref("");
 const debugSoapOptions = ref<Record<string, unknown>>({ header: "{}", requestBody: "" });
+const debugSoapHeaders = ref<Record<string, unknown>>({});
+const debugSoapEntityBody = ref("");
 
 const httpDatasources = computed(() => datasources.value.filter((item) => item.typeCode === "http"));
 const isSoapSource = computed(() => form.sourceProtocol === "SOAP_11" || form.sourceProtocol === "SOAP_12");
 const isSoapTarget = computed(() => form.targetProtocol === "SOAP_11" || form.targetProtocol === "SOAP_12");
+const isBodyBridgeMode = computed(() => form.conversionMode === "BODY_BRIDGE");
 const isXmlSource = computed(() => form.sourceProtocol === "HTTP_XML");
 const isArrayPayload = computed(() => String(form.payloadMode ?? "OBJECT").toUpperCase() === "ARRAY");
 const openEndpoint = computed(() => {
@@ -648,6 +685,13 @@ const debugQueryModel = computed({
   get: () => debugQuery.value,
   set: (value: Record<string, unknown>) => { debugQuery.value = value; },
 });
+const debugSoapHeadersModel = computed({
+  get: () => debugSoapHeaders.value,
+  set: (value: Record<string, unknown>) => {
+    debugSoapHeaders.value = value;
+    debugSoapOptions.value = { ...debugSoapOptions.value, header: stringifyJson(value) };
+  },
+});
 const rawMessageTargetField = computed({
   get: () => stringOption("targetField", "payload"),
   set: (value: string) => setBodyBridgeOption("targetField", value),
@@ -664,10 +708,10 @@ const bodyBridgeMode = computed({
   get: () => stringOption("mode", "CONVERT"),
   set: (value: string) => setBodyBridgeOption("mode", value),
 });
-const bodyBridgeTargetField = computed({
-  get: () => stringOption("targetField", ""),
-  set: (value: string) => setBodyBridgeOption("targetField", value),
-});
+const showRawBodyBridgeProtocolWarning = computed(() =>
+  isBodyBridgeMode.value
+  && bodyBridgeMode.value === "RAW"
+  && form.sourceProtocol !== form.targetProtocol);
 const debugSoapContract = computed(() => ({
   soapVersion: form.sourceProtocol === "SOAP_12" ? "SOAP_12" : "SOAP_11",
   namespaceUri: webserviceConfig.namespaceUri || "http://studio.jdragon.com/protocol-conversion",
@@ -701,9 +745,12 @@ const debugBodyPlaceholder = computed(() =>
   form.sourceProtocol === "HTTP_XML"
     ? "<root>\n  <id>1</id>\n</root>"
     : "{\n  \"id\": 1\n}");
+const debugSoapEntityBodyPlaceholder = computed(() => bodyBridgeSoapSampleInnerXml());
 const targetBodyPreviewDescription = computed(() =>
   form.targetBodyTemplate?.trim()
     ? "当前使用高级自定义模板；字段映射仍用于生成变量。"
+    : form.conversionMode === "BODY_BRIDGE"
+      ? "入口 Body 将按下游目标协议整体转换；不会额外包进某个目标字段。"
     : "根据字段映射、固定字段、Payload 和目标数据节点自动生成。");
 const targetBodyPreviewError = computed(() => buildTargetBodyPreview().error);
 const targetBodyPreview = computed(() => buildTargetBodyPreview().text);
@@ -749,6 +796,8 @@ async function loadService(id: EntityId) {
   Object.assign(webserviceConfig, detail.webserviceConfig ?? {});
   Object.assign(targetWebserviceConfig, detail.targetWebserviceConfig ?? detail.webserviceConfig ?? {});
   debugSoapOptions.value = { header: "{}", requestBody: "" };
+  debugSoapHeaders.value = {};
+  debugSoapEntityBody.value = "";
 }
 
 function addMapping() {
@@ -836,9 +885,9 @@ async function debugService() {
   try {
     const soapDebug = isSoapSource.value;
     const result = await studioApi.protocolConversions.debug(form.id, {
-      headers: soapDebug ? parseMaybeJsonObject(debugSoapOptions.value.header, "源 SOAP HTTP Header") : debugHeaders.value,
+      headers: soapDebug ? soapDebugHeadersForRequest() : debugHeaders.value,
       query: soapDebug ? {} : debugQuery.value,
-      rawBody: soapDebug ? String(debugSoapOptions.value.requestBody ?? "") : debugRawBody.value,
+      rawBody: soapDebug ? soapDebugBodyForRequest() : debugRawBody.value,
     });
     debugResultText.value = formatDebugResult(result);
     debugMetaText.value = formatDebugMeta(result);
@@ -871,17 +920,29 @@ function buildHttpCurlCommand(mode: "bash" | "cmd") {
 }
 
 function buildSoapCurlCommand(mode: "bash" | "cmd") {
-  const headerValue = debugSoapOptions.value.header;
-  const headers = ensureProtocolOpenHeaders(parseMaybeJsonObject(headerValue, "源 SOAP HTTP Header"), resolveSoapContentType(), "text/xml");
+  const headers = ensureProtocolOpenHeaders(soapDebugHeadersForRequest(), resolveSoapContentType(), "text/xml");
   const soapAction = String(webserviceConfig.soapAction ?? "").trim();
   if (soapAction && !hasHeader(headers, "SOAPAction")) {
     headers.SOAPAction = soapAction;
   }
-  const bodyText = String(debugSoapOptions.value.requestBody ?? "");
-  if (!bodyText.trim()) {
-    throw new Error("SOAP Envelope 不能为空，请先在调试确认中生成或填写请求 Body");
-  }
+  const bodyText = soapDebugBodyForRequest();
   return buildRawCurl(mode, openEndpoint.value, "POST", headers, {}, bodyText, resolveSoapContentType());
+}
+
+function soapDebugHeadersForRequest() {
+  if (isBodyBridgeMode.value) {
+    return debugSoapHeaders.value;
+  }
+  return parseMaybeJsonObject(debugSoapOptions.value.header, "源 SOAP HTTP Header");
+}
+
+function soapDebugBodyForRequest() {
+  if (!isBodyBridgeMode.value) {
+    return String(debugSoapOptions.value.requestBody ?? "");
+  }
+  const bodyInnerXml = debugSoapEntityBody.value.trim();
+  validateXmlFragment(bodyInnerXml, "入口 SOAP 实体内容");
+  return buildBodyBridgeSoapEnvelope(bodyInnerXml);
 }
 
 async function copyCurlCommand() {
@@ -1005,7 +1066,7 @@ function buildPayload(): ProtocolConversionServiceSaveRequest {
     fieldMappings: form.fieldMappings,
     rawTransformers: form.rawTransformers ?? [],
     fixedFields: form.fixedFields ?? [],
-    bodyBridgeOptions: form.bodyBridgeOptions ?? {},
+    bodyBridgeOptions: normalizedBodyBridgeOptions(),
     requestPassthrough: form.requestPassthrough ?? {},
     targetDatasourceId: form.targetDatasourceId,
     targetPath: form.targetPath,
@@ -1022,11 +1083,22 @@ function buildPayload(): ProtocolConversionServiceSaveRequest {
   };
 }
 
+function normalizedBodyBridgeOptions() {
+  const options = { ...(form.bodyBridgeOptions ?? {}) };
+  if (form.conversionMode === "BODY_BRIDGE") {
+    delete options.targetField;
+  }
+  return options;
+}
+
 function buildTargetBodyPreview(): { text: string; error: string } {
   if (form.targetBodyTemplate?.trim()) {
     return { text: form.targetBodyTemplate, error: "" };
   }
   try {
+    if (form.conversionMode === "BODY_BRIDGE") {
+      return buildBodyBridgeTargetBodyPreview();
+    }
     const payload = isArrayPayload.value ? buildArrayPreviewPayload() : buildObjectPreviewPayload();
     if (form.targetProtocol === "HTTP_JSON") {
       return { text: JSON.stringify(payload, null, 2), error: "" };
@@ -1056,6 +1128,31 @@ function buildTargetBodyPreview(): { text: string; error: string } {
   } catch (error) {
     return { text: "", error: error instanceof Error ? error.message : "目标 Body 预览生成失败" };
   }
+}
+
+function buildBodyBridgeTargetBodyPreview(): { text: string; error: string } {
+  const rawMode = bodyBridgeMode.value === "RAW";
+  const note = rawMode ? "运行时原样转发入口 Body" : "运行时按入口 Body 结构转换";
+  const payload = { bodyBridge: note };
+  if (form.targetProtocol === "HTTP_JSON") {
+    return { text: rawMode ? "{{rawBody}}" : JSON.stringify(payload, null, 2), error: "" };
+  }
+  if (form.targetProtocol === "HTTP_XML") {
+    return { text: rawMode ? "{{rawBody}}" : formatXmlPreview(objectToXml("root", payload)), error: "" };
+  }
+  const bodyInnerXml = rawMode
+    ? "{{rawBody}}"
+    : "<bodyBridge>运行时按入口 Body 结构转换</bodyBridge>";
+  return {
+    text: formatXmlPreview(buildSoapEnvelope({
+      soapVersion: form.targetProtocol === "SOAP_12" ? "SOAP_12" : "SOAP_11",
+      namespaceUri: targetWebserviceConfig.namespaceUri || "http://studio.jdragon.com/protocol-conversion-target",
+      requestRootName: targetWebserviceConfig.requestRootName || targetWebserviceConfig.operationName || "submitPayload",
+      includeToken: false,
+      bodyInnerXml,
+    })),
+    error: "",
+  };
 }
 
 function buildObjectPreviewPayload() {
@@ -1246,13 +1343,65 @@ function formatXmlPreview(value: string) {
   return formatted.ok ? formatted.value : value;
 }
 
+function generateBodyBridgeSoapSample() {
+  debugSoapEntityBody.value = formatXmlFragment(bodyBridgeSoapSampleInnerXml(), "入口 SOAP 实体内容");
+}
+
+function bodyBridgeSoapSampleInnerXml() {
+  return "<customerId>1001</customerId><amount>12.30</amount><remark>Body Bridge sample</remark>";
+}
+
+function buildBodyBridgeSoapEnvelope(bodyInnerXml: string) {
+  return buildSoapEnvelope({
+    soapVersion: form.sourceProtocol === "SOAP_12" ? "SOAP_12" : "SOAP_11",
+    namespaceUri: webserviceConfig.namespaceUri || "http://studio.jdragon.com/protocol-conversion",
+    requestRootName: webserviceConfig.requestRootName || webserviceConfig.operationName || "convertPayload",
+    includeToken: false,
+    bodyInnerXml,
+  });
+}
+
 function formatDebugBody() {
-  const formatted = formatXmlText(debugRawBody.value, "源请求 XML");
+  const formatted = formatXmlText(debugRawBody.value, "入口请求 XML");
   if (!formatted.ok) {
     ElMessage.error(formatted.error || "XML 格式化失败");
     return;
   }
   debugRawBody.value = formatted.value;
+}
+
+function formatDebugSoapEntityBody() {
+  try {
+    debugSoapEntityBody.value = formatXmlFragment(debugSoapEntityBody.value, "入口 SOAP 实体内容");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "SOAP 实体内容格式化失败");
+  }
+}
+
+function validateXmlFragment(value: string, label: string) {
+  if (!value.trim()) {
+    return;
+  }
+  const formatted = formatXmlText(`<__body>${value}</__body>`, label);
+  if (!formatted.ok) {
+    throw new Error(formatted.error || `${label} XML 不合法`);
+  }
+}
+
+function formatXmlFragment(value: string, label: string) {
+  const text = value.trim();
+  if (!text) {
+    return "";
+  }
+  const formatted = formatXmlText(`<__body>${text}</__body>`, label);
+  if (!formatted.ok) {
+    throw new Error(formatted.error || `${label} XML 不合法`);
+  }
+  const lines = formatted.value.split("\n");
+  return lines
+    .slice(1, -1)
+    .map((line) => line.startsWith("  ") ? line.slice(2) : line)
+    .join("\n");
 }
 
 function parseMaybeJsonObject(value: unknown, label: string) {
@@ -1500,6 +1649,10 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
   background: rgba(255, 255, 255, 0.72);
 }
 
+.bridge-warning {
+  margin-top: 4px;
+}
+
 .sub-panel__header,
 .body-preview__header,
 .curl-panel__header,
@@ -1518,6 +1671,13 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
   margin: 2px 0 0;
   color: var(--studio-text-soft);
   font-size: 12px;
+}
+
+.debug-body-editor__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .protocol-json-grid {

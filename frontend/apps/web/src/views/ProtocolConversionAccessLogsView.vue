@@ -173,7 +173,7 @@
           </div>
         </div>
 
-        <SectionCard title="四阶段转换过程" description="展示原请求、请求参数转换、原响应和响应转换。">
+        <SectionCard title="四阶段转换过程" description="展示对外原请求、目标请求生成、目标原响应和对外响应生成。">
           <div v-loading="traceLoading">
             <ProtocolConversionTraceTimeline v-if="activeTrace" :trace="activeTrace" />
             <el-empty v-else description="暂无结构化转换过程" />

@@ -6,6 +6,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DataIngestionPayloadMode;
 import com.jdragon.studio.dto.enums.DataIngestionSourcePosition;
 import com.jdragon.studio.dto.enums.FieldValueType;
+import com.jdragon.studio.dto.enums.ProtocolConversionMode;
 import com.jdragon.studio.dto.enums.ProtocolConversionProtocol;
 import com.jdragon.studio.dto.enums.WebServiceSoapVersion;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
@@ -274,6 +275,67 @@ class WebServiceSupportTest {
         validateTargetResponse.invoke(service, view, targetResponse);
     }
 
+    @Test
+    void shouldBridgeJsonBodyDirectlyIntoSoapOperationBody() throws Exception {
+        ProtocolConversionService service = protocolConversionService();
+        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+        view.setConversionMode(ProtocolConversionMode.BODY_BRIDGE);
+        view.setTargetProtocol(ProtocolConversionProtocol.SOAP_11);
+        WebServiceConfig config = new WebServiceConfig();
+        config.setNamespaceUri("urn:target");
+        config.setOperationName("submitPayload");
+        config.setRequestRootName("submitPayload");
+        view.setTargetWebserviceConfig(config);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("customerName", "Alice");
+        body.put("amount", "12.30");
+
+        String targetBody = invokeBuildBodyBridgeTargetBody(service, view, body, "{\"customerName\":\"Alice\"}");
+
+        assertTrue(targetBody.contains("<tns:submitPayload>"));
+        assertTrue(targetBody.contains("<customerName>Alice</customerName>"));
+        assertTrue(targetBody.contains("<amount>12.30</amount>"));
+        assertTrue(!targetBody.contains("<payload>"));
+        assertTrue(!targetBody.contains("<body>"));
+    }
+
+    @Test
+    void shouldBridgeSoapEntityBodyDirectlyToJsonBody() throws Exception {
+        ProtocolConversionService service = protocolConversionService();
+        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+        view.setConversionMode(ProtocolConversionMode.BODY_BRIDGE);
+        view.setTargetProtocol(ProtocolConversionProtocol.HTTP_JSON);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("runBatch", "20260616");
+        body.put("pageSize", "50");
+
+        String targetBody = invokeBuildBodyBridgeTargetBody(service, view, body, "<soap:Envelope/>");
+
+        assertTrue(targetBody.contains("\"runBatch\":\"20260616\""));
+        assertTrue(targetBody.contains("\"pageSize\":\"50\""));
+        assertTrue(!targetBody.contains("Envelope"));
+        assertTrue(!targetBody.contains("payload"));
+    }
+
+    @Test
+    void shouldBridgeEmptyBodyToEmptySoapOperationBody() throws Exception {
+        ProtocolConversionService service = protocolConversionService();
+        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+        view.setConversionMode(ProtocolConversionMode.BODY_BRIDGE);
+        view.setTargetProtocol(ProtocolConversionProtocol.SOAP_11);
+        WebServiceConfig config = new WebServiceConfig();
+        config.setNamespaceUri("urn:target");
+        config.setOperationName("submitPayload");
+        config.setRequestRootName("submitPayload");
+        view.setTargetWebserviceConfig(config);
+
+        String targetBody = invokeBuildBodyBridgeTargetBody(service, view, new LinkedHashMap<>(), "");
+
+        assertTrue(targetBody.contains("<tns:submitPayload>"));
+        assertTrue(targetBody.contains("</tns:submitPayload>"));
+        assertTrue(!targetBody.contains("Body Bridge request body is required"));
+    }
+
     @SuppressWarnings("unchecked")
     private static Object nested(Map<String, Object> source, String first, String second) {
         Object child = source.get(first);
@@ -309,5 +371,19 @@ class WebServiceSupportTest {
     private static ProtocolConversionService protocolConversionService() {
         return new ProtocolConversionService(
                 null, null, null, null, null, null, null, new ObjectMapper(), null);
+    }
+
+    private static String invokeBuildBodyBridgeTargetBody(ProtocolConversionService service,
+                                                          ProtocolConversionServiceView view,
+                                                          Map<String, Object> body,
+                                                          String rawBody) throws Exception {
+        Class<?> sourcePayloadType = Class.forName(ProtocolConversionService.class.getName() + "$SourcePayload");
+        Constructor<?> constructor = sourcePayloadType.getDeclaredConstructor(Object.class, String.class);
+        constructor.setAccessible(true);
+        Object sourcePayload = constructor.newInstance(body, rawBody);
+        Method method = ProtocolConversionService.class.getDeclaredMethod(
+                "buildBodyBridgeTargetBody", ProtocolConversionServiceView.class, sourcePayloadType, String.class);
+        method.setAccessible(true);
+        return String.valueOf(method.invoke(service, view, sourcePayload, rawBody));
     }
 }

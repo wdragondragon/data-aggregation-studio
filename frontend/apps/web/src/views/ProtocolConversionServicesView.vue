@@ -3,7 +3,7 @@
     <div class="studio-toolbar">
       <div>
         <h3>协议转换服务</h3>
-        <p>开放 HTTP 或 SOAP 接口，按字段映射、整报文入字段或 Body Bridge 转发到目标 HTTP/WebService。</p>
+        <p>开放 HTTP 或 SOAP 入口，按字段映射、整报文装载或 Body 直接桥接转发到下游目标接口。</p>
       </div>
       <div class="studio-toolbar-actions">
         <el-button plain @click="loadServices">刷新</el-button>
@@ -320,7 +320,7 @@ function modeLabel(mode?: ProtocolConversionMode) {
   const map: Record<string, string> = {
     FIELD_MAPPING: "字段映射",
     RAW_MESSAGE_FIELD: "整报文字段",
-    BODY_BRIDGE: "Body Bridge",
+    BODY_BRIDGE: "Body 直接桥接",
   };
   return mode ? map[mode] ?? mode : "-";
 }
