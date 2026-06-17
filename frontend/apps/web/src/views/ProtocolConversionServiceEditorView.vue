@@ -388,16 +388,14 @@
     </SectionCard>
 
     <SectionCard v-if="activeStep === 3" title="四、调试确认" description="调试接口会返回脱敏后的目标请求详情；开放接口不会暴露目标请求。">
-      <template v-if="isSoapSource && isBodyBridgeMode">
-        <div class="protocol-json-grid protocol-json-grid--debug">
-          <ProtocolConversionJsonObjectEditor
-            v-model="debugSoapHeadersModel"
-            index="1"
-            title="入口 SOAP HTTP Header"
-            description="模拟调用方传入的 SOAP HTTP Header。"
-            @valid-change="debugHeadersValid = $event"
-          />
-        </div>
+      <template v-if="isSoapEntityDebugMode">
+        <ProtocolConversionJsonObjectEditor
+          v-model="debugSoapHeadersModel"
+          title="入口 SOAP HTTP Header"
+          description="模拟调用方传入的 SOAP HTTP Header。"
+          compact
+          @valid-change="debugHeadersValid = $event"
+        />
         <div class="debug-body-editor">
           <div class="debug-body-editor__header">
             <div>
@@ -405,7 +403,7 @@
               <p>系统会按 SOAP 版本、Namespace 和 Operation 自动生成 Envelope，调试时只填写操作实体内部内容。</p>
             </div>
             <div class="debug-body-editor__actions">
-              <el-button plain size="small" @click="generateBodyBridgeSoapSample">生成实体样例</el-button>
+              <el-button plain size="small" @click="generateDebugSoapEntitySample">生成实体样例</el-button>
               <el-button plain size="small" @click="formatDebugSoapEntityBody">格式化 XML</el-button>
             </div>
           </div>
@@ -430,16 +428,16 @@
         <div class="protocol-json-grid protocol-json-grid--debug">
           <ProtocolConversionJsonObjectEditor
             v-model="debugHeadersModel"
-            index="1"
             title="入口请求 Header"
             description="模拟调用方传入的 HTTP Header。"
+            compact
             @valid-change="debugHeadersValid = $event"
           />
           <ProtocolConversionJsonObjectEditor
             v-model="debugQueryModel"
-            index="2"
             title="入口请求 Query"
             description="模拟调用方传入的 Query 参数。"
+            compact
             @valid-change="debugQueryValid = $event"
           />
         </div>
@@ -479,6 +477,17 @@
             <strong>四阶段转换过程</strong>
             <p>按对外原请求、目标请求生成、目标原响应、对外响应生成展示本次调试的关键过程。</p>
           </div>
+          <el-button v-if="rawDebugResultText" plain size="small" @click="rawDebugResultVisible = true">查看原始调试结果</el-button>
+        </div>
+        <div v-if="debugSummary" class="debug-summary">
+          <span v-if="debugSummary.requestId">Request ID：{{ debugSummary.requestId }}</span>
+          <el-tag :type="debugSummary.status === 'SUCCESS' ? 'success' : 'danger'" size="small">
+            {{ debugSummary.status || "UNKNOWN" }}
+          </el-tag>
+          <span v-if="debugSummary.targetHttpStatus != null">目标 HTTP：{{ debugSummary.targetHttpStatus }}</span>
+          <span v-if="debugSummary.receivedCount != null">接收：{{ debugSummary.receivedCount }}</span>
+          <span v-if="debugSummary.successCount != null">成功：{{ debugSummary.successCount }}</span>
+          <span v-if="debugSummary.failedCount != null">失败：{{ debugSummary.failedCount }}</span>
         </div>
         <ProtocolConversionTraceTimeline :trace="debugTrace" />
       </div>
@@ -486,29 +495,14 @@
         <div class="debug-body-editor__header">
           <div>
             <strong>业务响应</strong>
-            <p>展示目标服务返回的真实业务 Body；调试元信息可在下方展开查看。</p>
+            <p>展示目标服务返回的真实业务 Body；请求和响应细节在四阶段转换过程中查看。</p>
           </div>
         </div>
         <el-input :model-value="debugResultText" type="textarea" :rows="14" readonly placeholder="业务响应" />
       </div>
-      <el-collapse v-if="debugMetaText || debugTargetRequestText" class="debug-detail-collapse">
-        <el-collapse-item title="调试详情" name="debug-detail">
-          <div class="protocol-json-grid protocol-json-grid--debug">
-            <div class="debug-body-editor">
-              <div class="debug-body-editor__header">
-                <strong>执行信息</strong>
-              </div>
-              <el-input :model-value="debugMetaText" type="textarea" :rows="8" readonly />
-            </div>
-            <div class="debug-body-editor">
-              <div class="debug-body-editor__header">
-                <strong>脱敏目标请求</strong>
-              </div>
-              <el-input :model-value="debugTargetRequestText" type="textarea" :rows="8" readonly />
-            </div>
-          </div>
-        </el-collapse-item>
-      </el-collapse>
+      <el-dialog v-model="rawDebugResultVisible" title="原始调试结果" width="760px">
+        <el-input :model-value="rawDebugResultText" type="textarea" :rows="18" readonly />
+      </el-dialog>
     </SectionCard>
 
     <div class="wizard-footer">
@@ -560,18 +554,30 @@ const saving = ref(false);
 const debugging = ref(false);
 const datasources = ref<DataSourceDefinition[]>([]);
 const debugResultText = ref("");
-const debugMetaText = ref("");
-const debugTargetRequestText = ref("");
 const debugError = ref("");
 const debugTrace = ref<ProtocolConversionTraceView | null>(null);
+const debugSummary = ref<ProtocolConversionDebugSummary | null>(null);
+const rawDebugResultText = ref("");
+const rawDebugResultVisible = ref(false);
 const curlCommand = ref("");
 const advancedPanels = ref<string[]>([]);
+
+interface ProtocolConversionDebugSummary {
+  requestId?: string;
+  serviceCode?: string;
+  status?: string;
+  targetHttpStatus?: number;
+  targetContentType?: string;
+  receivedCount?: number | string;
+  successCount?: number | string;
+  failedCount?: number | string;
+}
 
 const wizardSteps = [
   { title: "基础与入口协议", description: "服务编码、开放方式和入口请求解析" },
   { title: "下游目标协议", description: "目标地址、协议和转发参数" },
   { title: "字段与 Body", description: "字段映射或 Body 桥接预览" },
-  { title: "调试确认", description: "模拟调用并查看脱敏目标请求" },
+  { title: "调试确认", description: "模拟调用并查看四阶段过程" },
 ];
 
 const form = reactive<ProtocolConversionServiceView>({
@@ -637,6 +643,8 @@ const httpDatasources = computed(() => datasources.value.filter((item) => item.t
 const isSoapSource = computed(() => form.sourceProtocol === "SOAP_11" || form.sourceProtocol === "SOAP_12");
 const isSoapTarget = computed(() => form.targetProtocol === "SOAP_11" || form.targetProtocol === "SOAP_12");
 const isBodyBridgeMode = computed(() => form.conversionMode === "BODY_BRIDGE");
+const isRawMessageFieldMode = computed(() => form.conversionMode === "RAW_MESSAGE_FIELD");
+const isSoapEntityDebugMode = computed(() => isSoapSource.value && (isBodyBridgeMode.value || isRawMessageFieldMode.value));
 const isXmlSource = computed(() => form.sourceProtocol === "HTTP_XML");
 const isArrayPayload = computed(() => String(form.payloadMode ?? "OBJECT").toUpperCase() === "ARRAY");
 const openEndpoint = computed(() => {
@@ -745,7 +753,7 @@ const debugBodyPlaceholder = computed(() =>
   form.sourceProtocol === "HTTP_XML"
     ? "<root>\n  <id>1</id>\n</root>"
     : "{\n  \"id\": 1\n}");
-const debugSoapEntityBodyPlaceholder = computed(() => bodyBridgeSoapSampleInnerXml());
+const debugSoapEntityBodyPlaceholder = computed(() => debugSoapSampleInnerXml());
 const targetBodyPreviewDescription = computed(() =>
   form.targetBodyTemplate?.trim()
     ? "当前使用高级自定义模板；字段映射仍用于生成变量。"
@@ -879,9 +887,10 @@ async function debugService() {
   debugging.value = true;
   debugError.value = "";
   debugResultText.value = "";
-  debugMetaText.value = "";
-  debugTargetRequestText.value = "";
   debugTrace.value = null;
+  debugSummary.value = null;
+  rawDebugResultText.value = "";
+  rawDebugResultVisible.value = false;
   try {
     const soapDebug = isSoapSource.value;
     const result = await studioApi.protocolConversions.debug(form.id, {
@@ -890,8 +899,8 @@ async function debugService() {
       rawBody: soapDebug ? soapDebugBodyForRequest() : debugRawBody.value,
     });
     debugResultText.value = formatDebugResult(result);
-    debugMetaText.value = formatDebugMeta(result);
-    debugTargetRequestText.value = result.targetRequest ? stringifyJson(result.targetRequest) : "";
+    debugSummary.value = formatDebugSummary(result);
+    rawDebugResultText.value = stringifyJson(result);
     debugTrace.value = result.conversionTrace || null;
   } catch (error) {
     debugError.value = error instanceof Error ? error.message : "调试失败";
@@ -930,19 +939,19 @@ function buildSoapCurlCommand(mode: "bash" | "cmd") {
 }
 
 function soapDebugHeadersForRequest() {
-  if (isBodyBridgeMode.value) {
+  if (isSoapEntityDebugMode.value) {
     return debugSoapHeaders.value;
   }
   return parseMaybeJsonObject(debugSoapOptions.value.header, "源 SOAP HTTP Header");
 }
 
 function soapDebugBodyForRequest() {
-  if (!isBodyBridgeMode.value) {
+  if (!isSoapEntityDebugMode.value) {
     return String(debugSoapOptions.value.requestBody ?? "");
   }
   const bodyInnerXml = debugSoapEntityBody.value.trim();
   validateXmlFragment(bodyInnerXml, "入口 SOAP 实体内容");
-  return buildBodyBridgeSoapEnvelope(bodyInnerXml);
+  return buildDebugSoapEnvelope(bodyInnerXml);
 }
 
 async function copyCurlCommand() {
@@ -1343,15 +1352,15 @@ function formatXmlPreview(value: string) {
   return formatted.ok ? formatted.value : value;
 }
 
-function generateBodyBridgeSoapSample() {
-  debugSoapEntityBody.value = formatXmlFragment(bodyBridgeSoapSampleInnerXml(), "入口 SOAP 实体内容");
+function generateDebugSoapEntitySample() {
+  debugSoapEntityBody.value = formatXmlFragment(debugSoapSampleInnerXml(), "入口 SOAP 实体内容");
 }
 
-function bodyBridgeSoapSampleInnerXml() {
-  return "<customerId>1001</customerId><amount>12.30</amount><remark>Body Bridge sample</remark>";
+function debugSoapSampleInnerXml() {
+  return "<customerId>1001</customerId><amount>12.30</amount><remark>Protocol conversion sample</remark>";
 }
 
-function buildBodyBridgeSoapEnvelope(bodyInnerXml: string) {
+function buildDebugSoapEnvelope(bodyInnerXml: string) {
   return buildSoapEnvelope({
     soapVersion: form.sourceProtocol === "SOAP_12" ? "SOAP_12" : "SOAP_11",
     namespaceUri: webserviceConfig.namespaceUri || "http://studio.jdragon.com/protocol-conversion",
@@ -1446,22 +1455,21 @@ function formatDebugResult(value: unknown) {
   return JSON.stringify(body ?? {}, null, 2);
 }
 
-function formatDebugMeta(value: unknown) {
+function formatDebugSummary(value: unknown): ProtocolConversionDebugSummary | null {
   const result = value as {
     requestId?: string;
     serviceCode?: string;
     status?: string;
     targetHttpStatus?: number;
     targetContentType?: string;
-    receivedCount?: number;
-    successCount?: number;
-    failedCount?: number;
-    targetBody?: unknown;
+    receivedCount?: number | string;
+    successCount?: number | string;
+    failedCount?: number | string;
   };
   if (!result || typeof result !== "object") {
-    return "";
+    return null;
   }
-  return stringifyJson({
+  return {
     requestId: result.requestId,
     serviceCode: result.serviceCode,
     status: result.status,
@@ -1470,8 +1478,7 @@ function formatDebugMeta(value: unknown) {
     receivedCount: result.receivedCount,
     successCount: result.successCount,
     failedCount: result.failedCount,
-    targetBody: result.targetBody,
-  });
+  };
 }
 
 function stringOption(key: string, defaultValue: string) {
@@ -1680,6 +1687,19 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
   flex-shrink: 0;
 }
 
+.debug-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.04);
+  color: var(--studio-text);
+  font-size: 12px;
+}
+
 .protocol-json-grid {
   display: grid;
   gap: 12px;
@@ -1719,16 +1739,13 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
 
 .body-preview :deep(textarea),
 .debug-result-panel :deep(textarea),
-.debug-body-editor :deep(textarea) {
+.debug-body-editor :deep(textarea),
+:deep(.el-dialog textarea) {
   font-family: Consolas, "Courier New", monospace;
 }
 
 .advanced-collapse {
   margin-top: 14px;
-}
-
-.debug-detail-collapse {
-  margin-top: 12px;
 }
 
 @media (max-width: 1180px) {

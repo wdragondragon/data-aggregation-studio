@@ -1,5 +1,5 @@
 <template>
-  <section class="protocol-json-editor">
+  <section class="protocol-json-editor" :class="{ 'protocol-json-editor--compact': props.compact }">
     <div class="protocol-json-editor__header">
       <div class="protocol-json-editor__main">
         <div class="protocol-json-editor__title">
@@ -112,6 +112,7 @@ const props = withDefaults(defineProps<{
   rawPlaceholder?: string;
   rowsCount?: number;
   placeholderOptions?: PlaceholderOption[];
+  compact?: boolean;
 }>(), {
   modelValue: () => ({}),
   description: "",
@@ -121,6 +122,7 @@ const props = withDefaults(defineProps<{
   rawPlaceholder: "{\n  \"key\": \"value\"\n}",
   rowsCount: 6,
   placeholderOptions: () => [],
+  compact: false,
 });
 
 const emit = defineEmits<{
@@ -319,6 +321,41 @@ function updateRawText(value: string) {
 
 .protocol-json-editor__value-cell .el-input {
   min-width: 0;
+}
+
+.protocol-json-editor--compact {
+  border-color: var(--studio-border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.protocol-json-editor--compact .protocol-json-editor__header {
+  align-items: flex-start;
+  padding: 14px 14px 0;
+  gap: 12px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.protocol-json-editor--compact .protocol-json-editor__title strong {
+  font-size: 14px;
+}
+
+.protocol-json-editor--compact .protocol-json-editor__main p {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.protocol-json-editor--compact .protocol-json-editor__index {
+  display: none;
+}
+
+.protocol-json-editor--compact .protocol-json-editor__body {
+  padding: 12px 14px 14px;
+}
+
+.protocol-json-editor--compact .protocol-json-editor__empty {
+  min-height: 28px;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {
