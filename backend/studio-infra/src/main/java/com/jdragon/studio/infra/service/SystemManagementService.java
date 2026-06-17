@@ -268,10 +268,7 @@ public class SystemManagementService {
         String tenantId = requireCurrentTenantId();
         StudioUserEntity user = requireUser(entity == null ? null : entity.getUserId());
         TenantMemberEntity target = entity.getId() == null
-                ? tenantMemberMapper.selectOne(new LambdaQueryWrapper<TenantMemberEntity>()
-                .eq(TenantMemberEntity::getTenantId, tenantId)
-                .eq(TenantMemberEntity::getUserId, user.getId())
-                .last("limit 1"))
+                ? tenantMemberMapper.selectByTenantAndUserIncludingDeleted(tenantId, user.getId())
                 : requireTenantMember(entity.getId(), tenantId);
         if (target == null) {
             target = new TenantMemberEntity();
@@ -283,7 +280,8 @@ public class SystemManagementService {
         if (target.getId() == null) {
             tenantMemberMapper.insert(target);
         } else {
-            tenantMemberMapper.updateById(target);
+            tenantMemberMapper.restoreById(target.getId(), tenantId, user.getId(), target.getRoleCode(), target.getStatus());
+            target.setDeleted(0);
         }
         return target;
     }
@@ -312,10 +310,7 @@ public class SystemManagementService {
         ProjectEntity project = requireManageableProject(entity == null ? null : entity.getProjectId());
         StudioUserEntity user = requireUser(entity == null ? null : entity.getUserId());
         ProjectMemberEntity target = entity.getId() == null
-                ? projectMemberMapper.selectOne(new LambdaQueryWrapper<ProjectMemberEntity>()
-                .eq(ProjectMemberEntity::getProjectId, project.getId())
-                .eq(ProjectMemberEntity::getUserId, user.getId())
-                .last("limit 1"))
+                ? projectMemberMapper.selectByProjectAndUserIncludingDeleted(project.getId(), user.getId())
                 : requireProjectMember(entity.getId(), project.getId(), project.getTenantId());
         if (target == null) {
             target = new ProjectMemberEntity();
@@ -328,7 +323,8 @@ public class SystemManagementService {
         if (target.getId() == null) {
             projectMemberMapper.insert(target);
         } else {
-            projectMemberMapper.updateById(target);
+            projectMemberMapper.restoreById(target.getId(), project.getId(), user.getId(), target.getRoleCode(), target.getStatus());
+            target.setDeleted(0);
         }
         return target;
     }
