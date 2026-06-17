@@ -56,9 +56,19 @@
             {{ getPaginatedRowNumber(pagination, $index) }}
           </template>
         </el-table-column>
-        <el-table-column prop="name" :label="t('web.models.modelName')" min-width="180" sortable="custom">
+        <el-table-column prop="name" :label="t('web.models.modelName')" min-width="280" sortable="custom">
           <template #default="{ row }">
-            <el-button link type="primary" @click.stop="actions.openModelDetail(row)">{{ row.name }}</el-button>
+            <div class="model-name-cell">
+              <el-button
+                link
+                type="primary"
+                class="model-name-link"
+                :title="row.name || '-'"
+                @click.stop="actions.openModelDetail(row)"
+              >
+                {{ row.name || "-" }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
         <el-table-column :label="t('web.models.datasourceLabel')" min-width="180" show-overflow-tooltip>
@@ -196,6 +206,32 @@ const datasourceIdModel = computed({
 
 .models-toolbar__filter {
   min-width: 280px;
+}
+
+.model-name-cell {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.model-name-link {
+  justify-content: flex-start;
+  height: auto;
+  min-height: auto;
+  max-width: 100%;
+  padding: 0;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+}
+
+.model-name-link :deep(span) {
+  display: inline;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .stack-cell {
