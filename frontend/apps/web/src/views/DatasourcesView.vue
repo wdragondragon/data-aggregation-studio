@@ -12,7 +12,7 @@
     </div>
 
     <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
-      <StudioTableShell min-width="1280px">
+      <StudioTableShell min-width="1460px">
         <el-table :data="pagedDatasources" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
@@ -37,6 +37,17 @@
         <el-table-column :label="t('web.datasources.executableColumn')" width="130" align="center" header-align="center">
           <template #default="{ row }">
             <StatusPill :label="row.executable ? t('common.managed') : t('common.unmanaged')" :tone="row.executable ? 'success' : 'warning'" />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.datasources.connectionStatusColumn')" min-width="210" align="center" header-align="center">
+          <template #default="{ row }">
+            <div class="stack-cell status-stack">
+              <StatusPill :label="connectionStatusLabel(row)" :tone="connectionStatusTone(row)" />
+              <span v-if="row.lastConnectionTestAt" class="cell-subtle">{{ formatConnectionTestAt(row.lastConnectionTestAt) }}</span>
+              <el-tooltip v-if="row.lastConnectionTestMessage" :content="row.lastConnectionTestMessage" placement="top">
+                <span class="cell-subtle status-message">{{ row.lastConnectionTestMessage }}</span>
+              </el-tooltip>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="170" align="center" header-align="center" />
@@ -278,6 +289,7 @@ const executableDatasourceTypes = computed(() => capabilityMatrix.executableData
 const drawerOpen = ref(false);
 const saving = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
+const testingDatasourceIds = ref<string[]>([]);
 const discoverDialogOpen = ref(false);
 const discoveredModels = ref<ModelDiscoveryResult["models"]>([]);
 const form = reactive<DataSourceForm>({
@@ -363,9 +375,10 @@ const businessSections = computed(() => businessSchemas.value.map(buildBusinessS
 
 function buildDatasourceActions(datasource: DataSourceDefinition) {
   const shared = isSharedDatasource(datasource);
+  const testing = isTestingDatasource(datasource);
   return [
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editDatasource(datasource) },
-    { key: "test", label: t("common.test"), type: "success", onClick: () => testDatasource(datasource) },
+    { key: "test", label: testing ? t("web.datasources.testingConnection") : t("common.test"), type: "success", disabled: !canTestDatasource(datasource) || testing, onClick: () => testDatasource(datasource) },
     { key: "discover", label: t("common.discover"), type: "warning", onClick: () => discoverModels(datasource) },
     { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteDatasource(datasource) },
   ];
@@ -377,6 +390,68 @@ function resolveProjectLabel(projectId?: string | number) {
 
 function isSharedDatasource(datasource: DataSourceDefinition) {
   return isSharedFromAnotherProject(authStore.currentProjectId, datasource.projectId);
+}
+
+function canTestDatasource(datasource: DataSourceDefinition) {
+  return Boolean(datasource.id && datasource.enabled && datasource.executable);
+}
+
+function datasourceTestKey(datasource: DataSourceDefinition) {
+  return String(datasource.id ?? "");
+}
+
+function isTestingDatasource(datasource: DataSourceDefinition) {
+  const key = datasourceTestKey(datasource);
+  return key.length > 0 && testingDatasourceIds.value.includes(key);
+}
+
+function setDatasourceTesting(datasource: DataSourceDefinition, testing: boolean) {
+  const key = datasourceTestKey(datasource);
+  if (!key) {
+    return;
+  }
+  if (testing) {
+    testingDatasourceIds.value = Array.from(new Set([...testingDatasourceIds.value, key]));
+    return;
+  }
+  testingDatasourceIds.value = testingDatasourceIds.value.filter((item) => item !== key);
+}
+
+function connectionStatusLabel(datasource: DataSourceDefinition) {
+  if (!canTestDatasource(datasource)) {
+    return t("web.datasources.connectionNotTestable");
+  }
+  if (datasource.connectionStatus === "AVAILABLE") {
+    return t("web.datasources.connectionAvailable");
+  }
+  if (datasource.connectionStatus === "UNAVAILABLE") {
+    return t("web.datasources.connectionUnavailable");
+  }
+  return t("web.datasources.connectionUnknown");
+}
+
+function connectionStatusTone(datasource: DataSourceDefinition) {
+  if (!canTestDatasource(datasource)) {
+    return "neutral";
+  }
+  if (datasource.connectionStatus === "AVAILABLE") {
+    return "success";
+  }
+  if (datasource.connectionStatus === "UNAVAILABLE") {
+    return "danger";
+  }
+  return "warning";
+}
+
+function formatConnectionTestAt(value?: string) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
 }
 
 const matchedSchema = computed(
@@ -613,13 +688,15 @@ async function testDatasource(item: DataSourceDefinition) {
   if (!item.id) {
     return;
   }
+  setDatasourceTesting(item, true);
   try {
-    editDatasource(item);
-    drawerOpen.value = true;
-    testResult.value = await studioApi.datasources.test(item.id);
+    const result = await studioApi.datasources.test(item.id);
+    applyConnectionTestResult(item, result);
     ElMessage.success(t("web.datasources.testSuccess"));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
+  } finally {
+    setDatasourceTesting(item, false);
   }
 }
 
@@ -629,6 +706,21 @@ async function testCurrent() {
     ElMessage.success(t("web.datasources.testSuccess"));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
+  }
+}
+
+function applyConnectionTestResult(item: DataSourceDefinition, result: ConnectionTestResult) {
+  const status = result.status ?? (result.success ? "AVAILABLE" : "UNAVAILABLE");
+  const now = new Date().toISOString();
+  const patch: Partial<DataSourceDefinition> = {
+    connectionStatus: status,
+    lastConnectionTestAt: now,
+    lastConnectionTestMessage: typeof result.message === "string" ? result.message : undefined,
+    lastConnectionTestDurationMs: typeof result.durationMs === "number" ? result.durationMs : undefined,
+  };
+  Object.assign(item, patch);
+  if (form.id === item.id) {
+    Object.assign(form, patch);
   }
 }
 
@@ -697,6 +789,18 @@ p {
 .cell-subtle {
   color: var(--studio-text-soft);
   font-size: 12px;
+}
+
+.status-stack {
+  justify-items: center;
+}
+
+.status-message {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag-row {

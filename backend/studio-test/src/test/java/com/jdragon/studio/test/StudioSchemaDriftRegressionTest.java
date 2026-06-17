@@ -92,6 +92,10 @@ class StudioSchemaDriftRegressionTest {
             "writeMode", "partitionSpec", "partitionColumns", "batchSize",
             "emptyAsNull", "autoCreatePartition", "preSql", "postSql");
 
+    private static final List<String> DATASOURCE_CONNECTION_STATUS_COLUMNS = Arrays.asList(
+            "connection_status", "last_connection_test_at",
+            "last_connection_test_message", "last_connection_test_duration_ms");
+
     private static final List<String> HTTP_TABLE_FIELDS = Arrays.asList(
             "physicalName", "description", "protocolMode", "mode", "resultType",
             "soapVersion", "namespaceUri", "operationName", "soapAction",
@@ -243,6 +247,17 @@ class StudioSchemaDriftRegressionTest {
         assertFieldsPresent("Java HTTP field metadata fields", technicalFieldBuilder, HTTP_FIELD_FIELDS);
         assertFieldsPresent("MySQL HTTP field metadata fields", mysqlBuiltin, HTTP_FIELD_FIELDS);
         assertFieldsPresent("Delta HTTP field metadata fields", httpDelta, HTTP_FIELD_FIELDS);
+    }
+
+    @Test
+    void datasourceConnectionStatusColumnsShouldStayAlignedAcrossMysqlSqliteAndDeltaScripts() throws Exception {
+        String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String delta = readBackendFile("studio-server/src/main/resources/update/20260617/20260617-datasource-connection-status-delta.sql");
+
+        assertFieldsPresent("MySQL datasource connection status columns", mysqlSchema, DATASOURCE_CONNECTION_STATUS_COLUMNS);
+        assertFieldsPresent("SQLite datasource connection status columns", sqliteSchema, DATASOURCE_CONNECTION_STATUS_COLUMNS);
+        assertFieldsPresent("Delta datasource connection status columns", delta, DATASOURCE_CONNECTION_STATUS_COLUMNS);
     }
 
     private void assertHttpCapability(String label, String content) {

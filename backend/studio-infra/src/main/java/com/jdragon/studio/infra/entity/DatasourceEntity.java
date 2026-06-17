@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -18,6 +19,10 @@ public class DatasourceEntity extends BaseProjectTenantEntity {
     private Long schemaVersionId;
     private Integer enabled;
     private Integer executable;
+    private String connectionStatus;
+    private LocalDateTime lastConnectionTestAt;
+    private String lastConnectionTestMessage;
+    private Long lastConnectionTestDurationMs;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();

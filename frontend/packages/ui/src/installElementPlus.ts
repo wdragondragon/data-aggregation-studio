@@ -37,6 +37,7 @@ import {
   ElTag,
   ElTimeline,
   ElTimelineItem,
+  ElTooltip,
   ElTree,
   ElInputNumber,
   ElLoading
@@ -80,6 +81,7 @@ import "element-plus/es/components/tabs/style/css";
 import "element-plus/es/components/tag/style/css";
 import "element-plus/es/components/timeline/style/css";
 import "element-plus/es/components/timeline-item/style/css";
+import "element-plus/es/components/tooltip/style/css";
 import "element-plus/es/components/tree/style/css";
 import "element-plus/es/components/input-number/style/css";
 import "element-plus/es/components/loading/style/css";
@@ -122,6 +124,7 @@ const components: Plugin[] = [
   ElTag,
   ElTimeline,
   ElTimelineItem,
+  ElTooltip,
   ElTree,
   ElInputNumber
 ];

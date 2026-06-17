@@ -41,6 +41,8 @@
       - [data-service-test-cases.md](./测试/数据服务/data-service-test-cases.md)
       - [data-service-test-result-20260416.md](./测试/数据服务/data-service-test-result-20260416.md)
       - [data-service-test-result-20260416-二轮复测.md](./测试/数据服务/data-service-test-result-20260416-%E4%BA%8C%E8%BD%AE%E5%A4%8D%E6%B5%8B.md)
+    - 数据资产：
+      - [datasource-connection-status-test-cases.md](./测试/数据资产/datasource-connection-status-test-cases.md)
     - 质量指标：
       - [quality-metrics-ui-test-cases.md](./测试/质量指标/quality-metrics-ui-test-cases.md)
       - [quality-metrics-test-cases.md](./测试/质量指标/quality-metrics-test-cases.md)

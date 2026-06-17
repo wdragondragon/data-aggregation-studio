@@ -1,9 +1,11 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -21,13 +23,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class DataSourceService {
+    private static final int MAX_CONNECTION_TEST_MESSAGE_LENGTH = 1000;
 
     private final DatasourceMapper datasourceMapper;
     private final DataModelMapper dataModelMapper;
@@ -92,38 +98,60 @@ public class DataSourceService {
         if (entity == null) {
             entity = new DatasourceEntity();
         }
+        boolean newEntity = entity.getId() == null;
+        String originalTypeCode = entity.getTypeCode();
+        Long originalSchemaVersionId = entity.getSchemaVersionId();
+        Map<String, Object> originalTechnicalMetadata = copyMetadata(entity.getTechnicalMetadata());
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity.getTechnicalMetadata(), technicalMetadata);
+        Long resolvedSchemaVersionId = resolveSchemaVersionId(request, schema);
+        Map<String, Object> encryptedTechnicalMetadata = encryptSensitive(technicalMetadata);
+        boolean connectionDefinitionChanged = connectionDefinitionChanged(newEntity,
+                originalTypeCode,
+                originalSchemaVersionId,
+                originalTechnicalMetadata,
+                request.getTypeCode(),
+                resolvedSchemaVersionId,
+                encryptedTechnicalMetadata);
         ensureUniqueName(currentProjectId, request.getName(), entity.getId());
         entity.setTenantId(currentTenantId);
         entity.setProjectId(currentProjectId);
         entity.setName(request.getName());
         entity.setTypeCode(request.getTypeCode());
-        entity.setSchemaVersionId(resolveSchemaVersionId(request, schema));
+        entity.setSchemaVersionId(resolvedSchemaVersionId);
         entity.setEnabled(Boolean.TRUE.equals(request.getEnabled()) ? 1 : 0);
         entity.setExecutable(Boolean.TRUE.equals(request.getExecutable()) ? 1 : 0);
-        entity.setTechnicalMetadata(encryptSensitive(technicalMetadata));
+        entity.setTechnicalMetadata(encryptedTechnicalMetadata);
         entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
+        if (connectionDefinitionChanged) {
+            applyUnknownConnectionSnapshot(entity);
+        }
         if (entity.getId() == null) {
             datasourceMapper.insert(entity);
         } else {
             datasourceMapper.updateById(entity);
+            if (connectionDefinitionChanged) {
+                clearConnectionSnapshot(entity.getId());
+            }
         }
         return toDefinition(entity, true);
     }
 
+    @Transactional
     public ConnectionTestResult testConnection(Long id) {
         DataSourceDefinition definition = getInternal(id);
         ensureDatasourceCanTest(definition);
-        return capabilityProvider.testConnection(definition);
+        ConnectionTestResult result = executeConnectionTest(definition);
+        persistConnectionSnapshot(id, result);
+        return result;
     }
 
     public ConnectionTestResult testConnection(DataSourceSaveRequest request) {
         datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
         DataSourceDefinition definition = buildDefinitionForTest(request);
         ensureDatasourceCanTest(definition);
-        return capabilityProvider.testConnection(definition);
+        return executeConnectionTest(definition);
     }
 
     public ModelDiscoveryResult discoverModels(Long id) {
@@ -162,6 +190,10 @@ public class DataSourceService {
         definition.setSchemaVersionId(resolveReadableSchemaVersionId(entity));
         definition.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
         definition.setExecutable(entity.getExecutable() != null && entity.getExecutable() == 1);
+        definition.setConnectionStatus(parseConnectionStatus(entity.getConnectionStatus()));
+        definition.setLastConnectionTestAt(entity.getLastConnectionTestAt());
+        definition.setLastConnectionTestMessage(entity.getLastConnectionTestMessage());
+        definition.setLastConnectionTestDurationMs(entity.getLastConnectionTestDurationMs());
         definition.setTechnicalMetadata(maskSensitive ? maskSensitive(entity.getTechnicalMetadata()) : entity.getTechnicalMetadata());
         definition.setBusinessMetadata(entity.getBusinessMetadata());
         return definition;
@@ -183,6 +215,91 @@ public class DataSourceService {
         definition.setTechnicalMetadata(technicalMetadata);
         definition.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         return definition;
+    }
+
+    private ConnectionTestResult executeConnectionTest(DataSourceDefinition definition) {
+        long startedAtNanos = System.nanoTime();
+        ConnectionTestResult result = capabilityProvider.testConnection(definition);
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+        if (result == null) {
+            result = new ConnectionTestResult();
+            result.setSuccess(false);
+            result.setMessage("Connection test returned no result");
+        }
+        result.setStatus(result.isSuccess() ? DataSourceConnectionStatus.AVAILABLE : DataSourceConnectionStatus.UNAVAILABLE);
+        result.setDurationMs(durationMs);
+        result.setMessage(truncateConnectionMessage(result.getMessage()));
+        return result;
+    }
+
+    private void persistConnectionSnapshot(Long id, ConnectionTestResult result) {
+        if (id == null || result == null) {
+            return;
+        }
+        DataSourceConnectionStatus status = result.getStatus() == null
+                ? (result.isSuccess() ? DataSourceConnectionStatus.AVAILABLE : DataSourceConnectionStatus.UNAVAILABLE)
+                : result.getStatus();
+        datasourceMapper.update(null, new LambdaUpdateWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getId, id)
+                .set(DatasourceEntity::getConnectionStatus, status.name())
+                .set(DatasourceEntity::getLastConnectionTestAt, LocalDateTime.now())
+                .set(DatasourceEntity::getLastConnectionTestMessage, truncateConnectionMessage(result.getMessage()))
+                .set(DatasourceEntity::getLastConnectionTestDurationMs, result.getDurationMs()));
+    }
+
+    private void applyUnknownConnectionSnapshot(DatasourceEntity entity) {
+        entity.setConnectionStatus(DataSourceConnectionStatus.UNKNOWN.name());
+        entity.setLastConnectionTestAt(null);
+        entity.setLastConnectionTestMessage(null);
+        entity.setLastConnectionTestDurationMs(null);
+    }
+
+    private void clearConnectionSnapshot(Long id) {
+        datasourceMapper.update(null, new LambdaUpdateWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getId, id)
+                .set(DatasourceEntity::getConnectionStatus, DataSourceConnectionStatus.UNKNOWN.name())
+                .set(DatasourceEntity::getLastConnectionTestAt, null)
+                .set(DatasourceEntity::getLastConnectionTestMessage, null)
+                .set(DatasourceEntity::getLastConnectionTestDurationMs, null));
+    }
+
+    private boolean connectionDefinitionChanged(boolean newEntity,
+                                                String originalTypeCode,
+                                                Long originalSchemaVersionId,
+                                                Map<String, Object> originalTechnicalMetadata,
+                                                String nextTypeCode,
+                                                Long nextSchemaVersionId,
+                                                Map<String, Object> nextTechnicalMetadata) {
+        return newEntity
+                || !Objects.equals(originalTypeCode, nextTypeCode)
+                || !Objects.equals(originalSchemaVersionId, nextSchemaVersionId)
+                || !Objects.equals(originalTechnicalMetadata, copyMetadata(nextTechnicalMetadata));
+    }
+
+    private DataSourceConnectionStatus parseConnectionStatus(String status) {
+        if (status == null || status.trim().isEmpty()) {
+            return DataSourceConnectionStatus.UNKNOWN;
+        }
+        try {
+            return DataSourceConnectionStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return DataSourceConnectionStatus.UNKNOWN;
+        }
+    }
+
+    private String truncateConnectionMessage(String message) {
+        if (message == null || message.length() <= MAX_CONNECTION_TEST_MESSAGE_LENGTH) {
+            return message;
+        }
+        return message.substring(0, MAX_CONNECTION_TEST_MESSAGE_LENGTH);
+    }
+
+    private Map<String, Object> copyMetadata(Map<String, Object> metadata) {
+        Map<String, Object> copy = new LinkedHashMap<String, Object>();
+        if (metadata != null) {
+            copy.putAll(metadata);
+        }
+        return copy;
     }
 
     private void ensureDatasourceCanTest(DataSourceDefinition definition) {

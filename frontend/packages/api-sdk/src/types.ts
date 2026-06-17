@@ -271,12 +271,18 @@ export interface CapabilityMatrix {
   sourceCapabilities?: SourceCapabilityEntry[];
 }
 
+export type DataSourceConnectionStatus = "UNKNOWN" | "AVAILABLE" | "UNAVAILABLE";
+
 export interface DataSourceDefinition extends BaseRecord {
   name: string;
   typeCode: string;
   schemaVersionId?: EntityId;
   enabled?: boolean;
   executable?: boolean;
+  connectionStatus?: DataSourceConnectionStatus;
+  lastConnectionTestAt?: string;
+  lastConnectionTestMessage?: string;
+  lastConnectionTestDurationMs?: number;
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
 }
@@ -284,6 +290,8 @@ export interface DataSourceDefinition extends BaseRecord {
 export interface ConnectionTestResult {
   success?: boolean;
   message?: string;
+  status?: DataSourceConnectionStatus;
+  durationMs?: number;
   detail?: string;
   [key: string]: unknown;
 }

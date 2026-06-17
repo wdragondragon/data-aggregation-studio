@@ -375,6 +375,10 @@ create table if not exists datasource_definition (
     schema_version_id integer,
     enabled integer default 1,
     executable integer default 0,
+    connection_status text default 'UNKNOWN',
+    last_connection_test_at text,
+    last_connection_test_message text,
+    last_connection_test_duration_ms integer,
     technical_metadata text,
     business_metadata text
 );
