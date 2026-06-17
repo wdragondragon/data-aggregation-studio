@@ -1,8 +1,5 @@
 <template>
   <div class="login">
-    <div class="login__glow login__glow--primary" />
-    <div class="login__glow login__glow--accent" />
-
     <section class="login__hero">
       <div class="login__hero-surface">
         <div class="login__brand">
@@ -14,8 +11,7 @@
         </div>
 
         <div class="login__badges">
-          <span class="login__badge">{{ t("shell.webRuntime") }}</span>
-          <span class="login__badge login__badge--subtle">{{ t("web.login.runtimeBadge") }}</span>
+          <span v-for="item in scopeBadges" :key="item" class="login__badge">{{ item }}</span>
         </div>
 
         <div class="login__hero-copy">
@@ -31,15 +27,13 @@
           </article>
         </div>
 
-        <div class="login__credential-band">
-          <div class="login__credential-copy">
-            <span class="login__credential-title">{{ t("web.login.credentialTitle") }}</span>
-            <p>{{ t("web.login.credentialHint") }}</p>
+        <div class="login__scope-band">
+          <div class="login__scope-copy">
+            <span class="login__scope-title">{{ t("web.login.scopeTitle") }}</span>
+            <p>{{ t("web.login.scopeDescription") }}</p>
           </div>
-          <div class="login__tips">
-            <span v-for="item in credentials" :key="item.label">
-              {{ item.label }} <strong class="studio-mono">{{ item.value }}</strong>
-            </span>
+          <div class="login__scope-tags">
+            <span v-for="item in scopeTags" :key="item">{{ item }}</span>
           </div>
         </div>
       </div>
@@ -69,15 +63,15 @@
             class="login__submit login__submit--gateway"
             @click="submitGateway"
           >
-            统一登录
+            {{ t("web.login.gatewayLogin") }}
           </el-button>
           <p class="login__gateway-tip">
-            通过平台入口访问时将自动完成身份换票；直连场景仍可使用本地账号登录。
+            {{ t("web.login.gatewayTip") }}
           </p>
         </div>
 
         <div class="login__divider">
-          <span>或使用本地账号登录</span>
+          <span>{{ t("web.login.localLoginDivider") }}</span>
         </div>
 
         <el-form label-position="top" class="login__form" @submit.prevent="submit">
@@ -137,8 +131,8 @@ const { t } = useI18n();
 const loading = ref(false);
 const gatewayLoading = ref(false);
 const form = reactive({
-  username: "admin",
-  password: "admin123",
+  username: "",
+  password: "",
 });
 const highlights = computed(() => [
   {
@@ -157,9 +151,21 @@ const highlights = computed(() => [
     description: t("web.login.highlightRuntimeDescription"),
   },
 ]);
-const credentials = computed(() => [
-  { label: t("web.login.defaultAccount"), value: "admin" },
-  { label: t("web.login.password"), value: "admin123" },
+const scopeBadges = computed(() => [
+  t("web.login.scopeBadgeAssets"),
+  t("web.login.scopeBadgeIntegration"),
+  t("web.login.scopeBadgeService"),
+  t("web.login.scopeBadgeQuality"),
+]);
+const scopeTags = computed(() => [
+  t("web.login.scopeDatasource"),
+  t("web.login.scopeModel"),
+  t("web.login.scopeCollection"),
+  t("web.login.scopeWorkflow"),
+  t("web.login.scopeDevelopment"),
+  t("web.login.scopeOpenService"),
+  t("web.login.scopeProtocol"),
+  t("web.login.scopeQuality"),
 ]);
 
 async function submit() {
@@ -181,18 +187,18 @@ async function submitGateway() {
   try {
     if (isGatewayStudioMode()) {
       await authStore.loginWithGateway();
-      ElMessage.success("统一登录成功");
+      ElMessage.success(t("web.login.gatewaySuccess"));
       const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard";
       router.push(redirect);
       return;
     }
     const entryUrl = getGatewayStudioEntryUrl();
     if (!entryUrl) {
-      throw new Error("未配置统一登录入口地址");
+      throw new Error(t("web.login.gatewayEntryMissing"));
     }
     window.location.assign(entryUrl);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "统一登录失败");
+    ElMessage.error(error instanceof Error ? error.message : t("web.login.gatewayFailed"));
   } finally {
     gatewayLoading.value = false;
   }
@@ -209,33 +215,6 @@ async function submitGateway() {
   min-height: 100vh;
   padding: 28px;
   overflow: hidden;
-}
-
-.login__glow {
-  position: absolute;
-  z-index: 0;
-  border-radius: 999px;
-  filter: blur(24px);
-  opacity: 0.72;
-  pointer-events: none;
-  animation: loginFloat 18s ease-in-out infinite alternate;
-}
-
-.login__glow--primary {
-  top: -80px;
-  right: 14%;
-  width: 320px;
-  height: 320px;
-  background: rgba(37, 99, 235, 0.18);
-}
-
-.login__glow--accent {
-  bottom: -100px;
-  left: 8%;
-  width: 360px;
-  height: 360px;
-  background: rgba(14, 165, 233, 0.14);
-  animation-duration: 22s;
 }
 
 .login__hero,
@@ -258,10 +237,8 @@ async function submitGateway() {
   padding: clamp(34px, 4vw, 52px);
   overflow: hidden;
   border: 1px solid rgba(18, 73, 133, 0.18);
-  border-radius: 36px;
+  border-radius: 8px;
   background:
-    radial-gradient(circle at top right, rgba(106, 197, 255, 0.22), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(85, 160, 255, 0.14), transparent 24%),
     linear-gradient(145deg, #0f3463 0%, #154c83 48%, #1b6c9d 100%);
   box-shadow: 0 30px 60px rgba(15, 52, 99, 0.18);
   color: #f3f8ff;
@@ -290,7 +267,7 @@ async function submitGateway() {
   place-items: center;
   width: 64px;
   height: 64px;
-  border-radius: 22px;
+  border-radius: 8px;
   color: #0f3463;
   font-size: 20px;
   font-weight: 800;
@@ -316,19 +293,11 @@ async function submitGateway() {
   align-items: center;
   padding: 8px 14px;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   background: rgba(255, 255, 255, 0.1);
-}
-
-.login__badge--subtle {
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: none;
-  background: rgba(255, 255, 255, 0.06);
 }
 
 .login__hero-copy {
@@ -339,9 +308,9 @@ async function submitGateway() {
 
 .login__hero-copy h2 {
   margin: 0;
-  font-size: clamp(36px, 4.6vw, 58px);
-  line-height: 1.04;
-  letter-spacing: -0.03em;
+  font-size: clamp(34px, 3.6vw, 42px);
+  line-height: 1.12;
+  letter-spacing: 0;
 }
 
 .login__hero-copy p {
@@ -373,7 +342,7 @@ async function submitGateway() {
   min-width: 0;
   padding: 18px 18px 20px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 24px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(14px);
 }
@@ -397,22 +366,22 @@ async function submitGateway() {
   color: rgba(243, 248, 255, 0.76);
 }
 
-.login__credential-band {
+.login__scope-band {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   padding: 18px 20px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 28px;
+  border-radius: 8px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
 }
 
-.login__credential-copy {
+.login__scope-copy {
   min-width: 0;
 }
 
-.login__credential-title {
+.login__scope-title {
   display: inline-block;
   margin-bottom: 6px;
   font-size: 13px;
@@ -421,27 +390,29 @@ async function submitGateway() {
   text-transform: uppercase;
 }
 
-.login__credential-copy p {
+.login__scope-copy p {
   margin: 0;
   font-size: 14px;
   line-height: 1.6;
   color: rgba(243, 248, 255, 0.78);
 }
 
-.login__tips {
+.login__scope-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.login__tips span {
+.login__scope-tags span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border-radius: 999px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
   color: #f8fbff;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -456,7 +427,7 @@ async function submitGateway() {
   min-width: 0;
   padding: 34px;
   border: 1px solid rgba(64, 113, 187, 0.14);
-  border-radius: 32px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow:
     0 24px 50px rgba(37, 99, 235, 0.12),
@@ -513,7 +484,7 @@ async function submitGateway() {
   margin-bottom: 18px;
   padding: 14px 16px;
   border: 1px solid rgba(37, 99, 235, 0.1);
-  border-radius: 20px;
+  border-radius: 8px;
   background: linear-gradient(180deg, rgba(237, 244, 255, 0.82), rgba(248, 251, 255, 0.9));
 }
 
@@ -522,7 +493,7 @@ async function submitGateway() {
   width: 11px;
   height: 11px;
   margin-top: 5px;
-  border-radius: 999px;
+  border-radius: 50%;
   background: linear-gradient(180deg, #1d4ed8, #38bdf8);
   box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.12);
 }
@@ -591,7 +562,7 @@ async function submitGateway() {
 
 .login__form :deep(.el-input__wrapper) {
   min-height: 50px;
-  border-radius: 16px;
+  border-radius: 8px;
   background: rgba(248, 251, 255, 0.98);
   box-shadow: 0 0 0 1px rgba(64, 113, 187, 0.12) inset;
 }
@@ -628,15 +599,6 @@ async function submitGateway() {
 .login__register-link {
   justify-self: flex-start;
   padding: 0;
- }
-
-@keyframes loginFloat {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(14px, -18px, 0) scale(1.06);
-  }
 }
 
 @media (max-width: 1080px) {
@@ -656,11 +618,15 @@ async function submitGateway() {
   }
 
   .login__highlight-grid,
-  .login__credential-band {
+  .login__scope-band {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .login__tips span {
+  .login__scope-tags {
+    justify-content: flex-start;
+  }
+
+  .login__scope-tags span {
     white-space: normal;
   }
 }
@@ -677,7 +643,7 @@ async function submitGateway() {
   .login__brand-mark {
     width: 54px;
     height: 54px;
-    border-radius: 18px;
+    border-radius: 8px;
     font-size: 18px;
   }
 }
