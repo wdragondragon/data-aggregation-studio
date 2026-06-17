@@ -49,4 +49,41 @@ public class StudioTaskExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "datasourceManualProbeExecutor")
+    public ThreadPoolTaskExecutor datasourceManualProbeExecutor(StudioPlatformProperties properties) {
+        int concurrency = datasourceHealthConcurrency(properties, true, 2);
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("datasource-manual-probe-");
+        executor.setCorePoolSize(concurrency);
+        executor.setMaxPoolSize(concurrency);
+        executor.setQueueCapacity(0);
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean(name = "datasourceScheduledProbeExecutor")
+    public ThreadPoolTaskExecutor datasourceScheduledProbeExecutor(StudioPlatformProperties properties) {
+        int concurrency = datasourceHealthConcurrency(properties, false, 3);
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("datasource-scheduled-probe-");
+        executor.setCorePoolSize(concurrency);
+        executor.setMaxPoolSize(concurrency);
+        executor.setQueueCapacity(0);
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
+    private int datasourceHealthConcurrency(StudioPlatformProperties properties, boolean manual, int defaultValue) {
+        if (properties == null || properties.getDatasourceHealth() == null) {
+            return defaultValue;
+        }
+        StudioPlatformProperties.ProbeProperties probe = manual
+                ? properties.getDatasourceHealth().getManual()
+                : properties.getDatasourceHealth().getScheduled();
+        Integer configured = probe == null ? null : probe.getMaxConcurrency();
+        return Math.max(1, configured == null ? defaultValue : configured.intValue());
+    }
 }

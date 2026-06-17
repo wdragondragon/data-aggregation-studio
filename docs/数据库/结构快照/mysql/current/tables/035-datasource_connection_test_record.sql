@@ -1,0 +1,23 @@
+CREATE TABLE `datasource_connection_test_record` (
+  `id` bigint NOT NULL,
+  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',
+  `deleted` int DEFAULT '0',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `connection_fingerprint` varchar(128) COLLATE utf8mb4_general_ci NOT NULL,
+  `datasource_id` bigint DEFAULT NULL,
+  `datasource_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `type_code` varchar(128) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `probe_run_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL,
+  `probe_mode` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `connection_status` varchar(32) COLLATE utf8mb4_general_ci DEFAULT 'UNKNOWN',
+  `started_at` datetime DEFAULT NULL,
+  `ended_at` datetime DEFAULT NULL,
+  `duration_ms` bigint DEFAULT NULL,
+  `timeout_seconds` int DEFAULT NULL,
+  `message` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ds_conn_record_run` (`tenant_id`,`probe_run_id`),
+  KEY `idx_ds_conn_record_lookup` (`tenant_id`,`connection_fingerprint`,`ended_at`),
+  KEY `idx_ds_conn_record_cleanup` (`ended_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

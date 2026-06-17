@@ -30,6 +30,12 @@ public class DataSourceSaveRequest {
     @Schema(description = "Whether datasource can be used in job execution")
     private Boolean executable;
 
+    @Schema(description = "Manual connection test timeout seconds")
+    private Integer manualConnectionTestTimeoutSeconds;
+
+    @Schema(description = "Scheduled connection test timeout seconds")
+    private Integer scheduledConnectionTestTimeoutSeconds;
+
     @Schema(description = "Technical metadata")
     private Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
 

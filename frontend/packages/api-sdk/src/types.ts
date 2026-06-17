@@ -273,16 +273,36 @@ export interface CapabilityMatrix {
 
 export type DataSourceConnectionStatus = "UNKNOWN" | "AVAILABLE" | "UNAVAILABLE";
 
+export interface DatasourceConnectionTestRecordView {
+  status?: DataSourceConnectionStatus;
+  testedAt?: string;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
+  probeMode?: string;
+  timeoutSeconds?: number;
+  message?: string;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+}
+
 export interface DataSourceDefinition extends BaseRecord {
   name: string;
   typeCode: string;
   schemaVersionId?: EntityId;
   enabled?: boolean;
   executable?: boolean;
+  connectionFingerprint?: string;
   connectionStatus?: DataSourceConnectionStatus;
   lastConnectionTestAt?: string;
   lastConnectionTestMessage?: string;
   lastConnectionTestDurationMs?: number;
+  connectionTesting?: boolean;
+  connectionStale?: boolean;
+  nextConnectionProbeAt?: string;
+  manualConnectionTestTimeoutSeconds?: number;
+  scheduledConnectionTestTimeoutSeconds?: number;
+  recentConnectionTests?: DatasourceConnectionTestRecordView[];
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
 }
@@ -292,6 +312,13 @@ export interface ConnectionTestResult {
   message?: string;
   status?: DataSourceConnectionStatus;
   durationMs?: number;
+  testing?: boolean;
+  stale?: boolean;
+  busy?: boolean;
+  lastTestAt?: string;
+  nextProbeAt?: string;
+  timeoutSeconds?: number;
+  recentConnectionTests?: DatasourceConnectionTestRecordView[];
   detail?: string;
   [key: string]: unknown;
 }

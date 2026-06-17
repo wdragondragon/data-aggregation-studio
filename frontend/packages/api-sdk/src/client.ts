@@ -30,6 +30,7 @@ import type {
   DataModelStatisticsChartView,
   DataModelStatisticsView,
   DataModelSaveRequest,
+  DatasourceConnectionTestRecordView,
   DatasourceTypeCapabilityView,
   DataSourceDefinition,
   DataIngestionDebugRequest,
@@ -498,6 +499,13 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       testCurrent(payload: Record<string, unknown>) {
         return request<ConnectionTestResult>({ url: "/datasources/test", method: "POST", data: payload });
+      },
+      connectionHistory(id: EntityId, params?: { days?: number; limit?: number }) {
+        return request<DatasourceConnectionTestRecordView[]>({
+          url: `/datasources/${id}/connection-history`,
+          method: "GET",
+          params,
+        });
       },
       discover(id: EntityId, keywordOrOptions?: string | { keyword?: string; pageNo?: number; pageSize?: number }) {
         const options = typeof keywordOrOptions === "string"

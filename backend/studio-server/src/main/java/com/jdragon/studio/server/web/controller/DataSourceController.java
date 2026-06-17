@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
+import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.service.DataSourceService;
@@ -59,6 +60,14 @@ public class DataSourceController {
     @PostMapping("/test")
     public Result<ConnectionTestResult> testCurrent(@Valid @RequestBody DataSourceSaveRequest request) {
         return Result.success(dataSourceService.testConnection(request));
+    }
+
+    @Operation(summary = "Get datasource connection test history")
+    @GetMapping("/{id}/connection-history")
+    public Result<List<DatasourceConnectionTestRecordView>> connectionHistory(@PathVariable("id") Long id,
+                                                                              @RequestParam(value = "days", required = false) Integer days,
+                                                                              @RequestParam(value = "limit", required = false) Integer limit) {
+        return Result.success(dataSourceService.connectionHistory(id, days, limit));
     }
 
     @Operation(summary = "Discover models from datasource")

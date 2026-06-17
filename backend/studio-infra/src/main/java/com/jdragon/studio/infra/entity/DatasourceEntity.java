@@ -19,10 +19,13 @@ public class DatasourceEntity extends BaseProjectTenantEntity {
     private Long schemaVersionId;
     private Integer enabled;
     private Integer executable;
+    private String connectionFingerprint;
     private String connectionStatus;
     private LocalDateTime lastConnectionTestAt;
     private String lastConnectionTestMessage;
     private Long lastConnectionTestDurationMs;
+    private Integer manualConnectionTestTimeoutSeconds;
+    private Integer scheduledConnectionTestTimeoutSeconds;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();

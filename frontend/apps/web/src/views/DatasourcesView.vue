@@ -43,7 +43,16 @@
           <template #default="{ row }">
             <div class="stack-cell status-stack">
               <StatusPill :label="connectionStatusLabel(row)" :tone="connectionStatusTone(row)" />
+              <button class="connection-trend" type="button" :title="t('web.datasources.connectionTrendTitle')" @click="openConnectionHistory(row)">
+                <span
+                  v-for="(point, index) in connectionTrendPoints(row)"
+                  :key="`${row.id ?? row.connectionFingerprint ?? 'row'}:${index}`"
+                  class="connection-trend__dot"
+                  :class="connectionTrendPointClass(point)"
+                />
+              </button>
               <span v-if="row.lastConnectionTestAt" class="cell-subtle">{{ formatConnectionTestAt(row.lastConnectionTestAt) }}</span>
+              <span v-if="row.connectionStale" class="cell-subtle">{{ t("web.datasources.connectionStale") }}</span>
               <el-tooltip v-if="row.lastConnectionTestMessage" :content="row.lastConnectionTestMessage" placement="top">
                 <span class="cell-subtle status-message">{{ row.lastConnectionTestMessage }}</span>
               </el-tooltip>
@@ -129,6 +138,29 @@
           </div>
         </SectionCard>
       </div>
+
+      <SectionCard :title="t('web.datasources.healthConfigTitle')" :description="t('web.datasources.healthConfigDescription')">
+        <div class="studio-form-grid">
+          <el-form-item :label="t('web.datasources.manualTimeout')">
+            <el-input-number
+              v-model="form.manualConnectionTestTimeoutSeconds"
+              :min="1"
+              :max="120"
+              :placeholder="t('web.datasources.timeoutPlaceholder')"
+              controls-position="right"
+            />
+          </el-form-item>
+          <el-form-item :label="t('web.datasources.scheduledTimeout')">
+            <el-input-number
+              v-model="form.scheduledConnectionTestTimeoutSeconds"
+              :min="1"
+              :max="120"
+              :placeholder="t('web.datasources.timeoutPlaceholder')"
+              controls-position="right"
+            />
+          </el-form-item>
+        </div>
+      </SectionCard>
 
       <SectionCard :title="t('web.datasources.technicalTitle')" :description="t('web.datasources.technicalDescription')">
         <MetaFormRenderer
@@ -229,6 +261,38 @@
         <el-table-column prop="physicalLocator" :label="t('web.datasources.physicalLocatorColumn')" min-width="220" />
       </el-table>
     </el-dialog>
+
+    <el-dialog v-model="connectionHistoryDialogOpen" :title="connectionHistoryDialogTitle" width="760px">
+      <div class="history-dialog">
+        <div class="history-summary">
+          <StatusPill :label="historyDatasource ? connectionStatusLabel(historyDatasource) : t('web.datasources.connectionUnknown')" :tone="historyDatasource ? connectionStatusTone(historyDatasource) : 'neutral'" />
+          <span class="cell-subtle">{{ t("web.datasources.connectionHistorySubtitle") }}</span>
+        </div>
+        <el-table v-loading="connectionHistoryLoading" :data="connectionHistoryRecords" border>
+          <el-table-column :label="t('web.datasources.historyTimeColumn')" min-width="180">
+            <template #default="{ row }">{{ formatConnectionTestAt(row.testedAt || row.endedAt) || "--" }}</template>
+          </el-table-column>
+          <el-table-column :label="t('web.datasources.historyStatusColumn')" width="120" align="center" header-align="center">
+            <template #default="{ row }">
+              <StatusPill :label="recordStatusLabel(row)" :tone="recordStatusTone(row)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.datasources.historyModeColumn')" width="120" align="center" header-align="center">
+            <template #default="{ row }">{{ probeModeLabel(row.probeMode) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('web.datasources.historyDurationColumn')" width="120" align="center" header-align="center">
+            <template #default="{ row }">{{ formatDuration(row.durationMs) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('web.datasources.historyTimeoutColumn')" width="120" align="center" header-align="center">
+            <template #default="{ row }">{{ formatTimeoutSeconds(row.timeoutSeconds) }}</template>
+          </el-table-column>
+          <el-table-column prop="message" :label="t('web.datasources.historyMessageColumn')" min-width="220" show-overflow-tooltip />
+        </el-table>
+        <div v-if="!connectionHistoryLoading && connectionHistoryRecords.length === 0" class="soft-panel empty-hint history-empty">
+          {{ t("web.datasources.connectionHistoryEmpty") }}
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -240,6 +304,7 @@ import type {
   CapabilityMatrix,
   ConnectionTestResult,
   DataSourceDefinition,
+  DatasourceConnectionTestRecordView,
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
   ModelDiscoveryResult,
@@ -292,12 +357,18 @@ const testResult = ref<ConnectionTestResult | null>(null);
 const testingDatasourceIds = ref<string[]>([]);
 const discoverDialogOpen = ref(false);
 const discoveredModels = ref<ModelDiscoveryResult["models"]>([]);
+const connectionHistoryDialogOpen = ref(false);
+const connectionHistoryLoading = ref(false);
+const historyDatasource = ref<DataSourceDefinition | null>(null);
+const connectionHistoryRecords = ref<DatasourceConnectionTestRecordView[]>([]);
 const form = reactive<DataSourceForm>({
   name: "",
   typeCode: "",
   enabled: true,
   executable: false,
   schemaVersionId: undefined,
+  manualConnectionTestTimeoutSeconds: undefined,
+  scheduledConnectionTestTimeoutSeconds: undefined,
   technicalMetadata: {},
   businessMetadata: {},
 });
@@ -372,6 +443,11 @@ const businessSchemas = computed(() =>
   }).sort((left, right) => businessSchemaLabel(left).localeCompare(businessSchemaLabel(right))),
 );
 const businessSections = computed(() => businessSchemas.value.map(buildBusinessSection));
+const connectionHistoryDialogTitle = computed(() =>
+  historyDatasource.value
+    ? `${historyDatasource.value.name} / ${t("web.datasources.connectionHistoryTitle")}`
+    : t("web.datasources.connectionHistoryTitle"),
+);
 
 function buildDatasourceActions(datasource: DataSourceDefinition) {
   const shared = isSharedDatasource(datasource);
@@ -421,6 +497,9 @@ function connectionStatusLabel(datasource: DataSourceDefinition) {
   if (!canTestDatasource(datasource)) {
     return t("web.datasources.connectionNotTestable");
   }
+  if (datasource.connectionTesting || isTestingDatasource(datasource)) {
+    return t("web.datasources.connectionTesting");
+  }
   if (datasource.connectionStatus === "AVAILABLE") {
     return t("web.datasources.connectionAvailable");
   }
@@ -434,6 +513,9 @@ function connectionStatusTone(datasource: DataSourceDefinition) {
   if (!canTestDatasource(datasource)) {
     return "neutral";
   }
+  if (datasource.connectionTesting || isTestingDatasource(datasource)) {
+    return "primary";
+  }
   if (datasource.connectionStatus === "AVAILABLE") {
     return "success";
   }
@@ -441,6 +523,66 @@ function connectionStatusTone(datasource: DataSourceDefinition) {
     return "danger";
   }
   return "warning";
+}
+
+function connectionTrendPoints(datasource: DataSourceDefinition) {
+  const records = [...(datasource.recentConnectionTests ?? [])]
+    .sort((left, right) => String(left.testedAt || left.endedAt || "").localeCompare(String(right.testedAt || right.endedAt || "")))
+    .slice(-10);
+  const padding = Array.from({ length: Math.max(0, 10 - records.length) }, () => ({} as DatasourceConnectionTestRecordView));
+  return [...padding, ...records];
+}
+
+function connectionTrendPointClass(point: DatasourceConnectionTestRecordView) {
+  if (point.status === "AVAILABLE") {
+    return "connection-trend__dot--success";
+  }
+  if (point.status === "UNAVAILABLE") {
+    return "connection-trend__dot--danger";
+  }
+  if (point.status === "UNKNOWN") {
+    return "connection-trend__dot--warning";
+  }
+  return "connection-trend__dot--empty";
+}
+
+function recordStatusLabel(record: DatasourceConnectionTestRecordView) {
+  if (record.status === "AVAILABLE") {
+    return t("web.datasources.connectionAvailable");
+  }
+  if (record.status === "UNAVAILABLE") {
+    return t("web.datasources.connectionUnavailable");
+  }
+  return t("web.datasources.connectionUnknown");
+}
+
+function recordStatusTone(record: DatasourceConnectionTestRecordView) {
+  if (record.status === "AVAILABLE") {
+    return "success";
+  }
+  if (record.status === "UNAVAILABLE") {
+    return "danger";
+  }
+  return "warning";
+}
+
+function probeModeLabel(value?: string) {
+  const normalized = String(value ?? "").toUpperCase();
+  if (normalized === "SCHEDULED") {
+    return t("web.datasources.scheduledProbe");
+  }
+  if (normalized === "MANUAL") {
+    return t("web.datasources.manualProbe");
+  }
+  return value || "--";
+}
+
+function formatDuration(value?: number) {
+  return typeof value === "number" ? `${value} ms` : "--";
+}
+
+function formatTimeoutSeconds(value?: number) {
+  return typeof value === "number" ? `${value} s` : "--";
 }
 
 function formatConnectionTestAt(value?: string) {
@@ -471,6 +613,8 @@ function resetForm() {
   form.enabled = true;
   form.executable = false;
   form.schemaVersionId = undefined;
+  form.manualConnectionTestTimeoutSeconds = undefined;
+  form.scheduledConnectionTestTimeoutSeconds = undefined;
   form.technicalMetadata = {};
   form.businessMetadata = {};
   testResult.value = null;
@@ -692,7 +836,13 @@ async function testDatasource(item: DataSourceDefinition) {
   try {
     const result = await studioApi.datasources.test(item.id);
     applyConnectionTestResult(item, result);
-    ElMessage.success(t("web.datasources.testSuccess"));
+    if (result.busy) {
+      ElMessage.warning(result.message || t("web.datasources.testBusy"));
+    } else if (result.testing) {
+      ElMessage.info(result.message || t("web.datasources.connectionTesting"));
+    } else {
+      ElMessage.success(t("web.datasources.testSuccess"));
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
   } finally {
@@ -711,16 +861,29 @@ async function testCurrent() {
 
 function applyConnectionTestResult(item: DataSourceDefinition, result: ConnectionTestResult) {
   const status = result.status ?? (result.success ? "AVAILABLE" : "UNAVAILABLE");
-  const now = new Date().toISOString();
+  const now = result.lastTestAt ?? new Date().toISOString();
   const patch: Partial<DataSourceDefinition> = {
     connectionStatus: status,
-    lastConnectionTestAt: now,
+    lastConnectionTestAt: result.testing || result.busy ? item.lastConnectionTestAt : now,
     lastConnectionTestMessage: typeof result.message === "string" ? result.message : undefined,
     lastConnectionTestDurationMs: typeof result.durationMs === "number" ? result.durationMs : undefined,
+    connectionTesting: Boolean(result.testing),
+    connectionStale: Boolean(result.stale),
+    nextConnectionProbeAt: result.nextProbeAt,
+    recentConnectionTests: result.recentConnectionTests ?? item.recentConnectionTests,
   };
-  Object.assign(item, patch);
+  applyConnectionPatch(item, patch);
   if (form.id === item.id) {
     Object.assign(form, patch);
+  }
+}
+
+function applyConnectionPatch(item: DataSourceDefinition, patch: Partial<DataSourceDefinition>) {
+  const fingerprint = item.connectionFingerprint;
+  for (const datasource of datasources.value) {
+    if (datasource.id === item.id || (fingerprint && datasource.connectionFingerprint === fingerprint)) {
+      Object.assign(datasource, patch);
+    }
   }
 }
 
@@ -734,6 +897,23 @@ async function discoverModels(item: DataSourceDefinition) {
     discoverDialogOpen.value = true;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.discoverFailed"));
+  }
+}
+
+async function openConnectionHistory(item: DataSourceDefinition) {
+  if (!item.id) {
+    return;
+  }
+  historyDatasource.value = item;
+  connectionHistoryDialogOpen.value = true;
+  connectionHistoryLoading.value = true;
+  connectionHistoryRecords.value = [];
+  try {
+    connectionHistoryRecords.value = await studioApi.datasources.connectionHistory(item.id, { days: 7, limit: 1000 });
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.connectionHistoryFailed"));
+  } finally {
+    connectionHistoryLoading.value = false;
   }
 }
 
@@ -803,6 +983,43 @@ p {
   white-space: nowrap;
 }
 
+.connection-trend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 116px;
+  min-height: 18px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.connection-trend__dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.45);
+}
+
+.connection-trend__dot--success {
+  background: #22c55e;
+}
+
+.connection-trend__dot--danger {
+  background: #ef4444;
+}
+
+.connection-trend__dot--warning {
+  background: #f59e0b;
+}
+
+.connection-trend__dot--empty {
+  background: rgba(148, 163, 184, 0.32);
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;
@@ -850,5 +1067,20 @@ p {
 
 .section-empty {
   margin-bottom: 0;
+}
+
+.history-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.history-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-empty {
+  text-align: center;
 }
 </style>

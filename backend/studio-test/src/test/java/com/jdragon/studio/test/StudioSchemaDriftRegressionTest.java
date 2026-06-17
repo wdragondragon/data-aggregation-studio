@@ -93,8 +93,19 @@ class StudioSchemaDriftRegressionTest {
             "emptyAsNull", "autoCreatePartition", "preSql", "postSql");
 
     private static final List<String> DATASOURCE_CONNECTION_STATUS_COLUMNS = Arrays.asList(
+            "connection_fingerprint",
             "connection_status", "last_connection_test_at",
-            "last_connection_test_message", "last_connection_test_duration_ms");
+            "last_connection_test_message", "last_connection_test_duration_ms",
+            "manual_connection_test_timeout_seconds", "scheduled_connection_test_timeout_seconds");
+
+    private static final List<String> DATASOURCE_CONNECTION_HEALTH_COLUMNS = Arrays.asList(
+            "datasource_connection_health", "connection_fingerprint", "probe_state",
+            "probe_run_id", "probe_lease_until", "failure_count", "next_probe_at");
+
+    private static final List<String> DATASOURCE_CONNECTION_TEST_RECORD_COLUMNS = Arrays.asList(
+            "datasource_connection_test_record", "connection_fingerprint", "datasource_id",
+            "probe_run_id", "probe_mode", "connection_status", "started_at",
+            "ended_at", "duration_ms", "timeout_seconds");
 
     private static final List<String> HTTP_TABLE_FIELDS = Arrays.asList(
             "physicalName", "description", "protocolMode", "mode", "resultType",
@@ -258,6 +269,12 @@ class StudioSchemaDriftRegressionTest {
         assertFieldsPresent("MySQL datasource connection status columns", mysqlSchema, DATASOURCE_CONNECTION_STATUS_COLUMNS);
         assertFieldsPresent("SQLite datasource connection status columns", sqliteSchema, DATASOURCE_CONNECTION_STATUS_COLUMNS);
         assertFieldsPresent("Delta datasource connection status columns", delta, DATASOURCE_CONNECTION_STATUS_COLUMNS);
+        assertFieldsPresent("MySQL datasource connection health table", mysqlSchema, DATASOURCE_CONNECTION_HEALTH_COLUMNS);
+        assertFieldsPresent("SQLite datasource connection health table", sqliteSchema, DATASOURCE_CONNECTION_HEALTH_COLUMNS);
+        assertFieldsPresent("Delta datasource connection health table", delta, DATASOURCE_CONNECTION_HEALTH_COLUMNS);
+        assertFieldsPresent("MySQL datasource connection test record table", mysqlSchema, DATASOURCE_CONNECTION_TEST_RECORD_COLUMNS);
+        assertFieldsPresent("SQLite datasource connection test record table", sqliteSchema, DATASOURCE_CONNECTION_TEST_RECORD_COLUMNS);
+        assertFieldsPresent("Delta datasource connection test record table", delta, DATASOURCE_CONNECTION_TEST_RECORD_COLUMNS);
     }
 
     private void assertHttpCapability(String label, String content) {

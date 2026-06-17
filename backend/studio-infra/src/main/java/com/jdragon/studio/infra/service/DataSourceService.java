@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
+import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -29,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -45,6 +47,8 @@ public class DataSourceService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+    private final DatasourceConnectionFingerprintService datasourceConnectionFingerprintService;
+    private final DatasourceConnectionHealthService datasourceConnectionHealthService;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
@@ -55,7 +59,9 @@ public class DataSourceService {
                              BusinessMetaModelMetadataService businessMetaModelMetadataService,
                              StudioSecurityService securityService,
                              ProjectResourceAccessService projectResourceAccessService,
-                             DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+                             DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                             DatasourceConnectionFingerprintService datasourceConnectionFingerprintService,
+                             DatasourceConnectionHealthService datasourceConnectionHealthService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.encryptionService = encryptionService;
@@ -66,6 +72,8 @@ public class DataSourceService {
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
+        this.datasourceConnectionFingerprintService = datasourceConnectionFingerprintService;
+        this.datasourceConnectionHealthService = datasourceConnectionHealthService;
     }
 
     public List<DataSourceDefinition> list() {
@@ -76,12 +84,20 @@ public class DataSourceService {
         for (DatasourceEntity entity : entities) {
             result.add(toDefinition(entity, true));
         }
+        datasourceConnectionHealthService.hydrateDefinitions(result);
         return result;
     }
 
     public DataSourceDefinition get(Long id) {
         DatasourceEntity entity = findAccessibleEntity(id);
-        return entity == null ? null : toDefinition(entity, true);
+        if (entity == null) {
+            return null;
+        }
+        DataSourceDefinition definition = toDefinition(entity, true);
+        List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
+        definitions.add(definition);
+        datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        return definition;
     }
 
     public DataSourceDefinition getInternal(Long id) {
@@ -99,21 +115,16 @@ public class DataSourceService {
             entity = new DatasourceEntity();
         }
         boolean newEntity = entity.getId() == null;
-        String originalTypeCode = entity.getTypeCode();
-        Long originalSchemaVersionId = entity.getSchemaVersionId();
-        Map<String, Object> originalTechnicalMetadata = copyMetadata(entity.getTechnicalMetadata());
+        String originalConnectionFingerprint = entity.getConnectionFingerprint();
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity.getTechnicalMetadata(), technicalMetadata);
         Long resolvedSchemaVersionId = resolveSchemaVersionId(request, schema);
         Map<String, Object> encryptedTechnicalMetadata = encryptSensitive(technicalMetadata);
-        boolean connectionDefinitionChanged = connectionDefinitionChanged(newEntity,
-                originalTypeCode,
-                originalSchemaVersionId,
-                originalTechnicalMetadata,
+        String connectionFingerprint = datasourceConnectionFingerprintService.fingerprint(currentTenantId,
                 request.getTypeCode(),
-                resolvedSchemaVersionId,
                 encryptedTechnicalMetadata);
+        boolean connectionDefinitionChanged = newEntity || !Objects.equals(originalConnectionFingerprint, connectionFingerprint);
         ensureUniqueName(currentProjectId, request.getName(), entity.getId());
         entity.setTenantId(currentTenantId);
         entity.setProjectId(currentProjectId);
@@ -122,6 +133,9 @@ public class DataSourceService {
         entity.setSchemaVersionId(resolvedSchemaVersionId);
         entity.setEnabled(Boolean.TRUE.equals(request.getEnabled()) ? 1 : 0);
         entity.setExecutable(Boolean.TRUE.equals(request.getExecutable()) ? 1 : 0);
+        entity.setConnectionFingerprint(connectionFingerprint);
+        entity.setManualConnectionTestTimeoutSeconds(normalizeTimeoutOverride(request.getManualConnectionTestTimeoutSeconds()));
+        entity.setScheduledConnectionTestTimeoutSeconds(normalizeTimeoutOverride(request.getScheduledConnectionTestTimeoutSeconds()));
         entity.setTechnicalMetadata(encryptedTechnicalMetadata);
         entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         if (connectionDefinitionChanged) {
@@ -135,23 +149,45 @@ public class DataSourceService {
                 clearConnectionSnapshot(entity.getId());
             }
         }
-        return toDefinition(entity, true);
+        datasourceConnectionHealthService.ensureHealthRow(currentTenantId, connectionFingerprint);
+        DataSourceDefinition saved = toDefinition(entity, true);
+        List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
+        definitions.add(saved);
+        datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        return saved;
     }
 
-    @Transactional
     public ConnectionTestResult testConnection(Long id) {
-        DataSourceDefinition definition = getInternal(id);
+        DatasourceEntity entity = findAccessibleEntity(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
+        }
+        ensureConnectionFingerprint(entity);
+        DataSourceDefinition definition = toDefinition(entity, false);
         ensureDatasourceCanTest(definition);
-        ConnectionTestResult result = executeConnectionTest(definition);
+        final DataSourceDefinition probeDefinition = definition;
+        int timeoutSeconds = datasourceConnectionHealthService.effectiveManualTimeout(definition);
+        ConnectionTestResult result = datasourceConnectionHealthService.runManualProbe(definition, new Callable<ConnectionTestResult>() {
+            @Override
+            public ConnectionTestResult call() {
+                return executeConnectionTest(probeDefinition);
+            }
+        }, timeoutSeconds);
         persistConnectionSnapshot(id, result);
         return result;
     }
 
     public ConnectionTestResult testConnection(DataSourceSaveRequest request) {
         datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
-        DataSourceDefinition definition = buildDefinitionForTest(request);
+        final DataSourceDefinition definition = buildDefinitionForTest(request);
         ensureDatasourceCanTest(definition);
-        return executeConnectionTest(definition);
+        int timeoutSeconds = datasourceConnectionHealthService.effectiveManualTimeout(definition);
+        return datasourceConnectionHealthService.runCurrentFormProbe(new Callable<ConnectionTestResult>() {
+            @Override
+            public ConnectionTestResult call() {
+                return executeConnectionTest(definition);
+            }
+        }, timeoutSeconds);
     }
 
     public ModelDiscoveryResult discoverModels(Long id) {
@@ -166,6 +202,69 @@ public class DataSourceService {
         DataSourceDefinition definition = getInternal(id);
         datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
         return capabilityProvider.discoverModels(definition, keyword, pageNo, pageSize);
+    }
+
+    public List<DatasourceConnectionTestRecordView> connectionHistory(Long id, Integer days, Integer limit) {
+        DatasourceEntity entity = findAccessibleEntity(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
+        }
+        ensureConnectionFingerprint(entity);
+        return datasourceConnectionHealthService.history(entity.getTenantId(), entity.getConnectionFingerprint(), days, limit);
+    }
+
+    public void dispatchDueScheduledConnectionTests() {
+        if (!datasourceConnectionHealthService.enabled()) {
+            return;
+        }
+        List<DatasourceEntity> entities = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getEnabled, 1)
+                .eq(DatasourceEntity::getExecutable, 1)
+                .orderByAsc(DatasourceEntity::getTenantId)
+                .orderByAsc(DatasourceEntity::getConnectionFingerprint)
+                .orderByAsc(DatasourceEntity::getId));
+        Map<String, ScheduledProbeCandidate> candidates = new LinkedHashMap<String, ScheduledProbeCandidate>();
+        for (DatasourceEntity entity : entities) {
+            ensureConnectionFingerprint(entity);
+            if (!hasText(entity.getConnectionFingerprint())) {
+                continue;
+            }
+            String key = entity.getTenantId() + "\n" + entity.getConnectionFingerprint();
+            DataSourceDefinition definition = toDefinition(entity, false);
+            int timeoutSeconds = datasourceConnectionHealthService.effectiveScheduledTimeout(definition);
+            ScheduledProbeCandidate candidate = candidates.get(key);
+            if (candidate == null) {
+                candidates.put(key, new ScheduledProbeCandidate(definition, timeoutSeconds));
+            } else if (timeoutSeconds > candidate.timeoutSeconds) {
+                candidate.timeoutSeconds = timeoutSeconds;
+            }
+        }
+        LocalDateTime roundStartedAt = LocalDateTime.now();
+        int processed = 0;
+        for (ScheduledProbeCandidate candidate : candidates.values()) {
+            if (processed >= datasourceConnectionHealthService.batchSize()) {
+                break;
+            }
+            if (roundStartedAt.plusSeconds(datasourceConnectionHealthService.roundBudgetSeconds()).isBefore(LocalDateTime.now())) {
+                break;
+            }
+            if (!datasourceConnectionHealthService.scheduledDue(candidate.definition.getTenantId(), candidate.definition.getConnectionFingerprint())) {
+                continue;
+            }
+            final DataSourceDefinition probeDefinition = candidate.definition;
+            datasourceConnectionHealthService.submitScheduledProbe(probeDefinition, new Callable<ConnectionTestResult>() {
+                @Override
+                public ConnectionTestResult call() {
+                    return executeConnectionTest(probeDefinition);
+                }
+            }, candidate.timeoutSeconds);
+            processed++;
+        }
+        try {
+            datasourceConnectionHealthService.cleanupExpiredHistory();
+        } catch (Exception ignored) {
+            // History cleanup must not block scheduled health refresh.
+        }
     }
 
     @Transactional
@@ -190,10 +289,15 @@ public class DataSourceService {
         definition.setSchemaVersionId(resolveReadableSchemaVersionId(entity));
         definition.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
         definition.setExecutable(entity.getExecutable() != null && entity.getExecutable() == 1);
+        definition.setConnectionFingerprint(entity.getConnectionFingerprint());
         definition.setConnectionStatus(parseConnectionStatus(entity.getConnectionStatus()));
         definition.setLastConnectionTestAt(entity.getLastConnectionTestAt());
         definition.setLastConnectionTestMessage(entity.getLastConnectionTestMessage());
         definition.setLastConnectionTestDurationMs(entity.getLastConnectionTestDurationMs());
+        definition.setConnectionTesting(false);
+        definition.setConnectionStale(false);
+        definition.setManualConnectionTestTimeoutSeconds(entity.getManualConnectionTestTimeoutSeconds());
+        definition.setScheduledConnectionTestTimeoutSeconds(entity.getScheduledConnectionTestTimeoutSeconds());
         definition.setTechnicalMetadata(maskSensitive ? maskSensitive(entity.getTechnicalMetadata()) : entity.getTechnicalMetadata());
         definition.setBusinessMetadata(entity.getBusinessMetadata());
         return definition;
@@ -212,6 +316,8 @@ public class DataSourceService {
         definition.setSchemaVersionId(resolveSchemaVersionId(request, schema));
         definition.setEnabled(Boolean.TRUE.equals(request.getEnabled()));
         definition.setExecutable(Boolean.TRUE.equals(request.getExecutable()));
+        definition.setManualConnectionTestTimeoutSeconds(normalizeTimeoutOverride(request.getManualConnectionTestTimeoutSeconds()));
+        definition.setScheduledConnectionTestTimeoutSeconds(normalizeTimeoutOverride(request.getScheduledConnectionTestTimeoutSeconds()));
         definition.setTechnicalMetadata(technicalMetadata);
         definition.setBusinessMetadata(businessMetaModelMetadataService.normalizeForDatasource(request.getBusinessMetadata()));
         return definition;
@@ -236,13 +342,17 @@ public class DataSourceService {
         if (id == null || result == null) {
             return;
         }
+        if (Boolean.TRUE.equals(result.getBusy()) || Boolean.TRUE.equals(result.getTesting())) {
+            return;
+        }
         DataSourceConnectionStatus status = result.getStatus() == null
                 ? (result.isSuccess() ? DataSourceConnectionStatus.AVAILABLE : DataSourceConnectionStatus.UNAVAILABLE)
                 : result.getStatus();
+        LocalDateTime testAt = result.getLastTestAt() == null ? LocalDateTime.now() : result.getLastTestAt();
         datasourceMapper.update(null, new LambdaUpdateWrapper<DatasourceEntity>()
                 .eq(DatasourceEntity::getId, id)
                 .set(DatasourceEntity::getConnectionStatus, status.name())
-                .set(DatasourceEntity::getLastConnectionTestAt, LocalDateTime.now())
+                .set(DatasourceEntity::getLastConnectionTestAt, testAt)
                 .set(DatasourceEntity::getLastConnectionTestMessage, truncateConnectionMessage(result.getMessage()))
                 .set(DatasourceEntity::getLastConnectionTestDurationMs, result.getDurationMs()));
     }
@@ -274,6 +384,32 @@ public class DataSourceService {
                 || !Objects.equals(originalTypeCode, nextTypeCode)
                 || !Objects.equals(originalSchemaVersionId, nextSchemaVersionId)
                 || !Objects.equals(originalTechnicalMetadata, copyMetadata(nextTechnicalMetadata));
+    }
+
+    private void ensureConnectionFingerprint(DatasourceEntity entity) {
+        if (entity == null || hasText(entity.getConnectionFingerprint())) {
+            return;
+        }
+        String fingerprint = datasourceConnectionFingerprintService.fingerprint(entity.getTenantId(),
+                entity.getTypeCode(),
+                entity.getTechnicalMetadata());
+        entity.setConnectionFingerprint(fingerprint);
+        datasourceMapper.update(null, new LambdaUpdateWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getId, entity.getId())
+                .set(DatasourceEntity::getConnectionFingerprint, fingerprint));
+        datasourceConnectionHealthService.ensureHealthRow(entity.getTenantId(), fingerprint);
+    }
+
+    private Integer normalizeTimeoutOverride(Integer value) {
+        if (value == null) {
+            return null;
+        }
+        int maxTimeoutSeconds = 120;
+        if (value.intValue() < 1 || value.intValue() > maxTimeoutSeconds) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Datasource connection test timeout must be between 1 and " + maxTimeoutSeconds + " seconds");
+        }
+        return value;
     }
 
     private DataSourceConnectionStatus parseConnectionStatus(String status) {
@@ -435,6 +571,10 @@ public class DataSourceService {
                 || normalized.contains("accesskey");
     }
 
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
     private Long resolveSchemaVersionId(DataSourceSaveRequest request, MetadataSchemaDefinition schema) {
         if (request.getSchemaVersionId() != null) {
             return request.getSchemaVersionId();
@@ -522,6 +662,16 @@ public class DataSourceService {
             }
         } catch (Exception ignored) {
             return defaultValue;
+        }
+    }
+
+    private static final class ScheduledProbeCandidate {
+        private final DataSourceDefinition definition;
+        private int timeoutSeconds;
+
+        private ScheduledProbeCandidate(DataSourceDefinition definition, int timeoutSeconds) {
+            this.definition = definition;
+            this.timeoutSeconds = timeoutSeconds;
         }
     }
 }

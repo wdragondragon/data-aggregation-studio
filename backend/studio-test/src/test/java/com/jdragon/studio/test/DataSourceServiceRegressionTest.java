@@ -10,6 +10,8 @@ import com.jdragon.studio.infra.mapper.DatasourceMapper;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.DatasourceConnectionFingerprintService;
+import com.jdragon.studio.infra.service.DatasourceConnectionHealthService;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
@@ -26,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +55,7 @@ class DataSourceServiceRegressionTest {
         MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
         EncryptionService encryptionService = mock(EncryptionService.class);
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
+        DatasourceConnectionHealthService datasourceConnectionHealthService = mock(DatasourceConnectionHealthService.class);
 
         DatasourceEntity existing = new DatasourceEntity();
         existing.setId(11L);
@@ -70,6 +74,9 @@ class DataSourceServiceRegressionTest {
         expected.setSuccess(true);
         expected.setMessage("Connection success");
         when(capabilityProvider.testConnection(any(DataSourceDefinition.class))).thenReturn(expected);
+        when(datasourceConnectionHealthService.effectiveManualTimeout(any(DataSourceDefinition.class))).thenReturn(30);
+        when(datasourceConnectionHealthService.runCurrentFormProbe(any(Callable.class), eq(30))).thenAnswer(invocation ->
+                ((Callable<ConnectionTestResult>) invocation.getArgument(0)).call());
 
         DataSourceService service = new DataSourceService(
                 datasourceMapper,
@@ -81,7 +88,9 @@ class DataSourceServiceRegressionTest {
                 businessMetaModelMetadataService,
                 mock(StudioSecurityService.class),
                 mock(ProjectResourceAccessService.class),
-                mock(DatasourceTypeCapabilityService.class)
+                mock(DatasourceTypeCapabilityService.class),
+                mock(DatasourceConnectionFingerprintService.class),
+                datasourceConnectionHealthService
         );
 
         DataSourceSaveRequest request = new DataSourceSaveRequest();
@@ -116,6 +125,7 @@ class DataSourceServiceRegressionTest {
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
         ProjectResourceAccessService projectResourceAccessService = mock(ProjectResourceAccessService.class);
         DatasourceTypeCapabilityService datasourceTypeCapabilityService = mock(DatasourceTypeCapabilityService.class);
+        DatasourceConnectionHealthService datasourceConnectionHealthService = mock(DatasourceConnectionHealthService.class);
 
         DatasourceEntity existing = datasourceEntity("mysql_source", "mysql8", 7L, "127.0.0.1");
         existing.setEnabled(1);
@@ -129,6 +139,9 @@ class DataSourceServiceRegressionTest {
         expected.setSuccess(false);
         expected.setMessage("Connection refused");
         when(capabilityProvider.testConnection(any(DataSourceDefinition.class))).thenReturn(expected);
+        when(datasourceConnectionHealthService.effectiveManualTimeout(any(DataSourceDefinition.class))).thenReturn(30);
+        when(datasourceConnectionHealthService.runManualProbe(any(DataSourceDefinition.class), any(Callable.class), eq(30))).thenAnswer(invocation ->
+                ((Callable<ConnectionTestResult>) invocation.getArgument(1)).call());
 
         DataSourceService service = new DataSourceService(
                 datasourceMapper,
@@ -140,7 +153,9 @@ class DataSourceServiceRegressionTest {
                 businessMetaModelMetadataService,
                 mock(StudioSecurityService.class),
                 projectResourceAccessService,
-                datasourceTypeCapabilityService
+                datasourceTypeCapabilityService,
+                mock(DatasourceConnectionFingerprintService.class),
+                datasourceConnectionHealthService
         );
 
         ConnectionTestResult actual = service.testConnection(11L);
@@ -162,6 +177,8 @@ class DataSourceServiceRegressionTest {
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService projectResourceAccessService = mock(ProjectResourceAccessService.class);
+        DatasourceConnectionFingerprintService datasourceConnectionFingerprintService = mock(DatasourceConnectionFingerprintService.class);
+        DatasourceConnectionHealthService datasourceConnectionHealthService = mock(DatasourceConnectionHealthService.class);
 
         DatasourceEntity existing = datasourceEntity("mysql_source", "mysql8", 7L, "127.0.0.1");
         existing.setConnectionStatus("AVAILABLE");
@@ -175,6 +192,7 @@ class DataSourceServiceRegressionTest {
         when(businessMetaModelMetadataService.normalizeForDatasource(any(Map.class))).thenReturn(new LinkedHashMap<String, Object>());
         when(projectResourceAccessService.requireCurrentProjectId()).thenReturn(3L);
         when(securityService.currentTenantId()).thenReturn("default");
+        when(datasourceConnectionFingerprintService.fingerprint(eq("default"), eq("mysql8"), any(Map.class))).thenReturn("fp-new");
 
         DataSourceService service = new DataSourceService(
                 datasourceMapper,
@@ -186,7 +204,9 @@ class DataSourceServiceRegressionTest {
                 businessMetaModelMetadataService,
                 securityService,
                 projectResourceAccessService,
-                mock(DatasourceTypeCapabilityService.class)
+                mock(DatasourceTypeCapabilityService.class),
+                datasourceConnectionFingerprintService,
+                datasourceConnectionHealthService
         );
 
         DataSourceSaveRequest request = datasourceRequest(11L, "mysql_source", "mysql8", 7L, "192.168.188.129");
@@ -209,6 +229,8 @@ class DataSourceServiceRegressionTest {
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService projectResourceAccessService = mock(ProjectResourceAccessService.class);
+        DatasourceConnectionFingerprintService datasourceConnectionFingerprintService = mock(DatasourceConnectionFingerprintService.class);
+        DatasourceConnectionHealthService datasourceConnectionHealthService = mock(DatasourceConnectionHealthService.class);
 
         DatasourceEntity existing = datasourceEntity("mysql_source", "mysql8", 7L, "127.0.0.1");
         existing.setConnectionStatus("AVAILABLE");
@@ -222,6 +244,7 @@ class DataSourceServiceRegressionTest {
         when(businessMetaModelMetadataService.normalizeForDatasource(any(Map.class))).thenReturn(new LinkedHashMap<String, Object>());
         when(projectResourceAccessService.requireCurrentProjectId()).thenReturn(3L);
         when(securityService.currentTenantId()).thenReturn("default");
+        when(datasourceConnectionFingerprintService.fingerprint(eq("default"), eq("mysql8"), any(Map.class))).thenReturn("fp-127.0.0.1");
 
         DataSourceService service = new DataSourceService(
                 datasourceMapper,
@@ -233,7 +256,9 @@ class DataSourceServiceRegressionTest {
                 businessMetaModelMetadataService,
                 securityService,
                 projectResourceAccessService,
-                mock(DatasourceTypeCapabilityService.class)
+                mock(DatasourceTypeCapabilityService.class),
+                datasourceConnectionFingerprintService,
+                datasourceConnectionHealthService
         );
 
         DataSourceSaveRequest request = datasourceRequest(11L, "renamed_source", "mysql8", 7L, "127.0.0.1");
@@ -255,6 +280,7 @@ class DataSourceServiceRegressionTest {
         entity.setSchemaVersionId(schemaVersionId);
         entity.setEnabled(1);
         entity.setExecutable(1);
+        entity.setConnectionFingerprint("fp-" + host);
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("host", host);
         entity.setTechnicalMetadata(metadata);

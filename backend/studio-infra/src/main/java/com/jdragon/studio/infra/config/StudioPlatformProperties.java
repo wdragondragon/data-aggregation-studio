@@ -4,7 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @ConfigurationProperties(prefix = "studio")
@@ -28,6 +30,7 @@ public class StudioPlatformProperties {
     private DispatchProperties dispatch = new DispatchProperties();
     private RunLogProperties runLog = new RunLogProperties();
     private InvocationLogProperties invocationLog = new InvocationLogProperties();
+    private DatasourceHealthProperties datasourceHealth = new DatasourceHealthProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -80,6 +83,54 @@ public class StudioPlatformProperties {
         private String objectPrefix = "studio/invocation-logs";
         private Integer maxLogChars = 1024 * 1024;
         private Integer maxBodyChars = 64 * 1024;
+    }
+
+    @Data
+    public static class DatasourceHealthProperties {
+        private boolean enabled = true;
+        private ProbeProperties manual = new ProbeProperties(30, 2);
+        private ProbeProperties scheduled = new ProbeProperties(30, 3);
+        private Integer globalMaxConcurrency = 5;
+        private Integer manualReservedConcurrency = 1;
+        private Integer maxTimeoutSeconds = 120;
+        private Integer scheduledIntervalMinutes = 15;
+        private Integer staleAfterMinutes = 30;
+        private Integer batchSize = 100;
+        private Integer manualWaitRunningSeconds = 3;
+        private Integer roundBudgetSeconds = 120;
+        private Integer failureBackoffBaseMinutes = 30;
+        private Integer failureBackoffMaxMinutes = 120;
+        private Integer jitterSeconds = 60;
+        private Map<String, TypeDefaultProperties> typeDefaults = new LinkedHashMap<String, TypeDefaultProperties>();
+        private HistoryProperties history = new HistoryProperties();
+    }
+
+    @Data
+    public static class ProbeProperties {
+        private Integer defaultTimeoutSeconds;
+        private Integer maxConcurrency;
+
+        public ProbeProperties() {
+        }
+
+        public ProbeProperties(Integer defaultTimeoutSeconds, Integer maxConcurrency) {
+            this.defaultTimeoutSeconds = defaultTimeoutSeconds;
+            this.maxConcurrency = maxConcurrency;
+        }
+    }
+
+    @Data
+    public static class TypeDefaultProperties {
+        private Integer manualTimeoutSeconds;
+        private Integer scheduledTimeoutSeconds;
+    }
+
+    @Data
+    public static class HistoryProperties {
+        private Integer retentionDays = 7;
+        private Integer recentLimit = 10;
+        private Integer historyQueryDefaultLimit = 1000;
+        private Integer historyQueryMaxLimit = 2000;
     }
 
     @Data

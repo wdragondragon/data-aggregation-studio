@@ -1,0 +1,23 @@
+CREATE TABLE `datasource_connection_health` (
+  `id` bigint NOT NULL,
+  `tenant_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT 'default',
+  `deleted` int DEFAULT '0',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `connection_fingerprint` varchar(128) COLLATE utf8mb4_general_ci NOT NULL,
+  `connection_status` varchar(32) COLLATE utf8mb4_general_ci DEFAULT 'UNKNOWN',
+  `last_connection_test_at` datetime DEFAULT NULL,
+  `last_connection_test_message` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `last_connection_test_duration_ms` bigint DEFAULT NULL,
+  `probe_state` varchar(32) COLLATE utf8mb4_general_ci DEFAULT 'IDLE',
+  `probe_owner` varchar(128) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `probe_run_id` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `probe_started_at` datetime DEFAULT NULL,
+  `probe_lease_until` datetime DEFAULT NULL,
+  `failure_count` int DEFAULT '0',
+  `next_probe_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ds_conn_health_fp` (`tenant_id`,`connection_fingerprint`),
+  KEY `idx_ds_conn_health_next` (`next_probe_at`),
+  KEY `idx_ds_conn_health_probe` (`probe_state`,`probe_lease_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

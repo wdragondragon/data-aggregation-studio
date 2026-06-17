@@ -375,15 +375,65 @@ create table if not exists datasource_definition (
     schema_version_id integer,
     enabled integer default 1,
     executable integer default 0,
+    connection_fingerprint text,
     connection_status text default 'UNKNOWN',
     last_connection_test_at text,
     last_connection_test_message text,
     last_connection_test_duration_ms integer,
+    manual_connection_test_timeout_seconds integer,
+    scheduled_connection_test_timeout_seconds integer,
     technical_metadata text,
     business_metadata text
 );
 create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name);
 create index if not exists idx_datasource_definition_project on datasource_definition(project_id);
+create index if not exists idx_datasource_definition_connection on datasource_definition(tenant_id, connection_fingerprint);
+
+create table if not exists datasource_connection_health (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    connection_fingerprint text not null,
+    connection_status text default 'UNKNOWN',
+    last_connection_test_at text,
+    last_connection_test_message text,
+    last_connection_test_duration_ms integer,
+    probe_state text default 'IDLE',
+    probe_owner text,
+    probe_run_id text,
+    probe_started_at text,
+    probe_lease_until text,
+    failure_count integer default 0,
+    next_probe_at text
+);
+create unique index if not exists uk_ds_conn_health_fp on datasource_connection_health(tenant_id, connection_fingerprint);
+create index if not exists idx_ds_conn_health_next on datasource_connection_health(next_probe_at);
+create index if not exists idx_ds_conn_health_probe on datasource_connection_health(probe_state, probe_lease_until);
+
+create table if not exists datasource_connection_test_record (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    connection_fingerprint text not null,
+    datasource_id integer,
+    datasource_name text,
+    type_code text,
+    probe_run_id text not null,
+    probe_mode text,
+    connection_status text default 'UNKNOWN',
+    started_at text,
+    ended_at text,
+    duration_ms integer,
+    timeout_seconds integer,
+    message text
+);
+create unique index if not exists uk_ds_conn_record_run on datasource_connection_test_record(tenant_id, probe_run_id);
+create index if not exists idx_ds_conn_record_lookup on datasource_connection_test_record(tenant_id, connection_fingerprint, ended_at);
+create index if not exists idx_ds_conn_record_cleanup on datasource_connection_test_record(ended_at);
 
 create table if not exists data_model (
     id integer primary key,

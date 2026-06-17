@@ -9,14 +9,18 @@ CREATE TABLE `datasource_definition` (
   `schema_version_id` bigint DEFAULT NULL,
   `enabled` int DEFAULT '1',
   `executable` int DEFAULT '0',
+  `connection_fingerprint` varchar(128) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `connection_status` varchar(32) COLLATE utf8mb4_general_ci DEFAULT 'UNKNOWN',
   `last_connection_test_at` datetime DEFAULT NULL,
   `last_connection_test_message` varchar(1000) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `last_connection_test_duration_ms` bigint DEFAULT NULL,
+  `manual_connection_test_timeout_seconds` int DEFAULT NULL,
+  `scheduled_connection_test_timeout_seconds` int DEFAULT NULL,
   `technical_metadata` json DEFAULT NULL,
   `business_metadata` json DEFAULT NULL,
   `project_id` bigint DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_datasource_definition_project_name` (`project_id`,`name`),
-  KEY `idx_datasource_definition_project` (`project_id`)
+  KEY `idx_datasource_definition_project` (`project_id`),
+  KEY `idx_datasource_definition_connection` (`tenant_id`,`connection_fingerprint`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
