@@ -30,7 +30,7 @@ export interface StudioLocaleOption {
 }
 
 export function resolveStudioLocale(locale?: string | null): StudioLocale {
-  return locale === "zh-CN" ? "zh-CN" : DEFAULT_STUDIO_LOCALE;
+  return locale === "en-US" || locale === "zh-CN" ? locale : DEFAULT_STUDIO_LOCALE;
 }
 
 export function readStoredStudioLocale(): StudioLocale {
