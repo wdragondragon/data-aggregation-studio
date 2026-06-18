@@ -184,22 +184,31 @@ public class DatasourceConnectionHealthService {
         String tenantId = definition.getTenantId();
         String fingerprint = definition.getConnectionFingerprint();
         ensureHealthRow(tenantId, fingerprint);
-        if (!tryAcquireCapacity(PROBE_MODE_MANUAL)) {
-            return busyResult(tenantId, fingerprint, "Manual connection test is busy, please retry later");
-        }
         String runId = IdWorker.getIdStr();
         if (!claimProbe(tenantId, fingerprint, runId, timeoutSeconds, PROBE_MODE_MANUAL)) {
-            releaseCapacity(PROBE_MODE_MANUAL);
             return waitForRunningProbe(tenantId, fingerprint);
         }
+        boolean capacityAcquired = false;
         try {
+            if (!tryAcquireCapacity(PROBE_MODE_MANUAL)) {
+                releaseProbeLease(tenantId, fingerprint, runId);
+                return busyResult(tenantId, fingerprint, "Manual connection test is busy, please retry later");
+            }
+            capacityAcquired = true;
             ProbeExecution execution = executeWithTimeout(manualProbeExecutor, probe, timeoutSeconds);
-            return finishProbe(definition, runId, PROBE_MODE_MANUAL, timeoutSeconds, execution);
+            ConnectionTestResult result = finishProbe(definition, runId, PROBE_MODE_MANUAL, timeoutSeconds, execution, execution.timedOut);
+            if (execution.timedOut) {
+                releaseProbeAndCapacityWhenTaskCompletes(execution.future, tenantId, fingerprint, runId, PROBE_MODE_MANUAL, timeoutSeconds);
+                capacityAcquired = false;
+            }
+            return result;
         } catch (TaskRejectedException e) {
             releaseProbeLease(tenantId, fingerprint, runId);
             return busyResult(tenantId, fingerprint, "Manual connection test is busy, please retry later");
         } finally {
-            releaseCapacity(PROBE_MODE_MANUAL);
+            if (capacityAcquired) {
+                releaseCapacity(PROBE_MODE_MANUAL);
+            }
         }
     }
 
@@ -213,6 +222,7 @@ public class DatasourceConnectionHealthService {
             result.setTimeoutSeconds(timeoutSeconds);
             return result;
         }
+        boolean capacityAcquired = true;
         try {
             ProbeExecution execution = executeWithTimeout(manualProbeExecutor, probe, timeoutSeconds);
             ConnectionTestResult result = execution.result;
@@ -220,6 +230,10 @@ public class DatasourceConnectionHealthService {
             result.setTimeoutSeconds(timeoutSeconds);
             result.setBusy(false);
             result.setTesting(false);
+            if (execution.timedOut) {
+                releaseProbeAndCapacityWhenTaskCompletes(execution.future, null, null, null, PROBE_MODE_MANUAL, timeoutSeconds);
+                capacityAcquired = false;
+            }
             return result;
         } catch (TaskRejectedException e) {
             ConnectionTestResult result = new ConnectionTestResult();
@@ -230,7 +244,9 @@ public class DatasourceConnectionHealthService {
             result.setTimeoutSeconds(timeoutSeconds);
             return result;
         } finally {
-            releaseCapacity(PROBE_MODE_MANUAL);
+            if (capacityAcquired) {
+                releaseCapacity(PROBE_MODE_MANUAL);
+            }
         }
     }
 
@@ -257,7 +273,11 @@ public class DatasourceConnectionHealthService {
                 public void run() {
                     try {
                         ProbeExecution execution = waitForFuture(future, startedAt, startedNanos, timeoutSeconds);
-                        finishProbe(definition, runId, PROBE_MODE_SCHEDULED, timeoutSeconds, execution);
+                        finishProbe(definition, runId, PROBE_MODE_SCHEDULED, timeoutSeconds, execution, execution.timedOut);
+                        if (execution.timedOut) {
+                            waitForTaskCompletionAndExtendLease(future, tenantId, fingerprint, runId, timeoutSeconds);
+                            releaseProbeLease(tenantId, fingerprint, runId);
+                        }
                     } finally {
                         releaseCapacity(PROBE_MODE_SCHEDULED);
                     }
@@ -328,12 +348,14 @@ public class DatasourceConnectionHealthService {
                                          int timeoutSeconds) {
         try {
             ConnectionTestResult result = future.get(timeoutSeconds, TimeUnit.SECONDS);
-            return new ProbeExecution(startedAt, LocalDateTime.now(), normalizeResult(result, startedNanos, false, timeoutSeconds));
+            return new ProbeExecution(startedAt, LocalDateTime.now(), normalizeResult(result, startedNanos, false, timeoutSeconds), future, false);
         } catch (TimeoutException e) {
-            future.cancel(true);
-            return new ProbeExecution(startedAt, LocalDateTime.now(), timeoutResult(startedNanos, timeoutSeconds));
+            return new ProbeExecution(startedAt, LocalDateTime.now(), timeoutResult(startedNanos, timeoutSeconds), future, true);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ProbeExecution(startedAt, LocalDateTime.now(), failureResult(startedNanos, e), future, true);
         } catch (Exception e) {
-            return new ProbeExecution(startedAt, LocalDateTime.now(), failureResult(startedNanos, e));
+            return new ProbeExecution(startedAt, LocalDateTime.now(), failureResult(startedNanos, e), future, false);
         }
     }
 
@@ -342,7 +364,8 @@ public class DatasourceConnectionHealthService {
                                                String runId,
                                                String probeMode,
                                                int timeoutSeconds,
-                                               ProbeExecution execution) {
+                                               ProbeExecution execution,
+                                               boolean keepProbeRunning) {
         ConnectionTestResult result = execution.result;
         DataSourceConnectionStatus status = resolveStatus(result);
         DatasourceConnectionHealthEntity current = selectHealth(definition.getTenantId(), definition.getConnectionFingerprint());
@@ -350,7 +373,7 @@ public class DatasourceConnectionHealthService {
                 ? 0
                 : (current == null || current.getFailureCount() == null ? 0 : current.getFailureCount().intValue()) + 1;
         LocalDateTime nextProbeAt = nextProbeAt(status, nextFailureCount, execution.endedAt);
-        int updated = healthMapper.update(null, new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
+        LambdaUpdateWrapper<DatasourceConnectionHealthEntity> updateWrapper = new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
                 .eq(DatasourceConnectionHealthEntity::getTenantId, definition.getTenantId())
                 .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, definition.getConnectionFingerprint())
                 .eq(DatasourceConnectionHealthEntity::getProbeRunId, runId)
@@ -358,20 +381,25 @@ public class DatasourceConnectionHealthService {
                 .set(DatasourceConnectionHealthEntity::getLastConnectionTestAt, execution.endedAt)
                 .set(DatasourceConnectionHealthEntity::getLastConnectionTestMessage, truncate(result.getMessage()))
                 .set(DatasourceConnectionHealthEntity::getLastConnectionTestDurationMs, result.getDurationMs())
-                .set(DatasourceConnectionHealthEntity::getProbeState, PROBE_STATE_IDLE)
-                .set(DatasourceConnectionHealthEntity::getProbeOwner, null)
-                .set(DatasourceConnectionHealthEntity::getProbeRunId, null)
-                .set(DatasourceConnectionHealthEntity::getProbeStartedAt, null)
-                .set(DatasourceConnectionHealthEntity::getProbeLeaseUntil, null)
                 .set(DatasourceConnectionHealthEntity::getFailureCount, nextFailureCount)
-                .set(DatasourceConnectionHealthEntity::getNextProbeAt, nextProbeAt));
+                .set(DatasourceConnectionHealthEntity::getNextProbeAt, nextProbeAt);
+        if (keepProbeRunning) {
+            updateWrapper.set(DatasourceConnectionHealthEntity::getProbeLeaseUntil, nextLeaseUntil(timeoutSeconds));
+        } else {
+            updateWrapper.set(DatasourceConnectionHealthEntity::getProbeState, PROBE_STATE_IDLE)
+                    .set(DatasourceConnectionHealthEntity::getProbeOwner, null)
+                    .set(DatasourceConnectionHealthEntity::getProbeRunId, null)
+                    .set(DatasourceConnectionHealthEntity::getProbeStartedAt, null)
+                    .set(DatasourceConnectionHealthEntity::getProbeLeaseUntil, null);
+        }
+        int updated = healthMapper.update(null, updateWrapper);
         if (updated > 0) {
             insertHistory(definition, runId, probeMode, timeoutSeconds, status, execution);
             result.setStatus(status);
             result.setLastTestAt(execution.endedAt);
             result.setNextProbeAt(nextProbeAt);
             result.setTimeoutSeconds(timeoutSeconds);
-            result.setTesting(false);
+            result.setTesting(keepProbeRunning);
             result.setStale(false);
             result.setBusy(false);
             result.setRecentConnectionTests(history(definition.getTenantId(), definition.getConnectionFingerprint(), 7, recentLimit()));
@@ -436,6 +464,64 @@ public class DatasourceConnectionHealthService {
                 .set(DatasourceConnectionHealthEntity::getProbeRunId, null)
                 .set(DatasourceConnectionHealthEntity::getProbeStartedAt, null)
                 .set(DatasourceConnectionHealthEntity::getProbeLeaseUntil, null));
+    }
+
+    private void releaseProbeAndCapacityWhenTaskCompletes(final Future<ConnectionTestResult> future,
+                                                          final String tenantId,
+                                                          final String fingerprint,
+                                                          final String runId,
+                                                          final String probeMode,
+                                                          final int timeoutSeconds) {
+        Thread watcher = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    waitForTaskCompletionAndExtendLease(future, tenantId, fingerprint, runId, timeoutSeconds);
+                    if (hasText(tenantId) && hasText(fingerprint) && hasText(runId)) {
+                        releaseProbeLease(tenantId, fingerprint, runId);
+                    }
+                } finally {
+                    releaseCapacity(probeMode);
+                }
+            }
+        }, "datasource-probe-release-watch-" + (hasText(runId) ? runId : IdWorker.getIdStr()));
+        watcher.setDaemon(true);
+        watcher.start();
+    }
+
+    private void waitForTaskCompletionAndExtendLease(Future<ConnectionTestResult> future,
+                                                     String tenantId,
+                                                     String fingerprint,
+                                                     String runId,
+                                                     int timeoutSeconds) {
+        if (future == null) {
+            return;
+        }
+        int waitSeconds = Math.max(1, Math.min(Math.max(1, timeoutSeconds), 30));
+        while (true) {
+            try {
+                future.get(waitSeconds, TimeUnit.SECONDS);
+                return;
+            } catch (TimeoutException e) {
+                extendProbeLease(tenantId, fingerprint, runId, timeoutSeconds);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                return;
+            }
+        }
+    }
+
+    private void extendProbeLease(String tenantId, String fingerprint, String runId, int timeoutSeconds) {
+        if (!hasText(tenantId) || !hasText(fingerprint) || !hasText(runId)) {
+            return;
+        }
+        healthMapper.update(null, new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
+                .eq(DatasourceConnectionHealthEntity::getTenantId, tenantId)
+                .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, fingerprint)
+                .eq(DatasourceConnectionHealthEntity::getProbeRunId, runId)
+                .set(DatasourceConnectionHealthEntity::getProbeLeaseUntil, nextLeaseUntil(timeoutSeconds)));
     }
 
     private ConnectionTestResult waitForRunningProbe(String tenantId, String fingerprint) {
@@ -569,6 +655,10 @@ public class DatasourceConnectionHealthService {
             }
         }
         return (int) Math.min(value, max);
+    }
+
+    private LocalDateTime nextLeaseUntil(int timeoutSeconds) {
+        return LocalDateTime.now().plusSeconds(Math.max(1, timeoutSeconds) + 30L);
     }
 
     private DataSourceConnectionStatus resolveStatus(ConnectionTestResult result) {
@@ -763,11 +853,19 @@ public class DatasourceConnectionHealthService {
         private final LocalDateTime startedAt;
         private final LocalDateTime endedAt;
         private final ConnectionTestResult result;
+        private final Future<ConnectionTestResult> future;
+        private final boolean timedOut;
 
-        private ProbeExecution(LocalDateTime startedAt, LocalDateTime endedAt, ConnectionTestResult result) {
+        private ProbeExecution(LocalDateTime startedAt,
+                               LocalDateTime endedAt,
+                               ConnectionTestResult result,
+                               Future<ConnectionTestResult> future,
+                               boolean timedOut) {
             this.startedAt = startedAt;
             this.endedAt = endedAt;
             this.result = result;
+            this.future = future;
+            this.timedOut = timedOut;
         }
     }
 }

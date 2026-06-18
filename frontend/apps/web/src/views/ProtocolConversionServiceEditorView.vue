@@ -289,35 +289,13 @@
           </el-form>
           <div class="sub-panel__header">
             <strong>整报文转换器</strong>
-            <p>只开放安全转换器，覆盖脱敏、摘要和编码场景。</p>
+            <p>只开放安全转换器，参数通过表单配置，覆盖脱敏、摘要和编码场景。</p>
           </div>
-          <StudioTableShell min-width="860px">
-            <el-table :data="form.rawTransformers || []" border>
-              <el-table-column label="转换器" min-width="180">
-                <template #default="{ row }">
-                  <el-select v-model="row.transformerCode" placeholder="选择转换器">
-                    <el-option label="MD5" value="MD5_str" />
-                    <el-option label="SHA-256" value="sha256" />
-                    <el-option label="Base64" value="base64" />
-                    <el-option label="Trim" value="trim" />
-                    <el-option label="Mask" value="mask" />
-                  </el-select>
-                </template>
-              </el-table-column>
-              <el-table-column label="参数 JSON" min-width="260">
-                <template #default="{ row }">
-                  <el-input :model-value="stringifyJson(row.parameters || {})" @update:model-value="row.parameters = parseLooseJsonObject(String($event ?? '{}'))" />
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="86" align="center" header-align="center">
-                <template #default="{ $index }">
-                  <el-button link type="danger" :icon="Delete" aria-label="删除" @click="removeRawTransformer($index)" />
-                </template>
-              </el-table-column>
-            </el-table>
-          </StudioTableShell>
-          <div class="section-actions">
-            <el-button plain :icon="Plus" @click="addRawTransformer">添加转换器</el-button>
+          <div class="raw-transformers-panel">
+            <div class="raw-transformers-panel__summary">
+              <span>{{ rawTransformerSummary(form.rawTransformers) }}</span>
+            </div>
+            <el-button type="primary" plain @click="rawTransformerDialogVisible = true">配置转换器</el-button>
           </div>
         </div>
       </template>
@@ -510,17 +488,27 @@
       <el-button v-if="activeStep < wizardSteps.length - 1" type="primary" @click="nextStep">下一步</el-button>
       <el-button v-else type="primary" :loading="saving" @click="saveService">保存服务</el-button>
     </div>
+
+    <TransformerBindingEditor
+      v-model:visible="rawTransformerDialogVisible"
+      :model-value="form.rawTransformers"
+      :rule-options="onlineSafeFieldMappingRules"
+      title="整报文转换器"
+      description="按顺序对入口原始报文执行转换，参数由字段映射规则定义生成，不需要手写 JSON。"
+      @save="saveRawTransformers"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Delete, Plus } from "@element-plus/icons-vue";
+import { Delete } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import type {
   DataSourceDefinition,
   EntityId,
+  FieldMappingRuleView,
   MetadataFieldDefinition,
   ProtocolConversionFieldMapping,
   ProtocolConversionFixedField,
@@ -532,6 +520,7 @@ import type {
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import HttpWebServiceOptionsEditor from "@/components/HttpWebServiceOptionsEditor.vue";
+import TransformerBindingEditor from "@/components/TransformerBindingEditor.vue";
 import {
   buildSoapEnvelope,
   buildSoapFieldsXmlByParentPath,
@@ -557,8 +546,10 @@ const debugResultText = ref("");
 const debugError = ref("");
 const debugTrace = ref<ProtocolConversionTraceView | null>(null);
 const debugSummary = ref<ProtocolConversionDebugSummary | null>(null);
+const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
 const rawDebugResultText = ref("");
 const rawDebugResultVisible = ref(false);
+const rawTransformerDialogVisible = ref(false);
 const curlCommand = ref("");
 const advancedPanels = ref<string[]>([]);
 
@@ -685,6 +676,23 @@ const responseStatusModel = computed({
   get: () => form.responseStatus ?? {},
   set: (value: Record<string, unknown>) => { form.responseStatus = value; },
 });
+const ONLINE_UNSAFE_TRANSFORMER_CODES = new Set([
+  "dx_filter",
+  "range_number_filter",
+  "string_operation_filter",
+  "number_operation_filter",
+  "date_filter",
+  "date_operation_filter",
+  "null_value_filter",
+  "dx_groovy",
+  "dx_fackgroovy",
+]);
+const onlineSafeFieldMappingRules = computed(() =>
+  fieldMappingRules.value.filter((rule) => {
+    const code = rule.mappingCode?.trim().toLowerCase();
+    return Boolean(code) && !ONLINE_UNSAFE_TRANSFORMER_CODES.has(code);
+  }),
+);
 const debugHeadersModel = computed({
   get: () => debugHeaders.value,
   set: (value: Record<string, unknown>) => { debugHeaders.value = value; },
@@ -789,7 +797,12 @@ watch(
 );
 
 onMounted(async () => {
-  datasources.value = await studioApi.datasources.list();
+  const [datasourceItems, rules] = await Promise.all([
+    studioApi.datasources.list(),
+    studioApi.fieldMappingRules.options(),
+  ]);
+  datasources.value = datasourceItems;
+  fieldMappingRules.value = rules;
   if (!isCreateMode.value && serviceId.value) {
     await loadService(serviceId.value);
   } else {
@@ -829,14 +842,19 @@ function removeFixedField(index: number) {
   form.fixedFields.splice(index, 1);
 }
 
-function addRawTransformer() {
-  form.rawTransformers = form.rawTransformers ?? [];
-  form.rawTransformers.push({ transformerCode: "MD5_str", parameters: {} } as TransformerBinding);
+function rawTransformerSummary(transformers?: TransformerBinding[]) {
+  if (!transformers?.length) {
+    return "未配置";
+  }
+  return transformers
+    .map((item) => item.mappingName || item.mappingCode || item.transformerCode)
+    .filter(Boolean)
+    .join(", ");
 }
 
-function removeRawTransformer(index: number) {
-  form.rawTransformers = form.rawTransformers ?? [];
-  form.rawTransformers.splice(index, 1);
+function saveRawTransformers(transformers: TransformerBinding[]) {
+  form.rawTransformers = transformers;
+  rawTransformerDialogVisible.value = false;
 }
 
 async function saveService() {
@@ -1431,15 +1449,6 @@ function parseMaybeJsonObject(value: unknown, label: string) {
   return parsed as Record<string, unknown>;
 }
 
-function parseLooseJsonObject(value: string) {
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 function stringifyJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
@@ -1725,6 +1734,27 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
   margin: 12px 0;
 }
 
+.raw-transformers-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.raw-transformers-panel__summary {
+  min-width: 0;
+  color: var(--studio-text);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sub-title {
   margin: 18px 0 10px;
   font-size: 15px;
@@ -1760,6 +1790,15 @@ function statusTone(status?: string): "success" | "warning" | "neutral" | "prima
   .protocol-json-grid,
   .protocol-json-grid--debug {
     grid-template-columns: 1fr;
+  }
+
+  .raw-transformers-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .raw-transformers-panel__summary {
+    white-space: normal;
   }
 }
 

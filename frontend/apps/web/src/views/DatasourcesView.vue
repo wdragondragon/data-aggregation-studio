@@ -577,12 +577,24 @@ function probeModeLabel(value?: string) {
   return value || "--";
 }
 
-function formatDuration(value?: number) {
-  return typeof value === "number" ? `${value} ms` : "--";
+function formatDuration(value?: number | string | null) {
+  const duration = normalizeNumber(value);
+  return duration == null ? "--" : `${duration} ms`;
 }
 
 function formatTimeoutSeconds(value?: number) {
   return typeof value === "number" ? `${value} s` : "--";
+}
+
+function normalizeNumber(value?: number | string | null) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function formatConnectionTestAt(value?: string) {
@@ -836,13 +848,7 @@ async function testDatasource(item: DataSourceDefinition) {
   try {
     const result = await studioApi.datasources.test(item.id);
     applyConnectionTestResult(item, result);
-    if (result.busy) {
-      ElMessage.warning(result.message || t("web.datasources.testBusy"));
-    } else if (result.testing) {
-      ElMessage.info(result.message || t("web.datasources.connectionTesting"));
-    } else {
-      ElMessage.success(t("web.datasources.testSuccess"));
-    }
+    showConnectionTestMessage(result);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
   } finally {
@@ -853,20 +859,47 @@ async function testDatasource(item: DataSourceDefinition) {
 async function testCurrent() {
   try {
     testResult.value = await studioApi.datasources.testCurrent(cloneDeep(form));
-    ElMessage.success(t("web.datasources.testSuccess"));
+    showConnectionTestMessage(testResult.value);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
   }
 }
 
+function showConnectionTestMessage(result: ConnectionTestResult) {
+  if (result.busy) {
+    ElMessage.warning(result.message || t("web.datasources.testBusy"));
+    return;
+  }
+  if (result.testing) {
+    ElMessage.info(result.message || t("web.datasources.connectionTesting"));
+    return;
+  }
+  if (isConnectionTestSuccessful(result)) {
+    ElMessage.success(t("web.datasources.testSuccess"));
+    return;
+  }
+  ElMessage.error(result.message || t("web.datasources.testFailed"));
+}
+
+function isConnectionTestSuccessful(result: ConnectionTestResult) {
+  if (result.status) {
+    return result.status === "AVAILABLE";
+  }
+  return Boolean(result.success);
+}
+
 function applyConnectionTestResult(item: DataSourceDefinition, result: ConnectionTestResult) {
-  const status = result.status ?? (result.success ? "AVAILABLE" : "UNAVAILABLE");
+  const hasPersistedSnapshot = !result.busy && Boolean(result.lastTestAt);
+  const status = hasPersistedSnapshot
+    ? (result.status ?? (result.success ? "AVAILABLE" : "UNAVAILABLE"))
+    : item.connectionStatus;
   const now = result.lastTestAt ?? new Date().toISOString();
+  const durationMs = normalizeNumber(result.durationMs);
   const patch: Partial<DataSourceDefinition> = {
     connectionStatus: status,
-    lastConnectionTestAt: result.testing || result.busy ? item.lastConnectionTestAt : now,
-    lastConnectionTestMessage: typeof result.message === "string" ? result.message : undefined,
-    lastConnectionTestDurationMs: typeof result.durationMs === "number" ? result.durationMs : undefined,
+    lastConnectionTestAt: hasPersistedSnapshot ? now : item.lastConnectionTestAt,
+    lastConnectionTestMessage: hasPersistedSnapshot && typeof result.message === "string" ? result.message : item.lastConnectionTestMessage,
+    lastConnectionTestDurationMs: hasPersistedSnapshot && durationMs != null ? durationMs : item.lastConnectionTestDurationMs,
     connectionTesting: Boolean(result.testing),
     connectionStale: Boolean(result.stale),
     nextConnectionProbeAt: result.nextProbeAt,

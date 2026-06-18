@@ -278,7 +278,7 @@ export interface DatasourceConnectionTestRecordView {
   testedAt?: string;
   startedAt?: string;
   endedAt?: string;
-  durationMs?: number;
+  durationMs?: number | string | null;
   probeMode?: string;
   timeoutSeconds?: number;
   message?: string;
@@ -296,7 +296,7 @@ export interface DataSourceDefinition extends BaseRecord {
   connectionStatus?: DataSourceConnectionStatus;
   lastConnectionTestAt?: string;
   lastConnectionTestMessage?: string;
-  lastConnectionTestDurationMs?: number;
+  lastConnectionTestDurationMs?: number | string | null;
   connectionTesting?: boolean;
   connectionStale?: boolean;
   nextConnectionProbeAt?: string;
@@ -311,7 +311,7 @@ export interface ConnectionTestResult {
   success?: boolean;
   message?: string;
   status?: DataSourceConnectionStatus;
-  durationMs?: number;
+  durationMs?: number | string | null;
   testing?: boolean;
   stale?: boolean;
   busy?: boolean;
