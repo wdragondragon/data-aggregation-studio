@@ -846,7 +846,10 @@ public class ProtocolConversionService {
             request.headers.put("Content-Type", request.contentType);
         }
         if (service.getTargetProtocol() == ProtocolConversionProtocol.SOAP_11 && !containsHeader(request.headers, "SOAPAction")) {
-            request.headers.put("SOAPAction", normalizedTargetWebServiceConfig(service).getSoapAction());
+            String soapAction = normalizedTargetWebServiceConfig(service).getSoapAction();
+            if (hasText(soapAction)) {
+                request.headers.put("SOAPAction", soapAction);
+            }
         }
         return request;
     }
@@ -2060,7 +2063,11 @@ public class ProtocolConversionService {
         if (isEmptyWebServiceConfig(parsed) && view != null && !isEmptyWebServiceConfig(view.getWebserviceConfig())) {
             parsed = view.getWebserviceConfig();
         }
-        return webServiceSupport.normalizeConfig(parsed, "protocol-conversion-target", view == null ? null : view.getServiceCode());
+        WebServiceConfig normalized = webServiceSupport.normalizeConfig(parsed, "protocol-conversion-target", view == null ? null : view.getServiceCode());
+        if (parsed != null && !hasText(parsed.getSoapAction())) {
+            normalized.setSoapAction(null);
+        }
+        return normalized;
     }
 
     private Map<String, Object> toWebServiceConfigMap(WebServiceConfig config, String domain, String serviceCode) {

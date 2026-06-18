@@ -48,8 +48,7 @@ final class WebServiceSupport {
         result.setNamespaceUri(normalizeText(input == null ? null : input.getNamespaceUri(),
                 "http://studio.jdragon.com/" + domain + "/" + safeCode));
         result.setOperationName(normalizeName(input == null ? null : input.getOperationName(), safeCode));
-        result.setSoapAction(normalizeText(input == null ? null : input.getSoapAction(),
-                result.getNamespaceUri() + "/" + result.getOperationName()));
+        result.setSoapAction(normalizeText(input == null ? null : input.getSoapAction(), null));
         result.setRequestRootName(normalizeName(input == null ? null : input.getRequestRootName(), result.getOperationName()));
         result.setResponseRootName(normalizeName(input == null ? null : input.getResponseRootName(),
                 result.getOperationName() + "Response"));
