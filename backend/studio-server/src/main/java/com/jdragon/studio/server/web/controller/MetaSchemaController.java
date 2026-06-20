@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
@@ -34,8 +35,8 @@ public class MetaSchemaController {
 
     @Operation(summary = "List metadata schemas")
     @GetMapping
-    public Result<List<MetadataSchemaDefinition>> list() {
-        return Result.success(metadataSchemaService.listSchemas());
+    public Result<List<MetadataSchemaDefinition>> list(@RequestParam(value = "includeFields", defaultValue = "true") boolean includeFields) {
+        return Result.success(metadataSchemaService.listSchemas(includeFields));
     }
 
     @Operation(summary = "Save metadata schema draft")

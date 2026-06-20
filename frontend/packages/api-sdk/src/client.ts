@@ -462,8 +462,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     metaSchemas: {
-      list() {
-        return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas", method: "GET" });
+      list(params?: { includeFields?: boolean }) {
+        return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas", method: "GET", params });
       },
       syncTechnical(typeCode: string) {
         return request<MetadataSchemaDefinition[]>({ url: `/meta-schemas/technical/sync/${typeCode}`, method: "POST" });

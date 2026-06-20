@@ -151,7 +151,7 @@ final class DataIngestionExecutionSupport {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
         } catch (ExecutionException e) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                    "Data ingestion write failed: " + rootMessage(e.getCause()));
+                    "Data ingestion write failed: " + safeFailureMessage(e.getCause()));
         } finally {
             executor.shutdownNow();
         }
@@ -167,21 +167,55 @@ final class DataIngestionExecutionSupport {
             return;
         }
         Throwable throwable = communication == null ? absent() : communication.getThrowable();
-        String message = throwable == null || throwable.getMessage() == null
-                ? "Data ingestion write failed"
-                : "Data ingestion write failed: " + throwable.getMessage();
+        String detail = safeFailureMessage(throwable);
+        String message = hasFailureText(detail)
+                ? "Data ingestion write failed: " + detail
+                : "Data ingestion write failed";
         throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, message);
     }
 
-    private String rootMessage(Throwable throwable) {
+    static String safeFailureMessage(Throwable throwable) {
         if (throwable == null) {
             return "unknown error";
         }
         Throwable current = throwable;
-        while (current.getCause() != null) {
+        String selected = null;
+        while (current != null) {
+            String sanitized = sanitizeFailureMessage(current.getMessage());
+            if (hasFailureText(sanitized)) {
+                selected = sanitized;
+            }
             current = current.getCause();
         }
-        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+        return selected == null ? throwable.getClass().getSimpleName() : selected;
+    }
+
+    private static String sanitizeFailureMessage(String message) {
+        if (!hasFailureText(message)) {
+            return null;
+        }
+        String normalized = message.replace('\r', ' ')
+                .replace('\n', ' ')
+                .replace('\t', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        int causedByIndex = normalized.lastIndexOf("Caused by:");
+        if (causedByIndex >= 0) {
+            normalized = normalized.substring(causedByIndex + "Caused by:".length()).trim();
+        }
+        int stackFrameIndex = normalized.indexOf(" at ");
+        if (stackFrameIndex >= 0) {
+            normalized = normalized.substring(0, stackFrameIndex).trim();
+        }
+        normalized = normalized.replaceFirst("^(?:[A-Za-z_$][A-Za-z0-9_$]*\\.)+[A-Za-z_$][A-Za-z0-9_$]*(?:Exception|Error):\\s*", "");
+        if (normalized.length() > 500) {
+            normalized = normalized.substring(0, 500) + "...";
+        }
+        return normalized;
+    }
+
+    private static boolean hasFailureText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     List<Map<String, Object>> parseSourceRows(DataIngestionServiceView service,

@@ -166,7 +166,7 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         fusionReaderOptions.put("test.param", "nested");
         fusionReaderOptions.put("sources", "ignored");
         Map<String, Object> executionOptions = new LinkedHashMap<String, Object>();
-        executionOptions.put("joinKeys", Collections.singletonList("id"));
+        executionOptions.put("joinKeys", Collections.singletonList("target_col"));
         executionOptions.put("joinType", "LEFT");
         executionOptions.put("fusionReaderOptions", fusionReaderOptions);
         definition.setExecutionOptions(executionOptions);
@@ -183,6 +183,65 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals(Integer.valueOf(2048), castMap(readerConfig.get("performance")).get("memoryLimitMB"));
         assertEquals(Boolean.TRUE, castMap(readerConfig.get("adaptiveMerge")).get("enabled"));
         assertTrue(readerConfig.get("sources") instanceof List<?>);
+    }
+
+    @Test
+    void fusionReaderSourcesShouldIncludeJoinKeysEvenWhenNotMappedToTargetFields() {
+        DataModelService dataModelService = mock(DataModelService.class);
+        when(dataModelService.get(10L)).thenReturn(buildModelWithColumns(10L, "order_table", "order_id", "order_amount"));
+        when(dataModelService.get(11L)).thenReturn(buildModelWithColumns(11L, "payment_table", "order_id", "payment_amount"));
+        when(dataModelService.get(20L)).thenReturn(buildModelWithColumns(20L, "target_table", "order_amount", "payment_amount"));
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                dataModelService,
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.FUSION);
+        CollectionTaskSourceBinding orderSource = new CollectionTaskSourceBinding();
+        orderSource.setDatasourceId(1L);
+        orderSource.setModelId(10L);
+        orderSource.setSourceAlias("orders");
+        CollectionTaskSourceBinding paymentSource = new CollectionTaskSourceBinding();
+        paymentSource.setDatasourceId(1L);
+        paymentSource.setModelId(11L);
+        paymentSource.setSourceAlias("payments");
+        definition.setSourceBindings(Arrays.asList(orderSource, paymentSource));
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(2L);
+        targetBinding.setModelId(20L);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition orderAmountMapping = new FieldMappingDefinition();
+        orderAmountMapping.setSourceAlias("orders");
+        orderAmountMapping.setSourceField("order_amount");
+        orderAmountMapping.setTargetField("order_amount");
+        FieldMappingDefinition paymentAmountMapping = new FieldMappingDefinition();
+        paymentAmountMapping.setSourceAlias("payments");
+        paymentAmountMapping.setSourceField("payment_amount");
+        paymentAmountMapping.setTargetField("payment_amount");
+        definition.setFieldMappings(Arrays.asList(orderAmountMapping, paymentAmountMapping));
+        Map<String, Object> executionOptions = new LinkedHashMap<String, Object>();
+        executionOptions.put("joinKeys", Collections.singletonList("order_id"));
+        definition.setExecutionOptions(executionOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> sources = (List<Map<String, Object>>) readerConfig.get("sources");
+        assertIterableEquals(Arrays.asList("order_amount", "order_id"), (List<?>) sources.get(0).get("columns"));
+        assertIterableEquals(Arrays.asList("payment_amount", "order_id"), (List<?>) sources.get(1).get("columns"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        assertIterableEquals(Arrays.asList("order_amount", "payment_amount"), (List<?>) writerConfig.get("columns"));
     }
 
     @Test
@@ -782,6 +841,20 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         incompatibleOptions.put("requestBody", "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tns=\"urn:studio\"><soap:Body><tns:WriteRows>{{#records}}<tns:record><tns:id>{{id}}</tns:id></tns:record>{{/records}}</tns:WriteRows></soap:Body></soap:Envelope>");
         incompatibleDefinition.getTargetBinding().setWriterOptions(incompatibleOptions);
         assertThrows(StudioException.class, () -> assemblerService.assemble(incompatibleDefinition));
+    }
+
+    private DataModelDefinition buildModelWithColumns(Long id, String physicalLocator, String... fieldNames) {
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(id);
+        model.setPhysicalLocator(physicalLocator);
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
+        for (String fieldName : fieldNames) {
+            columns.add(column(fieldName));
+        }
+        technicalMetadata.put("columns", columns);
+        model.setTechnicalMetadata(technicalMetadata);
+        return model;
     }
 
 }

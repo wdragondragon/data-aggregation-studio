@@ -50,6 +50,9 @@ public class UserRegistrationRequestService {
         if (request == null || !hasText(request.getUsername()) || !hasText(request.getPassword())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Username and password are required");
         }
+        if (usernameExists(request.getUsername().trim())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Username already exists");
+        }
         ensureNoActivePendingRequest(request.getUsername());
         UserRegistrationRequestEntity entity = new UserRegistrationRequestEntity();
         entity.setStatus(StudioConstants.REGISTRATION_REQUEST_PENDING);

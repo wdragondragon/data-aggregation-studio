@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +24,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DataIngestionInvocationLogSupportTest {
+
+    @Test
+    void shouldExposeReadableRootCauseWithoutStackTrace() {
+        RuntimeException failure = new RuntimeException("Job failed",
+                new SQLException("逐行写入失败，共 1 条记录写入失败",
+                        new SQLIntegrityConstraintViolationException("Duplicate entry 'M05DUP0620091956' for key 'PRIMARY'")));
+
+        String message = DataIngestionExecutionSupport.safeFailureMessage(failure);
+
+        assertEquals("Duplicate entry 'M05DUP0620091956' for key 'PRIMARY'", message);
+    }
+
+    @Test
+    void shouldStripStackTraceFromFlattenedFailureMessage() {
+        RuntimeException failure = new RuntimeException("Data ingestion write failed: java.sql.SQLException: 逐行写入失败\r\n"
+                + "\tat com.jdragon.aggregation.rdbms.writer.CommonRdbmsWriter.doOneInsert(CommonRdbmsWriter.java:530)\r\n"
+                + "Caused by: java.sql.SQLIntegrityConstraintViolationException: Duplicate entry 'M05DUP' for key 'PRIMARY'\r\n"
+                + "\tat com.mysql.cj.jdbc.ClientPreparedStatement.execute(ClientPreparedStatement.java:354)");
+
+        String message = DataIngestionExecutionSupport.safeFailureMessage(failure);
+
+        assertEquals("Duplicate entry 'M05DUP' for key 'PRIMARY'", message);
+    }
 
     @Test
     void shouldCaptureJobContainerAndTaskThreadLogsForInvocation() {

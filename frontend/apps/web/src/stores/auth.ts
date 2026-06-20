@@ -2,11 +2,14 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import type { AuthProfile, AuthProject, AuthTenant, EntityId, LoginResponse } from "@studio/api-sdk";
 import {
+  clearManualLogout,
   clearStoredToken,
   getStoredProjectId,
   getStoredTenantId,
   getStoredToken,
+  hasManualLogout,
   isGatewayStudioMode,
+  markManualLogout,
   setStoredProjectId,
   setStoredTenantId,
   setStoredToken,
@@ -77,7 +80,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
     }
     try {
       if (!token.value) {
-        if (options.gatewayExchange && isGatewayStudioMode() && !gatewayExchangeAttempted.value) {
+        if (options.gatewayExchange && isGatewayStudioMode() && !gatewayExchangeAttempted.value && !hasManualLogout()) {
           gatewayExchangeAttempted.value = true;
           await loginWithGateway();
         }
@@ -96,6 +99,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
     const response = await studioApi.auth.login(form);
     token.value = response.token;
     gatewayExchangeAttempted.value = false;
+    clearManualLogout();
     setStoredToken(response.token);
     hydrateProfile(response);
   }
@@ -104,6 +108,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
     const response = await studioApi.auth.gatewayExchange();
     token.value = response.token;
     gatewayExchangeAttempted.value = false;
+    clearManualLogout();
     setStoredToken(response.token);
     hydrateProfile(response);
   }
@@ -143,6 +148,7 @@ export const useAuthStore = defineStore("studio-auth", () => {
 
   function logout() {
     clearStoredToken();
+    markManualLogout();
     gatewayExchangeAttempted.value = false;
     resetState();
   }

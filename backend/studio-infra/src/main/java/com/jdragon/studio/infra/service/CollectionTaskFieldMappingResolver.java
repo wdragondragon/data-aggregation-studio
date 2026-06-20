@@ -194,7 +194,8 @@ final class CollectionTaskFieldMappingResolver {
 
     List<String> resolveSourceFieldsByAlias(List<FieldMappingDefinition> fieldMappings,
                                             String sourceAlias,
-                                            DataModelDefinition sourceModel) {
+                                            DataModelDefinition sourceModel,
+                                            List<String> requiredFields) {
         Set<String> fields = new LinkedHashSet<String>();
         if (fieldMappings != null) {
             for (FieldMappingDefinition mapping : fieldMappings) {
@@ -206,10 +207,33 @@ final class CollectionTaskFieldMappingResolver {
                 }
             }
         }
+        appendRequiredSourceFields(fields, requiredFields, sourceAlias, sourceModel);
         if (!fields.isEmpty()) {
             return new ArrayList<String>(fields);
         }
         return resolveModelFields(sourceModel);
+    }
+
+    private void appendRequiredSourceFields(Set<String> fields,
+                                            List<String> requiredFields,
+                                            String sourceAlias,
+                                            DataModelDefinition sourceModel) {
+        if (requiredFields == null || requiredFields.isEmpty()) {
+            return;
+        }
+        List<String> modelFields = resolveModelFields(sourceModel);
+        Set<String> modelFieldSet = new LinkedHashSet<String>(modelFields);
+        for (String requiredField : requiredFields) {
+            if (requiredField == null || requiredField.trim().isEmpty()) {
+                continue;
+            }
+            String fieldName = requiredField.trim();
+            if (!modelFieldSet.isEmpty() && !modelFieldSet.contains(fieldName)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Fusion source " + sourceAlias + " missing join key field: " + fieldName);
+            }
+            fields.add(fieldName);
+        }
     }
 
     List<String> resolveModelFields(DataModelDefinition model) {

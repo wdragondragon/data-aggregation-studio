@@ -23,6 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -57,13 +59,13 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     @Override
     public List<MetadataSchemaDefinition> listSchemas() {
+        return listSchemas(true);
+    }
+
+    public List<MetadataSchemaDefinition> listSchemas(boolean includeFields) {
         List<MetaSchemaEntity> schemas = schemaMapper.selectList(new LambdaQueryWrapper<MetaSchemaEntity>()
                 .orderByAsc(MetaSchemaEntity::getSchemaCode));
-        List<MetadataSchemaDefinition> result = new ArrayList<MetadataSchemaDefinition>();
-        for (MetaSchemaEntity schema : schemas) {
-            result.add(toDefinition(schema));
-        }
-        return result;
+        return toDefinitions(schemas, includeFields);
     }
 
     @Override
@@ -572,7 +574,59 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         return MetaModelConfigDescriptions.decode(schema.getDescription());
     }
 
+    private List<MetadataSchemaDefinition> toDefinitions(List<MetaSchemaEntity> schemas, boolean includeFields) {
+        if (schemas == null || schemas.isEmpty()) {
+            return new ArrayList<MetadataSchemaDefinition>();
+        }
+        List<Long> versionIds = new ArrayList<Long>();
+        for (MetaSchemaEntity schema : schemas) {
+            if (schema.getCurrentVersionId() != null) {
+                versionIds.add(schema.getCurrentVersionId());
+            }
+        }
+        Map<Long, MetaSchemaVersionEntity> versionMap = new HashMap<Long, MetaSchemaVersionEntity>();
+        if (!versionIds.isEmpty()) {
+            List<MetaSchemaVersionEntity> versions = versionMapper.selectList(new LambdaQueryWrapper<MetaSchemaVersionEntity>()
+                    .in(MetaSchemaVersionEntity::getId, versionIds));
+            for (MetaSchemaVersionEntity version : versions) {
+                versionMap.put(version.getId(), version);
+            }
+        }
+        Map<Long, List<MetaFieldDefinitionEntity>> fieldsByVersionId = new HashMap<Long, List<MetaFieldDefinitionEntity>>();
+        if (includeFields && !versionIds.isEmpty()) {
+            List<MetaFieldDefinitionEntity> fields = fieldDefinitionMapper.selectList(new LambdaQueryWrapper<MetaFieldDefinitionEntity>()
+                    .in(MetaFieldDefinitionEntity::getSchemaVersionId, versionIds)
+                    .orderByAsc(MetaFieldDefinitionEntity::getSchemaVersionId)
+                    .orderByAsc(MetaFieldDefinitionEntity::getSortOrder));
+            for (MetaFieldDefinitionEntity field : fields) {
+                List<MetaFieldDefinitionEntity> versionFields = fieldsByVersionId.get(field.getSchemaVersionId());
+                if (versionFields == null) {
+                    versionFields = new ArrayList<MetaFieldDefinitionEntity>();
+                    fieldsByVersionId.put(field.getSchemaVersionId(), versionFields);
+                }
+                versionFields.add(field);
+            }
+        }
+        List<MetadataSchemaDefinition> result = new ArrayList<MetadataSchemaDefinition>();
+        for (MetaSchemaEntity schema : schemas) {
+            MetaSchemaVersionEntity version = schema.getCurrentVersionId() == null ? null : versionMap.get(schema.getCurrentVersionId());
+            List<MetaFieldDefinitionEntity> fields = version == null || !includeFields
+                    ? Collections.emptyList()
+                    : fieldsByVersionId.get(version.getId());
+            result.add(toDefinition(schema, version, fields, includeFields));
+        }
+        return result;
+    }
+
     private MetadataSchemaDefinition toDefinition(MetaSchemaEntity schema) {
+        List<MetadataSchemaDefinition> definitions = toDefinitions(Collections.singletonList(schema), true);
+        return definitions.isEmpty() ? null : definitions.get(0);
+    }
+
+    private MetadataSchemaDefinition toDefinition(MetaSchemaEntity schema,
+                                                  MetaSchemaVersionEntity version,
+                                                  List<MetaFieldDefinitionEntity> fields,
+                                                  boolean includeFields) {
         MetadataSchemaDefinition definition = new MetadataSchemaDefinition();
         definition.setId(schema.getId());
         definition.setSchemaCode(schema.getSchemaCode());
@@ -582,14 +636,12 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         definition.setCurrentVersionId(schema.getCurrentVersionId());
         definition.setStatus(schema.getStatus() == null ? null : SchemaStatus.valueOf(schema.getStatus()));
         definition.setDescription(schema.getDescription());
-        MetaSchemaVersionEntity version = schema.getCurrentVersionId() == null ? null : versionMapper.selectById(schema.getCurrentVersionId());
         if (version != null) {
             definition.setVersionNumber(version.getVersionNumber());
-            List<MetaFieldDefinitionEntity> fields = fieldDefinitionMapper.selectList(new LambdaQueryWrapper<MetaFieldDefinitionEntity>()
-                    .eq(MetaFieldDefinitionEntity::getSchemaVersionId, version.getId())
-                    .orderByAsc(MetaFieldDefinitionEntity::getSortOrder));
+        }
+        if (includeFields && version != null) {
             List<MetadataFieldDefinition> fieldDefinitions = new ArrayList<MetadataFieldDefinition>();
-            for (MetaFieldDefinitionEntity field : fields) {
+            for (MetaFieldDefinitionEntity field : fields == null ? Collections.<MetaFieldDefinitionEntity>emptyList() : fields) {
                 MetadataFieldDefinition fieldDefinition = new MetadataFieldDefinition();
                 fieldDefinition.setFieldKey(field.getFieldKey());
                 fieldDefinition.setFieldName(field.getFieldName());

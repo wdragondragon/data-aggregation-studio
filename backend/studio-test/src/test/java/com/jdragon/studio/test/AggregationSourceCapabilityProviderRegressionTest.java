@@ -9,6 +9,8 @@ import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityPro
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -51,6 +53,23 @@ class AggregationSourceCapabilityProviderRegressionTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void modelHydrationFailureMessageShouldExposeDeepestCause() throws Exception {
+        AggregationSourceCapabilityProvider provider = httpProvider();
+        Method method = AggregationSourceCapabilityProvider.class
+                .getDeclaredMethod("mostSpecificErrorMessage", Throwable.class, Throwable.class);
+        method.setAccessible(true);
+        RuntimeException accessDenied = new RuntimeException("Access denied for user 'root'@'127.0.0.1' (using password: YES)");
+        IllegalStateException wrapped = new IllegalStateException(
+                "Failed to load model metadata for lt_reg_customer_profile",
+                new RuntimeException("Failed to initialize pool", accessDenied));
+        InvocationTargetException reflected = new InvocationTargetException(wrapped);
+
+        Object message = method.invoke(provider, reflected, new RuntimeException("batch failure"));
+
+        assertThat(message).isEqualTo("Access denied for user 'root'@'127.0.0.1' (using password: YES)");
     }
 
     private AggregationSourceCapabilityProvider httpProvider() {

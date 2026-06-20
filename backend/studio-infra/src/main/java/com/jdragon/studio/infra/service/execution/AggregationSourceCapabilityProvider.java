@@ -30,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -376,7 +377,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             }
         } catch (Exception e) {
             for (DataModelDefinition item : definitionModels) {
-                results.add(new HydrationResult(resolvePhysicalLocator(item), null, e.getMessage()));
+                results.add(new HydrationResult(resolvePhysicalLocator(item), null, mostSpecificErrorMessage(e, null)));
             }
             return results;
         }
@@ -490,12 +491,42 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         try {
             return new HydrationResult(resolvePhysicalLocator(item), hydrateDiscoveredModel(definition, cloneDefinition(item)), null);
         } catch (Exception itemException) {
-            String message = itemException.getMessage();
-            if ((message == null || message.trim().isEmpty()) && originalBatchException != null) {
-                message = originalBatchException.getMessage();
-            }
+            String message = mostSpecificErrorMessage(itemException, originalBatchException);
             return new HydrationResult(resolvePhysicalLocator(item), null, message);
         }
+    }
+
+    private String mostSpecificErrorMessage(Throwable primary, Throwable fallback) {
+        String message = deepestMessage(primary);
+        if (message != null && !message.trim().isEmpty()) {
+            return message;
+        }
+        message = deepestMessage(fallback);
+        return message == null || message.trim().isEmpty() ? null : message;
+    }
+
+    private String deepestMessage(Throwable throwable) {
+        Throwable current = unwrapInvocationTarget(throwable);
+        String message = null;
+        while (current != null) {
+            if (current.getMessage() != null && !current.getMessage().trim().isEmpty()) {
+                message = current.getMessage().trim();
+            }
+            Throwable cause = unwrapInvocationTarget(current.getCause());
+            if (cause == null || cause == current) {
+                break;
+            }
+            current = cause;
+        }
+        return message;
+    }
+
+    private Throwable unwrapInvocationTarget(Throwable throwable) {
+        if (throwable instanceof InvocationTargetException) {
+            Throwable target = ((InvocationTargetException) throwable).getTargetException();
+            return target == null ? throwable : target;
+        }
+        return throwable;
     }
 
     private DataModelDefinition cloneDefinition(DataModelDefinition source) {

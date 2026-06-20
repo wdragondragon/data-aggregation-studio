@@ -783,7 +783,8 @@ async function loadInitialData() {
   if (form.datasourceId) {
     await loadModels(form.datasourceId);
   }
-  if (!form.id && route.query.debug) {
+  if (route.query.debug) {
+    activeStep.value = wizardSteps.length - 1;
     syncDebugTemplate({ notify: false });
   }
 }

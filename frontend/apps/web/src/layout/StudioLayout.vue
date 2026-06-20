@@ -151,9 +151,9 @@ function handleLocaleChange(nextLocale: string) {
   persistStudioLocale(resolvedLocale);
 }
 
-function handleLogout() {
+async function handleLogout() {
   authStore.logout();
-  router.push("/login");
+  await router.replace("/login");
 }
 
 async function handleTenantChange(tenantId: string) {

@@ -31,7 +31,7 @@ public class ImportExportController {
     public Result<Map<String, Object>> exportProject() {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("metaSchemas", metadataSchemaService.listSchemas());
-        payload.put("workflows", workflowService.list());
+        payload.put("workflows", workflowService.listOwnedByCurrentProject());
         return Result.success(payload);
     }
 

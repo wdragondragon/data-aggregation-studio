@@ -634,6 +634,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.system.title",
           subtitleKey: "routes.web.system.subtitle",
+          requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN"],
         },
       },
     ],
@@ -670,6 +671,20 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresSuperAdmin) {
     const normalizedRoles = (authStore.systemRoleCodes ?? []).map((item) => item.toUpperCase());
     if (!normalizedRoles.includes("SUPER_ADMIN")) {
+      return {
+        path: "/dashboard",
+      };
+    }
+  }
+
+  const requiredRoleCodes = Array.isArray(to.meta.requiredRoleCodes) ? to.meta.requiredRoleCodes : [];
+  if (requiredRoleCodes.length > 0) {
+    const normalizedRoles = [
+      ...(authStore.systemRoleCodes ?? []),
+      ...(authStore.effectiveRoleCodes ?? []),
+    ].map((item) => item.toUpperCase());
+    const canAccessRoute = requiredRoleCodes.some((roleCode) => normalizedRoles.includes(String(roleCode).toUpperCase()));
+    if (!canAccessRoute) {
       return {
         path: "/dashboard",
       };

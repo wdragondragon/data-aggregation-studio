@@ -325,9 +325,7 @@ public class ModelSyncTaskService {
                 ? LocalDateTime.now()
                 : itemResult.getFinishedAt();
         item.setFinishedAt(finishedAt);
-        item.setDurationMs(itemResult == null
-                ? Long.valueOf(Duration.between(startedAt, finishedAt).toMillis())
-                : itemResult.getDurationMs());
+        item.setDurationMs(Long.valueOf(Duration.between(startedAt, finishedAt).toMillis()));
         item.setModelNameSnapshot(itemResult != null && hasText(itemResult.getModelName())
                 ? itemResult.getModelName()
                 : item.getModelNameSnapshot());

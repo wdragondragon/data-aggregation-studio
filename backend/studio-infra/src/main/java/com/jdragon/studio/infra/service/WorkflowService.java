@@ -80,6 +80,19 @@ public class WorkflowService {
         return result;
     }
 
+    public List<WorkflowDefinitionView> listOwnedByCurrentProject() {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(WorkflowDefinitionEntity::getProjectId, currentProjectId)
+                .orderByAsc(WorkflowDefinitionEntity::getCode));
+        List<WorkflowDefinitionView> result = new ArrayList<WorkflowDefinitionView>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            result.add(get(definition.getId()));
+        }
+        return result;
+    }
+
     public WorkflowDefinitionView get(Long definitionId) {
         WorkflowDefinitionEntity definition = findAccessibleEntity(definitionId);
         if (definition == null) {

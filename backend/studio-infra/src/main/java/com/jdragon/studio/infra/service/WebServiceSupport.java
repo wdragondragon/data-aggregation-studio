@@ -114,7 +114,7 @@ final class WebServiceSupport {
         WebServiceConfig config = normalizeConfig(service.getWebserviceConfig(), "data-service", service.getServiceCode());
         WebServicePreviewView view = basePreview(config, endpointPath);
         view.setWsdl(wsdlForDataService(service, config, endpointPath));
-        view.setSampleRequest(sampleRequest(config, dataServiceRequestFields(service)));
+        view.setSampleRequest(sampleRequest(config, dataServiceRequestFields(service), isTokenRequired(service == null ? null : service.getTokenRequired())));
         view.setSampleResponse(successEnvelope(config, sampleDataServiceResponse(service), config.getSoapVersion()));
         return view;
     }
@@ -123,7 +123,7 @@ final class WebServiceSupport {
         WebServiceConfig config = normalizeConfig(service.getWebserviceConfig(), "data-ingestion-service", service.getServiceCode());
         WebServicePreviewView view = basePreview(config, endpointPath);
         view.setWsdl(wsdlForDataIngestion(service, config, endpointPath));
-        view.setSampleRequest(sampleRequest(config, dataIngestionRequestFields(service)));
+        view.setSampleRequest(sampleRequest(config, dataIngestionRequestFields(service), isTokenRequired(service == null ? null : service.getTokenRequired())));
         view.setSampleResponse(successEnvelope(config, sampleIngestionResult(service), config.getSoapVersion()));
         return view;
     }
@@ -309,13 +309,15 @@ final class WebServiceSupport {
         return root;
     }
 
-    private String sampleRequest(WebServiceConfig config, List<FieldSpec> fields) {
+    private String sampleRequest(WebServiceConfig config, List<FieldSpec> fields, boolean includeTokenHeader) {
         String soapNs = config.getSoapVersion() == WebServiceSoapVersion.SOAP_12 ? SOAP_12_NS : SOAP_11_NS;
         StringBuilder builder = new StringBuilder(2048);
         builder.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         builder.append("<soap:Envelope xmlns:soap=\"").append(soapNs).append("\" xmlns:tns=\"")
                 .append(escapeXml(config.getNamespaceUri())).append("\">");
-        builder.append("<soap:Header><tns:token>your-token</tns:token></soap:Header>");
+        if (includeTokenHeader) {
+            builder.append("<soap:Header><tns:token>your-token</tns:token></soap:Header>");
+        }
         builder.append("<soap:Body><tns:").append(config.getRequestRootName()).append(">");
         for (FieldSpec field : fields) {
             builder.append('<').append(field.name).append('>')
@@ -324,6 +326,10 @@ final class WebServiceSupport {
         }
         builder.append("</tns:").append(config.getRequestRootName()).append("></soap:Body></soap:Envelope>");
         return builder.toString();
+    }
+
+    private boolean isTokenRequired(Boolean tokenRequired) {
+        return !Boolean.FALSE.equals(tokenRequired);
     }
 
     private String wsdl(String serviceName,

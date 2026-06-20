@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -152,8 +153,29 @@ class WebServiceSupportTest {
 
         WebServicePreviewView preview = support.previewForDataService(service, "/openapi/ws/data-services/orders_query/key");
 
+        assertTrue(preview.getSampleRequest().contains("<soap:Header><tns:token>your-token</tns:token></soap:Header>"));
         assertTrue(preview.getWsdl().contains("<xsd:element name=\"table\""));
         assertTrue(preview.getSampleResponse().contains("<table><row><id>1</id></row></table>"));
+    }
+
+    @Test
+    void shouldOmitDataServiceTokenHeaderWhenTokenIsNotRequired() {
+        DataServiceDefinitionView service = dataService("orders_query");
+        service.setTokenRequired(Boolean.FALSE);
+        service.setResponseParams(List.of(responseParam("id", "1")));
+
+        WebServiceConfig config = new WebServiceConfig();
+        config.setEnabled(Boolean.TRUE);
+        config.setNamespaceUri("urn:orders");
+        config.setOperationName("QueryOrders");
+        service.setWebserviceConfig(config);
+
+        WebServicePreviewView preview = support.previewForDataService(service, "/openapi/ws/data-services/orders_query/key");
+
+        assertFalse(preview.getSampleRequest().contains("<soap:Header>"));
+        assertFalse(preview.getSampleRequest().contains("your-token"));
+        assertTrue(preview.getSampleRequest().contains("<soap:Body>"));
+        assertTrue(preview.getSampleRequest().contains("<tns:QueryOrders>"));
     }
 
     @Test

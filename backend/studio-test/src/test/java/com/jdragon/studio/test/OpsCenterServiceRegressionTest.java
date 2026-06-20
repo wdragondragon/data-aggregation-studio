@@ -170,6 +170,26 @@ class OpsCenterServiceRegressionTest {
     }
 
     @Test
+    void shouldIgnoreServiceAndIngestionEventsWhenFilterIsRunScoped() {
+        Fixture fixture = new Fixture();
+        fixture.withOnlineWorker("default-pool");
+        fixture.withServiceLog(serviceLog(0, 500, 200L));
+        fixture.withIngestionLog(ingestionLog(1, 200, 300L, 1L));
+        OpsCenterQueryRequest request = new OpsCenterQueryRequest();
+        request.setExecutionType("WORKFLOW_NODE");
+        request.setStatus("SUCCESS");
+        request.setWorkerGroupCode("default-pool");
+
+        OpsCenterOverviewView overview = fixture.service.overview(request);
+
+        assertEquals(OpsCenterHealthStatus.HEALTHY, overview.getHealthStatus());
+        assertEquals(Long.valueOf(0L), overview.getServiceFailures());
+        assertEquals(Long.valueOf(0L), overview.getIngestionFailures());
+        assertEquals(0L, fixture.service.queryServiceEvents(request).getTotal());
+        assertEquals(0L, fixture.service.queryIngestionEvents(request).getTotal());
+    }
+
+    @Test
     void shouldBeCriticalWhenRunLogIsUnavailable() {
         Fixture fixture = new Fixture();
         fixture.withOnlineWorker("default-pool");

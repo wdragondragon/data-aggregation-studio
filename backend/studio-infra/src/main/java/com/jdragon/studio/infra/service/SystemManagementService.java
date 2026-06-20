@@ -605,10 +605,7 @@ public class SystemManagementService {
                                          Long projectId,
                                          Long userId,
                                          String roleCode) {
-        ProjectMemberEntity member = projectMemberMapper.selectOne(new LambdaQueryWrapper<ProjectMemberEntity>()
-                .eq(ProjectMemberEntity::getProjectId, projectId)
-                .eq(ProjectMemberEntity::getUserId, userId)
-                .last("limit 1"));
+        ProjectMemberEntity member = projectMemberMapper.selectByProjectAndUserIncludingDeleted(projectId, userId);
         if (member == null) {
             member = new ProjectMemberEntity();
             member.setTenantId(tenantId);
@@ -619,12 +616,8 @@ public class SystemManagementService {
             projectMemberMapper.insert(member);
             return;
         }
-        member.setTenantId(tenantId);
-        member.setStatus(StudioConstants.MEMBER_STATUS_ACTIVE);
-        if (!hasText(member.getRoleCode())) {
-            member.setRoleCode(roleCode);
-        }
-        projectMemberMapper.updateById(member);
+        String resolvedRoleCode = hasText(member.getRoleCode()) ? member.getRoleCode() : roleCode;
+        projectMemberMapper.restoreById(member.getId(), projectId, userId, resolvedRoleCode, StudioConstants.MEMBER_STATUS_ACTIVE);
     }
 
     private boolean isReviewStatus(String status) {

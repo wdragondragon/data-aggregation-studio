@@ -331,21 +331,49 @@ public class OpsCenterService {
     }
 
     private List<DataServiceAccessLogEntity> serviceLogs(Scope scope, OpsCenterQueryRequest request) {
-        return dataServiceAccessLogMapper.selectList(new LambdaQueryWrapper<DataServiceAccessLogEntity>()
+        if (isRunScopedFilter(request)) {
+            return Collections.emptyList();
+        }
+        List<DataServiceAccessLogEntity> logs = dataServiceAccessLogMapper.selectList(new LambdaQueryWrapper<DataServiceAccessLogEntity>()
                 .eq(DataServiceAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataServiceAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataServiceAccessLogEntity::getOccurredAt, scope.startTime)
                 .le(DataServiceAccessLogEntity::getOccurredAt, scope.endTime)
                 .orderByDesc(DataServiceAccessLogEntity::getOccurredAt));
+        String status = request == null ? null : request.getStatus();
+        if (!hasText(status)) {
+            return logs;
+        }
+        List<DataServiceAccessLogEntity> result = new ArrayList<DataServiceAccessLogEntity>();
+        for (DataServiceAccessLogEntity log : logs) {
+            if (matchesAccessLogStatus(log.getSuccess(), status)) {
+                result.add(log);
+            }
+        }
+        return result;
     }
 
     private List<DataIngestionAccessLogEntity> ingestionLogs(Scope scope, OpsCenterQueryRequest request) {
-        return dataIngestionAccessLogMapper.selectList(new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
+        if (isRunScopedFilter(request)) {
+            return Collections.emptyList();
+        }
+        List<DataIngestionAccessLogEntity> logs = dataIngestionAccessLogMapper.selectList(new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
                 .eq(DataIngestionAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataIngestionAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataIngestionAccessLogEntity::getOccurredAt, scope.startTime)
                 .le(DataIngestionAccessLogEntity::getOccurredAt, scope.endTime)
                 .orderByDesc(DataIngestionAccessLogEntity::getOccurredAt));
+        String status = request == null ? null : request.getStatus();
+        if (!hasText(status)) {
+            return logs;
+        }
+        List<DataIngestionAccessLogEntity> result = new ArrayList<DataIngestionAccessLogEntity>();
+        for (DataIngestionAccessLogEntity log : logs) {
+            if (matchesAccessLogStatus(log.getSuccess(), status)) {
+                result.add(log);
+            }
+        }
+        return result;
     }
 
     private List<OpsCenterWorkerGroupView> workerGroups(Scope scope) {
@@ -710,6 +738,24 @@ public class OpsCenterService {
     private boolean isRunningStatus(String value) {
         String status = upper(value);
         return "RUNNING".equals(status) || "QUEUED".equals(status);
+    }
+
+    private boolean isRunScopedFilter(OpsCenterQueryRequest request) {
+        return request != null && (hasText(request.getExecutionType()) || hasText(request.getWorkerGroupCode()));
+    }
+
+    private boolean matchesAccessLogStatus(Integer success, String status) {
+        String normalizedStatus = upper(status);
+        if (!hasText(normalizedStatus)) {
+            return true;
+        }
+        if ("SUCCESS".equals(normalizedStatus)) {
+            return isSuccess(success);
+        }
+        if ("FAILED".equals(normalizedStatus) || "ERROR".equals(normalizedStatus)) {
+            return !isSuccess(success);
+        }
+        return false;
     }
 
     private boolean hasText(String value) {

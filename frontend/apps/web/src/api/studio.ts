@@ -4,6 +4,7 @@ export const STUDIO_TOKEN_KEY = "studio_token";
 export const STUDIO_USERNAME_KEY = "studio_username";
 export const STUDIO_TENANT_KEY = "studio_current_tenant";
 export const STUDIO_PROJECT_KEY = "studio_current_project";
+export const STUDIO_MANUAL_LOGOUT_KEY = "studio_manual_logout";
 const DEFAULT_API_BASE_PATH = "api/v1";
 
 export function getStoredToken() {
@@ -19,6 +20,18 @@ export function clearStoredToken() {
   window.localStorage.removeItem(STUDIO_USERNAME_KEY);
   window.localStorage.removeItem(STUDIO_TENANT_KEY);
   window.localStorage.removeItem(STUDIO_PROJECT_KEY);
+}
+
+export function markManualLogout() {
+  window.localStorage.setItem(STUDIO_MANUAL_LOGOUT_KEY, "1");
+}
+
+export function clearManualLogout() {
+  window.localStorage.removeItem(STUDIO_MANUAL_LOGOUT_KEY);
+}
+
+export function hasManualLogout() {
+  return window.localStorage.getItem(STUDIO_MANUAL_LOGOUT_KEY) === "1";
 }
 
 export function getStoredTenantId() {

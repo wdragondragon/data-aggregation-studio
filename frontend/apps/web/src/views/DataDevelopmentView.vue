@@ -814,10 +814,10 @@ watch(
       scriptForm.datasourceName = undefined;
       scriptForm.datasourceTypeCode = undefined;
     }
-    if (scriptType === "JAVA" && (!scriptForm.content || scriptForm.content.trim().length === 0 || previousType === "SQL")) {
+    if (scriptType === "JAVA" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
       scriptForm.content = defaultJavaTemplate();
     }
-    if (scriptType === "PYTHON" && (!scriptForm.content || scriptForm.content.trim().length === 0 || previousType === "SQL")) {
+    if (scriptType === "PYTHON" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
       scriptForm.content = defaultPythonTemplate();
     }
   },

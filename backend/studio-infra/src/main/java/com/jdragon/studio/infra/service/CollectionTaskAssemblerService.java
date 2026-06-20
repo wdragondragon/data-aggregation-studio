@@ -114,11 +114,12 @@ public class CollectionTaskAssemblerService {
                 : definition.getExecutionOptions();
 
         List<String> targetFields = fieldMappingResolver.resolveTargetFields(definition.getFieldMappings(), targetModel);
+        List<String> joinKeys = fieldMappingResolver.resolveJoinKeys(definition);
         List<Map<String, Object>> sources = new ArrayList<Map<String, Object>>();
         for (CollectionTaskSourceBinding sourceBinding : definition.getSourceBindings()) {
             DataSourceDefinition sourceDatasource = requiredDatasource(sourceBinding.getDatasourceId());
             DataModelDefinition sourceModel = requiredModel(sourceBinding.getModelId());
-            List<String> sourceFields = fieldMappingResolver.resolveSourceFieldsByAlias(definition.getFieldMappings(), sourceBinding.getSourceAlias(), sourceModel);
+            List<String> sourceFields = fieldMappingResolver.resolveSourceFieldsByAlias(definition.getFieldMappings(), sourceBinding.getSourceAlias(), sourceModel, joinKeys);
             String pluginType = resolvePluginType(sourceDatasource.getTypeCode(), "reader");
             Map<String, Object> item = new LinkedHashMap<String, Object>();
             item.put("id", sourceBinding.getSourceAlias());
@@ -133,7 +134,7 @@ public class CollectionTaskAssemblerService {
         }
 
         Map<String, Object> join = new LinkedHashMap<String, Object>();
-        join.put("keys", fieldMappingResolver.resolveJoinKeys(definition));
+        join.put("keys", joinKeys);
         join.put("type", String.valueOf(executionOptions.getOrDefault("joinType", "LEFT")));
 
         List<Map<String, Object>> fieldMappings = new ArrayList<Map<String, Object>>();

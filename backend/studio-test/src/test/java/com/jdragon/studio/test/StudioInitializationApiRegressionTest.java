@@ -1,6 +1,7 @@
 package com.jdragon.studio.test;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.test.support.StudioApiRegressionTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -407,6 +408,154 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
     }
 
     @Test
+    void roleAndPermissionManagementApisShouldRejectProjectMember() throws Exception {
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long projectId = currentProjectId(loginBody);
+
+        MvcResult userResult = mockMvc.perform(post("/api/v1/users")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"lt_reg_m09_api_member\",\"displayName\":\"长期回归-权限接口普通成员\",\"passwordHash\":\"LtReg@20260620!\",\"enabled\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        String userId = readBody(userResult).path("data").path("id").asText();
+
+        mockMvc.perform(post("/api/v1/system/project-members")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"projectId\":\"" + projectId + "\",\"userId\":\"" + userId + "\",\"roleCode\":\"PROJECT_MEMBER\",\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        String memberAuthorization = loginAndGetAuthorization("lt_reg_m09_api_member", "LtReg@20260620!", projectId);
+
+        mockMvc.perform(get("/api/v1/roles")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/roles")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"LT_REG_M09_FORBIDDEN_ROLE_PROBE\",\"name\":\"长期回归-低权限越权角色探针\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(get("/api/v1/permissions")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/permissions")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"lt_reg:m09:forbidden-permission-probe\",\"name\":\"长期回归-低权限越权权限探针\",\"httpMethod\":\"GET\",\"pathPattern\":\"/api/v1/lt-reg-m09-probe\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void registrationShouldRejectExistingUsernameAtSubmitTime() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"admin123\",\"displayName\":\"长期回归-重复注册探针\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Username already exists"));
+    }
+
+    @Test
+    void disabledUserLoginShouldReturnUnauthorizedInsteadOfServerError() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        mockMvc.perform(post("/api/v1/users")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"lt_reg_m09_disabled_login\",\"displayName\":\"长期回归-禁用登录探针\",\"passwordHash\":\"LtReg@20260620!\",\"enabled\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"lt_reg_m09_disabled_login\",\"password\":\"LtReg@20260620!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void projectExportShouldNotIncludeSharedWorkflowsFromOtherProjects() throws Exception {
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long sourceProjectId = currentProjectId(loginBody);
+
+        MvcResult targetProjectResult = mockMvc.perform(post("/api/v1/system/projects")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(sourceProjectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"projectCode\":\"lt_reg_m10_export_receiver\",\"projectName\":\"长期回归-M10导出接收项目\",\"enabled\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        Long targetProjectId = readBody(targetProjectResult).path("data").path("id").asLong();
+
+        MvcResult workflowResult = mockMvc.perform(post("/api/v1/workflows")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(sourceProjectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"lt_reg_m10_export_source_workflow\",\"name\":\"长期回归-M10源项目共享流程\",\"nodes\":[{\"nodeCode\":\"m10_shell_probe\",\"nodeName\":\"长期回归-M10导出探针节点\",\"nodeType\":\"SHELL\",\"config\":{}}],\"edges\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        Long sourceWorkflowId = readBody(workflowResult).path("data").path("id").asLong();
+
+        mockMvc.perform(post("/api/v1/system/resource-shares")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(sourceProjectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceProjectId\":\"" + sourceProjectId + "\",\"targetProjectId\":\"" + targetProjectId + "\",\"resourceType\":\"WORKFLOW\",\"resourceId\":\"" + sourceWorkflowId + "\",\"enabled\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        MvcResult sharedWorkflowListResult = mockMvc.perform(get("/api/v1/workflows")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(targetProjectId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        assertThat(extractIds(readBody(sharedWorkflowListResult).path("data"))).contains(String.valueOf(sourceWorkflowId));
+
+        MvcResult exportResult = mockMvc.perform(get("/api/v1/exports/project")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(targetProjectId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        assertThat(extractIds(readBody(exportResult).path("data").path("workflows"))).doesNotContain(String.valueOf(sourceWorkflowId));
+    }
+
+    @Test
     void initializedBusinessApisShouldStartEmptyAndDynamicModelQueryShouldBeSafe() throws Exception {
         String authorization = adminAuthorizationHeader();
 
@@ -461,6 +610,18 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(jsonPath("$.data.runRecords", hasSize(0)));
     }
 
+    private String loginAndGetAuthorization(String username, String password, Long projectId) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        return "Bearer " + readBody(result).path("data").path("token").asText();
+    }
+
     private JsonNode findSchema(JsonNode schemas, String schemaCode) {
         if (schemas == null || !schemas.isArray()) {
             return null;
@@ -485,6 +646,18 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
             keys.add(iterator.next().path("fieldKey").asText());
         }
         return keys;
+    }
+
+    private List<String> extractIds(JsonNode items) {
+        List<String> ids = new ArrayList<String>();
+        if (items == null || !items.isArray()) {
+            return ids;
+        }
+        Iterator<JsonNode> iterator = items.elements();
+        while (iterator.hasNext()) {
+            ids.add(iterator.next().path("id").asText());
+        }
+        return ids;
     }
 
     private JsonNode fieldByKey(JsonNode schema, String fieldKey) {
