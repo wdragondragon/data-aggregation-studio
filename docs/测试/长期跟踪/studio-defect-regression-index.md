@@ -19,11 +19,11 @@
 | BUG-M06-001 | 数据采集 | 高 | 增量 DATETIME 游标二次运行类型比较失败 | `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskAssemblerService.java`；`CollectionTaskFieldMappingResolver.java` | `CollectionTaskAssemblerServiceRegressionTest`；增量采集二次运行成功 | smoke | 2026-06-20 | `b59e8d5` |
 | BUG-M06-002 | 数据采集 | 高 | 融合任务未把 join key 纳入每个源查询字段，导致融合失败 | `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskAssemblerService.java` | `CollectionTaskAssemblerServiceRegressionTest`；融合目标表保持 6 行基线 | smoke | 2026-06-20 | `b59e8d5` |
 | FIX-M08-001 | 运维中心 | 中 | 工作流节点筛选结果被不相关服务/接入历史异常拉成告警 | `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/OpsCenterService.java` | `OpsCenterServiceRegressionTest`；UI 筛选 `工作流节点 + 成功 + Worker` 显示健康 | module-regression | 2026-06-20 | `b59e8d5` |
-| M09-FIX-01 | 系统管理/权限 | 高 | 项目普通成员可读写角色/权限接口 | `RoleController.java`；`PermissionController.java` | `StudioInitializationApiRegressionTest`；普通成员访问 `/roles`、`/permissions` 返回 403 | smoke | 2026-06-20 | `b59e8d5` |
+| M09-FIX-01 | 系统管理/权限 | 高 | 项目普通成员可读写角色/权限接口 | `RoleController.java`；`PermissionController.java` | `StudioInitializationApiRegressionTest`；普通成员访问 `/roles`、`/permissions` 返回 403；`studio_s01_permission_probe.py` | smoke | 2026-06-21 | `b59e8d5` |
 | M09-FIX-02 | 系统管理/注册 | 中 | 注册页/API 允许对已存在用户名提交注册申请 | `UserRegistrationRequestService.java` | `StudioInitializationApiRegressionTest`；重复 `admin` 注册返回 400 | module-regression | 2026-06-20 | `b59e8d5` |
-| M09-FIX-03 | 认证 | 中 | 禁用用户登录返回 HTTP 500 | `GlobalExceptionHandler.java` | `StudioInitializationApiRegressionTest`；禁用用户登录返回 401 | smoke | 2026-06-20 | `b59e8d5` |
-| M09-FIX-04 | 前端权限 | 中 | `/system` 直接路由缺少角色 meta | `frontend/apps/web/src/router/index.ts`；`frontend/apps/web/src/stores/auth.ts` | `npm run build:web`；admin 浏览器访问 `/system` 正常，低权限应被路由守卫拦截 | module-regression | 2026-06-20 | `b59e8d5` |
-| M10-FIX-01 | 导入导出 | 高 | 接收项目导出包包含源项目共享工作流，存在跨项目泄漏风险 | `WorkflowService.java`；`ImportExportController.java` | `StudioInitializationApiRegressionTest#projectExportShouldNotIncludeSharedWorkflowsFromOtherProjects`；接收项目 `/exports/project` 返回 `workflows=[]` | smoke | 2026-06-20 | `b59e8d5` |
+| M09-FIX-03 | 认证 | 中 | 禁用用户登录返回 HTTP 500 | `GlobalExceptionHandler.java` | `StudioInitializationApiRegressionTest`；禁用用户登录返回 401；`studio_s01_permission_probe.py` | smoke | 2026-06-21 | `b59e8d5` |
+| M09-FIX-04 | 前端权限 | 中 | `/system` 直接路由缺少角色 meta | `frontend/apps/web/src/router/index.ts`；`frontend/apps/web/src/stores/auth.ts` | `npm run build:web`；admin 浏览器访问 `/system` 正常，低权限应被路由守卫拦截；S01 浏览器路由验证 | module-regression | 2026-06-21 | `b59e8d5` |
+| M10-FIX-01 | 导入导出 | 高 | 接收项目导出包包含源项目共享工作流，存在跨项目泄漏风险 | `WorkflowService.java`；`ImportExportController.java` | `StudioInitializationApiRegressionTest#projectExportShouldNotIncludeSharedWorkflowsFromOtherProjects`；接收项目 `/exports/project` 返回 `workflows=[]`；`studio_s01_permission_probe.py` | smoke | 2026-06-21 | `b59e8d5` |
 
 ## 历史缺陷参考
 
