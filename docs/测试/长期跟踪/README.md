@@ -97,5 +97,8 @@
 - S05 保留订阅状态探针数据：修复前复现批次 `长期回归-S05协议转换重名防护-20260621185034`，修复后回归批次 `长期回归-S05协议转换重名修复回归-20260621185651`；长期协议转换服务仍为 `长期回归-Studio健康检查协议转换` / `2068145027555180546`。
 - S05 回归入口：`SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`、协议转换订阅 API 重复启用探针、浏览器 `/protocol-conversions` 订阅弹窗。后续涉及协议转换订阅、Token 轮换、启用/禁用或监控订阅方筛选的修改，至少复跑这些入口。
 - 2026-06-21 已完成 S06 订阅并发创建竞态深挖：确认并修复数据服务、数据接入、协议转换三类订阅同名并发创建缺少持久层启用唯一约束的问题，`BUG-S06-001` 已进入缺陷回归索引。
-- S06 保留并发订阅数据：修复前失败批次 `20260621191149`，修复后回归批次 `20260621193112`、`20260621193757`、`20260621193853`、`20260621194451`；修复前重复启用历史已通过 schema upgrade 规整为每组仅 1 条启用，历史记录不删除。
+- S06 保留并发订阅数据：修复前失败批次 `20260621191149`，修复后回归批次 `20260621193112`、`20260621193757`、`20260621193853`、`20260621194451`、`20260621200609`；修复前重复启用历史已通过 schema upgrade 规整为每组仅 1 条启用，历史记录不删除。
 - S06 自动化入口：`docs/测试/长期跟踪/scripts/studio_s06_subscription_race_probe.py`。后续涉及数据服务/数据接入/协议转换订阅创建、启用唯一约束、schema upgrade 或初始化 SQL 的修改，至少复跑该脚本、`SubscriptionTokenRotationRegressionTest` 和 `StudioSchemaDriftRegressionTest`。
+- 2026-06-21 已完成 S07 订阅 Token 生命周期并发一致性深挖：确认并修复三类开放调用刷新订阅 `lastUsedAt` 使用整行 `updateById`，并发轮换/禁用时可能写回旧 token 或启用状态的问题，`BUG-S07-001` 已进入缺陷回归索引。
+- S07 保留 Token 生命周期数据：最终回归批次 `20260621200343`，以及脚本校准/基线批次 `20260621195808`、`20260621195908`、`20260621200009`；所有订阅和接入流水保留不清理。
+- S07 自动化入口：`docs/测试/长期跟踪/scripts/studio_s07_subscription_token_lifecycle_probe.py`。后续涉及数据服务/数据接入/协议转换开放调用、订阅 Token 轮换、禁用、启用或访问时间刷新逻辑的修改，至少复跑该脚本和 `SubscriptionTokenRotationRegressionTest`。

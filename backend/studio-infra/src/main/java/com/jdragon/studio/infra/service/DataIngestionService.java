@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -817,8 +818,9 @@ public class DataIngestionService {
         if (entity == null) {
             throw new StudioException(StudioErrorCode.UNAUTHORIZED, "Invalid data ingestion token");
         }
-        entity.setLastUsedAt(LocalDateTime.now());
-        subscriptionMapper.updateById(entity);
+        subscriptionMapper.update(null, new LambdaUpdateWrapper<DataIngestionSubscriptionEntity>()
+                .eq(DataIngestionSubscriptionEntity::getId, entity.getId())
+                .set(DataIngestionSubscriptionEntity::getLastUsedAt, LocalDateTime.now()));
         return entity;
     }
 

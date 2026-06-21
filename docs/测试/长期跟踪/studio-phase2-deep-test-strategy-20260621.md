@@ -68,7 +68,7 @@
 |---|---|
 | 数据开发 | BUG-M03-001 |
 | 数据服务 | BUG-M04-001、BUG-M04-002 |
-| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001、BUG-S06-001 |
+| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001、BUG-S06-001、BUG-S07-001 |
 | 数据采集 | BUG-M06-001、BUG-M06-002 |
 | 运维中心 | FIX-M08-001 |
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
@@ -190,6 +190,20 @@
 - 沉淀 `scripts/studio_s06_subscription_race_probe.py`，包含运行态 health 与 16 并发创建探针。
 - 如发现真实缺陷，修复 schema upgrade、初始化 SQL、服务层唯一键异常兜底，并写入缺陷索引。
 
+### S07 订阅 Token 生命周期并发一致性
+
+覆盖场景：
+
+- 数据服务、数据接入、协议转换三类订阅 token 创建、轮换、禁用、启用。
+- 开放调用刷新 `lastUsedAt` 与 token 轮换/禁用之间的并发状态一致性。
+- 旧 token 失效、新 token 生效、禁用 token 拒绝、重新启用恢复调用。
+
+验收：
+
+- 产出 `records/20260621-S07订阅Token生命周期并发一致性深挖执行记录.md`。
+- 沉淀 `scripts/studio_s07_subscription_token_lifecycle_probe.py`。
+- 如发现真实缺陷，修复服务层状态刷新，补充订阅回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -207,6 +221,7 @@
 | 2026-06-21 | S04 资源共享 ACL 与协议转换共享深挖 | 完成，`6 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `ResourceShareServiceTypeRegressionTest#shouldShareProtocolConversionService`；浏览器 `/system` 资源共享弹窗 | BUG-S04-001 |
 | 2026-06-21 | S05 协议转换订阅状态一致性深挖 | 完成，`4 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`；浏览器 `/protocol-conversions` 订阅弹窗 | BUG-S05-001 |
 | 2026-06-21 | S06 订阅并发创建竞态深挖 | 完成，`4 PASS / 4 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s06_subscription_race_probe.py`；`SubscriptionTokenRotationRegressionTest`；`StudioSchemaDriftRegressionTest` | BUG-S06-001 |
+| 2026-06-21 | S07 订阅 Token 生命周期并发一致性深挖 | 完成，`4 PASS / 1 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s07_subscription_token_lifecycle_probe.py`；`SubscriptionTokenRotationRegressionTest` | BUG-S07-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -215,6 +230,8 @@ S04 新增的 `BUG-S04-001` 纳入 `module-regression`：后续涉及系统资�
 S05 新增的 `BUG-S05-001` 纳入 `module-regression`：后续涉及协议转换订阅、Token 轮换、启用/禁用、开放 API 订阅校验或监控订阅方筛选的修改，必须复跑协议转换订阅单测和订阅弹窗/API 状态验证。
 
 S06 新增的 `BUG-S06-001` 纳入 `smoke`：后续涉及数据服务、数据接入、协议转换订阅创建/启用、schema upgrade、订阅表初始化 SQL 或唯一约束的修改，必须复跑 S06 并发探针和订阅回归单测。
+
+S07 新增的 `BUG-S07-001` 纳入 `smoke`：后续涉及数据服务、数据接入、协议转换开放调用、订阅 Token 轮换/禁用/启用或 `lastUsedAt` 刷新的修改，必须复跑 S07 生命周期探针和订阅回归单测。
 
 ## 提交规则
 

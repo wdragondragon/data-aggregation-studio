@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -1414,8 +1415,9 @@ public class ProtocolConversionService {
         if (entity == null) {
             throw new StudioException(StudioErrorCode.UNAUTHORIZED, "Invalid protocol conversion token");
         }
-        entity.setLastUsedAt(LocalDateTime.now());
-        subscriptionMapper.updateById(entity);
+        subscriptionMapper.update(null, new LambdaUpdateWrapper<ProtocolConversionSubscriptionEntity>()
+                .eq(ProtocolConversionSubscriptionEntity::getId, entity.getId())
+                .set(ProtocolConversionSubscriptionEntity::getLastUsedAt, LocalDateTime.now()));
         return entity;
     }
 

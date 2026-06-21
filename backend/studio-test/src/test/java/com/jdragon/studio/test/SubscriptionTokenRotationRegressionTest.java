@@ -1,6 +1,8 @@
 package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -41,9 +43,13 @@ import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.ProtocolConversionService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.StudioTransformerSupport;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.apache.ibatis.session.Configuration;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -51,14 +57,25 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SubscriptionTokenRotationRegressionTest {
+
+    @BeforeAll
+    static void initMybatisPlusTableInfo() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DataServiceSubscriptionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DataIngestionSubscriptionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), ProtocolConversionSubscriptionEntity.class);
+    }
 
     @Test
     void shouldRotateDataServiceTokenAndKeepListMaskedOnly() {
@@ -240,6 +257,66 @@ class SubscriptionTokenRotationRegressionTest {
         assertEquals(Integer.valueOf(0), disabledNewerSubscription.getEnabled());
         assertNotEquals("old-active-hash", activeSubscription.getTokenHash());
         assertEquals(Long.valueOf(900L), activeSubscription.getRotatedBy());
+    }
+
+    @Test
+    void shouldRefreshDataServiceLastUsedAtWithoutOverwritingTokenState() throws Exception {
+        DataServiceDefinitionMapper definitionMapper = mock(DataServiceDefinitionMapper.class);
+        DataServiceSubscriptionMapper subscriptionMapper = mock(DataServiceSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 900L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        DataServiceService service = dataService(definitionMapper, subscriptionMapper, securityService, accessService);
+        DataServiceSubscriptionEntity subscription = dataServiceSubscription("stable-hash", "stable-mask");
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(subscription);
+        when(subscriptionMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        Object resolved = invokeValidateSubscriptionToken(service, 10L, "稳定Token");
+
+        assertSame(subscription, resolved);
+        verify(subscriptionMapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(subscriptionMapper, never()).updateById(any(DataServiceSubscriptionEntity.class));
+    }
+
+    @Test
+    void shouldRefreshDataIngestionLastUsedAtWithoutOverwritingTokenState() throws Exception {
+        DataIngestionServiceMapper serviceMapper = mock(DataIngestionServiceMapper.class);
+        DataIngestionSubscriptionMapper subscriptionMapper = mock(DataIngestionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 901L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        DataIngestionService service = dataIngestionService(serviceMapper, subscriptionMapper, securityService, accessService);
+        DataIngestionSubscriptionEntity subscription = dataIngestionSubscription("stable-hash", "stable-mask");
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(subscription);
+        when(subscriptionMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        Object resolved = invokeValidateSubscriptionToken(service, 30L, "稳定Token");
+
+        assertSame(subscription, resolved);
+        verify(subscriptionMapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(subscriptionMapper, never()).updateById(any(DataIngestionSubscriptionEntity.class));
+    }
+
+    @Test
+    void shouldRefreshProtocolConversionLastUsedAtWithoutOverwritingTokenState() throws Exception {
+        ProtocolConversionServiceMapper serviceMapper = mock(ProtocolConversionServiceMapper.class);
+        ProtocolConversionSubscriptionMapper subscriptionMapper = mock(ProtocolConversionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 902L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        ProtocolConversionService service = protocolConversionService(serviceMapper, subscriptionMapper, securityService, accessService);
+        ProtocolConversionSubscriptionEntity subscription = protocolConversionSubscription(60L, 1);
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(subscription);
+        when(subscriptionMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        Object resolved = invokeValidateSubscriptionToken(service, 50L, "稳定Token");
+
+        assertSame(subscription, resolved);
+        verify(subscriptionMapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(subscriptionMapper, never()).updateById(any(ProtocolConversionSubscriptionEntity.class));
+    }
+
+    private Object invokeValidateSubscriptionToken(Object service, Long serviceId, String token) throws Exception {
+        Method method = service.getClass().getDeclaredMethod("validateSubscriptionToken", Long.class, String.class);
+        method.setAccessible(true);
+        return method.invoke(service, serviceId, token);
     }
 
     private DataServiceService dataService(DataServiceDefinitionMapper definitionMapper,
