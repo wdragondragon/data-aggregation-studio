@@ -34,6 +34,7 @@
 | BUG-S09-001 | 运行记录/结构变更错误消息 | 中 | 采集任务结构变更失败运行记录暴露 Java 异常类、内部类名、源码文件名和堆栈，且修复前历史记录在列表/API 中继续暴露 | `RunRecordMessageSanitizer.java`；`ExecutionEventService.java`；`RunService.java`；`WorkflowRunService.java` | `studio_s09_schema_drift_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/collection-task-runs` 两个 S09 失败任务；API `/runs/{historicalRunId}` | smoke | 2026-06-21 | 本次提交 |
 | BUG-S10-001 | 运行记录/质量任务错误消息 | 中 | 质量任务字段改名失败时 `message` 已清洗，但 `payloadJson.stackTrace` 与 `resultJson.stackTrace` 继续暴露 Java 堆栈、内部类名和源码行号 | `RunRecordMessageSanitizer.java`；`ExecutionEventServiceRegressionTest.java`；`RunServiceRegressionTest.java` | `studio_s10_schema_drift_service_quality_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/quality-task-runs?qualityTaskId=2068704774037667842` | smoke | 2026-06-21 | 本次提交 |
 | BUG-S12-001 | 数据接入/慢写一致性 | 高 | 500 行批量接入慢写超过 10 秒时 API 返回 500 超时，但底层 writer 继续提交并最终写入成功，造成响应结果与数据库副作用不一致 | `DataIngestionExecutionSupport.java`；`DataIngestionInvocationLogSupportTest.java` | `studio_s12_capacity_boundary_probe.py`；`DataIngestionInvocationLogSupportTest#shouldWaitForSlowSuccessfulWriteBeyondThreshold`；浏览器 `/data-ingestion-services/2068717572302008321/edit?debug=1` 和接入指标/日志页 | smoke | 2026-06-21 | 本次提交 |
+| BUG-S13-001 | 开放调用日志/敏感信息脱敏 | 高 | 开放调用完整日志只覆盖固定敏感字段名，`secretToken`、`clientSecret`、`api_key` 等字段名变体会在日志查看和下载中泄露原文 | `OpenServiceInvocationLogSupport.java`；`DataIngestionInvocationLogSupportTest.java` | `studio_s13_log_download_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveInvocationLogFieldNameVariants`；浏览器 `/data-service-metrics/access-logs`、`/data-ingestion-metrics/access-logs` 和 `/quality-task-runs` | smoke | 2026-06-22 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -59,3 +60,4 @@
 | S09 数据结构变更扰动 | BUG-S09-001 |
 | S10 结构扰动扩展服务接入质量 | BUG-S10-001 |
 | S12 容量与边界慢写一致性 | BUG-S12-001 |
+| S13 日志下载分页并发与脱敏 | BUG-S13-001 |

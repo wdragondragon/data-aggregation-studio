@@ -120,3 +120,7 @@
 - S12 保留源表 `lt_reg_s12_boundary_source` 1206 行基线、接入目标表 `lt_reg_s12_boundary_ingest`、数据服务 `长期回归-S12客户边界大结果集查询服务` / `2068717536226799617`、接入服务 `长期回归-S12客户边界批量接入服务` / `2068717572302008321`，以及修复前/修复后 500 行接入流水。
 - S12 最终回归批次 `20260621235740`：`10 PASS / 0 FAIL / 0 BLOCKED / needFix 0`；浏览器复核数据服务/接入服务调试页、指标页和日志页均可达，console warn/error 为空。
 - S12 自动化入口：`docs/测试/长期跟踪/scripts/studio_s12_capacity_boundary_probe.py`。后续涉及 `DataIngestionExecutionSupport`、数据接入开放 API、批量写入、writer 慢写等待或接入调用日志的修改，至少复跑该脚本、`DataIngestionInvocationLogSupportTest`，并用浏览器复核接入调试和指标/日志页。
+- 2026-06-22 已完成 S13 日志下载、分页、并发与敏感信息脱敏深挖：确认并修复开放调用完整日志对 `secretToken`、`clientSecret`、`api_key` 等敏感字段名变体脱敏不完整的问题，`BUG-S13-001` 已进入缺陷回归索引。
+- S13 保留调用日志批次 `20260622002222` 和提交前复跑批次 `20260622003735`：数据服务调用日志 `2068731283720765441`、`2068735106325544962`，接入服务调用日志 `2068731310866300929`、`2068735128848957441`，接入流水 `LT-S13-LOG-20260622002222`、`LT-S13-LOG-20260622003735`，并复用运行记录 `2068712588646760450` 做对象日志分页/下载回归。
+- S13 最近通过批次 `20260622003735`：`9 PASS / 0 FAIL / 0 BLOCKED / needFix 0`；浏览器复核数据服务访问日志、接入运行日志、质量任务日志三页均可打开日志抽屉，敏感值遮蔽，console warn/error 为空。
+- S13 自动化入口：`docs/测试/长期跟踪/scripts/studio_s13_log_download_security_probe.py`。后续涉及 `OpenServiceInvocationLogSupport`、开放调用日志采集/下载、运行记录日志下载、日志分页、跨项目日志访问或敏感信息脱敏的修改，至少复跑该脚本、`DataIngestionInvocationLogSupportTest`，并用浏览器复核相关日志页。

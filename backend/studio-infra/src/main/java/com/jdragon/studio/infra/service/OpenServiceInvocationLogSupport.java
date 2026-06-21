@@ -29,10 +29,12 @@ final class OpenServiceInvocationLogSupport {
             DataIngestionExecutionSupport.class.getName(),
             "com.jdragon.aggregation"
     );
+    private static final String SENSITIVE_NAME_PATTERN =
+            "[A-Za-z0-9_.-]*(?:password|access[_-]?key|secret|token|private[_-]?key|api[_-]?key|authorization|cookie|credential)[A-Za-z0-9_.-]*";
     private static final Pattern SENSITIVE_JSON_VALUE = Pattern.compile(
-            "(?i)(\"(?:password|accessKey|secretKey|token|privateKey|apiKey|authorization|cookie)\"\\s*:\\s*\")([^\"]*)(\")");
+            "(?i)(\"(?:" + SENSITIVE_NAME_PATTERN + ")\"\\s*:\\s*\")([^\"]*)(\")");
     private static final Pattern SENSITIVE_ASSIGNMENT_VALUE = Pattern.compile(
-            "(?i)(\\b(?:password|accessKey|secretKey|token|privateKey|apiKey|authorization|cookie)\\b\\s*[=:]\\s*)([^,\\s}\\]]+)");
+            "(?i)(\\b(?:" + SENSITIVE_NAME_PATTERN + ")\\b\\s*[=:]\\s*)([^,\\s}\\]]+)");
 
     private final LoggerContext loggerContext;
     private final Logger rootLogger;

@@ -53,6 +53,33 @@ class DataIngestionInvocationLogSupportTest {
     }
 
     @Test
+    void shouldMaskSensitiveInvocationLogFieldNameVariants() {
+        String raw = "{\"password\":\"plain-password\","
+                + "\"token\":\"plain-token\","
+                + "\"secretToken\":\"plain-secret-token\","
+                + "\"clientSecret\":\"plain-client-secret\","
+                + "\"api_key\":\"plain-api-key\","
+                + "\"access-key\":\"plain-access-key\","
+                + "\"credentialValue\":\"plain-credential\","
+                + "\"customerName\":\"长期回归客户\"}"
+                + System.lineSeparator()
+                + "clientSecret=plain-assignment-secret api_key=plain-assignment-api-key";
+
+        String sanitized = OpenServiceInvocationLogSupport.sanitizeSensitiveLog(raw);
+
+        assertTrue(!sanitized.contains("plain-password"));
+        assertTrue(!sanitized.contains("plain-token"));
+        assertTrue(!sanitized.contains("plain-secret-token"));
+        assertTrue(!sanitized.contains("plain-client-secret"));
+        assertTrue(!sanitized.contains("plain-api-key"));
+        assertTrue(!sanitized.contains("plain-access-key"));
+        assertTrue(!sanitized.contains("plain-credential"));
+        assertTrue(!sanitized.contains("plain-assignment-secret"));
+        assertTrue(!sanitized.contains("plain-assignment-api-key"));
+        assertContains(sanitized, "\"customerName\":\"长期回归客户\"");
+    }
+
+    @Test
     void shouldCaptureJobContainerAndTaskThreadLogsForInvocation() {
         configureAggregationHome();
         DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
