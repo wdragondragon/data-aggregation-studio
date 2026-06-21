@@ -495,6 +495,7 @@ import type {
   DataServiceDefinitionView,
   DataSourceDefinition,
   EntityId,
+  ProtocolConversionServiceView,
   ResourceShare,
   StudioUser,
   WorkflowDefinitionView,
@@ -547,6 +548,7 @@ const workflowResources = ref<WorkflowDefinitionView[]>([]);
 const dataDevelopmentScriptResources = ref<DataDevelopmentScript[]>([]);
 const dataServiceResources = ref<DataServiceDefinitionView[]>([]);
 const dataIngestionServiceResources = ref<DataIngestionServiceView[]>([]);
+const protocolConversionResources = ref<ProtocolConversionServiceView[]>([]);
 
 const userDialogOpen = ref(false);
 const tenantDialogOpen = ref(false);
@@ -593,7 +595,7 @@ function resetForm(target: Record<string, unknown>, defaults: Record<string, unk
 async function loadPage() {
   try {
     const currentProjectId = authStore.currentProjectId ?? undefined;
-    const [tenantData, projectData, userData, registrationRequestData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData, dataDevelopmentScriptData, dataServiceData, dataIngestionServiceData] = await Promise.all([
+    const [tenantData, projectData, userData, registrationRequestData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData, dataDevelopmentScriptData, dataServiceData, dataIngestionServiceData, protocolConversionData] = await Promise.all([
       studioApi.system.tenants.list(),
       studioApi.system.projects.list(),
       isSuperAdmin.value ? studioApi.users.list() : Promise.resolve([] as StudioUser[]),
@@ -610,6 +612,7 @@ async function loadPage() {
       currentProjectId == null ? Promise.resolve([] as DataDevelopmentScript[]) : studioApi.dataDevelopment.listScripts(),
       currentProjectId == null ? Promise.resolve({ pageNo: 1, pageSize: 5000, total: 0, items: [] as DataServiceDefinitionView[] }) : studioApi.dataServices.list({ pageNo: 1, pageSize: 5000 }),
       currentProjectId == null ? Promise.resolve({ pageNo: 1, pageSize: 5000, total: 0, items: [] as DataIngestionServiceView[] }) : studioApi.dataIngestionServices.list({ pageNo: 1, pageSize: 5000 }),
+      currentProjectId == null ? Promise.resolve({ pageNo: 1, pageSize: 5000, total: 0, items: [] as ProtocolConversionServiceView[] }) : studioApi.protocolConversions.list({ pageNo: 1, pageSize: 5000 }),
     ]);
     tenants.value = tenantData;
     projects.value = projectData;
@@ -627,6 +630,7 @@ async function loadPage() {
     dataDevelopmentScriptResources.value = dataDevelopmentScriptData;
     dataServiceResources.value = dataServiceData.items ?? [];
     dataIngestionServiceResources.value = dataIngestionServiceData.items ?? [];
+    protocolConversionResources.value = protocolConversionData.items ?? [];
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载系统管理数据失败");
   }
@@ -676,6 +680,10 @@ function shareOptionList(resourceType: string) {
         .map((item) => ({ id: item.id!, label: `${item.serviceName} (${item.serviceCode})` }));
     case "DATA_INGESTION_SERVICE":
       return dataIngestionServiceResources.value
+        .filter((item) => sameEntityId(item.projectId, currentProjectId))
+        .map((item) => ({ id: item.id!, label: `${item.serviceName} (${item.serviceCode})` }));
+    case "PROTOCOL_CONVERSION_SERVICE":
+      return protocolConversionResources.value
         .filter((item) => sameEntityId(item.projectId, currentProjectId))
         .map((item) => ({ id: item.id!, label: `${item.serviceName} (${item.serviceCode})` }));
     default:

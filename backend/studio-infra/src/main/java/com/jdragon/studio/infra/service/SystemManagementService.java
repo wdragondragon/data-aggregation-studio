@@ -35,6 +35,7 @@ import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberRequestMapper;
 import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ResourceShareMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.TenantMapper;
@@ -99,6 +100,7 @@ public class SystemManagementService {
                                    DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
                                    DataServiceDefinitionMapper dataServiceDefinitionMapper,
                                    DataIngestionServiceMapper dataIngestionServiceMapper,
+                                   ProtocolConversionServiceMapper protocolConversionServiceMapper,
                                    StudioSecurityService securityService,
                                    NotificationService notificationService) {
         this.tenantMapper = tenantMapper;
@@ -125,6 +127,7 @@ public class SystemManagementService {
                 dataDevelopmentScriptMapper,
                 dataServiceDefinitionMapper,
                 dataIngestionServiceMapper,
+                protocolConversionServiceMapper,
                 notificationService);
     }
 

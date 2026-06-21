@@ -15,6 +15,7 @@ import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberRequestMapper;
 import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ResourceShareMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.TenantMapper;
@@ -114,6 +115,7 @@ class SystemProjectMemberRequestRegressionTest {
                 mock(DataDevelopmentScriptMapper.class),
                 mock(DataServiceDefinitionMapper.class),
                 mock(DataIngestionServiceMapper.class),
+                mock(ProtocolConversionServiceMapper.class),
                 securityService,
                 mock(NotificationService.class)
         );

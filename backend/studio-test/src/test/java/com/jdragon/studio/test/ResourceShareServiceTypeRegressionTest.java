@@ -4,6 +4,7 @@ import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.infra.entity.DataIngestionServiceEntity;
 import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
+import com.jdragon.studio.infra.entity.ProtocolConversionServiceEntity;
 import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
@@ -15,6 +16,7 @@ import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberRequestMapper;
 import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ResourceShareMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.TenantMapper;
@@ -71,11 +73,30 @@ class ResourceShareServiceTypeRegressionTest {
         assertEquals(20L, saved.getTargetProjectId());
     }
 
+    @Test
+    void shouldShareProtocolConversionService() {
+        TestContext context = context();
+        ProtocolConversionServiceEntity service = new ProtocolConversionServiceEntity();
+        service.setId(410L);
+        service.setTenantId("default");
+        service.setProjectId(10L);
+        service.setServiceName("订单状态协议转换服务");
+        when(context.protocolConversionServiceMapper.selectById(410L)).thenReturn(service);
+
+        ResourceShareEntity saved = context.service.saveResourceShare(share(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, 410L));
+
+        assertEquals(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, saved.getResourceType());
+        assertEquals(410L, saved.getResourceId());
+        assertEquals(10L, saved.getSourceProjectId());
+        assertEquals(20L, saved.getTargetProjectId());
+    }
+
     private TestContext context() {
         ProjectMapper projectMapper = mock(ProjectMapper.class);
         ResourceShareMapper resourceShareMapper = mock(ResourceShareMapper.class);
         DataServiceDefinitionMapper dataServiceDefinitionMapper = mock(DataServiceDefinitionMapper.class);
         DataIngestionServiceMapper dataIngestionServiceMapper = mock(DataIngestionServiceMapper.class);
+        ProtocolConversionServiceMapper protocolConversionServiceMapper = mock(ProtocolConversionServiceMapper.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         NotificationService notificationService = mock(NotificationService.class);
 
@@ -112,10 +133,11 @@ class ResourceShareServiceTypeRegressionTest {
                 mock(DataDevelopmentScriptMapper.class),
                 dataServiceDefinitionMapper,
                 dataIngestionServiceMapper,
+                protocolConversionServiceMapper,
                 securityService,
                 notificationService
         );
-        return new TestContext(service, dataServiceDefinitionMapper, dataIngestionServiceMapper);
+        return new TestContext(service, dataServiceDefinitionMapper, dataIngestionServiceMapper, protocolConversionServiceMapper);
     }
 
     private ResourceShareEntity share(String resourceType, Long resourceId) {
@@ -139,13 +161,16 @@ class ResourceShareServiceTypeRegressionTest {
         private final SystemManagementService service;
         private final DataServiceDefinitionMapper dataServiceDefinitionMapper;
         private final DataIngestionServiceMapper dataIngestionServiceMapper;
+        private final ProtocolConversionServiceMapper protocolConversionServiceMapper;
 
         private TestContext(SystemManagementService service,
                             DataServiceDefinitionMapper dataServiceDefinitionMapper,
-                            DataIngestionServiceMapper dataIngestionServiceMapper) {
+                            DataIngestionServiceMapper dataIngestionServiceMapper,
+                            ProtocolConversionServiceMapper protocolConversionServiceMapper) {
             this.service = service;
             this.dataServiceDefinitionMapper = dataServiceDefinitionMapper;
             this.dataIngestionServiceMapper = dataIngestionServiceMapper;
+            this.protocolConversionServiceMapper = protocolConversionServiceMapper;
         }
     }
 }

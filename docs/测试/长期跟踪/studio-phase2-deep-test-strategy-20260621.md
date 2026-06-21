@@ -177,8 +177,11 @@
 | 2026-06-21 | S01 权限隔离与多项目数据泄漏 | 首轮完成，`25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s01_permission_probe.py` | M09-FIX-01、M09-FIX-04、M10-FIX-01 |
 | 2026-06-21 | S02 数据正确性与幂等性 | 首轮完成，`17 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s02_data_correctness_probe.py` | BUG-M05-001、BUG-M05-002、BUG-M06-001、BUG-M06-002 |
 | 2026-06-21 | S03 故障注入与恢复 | 首轮完成，`9 PASS / 0 FAIL / 3 BLOCKED` | `scripts/studio_s03_fault_recovery_probe.py` | M09-FIX-03、FIX-M08-001、BUG-S03-001、BUG-S03-002 |
+| 2026-06-21 | S04 资源共享 ACL 与协议转换共享深挖 | 完成，`6 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `ResourceShareServiceTypeRegressionTest#shouldShareProtocolConversionService`；浏览器 `/system` 资源共享弹窗 | BUG-S04-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
+
+S04 新增的 `BUG-S04-001` 纳入 `module-regression`：后续涉及系统资源共享、资源类型枚举、协议转换服务列表或共享资源接收项目可见性的修改，必须复跑协议转换共享单测、前端构建和 `/system` 资源共享弹窗验证。
 
 ## 提交规则
 

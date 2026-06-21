@@ -26,6 +26,7 @@
 | M10-FIX-01 | 导入导出 | 高 | 接收项目导出包包含源项目共享工作流，存在跨项目泄漏风险 | `WorkflowService.java`；`ImportExportController.java` | `StudioInitializationApiRegressionTest#projectExportShouldNotIncludeSharedWorkflowsFromOtherProjects`；接收项目 `/exports/project` 返回 `workflows=[]`；`studio_s01_permission_probe.py` | smoke | 2026-06-21 | `b59e8d5` |
 | BUG-S03-001 | 数据源/故障恢复 | 中 | 数据源连接测试失败和连接历史暴露 Java 异常类前缀 | `AggregationSourceCapabilityProvider.java`；`DatasourceConnectionHealthService.java` | `AggregationSourceCapabilityProviderRegressionTest`；`DatasourceConnectionHealthServiceTest`；`studio_s03_fault_recovery_probe.py` 的 `S03-MYSQL-001`；浏览器数据源页无内部异常标记 | smoke | 2026-06-21 | 本次提交 |
 | BUG-S03-002 | 运维中心 | 中 | 运维中心历史运行异常暴露 Java 异常类前缀 | `OpsCenterService.java` | `OpsCenterServiceRegressionTest`；`studio_s03_fault_recovery_probe.py` 的 `S03-OPS-001`；浏览器运维中心无内部异常标记 | smoke | 2026-06-21 | 本次提交 |
+| BUG-S04-001 | 系统管理/资源共享 | 中 | 协议转换服务已有共享资源类型常量和接收项目访问能力，但系统资源共享后端和前端未接入该类型 | `SystemResourceShareSupport.java`；`SystemManagementService.java`；`SystemView.vue`；`systemViewSupport.ts` | `ResourceShareServiceTypeRegressionTest#shouldShareProtocolConversionService`；`npm run build:web`；`/system` 资源共享弹窗；接收项目 `/protocol-conversions` 可见共享服务 | module-regression | 2026-06-21 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -43,3 +44,4 @@
 | S01 权限隔离与多项目数据泄漏 | M09-FIX-01、M09-FIX-04、M10-FIX-01 |
 | S02 数据正确性与幂等性 | BUG-M05-001、BUG-M06-001、BUG-M06-002 |
 | S03 故障注入与恢复 | BUG-M05-002、FIX-M08-001、M09-FIX-03、BUG-S03-001、BUG-S03-002 |
+| S04 资源共享 ACL 与前后端一致性 | BUG-S04-001 |

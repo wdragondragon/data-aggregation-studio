@@ -6,6 +6,7 @@ export const resourceTypeOptions = [
   { label: "数据开发脚本", value: "DATA_DEVELOPMENT_SCRIPT" },
   { label: "数据服务", value: "DATA_SERVICE" },
   { label: "数据接入服务", value: "DATA_INGESTION_SERVICE" },
+  { label: "协议转换服务", value: "PROTOCOL_CONVERSION_SERVICE" },
 ] as const;
 
 export function normalizeResourceType(value?: string) {

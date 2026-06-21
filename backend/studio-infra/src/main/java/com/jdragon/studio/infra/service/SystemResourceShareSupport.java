@@ -10,6 +10,7 @@ import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
+import com.jdragon.studio.infra.entity.ProtocolConversionServiceEntity;
 import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
@@ -18,6 +19,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DataServiceDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 
 import java.util.List;
@@ -31,6 +33,7 @@ final class SystemResourceShareSupport {
     private final DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
     private final DataServiceDefinitionMapper dataServiceDefinitionMapper;
     private final DataIngestionServiceMapper dataIngestionServiceMapper;
+    private final ProtocolConversionServiceMapper protocolConversionServiceMapper;
     private final NotificationService notificationService;
 
     SystemResourceShareSupport(DatasourceMapper datasourceMapper,
@@ -40,6 +43,7 @@ final class SystemResourceShareSupport {
                                DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
                                DataServiceDefinitionMapper dataServiceDefinitionMapper,
                                DataIngestionServiceMapper dataIngestionServiceMapper,
+                               ProtocolConversionServiceMapper protocolConversionServiceMapper,
                                NotificationService notificationService) {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
@@ -48,6 +52,7 @@ final class SystemResourceShareSupport {
         this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
         this.dataServiceDefinitionMapper = dataServiceDefinitionMapper;
         this.dataIngestionServiceMapper = dataIngestionServiceMapper;
+        this.protocolConversionServiceMapper = protocolConversionServiceMapper;
         this.notificationService = notificationService;
     }
 
@@ -92,6 +97,12 @@ final class SystemResourceShareSupport {
             DataIngestionServiceEntity entity = dataIngestionServiceMapper.selectById(resourceId);
             ensureShareableResource(entity == null ? null : entity.getTenantId(),
                     entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data ingestion service");
+            return;
+        }
+        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
+            ProtocolConversionServiceEntity entity = protocolConversionServiceMapper.selectById(resourceId);
+            ensureShareableResource(entity == null ? null : entity.getTenantId(),
+                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Protocol conversion service");
             return;
         }
         throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
@@ -162,6 +173,10 @@ final class SystemResourceShareSupport {
             DataIngestionServiceEntity entity = dataIngestionServiceMapper.selectById(share.getResourceId());
             return entity == null ? "数据接入服务#" + share.getResourceId() : "数据接入服务 " + entity.getServiceName();
         }
+        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
+            ProtocolConversionServiceEntity entity = protocolConversionServiceMapper.selectById(share.getResourceId());
+            return entity == null ? "协议转换服务#" + share.getResourceId() : "协议转换服务 " + entity.getServiceName();
+        }
         return share.getResourceType() + "#" + share.getResourceId();
     }
 
@@ -190,6 +205,9 @@ final class SystemResourceShareSupport {
         }
         if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
             return "/data-ingestion-services";
+        }
+        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
+            return "/protocol-conversions";
         }
         return "/dashboard";
     }
