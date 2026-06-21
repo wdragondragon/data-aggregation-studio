@@ -74,7 +74,7 @@
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
 | 导入导出/日志 | M10-FIX-01、BUG-S13-001、BUG-S15-001 |
 | 协议转换 Trace/日志 | BUG-S14-001、BUG-S15-001 |
-| 关注/通知 | BUG-S18-001 |
+| 关注/通知 | BUG-S18-001、BUG-S19-001 |
 
 ### nightly-deep
 
@@ -368,6 +368,21 @@
 - 沉淀 `scripts/studio_s18_follow_target_acl_probe.py`。
 - 如发现真实缺陷，补充关注 API 回归测试，并写入缺陷索引。
 
+### S19 通知 Fanout 禁用用户边界
+
+覆盖场景：
+
+- 资源共享、注册/访问申请、模型同步、采集/工作流运行等通知 fan-out 的收件人启用状态。
+- 项目成员 `ACTIVE` 但 `sys_user.enabled=0` 的用户不应收到新的站内通知。
+- `activeProjectMemberUserIds`、`superAdminUserIds` 和 `notifyUsers` 的禁用用户过滤一致性。
+- Browser 复核消息中心和工作流日志页，确认通知相关入口无新前端错误。
+
+验收：
+
+- 产出 `records/20260622-S19通知Fanout禁用用户边界执行记录.md`。
+- 沉淀 `scripts/studio_s19_notification_fanout_acl_probe.py`。
+- 如发现真实缺陷，补充通知服务回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -397,6 +412,7 @@
 | 2026-06-22 | S16 全量 ACL 深挖：元模型管理接口 | 完成，修复前复现普通项目成员可写全局元模型，最近通过批次 `20260622030400`：`11 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s16_acl_deep_probe.py`；`StudioInitializationApiRegressionTest#metadataSchemaWriteApisShouldRejectProjectMember`；浏览器 `/metadata` 管理员/普通成员按钮权限 | BUG-S16-001 |
 | 2026-06-22 | S17 数据源当前表单 ACL 深挖 | 完成，修复前批次 `20260622033528` 复现跨项目当前表单连接测试借用源项目密码，修复后最近通过批次 `20260622034448`：`7 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；浏览器 `/datasources` | BUG-S17-001 |
 | 2026-06-22 | S18 关注目标 ACL 深挖 | 完成，修复前复现接收项目成员可关注不可读工作流运行和不存在工作流，修复后批次 `20260622042659`：`9 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s18_follow_target_acl_probe.py`；`FollowApiRegressionTest#followApisShouldValidateTargetExistenceAndReadableScope`；浏览器 `/notifications` 和 `/runs` | BUG-S18-001 |
+| 2026-06-22 | S19 通知 Fanout 禁用用户边界深挖 | 完成，修复前批次 `20260622050311` 复现禁用用户收到资源共享通知，修复后批次 `20260622050552`：`6 PASS / 0 FAIL / 0 BLOCKED`，S18 探针 `9 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s19_notification_fanout_acl_probe.py`；`NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；浏览器 `/notifications` 和 `/runs` | BUG-S19-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -429,6 +445,8 @@ S16 新增的 `BUG-S16-001` 纳入 `smoke`：后续涉及 `MetaSchemaController`
 S17 新增的 `BUG-S17-001` 纳入 `smoke`：后续涉及 `DataSourceService`、数据源当前表单连接测试、敏感字段保留、数据源共享、数据源连接测试、模型发现或数据源编辑页的修改，必须复跑 S17 探针、`DataSourceApiRegressionTest`、`DataSourceServiceRegressionTest`、S01 权限探针，并用浏览器复核 `/datasources`。
 
 S18 新增的 `BUG-S18-001` 纳入 `smoke`：后续涉及 `FollowSubscriptionService`、关注按钮、通知 fan-out、工作流/采集运行详情、资源共享撤销、目标删除或消息中心的修改，必须复跑 S18 关注目标 ACL 探针、`FollowApiRegressionTest`、S01 权限探针，并用浏览器复核 `/notifications` 和 `/runs`。
+
+S19 新增的 `BUG-S19-001` 纳入 `smoke`：后续涉及 `NotificationService`、资源共享通知、注册/访问申请通知、模型同步/采集/工作流运行通知、SSE 通知流、用户启停用或项目成员状态的修改，必须复跑 S19 通知 fan-out 探针、`NotificationServiceRegressionTest`、`NotificationStreamSecurityRegressionTest`、S18 关注探针、S01 权限探针，并用浏览器复核 `/notifications`。
 
 ## 提交规则
 

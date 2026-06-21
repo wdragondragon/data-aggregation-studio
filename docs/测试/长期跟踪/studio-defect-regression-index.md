@@ -40,6 +40,7 @@
 | BUG-S16-001 | 元模型/ACL | 高 | 项目普通成员可直接调用全局元模型写接口，创建、发布、同步、删除业务/技术/运行参数元模型；前端 `/metadata` 同时暴露写按钮 | `MetaSchemaController.java`；`MetadataSchemasView.vue`；`StudioInitializationApiRegressionTest.java` | `studio_s16_acl_deep_probe.py`；`StudioInitializationApiRegressionTest#metadataSchemaWriteApisShouldRejectProjectMember`；`studio_s01_permission_probe.py`；浏览器 `/metadata` 管理员/普通成员按钮权限 | smoke | 2026-06-22 | 本次提交 |
 | BUG-S17-001 | 数据源/ACL | 高 | 当前表单连接测试 `POST /datasources/test` 按 `request.id` 直接读取旧数据源保留加密密码，接收项目成员可构造源项目数据源 ID 并省略 `password`，借用源项目密码完成连接测试 | `DataSourceService.java`；`DataSourceApiRegressionTest.java`；`DataSourceServiceRegressionTest.java` | `studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；`studio_s01_permission_probe.py`；浏览器 `/datasources` | smoke | 2026-06-22 | 本次提交 |
 | BUG-S18-001 | 关注/ACL | 高 | 关注接口只校验目标类型和 ID 形态，接收项目成员可关注不存在目标或不可读跨项目工作流运行，形成无效个人关注状态和跨项目目标引用 | `FollowSubscriptionService.java`；`FollowApiRegressionTest.java` | `studio_s18_follow_target_acl_probe.py`；`FollowApiRegressionTest#followApisShouldValidateTargetExistenceAndReadableScope`；`studio_s01_permission_probe.py`；浏览器 `/notifications`、`/runs` | smoke | 2026-06-22 | 本次提交 |
+| BUG-S19-001 | 通知/Fanout | 高 | 禁用用户仍为接收项目 ACTIVE 成员时，资源共享通知 fan-out 会向其写入 `studio_notification`，与禁用账号不可登录状态不一致 | `NotificationService.java`；`NotificationServiceRegressionTest.java` | `studio_s19_notification_fanout_acl_probe.py`；`NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；`studio_s18_follow_target_acl_probe.py`；`studio_s01_permission_probe.py`；浏览器 `/notifications` | smoke | 2026-06-22 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -71,3 +72,4 @@
 | S16 全量 ACL 深挖 | BUG-S16-001 |
 | S17 数据源当前表单 ACL 深挖 | BUG-S17-001 |
 | S18 关注目标 ACL 深挖 | BUG-S18-001 |
+| S19 通知 Fanout 禁用用户边界 | BUG-S19-001 |

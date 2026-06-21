@@ -142,3 +142,6 @@
 - 2026-06-22 已完成 S18 关注目标 ACL 深挖：确认并修复关注接口可关注不存在目标或不可读跨项目工作流运行的问题，`BUG-S18-001` 已进入缺陷回归索引。
 - S18 保留长期工作流 `长期回归-S18关注目标ACL流程` / `lt_reg_s18_follow_acl_workflow` / `2068792835765424129`、资源共享 `2068792849027813378`、成功运行 `2068792869038837761`；修复后接收项目成员可关注共享工作流，但不可关注源项目不可读工作流运行或不存在目标，`unfollow` 对不存在目标保持幂等。
 - S18 自动化入口：`docs/测试/长期跟踪/scripts/studio_s18_follow_target_acl_probe.py`。后续涉及 `FollowSubscriptionService`、关注按钮、通知 fan-out、工作流/采集运行详情、资源共享撤销、目标删除或消息中心的修改，至少复跑该脚本、`FollowApiRegressionTest`、`studio_s01_permission_probe.py`，并用浏览器复核 `/notifications` 和 `/runs`。
+- 2026-06-22 已完成 S19 通知 Fanout 禁用用户边界深挖：确认并修复禁用用户仍为接收项目 ACTIVE 成员时，资源共享通知 fan-out 会向其写入 `studio_notification` 的问题，`BUG-S19-001` 已进入缺陷回归索引。
+- S19 保留禁用用户 `长期回归-S19通知禁用账号收件边界` / `lt_reg_s19_disabled_notice_guard` / `2068798093069635586`、接收项目成员 `2068798097205219330`、修复前复现工作流 `2068801954836631553` 与通知 `2068801967083999233`、修复后通过工作流 `2068802632619335682` 与共享 `2068802640785645570`。
+- S19 自动化入口：`docs/测试/长期跟踪/scripts/studio_s19_notification_fanout_acl_probe.py`。后续涉及 `NotificationService`、资源共享通知、注册/访问申请通知、模型同步/采集/工作流运行通知、SSE 通知流或用户启停用逻辑的修改，至少复跑该脚本、`NotificationServiceRegressionTest`、`NotificationStreamSecurityRegressionTest`、S18 关注探针和 S01 权限探针，并用浏览器复核 `/notifications`。

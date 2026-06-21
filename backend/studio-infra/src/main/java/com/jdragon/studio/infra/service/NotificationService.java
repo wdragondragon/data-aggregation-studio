@@ -11,10 +11,12 @@ import com.jdragon.studio.dto.model.request.NotificationQueryRequest;
 import com.jdragon.studio.infra.entity.NotificationEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.RoleEntity;
+import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.UserRoleEntity;
 import com.jdragon.studio.infra.mapper.NotificationMapper;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.RoleMapper;
+import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.UserRoleMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +49,7 @@ public class NotificationService {
 
     private final NotificationMapper notificationMapper;
     private final ProjectMemberMapper projectMemberMapper;
+    private final StudioUserMapper studioUserMapper;
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
     private final StudioSecurityService securityService;
@@ -64,12 +67,14 @@ public class NotificationService {
 
     public NotificationService(NotificationMapper notificationMapper,
                                ProjectMemberMapper projectMemberMapper,
+                               StudioUserMapper studioUserMapper,
                                UserRoleMapper userRoleMapper,
                                RoleMapper roleMapper,
                                StudioSecurityService securityService,
                                ProjectResourceAccessService projectResourceAccessService) {
         this.notificationMapper = notificationMapper;
         this.projectMemberMapper = projectMemberMapper;
+        this.studioUserMapper = studioUserMapper;
         this.userRoleMapper = userRoleMapper;
         this.roleMapper = roleMapper;
         this.securityService = securityService;
@@ -176,8 +181,12 @@ public class NotificationService {
         if (uniqueRecipientIds.isEmpty()) {
             return Collections.emptyList();
         }
+        List<Long> enabledRecipientIds = enabledUserIdsInOrder(uniqueRecipientIds);
+        if (enabledRecipientIds.isEmpty()) {
+            return Collections.emptyList();
+        }
         List<NotificationView> created = new ArrayList<NotificationView>();
-        for (Long recipientUserId : uniqueRecipientIds) {
+        for (Long recipientUserId : enabledRecipientIds) {
             NotificationEntity entity = findByDedupeKey(recipientUserId, command.getDedupeKey());
             if (entity == null) {
                 entity = new NotificationEntity();
@@ -218,7 +227,7 @@ public class NotificationService {
                 userIds.add(member.getUserId());
             }
         }
-        return new ArrayList<Long>(userIds);
+        return enabledUserIdsInOrder(userIds);
     }
 
     public List<Long> superAdminUserIds() {
@@ -236,7 +245,33 @@ public class NotificationService {
                 userIds.add(userRole.getUserId());
             }
         }
-        return new ArrayList<Long>(userIds);
+        return enabledUserIdsInOrder(userIds);
+    }
+
+    private List<Long> enabledUserIdsInOrder(Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<StudioUserEntity> users = studioUserMapper.selectByIds(userIds);
+        if (users == null || users.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<Long> enabledUserIds = new LinkedHashSet<Long>();
+        for (StudioUserEntity user : users) {
+            if (user != null && user.getId() != null && Integer.valueOf(1).equals(user.getEnabled())) {
+                enabledUserIds.add(user.getId());
+            }
+        }
+        if (enabledUserIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> ordered = new ArrayList<Long>();
+        for (Long userId : userIds) {
+            if (enabledUserIds.contains(userId)) {
+                ordered.add(userId);
+            }
+        }
+        return ordered;
     }
 
     public void emitSnapshot(Long userId, String eventName) {
