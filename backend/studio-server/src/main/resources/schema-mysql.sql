@@ -945,10 +945,12 @@ create table if not exists data_service_subscription (
     token_hash varchar(128) not null,
     token_masked varchar(64),
     enabled int default 1,
+    active_subscription_name varchar(255) generated always as (case when enabled = 1 then subscription_name else null end) stored,
     created_by bigint,
     last_used_at datetime,
     rotated_at datetime,
     rotated_by bigint,
+    unique key uk_data_service_sub_active_name (service_id, active_subscription_name),
     key idx_data_service_subscription_service_enabled (service_id, enabled),
     key idx_data_service_subscription_token (token_hash)
 );
@@ -1061,10 +1063,12 @@ create table if not exists data_ingestion_subscription (
     token_hash varchar(128) not null,
     token_masked varchar(64),
     enabled int default 1,
+    active_subscription_name varchar(255) generated always as (case when enabled = 1 then subscription_name else null end) stored,
     created_by bigint,
     last_used_at datetime,
     rotated_at datetime,
     rotated_by bigint,
+    unique key uk_data_ingestion_sub_active_name (service_id, active_subscription_name),
     key idx_data_ingestion_sub_service_enabled (service_id, enabled),
     key idx_data_ingestion_sub_token (token_hash)
 );
@@ -1185,10 +1189,12 @@ create table if not exists protocol_conversion_subscription (
     token_hash varchar(128) not null,
     token_masked varchar(64),
     enabled int default 1,
+    active_subscription_name varchar(255) generated always as (case when enabled = 1 then subscription_name else null end) stored,
     created_by bigint,
     last_used_at datetime,
     rotated_at datetime,
     rotated_by bigint,
+    unique key uk_protocol_conversion_sub_active_name (service_id, active_subscription_name),
     key idx_protocol_conversion_sub_service_enabled (service_id, enabled),
     key idx_protocol_conversion_sub_token (token_hash)
 );

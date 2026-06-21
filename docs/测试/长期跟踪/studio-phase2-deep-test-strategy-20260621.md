@@ -68,7 +68,7 @@
 |---|---|
 | 数据开发 | BUG-M03-001 |
 | 数据服务 | BUG-M04-001、BUG-M04-002 |
-| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001 |
+| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001、BUG-S06-001 |
 | 数据采集 | BUG-M06-001、BUG-M06-002 |
 | 运维中心 | FIX-M08-001 |
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
@@ -176,6 +176,20 @@
 - 产出 `records/20260621-S05协议转换订阅状态一致性深挖执行记录.md`。
 - 如发现真实缺陷，修复、补充协议转换订阅回归测试，并写入缺陷索引。
 
+### S06 订阅并发创建竞态
+
+覆盖场景：
+
+- 数据服务、数据接入、协议转换三类订阅的同名并发创建。
+- 应用层查重与数据库唯一约束在并发下的一致性。
+- 修复前重复启用历史数据的保留与规整。
+
+验收：
+
+- 产出 `records/20260621-S06订阅并发创建竞态深挖执行记录.md`。
+- 沉淀 `scripts/studio_s06_subscription_race_probe.py`，包含运行态 health 与 16 并发创建探针。
+- 如发现真实缺陷，修复 schema upgrade、初始化 SQL、服务层唯一键异常兜底，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -192,12 +206,15 @@
 | 2026-06-21 | S03 故障注入与恢复 | 首轮完成，`9 PASS / 0 FAIL / 3 BLOCKED` | `scripts/studio_s03_fault_recovery_probe.py` | M09-FIX-03、FIX-M08-001、BUG-S03-001、BUG-S03-002 |
 | 2026-06-21 | S04 资源共享 ACL 与协议转换共享深挖 | 完成，`6 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `ResourceShareServiceTypeRegressionTest#shouldShareProtocolConversionService`；浏览器 `/system` 资源共享弹窗 | BUG-S04-001 |
 | 2026-06-21 | S05 协议转换订阅状态一致性深挖 | 完成，`4 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`；浏览器 `/protocol-conversions` 订阅弹窗 | BUG-S05-001 |
+| 2026-06-21 | S06 订阅并发创建竞态深挖 | 完成，`4 PASS / 4 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s06_subscription_race_probe.py`；`SubscriptionTokenRotationRegressionTest`；`StudioSchemaDriftRegressionTest` | BUG-S06-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
 S04 新增的 `BUG-S04-001` 纳入 `module-regression`：后续涉及系统资源共享、资源类型枚举、协议转换服务列表或共享资源接收项目可见性的修改，必须复跑协议转换共享单测、前端构建和 `/system` 资源共享弹窗验证。
 
 S05 新增的 `BUG-S05-001` 纳入 `module-regression`：后续涉及协议转换订阅、Token 轮换、启用/禁用、开放 API 订阅校验或监控订阅方筛选的修改，必须复跑协议转换订阅单测和订阅弹窗/API 状态验证。
+
+S06 新增的 `BUG-S06-001` 纳入 `smoke`：后续涉及数据服务、数据接入、协议转换订阅创建/启用、schema upgrade、订阅表初始化 SQL 或唯一约束的修改，必须复跑 S06 并发探针和订阅回归单测。
 
 ## 提交规则
 

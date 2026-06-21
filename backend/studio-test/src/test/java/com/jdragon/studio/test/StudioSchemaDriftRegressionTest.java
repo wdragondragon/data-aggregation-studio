@@ -277,6 +277,24 @@ class StudioSchemaDriftRegressionTest {
         assertFieldsPresent("Delta datasource connection test record table", delta, DATASOURCE_CONNECTION_TEST_RECORD_COLUMNS);
     }
 
+    @Test
+    void activeSubscriptionUniquenessShouldStayAlignedAcrossSchemaAndUpgrade() throws Exception {
+        String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String upgradeService = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java");
+
+        assertFieldsPresent("MySQL active subscription generated column", mysqlSchema,
+                Arrays.asList("active_subscription_name", "uk_data_service_sub_active_name",
+                        "uk_data_ingestion_sub_active_name", "uk_protocol_conversion_sub_active_name"));
+        assertFieldsPresent("SQLite active subscription partial indexes", sqliteSchema,
+                Arrays.asList("uk_data_ingestion_sub_active_name", "uk_protocol_conversion_sub_active_name",
+                        "where enabled = 1"));
+        assertFieldsPresent("Upgrade active subscription uniqueness", upgradeService,
+                Arrays.asList("ensureActiveSubscriptionUniquenessMysql", "ensureActiveSubscriptionUniquenessSqlite",
+                        "uk_data_service_sub_active_name", "uk_data_ingestion_sub_active_name",
+                        "uk_protocol_conversion_sub_active_name"));
+    }
+
     private void assertHttpCapability(String label, String content) {
         assertThat(content)
                 .as(label)

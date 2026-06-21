@@ -6,6 +6,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.DataServiceSubscriptionView;
+import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
 import com.jdragon.studio.infra.entity.DataIngestionServiceEntity;
 import com.jdragon.studio.infra.entity.DataIngestionSubscriptionEntity;
 import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
@@ -41,7 +42,9 @@ import com.jdragon.studio.infra.service.ProtocolConversionService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.StudioTransformerSupport;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -173,6 +176,72 @@ class SubscriptionTokenRotationRegressionTest {
         assertEquals(Integer.valueOf(0), disabledSubscription.getEnabled());
     }
 
+    @Test
+    void shouldReturnBusinessErrorWhenDataIngestionConcurrentCreateHitsUniqueConstraint() {
+        DataIngestionServiceMapper serviceMapper = mock(DataIngestionServiceMapper.class);
+        DataIngestionSubscriptionMapper subscriptionMapper = mock(DataIngestionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 901L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        DataIngestionService service = dataIngestionService(serviceMapper, subscriptionMapper, securityService, accessService);
+
+        when(serviceMapper.selectById(30L)).thenReturn(dataIngestionDefinition());
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        when(subscriptionMapper.insert(any(DataIngestionSubscriptionEntity.class))).thenThrow(new DuplicateKeyException("duplicate active subscription"));
+
+        StudioException ex = assertThrows(StudioException.class, () -> service.createSubscription(30L, subscriptionRequest()));
+
+        assertEquals(StudioErrorCode.BAD_REQUEST, ex.getCode());
+        assertEquals("Subscription name already exists", ex.getMessage());
+    }
+
+    @Test
+    void shouldReturnBusinessErrorWhenProtocolConversionConcurrentCreateHitsUniqueConstraint() {
+        ProtocolConversionServiceMapper serviceMapper = mock(ProtocolConversionServiceMapper.class);
+        ProtocolConversionSubscriptionMapper subscriptionMapper = mock(ProtocolConversionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 902L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        ProtocolConversionService service = protocolConversionService(serviceMapper, subscriptionMapper, securityService, accessService);
+
+        when(serviceMapper.selectById(50L)).thenReturn(protocolConversionDefinition());
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        when(subscriptionMapper.insert(any(ProtocolConversionSubscriptionEntity.class))).thenThrow(new DuplicateKeyException("duplicate active subscription"));
+
+        StudioException ex = assertThrows(StudioException.class, () -> service.createSubscription(50L, subscriptionRequest()));
+
+        assertEquals(StudioErrorCode.BAD_REQUEST, ex.getCode());
+        assertEquals("Subscription name already exists", ex.getMessage());
+    }
+
+    @Test
+    void shouldRotateExistingDataServiceSubscriptionWhenConcurrentInsertHitsUniqueConstraint() {
+        DataServiceDefinitionMapper definitionMapper = mock(DataServiceDefinitionMapper.class);
+        DataServiceSubscriptionMapper subscriptionMapper = mock(DataServiceSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 900L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        DataServiceService service = dataService(definitionMapper, subscriptionMapper, securityService, accessService);
+
+        DataServiceSubscriptionEntity activeSubscription = dataServiceSubscription("old-active-hash", "old-active-mask");
+        activeSubscription.setId(21L);
+        DataServiceSubscriptionEntity disabledNewerSubscription = dataServiceSubscription("old-disabled-hash", "old-disabled-mask");
+        disabledNewerSubscription.setId(22L);
+        disabledNewerSubscription.setEnabled(0);
+        when(definitionMapper.selectById(10L)).thenReturn(dataServiceDefinition());
+        when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.emptyList())
+                .thenReturn(Arrays.asList(disabledNewerSubscription, activeSubscription));
+        when(subscriptionMapper.insert(any(DataServiceSubscriptionEntity.class))).thenThrow(new DuplicateKeyException("duplicate active subscription"));
+        when(subscriptionMapper.updateById(any(DataServiceSubscriptionEntity.class))).thenReturn(1);
+
+        DataServiceSubscriptionView created = service.createSubscription(10L, subscriptionRequest());
+
+        assertNotNull(created.getToken());
+        assertEquals(Long.valueOf(21L), created.getId());
+        assertEquals(Integer.valueOf(1), activeSubscription.getEnabled());
+        assertEquals(Integer.valueOf(0), disabledNewerSubscription.getEnabled());
+        assertNotEquals("old-active-hash", activeSubscription.getTokenHash());
+        assertEquals(Long.valueOf(900L), activeSubscription.getRotatedBy());
+    }
+
     private DataServiceService dataService(DataServiceDefinitionMapper definitionMapper,
                                            DataServiceSubscriptionMapper subscriptionMapper,
                                            StudioSecurityService securityService,
@@ -239,6 +308,12 @@ class SubscriptionTokenRotationRegressionTest {
         when(securityService.currentTenantId()).thenReturn(tenantId);
         when(securityService.currentUserId()).thenReturn(userId);
         return securityService;
+    }
+
+    private DataServiceSubscriptionCreateRequest subscriptionRequest() {
+        DataServiceSubscriptionCreateRequest request = new DataServiceSubscriptionCreateRequest();
+        request.setSubscriptionName("client-a");
+        return request;
     }
 
     private DataServiceDefinitionEntity dataServiceDefinition() {

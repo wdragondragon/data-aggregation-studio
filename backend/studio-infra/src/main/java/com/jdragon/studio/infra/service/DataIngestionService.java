@@ -35,6 +35,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionSubscriptionMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -444,7 +445,11 @@ public class DataIngestionService {
         entity.setTokenMasked(tokenSupport.maskToken(token));
         entity.setEnabled(Integer.valueOf(1));
         entity.setCreatedBy(securityService.currentUserId());
-        subscriptionMapper.insert(entity);
+        try {
+            subscriptionMapper.insert(entity);
+        } catch (DuplicateKeyException ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name already exists");
+        }
         return toSubscriptionView(entity, token);
     }
 
@@ -483,7 +488,11 @@ public class DataIngestionService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Another enabled subscription with the same name already exists");
         }
         entity.setEnabled(Integer.valueOf(1));
-        subscriptionMapper.updateById(entity);
+        try {
+            subscriptionMapper.updateById(entity);
+        } catch (DuplicateKeyException ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Another enabled subscription with the same name already exists");
+        }
         return toSubscriptionView(entity, null);
     }
 

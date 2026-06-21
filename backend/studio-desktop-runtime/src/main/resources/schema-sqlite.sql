@@ -708,6 +708,8 @@ create table if not exists data_ingestion_subscription (
 
 create index if not exists idx_data_ingestion_sub_service_enabled
     on data_ingestion_subscription(service_id, enabled);
+create unique index if not exists uk_data_ingestion_sub_active_name
+    on data_ingestion_subscription(service_id, subscription_name) where enabled = 1;
 create index if not exists idx_data_ingestion_sub_token
     on data_ingestion_subscription(token_hash);
 
@@ -848,6 +850,8 @@ create table if not exists protocol_conversion_subscription (
 
 create index if not exists idx_protocol_conversion_sub_service_enabled
     on protocol_conversion_subscription(service_id, enabled);
+create unique index if not exists uk_protocol_conversion_sub_active_name
+    on protocol_conversion_subscription(service_id, subscription_name) where enabled = 1;
 create index if not exists idx_protocol_conversion_sub_token
     on protocol_conversion_subscription(token_hash);
 

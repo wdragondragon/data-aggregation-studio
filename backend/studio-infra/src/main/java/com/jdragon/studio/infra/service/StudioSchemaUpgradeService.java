@@ -2125,6 +2125,7 @@ public class StudioSchemaUpgradeService {
                 "alter table data_service_subscription add column rotated_at datetime");
         ensureColumn("data_service_subscription", "rotated_by",
                 "alter table data_service_subscription add column rotated_by bigint");
+        ensureActiveSubscriptionUniquenessMysql("data_service_subscription", "uk_data_service_sub_active_name");
         ensureIndex("data_service_subscription", "idx_data_service_subscription_service_enabled",
                 "alter table data_service_subscription add key idx_data_service_subscription_service_enabled (service_id, enabled)");
         ensureIndex("data_service_subscription", "idx_data_service_subscription_token",
@@ -2349,6 +2350,7 @@ public class StudioSchemaUpgradeService {
                 "alter table data_service_subscription add column rotated_at text");
         ensureColumn("data_service_subscription", "rotated_by",
                 "alter table data_service_subscription add column rotated_by integer");
+        ensureActiveSubscriptionUniquenessSqlite("data_service_subscription", "uk_data_service_sub_active_name");
         jdbcTemplate.execute("create index if not exists idx_data_service_subscription_service_enabled on data_service_subscription(service_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_data_service_subscription_token on data_service_subscription(token_hash)");
 
@@ -2515,6 +2517,7 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_subscription add column rotated_at datetime");
         ensureColumn("data_ingestion_subscription", "rotated_by",
                 "alter table data_ingestion_subscription add column rotated_by bigint");
+        ensureActiveSubscriptionUniquenessMysql("data_ingestion_subscription", "uk_data_ingestion_sub_active_name");
         ensureIndex("data_ingestion_subscription", "idx_data_ingestion_sub_service_enabled",
                 "alter table data_ingestion_subscription add key idx_data_ingestion_sub_service_enabled (service_id, enabled)");
         ensureIndex("data_ingestion_subscription", "idx_data_ingestion_sub_token",
@@ -2665,6 +2668,7 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_subscription add column rotated_at text");
         ensureColumn("data_ingestion_subscription", "rotated_by",
                 "alter table data_ingestion_subscription add column rotated_by integer");
+        ensureActiveSubscriptionUniquenessSqlite("data_ingestion_subscription", "uk_data_ingestion_sub_active_name");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_sub_service_enabled on data_ingestion_subscription(service_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_sub_token on data_ingestion_subscription(token_hash)");
 
@@ -2841,6 +2845,7 @@ public class StudioSchemaUpgradeService {
                 "alter table protocol_conversion_subscription add column rotated_at datetime");
         ensureColumn("protocol_conversion_subscription", "rotated_by",
                 "alter table protocol_conversion_subscription add column rotated_by bigint");
+        ensureActiveSubscriptionUniquenessMysql("protocol_conversion_subscription", "uk_protocol_conversion_sub_active_name");
         ensureIndex("protocol_conversion_subscription", "idx_protocol_conversion_sub_service_enabled",
                 "alter table protocol_conversion_subscription add key idx_protocol_conversion_sub_service_enabled (service_id, enabled)");
         ensureIndex("protocol_conversion_subscription", "idx_protocol_conversion_sub_token",
@@ -3038,6 +3043,7 @@ public class StudioSchemaUpgradeService {
                 "alter table protocol_conversion_subscription add column rotated_at text");
         ensureColumn("protocol_conversion_subscription", "rotated_by",
                 "alter table protocol_conversion_subscription add column rotated_by integer");
+        ensureActiveSubscriptionUniquenessSqlite("protocol_conversion_subscription", "uk_protocol_conversion_sub_active_name");
         jdbcTemplate.execute("create index if not exists idx_protocol_conversion_sub_service_enabled on protocol_conversion_subscription(service_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_protocol_conversion_sub_token on protocol_conversion_subscription(token_hash)");
 
@@ -3182,6 +3188,33 @@ public class StudioSchemaUpgradeService {
             jdbcTemplate.execute("drop index if exists uk_data_model_project_datasource_name");
             jdbcTemplate.execute("create unique index if not exists uk_data_model_project_datasource_name on data_model(project_id, datasource_id, name)");
         }
+    }
+
+    private void ensureActiveSubscriptionUniquenessMysql(String tableName, String indexName) {
+        if (!tableExists(tableName)) {
+            return;
+        }
+        deduplicateEnabledSubscriptions(tableName);
+        ensureColumn(tableName, "active_subscription_name",
+                "alter table " + tableName + " add column active_subscription_name varchar(255) generated always as " +
+                        "(case when enabled = 1 then subscription_name else null end) stored");
+        ensureIndex(tableName, indexName,
+                "alter table " + tableName + " add unique key " + indexName + " (service_id, active_subscription_name)");
+    }
+
+    private void ensureActiveSubscriptionUniquenessSqlite(String tableName, String indexName) {
+        if (!tableExists(tableName)) {
+            return;
+        }
+        deduplicateEnabledSubscriptions(tableName);
+        jdbcTemplate.execute("create unique index if not exists " + indexName + " on " + tableName +
+                "(service_id, subscription_name) where enabled = 1");
+    }
+
+    private void deduplicateEnabledSubscriptions(String tableName) {
+        jdbcTemplate.update("update " + tableName + " set enabled=0 where enabled=1 and id not in (" +
+                "select keep_id from (select max(id) as keep_id from " + tableName +
+                " where enabled=1 group by service_id, subscription_name) subscription_keep)");
     }
 
     private boolean tableExists(String tableName) {

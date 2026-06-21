@@ -96,3 +96,6 @@
 - 2026-06-21 已完成 S05 协议转换订阅状态一致性深挖：确认并修复协议转换订阅停用后同名新订阅启用，再重新启用旧订阅时可形成两个同名启用订阅的问题，`BUG-S05-001` 已进入缺陷回归索引。
 - S05 保留订阅状态探针数据：修复前复现批次 `长期回归-S05协议转换重名防护-20260621185034`，修复后回归批次 `长期回归-S05协议转换重名修复回归-20260621185651`；长期协议转换服务仍为 `长期回归-Studio健康检查协议转换` / `2068145027555180546`。
 - S05 回归入口：`SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`、协议转换订阅 API 重复启用探针、浏览器 `/protocol-conversions` 订阅弹窗。后续涉及协议转换订阅、Token 轮换、启用/禁用或监控订阅方筛选的修改，至少复跑这些入口。
+- 2026-06-21 已完成 S06 订阅并发创建竞态深挖：确认并修复数据服务、数据接入、协议转换三类订阅同名并发创建缺少持久层启用唯一约束的问题，`BUG-S06-001` 已进入缺陷回归索引。
+- S06 保留并发订阅数据：修复前失败批次 `20260621191149`，修复后回归批次 `20260621193112`、`20260621193757`、`20260621193853`、`20260621194451`；修复前重复启用历史已通过 schema upgrade 规整为每组仅 1 条启用，历史记录不删除。
+- S06 自动化入口：`docs/测试/长期跟踪/scripts/studio_s06_subscription_race_probe.py`。后续涉及数据服务/数据接入/协议转换订阅创建、启用唯一约束、schema upgrade 或初始化 SQL 的修改，至少复跑该脚本、`SubscriptionTokenRotationRegressionTest` 和 `StudioSchemaDriftRegressionTest`。

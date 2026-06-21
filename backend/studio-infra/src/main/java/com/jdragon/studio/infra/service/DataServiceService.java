@@ -41,6 +41,7 @@ import com.jdragon.studio.infra.mapper.DataServicePublishParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceRequestParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceResponseParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -467,27 +468,10 @@ public class DataServiceService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name is required");
         }
         String subscriptionName = request.getSubscriptionName().trim();
-        List<DataServiceSubscriptionEntity> duplicates = subscriptionMapper.selectList(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
-                .eq(DataServiceSubscriptionEntity::getServiceId, service.getId())
-                .eq(DataServiceSubscriptionEntity::getSubscriptionName, subscriptionName)
-                .orderByDesc(DataServiceSubscriptionEntity::getId));
+        List<DataServiceSubscriptionEntity> duplicates = findSubscriptionsByName(service.getId(), subscriptionName);
         String token = dataServiceTokenSupport.generateSubscriptionToken();
         if (duplicates != null && !duplicates.isEmpty()) {
-            DataServiceSubscriptionEntity entity = duplicates.get(0);
-            entity.setTokenHash(dataServiceTokenSupport.hashToken(token));
-            entity.setTokenMasked(dataServiceTokenSupport.maskToken(token));
-            entity.setEnabled(1);
-            entity.setCreatedBy(securityService.currentUserId());
-            entity.setLastUsedAt(null);
-            entity.setRotatedAt(LocalDateTime.now());
-            entity.setRotatedBy(securityService.currentUserId());
-            subscriptionMapper.updateById(entity);
-            for (int index = 1; index < duplicates.size(); index++) {
-                DataServiceSubscriptionEntity duplicate = duplicates.get(index);
-                duplicate.setEnabled(0);
-                subscriptionMapper.updateById(duplicate);
-            }
-            return toSubscriptionView(entity, token);
+            return rotateExistingSubscription(duplicates, token);
         }
         DataServiceSubscriptionEntity entity = new DataServiceSubscriptionEntity();
         entity.setTenantId(service.getTenantId());
@@ -498,7 +482,15 @@ public class DataServiceService {
         entity.setTokenMasked(dataServiceTokenSupport.maskToken(token));
         entity.setEnabled(1);
         entity.setCreatedBy(securityService.currentUserId());
-        subscriptionMapper.insert(entity);
+        try {
+            subscriptionMapper.insert(entity);
+        } catch (DuplicateKeyException ex) {
+            List<DataServiceSubscriptionEntity> latestDuplicates = findSubscriptionsByName(service.getId(), subscriptionName);
+            if (latestDuplicates != null && !latestDuplicates.isEmpty()) {
+                return rotateExistingSubscription(latestDuplicates, token);
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name already exists");
+        }
         return toSubscriptionView(entity, token);
     }
 
@@ -537,8 +529,61 @@ public class DataServiceService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Another enabled subscription with the same name already exists");
         }
         entity.setEnabled(1);
-        subscriptionMapper.updateById(entity);
+        try {
+            subscriptionMapper.updateById(entity);
+        } catch (DuplicateKeyException ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Another enabled subscription with the same name already exists");
+        }
         return toSubscriptionView(entity, null);
+    }
+
+    private List<DataServiceSubscriptionEntity> findSubscriptionsByName(Long serviceId, String subscriptionName) {
+        return subscriptionMapper.selectList(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
+                .eq(DataServiceSubscriptionEntity::getServiceId, serviceId)
+                .eq(DataServiceSubscriptionEntity::getSubscriptionName, subscriptionName)
+                .orderByDesc(DataServiceSubscriptionEntity::getId));
+    }
+
+    private DataServiceSubscriptionView rotateExistingSubscription(List<DataServiceSubscriptionEntity> duplicates, String token) {
+        DataServiceSubscriptionEntity entity = reusableSubscription(duplicates);
+        for (DataServiceSubscriptionEntity duplicate : duplicates) {
+            if (!sameId(duplicate.getId(), entity.getId()) && duplicate.getEnabled() != null && duplicate.getEnabled().intValue() == 1) {
+                duplicate.setEnabled(0);
+                subscriptionMapper.updateById(duplicate);
+            }
+        }
+        entity.setTokenHash(dataServiceTokenSupport.hashToken(token));
+        entity.setTokenMasked(dataServiceTokenSupport.maskToken(token));
+        entity.setEnabled(1);
+        entity.setCreatedBy(securityService.currentUserId());
+        entity.setLastUsedAt(null);
+        entity.setRotatedAt(LocalDateTime.now());
+        entity.setRotatedBy(securityService.currentUserId());
+        try {
+            subscriptionMapper.updateById(entity);
+        } catch (DuplicateKeyException ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name already exists");
+        }
+        for (DataServiceSubscriptionEntity duplicate : duplicates) {
+            if (!sameId(duplicate.getId(), entity.getId()) && (duplicate.getEnabled() == null || duplicate.getEnabled().intValue() != 0)) {
+                duplicate.setEnabled(0);
+                subscriptionMapper.updateById(duplicate);
+            }
+        }
+        return toSubscriptionView(entity, token);
+    }
+
+    private DataServiceSubscriptionEntity reusableSubscription(List<DataServiceSubscriptionEntity> duplicates) {
+        for (DataServiceSubscriptionEntity duplicate : duplicates) {
+            if (duplicate.getEnabled() != null && duplicate.getEnabled().intValue() == 1) {
+                return duplicate;
+            }
+        }
+        return duplicates.get(0);
+    }
+
+    private boolean sameId(Long left, Long right) {
+        return left != null && left.equals(right);
     }
 
     private String buildInvocationSystemLog(DataServiceDefinitionEntity service,
