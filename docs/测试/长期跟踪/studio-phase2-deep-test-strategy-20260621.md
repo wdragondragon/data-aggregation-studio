@@ -68,7 +68,7 @@
 |---|---|
 | 数据开发 | BUG-M03-001 |
 | 数据服务 | BUG-M04-001、BUG-M04-002 |
-| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002 |
+| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001 |
 | 数据采集 | BUG-M06-001、BUG-M06-002 |
 | 运维中心 | FIX-M08-001 |
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
@@ -163,6 +163,19 @@
 - 产出 `records/20260621-S03故障注入与恢复执行记录.md`。
 - 至少完成 Worker、Redis、MySQL 三类场景的可执行性评估，其中安全场景必须实际验证。
 
+### S05 协议转换订阅状态一致性
+
+覆盖场景：
+
+- 协议转换订阅创建、停用、重新启用的状态一致性。
+- 同服务同名订阅在“停用旧订阅后创建新订阅，再启用旧订阅”路径下的唯一启用约束。
+- API 状态、浏览器订阅弹窗、长期保留订阅数据的一致性。
+
+验收：
+
+- 产出 `records/20260621-S05协议转换订阅状态一致性深挖执行记录.md`。
+- 如发现真实缺陷，修复、补充协议转换订阅回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -178,10 +191,13 @@
 | 2026-06-21 | S02 数据正确性与幂等性 | 首轮完成，`17 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s02_data_correctness_probe.py` | BUG-M05-001、BUG-M05-002、BUG-M06-001、BUG-M06-002 |
 | 2026-06-21 | S03 故障注入与恢复 | 首轮完成，`9 PASS / 0 FAIL / 3 BLOCKED` | `scripts/studio_s03_fault_recovery_probe.py` | M09-FIX-03、FIX-M08-001、BUG-S03-001、BUG-S03-002 |
 | 2026-06-21 | S04 资源共享 ACL 与协议转换共享深挖 | 完成，`6 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `ResourceShareServiceTypeRegressionTest#shouldShareProtocolConversionService`；浏览器 `/system` 资源共享弹窗 | BUG-S04-001 |
+| 2026-06-21 | S05 协议转换订阅状态一致性深挖 | 完成，`4 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`；浏览器 `/protocol-conversions` 订阅弹窗 | BUG-S05-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
 S04 新增的 `BUG-S04-001` 纳入 `module-regression`：后续涉及系统资源共享、资源类型枚举、协议转换服务列表或共享资源接收项目可见性的修改，必须复跑协议转换共享单测、前端构建和 `/system` 资源共享弹窗验证。
+
+S05 新增的 `BUG-S05-001` 纳入 `module-regression`：后续涉及协议转换订阅、Token 轮换、启用/禁用、开放 API 订阅校验或监控订阅方筛选的修改，必须复跑协议转换订阅单测和订阅弹窗/API 状态验证。
 
 ## 提交规则
 

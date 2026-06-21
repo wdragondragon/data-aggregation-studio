@@ -93,3 +93,6 @@
 - 2026-06-21 已完成 S04 资源共享 ACL 与协议转换共享深挖：确认并修复协议转换服务无法通过系统资源共享发布给接收项目的问题，`BUG-S04-001` 已进入缺陷回归索引。
 - S04 保留资源共享 `2068643969963360257`：将协议转换服务 `长期回归-Studio健康检查协议转换` / `2068145027555180546` 从长期项目共享到接收项目；接收项目成员查询 `/protocol-conversions` 可见该共享服务。
 - S04 回归入口：`ResourceShareServiceTypeRegressionTest#shouldShareProtocolConversionService`、`npm run build:web`、`/system` 资源共享弹窗，以及接收项目 `/protocol-conversions` 共享可见性 API 探针。后续涉及资源共享、协议转换服务、系统管理共享枚举或接收项目资源可见性的修改，至少复跑这些入口。
+- 2026-06-21 已完成 S05 协议转换订阅状态一致性深挖：确认并修复协议转换订阅停用后同名新订阅启用，再重新启用旧订阅时可形成两个同名启用订阅的问题，`BUG-S05-001` 已进入缺陷回归索引。
+- S05 保留订阅状态探针数据：修复前复现批次 `长期回归-S05协议转换重名防护-20260621185034`，修复后回归批次 `长期回归-S05协议转换重名修复回归-20260621185651`；长期协议转换服务仍为 `长期回归-Studio健康检查协议转换` / `2068145027555180546`。
+- S05 回归入口：`SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`、协议转换订阅 API 重复启用探针、浏览器 `/protocol-conversions` 订阅弹窗。后续涉及协议转换订阅、Token 轮换、启用/禁用或监控订阅方筛选的修改，至少复跑这些入口。

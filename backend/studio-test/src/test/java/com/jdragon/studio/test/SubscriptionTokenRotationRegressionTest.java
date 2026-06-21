@@ -10,6 +10,8 @@ import com.jdragon.studio.infra.entity.DataIngestionServiceEntity;
 import com.jdragon.studio.infra.entity.DataIngestionSubscriptionEntity;
 import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
 import com.jdragon.studio.infra.entity.DataServiceSubscriptionEntity;
+import com.jdragon.studio.infra.entity.ProtocolConversionServiceEntity;
+import com.jdragon.studio.infra.entity.ProtocolConversionSubscriptionEntity;
 import com.jdragon.studio.infra.mapper.DataIngestionAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
@@ -21,6 +23,10 @@ import com.jdragon.studio.infra.mapper.DataServicePublishParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceRequestParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceResponseParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionAccessCounterMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionSubscriptionMapper;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.DataDevelopmentSqlExecutor;
 import com.jdragon.studio.infra.service.DataIngestionService;
@@ -31,6 +37,7 @@ import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.ProtocolConversionService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.StudioTransformerSupport;
 import org.junit.jupiter.api.Test;
@@ -144,6 +151,28 @@ class SubscriptionTokenRotationRegressionTest {
         assertEquals("历史 Token 不可查看，请重新生成", listed.getTokenMasked());
     }
 
+    @Test
+    void shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled() {
+        ProtocolConversionServiceMapper serviceMapper = mock(ProtocolConversionServiceMapper.class);
+        ProtocolConversionSubscriptionMapper subscriptionMapper = mock(ProtocolConversionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 902L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        ProtocolConversionService service = protocolConversionService(serviceMapper, subscriptionMapper, securityService, accessService);
+
+        ProtocolConversionServiceEntity definition = protocolConversionDefinition();
+        ProtocolConversionSubscriptionEntity disabledSubscription = protocolConversionSubscription(60L, 0);
+        ProtocolConversionSubscriptionEntity activeDuplicate = protocolConversionSubscription(61L, 1);
+        when(serviceMapper.selectById(50L)).thenReturn(definition);
+        when(subscriptionMapper.selectById(60L)).thenReturn(disabledSubscription);
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(activeDuplicate);
+
+        StudioException ex = assertThrows(StudioException.class, () -> service.enableSubscription(50L, 60L));
+
+        assertEquals(StudioErrorCode.BAD_REQUEST, ex.getCode());
+        assertEquals("Another enabled subscription with the same name already exists", ex.getMessage());
+        assertEquals(Integer.valueOf(0), disabledSubscription.getEnabled());
+    }
+
     private DataServiceService dataService(DataServiceDefinitionMapper definitionMapper,
                                            DataServiceSubscriptionMapper subscriptionMapper,
                                            StudioSecurityService securityService,
@@ -188,6 +217,23 @@ class SubscriptionTokenRotationRegressionTest {
         );
     }
 
+    private ProtocolConversionService protocolConversionService(ProtocolConversionServiceMapper serviceMapper,
+                                                                ProtocolConversionSubscriptionMapper subscriptionMapper,
+                                                                StudioSecurityService securityService,
+                                                                ProjectResourceAccessService accessService) {
+        return new ProtocolConversionService(
+                serviceMapper,
+                subscriptionMapper,
+                mock(ProtocolConversionAccessLogMapper.class),
+                mock(ProtocolConversionAccessCounterMapper.class),
+                mock(DataSourceService.class),
+                securityService,
+                accessService,
+                new ObjectMapper(),
+                mock(OpenServiceInvocationLogService.class)
+        );
+    }
+
     private StudioSecurityService security(String tenantId, Long userId) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         when(securityService.currentTenantId()).thenReturn(tenantId);
@@ -206,6 +252,14 @@ class SubscriptionTokenRotationRegressionTest {
     private DataIngestionServiceEntity dataIngestionDefinition() {
         DataIngestionServiceEntity entity = new DataIngestionServiceEntity();
         entity.setId(30L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        return entity;
+    }
+
+    private ProtocolConversionServiceEntity protocolConversionDefinition() {
+        ProtocolConversionServiceEntity entity = new ProtocolConversionServiceEntity();
+        entity.setId(50L);
         entity.setTenantId("default");
         entity.setProjectId(100L);
         return entity;
@@ -230,6 +284,17 @@ class SubscriptionTokenRotationRegressionTest {
         entity.setTokenMasked(tokenMasked);
         entity.setSubscriptionName("client-a");
         entity.setEnabled(1);
+        return entity;
+    }
+
+    private ProtocolConversionSubscriptionEntity protocolConversionSubscription(Long id, Integer enabled) {
+        ProtocolConversionSubscriptionEntity entity = new ProtocolConversionSubscriptionEntity();
+        entity.setId(id);
+        entity.setServiceId(50L);
+        entity.setTokenHash("hash-" + id);
+        entity.setTokenMasked("masked-" + id);
+        entity.setSubscriptionName("client-a");
+        entity.setEnabled(enabled);
         return entity;
     }
 }

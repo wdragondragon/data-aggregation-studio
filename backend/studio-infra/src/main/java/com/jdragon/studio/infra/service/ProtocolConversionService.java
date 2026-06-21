@@ -1196,6 +1196,15 @@ public class ProtocolConversionService {
     @Transactional
     public ProtocolConversionSubscriptionView enableSubscription(Long serviceId, Long subscriptionId) {
         ProtocolConversionSubscriptionEntity entity = requireSubscription(serviceId, subscriptionId);
+        ProtocolConversionSubscriptionEntity activeDuplicate = subscriptionMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>()
+                .eq(ProtocolConversionSubscriptionEntity::getServiceId, serviceId)
+                .eq(ProtocolConversionSubscriptionEntity::getSubscriptionName, entity.getSubscriptionName())
+                .eq(ProtocolConversionSubscriptionEntity::getEnabled, 1)
+                .ne(ProtocolConversionSubscriptionEntity::getId, subscriptionId)
+                .last("limit 1"));
+        if (activeDuplicate != null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Another enabled subscription with the same name already exists");
+        }
         entity.setEnabled(Integer.valueOf(1));
         subscriptionMapper.updateById(entity);
         return toSubscriptionView(entity, null);
