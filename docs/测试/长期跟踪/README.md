@@ -102,3 +102,6 @@
 - 2026-06-21 已完成 S07 订阅 Token 生命周期并发一致性深挖：确认并修复三类开放调用刷新订阅 `lastUsedAt` 使用整行 `updateById`，并发轮换/禁用时可能写回旧 token 或启用状态的问题，`BUG-S07-001` 已进入缺陷回归索引。
 - S07 保留 Token 生命周期数据：最终回归批次 `20260621200343`，以及脚本校准/基线批次 `20260621195808`、`20260621195908`、`20260621200009`；所有订阅和接入流水保留不清理。
 - S07 自动化入口：`docs/测试/长期跟踪/scripts/studio_s07_subscription_token_lifecycle_probe.py`。后续涉及数据服务/数据接入/协议转换开放调用、订阅 Token 轮换、禁用、启用或访问时间刷新逻辑的修改，至少复跑该脚本和 `SubscriptionTokenRotationRegressionTest`。
+- 2026-06-21 已完成 S08 手动触发并发去重与运行记录一致性深挖：确认并修复采集任务、质量任务、工作流手动触发缺少同实例并发互斥导致重复调度的问题，`BUG-S08-001` 已进入缺陷回归索引。
+- S08 保留手动触发并发数据：修复前复现批次 `20260621201511` 附近，采集/质量/工作流均出现 8 个调度单元；修复后最终回归批次 `20260621210725`，三类对象均为 1 成功、7 个 `BAD_REQUEST`、1 个调度单元。
+- S08 自动化入口：`docs/测试/长期跟踪/scripts/studio_s08_manual_trigger_race_probe.py`。后续涉及 `DispatchService`、`ClusterLockService`、采集/质量/工作流手动触发、运行记录或 Worker 调度锁的修改，至少复跑该脚本、`DispatchServiceOverlapRegressionTest` 和 `ClusterLockServiceRegressionTest`。

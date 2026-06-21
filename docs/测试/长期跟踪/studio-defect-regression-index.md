@@ -30,6 +30,7 @@
 | BUG-S05-001 | 协议转换/订阅 | 中 | 协议转换订阅停用后可创建同名新订阅，但重新启用旧订阅时未检查同名启用订阅，导致同一服务出现多个同名启用订阅 | `ProtocolConversionService.java` | `SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`；协议转换订阅 API 重复启用探针；浏览器 `/protocol-conversions` 订阅弹窗 | module-regression | 2026-06-21 | 本次提交 |
 | BUG-S06-001 | 数据服务/数据接入/协议转换订阅 | 高 | 三类服务订阅同名并发创建只有应用层查重，缺少启用状态持久层唯一约束，可形成多条同名启用订阅 | `DataServiceService.java`；`DataIngestionService.java`；`ProtocolConversionService.java`；`StudioSchemaUpgradeService.java`；`schema-mysql.sql`；`schema-sqlite.sql` | `studio_s06_subscription_race_probe.py`；`SubscriptionTokenRotationRegressionTest`；`StudioSchemaDriftRegressionTest`；浏览器 `/protocol-conversions` 订阅弹窗 | smoke | 2026-06-21 | 本次提交 |
 | BUG-S07-001 | 数据服务/数据接入/协议转换订阅 | 高 | 开放调用刷新订阅 `lastUsedAt` 使用整行 `updateById`，并发轮换/禁用时可能写回旧 token 或启用状态 | `DataServiceService.java`；`DataIngestionService.java`；`ProtocolConversionService.java` | `studio_s07_subscription_token_lifecycle_probe.py`；`SubscriptionTokenRotationRegressionTest#shouldRefresh*LastUsedAtWithoutOverwritingTokenState` | smoke | 2026-06-21 | 本次提交 |
+| BUG-S08-001 | 调度/手动触发并发 | 高 | 采集任务、质量任务、工作流手动触发缺少同实例并发互斥，已有集群锁允许同一实例重入，可产生重复调度和重复运行记录 | `DispatchService.java`；`ClusterLockService.java` | `studio_s08_manual_trigger_race_probe.py`；`DispatchServiceOverlapRegressionTest`；`ClusterLockServiceRegressionTest`；浏览器 `/runs` 工作流日志页 | smoke | 2026-06-21 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -51,3 +52,4 @@
 | S05 协议转换订阅状态一致性 | BUG-S05-001 |
 | S06 订阅并发创建竞态 | BUG-S06-001 |
 | S07 订阅 Token 生命周期并发一致性 | BUG-S07-001 |
+| S08 手动触发并发去重与运行记录一致性 | BUG-S08-001 |

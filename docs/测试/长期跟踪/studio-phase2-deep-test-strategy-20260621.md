@@ -204,6 +204,20 @@
 - 沉淀 `scripts/studio_s07_subscription_token_lifecycle_probe.py`。
 - 如发现真实缺陷，修复服务层状态刷新，补充订阅回归测试，并写入缺陷索引。
 
+### S08 手动触发并发去重与运行记录一致性
+
+覆盖场景：
+
+- 采集任务、质量任务、工作流三类手动触发/立即执行入口。
+- 同一业务对象 8 路并发触发时的 API 响应、`dispatch_task`、`run_record`、工作流运行单元一致性。
+- 同一 Server 实例内锁重入、快速双击、短任务快速完成后的重复触发风险。
+
+验收：
+
+- 产出 `records/20260621-S08手动触发并发去重与运行记录一致性深挖执行记录.md`。
+- 沉淀 `scripts/studio_s08_manual_trigger_race_probe.py`。
+- 如发现真实缺陷，修复调度服务和锁服务，补充调度重叠回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -222,6 +236,7 @@
 | 2026-06-21 | S05 协议转换订阅状态一致性深挖 | 完成，`4 PASS / 2 FAIL(已修复) / 0 BLOCKED` | `SubscriptionTokenRotationRegressionTest#shouldRejectProtocolConversionEnableWhenSameNameAlreadyEnabled`；浏览器 `/protocol-conversions` 订阅弹窗 | BUG-S05-001 |
 | 2026-06-21 | S06 订阅并发创建竞态深挖 | 完成，`4 PASS / 4 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s06_subscription_race_probe.py`；`SubscriptionTokenRotationRegressionTest`；`StudioSchemaDriftRegressionTest` | BUG-S06-001 |
 | 2026-06-21 | S07 订阅 Token 生命周期并发一致性深挖 | 完成，`4 PASS / 1 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s07_subscription_token_lifecycle_probe.py`；`SubscriptionTokenRotationRegressionTest` | BUG-S07-001 |
+| 2026-06-21 | S08 手动触发并发去重与运行记录一致性深挖 | 完成，`6 PASS / 4 FAIL(已修复) / 0 BLOCKED`，最终脚本 `4 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s08_manual_trigger_race_probe.py`；`DispatchServiceOverlapRegressionTest`；`ClusterLockServiceRegressionTest` | BUG-S08-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -232,6 +247,8 @@ S05 新增的 `BUG-S05-001` 纳入 `module-regression`：后续涉及协议转�
 S06 新增的 `BUG-S06-001` 纳入 `smoke`：后续涉及数据服务、数据接入、协议转换订阅创建/启用、schema upgrade、订阅表初始化 SQL 或唯一约束的修改，必须复跑 S06 并发探针和订阅回归单测。
 
 S07 新增的 `BUG-S07-001` 纳入 `smoke`：后续涉及数据服务、数据接入、协议转换开放调用、订阅 Token 轮换/禁用/启用或 `lastUsedAt` 刷新的修改，必须复跑 S07 生命周期探针和订阅回归单测。
+
+S08 新增的 `BUG-S08-001` 纳入 `smoke`：后续涉及 `DispatchService`、`ClusterLockService`、采集/质量/工作流手动触发、运行记录、Worker 调度锁或活跃运行判定的修改，必须复跑 S08 并发触发探针、`DispatchServiceOverlapRegressionTest` 和 `ClusterLockServiceRegressionTest`。
 
 ## 提交规则
 

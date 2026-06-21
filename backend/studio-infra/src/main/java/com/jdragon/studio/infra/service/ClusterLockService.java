@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,7 @@ public class ClusterLockService {
         String normalizedLockName = normalizeLockName(lockName);
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime lockedUntil = now.plusSeconds(Math.max(1L, leaseSeconds));
-        int updated = jdbcTemplate.update(
+        int updated = updateOrLockBusy(
                 "update studio_cluster_lock set owner_id=?, locked_until=?, last_acquired_at=?, updated_at=? " +
                         "where lock_name=? and (locked_until is null or locked_until < ? or owner_id=?)",
                 identity.instanceId(), lockedUntil, now, now, normalizedLockName, now, identity.instanceId());
@@ -47,8 +48,46 @@ public class ClusterLockService {
                             "values (?, ?, ?, ?, ?, ?, ?)",
                     IdWorker.getId(), normalizedLockName, identity.instanceId(), lockedUntil, now, now, now);
             return true;
-        } catch (DuplicateKeyException e) {
+        } catch (DataAccessException e) {
+            if (isLockContention(e)) {
+                return false;
+            }
+            if (!isDuplicateLockKey(e)) {
+                throw e;
+            }
             return retryAcquire(normalizedLockName, now, lockedUntil);
+        }
+    }
+
+    public boolean tryAcquireNonReentrant(String lockName) {
+        return tryAcquireNonReentrant(lockName, resolveDefaultLeaseSeconds());
+    }
+
+    public boolean tryAcquireNonReentrant(String lockName, long leaseSeconds) {
+        String normalizedLockName = normalizeLockName(lockName);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime lockedUntil = now.plusSeconds(Math.max(1L, leaseSeconds));
+        int updated = updateOrLockBusy(
+                "update studio_cluster_lock set owner_id=?, locked_until=?, last_acquired_at=?, updated_at=? " +
+                        "where lock_name=? and (locked_until is null or locked_until < ?)",
+                identity.instanceId(), lockedUntil, now, now, normalizedLockName, now);
+        if (updated > 0) {
+            return true;
+        }
+        try {
+            jdbcTemplate.update(
+                    "insert into studio_cluster_lock (id, lock_name, owner_id, locked_until, last_acquired_at, created_at, updated_at) " +
+                            "values (?, ?, ?, ?, ?, ?, ?)",
+                    IdWorker.getId(), normalizedLockName, identity.instanceId(), lockedUntil, now, now, now);
+            return true;
+        } catch (DataAccessException e) {
+            if (isLockContention(e)) {
+                return false;
+            }
+            if (!isDuplicateLockKey(e)) {
+                throw e;
+            }
+            return retryAcquireNonReentrant(normalizedLockName, now, lockedUntil);
         }
     }
 
@@ -70,6 +109,34 @@ public class ClusterLockService {
         }
     }
 
+    public <T> T executeIfAcquiredNonReentrant(String lockName, Supplier<T> action, Supplier<T> fallback) {
+        if (!tryAcquireNonReentrant(lockName)) {
+            return fallback.get();
+        }
+        try {
+            return action.get();
+        } finally {
+            release(lockName);
+        }
+    }
+
+    public <T> T executeIfAcquiredNonReentrant(String lockName,
+                                               long leaseSeconds,
+                                               boolean releaseOnCompletion,
+                                               Supplier<T> action,
+                                               Supplier<T> fallback) {
+        if (!tryAcquireNonReentrant(lockName, leaseSeconds)) {
+            return fallback.get();
+        }
+        try {
+            return action.get();
+        } finally {
+            if (releaseOnCompletion) {
+                release(lockName);
+            }
+        }
+    }
+
     public void runIfAcquired(String lockName, Runnable action) {
         if (!tryAcquire(lockName)) {
             return;
@@ -82,10 +149,18 @@ public class ClusterLockService {
     }
 
     private boolean retryAcquire(String lockName, LocalDateTime now, LocalDateTime lockedUntil) {
-        int updated = jdbcTemplate.update(
+        int updated = updateOrLockBusy(
                 "update studio_cluster_lock set owner_id=?, locked_until=?, last_acquired_at=?, updated_at=? " +
                         "where lock_name=? and (locked_until is null or locked_until < ? or owner_id=?)",
                 identity.instanceId(), lockedUntil, now, now, lockName, now, identity.instanceId());
+        return updated > 0;
+    }
+
+    private boolean retryAcquireNonReentrant(String lockName, LocalDateTime now, LocalDateTime lockedUntil) {
+        int updated = updateOrLockBusy(
+                "update studio_cluster_lock set owner_id=?, locked_until=?, last_acquired_at=?, updated_at=? " +
+                        "where lock_name=? and (locked_until is null or locked_until < ?)",
+                identity.instanceId(), lockedUntil, now, now, lockName, now);
         return updated > 0;
     }
 
@@ -99,5 +174,41 @@ public class ClusterLockService {
             throw new IllegalArgumentException("lockName must not be blank");
         }
         return lockName.trim();
+    }
+
+    private boolean isDuplicateLockKey(DataAccessException e) {
+        if (e instanceof DuplicateKeyException) {
+            return true;
+        }
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("duplicate")
+                || normalized.contains("unique constraint")
+                || normalized.contains("constraint failed");
+    }
+
+    private int updateOrLockBusy(String sql, Object... args) {
+        try {
+            return jdbcTemplate.update(sql, args);
+        } catch (DataAccessException e) {
+            if (isLockContention(e)) {
+                return 0;
+            }
+            throw e;
+        }
+    }
+
+    private boolean isLockContention(DataAccessException e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("deadlock")
+                || normalized.contains("lock wait timeout")
+                || normalized.contains("database is locked");
     }
 }

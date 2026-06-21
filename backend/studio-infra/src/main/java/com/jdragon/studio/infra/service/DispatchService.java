@@ -33,6 +33,8 @@ import java.util.Set;
 @Service
 public class DispatchService implements WorkflowDispatcher {
 
+    private static final long MANUAL_TRIGGER_LOCK_LEASE_SECONDS = 10L;
+
     private final DispatchTaskMapper dispatchTaskMapper;
     private final RunRecordMapper runRecordMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
@@ -85,7 +87,8 @@ public class DispatchService implements WorkflowDispatcher {
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), workflow.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), runtimeProjectId, workflow.getId());
-        if (!triggerWorkflowIfIdle(workflow, runtimeProjectId, true)) {
+        if (triggerWorkflowIfIdleStatus(workflow, runtimeProjectId, true, null,
+                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
         }
     }
@@ -111,7 +114,8 @@ public class DispatchService implements WorkflowDispatcher {
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), runtimeProjectId, definition.getId());
-        if (!triggerCollectionTaskIfIdle(definition, runtimeProjectId, true)) {
+        if (triggerCollectionTaskIfIdleStatus(definition, runtimeProjectId, true, null,
+                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
         }
     }
@@ -137,7 +141,8 @@ public class DispatchService implements WorkflowDispatcher {
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), runtimeProjectId, definition.getId());
-        if (!triggerQualityTaskIfIdle(definition, runtimeProjectId, true)) {
+        if (triggerQualityTaskIfIdleStatus(definition, runtimeProjectId, true, null,
+                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task already has an active run");
         }
     }
@@ -178,6 +183,17 @@ public class DispatchService implements WorkflowDispatcher {
                                                               boolean workerRequired,
                                                               LocalDateTime scheduledFireTime,
                                                               boolean clusterGuard) {
+        return triggerWorkflowIfIdleStatus(workflow, runtimeProjectId, workerRequired, scheduledFireTime,
+                clusterGuard, null, true);
+    }
+
+    private DispatchTriggerStatus triggerWorkflowIfIdleStatus(WorkflowDefinitionView workflow,
+                                                              Long runtimeProjectId,
+                                                              boolean workerRequired,
+                                                              LocalDateTime scheduledFireTime,
+                                                              boolean clusterGuard,
+                                                              Long lockLeaseSeconds,
+                                                              boolean releaseLock) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, workflow.getProjectId());
         if (!workerAuthorizationService.hasAvailableWorker(workflow.getTenantId(), resolvedProjectId)) {
             if (workerRequired) {
@@ -187,7 +203,12 @@ public class DispatchService implements WorkflowDispatcher {
         }
         if (clusterGuard) {
             String lockName = triggerLockName("workflow", workflow.getTenantId(), resolvedProjectId, workflow.getId(), scheduledFireTime);
-            return clusterLockService.executeIfAcquired(lockName,
+            if (lockLeaseSeconds != null) {
+                return clusterLockService.executeIfAcquiredNonReentrant(lockName, lockLeaseSeconds.longValue(), releaseLock,
+                        () -> triggerWorkflowAfterLock(workflow, resolvedProjectId, scheduledFireTime),
+                        () -> DispatchTriggerStatus.LOCK_BUSY);
+            }
+            return clusterLockService.executeIfAcquiredNonReentrant(lockName,
                     () -> triggerWorkflowAfterLock(workflow, resolvedProjectId, scheduledFireTime),
                     () -> DispatchTriggerStatus.LOCK_BUSY);
         }
@@ -285,6 +306,17 @@ public class DispatchService implements WorkflowDispatcher {
                                                                     boolean workerRequired,
                                                                     LocalDateTime scheduledFireTime,
                                                                     boolean clusterGuard) {
+        return triggerCollectionTaskIfIdleStatus(definition, runtimeProjectId, workerRequired, scheduledFireTime,
+                clusterGuard, null, true);
+    }
+
+    private DispatchTriggerStatus triggerCollectionTaskIfIdleStatus(CollectionTaskDefinitionView definition,
+                                                                    Long runtimeProjectId,
+                                                                    boolean workerRequired,
+                                                                    LocalDateTime scheduledFireTime,
+                                                                    boolean clusterGuard,
+                                                                    Long lockLeaseSeconds,
+                                                                    boolean releaseLock) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
         if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
             if (workerRequired) {
@@ -294,7 +326,12 @@ public class DispatchService implements WorkflowDispatcher {
         }
         if (clusterGuard) {
             String lockName = triggerLockName("collection", definition.getTenantId(), resolvedProjectId, definition.getId(), scheduledFireTime);
-            return clusterLockService.executeIfAcquired(lockName,
+            if (lockLeaseSeconds != null) {
+                return clusterLockService.executeIfAcquiredNonReentrant(lockName, lockLeaseSeconds.longValue(), releaseLock,
+                        () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                        () -> DispatchTriggerStatus.LOCK_BUSY);
+            }
+            return clusterLockService.executeIfAcquiredNonReentrant(lockName,
                     () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
                     () -> DispatchTriggerStatus.LOCK_BUSY);
         }
@@ -341,6 +378,17 @@ public class DispatchService implements WorkflowDispatcher {
                                                                  boolean workerRequired,
                                                                  LocalDateTime scheduledFireTime,
                                                                  boolean clusterGuard) {
+        return triggerQualityTaskIfIdleStatus(definition, runtimeProjectId, workerRequired, scheduledFireTime,
+                clusterGuard, null, true);
+    }
+
+    private DispatchTriggerStatus triggerQualityTaskIfIdleStatus(QualityTaskDefinitionView definition,
+                                                                 Long runtimeProjectId,
+                                                                 boolean workerRequired,
+                                                                 LocalDateTime scheduledFireTime,
+                                                                 boolean clusterGuard,
+                                                                 Long lockLeaseSeconds,
+                                                                 boolean releaseLock) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
         if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
             if (workerRequired) {
@@ -350,7 +398,12 @@ public class DispatchService implements WorkflowDispatcher {
         }
         if (clusterGuard) {
             String lockName = triggerLockName("quality", definition.getTenantId(), resolvedProjectId, definition.getId(), scheduledFireTime);
-            return clusterLockService.executeIfAcquired(lockName,
+            if (lockLeaseSeconds != null) {
+                return clusterLockService.executeIfAcquiredNonReentrant(lockName, lockLeaseSeconds.longValue(), releaseLock,
+                        () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                        () -> DispatchTriggerStatus.LOCK_BUSY);
+            }
+            return clusterLockService.executeIfAcquiredNonReentrant(lockName,
                     () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
                     () -> DispatchTriggerStatus.LOCK_BUSY);
         }
