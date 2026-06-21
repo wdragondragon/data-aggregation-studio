@@ -166,7 +166,7 @@ class DataSourceServiceRegressionTest {
                 ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
         verify(datasourceMapper).update(isNull(), wrapperCaptor.capture());
         assertThat(wrapperCaptor.getValue().getSqlSet())
-                .contains("connectionStatus", "lastConnectionTestAt", "lastConnectionTestMessage", "lastConnectionTestDurationMs");
+                .contains("connection_status", "last_connection_test_at", "last_connection_test_message", "last_connection_test_duration_ms");
     }
 
     @Test

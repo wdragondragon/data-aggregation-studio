@@ -136,3 +136,6 @@
 - S16 保留修复前复现元模型 `business:lt_reg_s16_acl:20260622020421` / `2068756927502548994`，以及修复后最近通过元模型 `business:lt_reg_s16_acl:20260622030400` / `2068771952015409154`；所有 S16 元模型长期保留不清理。
 - S16 最近通过批次 `20260622030400`：`11 PASS / 0 FAIL / 0 BLOCKED / needFix 0`；S01 权限探针同步复跑 `25 PASS / 0 FAIL / 0 BLOCKED`；浏览器复核普通成员 `/metadata` 仅保留 `刷新`，无同步/新建/编辑/发布/删除写入口。
 - S16 自动化入口：`docs/测试/长期跟踪/scripts/studio_s16_acl_deep_probe.py`。后续涉及 `MetaSchemaController`、元模型服务、`MetadataSchemasView.vue`、角色权限、全局/租户级配置写接口或前端按钮权限的修改，至少复跑该脚本、`StudioInitializationApiRegressionTest`、`studio_s01_permission_probe.py`，并用浏览器复核 `/metadata` 管理员和普通成员视图。
+- 2026-06-22 已完成 S17 数据源当前表单 ACL 深挖：确认并修复接收项目成员可通过 `POST /datasources/test` 构造源项目数据源 `id`，复用源项目已加密密码完成连接测试的问题，`BUG-S17-001` 已进入缺陷回归索引。
+- S17 保留复现批次 `20260622033528` 和修复后最近通过批次 `20260622034448`：长期数据源 `长期回归-客户经营画像数据源` / `2068077811652583425`，接收项目成员不可读取/保存态测试/发现该私有数据源，当前表单测试修复后返回 `403 Resource belongs to another project`。
+- S17 自动化入口：`docs/测试/长期跟踪/scripts/studio_s17_datasource_current_form_acl_probe.py`。后续涉及 `DataSourceService`、数据源编辑页当前表单测试、敏感字段保留、数据源共享、数据源连接测试或发现模型逻辑的修改，至少复跑该脚本、`DataSourceApiRegressionTest`、`DataSourceServiceRegressionTest`、`studio_s01_permission_probe.py`，并用浏览器复核 `/datasources`。

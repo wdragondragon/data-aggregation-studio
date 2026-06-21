@@ -304,7 +304,7 @@ public class DataSourceService {
     }
 
     private DataSourceDefinition buildDefinitionForTest(DataSourceSaveRequest request) {
-        DatasourceEntity entity = request.getId() == null ? null : datasourceMapper.selectById(request.getId());
+        DatasourceEntity entity = request.getId() == null ? null : requireWritableEntity(request.getId());
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity == null ? null : entity.getTechnicalMetadata(), technicalMetadata);

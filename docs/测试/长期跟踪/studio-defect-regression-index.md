@@ -38,6 +38,7 @@
 | BUG-S14-001 | 协议转换/Trace 脱敏 | 高 | 协议转换 debug/Trace 对 Header 和 Body 做了脱敏，但 `sourceRequest.query`、`sourceRequest.form` 直接返回原始 `api_key`、`clientSecret` 等敏感字段值 | `ProtocolConversionService.java`；`WebServiceSupportTest.java` | `studio_s14_protocol_conversion_trace_security_probe.py`；`WebServiceSupportTest#shouldMaskSensitiveProtocolConversionTraceDiagnostics`；浏览器 `/protocol-conversions/access-logs?serviceId=2068145027555180546` 详情 Trace 和完整日志 | smoke | 2026-06-22 | 本次提交 |
 | BUG-S15-001 | SOAP/开放调用日志脱敏 | 高 | 开放调用日志统一脱敏工具覆盖 JSON 字段和 `key=value`，但未覆盖 XML/SOAP 敏感元素与属性，SOAP 协议转换完整日志和 Trace 可泄露订阅 token、`clientSecret`、`password`、`apiKey` 原文 | `OpenServiceInvocationLogSupport.java`；`DataIngestionInvocationLogSupportTest.java` | `studio_s15_soap_trace_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveSoapElementAndAttributeValues`；`WebServiceSupportTest`；浏览器 `/protocol-conversions/access-logs?serviceId=2068748392102285314` 详情和完整日志 | smoke | 2026-06-22 | 本次提交 |
 | BUG-S16-001 | 元模型/ACL | 高 | 项目普通成员可直接调用全局元模型写接口，创建、发布、同步、删除业务/技术/运行参数元模型；前端 `/metadata` 同时暴露写按钮 | `MetaSchemaController.java`；`MetadataSchemasView.vue`；`StudioInitializationApiRegressionTest.java` | `studio_s16_acl_deep_probe.py`；`StudioInitializationApiRegressionTest#metadataSchemaWriteApisShouldRejectProjectMember`；`studio_s01_permission_probe.py`；浏览器 `/metadata` 管理员/普通成员按钮权限 | smoke | 2026-06-22 | 本次提交 |
+| BUG-S17-001 | 数据源/ACL | 高 | 当前表单连接测试 `POST /datasources/test` 按 `request.id` 直接读取旧数据源保留加密密码，接收项目成员可构造源项目数据源 ID 并省略 `password`，借用源项目密码完成连接测试 | `DataSourceService.java`；`DataSourceApiRegressionTest.java`；`DataSourceServiceRegressionTest.java` | `studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；`studio_s01_permission_probe.py`；浏览器 `/datasources` | smoke | 2026-06-22 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -67,3 +68,4 @@
 | S14 协议转换 Trace/日志脱敏与日志隔离 | BUG-S14-001 |
 | S15 SOAP 协议转换 Trace/日志脱敏 | BUG-S15-001 |
 | S16 全量 ACL 深挖 | BUG-S16-001 |
+| S17 数据源当前表单 ACL 深挖 | BUG-S17-001 |

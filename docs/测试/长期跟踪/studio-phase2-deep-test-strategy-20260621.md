@@ -337,6 +337,21 @@
 - 沉淀 `scripts/studio_s16_acl_deep_probe.py`。
 - 如发现真实缺陷，补充权限回归测试，并写入缺陷索引。
 
+### S17 数据源当前表单 ACL 深挖
+
+覆盖场景：
+
+- 数据源保存态连接测试、模型发现和当前表单连接测试的项目边界一致性。
+- 编辑态保留已加密敏感字段时，`request.id` 必须只引用当前项目可写数据源。
+- 接收项目成员构造源项目数据源 `id`、省略 `password` 的负向探针。
+- 本项目管理员编辑数据源时省略 `password` 的正向兼容性。
+
+验收：
+
+- 产出 `records/20260622-S17数据源当前表单ACL深挖执行记录.md`。
+- 沉淀 `scripts/studio_s17_datasource_current_form_acl_probe.py`。
+- 如发现真实缺陷，补充数据源 API 回归测试和服务层回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -364,6 +379,7 @@
 | 2026-06-22 | S14 协议转换 Trace/日志脱敏与日志隔离深挖 | 完成，修复前复现协议转换 debug Trace Query/Form 敏感字段泄漏，最近通过批次 `20260622010840`：`7 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s14_protocol_conversion_trace_security_probe.py`；`WebServiceSupportTest#shouldMaskSensitiveProtocolConversionTraceDiagnostics`；浏览器协议转换访问日志详情和完整日志页 | BUG-S14-001 |
 | 2026-06-22 | S15 SOAP 协议转换 Trace/日志脱敏深挖 | 完成，修复前复现 SOAP XML 元素/属性敏感值泄漏，最近通过批次 `20260622014445`：`4 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s15_soap_trace_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveSoapElementAndAttributeValues`；`WebServiceSupportTest`；浏览器协议转换访问日志页 | BUG-S15-001 |
 | 2026-06-22 | S16 全量 ACL 深挖：元模型管理接口 | 完成，修复前复现普通项目成员可写全局元模型，最近通过批次 `20260622030400`：`11 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s16_acl_deep_probe.py`；`StudioInitializationApiRegressionTest#metadataSchemaWriteApisShouldRejectProjectMember`；浏览器 `/metadata` 管理员/普通成员按钮权限 | BUG-S16-001 |
+| 2026-06-22 | S17 数据源当前表单 ACL 深挖 | 完成，修复前批次 `20260622033528` 复现跨项目当前表单连接测试借用源项目密码，修复后最近通过批次 `20260622034448`：`7 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；浏览器 `/datasources` | BUG-S17-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -392,6 +408,8 @@ S14 新增的 `BUG-S14-001` 纳入 `smoke`：后续涉及 `ProtocolConversionSer
 S15 新增的 `BUG-S15-001` 纳入 `smoke`：后续涉及 `OpenServiceInvocationLogSupport`、数据服务/数据接入/协议转换 WebService 开放入口、SOAP/XML Trace 预览、完整日志查看/下载或 XML/SOAP 敏感信息脱敏的修改，必须复跑 S15 SOAP Trace 安全探针、`DataIngestionInvocationLogSupportTest`、`WebServiceSupportTest`，并用浏览器复核协议转换访问日志详情和完整日志抽屉。
 
 S16 新增的 `BUG-S16-001` 纳入 `smoke`：后续涉及 `MetaSchemaController`、`MetadataSchemaService`、`MetadataSchemasView.vue`、角色权限计算、全局/租户级配置写接口或元模型同步/发布/删除逻辑的修改，必须复跑 S16 ACL 探针、`StudioInitializationApiRegressionTest`、S01 权限探针，并用浏览器复核 `/metadata` 管理员和普通成员视图。
+
+S17 新增的 `BUG-S17-001` 纳入 `smoke`：后续涉及 `DataSourceService`、数据源当前表单连接测试、敏感字段保留、数据源共享、数据源连接测试、模型发现或数据源编辑页的修改，必须复跑 S17 探针、`DataSourceApiRegressionTest`、`DataSourceServiceRegressionTest`、S01 权限探针，并用浏览器复核 `/datasources`。
 
 ## 提交规则
 
