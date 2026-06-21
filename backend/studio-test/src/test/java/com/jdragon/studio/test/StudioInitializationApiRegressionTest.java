@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -466,6 +467,109 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                         .content("{\"code\":\"lt_reg:m09:forbidden-permission-probe\",\"name\":\"长期回归-低权限越权权限探针\",\"httpMethod\":\"GET\",\"pathPattern\":\"/api/v1/lt-reg-m09-probe\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void metadataSchemaWriteApisShouldRejectProjectMember() throws Exception {
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long projectId = currentProjectId(loginBody);
+
+        MvcResult userResult = mockMvc.perform(post("/api/v1/users")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"lt_reg_s16_meta_schema_member\",\"displayName\":\"长期回归-S16元模型普通成员\",\"passwordHash\":\"LtReg@20260622!\",\"enabled\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        String userId = readBody(userResult).path("data").path("id").asText();
+
+        mockMvc.perform(post("/api/v1/system/project-members")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"projectId\":\"" + projectId + "\",\"userId\":\"" + userId + "\",\"roleCode\":\"PROJECT_MEMBER\",\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        String memberAuthorization = loginAndGetAuthorization("lt_reg_s16_meta_schema_member", "LtReg@20260622!", projectId);
+        String schemaPayload = "{\"schemaCode\":\"business:lt_reg_s16_acl:customer_profile\","
+                + "\"schemaName\":\"长期回归-S16客户画像元模型\","
+                + "\"objectType\":\"business\","
+                + "\"typeCode\":\"lt_reg_s16_acl.customer_profile\","
+                + "\"description\":\"META_MODEL_CONFIG:{\\\"domain\\\":\\\"BUSINESS\\\",\\\"directoryCode\\\":\\\"lt_reg_s16_acl\\\",\\\"directoryName\\\":\\\"客户经营画像\\\",\\\"metaModelCode\\\":\\\"customer_profile\\\",\\\"metaModelName\\\":\\\"客户画像元模型\\\",\\\"displayMode\\\":\\\"SINGLE\\\",\\\"required\\\":false}\","
+                + "\"fields\":[{\"fieldKey\":\"customerSegment\",\"fieldName\":\"客户分层\",\"scope\":\"BUSINESS\",\"valueType\":\"STRING\",\"componentType\":\"INPUT\",\"required\":false,\"searchable\":true,\"sortable\":true,\"queryOperators\":[\"EQ\",\"LIKE\"],\"queryDefaultOperator\":\"LIKE\"}]}";
+
+        MvcResult schemaResult = mockMvc.perform(post("/api/v1/meta-schemas/draft")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(schemaPayload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        Long schemaId = readBody(schemaResult).path("data").path("id").asLong();
+
+        mockMvc.perform(get("/api/v1/meta-schemas")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        mockMvc.perform(post("/api/v1/meta-schemas/draft")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(schemaPayload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/meta-schemas/{schemaId}/publish", schemaId)
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/meta-schemas/technical/sync/mysql8")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/meta-schemas/technical/sync-all")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/meta-schemas/runtime-options/sync-standard")
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(delete("/api/v1/meta-schemas/{schemaId}", schemaId)
+                        .header(HttpHeaders.AUTHORIZATION, memberAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        mockMvc.perform(post("/api/v1/meta-schemas/{schemaId}/publish", schemaId)
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
     }
 
     @Test

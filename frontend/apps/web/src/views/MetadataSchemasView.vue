@@ -6,7 +6,7 @@
         <p>{{ t("web.metadata.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button plain @click="syncAllTechnical">{{ t("common.syncAll") }}</el-button>
+        <el-button v-if="canManageMetaSchemas" plain @click="syncAllTechnical">{{ t("common.syncAll") }}</el-button>
         <el-button plain :loading="pageLoading" @click="loadPage">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
@@ -37,42 +37,42 @@
       <SectionCard :title="t('web.metadata.detailTitle')" :description="t('web.metadata.detailDescription')">
         <template #actions>
           <el-button
-            v-if="selectedNode?.kind === 'technical-root'"
+            v-if="canManageMetaSchemas && selectedNode?.kind === 'technical-root'"
             plain
             @click="syncAllTechnical"
           >
             {{ t("common.syncAll") }}
           </el-button>
           <el-button
-            v-if="selectedNode?.kind === 'technical-type'"
+            v-if="canManageMetaSchemas && selectedNode?.kind === 'technical-type'"
             plain
             @click="syncTechnical(selectedNode.datasourceType)"
           >
             {{ t("common.sync") }}
           </el-button>
           <el-button
-            v-if="selectedNode && canCreateFromNode(selectedNode)"
+            v-if="canManageMetaSchemas && selectedNode && canCreateFromNode(selectedNode)"
             type="primary"
             @click="openCreateFromNode(selectedNode)"
           >
             {{ t("common.newMetaModel") }}
           </el-button>
           <el-button
-            v-if="selectedNode?.kind === 'leaf' && selectedNode.schema"
+            v-if="canManageMetaSchemas && selectedNode?.kind === 'leaf' && selectedNode.schema"
             plain
             @click="editSchema(selectedNode.schema)"
           >
             {{ t("common.edit") }}
           </el-button>
           <el-button
-            v-if="selectedNode?.kind === 'leaf' && selectedNode.schema?.id"
+            v-if="canManageMetaSchemas && selectedNode?.kind === 'leaf' && selectedNode.schema?.id"
             plain
             @click="publishSchema(selectedNode.schema)"
           >
             {{ t("common.publish") }}
           </el-button>
           <el-button
-            v-if="selectedNode?.kind === 'leaf' && selectedNode.schema?.id"
+            v-if="canManageMetaSchemas && selectedNode?.kind === 'leaf' && selectedNode.schema?.id"
             plain
             @click="deleteSchema(selectedNode.schema)"
           >
@@ -232,7 +232,7 @@
 
       <div class="drawer-actions">
         <el-button @click="drawerOpen = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" :loading="saving" @click="saveDraft">{{ t("common.saveDraft") }}</el-button>
+        <el-button v-if="canManageMetaSchemas" type="primary" :loading="saving" @click="saveDraft">{{ t("common.saveDraft") }}</el-button>
       </div>
     </el-drawer>
   </div>
@@ -248,6 +248,7 @@ import { SectionCard, StatusPill } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import MetadataSchemaFieldsSection from "@/components/metadata/MetadataSchemaFieldsSection.vue";
 import { useAsyncAction } from "@/composables/useAsyncAction";
+import { useAuthStore } from "@/stores/auth";
 import { encodeMetaModelDescription, hasExplicitMetaModelConfig, parseMetaModelSchema, sameEntityId, type MetaModelConfig, type MetaModelDisplayMode, type MetaModelDomain, type RuntimeOptionRole } from "@/utils/metaModel";
 import { cloneDeep, formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
@@ -298,6 +299,7 @@ const requiredTechnicalMetaModels = [
 ];
 
 const { t } = useI18n();
+const authStore = useAuthStore();
 
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
@@ -329,6 +331,13 @@ const fieldSectionActions = {
   appendField,
   removeField,
 };
+
+const canManageMetaSchemas = computed(() => {
+  const allowedRoles = new Set(["SUPER_ADMIN", "TENANT_ADMIN", "ADMIN", "PROJECT_ADMIN"]);
+  return [...(authStore.systemRoleCodes ?? []), ...(authStore.effectiveRoleCodes ?? [])]
+    .map((item) => item.toUpperCase())
+    .some((item) => allowedRoles.has(item));
+});
 
 const sourceTypeOptions = computed(() => {
   const options = new Set<string>();
@@ -771,6 +780,14 @@ function removeField(index: number) {
   form.fields.splice(index, 1);
 }
 
+function ensureCanManageMetaSchemas() {
+  if (canManageMetaSchemas.value) {
+    return true;
+  }
+  ElMessage.error("当前账号无权维护元模型");
+  return false;
+}
+
 function normalizeFieldDraft(field: MetadataFieldDefinition) {
   return {
     ...field,
@@ -797,6 +814,9 @@ async function loadPage() {
 }
 
 async function saveDraft() {
+  if (!ensureCanManageMetaSchemas()) {
+    return;
+  }
   if (form.domain === "RUNTIME" && !normalizeRuntimePlugin(form.pluginType)) {
     ElMessage.error(t("web.metadata.pluginTypeRequired"));
     return;
@@ -837,6 +857,9 @@ async function saveDraft() {
 }
 
 async function publishSchema(schema: MetadataSchemaDefinition) {
+  if (!ensureCanManageMetaSchemas()) {
+    return;
+  }
   if (!schema.id) {
     return;
   }
@@ -856,6 +879,9 @@ async function publishSchema(schema: MetadataSchemaDefinition) {
 }
 
 async function deleteSchema(schema: MetadataSchemaDefinition) {
+  if (!ensureCanManageMetaSchemas()) {
+    return;
+  }
   if (!schema.id) {
     return;
   }
@@ -883,6 +909,9 @@ async function deleteSchema(schema: MetadataSchemaDefinition) {
 }
 
 async function syncTechnical(datasourceType?: string) {
+  if (!ensureCanManageMetaSchemas()) {
+    return;
+  }
   if (!datasourceType) {
     return;
   }
@@ -900,6 +929,9 @@ async function syncTechnical(datasourceType?: string) {
 }
 
 async function syncAllTechnical() {
+  if (!ensureCanManageMetaSchemas()) {
+    return;
+  }
   try {
     await schemaAction.run(async () => {
       await studioApi.metaSchemas.syncAllTechnical();

@@ -37,6 +37,7 @@
 | BUG-S13-001 | 开放调用日志/敏感信息脱敏 | 高 | 开放调用完整日志只覆盖固定敏感字段名，`secretToken`、`clientSecret`、`api_key` 等字段名变体会在日志查看和下载中泄露原文 | `OpenServiceInvocationLogSupport.java`；`DataIngestionInvocationLogSupportTest.java` | `studio_s13_log_download_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveInvocationLogFieldNameVariants`；浏览器 `/data-service-metrics/access-logs`、`/data-ingestion-metrics/access-logs` 和 `/quality-task-runs` | smoke | 2026-06-22 | 本次提交 |
 | BUG-S14-001 | 协议转换/Trace 脱敏 | 高 | 协议转换 debug/Trace 对 Header 和 Body 做了脱敏，但 `sourceRequest.query`、`sourceRequest.form` 直接返回原始 `api_key`、`clientSecret` 等敏感字段值 | `ProtocolConversionService.java`；`WebServiceSupportTest.java` | `studio_s14_protocol_conversion_trace_security_probe.py`；`WebServiceSupportTest#shouldMaskSensitiveProtocolConversionTraceDiagnostics`；浏览器 `/protocol-conversions/access-logs?serviceId=2068145027555180546` 详情 Trace 和完整日志 | smoke | 2026-06-22 | 本次提交 |
 | BUG-S15-001 | SOAP/开放调用日志脱敏 | 高 | 开放调用日志统一脱敏工具覆盖 JSON 字段和 `key=value`，但未覆盖 XML/SOAP 敏感元素与属性，SOAP 协议转换完整日志和 Trace 可泄露订阅 token、`clientSecret`、`password`、`apiKey` 原文 | `OpenServiceInvocationLogSupport.java`；`DataIngestionInvocationLogSupportTest.java` | `studio_s15_soap_trace_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveSoapElementAndAttributeValues`；`WebServiceSupportTest`；浏览器 `/protocol-conversions/access-logs?serviceId=2068748392102285314` 详情和完整日志 | smoke | 2026-06-22 | 本次提交 |
+| BUG-S16-001 | 元模型/ACL | 高 | 项目普通成员可直接调用全局元模型写接口，创建、发布、同步、删除业务/技术/运行参数元模型；前端 `/metadata` 同时暴露写按钮 | `MetaSchemaController.java`；`MetadataSchemasView.vue`；`StudioInitializationApiRegressionTest.java` | `studio_s16_acl_deep_probe.py`；`StudioInitializationApiRegressionTest#metadataSchemaWriteApisShouldRejectProjectMember`；`studio_s01_permission_probe.py`；浏览器 `/metadata` 管理员/普通成员按钮权限 | smoke | 2026-06-22 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -65,3 +66,4 @@
 | S13 日志下载分页并发与脱敏 | BUG-S13-001 |
 | S14 协议转换 Trace/日志脱敏与日志隔离 | BUG-S14-001 |
 | S15 SOAP 协议转换 Trace/日志脱敏 | BUG-S15-001 |
+| S16 全量 ACL 深挖 | BUG-S16-001 |
