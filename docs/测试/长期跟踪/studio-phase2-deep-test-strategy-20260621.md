@@ -247,6 +247,20 @@
 - 沉淀 `scripts/studio_s10_schema_drift_service_quality_probe.py`。
 - 如发现真实缺陷，补充运行记录结构化字段清洗回归测试，并写入缺陷索引。
 
+### S11 生命周期并发交错
+
+覆盖场景：
+
+- 数据服务发布、下线和开放 API 调用交错并发。
+- 数据接入发布、下线和开放 API 写入交错并发，校验目标表写入数和成功调用数一致。
+- 数据质量任务上线和触发交错并发，校验运行记录最终收敛。
+
+验收：
+
+- 产出 `records/20260621-S11生命周期并发交错执行记录.md`。
+- 沉淀 `scripts/studio_s11_lifecycle_race_probe.py`。
+- 如发现真实缺陷，补充对应状态机或开放调用回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -268,6 +282,7 @@
 | 2026-06-21 | S08 手动触发并发去重与运行记录一致性深挖 | 完成，`6 PASS / 4 FAIL(已修复) / 0 BLOCKED`，最终脚本 `4 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s08_manual_trigger_race_probe.py`；`DispatchServiceOverlapRegressionTest`；`ClusterLockServiceRegressionTest` | BUG-S08-001 |
 | 2026-06-21 | S09 数据结构变更扰动深挖 | 完成，修复前 `4 PASS / 2 FAIL / 0 BLOCKED`，最终脚本 `6 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s09_schema_drift_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/collection-task-runs` | BUG-S09-001 |
 | 2026-06-21 | S10 结构扰动扩展服务接入质量深挖 | 完成，修复前 `8 PASS / 1 FAIL / 0 BLOCKED`，最终脚本批次 `20260621225707`：`9 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s10_schema_drift_service_quality_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/quality-task-runs` | BUG-S10-001 |
+| 2026-06-21 | S11 生命周期并发交错深挖 | 完成，脚本批次 `20260621230737`：`7 PASS / 0 FAIL / 0 BLOCKED`，未发现真实缺陷 | `scripts/studio_s11_lifecycle_race_probe.py`；浏览器数据服务/接入服务编辑页和质量任务日志 | 无新增 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -284,6 +299,8 @@ S08 新增的 `BUG-S08-001` 纳入 `smoke`：后续涉及 `DispatchService`、`C
 S09 新增的 `BUG-S09-001` 纳入 `smoke`：后续涉及 `ExecutionEventService`、`RunService`、`WorkflowRunService`、运行记录 message/payload/result、采集失败提示、日志 fallback 或结构变更错误展示的修改，必须复跑 S09 结构扰动探针、`ExecutionEventServiceRegressionTest`、`RunServiceRegressionTest`，并用浏览器复核 `/collection-task-runs` 历史失败记录。
 
 S10 新增的 `BUG-S10-001` 纳入 `smoke`：后续涉及运行记录 `stackTrace`、质量任务执行错误、数据服务/数据接入结构变更错误展示、运行记录 payload/result 读取或错误消息清洗逻辑的修改，必须复跑 S10 结构扰动扩展探针、`ExecutionEventServiceRegressionTest`、`RunServiceRegressionTest`，并用浏览器复核 `/quality-task-runs` 历史失败记录。
+
+S11 未新增缺陷，但沉淀为状态机回归入口：后续涉及数据服务/数据接入发布下线、开放 API 调用、质量任务上线触发、开放调用成功/失败响应契约或状态机一致性的修改，必须复跑 S11 生命周期并发探针，并用浏览器复核对应编辑页和质量任务日志。
 
 ## 提交规则
 

@@ -113,3 +113,6 @@
 - S10 保留结构扰动数据：`lt_reg_s10_contract_service`、`lt_reg_s10_ingestion_target`、`lt_reg_s10_quality_contract`；保留数据服务 `长期回归-S10合同结构扰动查询服务` / `2068704693544779778`、接入服务 `长期回归-S10目标必填列接入服务` / `2068704728974065665`、质量规则 `2068704763174420481` 和质量任务 `2068704774037667842`。
 - S10 最终回归批次 `20260621225707`：9 PASS / 0 FAIL / 0 BLOCKED / needFix 0；Maven 定向回归 `ExecutionEventServiceRegressionTest`、`RunServiceRegressionTest` 共 4 PASS；浏览器 `/data-services/2068704693544779778/edit?debug=1`、`/data-ingestion-services/2068704728974065665/edit?debug=1`、`/quality-task-runs?qualityTaskId=2068704774037667842` 可达且 console error/warn 为空。
 - S10 自动化入口：`docs/测试/长期跟踪/scripts/studio_s10_schema_drift_service_quality_probe.py`。后续涉及运行记录 `stackTrace`、质量任务执行错误、数据服务/数据接入结构变更错误展示或运行记录 payload/result 清洗的修改，至少复跑该脚本、`ExecutionEventServiceRegressionTest` 和 `RunServiceRegressionTest`。
+- 2026-06-21 已完成 S11 生命周期并发交错深挖：覆盖数据服务/数据接入发布下线与开放调用交错、质量任务上线触发交错；最终批次 `20260621230737` 为 7 PASS / 0 FAIL / 0 BLOCKED / needFix 0，未发现需要修复的真实缺陷。
+- S11 保留接入流水 `LT-S11-ING-20260621230542-*`、`LT-S11-ING-20260621230737-*`、`LT-S11-FINAL-20260621230737` 和质量运行 `2068712588646760450`；数据服务、数据接入服务、质量任务最终均恢复为 `ONLINE`。
+- S11 自动化入口：`docs/测试/长期跟踪/scripts/studio_s11_lifecycle_race_probe.py`。后续涉及数据服务/接入服务发布下线、开放 API 调用、质量任务上线触发或状态机一致性修改，至少复跑该脚本，并用浏览器复核对应编辑页和质量运行页。
