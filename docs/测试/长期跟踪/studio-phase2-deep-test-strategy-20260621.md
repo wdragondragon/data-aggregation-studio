@@ -218,6 +218,20 @@
 - 沉淀 `scripts/studio_s08_manual_trigger_race_probe.py`。
 - 如发现真实缺陷，修复调度服务和锁服务，补充调度重叠回归测试，并写入缺陷索引。
 
+### S09 数据结构变更扰动
+
+覆盖场景：
+
+- MySQL 源表/目标表加列、目标表新增未映射 NOT NULL 列、源字段改名缺失。
+- 模型同步后的字段可见性，采集任务保存/发布/触发后的目标表写入和失败不写入半成品。
+- 运行记录 `message/payloadJson/resultJson` 在新写入和历史读取两条路径上的错误消息清洗。
+
+验收：
+
+- 产出 `records/20260621-S09数据结构变更扰动深挖执行记录.md`。
+- 沉淀 `scripts/studio_s09_schema_drift_probe.py`。
+- 如发现真实缺陷，修复运行记录写入/读取路径，补充事件持久化和历史读取回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -237,6 +251,7 @@
 | 2026-06-21 | S06 订阅并发创建竞态深挖 | 完成，`4 PASS / 4 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s06_subscription_race_probe.py`；`SubscriptionTokenRotationRegressionTest`；`StudioSchemaDriftRegressionTest` | BUG-S06-001 |
 | 2026-06-21 | S07 订阅 Token 生命周期并发一致性深挖 | 完成，`4 PASS / 1 FAIL(已修复) / 0 BLOCKED` | `scripts/studio_s07_subscription_token_lifecycle_probe.py`；`SubscriptionTokenRotationRegressionTest` | BUG-S07-001 |
 | 2026-06-21 | S08 手动触发并发去重与运行记录一致性深挖 | 完成，`6 PASS / 4 FAIL(已修复) / 0 BLOCKED`，最终脚本 `4 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s08_manual_trigger_race_probe.py`；`DispatchServiceOverlapRegressionTest`；`ClusterLockServiceRegressionTest` | BUG-S08-001 |
+| 2026-06-21 | S09 数据结构变更扰动深挖 | 完成，修复前 `4 PASS / 2 FAIL / 0 BLOCKED`，最终脚本 `6 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s09_schema_drift_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/collection-task-runs` | BUG-S09-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -249,6 +264,8 @@ S06 新增的 `BUG-S06-001` 纳入 `smoke`：后续涉及数据服务、数据�
 S07 新增的 `BUG-S07-001` 纳入 `smoke`：后续涉及数据服务、数据接入、协议转换开放调用、订阅 Token 轮换/禁用/启用或 `lastUsedAt` 刷新的修改，必须复跑 S07 生命周期探针和订阅回归单测。
 
 S08 新增的 `BUG-S08-001` 纳入 `smoke`：后续涉及 `DispatchService`、`ClusterLockService`、采集/质量/工作流手动触发、运行记录、Worker 调度锁或活跃运行判定的修改，必须复跑 S08 并发触发探针、`DispatchServiceOverlapRegressionTest` 和 `ClusterLockServiceRegressionTest`。
+
+S09 新增的 `BUG-S09-001` 纳入 `smoke`：后续涉及 `ExecutionEventService`、`RunService`、`WorkflowRunService`、运行记录 message/payload/result、采集失败提示、日志 fallback 或结构变更错误展示的修改，必须复跑 S09 结构扰动探针、`ExecutionEventServiceRegressionTest`、`RunServiceRegressionTest`，并用浏览器复核 `/collection-task-runs` 历史失败记录。
 
 ## 提交规则
 

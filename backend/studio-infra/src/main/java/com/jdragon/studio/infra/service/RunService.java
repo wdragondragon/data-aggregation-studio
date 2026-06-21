@@ -222,7 +222,7 @@ public class RunService {
         view.setWorkerPodName(entity.getWorkerPodName());
         view.setWorkerNodeName(entity.getWorkerNodeName());
         view.setStatus(entity.getStatus());
-        view.setMessage(entity.getMessage());
+        view.setMessage(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(entity.getMessage()));
         view.setStartedAt(entity.getStartedAt());
         view.setEndedAt(entity.getEndedAt());
         view.setLogFilePath(entity.getLogFilePath());
@@ -230,14 +230,10 @@ public class RunService {
         view.setLogCharset(entity.getLogCharset());
         view.setLogStorageType(entity.getLogStorageType());
         view.setLogStatus(entity.getLogStatus());
-        view.setLogErrorSummary(entity.getLogErrorSummary());
+        view.setLogErrorSummary(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(entity.getLogErrorSummary()));
         view.setMetricSummary(runMetricSummaryMapper.fromEntity(entity));
-        view.setPayloadJson(entity.getPayloadJson() == null
-                ? new LinkedHashMap<String, Object>()
-                : new LinkedHashMap<String, Object>(entity.getPayloadJson()));
-        view.setResultJson(entity.getResultJson() == null
-                ? new LinkedHashMap<String, Object>()
-                : new LinkedHashMap<String, Object>(entity.getResultJson()));
+        view.setPayloadJson(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getPayloadJson()));
+        view.setResultJson(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getResultJson()));
         return view;
     }
 
@@ -264,6 +260,7 @@ public class RunService {
 
     private String buildFallbackContent(RunRecordEntity entity) {
         StringBuilder builder = new StringBuilder();
+        String safeMessage = RunRecordMessageSanitizer.sanitizeAndTruncateMessage(entity.getMessage());
         builder.append("Run Record Summary").append('\n');
         builder.append("==================").append('\n');
         builder.append("Run Record ID: ").append(entity.getId()).append('\n');
@@ -275,13 +272,13 @@ public class RunService {
         builder.append("Ended At: ").append(entity.getEndedAt()).append('\n');
         builder.append('\n').append("Message").append('\n');
         builder.append("-------").append('\n');
-        builder.append(entity.getMessage() == null ? "" : entity.getMessage()).append('\n');
+        builder.append(safeMessage == null ? "" : safeMessage).append('\n');
         builder.append('\n').append("Payload").append('\n');
         builder.append("-------").append('\n');
-        builder.append(toJsonBlock(entity.getPayloadJson())).append('\n');
+        builder.append(toJsonBlock(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getPayloadJson()))).append('\n');
         builder.append('\n').append("Result").append('\n');
         builder.append("------").append('\n');
-        builder.append(toJsonBlock(entity.getResultJson())).append('\n');
+        builder.append(toJsonBlock(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getResultJson()))).append('\n');
         return builder.toString();
     }
 

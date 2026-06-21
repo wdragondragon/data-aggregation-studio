@@ -18,13 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
 public class ExecutionEventService implements ExecutionEventPublisher {
-
-    private static final int RUN_RECORD_MESSAGE_MAX_LENGTH = 2000;
-    private static final String TRUNCATED_MESSAGE_SUFFIX = "...";
 
     private final RunRecordMapper runRecordMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
@@ -89,8 +87,9 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setWorkerPodName(event.getWorkerPodName());
         entity.setWorkerNodeName(event.getWorkerNodeName());
         entity.setStatus(event.getEventType());
-        entity.setPayloadJson(event.getPayload());
-        entity.setResultJson(event.getPayload());
+        Map<String, Object> sanitizedPayload = RunRecordMessageSanitizer.sanitizePayload(event.getPayload());
+        entity.setPayloadJson(sanitizedPayload);
+        entity.setResultJson(sanitizedPayload);
         if (event.getTriggeredByUserId() != null) {
             entity.setTriggeredByUserId(event.getTriggeredByUserId());
         }
@@ -105,7 +104,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setLogChunkCount(event.getLogChunkCount());
         entity.setLogStatus(event.getLogStatus());
         entity.setLogErrorSummary(event.getLogErrorSummary());
-        entity.setMessage(truncateRunRecordMessage(resolveMessage(event)));
+        entity.setMessage(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(resolveMessage(event)));
         runMetricSummaryMapper.applyToEntity(entity, event.getPayload());
         if (entity.getId() == null) {
             runRecordMapper.insert(entity);
@@ -142,14 +141,6 @@ public class ExecutionEventService implements ExecutionEventPublisher {
             }
         }
         return event.getEventType();
-    }
-
-    private String truncateRunRecordMessage(String message) {
-        if (message == null || message.length() <= RUN_RECORD_MESSAGE_MAX_LENGTH) {
-            return message;
-        }
-        return message.substring(0, RUN_RECORD_MESSAGE_MAX_LENGTH - TRUNCATED_MESSAGE_SUFFIX.length())
-                + TRUNCATED_MESSAGE_SUFFIX;
     }
 
     private void maybeNotifyCollectionTaskRun(RunRecordEntity entity, ExecutionEvent event) {

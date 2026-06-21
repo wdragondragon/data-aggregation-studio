@@ -105,3 +105,7 @@
 - 2026-06-21 已完成 S08 手动触发并发去重与运行记录一致性深挖：确认并修复采集任务、质量任务、工作流手动触发缺少同实例并发互斥导致重复调度的问题，`BUG-S08-001` 已进入缺陷回归索引。
 - S08 保留手动触发并发数据：修复前复现批次 `20260621201511` 附近，采集/质量/工作流均出现 8 个调度单元；修复后最终回归批次 `20260621210725`，三类对象均为 1 成功、7 个 `BAD_REQUEST`、1 个调度单元。
 - S08 自动化入口：`docs/测试/长期跟踪/scripts/studio_s08_manual_trigger_race_probe.py`。后续涉及 `DispatchService`、`ClusterLockService`、采集/质量/工作流手动触发、运行记录或 Worker 调度锁的修改，至少复跑该脚本、`DispatchServiceOverlapRegressionTest` 和 `ClusterLockServiceRegressionTest`。
+- 2026-06-21 已完成 S09 数据结构变更扰动深挖：确认并修复采集任务失败运行记录写入与历史读取路径暴露 Java 异常类、内部类名、源码文件名和堆栈的问题，`BUG-S09-001` 已进入缺陷回归索引。
+- S09 保留结构扰动数据：`lt_reg_s09_contract_source`、`lt_reg_s09_contract_target`、`lt_reg_s09_required_target`、`lt_reg_s09_missing_source`、`lt_reg_s09_missing_target`；保留 3 个长期采集任务 `2068686558385119234`、`2068686612126736386`、`2068686667600601089` 和修复前/修复后失败运行记录。
+- S09 最终回归批次 `20260621215742`：6 PASS / 0 FAIL / 0 BLOCKED；S02 smoke 批次 `20260621215321`：17 PASS / 0 FAIL / 0 BLOCKED。浏览器 `/collection-task-runs` 显示修复前历史失败记录也已通过读路径清洗，console error/warn 为空。
+- S09 自动化入口：`docs/测试/长期跟踪/scripts/studio_s09_schema_drift_probe.py`。后续涉及 `ExecutionEventService`、`RunService`、`WorkflowRunService`、运行记录 message/payload/result、采集失败提示或结构变更错误展示的修改，至少复跑该脚本、`ExecutionEventServiceRegressionTest` 和 `RunServiceRegressionTest`。

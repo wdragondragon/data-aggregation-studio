@@ -592,7 +592,7 @@ public class WorkflowRunService {
             nodeRun.setWorkerGroupCode(record.getWorkerGroupCode());
             nodeRun.setWorkerCode(record.getWorkerCode());
             nodeRun.setWorkerInstanceId(record.getWorkerInstanceId());
-            nodeRun.setMessage(record.getMessage());
+            nodeRun.setMessage(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(record.getMessage()));
             nodeRun.setStartedAt(record.getStartedAt());
             nodeRun.setEndedAt(record.getEndedAt());
             nodeRun.setDurationMs(resolveDuration(record.getStartedAt(), record.getEndedAt()));
