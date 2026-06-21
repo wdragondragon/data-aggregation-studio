@@ -78,6 +78,7 @@ class ExecutionEventServiceRegressionTest {
         event.setOccurredAt(LocalDateTime.of(2026, 6, 21, 11, 0, 0));
         event.getPayload().put("error", rawError);
         event.getPayload().put("message", "COLLECTION_TASK node failed in 12 ms (mysql -> mysql): " + rawError);
+        event.getPayload().put("stackTrace", rawError);
         event.getPayload().put("exceptionType", "java.sql.SQLException");
 
         service.publish(event);
@@ -89,6 +90,7 @@ class ExecutionEventServiceRegressionTest {
         assertCleanFailureText(updatedRun.getMessage());
         assertEquals("Field 'audit_required' doesn't have a default value", updatedRun.getPayloadJson().get("error"));
         assertEquals("Field 'audit_required' doesn't have a default value", updatedRun.getPayloadJson().get("message"));
+        assertEquals("Field 'audit_required' doesn't have a default value", updatedRun.getPayloadJson().get("stackTrace"));
         assertEquals("SQLException", updatedRun.getPayloadJson().get("exceptionType"));
     }
 

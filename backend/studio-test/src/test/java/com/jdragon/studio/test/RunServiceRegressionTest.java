@@ -64,7 +64,9 @@ class RunServiceRegressionTest {
         RunRecordView view = service.get(200L);
         assertEquals("Unknown column 'contract_amount' in 'field list'", view.getMessage());
         assertEquals("Field 'audit_required' doesn't have a default value", view.getPayloadJson().get("error"));
+        assertEquals("Field 'audit_required' doesn't have a default value", view.getPayloadJson().get("stackTrace"));
         assertEquals("Unknown column 'contract_amount' in 'field list'", view.getResultJson().get("message"));
+        assertEquals("Unknown column 'contract_amount' in 'field list'", view.getResultJson().get("stackTrace"));
         assertCleanFailureText(String.valueOf(view.getPayloadJson()));
         assertCleanFailureText(String.valueOf(view.getResultJson()));
 
@@ -76,6 +78,7 @@ class RunServiceRegressionTest {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("message", message);
         result.put("error", message);
+        result.put("stackTrace", message);
         result.put("exceptionType", "java.sql.SQLException");
         return result;
     }

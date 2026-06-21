@@ -76,7 +76,8 @@ final class RunRecordMessageSanitizer {
         return "message".equalsIgnoreCase(key)
                 || "error".equalsIgnoreCase(key)
                 || "errorMessage".equalsIgnoreCase(key)
-                || "logErrorSummary".equalsIgnoreCase(key);
+                || "logErrorSummary".equalsIgnoreCase(key)
+                || "stackTrace".equalsIgnoreCase(key);
     }
 
     private static String sanitizeMessage(String message) {
