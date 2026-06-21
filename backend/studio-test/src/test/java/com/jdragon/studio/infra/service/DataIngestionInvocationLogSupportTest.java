@@ -1,6 +1,10 @@
 package com.jdragon.studio.infra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.aggregation.commons.util.Configuration;
+import com.jdragon.aggregation.core.enums.State;
+import com.jdragon.aggregation.core.job.JobContainer;
+import com.jdragon.aggregation.core.statistics.communication.Communication;
 import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.studio.dto.enums.DataIngestionSourcePosition;
 import com.jdragon.studio.dto.enums.DataIngestionStatus;
@@ -101,6 +105,24 @@ class DataIngestionInvocationLogSupportTest {
         assertTrue(!capturedLog.contains("plain-secret"), "Captured task logs must not persist secret values");
     }
 
+    @Test
+    void shouldWaitForSlowSuccessfulWriteBeyondThreshold() {
+        configureAggregationHome();
+        DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
+                new ConsoleWriterAssembler(),
+                new ObjectMapper(),
+                25L);
+        long startedAt = System.currentTimeMillis();
+
+        executionSupport.startAndAssertJob(new SlowSuccessfulJobContainer(100L),
+                "request-slow-success",
+                Long.valueOf(2026062101L),
+                null);
+
+        assertTrue(System.currentTimeMillis() - startedAt >= 75L,
+                "Slow successful writes should wait for the final job state instead of returning timeout");
+    }
+
     private static DataIngestionFieldMapping mapping(String field) {
         DataIngestionFieldMapping mapping = new DataIngestionFieldMapping();
         mapping.setSourcePosition(DataIngestionSourcePosition.BODY);
@@ -154,6 +176,32 @@ class DataIngestionInvocationLogSupportTest {
             config.put("secretKey", "plain-secret");
             writer.put("config", config);
             return writer;
+        }
+    }
+
+    private static final class SlowSuccessfulJobContainer extends JobContainer {
+        private final long sleepMs;
+
+        private SlowSuccessfulJobContainer(long sleepMs) {
+            super(Configuration.newDefault());
+            this.sleepMs = sleepMs;
+        }
+
+        @Override
+        public void start() {
+            Communication communication = new Communication();
+            communication.setTimestamp(System.currentTimeMillis());
+            communication.setState(State.RUNNING);
+            getJobPointReporter().setTrackCommunication(communication);
+            try {
+                Thread.sleep(sleepMs);
+                communication.setState(State.SUCCEEDED);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                communication.setThrowable(e);
+                communication.setState(State.FAILED);
+                throw new RuntimeException(e);
+            }
         }
     }
 }

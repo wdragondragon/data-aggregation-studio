@@ -46,15 +46,23 @@ final class DataIngestionExecutionSupport {
 
     private static final Logger log = LoggerFactory.getLogger(DataIngestionExecutionSupport.class);
     private static final int DEFAULT_MAX_BATCH_SIZE = 500;
-    private static final long DEFAULT_WRITE_TIMEOUT_MS = 10000L;
+    private static final long DEFAULT_WRITE_SLOW_THRESHOLD_MS = 10000L;
 
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
     private final ObjectMapper objectMapper;
+    private final long writeSlowThresholdMs;
 
     DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
                                   ObjectMapper objectMapper) {
+        this(collectionTaskAssemblerService, objectMapper, DEFAULT_WRITE_SLOW_THRESHOLD_MS);
+    }
+
+    DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
+                                  ObjectMapper objectMapper,
+                                  long writeSlowThresholdMs) {
         this.collectionTaskAssemblerService = collectionTaskAssemblerService;
         this.objectMapper = objectMapper;
+        this.writeSlowThresholdMs = writeSlowThresholdMs;
     }
 
     DataIngestionInvokeResult execute(DataIngestionServiceView service,
@@ -110,7 +118,7 @@ final class DataIngestionExecutionSupport {
         return result;
     }
 
-    private void startAndAssertJob(JobContainer container, String requestId, Long jobId, String logCaptureId) {
+    void startAndAssertJob(JobContainer container, String requestId, Long jobId, String logCaptureId) {
         ExecutorService executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable runnable) {
@@ -141,13 +149,18 @@ final class DataIngestionExecutionSupport {
             }
         });
         try {
-            future.get(DEFAULT_WRITE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (writeSlowThresholdMs > 0) {
+                future.get(writeSlowThresholdMs, TimeUnit.MILLISECONDS);
+            } else {
+                future.get();
+            }
         } catch (TimeoutException e) {
-            future.cancel(true);
-            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                    "Data ingestion write timed out after " + DEFAULT_WRITE_TIMEOUT_MS + " ms");
+            log.warn("Data ingestion write exceeded {} ms; waiting for final state requestId={}, jobId={}",
+                    writeSlowThresholdMs, requestId, jobId);
+            waitForJobCompletion(future);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            future.cancel(true);
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
         } catch (ExecutionException e) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
@@ -156,6 +169,19 @@ final class DataIngestionExecutionSupport {
             executor.shutdownNow();
         }
         assertJobSucceeded(container);
+    }
+
+    private void waitForJobCompletion(Future<?> future) {
+        try {
+            future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
+        } catch (ExecutionException e) {
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                    "Data ingestion write failed: " + safeFailureMessage(e.getCause()));
+        }
     }
 
     private void assertJobSucceeded(JobContainer container) {

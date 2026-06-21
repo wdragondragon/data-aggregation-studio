@@ -33,6 +33,7 @@
 | BUG-S08-001 | 调度/手动触发并发 | 高 | 采集任务、质量任务、工作流手动触发缺少同实例并发互斥，已有集群锁允许同一实例重入，可产生重复调度和重复运行记录 | `DispatchService.java`；`ClusterLockService.java` | `studio_s08_manual_trigger_race_probe.py`；`DispatchServiceOverlapRegressionTest`；`ClusterLockServiceRegressionTest`；浏览器 `/runs` 工作流日志页 | smoke | 2026-06-21 | 本次提交 |
 | BUG-S09-001 | 运行记录/结构变更错误消息 | 中 | 采集任务结构变更失败运行记录暴露 Java 异常类、内部类名、源码文件名和堆栈，且修复前历史记录在列表/API 中继续暴露 | `RunRecordMessageSanitizer.java`；`ExecutionEventService.java`；`RunService.java`；`WorkflowRunService.java` | `studio_s09_schema_drift_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/collection-task-runs` 两个 S09 失败任务；API `/runs/{historicalRunId}` | smoke | 2026-06-21 | 本次提交 |
 | BUG-S10-001 | 运行记录/质量任务错误消息 | 中 | 质量任务字段改名失败时 `message` 已清洗，但 `payloadJson.stackTrace` 与 `resultJson.stackTrace` 继续暴露 Java 堆栈、内部类名和源码行号 | `RunRecordMessageSanitizer.java`；`ExecutionEventServiceRegressionTest.java`；`RunServiceRegressionTest.java` | `studio_s10_schema_drift_service_quality_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/quality-task-runs?qualityTaskId=2068704774037667842` | smoke | 2026-06-21 | 本次提交 |
+| BUG-S12-001 | 数据接入/慢写一致性 | 高 | 500 行批量接入慢写超过 10 秒时 API 返回 500 超时，但底层 writer 继续提交并最终写入成功，造成响应结果与数据库副作用不一致 | `DataIngestionExecutionSupport.java`；`DataIngestionInvocationLogSupportTest.java` | `studio_s12_capacity_boundary_probe.py`；`DataIngestionInvocationLogSupportTest#shouldWaitForSlowSuccessfulWriteBeyondThreshold`；浏览器 `/data-ingestion-services/2068717572302008321/edit?debug=1` 和接入指标/日志页 | smoke | 2026-06-21 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -57,3 +58,4 @@
 | S08 手动触发并发去重与运行记录一致性 | BUG-S08-001 |
 | S09 数据结构变更扰动 | BUG-S09-001 |
 | S10 结构扰动扩展服务接入质量 | BUG-S10-001 |
+| S12 容量与边界慢写一致性 | BUG-S12-001 |

@@ -68,7 +68,7 @@
 |---|---|
 | 数据开发 | BUG-M03-001 |
 | 数据服务 | BUG-M04-001、BUG-M04-002 |
-| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001、BUG-S06-001、BUG-S07-001 |
+| 数据接入/协议转换 | BUG-M05-001、BUG-M05-002、BUG-S05-001、BUG-S06-001、BUG-S07-001、BUG-S12-001 |
 | 数据采集 | BUG-M06-001、BUG-M06-002 |
 | 运维中心 | FIX-M08-001 |
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
@@ -261,6 +261,21 @@
 - 沉淀 `scripts/studio_s11_lifecycle_race_probe.py`。
 - 如发现真实缺陷，补充对应状态机或开放调用回归测试，并写入缺陷索引。
 
+### S12 容量与边界慢写一致性
+
+覆盖场景：
+
+- 数据服务 1206 行大结果集、分页上限、第二页余量和长文本字段。
+- 数据接入 500 行批量边界、501 行上限拒绝、重复主键、非法金额转换。
+- 中文特殊字符、NULL、空字符串、金额精度、DATE/DATETIME/TIMESTAMP。
+- 数据接入 writer 超过慢阈值后的 API 响应与数据库副作用一致性。
+
+验收：
+
+- 产出 `records/20260621-S12容量边界执行记录.md`。
+- 沉淀 `scripts/studio_s12_capacity_boundary_probe.py`。
+- 如发现真实缺陷，补充接入执行支持回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -283,6 +298,7 @@
 | 2026-06-21 | S09 数据结构变更扰动深挖 | 完成，修复前 `4 PASS / 2 FAIL / 0 BLOCKED`，最终脚本 `6 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s09_schema_drift_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/collection-task-runs` | BUG-S09-001 |
 | 2026-06-21 | S10 结构扰动扩展服务接入质量深挖 | 完成，修复前 `8 PASS / 1 FAIL / 0 BLOCKED`，最终脚本批次 `20260621225707`：`9 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s10_schema_drift_service_quality_probe.py`；`ExecutionEventServiceRegressionTest`；`RunServiceRegressionTest`；浏览器 `/quality-task-runs` | BUG-S10-001 |
 | 2026-06-21 | S11 生命周期并发交错深挖 | 完成，脚本批次 `20260621230737`：`7 PASS / 0 FAIL / 0 BLOCKED`，未发现真实缺陷 | `scripts/studio_s11_lifecycle_race_probe.py`；浏览器数据服务/接入服务编辑页和质量任务日志 | 无新增 |
+| 2026-06-21 | S12 容量与边界慢写一致性深挖 | 完成，修复前批次 `S12-TIMEOUT-VERIFY-20260621B` 和 `20260621235340` 复现慢写响应/副作用不一致，最终批次 `20260621235740`：`10 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s12_capacity_boundary_probe.py`；`DataIngestionInvocationLogSupportTest#shouldWaitForSlowSuccessfulWriteBeyondThreshold`；浏览器数据服务/接入服务调试、指标与日志页 | BUG-S12-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -301,6 +317,8 @@ S09 新增的 `BUG-S09-001` 纳入 `smoke`：后续涉及 `ExecutionEventService
 S10 新增的 `BUG-S10-001` 纳入 `smoke`：后续涉及运行记录 `stackTrace`、质量任务执行错误、数据服务/数据接入结构变更错误展示、运行记录 payload/result 读取或错误消息清洗逻辑的修改，必须复跑 S10 结构扰动扩展探针、`ExecutionEventServiceRegressionTest`、`RunServiceRegressionTest`，并用浏览器复核 `/quality-task-runs` 历史失败记录。
 
 S11 未新增缺陷，但沉淀为状态机回归入口：后续涉及数据服务/数据接入发布下线、开放 API 调用、质量任务上线触发、开放调用成功/失败响应契约或状态机一致性的修改，必须复跑 S11 生命周期并发探针，并用浏览器复核对应编辑页和质量任务日志。
+
+S12 新增的 `BUG-S12-001` 纳入 `smoke`：后续涉及 `DataIngestionExecutionSupport`、数据接入开放 API、writer 执行等待、批量写入、接入调用日志或 writer 线程中断/慢写处理的修改，必须复跑 S12 容量边界探针、`DataIngestionInvocationLogSupportTest`，并用浏览器复核数据接入调试页、接入指标页和接入运行日志页。
 
 ## 提交规则
 
