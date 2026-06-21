@@ -128,3 +128,7 @@
 - S14 保留订阅 `2068742924231430145`（`长期回归-S14协议转换Trace日志脱敏订阅-20260622010840`）、协议转换访问日志 `2068742932208996354`、Debug 请求 `2068742927565901825`、Open 请求 `2068742929470115842` 和 Trace `LT-S14-TRACE-20260622010840-OPEN`。
 - S14 最近通过批次 `20260622010840`：`7 PASS / 0 FAIL / 0 BLOCKED / needFix 0`；浏览器复核协议转换访问日志列表、详情 Trace 和完整日志抽屉均未出现 `LT-S14-RAW-*` 敏感原文，Query 显示 `api_key=******`。本轮观察到 Element Plus Pagination deprecated warning，记录为 `OBS-S14-001`，后续可做前端分页告警专项。
 - S14 自动化入口：`docs/测试/长期跟踪/scripts/studio_s14_protocol_conversion_trace_security_probe.py`。后续涉及 `ProtocolConversionService`、协议转换 debug、协议转换开放调用、协议转换访问日志 Trace、完整日志下载或协议转换敏感信息脱敏的修改，至少复跑该脚本和 `WebServiceSupportTest`，并用浏览器复核 `/protocol-conversions/access-logs`。
+- 2026-06-22 已完成 S15 SOAP 协议转换 Trace/日志脱敏深挖：确认并修复开放调用日志统一脱敏工具未覆盖 XML/SOAP 敏感元素和属性值的问题，`BUG-S15-001` 已进入缺陷回归索引。
+- S15 保留 SOAP 源协议转换服务 `长期回归-S15客户SOAP协议转换脱敏服务` / `lt_reg_s15_customer_soap_trace` / `2068748392102285314`，修复前复现访问日志 `2068748407751233538`，修复后最终回归订阅 `2068752008343126017`、访问日志 `2068752012327714818`、Trace `LT-S15-SOAP-20260622014445`。
+- S15 最近通过批次 `20260622014445`：`4 PASS / 0 FAIL / 0 BLOCKED / needFix 0`；浏览器复核 `/protocol-conversions/access-logs?serviceId=2068748392102285314` 在切换为“全部访问”后可见最新 SOAP 调用，详情和完整日志抽屉均未出现 `LT-S15-RAW` 敏感原文。`OBS-S14-001` 前端分页弃用告警仍存在，未纳入本次安全修复。
+- S15 自动化入口：`docs/测试/长期跟踪/scripts/studio_s15_soap_trace_security_probe.py`。后续涉及 `OpenServiceInvocationLogSupport`、WebService/SOAP 开放调用、完整日志查看/下载、协议转换 Trace 或 XML/SOAP 脱敏的修改，至少复跑该脚本、`DataIngestionInvocationLogSupportTest` 和 `WebServiceSupportTest`，并用浏览器复核协议转换访问日志页。

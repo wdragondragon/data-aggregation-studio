@@ -72,8 +72,8 @@
 | 数据采集 | BUG-M06-001、BUG-M06-002 |
 | 运维中心 | FIX-M08-001 |
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
-| 导入导出/日志 | M10-FIX-01、BUG-S13-001 |
-| 协议转换 Trace/日志 | BUG-S14-001 |
+| 导入导出/日志 | M10-FIX-01、BUG-S13-001、BUG-S15-001 |
+| 协议转换 Trace/日志 | BUG-S14-001、BUG-S15-001 |
 
 ### nightly-deep
 
@@ -307,6 +307,21 @@
 - 沉淀 `scripts/studio_s14_protocol_conversion_trace_security_probe.py`。
 - 如发现真实缺陷，补充协议转换 Trace 脱敏单测，并写入缺陷索引。
 
+### S15 SOAP 协议转换 Trace/日志脱敏
+
+覆盖场景：
+
+- SOAP WebService 协议转换开放入口、WSDL、订阅 Token、SOAP Header 和 SOAP Body。
+- XML/SOAP 敏感元素值与属性值：`protocolConversionToken`、`clientSecret`、`password`、`apiKey` 等。
+- 协议转换访问日志 Trace、完整日志查看和下载。
+- 与 S13/S14 共享的开放调用日志统一脱敏工具。
+
+验收：
+
+- 产出 `records/20260622-S15SOAP协议转换Trace日志脱敏执行记录.md`。
+- 沉淀 `scripts/studio_s15_soap_trace_security_probe.py`。
+- 如发现真实缺陷，补充开放调用日志 XML/SOAP 脱敏单测，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -332,6 +347,7 @@
 | 2026-06-21 | S12 容量与边界慢写一致性深挖 | 完成，修复前批次 `S12-TIMEOUT-VERIFY-20260621B` 和 `20260621235340` 复现慢写响应/副作用不一致，最终批次 `20260621235740`：`10 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s12_capacity_boundary_probe.py`；`DataIngestionInvocationLogSupportTest#shouldWaitForSlowSuccessfulWriteBeyondThreshold`；浏览器数据服务/接入服务调试、指标与日志页 | BUG-S12-001 |
 | 2026-06-22 | S13 日志下载分页并发与敏感信息脱敏深挖 | 完成，修复前复现开放调用完整日志敏感字段名变体泄漏，最近通过批次 `20260622003735`：`9 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s13_log_download_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveInvocationLogFieldNameVariants`；浏览器数据服务/接入服务/质量任务日志页 | BUG-S13-001 |
 | 2026-06-22 | S14 协议转换 Trace/日志脱敏与日志隔离深挖 | 完成，修复前复现协议转换 debug Trace Query/Form 敏感字段泄漏，最近通过批次 `20260622010840`：`7 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s14_protocol_conversion_trace_security_probe.py`；`WebServiceSupportTest#shouldMaskSensitiveProtocolConversionTraceDiagnostics`；浏览器协议转换访问日志详情和完整日志页 | BUG-S14-001 |
+| 2026-06-22 | S15 SOAP 协议转换 Trace/日志脱敏深挖 | 完成，修复前复现 SOAP XML 元素/属性敏感值泄漏，最近通过批次 `20260622014445`：`4 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s15_soap_trace_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveSoapElementAndAttributeValues`；`WebServiceSupportTest`；浏览器协议转换访问日志页 | BUG-S15-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -356,6 +372,8 @@ S12 新增的 `BUG-S12-001` 纳入 `smoke`：后续涉及 `DataIngestionExecutio
 S13 新增的 `BUG-S13-001` 纳入 `smoke`：后续涉及 `OpenServiceInvocationLogSupport`、开放调用日志采集/查看/下载、日志分页、跨项目日志访问、运行记录对象日志下载或敏感信息脱敏的修改，必须复跑 S13 日志安全探针、`DataIngestionInvocationLogSupportTest`，并用浏览器复核数据服务访问日志、数据接入运行日志和至少一个运行记录日志页。
 
 S14 新增的 `BUG-S14-001` 纳入 `smoke`：后续涉及 `ProtocolConversionService`、协议转换 debug、协议转换开放调用、协议转换访问日志 Trace、协议转换完整日志下载或协议转换敏感信息脱敏的修改，必须复跑 S14 协议转换 Trace 安全探针、`WebServiceSupportTest`，并用浏览器复核协议转换访问日志详情和完整日志抽屉。
+
+S15 新增的 `BUG-S15-001` 纳入 `smoke`：后续涉及 `OpenServiceInvocationLogSupport`、数据服务/数据接入/协议转换 WebService 开放入口、SOAP/XML Trace 预览、完整日志查看/下载或 XML/SOAP 敏感信息脱敏的修改，必须复跑 S15 SOAP Trace 安全探针、`DataIngestionInvocationLogSupportTest`、`WebServiceSupportTest`，并用浏览器复核协议转换访问日志详情和完整日志抽屉。
 
 ## 提交规则
 

@@ -80,6 +80,41 @@ class DataIngestionInvocationLogSupportTest {
     }
 
     @Test
+    void shouldMaskSensitiveSoapElementAndAttributeValues() {
+        String raw = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" "
+                + "apiKey=\"plain-xml-attribute-key\">"
+                + "<soap:Header>"
+                + "<tns:protocolConversionToken>plain-soap-token</tns:protocolConversionToken>"
+                + "<tns:clientSecret>plain-soap-client-secret</tns:clientSecret>"
+                + "</soap:Header>"
+                + "<soap:Body>"
+                + "<tns:submitCustomerTraceRequest>"
+                + "<traceId>LT-S15-SOAP-TRACE</traceId>"
+                + "<customerName>长期回归S15客户SOAP脱敏</customerName>"
+                + "<password>plain-soap-password</password>"
+                + "<apiKey>plain-soap-api-key</apiKey>"
+                + "</tns:submitCustomerTraceRequest>"
+                + "</soap:Body>"
+                + "</soap:Envelope>";
+
+        String sanitized = OpenServiceInvocationLogSupport.sanitizeSensitiveLog(raw);
+
+        assertTrue(!sanitized.contains("plain-xml-attribute-key"));
+        assertTrue(!sanitized.contains("plain-soap-token"));
+        assertTrue(!sanitized.contains("plain-soap-client-secret"));
+        assertTrue(!sanitized.contains("plain-soap-password"));
+        assertTrue(!sanitized.contains("plain-soap-api-key"));
+        assertContains(sanitized, "apiKey=\"******\"");
+        assertContains(sanitized, "<tns:protocolConversionToken>******</tns:protocolConversionToken>");
+        assertContains(sanitized, "<tns:clientSecret>******</tns:clientSecret>");
+        assertContains(sanitized, "<password>******</password>");
+        assertContains(sanitized, "<apiKey>******</apiKey>");
+        assertContains(sanitized, "<customerName>长期回归S15客户SOAP脱敏</customerName>");
+        assertContains(sanitized, "<traceId>LT-S15-SOAP-TRACE</traceId>");
+    }
+
+    @Test
     void shouldCaptureJobContainerAndTaskThreadLogsForInvocation() {
         configureAggregationHome();
         DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
