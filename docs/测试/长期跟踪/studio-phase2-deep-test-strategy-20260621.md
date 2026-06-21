@@ -73,6 +73,7 @@
 | 运维中心 | FIX-M08-001 |
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
 | 导入导出/日志 | M10-FIX-01、BUG-S13-001 |
+| 协议转换 Trace/日志 | BUG-S14-001 |
 
 ### nightly-deep
 
@@ -291,6 +292,21 @@
 - 沉淀 `scripts/studio_s13_log_download_security_probe.py`。
 - 如发现真实缺陷，补充开放调用日志脱敏回归测试，并写入缺陷索引。
 
+### S14 协议转换 Trace/日志脱敏与日志隔离
+
+覆盖场景：
+
+- 协议转换 debug 返回的 `conversionTrace.sourceRequest`，覆盖 Header、Query、Form、Body 敏感字段。
+- 协议转换开放调用后的访问日志 Trace、完整日志查看、分页、下载和并发下载。
+- 协议转换完整日志和 Trace 的跨项目读取隔离。
+- debug `targetRequest` 快照中的 URL、Header、Body 诊断输出脱敏。
+
+验收：
+
+- 产出 `records/20260622-S14协议转换Trace日志脱敏执行记录.md`。
+- 沉淀 `scripts/studio_s14_protocol_conversion_trace_security_probe.py`。
+- 如发现真实缺陷，补充协议转换 Trace 脱敏单测，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -315,6 +331,7 @@
 | 2026-06-21 | S11 生命周期并发交错深挖 | 完成，脚本批次 `20260621230737`：`7 PASS / 0 FAIL / 0 BLOCKED`，未发现真实缺陷 | `scripts/studio_s11_lifecycle_race_probe.py`；浏览器数据服务/接入服务编辑页和质量任务日志 | 无新增 |
 | 2026-06-21 | S12 容量与边界慢写一致性深挖 | 完成，修复前批次 `S12-TIMEOUT-VERIFY-20260621B` 和 `20260621235340` 复现慢写响应/副作用不一致，最终批次 `20260621235740`：`10 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s12_capacity_boundary_probe.py`；`DataIngestionInvocationLogSupportTest#shouldWaitForSlowSuccessfulWriteBeyondThreshold`；浏览器数据服务/接入服务调试、指标与日志页 | BUG-S12-001 |
 | 2026-06-22 | S13 日志下载分页并发与敏感信息脱敏深挖 | 完成，修复前复现开放调用完整日志敏感字段名变体泄漏，最近通过批次 `20260622003735`：`9 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s13_log_download_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveInvocationLogFieldNameVariants`；浏览器数据服务/接入服务/质量任务日志页 | BUG-S13-001 |
+| 2026-06-22 | S14 协议转换 Trace/日志脱敏与日志隔离深挖 | 完成，修复前复现协议转换 debug Trace Query/Form 敏感字段泄漏，最近通过批次 `20260622010840`：`7 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s14_protocol_conversion_trace_security_probe.py`；`WebServiceSupportTest#shouldMaskSensitiveProtocolConversionTraceDiagnostics`；浏览器协议转换访问日志详情和完整日志页 | BUG-S14-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -337,6 +354,8 @@ S11 未新增缺陷，但沉淀为状态机回归入口：后续涉及数据服�
 S12 新增的 `BUG-S12-001` 纳入 `smoke`：后续涉及 `DataIngestionExecutionSupport`、数据接入开放 API、writer 执行等待、批量写入、接入调用日志或 writer 线程中断/慢写处理的修改，必须复跑 S12 容量边界探针、`DataIngestionInvocationLogSupportTest`，并用浏览器复核数据接入调试页、接入指标页和接入运行日志页。
 
 S13 新增的 `BUG-S13-001` 纳入 `smoke`：后续涉及 `OpenServiceInvocationLogSupport`、开放调用日志采集/查看/下载、日志分页、跨项目日志访问、运行记录对象日志下载或敏感信息脱敏的修改，必须复跑 S13 日志安全探针、`DataIngestionInvocationLogSupportTest`，并用浏览器复核数据服务访问日志、数据接入运行日志和至少一个运行记录日志页。
+
+S14 新增的 `BUG-S14-001` 纳入 `smoke`：后续涉及 `ProtocolConversionService`、协议转换 debug、协议转换开放调用、协议转换访问日志 Trace、协议转换完整日志下载或协议转换敏感信息脱敏的修改，必须复跑 S14 协议转换 Trace 安全探针、`WebServiceSupportTest`，并用浏览器复核协议转换访问日志详情和完整日志抽屉。
 
 ## 提交规则
 

@@ -535,8 +535,8 @@ public class ProtocolConversionService {
         ProtocolConversionTraceStepView step = baseStep("sourceRequest", "原请求", protocol);
         step.setMethod(normalizeMethod(method, "POST"));
         step.setHeaders(sanitizeHeaders(headers));
-        step.setQuery(safeMap(query));
-        step.setForm(safeMap(form));
+        step.setQuery(sanitizeSensitiveMap(query));
+        step.setForm(sanitizeSensitiveMap(form));
         step.setBodyFormat(bodyFormat(protocol));
         step.setBodyPreview(previewForTrace(body));
         step.setSummary("调用方传入的 Header / Query / Form / Body");
@@ -654,12 +654,12 @@ public class ProtocolConversionService {
             return "";
         }
         if (value instanceof String) {
-            return truncate(String.valueOf(value), 4000);
+            return truncate(sanitizeSensitiveText(String.valueOf(value)), 4000);
         }
         try {
-            return truncate(objectMapper.writeValueAsString(value), 4000);
+            return truncate(sanitizeSensitiveText(objectMapper.writeValueAsString(value)), 4000);
         } catch (Exception ex) {
-            return truncate(String.valueOf(value), 4000);
+            return truncate(sanitizeSensitiveText(String.valueOf(value)), 4000);
         }
     }
 
@@ -2344,13 +2344,98 @@ public class ProtocolConversionService {
         for (Map.Entry<String, Object> entry : snapshot.entrySet()) {
             if ("headers".equals(entry.getKey()) && entry.getValue() instanceof Map<?, ?>) {
                 result.put(entry.getKey(), sanitizeHeaders(castMap(entry.getValue())));
+            } else if ("url".equals(entry.getKey()) && entry.getValue() instanceof String) {
+                result.put(entry.getKey(), sanitizeUrl(String.valueOf(entry.getValue())));
             } else if ("body".equals(entry.getKey())) {
-                result.put(entry.getKey(), truncate(String.valueOf(entry.getValue()), 4000));
+                result.put(entry.getKey(), previewForTrace(entry.getValue()));
+            } else if (entry.getValue() instanceof Map<?, ?>) {
+                result.put(entry.getKey(), sanitizeSensitiveMap(castMap(entry.getValue())));
+            } else {
+                result.put(entry.getKey(), entry.getValue() instanceof String
+                        ? sanitizeSensitiveText(String.valueOf(entry.getValue()))
+                        : entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> sanitizeSensitiveMap(Map<String, Object> values) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (values == null) {
+            return result;
+        }
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            if (isSensitiveDiagnosticName(entry.getKey())) {
+                result.put(entry.getKey(), "******");
+            } else if (entry.getValue() instanceof Map<?, ?>) {
+                result.put(entry.getKey(), sanitizeSensitiveMap(castMap(entry.getValue())));
+            } else if (entry.getValue() instanceof List<?>) {
+                result.put(entry.getKey(), sanitizeSensitiveList((List<?>) entry.getValue()));
+            } else if (entry.getValue() instanceof String) {
+                result.put(entry.getKey(), sanitizeSensitiveText(String.valueOf(entry.getValue())));
             } else {
                 result.put(entry.getKey(), entry.getValue());
             }
         }
         return result;
+    }
+
+    private List<Object> sanitizeSensitiveList(List<?> values) {
+        List<Object> result = new ArrayList<Object>();
+        if (values == null) {
+            return result;
+        }
+        for (Object value : values) {
+            if (value instanceof Map<?, ?>) {
+                result.add(sanitizeSensitiveMap(castMap(value)));
+            } else if (value instanceof List<?>) {
+                result.add(sanitizeSensitiveList((List<?>) value));
+            } else if (value instanceof String) {
+                result.add(sanitizeSensitiveText(String.valueOf(value)));
+            } else {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private String sanitizeUrl(String url) {
+        if (!hasText(url)) {
+            return url;
+        }
+        int queryStart = url.indexOf('?');
+        if (queryStart < 0) {
+            return sanitizeSensitiveText(url);
+        }
+        int fragmentStart = url.indexOf('#', queryStart + 1);
+        String prefix = url.substring(0, queryStart + 1);
+        String query = fragmentStart < 0 ? url.substring(queryStart + 1) : url.substring(queryStart + 1, fragmentStart);
+        String fragment = fragmentStart < 0 ? "" : url.substring(fragmentStart);
+        String[] parts = query.split("&", -1);
+        StringBuilder builder = new StringBuilder(url.length());
+        builder.append(prefix);
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                builder.append('&');
+            }
+            String part = parts[i];
+            int equalsIndex = part.indexOf('=');
+            String name = equalsIndex < 0 ? part : part.substring(0, equalsIndex);
+            if (isSensitiveDiagnosticName(name)) {
+                builder.append(name);
+                if (equalsIndex >= 0) {
+                    builder.append("=******");
+                }
+            } else {
+                builder.append(sanitizeSensitiveText(part));
+            }
+        }
+        builder.append(fragment);
+        return builder.toString();
+    }
+
+    private String sanitizeSensitiveText(String value) {
+        return OpenServiceInvocationLogSupport.sanitizeSensitiveLog(value);
     }
 
     private Map<String, Object> sanitizeHeaders(Map<String, Object> headers) {
@@ -2365,15 +2450,21 @@ public class ProtocolConversionService {
     }
 
     private boolean isSensitiveHeader(String name) {
+        return isSensitiveDiagnosticName(name);
+    }
+
+    private boolean isSensitiveDiagnosticName(String name) {
         if (!hasText(name)) {
             return false;
         }
         String normalized = name.toLowerCase(Locale.ROOT);
         return normalized.contains("token")
                 || normalized.contains("authorization")
+                || normalized.contains("cookie")
                 || normalized.contains("secret")
                 || normalized.contains("key")
-                || normalized.contains("password");
+                || normalized.contains("password")
+                || normalized.contains("credential");
     }
 
     private boolean isXmlTarget(ProtocolConversionProtocol protocol) {

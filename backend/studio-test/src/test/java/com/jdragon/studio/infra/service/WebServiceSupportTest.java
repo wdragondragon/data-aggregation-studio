@@ -14,8 +14,10 @@ import com.jdragon.studio.dto.model.DataIngestionServiceView;
 import com.jdragon.studio.dto.model.DataServiceDefinitionView;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
 import com.jdragon.studio.dto.model.ProtocolConversionServiceView;
+import com.jdragon.studio.dto.model.ProtocolConversionTraceStepView;
 import com.jdragon.studio.dto.model.WebServiceConfig;
 import com.jdragon.studio.dto.model.WebServicePreviewView;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
@@ -220,6 +222,64 @@ class WebServiceSupportTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void shouldMaskSensitiveProtocolConversionTraceDiagnostics() throws Exception {
+        ProtocolConversionService service = protocolConversionServiceWithInvocationLog();
+        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+        view.setSourceProtocol(ProtocolConversionProtocol.HTTP_JSON);
+        Method sourceRequestTraceStep = ProtocolConversionService.class.getDeclaredMethod(
+                "sourceRequestTraceStep",
+                ProtocolConversionServiceView.class,
+                String.class,
+                Map.class,
+                Map.class,
+                Map.class,
+                Object.class);
+        sourceRequestTraceStep.setAccessible(true);
+
+        Map<String, Object> headers = new LinkedHashMap<>();
+        headers.put("X-S14-Secret-Token", "raw-header-secret");
+        headers.put("X-S14-Trace", "长期回归S14请求追踪");
+        Map<String, Object> query = new LinkedHashMap<>();
+        query.put("api_key", "raw-query-api-key");
+        query.put("businessTrace", "长期回归S14查询追踪");
+        Map<String, Object> form = new LinkedHashMap<>();
+        form.put("clientSecret", "raw-form-secret");
+        form.put("formTrace", "长期回归S14表单追踪");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("password", "raw-body-password");
+        body.put("customerName", "长期回归S14协议转换客户");
+
+        ProtocolConversionTraceStepView step = (ProtocolConversionTraceStepView) sourceRequestTraceStep.invoke(
+                service, view, "POST", headers, query, form, body);
+
+        assertEquals("******", step.getHeaders().get("X-S14-Secret-Token"));
+        assertEquals("长期回归S14请求追踪", step.getHeaders().get("X-S14-Trace"));
+        assertEquals("******", step.getQuery().get("api_key"));
+        assertEquals("长期回归S14查询追踪", step.getQuery().get("businessTrace"));
+        assertEquals("******", step.getForm().get("clientSecret"));
+        assertEquals("长期回归S14表单追踪", step.getForm().get("formTrace"));
+        assertFalse(step.getBodyPreview().contains("raw-body-password"));
+        assertTrue(step.getBodyPreview().contains("长期回归S14协议转换客户"));
+
+        Method sanitizeTargetRequest = ProtocolConversionService.class.getDeclaredMethod("sanitizeTargetRequest", Map.class);
+        sanitizeTargetRequest.setAccessible(true);
+        Map<String, Object> target = new LinkedHashMap<>();
+        target.put("url", "http://127.0.0.1:18080/openapi/mock?api_key=raw-target-key&businessTrace=长期回归S14目标追踪");
+        target.put("headers", Map.of("Authorization", "Bearer raw-target-token", "X-Business-Trace", "长期回归S14目标Header"));
+        target.put("body", "{\"clientSecret\":\"raw-target-secret\",\"customerName\":\"长期回归S14目标客户\"}");
+
+        Map<String, Object> sanitizedTarget = (Map<String, Object>) sanitizeTargetRequest.invoke(service, target);
+
+        assertFalse(String.valueOf(sanitizedTarget.get("url")).contains("raw-target-key"));
+        assertTrue(String.valueOf(sanitizedTarget.get("url")).contains("businessTrace=长期回归S14目标追踪"));
+        assertEquals("******", ((Map<String, Object>) sanitizedTarget.get("headers")).get("Authorization"));
+        assertEquals("长期回归S14目标Header", ((Map<String, Object>) sanitizedTarget.get("headers")).get("X-Business-Trace"));
+        assertFalse(String.valueOf(sanitizedTarget.get("body")).contains("raw-target-secret"));
+        assertTrue(String.valueOf(sanitizedTarget.get("body")).contains("长期回归S14目标客户"));
+    }
+
+    @Test
     void shouldParseNilProtocolConversionSoapTableAsStructuredEmptyTable() throws Exception {
         ProtocolConversionService service = protocolConversionService();
         Method parseXmlToMap = ProtocolConversionService.class.getDeclaredMethod("parseXmlToMap", String.class);
@@ -393,6 +453,16 @@ class WebServiceSupportTest {
     private static ProtocolConversionService protocolConversionService() {
         return new ProtocolConversionService(
                 null, null, null, null, null, null, null, new ObjectMapper(), null);
+    }
+
+    private static ProtocolConversionService protocolConversionServiceWithInvocationLog() {
+        return new ProtocolConversionService(
+                null, null, null, null, null, null, null, new ObjectMapper(), invocationLogService());
+    }
+
+    private static OpenServiceInvocationLogService invocationLogService() {
+        return new OpenServiceInvocationLogService(
+                new StudioPlatformProperties(), null, null, null, null, null, null, new ObjectMapper());
     }
 
     private static String invokeBuildBodyBridgeTargetBody(ProtocolConversionService service,
