@@ -72,6 +72,21 @@ class AggregationSourceCapabilityProviderRegressionTest {
         assertThat(message).isEqualTo("Access denied for user 'root'@'127.0.0.1' (using password: YES)");
     }
 
+    @Test
+    void connectionFailureMessageShouldNotExposeJavaExceptionPrefix() throws Exception {
+        AggregationSourceCapabilityProvider provider = httpProvider();
+        Method method = AggregationSourceCapabilityProvider.class
+                .getDeclaredMethod("userFriendlyErrorMessage", Throwable.class);
+        method.setAccessible(true);
+        RuntimeException wrapped = new RuntimeException(
+                "java.lang.RuntimeException: Cannot create PoolableConnectionFactory",
+                new RuntimeException("java.lang.RuntimeException: Communications link failure"));
+
+        Object message = method.invoke(provider, wrapped);
+
+        assertThat(message).isEqualTo("Communications link failure");
+    }
+
     private AggregationSourceCapabilityProvider httpProvider() {
         StudioPlatformProperties properties = new StudioPlatformProperties();
         return new AggregationSourceCapabilityProvider(

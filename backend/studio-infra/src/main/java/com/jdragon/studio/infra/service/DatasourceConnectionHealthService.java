@@ -379,7 +379,7 @@ public class DatasourceConnectionHealthService {
                 .eq(DatasourceConnectionHealthEntity::getProbeRunId, runId)
                 .set(DatasourceConnectionHealthEntity::getConnectionStatus, status.name())
                 .set(DatasourceConnectionHealthEntity::getLastConnectionTestAt, execution.endedAt)
-                .set(DatasourceConnectionHealthEntity::getLastConnectionTestMessage, truncate(result.getMessage()))
+                .set(DatasourceConnectionHealthEntity::getLastConnectionTestMessage, safeMessage(result.getMessage()))
                 .set(DatasourceConnectionHealthEntity::getLastConnectionTestDurationMs, result.getDurationMs())
                 .set(DatasourceConnectionHealthEntity::getFailureCount, nextFailureCount)
                 .set(DatasourceConnectionHealthEntity::getNextProbeAt, nextProbeAt);
@@ -427,7 +427,7 @@ public class DatasourceConnectionHealthService {
         record.setEndedAt(execution.endedAt);
         record.setDurationMs(execution.result.getDurationMs());
         record.setTimeoutSeconds(timeoutSeconds);
-        record.setMessage(truncate(execution.result.getMessage()));
+        record.setMessage(safeMessage(execution.result.getMessage()));
         try {
             recordMapper.insert(record);
         } catch (DuplicateKeyException ignored) {
@@ -542,7 +542,7 @@ public class DatasourceConnectionHealthService {
         DataSourceConnectionStatus status = parseStatus(health == null ? null : health.getConnectionStatus());
         result.setStatus(status);
         result.setSuccess(status == DataSourceConnectionStatus.AVAILABLE);
-        result.setMessage(health == null ? null : health.getLastConnectionTestMessage());
+        result.setMessage(health == null ? null : safeMessage(health.getLastConnectionTestMessage()));
         result.setDurationMs(health == null ? null : health.getLastConnectionTestDurationMs());
         result.setLastTestAt(health == null ? null : health.getLastConnectionTestAt());
         result.setNextProbeAt(health == null ? null : health.getNextProbeAt());
@@ -609,7 +609,7 @@ public class DatasourceConnectionHealthService {
         if (result.getDurationMs() == null) {
             result.setDurationMs(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
         }
-        result.setMessage(truncate(timeout ? "Connection test timed out after " + timeoutSeconds + " seconds" : result.getMessage()));
+        result.setMessage(safeMessage(timeout ? "Connection test timed out after " + timeoutSeconds + " seconds" : result.getMessage()));
         result.setTimeoutSeconds(timeoutSeconds);
         return result;
     }
@@ -629,7 +629,7 @@ public class DatasourceConnectionHealthService {
         result.setSuccess(false);
         result.setStatus(DataSourceConnectionStatus.UNAVAILABLE);
         result.setDurationMs(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
-        result.setMessage(e.getMessage());
+        result.setMessage(safeExceptionMessage(e));
         return result;
     }
 
@@ -683,7 +683,7 @@ public class DatasourceConnectionHealthService {
     private void applyHealth(DataSourceDefinition definition, DatasourceConnectionHealthEntity health) {
         definition.setConnectionStatus(parseStatus(health.getConnectionStatus()));
         definition.setLastConnectionTestAt(health.getLastConnectionTestAt());
-        definition.setLastConnectionTestMessage(health.getLastConnectionTestMessage());
+        definition.setLastConnectionTestMessage(safeMessage(health.getLastConnectionTestMessage()));
         definition.setLastConnectionTestDurationMs(health.getLastConnectionTestDurationMs());
         definition.setConnectionTesting(isRunning(health, LocalDateTime.now()));
         definition.setConnectionStale(isStale(health));
@@ -713,7 +713,7 @@ public class DatasourceConnectionHealthService {
         view.setDurationMs(record.getDurationMs());
         view.setProbeMode(record.getProbeMode());
         view.setTimeoutSeconds(record.getTimeoutSeconds());
-        view.setMessage(record.getMessage());
+        view.setMessage(safeMessage(record.getMessage()));
         view.setDatasourceId(record.getDatasourceId());
         view.setDatasourceName(record.getDatasourceName());
         return view;
@@ -835,6 +835,61 @@ public class DatasourceConnectionHealthService {
             return message;
         }
         return message.substring(0, MAX_CONNECTION_TEST_MESSAGE_LENGTH);
+    }
+
+    private String safeMessage(String message) {
+        if (!hasText(message)) {
+            return message;
+        }
+        return truncate(stripExceptionClassPrefix(message.trim()));
+    }
+
+    private String safeExceptionMessage(Throwable throwable) {
+        if (throwable == null) {
+            return null;
+        }
+        String message = null;
+        Throwable current = throwable;
+        int depth = 0;
+        while (current != null && depth < 16) {
+            if (hasText(current.getMessage())) {
+                message = current.getMessage();
+            }
+            current = current.getCause();
+            depth++;
+        }
+        if (hasText(message)) {
+            return safeMessage(message);
+        }
+        return throwable.getClass().getSimpleName();
+    }
+
+    private String stripExceptionClassPrefix(String message) {
+        String result = message;
+        while (result != null) {
+            int separator = result.indexOf(": ");
+            if (separator <= 0) {
+                return result;
+            }
+            String prefix = result.substring(0, separator);
+            if (!looksLikeExceptionClass(prefix)) {
+                return result;
+            }
+            result = result.substring(separator + 2).trim();
+        }
+        return message;
+    }
+
+    private boolean looksLikeExceptionClass(String prefix) {
+        if (!hasText(prefix)) {
+            return false;
+        }
+        String simpleName = prefix.trim();
+        int dotIndex = simpleName.lastIndexOf('.');
+        if (dotIndex >= 0) {
+            simpleName = simpleName.substring(dotIndex + 1);
+        }
+        return simpleName.endsWith("Exception") || simpleName.endsWith("Error");
     }
 
     private boolean hasText(String value) {

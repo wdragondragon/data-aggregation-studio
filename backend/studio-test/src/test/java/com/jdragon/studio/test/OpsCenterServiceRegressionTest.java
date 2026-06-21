@@ -8,6 +8,9 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.OpsCenterHealthStatus;
 import com.jdragon.studio.dto.model.OpsCenterOverviewView;
 import com.jdragon.studio.dto.model.OpsCenterQueueItemView;
+import com.jdragon.studio.dto.model.OpsCenterLogEventView;
+import com.jdragon.studio.dto.model.OpsCenterRunIncidentView;
+import com.jdragon.studio.dto.model.OpsCenterServiceEventView;
 import com.jdragon.studio.dto.model.OpsCenterWorkerGroupView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.OpsCenterQueryRequest;
@@ -167,6 +170,34 @@ class OpsCenterServiceRegressionTest {
         assertEquals(Long.valueOf(1L), overview.getFailedRuns());
         assertEquals(Long.valueOf(1L), overview.getServiceFailures());
         assertEquals(Long.valueOf(1L), overview.getIngestionFailures());
+    }
+
+    @Test
+    void shouldSanitizeInternalExceptionPrefixesInOpsMessages() {
+        Fixture fixture = new Fixture();
+        fixture.withOnlineWorker("default-pool");
+        RunRecordEntity runRecord = runRecord("FAILED", LocalDateTime.now().minusMinutes(2L), LocalDateTime.now().minusMinutes(1L));
+        runRecord.setMessage("java.lang.RuntimeException: 不支持的类型对比");
+        runRecord.setLogStatus("UPLOAD_FAILED");
+        runRecord.setLogErrorSummary("java.lang.IllegalStateException: object storage unavailable");
+        fixture.withRunRecord(runRecord);
+        DataServiceAccessLogEntity serviceLog = serviceLog(0, 500, 200L);
+        serviceLog.setErrorMessage("java.lang.RuntimeException: 服务调用失败");
+        fixture.withServiceLog(serviceLog);
+        DataIngestionAccessLogEntity ingestionLog = ingestionLog(1, 200, 300L, 1L);
+        ingestionLog.setErrorMessage("java.lang.RuntimeException: 接入写入失败");
+        fixture.withIngestionLog(ingestionLog);
+
+        PageView<OpsCenterRunIncidentView> runPage = fixture.service.queryRuns(new OpsCenterQueryRequest());
+        PageView<OpsCenterLogEventView> logPage = fixture.service.queryLogEvents(new OpsCenterQueryRequest());
+        PageView<OpsCenterServiceEventView> servicePage = fixture.service.queryServiceEvents(new OpsCenterQueryRequest());
+        PageView<OpsCenterServiceEventView> ingestionPage = fixture.service.queryIngestionEvents(new OpsCenterQueryRequest());
+
+        assertEquals("不支持的类型对比", runPage.getItems().get(0).getMessage());
+        assertEquals("object storage unavailable", runPage.getItems().get(0).getLogErrorSummary());
+        assertEquals("object storage unavailable", logPage.getItems().get(0).getLogErrorSummary());
+        assertEquals("服务调用失败", servicePage.getItems().get(0).getErrorMessage());
+        assertEquals("接入写入失败", ingestionPage.getItems().get(0).getErrorMessage());
     }
 
     @Test

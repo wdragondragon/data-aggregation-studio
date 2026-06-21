@@ -24,6 +24,8 @@
 | M09-FIX-03 | 认证 | 中 | 禁用用户登录返回 HTTP 500 | `GlobalExceptionHandler.java` | `StudioInitializationApiRegressionTest`；禁用用户登录返回 401；`studio_s01_permission_probe.py` | smoke | 2026-06-21 | `b59e8d5` |
 | M09-FIX-04 | 前端权限 | 中 | `/system` 直接路由缺少角色 meta | `frontend/apps/web/src/router/index.ts`；`frontend/apps/web/src/stores/auth.ts` | `npm run build:web`；admin 浏览器访问 `/system` 正常，低权限应被路由守卫拦截；S01 浏览器路由验证 | module-regression | 2026-06-21 | `b59e8d5` |
 | M10-FIX-01 | 导入导出 | 高 | 接收项目导出包包含源项目共享工作流，存在跨项目泄漏风险 | `WorkflowService.java`；`ImportExportController.java` | `StudioInitializationApiRegressionTest#projectExportShouldNotIncludeSharedWorkflowsFromOtherProjects`；接收项目 `/exports/project` 返回 `workflows=[]`；`studio_s01_permission_probe.py` | smoke | 2026-06-21 | `b59e8d5` |
+| BUG-S03-001 | 数据源/故障恢复 | 中 | 数据源连接测试失败和连接历史暴露 Java 异常类前缀 | `AggregationSourceCapabilityProvider.java`；`DatasourceConnectionHealthService.java` | `AggregationSourceCapabilityProviderRegressionTest`；`DatasourceConnectionHealthServiceTest`；`studio_s03_fault_recovery_probe.py` 的 `S03-MYSQL-001`；浏览器数据源页无内部异常标记 | smoke | 2026-06-21 | 本次提交 |
+| BUG-S03-002 | 运维中心 | 中 | 运维中心历史运行异常暴露 Java 异常类前缀 | `OpsCenterService.java` | `OpsCenterServiceRegressionTest`；`studio_s03_fault_recovery_probe.py` 的 `S03-OPS-001`；浏览器运维中心无内部异常标记 | smoke | 2026-06-21 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -40,4 +42,4 @@
 |---|---|
 | S01 权限隔离与多项目数据泄漏 | M09-FIX-01、M09-FIX-04、M10-FIX-01 |
 | S02 数据正确性与幂等性 | BUG-M05-001、BUG-M06-001、BUG-M06-002 |
-| S03 故障注入与恢复 | BUG-M05-002、FIX-M08-001、M09-FIX-03 |
+| S03 故障注入与恢复 | BUG-M05-002、FIX-M08-001、M09-FIX-03、BUG-S03-001、BUG-S03-002 |

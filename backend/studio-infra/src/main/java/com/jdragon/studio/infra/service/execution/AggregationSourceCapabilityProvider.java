@@ -142,7 +142,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             result.setMessage("Unsupported plugin type");
         } catch (Exception e) {
             result.setSuccess(false);
-            result.setMessage(e.getMessage());
+            result.setMessage(userFriendlyErrorMessage(e));
         }
         return result;
     }
@@ -245,7 +245,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             }
             result.setMessage("No model discovery provider");
         } catch (Exception e) {
-            result.setMessage(e.getMessage());
+            result.setMessage(userFriendlyErrorMessage(e));
         }
         return result;
     }
@@ -456,7 +456,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             result.setMessage("HTTP status " + statusCode);
         } catch (Exception e) {
             result.setSuccess(false);
-            result.setMessage(e.getMessage());
+            result.setMessage(userFriendlyErrorMessage(e));
         }
         return result;
     }
@@ -505,6 +505,14 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         return message == null || message.trim().isEmpty() ? null : message;
     }
 
+    private String userFriendlyErrorMessage(Throwable throwable) {
+        String message = deepestMessage(throwable);
+        if (message == null || message.trim().isEmpty()) {
+            return throwable == null ? "Unknown error" : throwable.getClass().getSimpleName();
+        }
+        return stripExceptionClassPrefix(message.trim());
+    }
+
     private String deepestMessage(Throwable throwable) {
         Throwable current = unwrapInvocationTarget(throwable);
         String message = null;
@@ -519,6 +527,34 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             current = cause;
         }
         return message;
+    }
+
+    private String stripExceptionClassPrefix(String message) {
+        String result = message;
+        while (result != null) {
+            int separator = result.indexOf(": ");
+            if (separator <= 0) {
+                return result;
+            }
+            String prefix = result.substring(0, separator);
+            if (!looksLikeExceptionClass(prefix)) {
+                return result;
+            }
+            result = result.substring(separator + 2).trim();
+        }
+        return message;
+    }
+
+    private boolean looksLikeExceptionClass(String prefix) {
+        if (prefix == null || prefix.trim().isEmpty()) {
+            return false;
+        }
+        String simpleName = prefix;
+        int dotIndex = simpleName.lastIndexOf('.');
+        if (dotIndex >= 0) {
+            simpleName = simpleName.substring(dotIndex + 1);
+        }
+        return simpleName.endsWith("Exception") || simpleName.endsWith("Error");
     }
 
     private Throwable unwrapInvocationTarget(Throwable throwable) {

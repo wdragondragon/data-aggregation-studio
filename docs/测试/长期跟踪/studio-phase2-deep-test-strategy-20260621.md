@@ -170,6 +170,16 @@
 - 自动化记录必须包含命令、依赖、预期结果和最近通过时间。
 - 不要求一次性搭建完整 E2E 框架，但禁止只保留无法复跑的口头结论。
 
+## 执行状态
+
+| 日期 | 专项 | 状态 | 自动化入口 | 固定回归 |
+|---|---|---|---|---|
+| 2026-06-21 | S01 权限隔离与多项目数据泄漏 | 首轮完成，`25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s01_permission_probe.py` | M09-FIX-01、M09-FIX-04、M10-FIX-01 |
+| 2026-06-21 | S02 数据正确性与幂等性 | 首轮完成，`17 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s02_data_correctness_probe.py` | BUG-M05-001、BUG-M05-002、BUG-M06-001、BUG-M06-002 |
+| 2026-06-21 | S03 故障注入与恢复 | 首轮完成，`9 PASS / 0 FAIL / 3 BLOCKED` | `scripts/studio_s03_fault_recovery_probe.py` | M09-FIX-03、FIX-M08-001、BUG-S03-001、BUG-S03-002 |
+
+S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
+
 ## 提交规则
 
 - 真实缺陷修复通过验证后必须及时提交。

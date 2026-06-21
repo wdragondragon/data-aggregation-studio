@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DatasourceConnectionHealthEntity;
+import com.jdragon.studio.infra.entity.DatasourceConnectionTestRecordEntity;
 import com.jdragon.studio.infra.mapper.DatasourceConnectionHealthMapper;
 import com.jdragon.studio.infra.mapper.DatasourceConnectionTestRecordMapper;
 import com.jdragon.studio.infra.service.ClusterInstanceIdentity;
@@ -39,6 +40,9 @@ class DatasourceConnectionHealthServiceTest {
     static void initMybatisPlusTableInfo() {
         if (TableInfoHelper.getTableInfo(DatasourceConnectionHealthEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DatasourceConnectionHealthEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(DatasourceConnectionTestRecordEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DatasourceConnectionTestRecordEntity.class);
         }
     }
 
@@ -127,6 +131,33 @@ class DatasourceConnectionHealthServiceTest {
         scheduledExecutor.shutdown();
     }
 
+    @Test
+    void shouldSanitizeFailureMessagesAndStoredHistory() {
+        DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
+        DatasourceConnectionTestRecordMapper recordMapper = mock(DatasourceConnectionTestRecordMapper.class);
+        when(healthMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(health("tenant-a", "fp-a", "IDLE"));
+        when(healthMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(recordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(record(
+                "java.lang.RuntimeException: Cannot create PoolableConnectionFactory")));
+
+        ThreadPoolTaskExecutor manualExecutor = executor("manual-sanitize-", 1);
+        ThreadPoolTaskExecutor scheduledExecutor = executor("scheduled-sanitize-", 1);
+        DatasourceConnectionHealthService service = service(healthMapper, recordMapper, manualExecutor, scheduledExecutor, properties());
+
+        ConnectionTestResult result = service.runManualProbe(definition("tenant-a", "fp-a"), () -> {
+            throw new RuntimeException(
+                    "java.lang.RuntimeException: Cannot create PoolableConnectionFactory",
+                    new RuntimeException("java.lang.RuntimeException: Communications link failure"));
+        }, 5);
+
+        assertThat(result.getMessage()).isEqualTo("Communications link failure");
+        assertThat(result.getRecentConnectionTests()).hasSize(1);
+        assertThat(result.getRecentConnectionTests().get(0).getMessage()).isEqualTo("Cannot create PoolableConnectionFactory");
+
+        manualExecutor.shutdown();
+        scheduledExecutor.shutdown();
+    }
+
     private DatasourceConnectionHealthService service(DatasourceConnectionHealthMapper healthMapper,
                                                       DatasourceConnectionTestRecordMapper recordMapper,
                                                       ThreadPoolTaskExecutor manualExecutor,
@@ -181,5 +212,15 @@ class DatasourceConnectionHealthServiceTest {
         health.setProbeLeaseUntil(LocalDateTime.now().plusMinutes(5));
         health.setFailureCount(0);
         return health;
+    }
+
+    private DatasourceConnectionTestRecordEntity record(String message) {
+        DatasourceConnectionTestRecordEntity record = new DatasourceConnectionTestRecordEntity();
+        record.setTenantId("tenant-a");
+        record.setConnectionFingerprint("fp-a");
+        record.setConnectionStatus(DataSourceConnectionStatus.UNAVAILABLE.name());
+        record.setEndedAt(LocalDateTime.now());
+        record.setMessage(message);
+        return record;
     }
 }

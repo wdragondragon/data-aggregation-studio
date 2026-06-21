@@ -489,7 +489,7 @@ public class OpsCenterService {
         view.setQualityTaskId(entity.getQualityTaskId());
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
-        view.setMessage(entity.getMessage());
+        view.setMessage(safeMessage(entity.getMessage()));
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setWorkerCode(entity.getWorkerCode());
         view.setWorkerInstanceId(entity.getWorkerInstanceId());
@@ -500,7 +500,7 @@ public class OpsCenterService {
         view.setDurationMs(runDurationMs(entity, now));
         view.setLogStorageType(entity.getLogStorageType());
         view.setLogStatus(entity.getLogStatus());
-        view.setLogErrorSummary(entity.getLogErrorSummary());
+        view.setLogErrorSummary(safeMessage(entity.getLogErrorSummary()));
         view.setSlow(Boolean.valueOf(isSlowRun(entity, now)));
         view.setLogAbnormal(Boolean.valueOf(isLogAbnormal(entity)));
         return view;
@@ -521,7 +521,7 @@ public class OpsCenterService {
         view.setSuccess(Boolean.valueOf(isSuccess(entity.getSuccess())));
         view.setHttpStatus(entity.getHttpStatus());
         view.setErrorCode(entity.getErrorCode());
-        view.setErrorMessage(entity.getErrorMessage());
+        view.setErrorMessage(safeMessage(entity.getErrorMessage()));
         view.setRowCount(entity.getRowCount());
         view.setSlow(Boolean.valueOf(safeLong(entity.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS));
         return view;
@@ -542,7 +542,7 @@ public class OpsCenterService {
         view.setSuccess(Boolean.valueOf(isSuccess(entity.getSuccess())));
         view.setHttpStatus(entity.getHttpStatus());
         view.setErrorCode(entity.getErrorCode());
-        view.setErrorMessage(entity.getErrorMessage());
+        view.setErrorMessage(safeMessage(entity.getErrorMessage()));
         view.setReceivedCount(entity.getReceivedCount());
         view.setWrittenCount(entity.getSuccessCount());
         view.setFailedCount(entity.getFailedCount());
@@ -566,7 +566,7 @@ public class OpsCenterService {
         view.setEndedAt(entity.getEndedAt());
         view.setLogStorageType(entity.getLogStorageType());
         view.setLogStatus(entity.getLogStatus());
-        view.setLogErrorSummary(entity.getLogErrorSummary());
+        view.setLogErrorSummary(safeMessage(entity.getLogErrorSummary()));
         return view;
     }
 
@@ -768,6 +768,41 @@ public class OpsCenterService {
 
     private String upper(String value) {
         return value == null ? null : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String safeMessage(String message) {
+        if (!hasText(message)) {
+            return message;
+        }
+        return stripExceptionClassPrefix(message.trim());
+    }
+
+    private String stripExceptionClassPrefix(String message) {
+        String result = message;
+        while (result != null) {
+            int separator = result.indexOf(": ");
+            if (separator <= 0) {
+                return result;
+            }
+            String prefix = result.substring(0, separator);
+            if (!looksLikeExceptionClass(prefix)) {
+                return result;
+            }
+            result = result.substring(separator + 2).trim();
+        }
+        return message;
+    }
+
+    private boolean looksLikeExceptionClass(String prefix) {
+        if (!hasText(prefix)) {
+            return false;
+        }
+        String simpleName = prefix.trim();
+        int dotIndex = simpleName.lastIndexOf('.');
+        if (dotIndex >= 0) {
+            simpleName = simpleName.substring(dotIndex + 1);
+        }
+        return simpleName.endsWith("Exception") || simpleName.endsWith("Error");
     }
 
     private long safeLong(Long value) {
