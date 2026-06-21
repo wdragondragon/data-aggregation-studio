@@ -139,3 +139,6 @@
 - 2026-06-22 已完成 S17 数据源当前表单 ACL 深挖：确认并修复接收项目成员可通过 `POST /datasources/test` 构造源项目数据源 `id`，复用源项目已加密密码完成连接测试的问题，`BUG-S17-001` 已进入缺陷回归索引。
 - S17 保留复现批次 `20260622033528` 和修复后最近通过批次 `20260622034448`：长期数据源 `长期回归-客户经营画像数据源` / `2068077811652583425`，接收项目成员不可读取/保存态测试/发现该私有数据源，当前表单测试修复后返回 `403 Resource belongs to another project`。
 - S17 自动化入口：`docs/测试/长期跟踪/scripts/studio_s17_datasource_current_form_acl_probe.py`。后续涉及 `DataSourceService`、数据源编辑页当前表单测试、敏感字段保留、数据源共享、数据源连接测试或发现模型逻辑的修改，至少复跑该脚本、`DataSourceApiRegressionTest`、`DataSourceServiceRegressionTest`、`studio_s01_permission_probe.py`，并用浏览器复核 `/datasources`。
+- 2026-06-22 已完成 S18 关注目标 ACL 深挖：确认并修复关注接口可关注不存在目标或不可读跨项目工作流运行的问题，`BUG-S18-001` 已进入缺陷回归索引。
+- S18 保留长期工作流 `长期回归-S18关注目标ACL流程` / `lt_reg_s18_follow_acl_workflow` / `2068792835765424129`、资源共享 `2068792849027813378`、成功运行 `2068792869038837761`；修复后接收项目成员可关注共享工作流，但不可关注源项目不可读工作流运行或不存在目标，`unfollow` 对不存在目标保持幂等。
+- S18 自动化入口：`docs/测试/长期跟踪/scripts/studio_s18_follow_target_acl_probe.py`。后续涉及 `FollowSubscriptionService`、关注按钮、通知 fan-out、工作流/采集运行详情、资源共享撤销、目标删除或消息中心的修改，至少复跑该脚本、`FollowApiRegressionTest`、`studio_s01_permission_probe.py`，并用浏览器复核 `/notifications` 和 `/runs`。

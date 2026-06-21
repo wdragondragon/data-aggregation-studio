@@ -74,6 +74,7 @@
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
 | 导入导出/日志 | M10-FIX-01、BUG-S13-001、BUG-S15-001 |
 | 协议转换 Trace/日志 | BUG-S14-001、BUG-S15-001 |
+| 关注/通知 | BUG-S18-001 |
 
 ### nightly-deep
 
@@ -352,6 +353,21 @@
 - 沉淀 `scripts/studio_s17_datasource_current_form_acl_probe.py`。
 - 如发现真实缺陷，补充数据源 API 回归测试和服务层回归测试，并写入缺陷索引。
 
+### S18 关注目标 ACL 深挖
+
+覆盖场景：
+
+- 关注接口 `status/follow/unfollow` 的目标存在性、当前租户、当前项目和资源共享可读边界。
+- 共享工作流可关注，但不可读的源项目工作流运行、采集运行和不存在目标不可关注。
+- 修复前遗留或分享撤销后的个人关注记录仍能通过 `unfollow` 幂等关闭。
+- Browser 复核消息中心和工作流日志页，确认关注/通知相关入口无新前端错误。
+
+验收：
+
+- 产出 `records/20260622-S18关注目标ACL深挖执行记录.md`。
+- 沉淀 `scripts/studio_s18_follow_target_acl_probe.py`。
+- 如发现真实缺陷，补充关注 API 回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -380,6 +396,7 @@
 | 2026-06-22 | S15 SOAP 协议转换 Trace/日志脱敏深挖 | 完成，修复前复现 SOAP XML 元素/属性敏感值泄漏，最近通过批次 `20260622014445`：`4 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s15_soap_trace_security_probe.py`；`DataIngestionInvocationLogSupportTest#shouldMaskSensitiveSoapElementAndAttributeValues`；`WebServiceSupportTest`；浏览器协议转换访问日志页 | BUG-S15-001 |
 | 2026-06-22 | S16 全量 ACL 深挖：元模型管理接口 | 完成，修复前复现普通项目成员可写全局元模型，最近通过批次 `20260622030400`：`11 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s16_acl_deep_probe.py`；`StudioInitializationApiRegressionTest#metadataSchemaWriteApisShouldRejectProjectMember`；浏览器 `/metadata` 管理员/普通成员按钮权限 | BUG-S16-001 |
 | 2026-06-22 | S17 数据源当前表单 ACL 深挖 | 完成，修复前批次 `20260622033528` 复现跨项目当前表单连接测试借用源项目密码，修复后最近通过批次 `20260622034448`：`7 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；浏览器 `/datasources` | BUG-S17-001 |
+| 2026-06-22 | S18 关注目标 ACL 深挖 | 完成，修复前复现接收项目成员可关注不可读工作流运行和不存在工作流，修复后批次 `20260622042659`：`9 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s18_follow_target_acl_probe.py`；`FollowApiRegressionTest#followApisShouldValidateTargetExistenceAndReadableScope`；浏览器 `/notifications` 和 `/runs` | BUG-S18-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -410,6 +427,8 @@ S15 新增的 `BUG-S15-001` 纳入 `smoke`：后续涉及 `OpenServiceInvocation
 S16 新增的 `BUG-S16-001` 纳入 `smoke`：后续涉及 `MetaSchemaController`、`MetadataSchemaService`、`MetadataSchemasView.vue`、角色权限计算、全局/租户级配置写接口或元模型同步/发布/删除逻辑的修改，必须复跑 S16 ACL 探针、`StudioInitializationApiRegressionTest`、S01 权限探针，并用浏览器复核 `/metadata` 管理员和普通成员视图。
 
 S17 新增的 `BUG-S17-001` 纳入 `smoke`：后续涉及 `DataSourceService`、数据源当前表单连接测试、敏感字段保留、数据源共享、数据源连接测试、模型发现或数据源编辑页的修改，必须复跑 S17 探针、`DataSourceApiRegressionTest`、`DataSourceServiceRegressionTest`、S01 权限探针，并用浏览器复核 `/datasources`。
+
+S18 新增的 `BUG-S18-001` 纳入 `smoke`：后续涉及 `FollowSubscriptionService`、关注按钮、通知 fan-out、工作流/采集运行详情、资源共享撤销、目标删除或消息中心的修改，必须复跑 S18 关注目标 ACL 探针、`FollowApiRegressionTest`、S01 权限探针，并用浏览器复核 `/notifications` 和 `/runs`。
 
 ## 提交规则
 

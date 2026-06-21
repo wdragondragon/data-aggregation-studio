@@ -6,8 +6,18 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.FollowStatusView;
 import com.jdragon.studio.dto.model.request.FollowRequest;
+import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.FollowSubscriptionEntity;
+import com.jdragon.studio.infra.entity.ModelSyncTaskEntity;
+import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
+import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.FollowSubscriptionMapper;
+import com.jdragon.studio.infra.mapper.ModelSyncTaskMapper;
+import com.jdragon.studio.infra.mapper.RunRecordMapper;
+import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,30 +30,45 @@ import java.util.Set;
 public class FollowSubscriptionService {
 
     private final FollowSubscriptionMapper followSubscriptionMapper;
+    private final ModelSyncTaskMapper modelSyncTaskMapper;
+    private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
+    private final RunRecordMapper runRecordMapper;
+    private final DispatchTaskMapper dispatchTaskMapper;
+    private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
 
     public FollowSubscriptionService(FollowSubscriptionMapper followSubscriptionMapper,
+                                     ModelSyncTaskMapper modelSyncTaskMapper,
+                                     CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
+                                     RunRecordMapper runRecordMapper,
+                                     DispatchTaskMapper dispatchTaskMapper,
+                                     WorkflowDefinitionMapper workflowDefinitionMapper,
                                      StudioSecurityService securityService,
                                      ProjectResourceAccessService projectResourceAccessService) {
         this.followSubscriptionMapper = followSubscriptionMapper;
+        this.modelSyncTaskMapper = modelSyncTaskMapper;
+        this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
+        this.runRecordMapper = runRecordMapper;
+        this.dispatchTaskMapper = dispatchTaskMapper;
+        this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
     }
 
     public FollowStatusView status(String targetType, Long targetId) {
-        validateTarget(targetType, targetId);
+        String normalizedTargetType = requireAccessibleTarget(targetType, targetId);
         FollowStatusView view = new FollowStatusView();
-        view.setTargetType(normalizeTargetType(targetType));
+        view.setTargetType(normalizedTargetType);
         view.setTargetId(targetId);
-        view.setFollowing(findActiveSubscription(normalizeTargetType(targetType), targetId) != null);
+        view.setFollowing(findActiveSubscription(normalizedTargetType, targetId) != null);
         return view;
     }
 
     @Transactional
     public FollowStatusView follow(FollowRequest request) {
-        validateTarget(request == null ? null : request.getTargetType(), request == null ? null : request.getTargetId());
-        String targetType = normalizeTargetType(request.getTargetType());
+        String targetType = requireAccessibleTarget(request == null ? null : request.getTargetType(),
+                request == null ? null : request.getTargetId());
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         Long currentUserId = requireCurrentUserId();
         FollowSubscriptionEntity existing = followSubscriptionMapper.selectOne(new LambdaQueryWrapper<FollowSubscriptionEntity>()
@@ -71,8 +96,8 @@ public class FollowSubscriptionService {
 
     @Transactional
     public void unfollow(String targetType, Long targetId) {
-        validateTarget(targetType, targetId);
-        FollowSubscriptionEntity existing = findActiveSubscription(normalizeTargetType(targetType), targetId);
+        String normalizedTargetType = requireSupportedTarget(targetType, targetId);
+        FollowSubscriptionEntity existing = findActiveSubscription(normalizedTargetType, targetId);
         if (existing == null) {
             return;
         }
@@ -112,7 +137,13 @@ public class FollowSubscriptionService {
                 .last("limit 1"));
     }
 
-    private void validateTarget(String targetType, Long targetId) {
+    private String requireAccessibleTarget(String targetType, Long targetId) {
+        String normalized = requireSupportedTarget(targetType, targetId);
+        ensureTargetReadable(normalized, targetId);
+        return normalized;
+    }
+
+    private String requireSupportedTarget(String targetType, Long targetId) {
         if (!hasText(targetType) || targetId == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Target type and target id are required");
         }
@@ -124,6 +155,86 @@ public class FollowSubscriptionService {
                 && !StudioConstants.FOLLOW_TARGET_WORKFLOW_RUN.equals(normalized)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported follow target type: " + targetType);
         }
+        return normalized;
+    }
+
+    private void ensureTargetReadable(String targetType, Long targetId) {
+        if (StudioConstants.FOLLOW_TARGET_MODEL_SYNC_TASK.equals(targetType)) {
+            requireProjectModelSyncTask(targetId);
+        } else if (StudioConstants.FOLLOW_TARGET_COLLECTION_TASK.equals(targetType)) {
+            requireReadableCollectionTask(targetId);
+        } else if (StudioConstants.FOLLOW_TARGET_COLLECTION_TASK_RUN.equals(targetType)) {
+            requireProjectRunRecord(targetId, true);
+        } else if (StudioConstants.FOLLOW_TARGET_WORKFLOW.equals(targetType)) {
+            requireReadableWorkflow(targetId);
+        } else if (StudioConstants.FOLLOW_TARGET_WORKFLOW_RUN.equals(targetType)) {
+            requireProjectWorkflowRun(targetId);
+        }
+    }
+
+    private void requireProjectModelSyncTask(Long targetId) {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        ModelSyncTaskEntity entity = modelSyncTaskMapper.selectById(targetId);
+        if (entity == null || !matchesTenant(entity.getTenantId()) || !matchesProject(entity.getProjectId(), currentProjectId)) {
+            throw targetNotFound();
+        }
+    }
+
+    private void requireReadableCollectionTask(Long targetId) {
+        CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(targetId);
+        if (entity == null || !matchesTenant(entity.getTenantId())) {
+            throw targetNotFound();
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK,
+                entity.getProjectId(), entity.getId(), "Follow target not found");
+    }
+
+    private void requireProjectRunRecord(Long targetId, boolean collectionTaskRun) {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        RunRecordEntity entity = runRecordMapper.selectById(targetId);
+        if (entity == null
+                || !matchesTenant(entity.getTenantId())
+                || !matchesProject(entity.getProjectId(), currentProjectId)
+                || (collectionTaskRun && entity.getCollectionTaskId() == null)) {
+            throw targetNotFound();
+        }
+    }
+
+    private void requireReadableWorkflow(Long targetId) {
+        WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(targetId);
+        if (entity == null || !matchesTenant(entity.getTenantId())) {
+            throw targetNotFound();
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_WORKFLOW,
+                entity.getProjectId(), entity.getId(), "Follow target not found");
+    }
+
+    private void requireProjectWorkflowRun(Long targetId) {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        Long runCount = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
+                .eq(RunRecordEntity::getProjectId, currentProjectId)
+                .eq(RunRecordEntity::getWorkflowRunId, targetId));
+        Long dispatchCount = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, securityService.currentTenantId())
+                .eq(DispatchTaskEntity::getProjectId, currentProjectId)
+                .eq(DispatchTaskEntity::getWorkflowRunId, targetId));
+        if ((runCount == null || runCount.longValue() <= 0L)
+                && (dispatchCount == null || dispatchCount.longValue() <= 0L)) {
+            throw targetNotFound();
+        }
+    }
+
+    private boolean matchesTenant(String tenantId) {
+        return securityService.currentTenantId() != null && securityService.currentTenantId().equals(tenantId);
+    }
+
+    private boolean matchesProject(Long projectId, Long currentProjectId) {
+        return projectId != null && currentProjectId != null && projectId.longValue() == currentProjectId.longValue();
+    }
+
+    private StudioException targetNotFound() {
+        return new StudioException(StudioErrorCode.NOT_FOUND, "Follow target not found");
     }
 
     private Long requireCurrentUserId() {
