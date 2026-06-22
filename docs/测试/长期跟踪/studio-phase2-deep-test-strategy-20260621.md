@@ -74,7 +74,7 @@
 | 系统管理/权限 | M09-FIX-01 至 M09-FIX-04 |
 | 导入导出/日志 | M10-FIX-01、BUG-S13-001、BUG-S15-001 |
 | 协议转换 Trace/日志 | BUG-S14-001、BUG-S15-001 |
-| 关注/通知 | BUG-S18-001、BUG-S19-001 |
+| 关注/通知 | BUG-S18-001、BUG-S19-001、BUG-S20-001、BUG-S20-002 |
 
 ### nightly-deep
 
@@ -383,6 +383,22 @@
 - 沉淀 `scripts/studio_s19_notification_fanout_acl_probe.py`。
 - 如发现真实缺陷，补充通知服务回归测试，并写入缺陷索引。
 
+### S20 共享关注通知 Fanout
+
+覆盖场景：
+
+- 接收项目成员关注源项目共享工作流后的运行通知 fan-out。
+- 关注记录所在项目与运行记录源项目不一致时，通知收件人解析必须参考当前启用资源共享。
+- 共享关注者收到通知后的点击目标必须保留接收项目上下文，并指向接收项目可读的共享定义页；不得把接收项目成员切换到不可访问的源项目运行详情。
+- 共享禁用或撤销后，历史关注记录不应继续收到源项目新的运行通知。
+- 同类逻辑后续扩展到共享采集任务。
+
+验收：
+
+- 产出 `records/20260622-S20共享关注通知Fanout执行记录.md`。
+- 沉淀 `scripts/studio_s20_shared_follow_notification_probe.py`。
+- 如发现真实缺陷，补充关注 API 回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -413,6 +429,7 @@
 | 2026-06-22 | S17 数据源当前表单 ACL 深挖 | 完成，修复前批次 `20260622033528` 复现跨项目当前表单连接测试借用源项目密码，修复后最近通过批次 `20260622034448`：`7 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；浏览器 `/datasources` | BUG-S17-001 |
 | 2026-06-22 | S18 关注目标 ACL 深挖 | 完成，修复前复现接收项目成员可关注不可读工作流运行和不存在工作流，修复后批次 `20260622042659`：`9 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s18_follow_target_acl_probe.py`；`FollowApiRegressionTest#followApisShouldValidateTargetExistenceAndReadableScope`；浏览器 `/notifications` 和 `/runs` | BUG-S18-001 |
 | 2026-06-22 | S19 通知 Fanout 禁用用户边界深挖 | 完成，修复前批次 `20260622050311` 复现禁用用户收到资源共享通知，修复后批次 `20260622050552`：`6 PASS / 0 FAIL / 0 BLOCKED`，S18 探针 `9 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s19_notification_fanout_acl_probe.py`；`NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；浏览器 `/notifications` 和 `/runs` | BUG-S19-001 |
+| 2026-06-22 | S20 共享关注通知 Fanout 深挖 | 完成，修复前批次 `20260622052317` 复现共享工作流关注者收不到源项目运行通知；补充复现共享关注者通知目标指向不可访问源项目运行详情；最终批次 `20260622060425`：`15 PASS / 0 FAIL / 0 BLOCKED`，S18/S19/S01 探针均通过，浏览器点击通知可进入接收项目共享工作流详情 | `scripts/studio_s20_shared_follow_notification_probe.py`；`FollowApiRegressionTest#sharedWorkflowFollowersShouldFanOutOnlyWhileShareEnabled`；`ExecutionEventServiceRegressionTest#sharedWorkflowFollowerNotificationShouldTargetReadableProject`；浏览器 `/notifications` 点击通知 | BUG-S20-001、BUG-S20-002 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -447,6 +464,8 @@ S17 新增的 `BUG-S17-001` 纳入 `smoke`：后续涉及 `DataSourceService`、
 S18 新增的 `BUG-S18-001` 纳入 `smoke`：后续涉及 `FollowSubscriptionService`、关注按钮、通知 fan-out、工作流/采集运行详情、资源共享撤销、目标删除或消息中心的修改，必须复跑 S18 关注目标 ACL 探针、`FollowApiRegressionTest`、S01 权限探针，并用浏览器复核 `/notifications` 和 `/runs`。
 
 S19 新增的 `BUG-S19-001` 纳入 `smoke`：后续涉及 `NotificationService`、资源共享通知、注册/访问申请通知、模型同步/采集/工作流运行通知、SSE 通知流、用户启停用或项目成员状态的修改，必须复跑 S19 通知 fan-out 探针、`NotificationServiceRegressionTest`、`NotificationStreamSecurityRegressionTest`、S18 关注探针、S01 权限探针，并用浏览器复核 `/notifications`。
+
+S20 新增的 `BUG-S20-001`、`BUG-S20-002` 纳入 `smoke`：后续涉及 `FollowSubscriptionService`、`ExecutionEventService`、资源共享启用/禁用/撤销、共享工作流或共享采集任务运行通知 fan-out、通知目标项目或通知点击跳转的修改，必须复跑 S20 共享关注通知探针、`FollowApiRegressionTest`、`ExecutionEventServiceRegressionTest`、S18 关注探针、S19 通知探针、S01 权限探针，并用浏览器复核 `/notifications` 点击通知后的目标页和项目上下文。
 
 ## 提交规则
 

@@ -10,21 +10,25 @@ import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.FollowSubscriptionEntity;
 import com.jdragon.studio.infra.entity.ModelSyncTaskEntity;
+import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.FollowSubscriptionMapper;
 import com.jdragon.studio.infra.mapper.ModelSyncTaskMapper;
+import com.jdragon.studio.infra.mapper.ResourceShareMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 
 @Service
 public class FollowSubscriptionService {
@@ -35,6 +39,7 @@ public class FollowSubscriptionService {
     private final RunRecordMapper runRecordMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
+    private final ResourceShareMapper resourceShareMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
 
@@ -44,6 +49,7 @@ public class FollowSubscriptionService {
                                      RunRecordMapper runRecordMapper,
                                      DispatchTaskMapper dispatchTaskMapper,
                                      WorkflowDefinitionMapper workflowDefinitionMapper,
+                                     ResourceShareMapper resourceShareMapper,
                                      StudioSecurityService securityService,
                                      ProjectResourceAccessService projectResourceAccessService) {
         this.followSubscriptionMapper = followSubscriptionMapper;
@@ -52,6 +58,7 @@ public class FollowSubscriptionService {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
+        this.resourceShareMapper = resourceShareMapper;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
     }
@@ -106,22 +113,72 @@ public class FollowSubscriptionService {
     }
 
     public List<Long> followerUserIds(String tenantId, Long projectId, String targetType, Long targetId) {
+        return new ArrayList<Long>(followerUserProjectIds(tenantId, projectId, targetType, targetId).keySet());
+    }
+
+    public Map<Long, Long> followerUserProjectIds(String tenantId, Long projectId, String targetType, Long targetId) {
         if (!hasText(tenantId) || projectId == null || !hasText(targetType) || targetId == null) {
-            return new ArrayList<Long>();
+            return new LinkedHashMap<Long, Long>();
         }
+        String normalizedTargetType = normalizeTargetType(targetType);
         List<FollowSubscriptionEntity> subscriptions = followSubscriptionMapper.selectList(new LambdaQueryWrapper<FollowSubscriptionEntity>()
                 .eq(FollowSubscriptionEntity::getTenantId, tenantId)
-                .eq(FollowSubscriptionEntity::getProjectId, projectId)
-                .eq(FollowSubscriptionEntity::getTargetType, normalizeTargetType(targetType))
+                .eq(FollowSubscriptionEntity::getTargetType, normalizedTargetType)
                 .eq(FollowSubscriptionEntity::getTargetId, targetId)
                 .eq(FollowSubscriptionEntity::getEnabled, 1));
-        Set<Long> userIds = new LinkedHashSet<Long>();
+        Map<Long, Long> userProjectIds = new LinkedHashMap<Long, Long>();
         for (FollowSubscriptionEntity subscription : subscriptions) {
-            if (subscription.getUserId() != null) {
-                userIds.add(subscription.getUserId());
+            if (subscription.getUserId() != null
+                    && canReceiveFollowNotification(tenantId, projectId, normalizedTargetType, targetId, subscription)) {
+                putFollowerProject(userProjectIds, subscription.getUserId(), subscription.getProjectId(), projectId);
             }
         }
-        return new ArrayList<Long>(userIds);
+        return userProjectIds;
+    }
+
+    private void putFollowerProject(Map<Long, Long> userProjectIds, Long userId, Long subscriptionProjectId, Long ownerProjectId) {
+        if (userId == null || subscriptionProjectId == null) {
+            return;
+        }
+        Long existingProjectId = userProjectIds.get(userId);
+        if (existingProjectId == null || subscriptionProjectId.longValue() == ownerProjectId.longValue()) {
+            userProjectIds.put(userId, subscriptionProjectId);
+        }
+    }
+
+    private boolean canReceiveFollowNotification(String tenantId,
+                                                 Long ownerProjectId,
+                                                 String targetType,
+                                                 Long targetId,
+                                                 FollowSubscriptionEntity subscription) {
+        if (subscription == null || subscription.getProjectId() == null || ownerProjectId == null) {
+            return false;
+        }
+        if (subscription.getProjectId().longValue() == ownerProjectId.longValue()) {
+            return true;
+        }
+        String resourceType = resourceTypeForSharedFollowTarget(targetType);
+        if (!hasText(resourceType)) {
+            return false;
+        }
+        Long sharedCount = resourceShareMapper.selectCount(new LambdaQueryWrapper<ResourceShareEntity>()
+                .eq(ResourceShareEntity::getTenantId, tenantId)
+                .eq(ResourceShareEntity::getSourceProjectId, ownerProjectId)
+                .eq(ResourceShareEntity::getTargetProjectId, subscription.getProjectId())
+                .eq(ResourceShareEntity::getResourceType, resourceType)
+                .eq(ResourceShareEntity::getResourceId, targetId)
+                .eq(ResourceShareEntity::getEnabled, 1));
+        return sharedCount != null && sharedCount.longValue() > 0L;
+    }
+
+    private String resourceTypeForSharedFollowTarget(String targetType) {
+        if (StudioConstants.FOLLOW_TARGET_COLLECTION_TASK.equals(targetType)) {
+            return StudioConstants.RESOURCE_TYPE_COLLECTION_TASK;
+        }
+        if (StudioConstants.FOLLOW_TARGET_WORKFLOW.equals(targetType)) {
+            return StudioConstants.RESOURCE_TYPE_WORKFLOW;
+        }
+        return null;
     }
 
     private FollowSubscriptionEntity findActiveSubscription(String targetType, Long targetId) {

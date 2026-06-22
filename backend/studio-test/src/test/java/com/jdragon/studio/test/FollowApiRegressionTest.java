@@ -1,11 +1,16 @@
 package com.jdragon.studio.test;
 
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.infra.service.FollowSubscriptionService;
 import com.jdragon.studio.test.support.StudioApiRegressionTestSupport;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
+
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -15,6 +20,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class FollowApiRegressionTest extends StudioApiRegressionTestSupport {
+
+    @Autowired
+    private FollowSubscriptionService followSubscriptionService;
 
     @Test
     void followApisShouldValidateTargetExistenceAndReadableScope() throws Exception {
@@ -100,6 +108,53 @@ class FollowApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
+    @Test
+    void sharedWorkflowFollowersShouldFanOutOnlyWhileShareEnabled() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"admin123\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String authorization = "Bearer " + readBody(loginResult).path("data").path("token").asText();
+        Long sourceProjectId = readBody(loginResult).path("data").path("currentProjectId").asLong();
+
+        Long receiverProjectId = createProject(authorization, sourceProjectId,
+                "lt_reg_s20_follow_receiver", "长期回归-S20关注通知接收项目");
+        Long receiverUserId = createUser(authorization,
+                "lt_reg_s20_follow_member", "长期回归-S20共享关注通知成员", "LtReg@20260622S20!");
+        addProjectMember(authorization, sourceProjectId, receiverProjectId, receiverUserId);
+        String receiverAuthorization = loginAndGetAuthorization("lt_reg_s20_follow_member", "LtReg@20260622S20!", receiverProjectId);
+
+        Long workflowId = createWorkflow(authorization, sourceProjectId,
+                "lt_reg_s20_shared_follow_workflow", "长期回归-S20共享关注通知流程");
+        Long shareId = shareWorkflow(authorization, sourceProjectId, receiverProjectId, workflowId);
+
+        mockMvc.perform(post("/api/v1/follows")
+                        .header(HttpHeaders.AUTHORIZATION, receiverAuthorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(receiverProjectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetType\":\"WORKFLOW\",\"targetId\":\"" + workflowId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.following").value(true));
+
+        Map<Long, Long> followerProjectIds = followSubscriptionService.followerUserProjectIds(StudioConstants.DEFAULT_TENANT_ID, sourceProjectId,
+                StudioConstants.FOLLOW_TARGET_WORKFLOW, workflowId);
+        Assertions.assertTrue(
+                followerProjectIds.containsKey(receiverUserId),
+                "Shared workflow follower should receive source workflow run notifications while the share is enabled");
+        Assertions.assertEquals(receiverProjectId, followerProjectIds.get(receiverUserId),
+                "Shared workflow follower notifications should retain the readable receiver project context");
+
+        disableWorkflowShare(authorization, sourceProjectId, receiverProjectId, workflowId, shareId);
+
+        Assertions.assertFalse(
+                followSubscriptionService.followerUserIds(StudioConstants.DEFAULT_TENANT_ID, sourceProjectId,
+                        StudioConstants.FOLLOW_TARGET_WORKFLOW, workflowId).contains(receiverUserId),
+                "Shared workflow follower must stop receiving source workflow run notifications after the share is disabled");
+    }
+
     private Long createProject(String authorization, Long currentProjectId, String projectCode, String projectName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/system/projects")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
@@ -163,14 +218,33 @@ class FollowApiRegressionTest extends StudioApiRegressionTestSupport {
         return readBody(result).path("data").path("id").asLong();
     }
 
-    private void shareWorkflow(String authorization, Long sourceProjectId, Long receiverProjectId, Long workflowId) throws Exception {
-        mockMvc.perform(post("/api/v1/system/resource-shares")
+    private Long shareWorkflow(String authorization, Long sourceProjectId, Long receiverProjectId, Long workflowId) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/system/resource-shares")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
                         .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(sourceProjectId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceProjectId\":\"" + sourceProjectId + "\",\"targetProjectId\":\"" + receiverProjectId
                                 + "\",\"resourceType\":\"WORKFLOW\",\"resourceId\":\"" + workflowId + "\",\"enabled\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        return readBody(result).path("data").path("id").asLong();
+    }
+
+    private void disableWorkflowShare(String authorization,
+                                      Long sourceProjectId,
+                                      Long receiverProjectId,
+                                      Long workflowId,
+                                      Long shareId) throws Exception {
+        mockMvc.perform(post("/api/v1/system/resource-shares")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
+                        .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(sourceProjectId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":\"" + shareId + "\",\"sourceProjectId\":\"" + sourceProjectId
+                                + "\",\"targetProjectId\":\"" + receiverProjectId
+                                + "\",\"resourceType\":\"WORKFLOW\",\"resourceId\":\"" + workflowId + "\",\"enabled\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
     }

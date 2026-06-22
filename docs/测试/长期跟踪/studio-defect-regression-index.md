@@ -41,6 +41,8 @@
 | BUG-S17-001 | 数据源/ACL | 高 | 当前表单连接测试 `POST /datasources/test` 按 `request.id` 直接读取旧数据源保留加密密码，接收项目成员可构造源项目数据源 ID 并省略 `password`，借用源项目密码完成连接测试 | `DataSourceService.java`；`DataSourceApiRegressionTest.java`；`DataSourceServiceRegressionTest.java` | `studio_s17_datasource_current_form_acl_probe.py`；`DataSourceApiRegressionTest#currentFormConnectionTestShouldRejectCrossProjectDatasourceId`；`DataSourceServiceRegressionTest`；`studio_s01_permission_probe.py`；浏览器 `/datasources` | smoke | 2026-06-22 | 本次提交 |
 | BUG-S18-001 | 关注/ACL | 高 | 关注接口只校验目标类型和 ID 形态，接收项目成员可关注不存在目标或不可读跨项目工作流运行，形成无效个人关注状态和跨项目目标引用 | `FollowSubscriptionService.java`；`FollowApiRegressionTest.java` | `studio_s18_follow_target_acl_probe.py`；`FollowApiRegressionTest#followApisShouldValidateTargetExistenceAndReadableScope`；`studio_s01_permission_probe.py`；浏览器 `/notifications`、`/runs` | smoke | 2026-06-22 | 本次提交 |
 | BUG-S19-001 | 通知/Fanout | 高 | 禁用用户仍为接收项目 ACTIVE 成员时，资源共享通知 fan-out 会向其写入 `studio_notification`，与禁用账号不可登录状态不一致 | `NotificationService.java`；`NotificationServiceRegressionTest.java` | `studio_s19_notification_fanout_acl_probe.py`；`NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；`studio_s18_follow_target_acl_probe.py`；`studio_s01_permission_probe.py`；浏览器 `/notifications` | smoke | 2026-06-22 | 本次提交 |
+| BUG-S20-001 | 关注/通知 Fanout | 高 | 接收项目成员可关注源项目共享工作流，但工作流运行结束通知只按源项目关注记录查询收件人，导致共享关注者收不到运行通知 | `FollowSubscriptionService.java`；`FollowApiRegressionTest.java` | `studio_s20_shared_follow_notification_probe.py`；`FollowApiRegressionTest#sharedWorkflowFollowersShouldFanOutOnlyWhileShareEnabled`；`studio_s18_follow_target_acl_probe.py`；`studio_s19_notification_fanout_acl_probe.py`；`studio_s01_permission_probe.py`；浏览器 `/notifications` 点击共享关注通知 | smoke | 2026-06-22 | 本次提交 |
+| BUG-S20-002 | 关注/通知点击 | 高 | 共享关注者收到的源项目运行通知仍写入 `targetProjectId=源项目`、`targetPath=/runs/{workflowRunId}`，接收项目成员点击会切换到不可访问项目或打开不可读运行详情 | `ExecutionEventService.java`；`ExecutionEventServiceRegressionTest.java`；`studio_s20_shared_follow_notification_probe.py` | `studio_s20_shared_follow_notification_probe.py` 的 `S20-NOTIFY-003/004`；`ExecutionEventServiceRegressionTest#sharedWorkflowFollowerNotificationShouldTargetReadableProject`；浏览器接收项目成员点击通知进入 `/workflows/{workflowId}` 且上下文保持接收项目 | smoke | 2026-06-22 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -73,3 +75,4 @@
 | S17 数据源当前表单 ACL 深挖 | BUG-S17-001 |
 | S18 关注目标 ACL 深挖 | BUG-S18-001 |
 | S19 通知 Fanout 禁用用户边界 | BUG-S19-001 |
+| S20 共享关注通知 Fanout | BUG-S20-001、BUG-S20-002 |

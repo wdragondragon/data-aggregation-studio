@@ -1,7 +1,10 @@
 package com.jdragon.studio.test;
 
+import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
@@ -11,6 +14,7 @@ import com.jdragon.studio.infra.service.DataModelLineageService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.ExecutionEventService;
 import com.jdragon.studio.infra.service.FollowSubscriptionService;
+import com.jdragon.studio.infra.service.NotificationCommand;
 import com.jdragon.studio.infra.service.NotificationService;
 import com.jdragon.studio.infra.service.QualityIssueService;
 import com.jdragon.studio.infra.service.RunMetricSummaryMapper;
@@ -19,11 +23,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -125,16 +132,85 @@ class ExecutionEventServiceRegressionTest {
         assertEquals("Unknown column 'contract_amount' in 'field list'", summary.get("errorMessage"));
     }
 
+    @Test
+    void sharedWorkflowFollowerNotificationShouldTargetReadableProject() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity existingRun = new RunRecordEntity();
+        existingRun.setId(200L);
+        existingRun.setTenantId(StudioConstants.DEFAULT_TENANT_ID);
+        existingRun.setProjectId(10L);
+        existingRun.setWorkflowDefinitionId(300L);
+        existingRun.setWorkflowRunId(900L);
+        existingRun.setStatus("RUNNING");
+        when(runRecordMapper.selectById(eq(200L))).thenReturn(existingRun);
+        when(runRecordMapper.selectCount(any())).thenReturn(0L);
+
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowDefinitionEntity workflow = new WorkflowDefinitionEntity();
+        workflow.setId(300L);
+        workflow.setTenantId(StudioConstants.DEFAULT_TENANT_ID);
+        workflow.setProjectId(10L);
+        workflow.setName("长期回归-S20共享关注通知可达流程");
+        when(workflowDefinitionMapper.selectById(eq(300L))).thenReturn(workflow);
+
+        FollowSubscriptionService followSubscriptionService = mock(FollowSubscriptionService.class);
+        when(followSubscriptionService.followerUserProjectIds(
+                eq(StudioConstants.DEFAULT_TENANT_ID),
+                eq(10L),
+                eq(StudioConstants.FOLLOW_TARGET_WORKFLOW),
+                eq(300L))).thenReturn(Map.of(501L, 20L));
+        when(followSubscriptionService.followerUserIds(
+                eq(StudioConstants.DEFAULT_TENANT_ID),
+                eq(10L),
+                eq(StudioConstants.FOLLOW_TARGET_WORKFLOW_RUN),
+                eq(900L))).thenReturn(Collections.emptyList());
+
+        NotificationService notificationService = mock(NotificationService.class);
+        ExecutionEventService service = service(runRecordMapper, workflowDefinitionMapper, followSubscriptionService, notificationService);
+
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(200L);
+        event.setEventType("SUCCESS");
+        event.setExecutionType(DispatchExecutionType.WORKFLOW_NODE);
+        event.setWorkflowDefinitionId(300L);
+        event.setWorkflowRunId(900L);
+        event.setProjectId(10L);
+        event.setOccurredAt(LocalDateTime.of(2026, 6, 22, 6, 0, 0));
+
+        service.publish(event);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Long>> recipientsCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<NotificationCommand> commandCaptor = ArgumentCaptor.forClass(NotificationCommand.class);
+        verify(notificationService).notifyUsers(recipientsCaptor.capture(), commandCaptor.capture());
+        assertEquals(List.of(501L), recipientsCaptor.getValue());
+        NotificationCommand command = commandCaptor.getValue();
+        assertEquals(20L, command.getTargetProjectId());
+        assertEquals("/workflows/300", command.getTargetPath());
+        assertEquals(StudioConstants.FOLLOW_TARGET_WORKFLOW_RUN, command.getTargetType());
+        assertEquals(900L, command.getTargetId());
+    }
+
     private ExecutionEventService service(RunRecordMapper runRecordMapper) {
+        return service(runRecordMapper,
+                mock(WorkflowDefinitionMapper.class),
+                mock(FollowSubscriptionService.class),
+                mock(NotificationService.class));
+    }
+
+    private ExecutionEventService service(RunRecordMapper runRecordMapper,
+                                          WorkflowDefinitionMapper workflowDefinitionMapper,
+                                          FollowSubscriptionService followSubscriptionService,
+                                          NotificationService notificationService) {
         return new ExecutionEventService(
                 runRecordMapper,
                 mock(DispatchTaskMapper.class),
                 mock(CollectionTaskDefinitionMapper.class),
-                mock(WorkflowDefinitionMapper.class),
+                workflowDefinitionMapper,
                 mock(DispatchService.class),
                 mock(RunMetricSummaryMapper.class),
-                mock(FollowSubscriptionService.class),
-                mock(NotificationService.class),
+                followSubscriptionService,
+                notificationService,
                 mock(DataModelLineageService.class),
                 mock(QualityIssueService.class),
                 mock(CollectionTaskIncrementalStateService.class),

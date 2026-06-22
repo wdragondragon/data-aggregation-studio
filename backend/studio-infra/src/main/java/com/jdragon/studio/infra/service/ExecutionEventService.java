@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -159,11 +160,13 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         Set<Long> recipientUserIds = new LinkedHashSet<Long>();
         addRecipient(recipientUserIds, task.getCreatedBy());
         addRecipient(recipientUserIds, entity.getTriggeredByUserId());
-        recipientUserIds.addAll(followSubscriptionService.followerUserIds(entity.getTenantId(), entity.getProjectId(),
-                StudioConstants.FOLLOW_TARGET_COLLECTION_TASK, task.getId()));
+        Map<Long, Long> taskFollowerProjectIds = followSubscriptionService.followerUserProjectIds(entity.getTenantId(), entity.getProjectId(),
+                StudioConstants.FOLLOW_TARGET_COLLECTION_TASK, task.getId());
+        addFollowersForProject(recipientUserIds, taskFollowerProjectIds, entity.getProjectId());
         recipientUserIds.addAll(followSubscriptionService.followerUserIds(entity.getTenantId(), entity.getProjectId(),
                 StudioConstants.FOLLOW_TARGET_COLLECTION_TASK_RUN, entity.getId()));
         if (recipientUserIds.isEmpty()) {
+            notifySharedCollectionTaskFollowers(entity, task, taskFollowerProjectIds, recipientUserIds);
             return;
         }
         notificationService.notifyUsers(new ArrayList<Long>(recipientUserIds),
@@ -178,6 +181,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                         .setTargetTenantId(entity.getTenantId())
                         .setTargetProjectId(entity.getProjectId())
                         .setDedupeKey("collection-task-run:" + entity.getId() + ":" + entity.getStatus()));
+        notifySharedCollectionTaskFollowers(entity, task, taskFollowerProjectIds, recipientUserIds);
     }
 
     private void maybeNotifyWorkflowRun(RunRecordEntity entity, ExecutionEvent event) {
@@ -204,11 +208,13 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         Set<Long> recipientUserIds = new LinkedHashSet<Long>();
         addRecipient(recipientUserIds, workflow.getCreatedBy());
         addRecipient(recipientUserIds, entity.getTriggeredByUserId());
-        recipientUserIds.addAll(followSubscriptionService.followerUserIds(entity.getTenantId(), entity.getProjectId(),
-                StudioConstants.FOLLOW_TARGET_WORKFLOW, workflow.getId()));
+        Map<Long, Long> workflowFollowerProjectIds = followSubscriptionService.followerUserProjectIds(entity.getTenantId(), entity.getProjectId(),
+                StudioConstants.FOLLOW_TARGET_WORKFLOW, workflow.getId());
+        addFollowersForProject(recipientUserIds, workflowFollowerProjectIds, entity.getProjectId());
         recipientUserIds.addAll(followSubscriptionService.followerUserIds(entity.getTenantId(), entity.getProjectId(),
                 StudioConstants.FOLLOW_TARGET_WORKFLOW_RUN, entity.getWorkflowRunId()));
         if (recipientUserIds.isEmpty()) {
+            notifySharedWorkflowFollowers(entity, workflow, finalStatus, workflowFollowerProjectIds, recipientUserIds);
             return;
         }
         notificationService.notifyUsers(new ArrayList<Long>(recipientUserIds),
@@ -223,6 +229,87 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                         .setTargetTenantId(entity.getTenantId())
                         .setTargetProjectId(entity.getProjectId())
                         .setDedupeKey("workflow-run:" + entity.getWorkflowRunId() + ":" + finalStatus));
+        notifySharedWorkflowFollowers(entity, workflow, finalStatus, workflowFollowerProjectIds, recipientUserIds);
+    }
+
+    private void addFollowersForProject(Set<Long> recipientUserIds, Map<Long, Long> followerProjectIds, Long projectId) {
+        if (recipientUserIds == null || followerProjectIds == null || projectId == null) {
+            return;
+        }
+        for (Map.Entry<Long, Long> entry : followerProjectIds.entrySet()) {
+            if (entry.getValue() != null && entry.getValue().longValue() == projectId.longValue()) {
+                addRecipient(recipientUserIds, entry.getKey());
+            }
+        }
+    }
+
+    private void notifySharedWorkflowFollowers(RunRecordEntity entity,
+                                               WorkflowDefinitionEntity workflow,
+                                               String finalStatus,
+                                               Map<Long, Long> followerProjectIds,
+                                               Set<Long> excludedUserIds) {
+        Map<Long, List<Long>> usersByProject = sharedFollowersByProject(entity.getProjectId(), followerProjectIds, excludedUserIds);
+        for (Map.Entry<Long, List<Long>> entry : usersByProject.entrySet()) {
+            notificationService.notifyUsers(entry.getValue(),
+                    new NotificationCommand()
+                            .setCategory(StudioConstants.NOTIFICATION_CATEGORY_WORKFLOW_RUN)
+                            .setTitle("工作流运行已结束")
+                            .setContent("工作流 " + safeName(workflow.getName(), String.valueOf(workflow.getId()))
+                                    + " 本次运行状态为 " + finalStatus + "。")
+                            .setTargetType(StudioConstants.FOLLOW_TARGET_WORKFLOW_RUN)
+                            .setTargetId(entity.getWorkflowRunId())
+                            .setTargetPath("/workflows/" + workflow.getId())
+                            .setTargetTenantId(entity.getTenantId())
+                            .setTargetProjectId(entry.getKey())
+                            .setDedupeKey("workflow-run:" + entity.getWorkflowRunId() + ":" + finalStatus));
+        }
+    }
+
+    private void notifySharedCollectionTaskFollowers(RunRecordEntity entity,
+                                                     CollectionTaskDefinitionEntity task,
+                                                     Map<Long, Long> followerProjectIds,
+                                                     Set<Long> excludedUserIds) {
+        Map<Long, List<Long>> usersByProject = sharedFollowersByProject(entity.getProjectId(), followerProjectIds, excludedUserIds);
+        for (Map.Entry<Long, List<Long>> entry : usersByProject.entrySet()) {
+            notificationService.notifyUsers(entry.getValue(),
+                    new NotificationCommand()
+                            .setCategory(StudioConstants.NOTIFICATION_CATEGORY_COLLECTION_TASK_RUN)
+                            .setTitle("采集任务运行已结束")
+                            .setContent("采集任务 " + safeName(task.getName(), String.valueOf(task.getId()))
+                                    + " 本次运行状态为 " + entity.getStatus() + "。")
+                            .setTargetType(StudioConstants.FOLLOW_TARGET_COLLECTION_TASK_RUN)
+                            .setTargetId(entity.getId())
+                            .setTargetPath("/collection-tasks/" + task.getId() + "/edit")
+                            .setTargetTenantId(entity.getTenantId())
+                            .setTargetProjectId(entry.getKey())
+                            .setDedupeKey("collection-task-run:" + entity.getId() + ":" + entity.getStatus()));
+        }
+    }
+
+    private Map<Long, List<Long>> sharedFollowersByProject(Long ownerProjectId,
+                                                           Map<Long, Long> followerProjectIds,
+                                                           Set<Long> excludedUserIds) {
+        Map<Long, List<Long>> usersByProject = new LinkedHashMap<Long, List<Long>>();
+        if (ownerProjectId == null || followerProjectIds == null || followerProjectIds.isEmpty()) {
+            return usersByProject;
+        }
+        for (Map.Entry<Long, Long> entry : followerProjectIds.entrySet()) {
+            Long userId = entry.getKey();
+            Long projectId = entry.getValue();
+            if (userId == null
+                    || projectId == null
+                    || projectId.longValue() == ownerProjectId.longValue()
+                    || (excludedUserIds != null && excludedUserIds.contains(userId))) {
+                continue;
+            }
+            List<Long> users = usersByProject.get(projectId);
+            if (users == null) {
+                users = new ArrayList<Long>();
+                usersByProject.put(projectId, users);
+            }
+            users.add(userId);
+        }
+        return usersByProject;
     }
 
     private void addRecipient(Set<Long> recipients, Long userId) {
