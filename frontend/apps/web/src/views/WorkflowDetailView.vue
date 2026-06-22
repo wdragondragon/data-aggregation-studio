@@ -8,12 +8,23 @@
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/workflows')">{{ t("common.backToList") }}</el-button>
         <el-button plain @click="loadWorkflow">{{ t("common.refresh") }}</el-button>
-        <FollowToggleButton v-if="workflow?.id" :target-type="STUDIO_RESOURCE_TYPE.WORKFLOW" :target-id="workflow.id" />
-        <el-button type="primary" plain :disabled="!workflow?.id" @click="openLogs">{{ t("web.workflows.logsEntry") }}</el-button>
-        <el-button type="primary" :disabled="!workflow?.id || isSharedWorkflow" @click="openEditor">{{ t("common.edit") }}</el-button>
+        <template v-if="!detailLoadError">
+          <FollowToggleButton v-if="workflow?.id" :target-type="STUDIO_RESOURCE_TYPE.WORKFLOW" :target-id="workflow.id" />
+          <el-button type="primary" plain :disabled="!workflow?.id" @click="openLogs">{{ t("web.workflows.logsEntry") }}</el-button>
+          <el-button type="primary" :disabled="!workflow?.id || isSharedWorkflow" @click="openEditor">{{ t("common.edit") }}</el-button>
+        </template>
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError" title="工作流不可用" description="该工作流可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="工作流不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <SectionCard :title="t('web.workflows.detailBasicsTitle')" :description="t('web.workflows.detailBasicsDescription')">
       <div class="workflow-summary">
         <div class="detail-grid">
@@ -130,6 +141,7 @@
         />
       </div>
     </SectionCard>
+    </template>
   </div>
 </template>
 
@@ -148,6 +160,7 @@ import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -156,6 +169,7 @@ const authStore = useAuthStore();
 const workflow = ref<WorkflowDefinitionView | null>(null);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 const workflowRunTotal = ref(0);
+const detailLoadError = ref("");
 const { pagination: workflowRunPagination } = useClientPagination(workflowRuns);
 const isSharedWorkflow = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, workflow.value?.projectId),
@@ -163,13 +177,28 @@ const isSharedWorkflow = computed(() =>
 
 async function loadWorkflow() {
   try {
-    workflow.value = await studioApi.workflows.get(String(route.params.workflowId));
+    detailLoadError.value = "";
+    const detail = await studioApi.workflows.get(String(route.params.workflowId));
+    if (!detail?.id) {
+      throw new Error(`Workflow not found: ${String(route.params.workflowId)}`);
+    }
+    workflow.value = detail;
+    return true;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    const message = resolveErrorMessage(error, t("web.workflows.loadFailed"));
+    detailLoadError.value = message;
+    workflow.value = null;
+    workflowRuns.value = [];
+    workflowRunTotal.value = 0;
+    ElMessage.error(message);
+    return false;
   }
 }
 
 async function loadWorkflowRuns() {
+  if (detailLoadError.value) {
+    return;
+  }
   try {
     const response = await studioApi.workflowRuns.list({
       workflowDefinitionId: String(route.params.workflowId),
@@ -260,12 +289,16 @@ function formatNodeStats(item: WorkflowRunSummary) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadWorkflow(), loadWorkflowRuns()]);
+  if (await loadWorkflow()) {
+    await loadWorkflowRuns();
+  }
 });
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
-    await Promise.all([loadWorkflow(), loadWorkflowRuns()]);
+    if (await loadWorkflow()) {
+      await loadWorkflowRuns();
+    }
   }
 });
 </script>

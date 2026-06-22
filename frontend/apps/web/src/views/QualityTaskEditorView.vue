@@ -8,15 +8,26 @@
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/quality-tasks')">返回列表</el-button>
         <el-button plain @click="loadTask">刷新</el-button>
-        <el-button plain :disabled="!form.id" @click="openRunLogs">运行日志</el-button>
-        <el-button plain :loading="previewLoading" @click="previewSql">SQL 预览</el-button>
-        <el-button plain :loading="validateLoading" @click="validateTask">语义校验</el-button>
-        <el-button type="primary" :loading="saving" @click="saveTask">保存草稿</el-button>
-        <el-button type="success" :disabled="!form.id" :loading="publishing" @click="publishTask">发布</el-button>
-        <el-button type="warning" :disabled="!form.id" :loading="triggering" @click="triggerTask">手动执行</el-button>
+        <template v-if="!(detailLoadError && taskId)">
+          <el-button plain :disabled="!form.id" @click="openRunLogs">运行日志</el-button>
+          <el-button plain :loading="previewLoading" @click="previewSql">SQL 预览</el-button>
+          <el-button plain :loading="validateLoading" @click="validateTask">语义校验</el-button>
+          <el-button type="primary" :loading="saving" @click="saveTask">保存草稿</el-button>
+          <el-button type="success" :disabled="!form.id" :loading="publishing" @click="publishTask">发布</el-button>
+          <el-button type="warning" :disabled="!form.id" :loading="triggering" @click="triggerTask">手动执行</el-button>
+        </template>
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError && taskId" title="质量任务不可用" description="该质量任务可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="质量任务不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <QualityTaskBasicInfoSection
       :form="form"
       :task-status="taskStatus"
@@ -74,6 +85,7 @@
       :preview="dynamicFunctionPreview"
       @confirm="confirmDynamicFunctionInsert"
     />
+    </template>
   </div>
 </template>
 
@@ -96,6 +108,7 @@ import type {
   QualityTaskParamBinding,
   QualityTaskSaveRequest,
 } from "@studio/api-sdk";
+import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import QualityAlertConfigsSection from "@/components/quality/QualityAlertConfigsSection.vue";
 import QualityDynamicFunctionDialog from "@/components/quality/QualityDynamicFunctionDialog.vue";
@@ -108,6 +121,7 @@ import QualityTaskBindingSection from "@/components/quality/QualityTaskBindingSe
 import QualityValidationResultSection from "@/components/quality/QualityValidationResultSection.vue";
 import { dynamicFunctionCatalog } from "@/components/quality/qualityTaskDynamicFunctions";
 import type { DynamicFunctionInsertTarget, DynamicFunctionParamSchema } from "@/components/quality/qualityTaskDynamicFunctions";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 interface QualityTaskEditorForm {
   id?: string | number;
@@ -140,6 +154,7 @@ const validateLoading = ref(false);
 const publishing = ref(false);
 const triggering = ref(false);
 const rulesLoading = ref(false);
+const detailLoadError = ref("");
 const datasources = ref<DataSourceDefinition[]>([]);
 const modelCache = ref<Record<string, DataModelDefinition[]>>({});
 const ruleOptions = ref<QualityRuleView[]>([]);
@@ -288,10 +303,12 @@ function resetForm() {
 async function loadTask() {
   await loadDatasources();
   if (!taskId.value) {
+    detailLoadError.value = "";
     resetForm();
     return;
   }
   try {
+    detailLoadError.value = "";
     const detail = await studioApi.qualityTasks.get(taskId.value);
     form.id = detail.id;
     form.taskName = detail.taskName;
@@ -326,7 +343,9 @@ async function loadTask() {
     syncParameterBindings(form.parameterBindings);
     syncAlertConfigs(form.alertConfigs);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载质量任务详情失败");
+    const message = resolveErrorMessage(error, "加载质量任务详情失败");
+    detailLoadError.value = message;
+    ElMessage.error(message);
   }
 }
 
@@ -824,6 +843,10 @@ function buildSavePayload() {
 }
 
 async function previewSql() {
+  if (detailLoadError.value && taskId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   const payload = buildSavePayload();
   if (!payload) {
     return;
@@ -842,6 +865,10 @@ async function previewSql() {
 }
 
 async function validateTask() {
+  if (detailLoadError.value && taskId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   const payload = buildSavePayload();
   if (!payload) {
     return;
@@ -865,6 +892,10 @@ async function validateTask() {
 }
 
 async function saveTask() {
+  if (detailLoadError.value && taskId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   const saved = await saveTaskInternal();
   if (saved?.id) {
     await router.replace(`/quality-tasks/${saved.id}/edit`);
@@ -893,6 +924,10 @@ async function saveTaskInternal() {
 }
 
 async function publishTask() {
+  if (detailLoadError.value && taskId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   let currentId = form.id;
   if (!currentId) {
     const saved = await saveTaskInternal();
@@ -917,6 +952,10 @@ async function publishTask() {
 }
 
 async function triggerTask() {
+  if (detailLoadError.value && taskId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   if (!form.id) {
     ElMessage.warning("请先保存任务后再执行");
     return;

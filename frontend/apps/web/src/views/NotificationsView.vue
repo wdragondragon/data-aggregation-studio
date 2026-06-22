@@ -45,7 +45,7 @@
           <div class="notification-center-item__actions">
             <el-button
               v-if="item.id && !item.read"
-              text
+              link
               type="primary"
               @click.stop="markRead(item.id)"
             >

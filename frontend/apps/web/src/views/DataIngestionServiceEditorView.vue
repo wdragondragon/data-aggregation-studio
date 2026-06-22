@@ -2,16 +2,30 @@
   <div class="studio-page">
     <div class="studio-toolbar">
       <div>
-        <h3>{{ form.id ? "编辑数据接入服务" : "新建数据接入服务" }}</h3>
+        <h3>{{ serviceId ? "编辑数据接入服务" : "新建数据接入服务" }}</h3>
         <p>配置开放请求的字段来源、目标模型和写入映射。</p>
       </div>
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/data-ingestion-services')">返回列表</el-button>
-        <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
-        <el-button v-if="form.id" type="success" :loading="publishing" @click="publishService">发布</el-button>
+        <template v-if="detailLoadError && serviceId">
+          <el-button type="primary" plain @click="retryLoadService">刷新</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
+          <el-button v-if="form.id" type="success" :loading="publishing" @click="publishService">发布</el-button>
+        </template>
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError && serviceId" title="数据接入服务不可用" description="该数据接入服务可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="数据接入服务不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <div class="service-wizard">
       <button
         v-for="(step, index) in wizardSteps"
@@ -313,6 +327,7 @@
       <el-button v-if="activeStep < wizardSteps.length - 1" type="primary" @click="nextStep">下一步</el-button>
       <el-button v-else type="primary" :loading="saving" @click="saveService">保存服务</el-button>
     </div>
+    </template>
   </div>
 </template>
 
@@ -379,6 +394,7 @@ import {
   resolvePrimaryKeyFieldsByModel,
   type RuntimeOptionRole,
 } from "@/components/collection-task/collectionTaskEditorSupport";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 type DebugMode = "form" | "raw" | "soap";
 type DebugFieldValue = string | number | boolean | null | undefined;
@@ -442,6 +458,7 @@ const resolving = ref(false);
 const debugging = ref(false);
 const webservicePreviewLoading = ref(false);
 const webserviceDebugging = ref(false);
+const detailLoadError = ref("");
 const writerOptionsText = ref("{}");
 const endpointPath = ref("");
 const debugMode = ref<DebugMode>("form");
@@ -737,7 +754,10 @@ onMounted(async () => {
   datasources.value = datasourceData;
   datasourceTypes.value = datasourceTypeData;
   if (serviceId.value) {
-    await loadService(serviceId.value);
+    const loaded = await loadService(serviceId.value);
+    if (!loaded) {
+      return;
+    }
   }
   if (route.query.debug) {
     activeStep.value = 2;
@@ -776,15 +796,31 @@ watch(
 );
 
 async function loadService(id: EntityId) {
-  const detail = await studioApi.dataIngestionServices.get(id);
-  applyDetail(detail);
-  if (detail.datasourceId) {
-    await Promise.all([
-      loadModels(detail.datasourceId),
-      ensureRuntimeSchemaForDatasource("writer", detail.datasourceId),
-    ]);
-    applyRuntimeDefaultsForWriter();
+  try {
+    detailLoadError.value = "";
+    const detail = await studioApi.dataIngestionServices.get(id);
+    applyDetail(detail);
+    if (detail.datasourceId) {
+      await Promise.all([
+        loadModels(detail.datasourceId),
+        ensureRuntimeSchemaForDatasource("writer", detail.datasourceId),
+      ]);
+      applyRuntimeDefaultsForWriter();
+    }
+    return true;
+  } catch (error) {
+    const message = resolveErrorMessage(error, "加载数据接入服务失败");
+    detailLoadError.value = message;
+    ElMessage.error(message);
+    return false;
   }
+}
+
+async function retryLoadService() {
+  if (!serviceId.value) {
+    return;
+  }
+  await loadService(serviceId.value);
 }
 
 function applyDetail(detail: DataIngestionServiceView) {
@@ -1103,6 +1139,10 @@ function validateStep(index: number) {
 }
 
 async function saveService() {
+  if (detailLoadError.value && serviceId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   saving.value = true;
   try {
     const fieldMappings = normalizedMappings();
@@ -1171,6 +1211,10 @@ function normalizeWriterOptions(writerOptions: Record<string, unknown>) {
 }
 
 async function publishService() {
+  if (detailLoadError.value && serviceId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   if (!form.id) {
     await saveService();
   }

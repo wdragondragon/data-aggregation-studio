@@ -8,10 +8,19 @@
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/quality-rules')">返回列表</el-button>
         <el-button plain @click="loadRule">刷新</el-button>
-        <el-button type="primary" :loading="saving" @click="saveRule">保存</el-button>
+        <el-button v-if="!(detailLoadError && ruleId)" type="primary" :loading="saving" @click="saveRule">保存</el-button>
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError && ruleId" title="质量规则不可用" description="该质量规则可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="质量规则不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <SectionCard title="基础信息" description="规则作用域决定它是系统级公共规则，还是当前项目私有规则。">
       <div class="studio-form-grid">
         <el-form-item label="规则名称">
@@ -184,6 +193,7 @@
         </el-table-column>
       </el-table>
     </SectionCard>
+    </template>
   </div>
 </template>
 
@@ -200,12 +210,14 @@ import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import QualityDynamicFunctionDialog from "@/components/quality/QualityDynamicFunctionDialog.vue";
 import { dynamicFunctionCatalog, type DynamicFunctionParamSchema } from "@/components/quality/qualityTaskDynamicFunctions";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const route = useRoute();
 const router = useRouter();
 
 const ruleId = computed(() => route.params.ruleId as string | undefined);
 const saving = ref(false);
+const detailLoadError = ref("");
 const parseWarnings = ref<string[]>([]);
 const validateMessage = ref("");
 const validatePassed = ref(false);
@@ -249,10 +261,12 @@ const form = reactive<QualityRuleSaveRequest>({
 async function loadRule() {
   await loadDatasourceTypes();
   if (!ruleId.value) {
+    detailLoadError.value = "";
     resetForm();
     return;
   }
   try {
+    detailLoadError.value = "";
     const detail = await studioApi.qualityRules.get(ruleId.value);
     form.id = detail.id;
     form.ruleName = detail.ruleName;
@@ -279,7 +293,9 @@ async function loadRule() {
       outputDescription: item.outputDescription,
     }));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载规则详情失败");
+    const message = resolveErrorMessage(error, "加载规则详情失败");
+    detailLoadError.value = message;
+    ElMessage.error(message);
   }
 }
 
@@ -503,6 +519,10 @@ function appendInputParam() {
 }
 
 async function saveRule() {
+  if (detailLoadError.value && ruleId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   saving.value = true;
   try {
     const payload: QualityRuleSaveRequest = {

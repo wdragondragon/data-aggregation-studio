@@ -7,29 +7,43 @@
       </div>
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/data-services')">返回列表</el-button>
-        <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
-        <el-button type="success" :disabled="!form.id" :loading="publishing" @click="publishService">发布</el-button>
+        <template v-if="detailLoadError && serviceId">
+          <el-button type="primary" plain @click="retryLoadService">刷新</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
+          <el-button type="success" :disabled="!form.id" :loading="publishing" @click="publishService">发布</el-button>
+        </template>
       </div>
     </div>
 
-    <div class="service-wizard">
-      <button
-        v-for="(step, index) in wizardSteps"
-        :key="step.title"
-        class="service-wizard-step"
-        :class="{ active: activeStep === index, done: activeStep > index }"
-        type="button"
-        @click="goStep(index)"
-      >
-        <span class="step-index">{{ index + 1 }}</span>
-        <span>
-          <strong>{{ step.title }}</strong>
-          <small>{{ step.description }}</small>
-        </span>
-      </button>
-    </div>
+    <SectionCard v-if="detailLoadError && serviceId" title="数据服务不可用" description="该数据服务可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="数据服务不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
 
-    <SectionCard v-if="activeStep === 0" title="一、服务基础信息" description="服务代理作为后续能力占位；REST 返回 JSON，启用 SOAP 后 WebService 返回 XML。">
+    <template v-else>
+      <div class="service-wizard">
+        <button
+          v-for="(step, index) in wizardSteps"
+          :key="step.title"
+          class="service-wizard-step"
+          :class="{ active: activeStep === index, done: activeStep > index }"
+          type="button"
+          @click="goStep(index)"
+        >
+          <span class="step-index">{{ index + 1 }}</span>
+          <span>
+            <strong>{{ step.title }}</strong>
+            <small>{{ step.description }}</small>
+          </span>
+        </button>
+      </div>
+
+      <SectionCard v-if="activeStep === 0" title="一、服务基础信息" description="服务代理作为后续能力占位；REST 返回 JSON，启用 SOAP 后 WebService 返回 XML。">
       <div class="studio-form-grid">
         <el-form-item label="服务 Code">
           <el-input v-model="form.serviceCode" :disabled="Boolean(form.id)" placeholder="例如：order_query_api" />
@@ -53,8 +67,8 @@
       <div class="studio-form-grid">
         <el-form-item label="获取方式">
           <el-radio-group v-model="form.sourceType" @change="handleSourceTypeChange">
-            <el-radio-button label="TABLE">数据表</el-radio-button>
-            <el-radio-button label="SQL">SQL 语句</el-radio-button>
+            <el-radio-button value="TABLE">数据表</el-radio-button>
+            <el-radio-button value="SQL">SQL 语句</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="数据源">
@@ -361,6 +375,7 @@
       description="配置后会在数据服务查询结果返回前对该字段执行转换；REST 与 SOAP 返回共用此规则。"
       @save="saveResponseTransformers"
     />
+    </template>
   </div>
 </template>
 
@@ -427,6 +442,7 @@ import {
   wizardSteps,
 } from "@/components/data-service/dataServiceEditorSupport";
 import { prettyJson } from "@/utils/studio";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const route = useRoute();
 const router = useRouter();
@@ -493,6 +509,7 @@ const saving = ref(false);
 const publishing = ref(false);
 const resolvingFields = ref(false);
 const debugging = ref(false);
+const detailLoadError = ref("");
 const activeStep = ref(0);
 const debugMode = ref<DebugMode>("form");
 const debugHeaders = ref("{}");
@@ -778,7 +795,10 @@ async function loadInitialData() {
   fieldMappingRules.value = rules;
   ensureFixedParams();
   if (serviceId.value) {
-    await loadService(serviceId.value);
+    const loaded = await loadService(serviceId.value);
+    if (!loaded) {
+      return;
+    }
   }
   if (form.datasourceId) {
     await loadModels(form.datasourceId);
@@ -790,8 +810,24 @@ async function loadInitialData() {
 }
 
 async function loadService(id: EntityId) {
-  const detail = await studioApi.dataServices.get(id);
-  applyDetail(detail);
+  try {
+    detailLoadError.value = "";
+    const detail = await studioApi.dataServices.get(id);
+    applyDetail(detail);
+    return true;
+  } catch (error) {
+    const message = resolveErrorMessage(error, "加载数据服务失败");
+    detailLoadError.value = message;
+    ElMessage.error(message);
+    return false;
+  }
+}
+
+async function retryLoadService() {
+  if (!serviceId.value) {
+    return;
+  }
+  await loadService(serviceId.value);
 }
 
 function applyDetail(detail: DataServiceDefinitionView) {
@@ -1040,6 +1076,10 @@ function saveResponseTransformers(transformers: TransformerBinding[]) {
 }
 
 async function saveService() {
+  if (detailLoadError.value && serviceId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   saving.value = true;
   try {
     normalizeRequestParamAliases();
@@ -1059,7 +1099,7 @@ async function saveService() {
       await router.replace(`/data-services/${saved.id}/edit`);
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "保存失败");
+    ElMessage.error(resolveErrorMessage(error, "保存失败"));
   } finally {
     saving.value = false;
   }
@@ -1156,6 +1196,10 @@ function parseJsonObject(value: string, label: string) {
 }
 
 async function publishService() {
+  if (detailLoadError.value && serviceId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   if (!form.id) {
     return;
   }
@@ -1165,7 +1209,7 @@ async function publishService() {
     applyDetail(published);
     ElMessage.success("数据服务已发布");
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "发布失败");
+    ElMessage.error(resolveErrorMessage(error, "发布失败"));
   } finally {
     publishing.value = false;
   }

@@ -9,8 +9,8 @@
       </el-form-item>
       <el-form-item v-if="collectionModeVisible" :label="t('web.collectionTasks.collectionMode')">
         <el-radio-group v-model="collectionModeModel">
-          <el-radio-button label="FULL">{{ t("web.collectionTasks.collectionModeFull") }}</el-radio-button>
-          <el-radio-button label="INCREMENTAL">{{ t("web.collectionTasks.collectionModeIncremental") }}</el-radio-button>
+          <el-radio-button value="FULL">{{ t("web.collectionTasks.collectionModeFull") }}</el-radio-button>
+          <el-radio-button value="INCREMENTAL">{{ t("web.collectionTasks.collectionModeIncremental") }}</el-radio-button>
         </el-radio-group>
       </el-form-item>
     </div>

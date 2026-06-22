@@ -96,7 +96,7 @@ public class WorkflowService {
     public WorkflowDefinitionView get(Long definitionId) {
         WorkflowDefinitionEntity definition = findAccessibleEntity(definitionId);
         if (definition == null) {
-            return null;
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found: " + definitionId);
         }
         WorkflowDefinitionView view = new WorkflowDefinitionView();
         view.setId(definition.getId());

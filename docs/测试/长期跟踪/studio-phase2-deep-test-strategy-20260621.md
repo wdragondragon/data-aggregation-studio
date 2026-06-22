@@ -415,6 +415,22 @@
 - 沉淀 `scripts/studio_s21_shared_collection_follow_notification_probe.py`。
 - 如发现真实缺陷，补充 DataAggregation 核心和 writer 回归测试，并写入缺陷索引。
 
+### S22 前端错误态与组件告警
+
+覆盖场景：
+
+- 不存在或当前项目不可读的编辑/详情直达页：采集任务、数据服务、数据接入、协议转换、质量规则、质量任务、工作流、工作流运行。
+- 后端详情接口返回 404、403 或空数据时，前端必须进入可理解的不可用态，不能停留空表单或暴露保存、发布、调试、运行、删除等写入口。
+- 工作流详情缺失对象接口契约必须与其他详情接口一致，返回 `NOT_FOUND`，不得返回成功空数据。
+- Element Plus 组件弃用告警，重点覆盖 CronExpressionPicker 和第三方 `no-vue3-cron` 的隐藏语言按钮。
+
+验收：
+
+- 产出 `records/20260622-S22前端错误态与组件告警执行记录.md`。
+- 9 个直达错误态页面浏览器矩阵全部显示不可用提示，toolbar 仅保留返回/刷新，console warn/error 为 0。
+- 缺失对象 API 矩阵中工作流详情完成代码修复和单测；运行中 Server 重启后需补 HTTP 404 实服复核。
+- 如发现真实缺陷，补充前端错误态、工作流契约或构建补丁回归入口，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -447,6 +463,7 @@
 | 2026-06-22 | S19 通知 Fanout 禁用用户边界深挖 | 完成，修复前批次 `20260622050311` 复现禁用用户收到资源共享通知，修复后批次 `20260622050552`：`6 PASS / 0 FAIL / 0 BLOCKED`，S18 探针 `9 PASS / 0 FAIL / 0 BLOCKED`，S01 权限探针 `25 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s19_notification_fanout_acl_probe.py`；`NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；浏览器 `/notifications` 和 `/runs` | BUG-S19-001 |
 | 2026-06-22 | S20 共享关注通知 Fanout 深挖 | 完成，修复前批次 `20260622052317` 复现共享工作流关注者收不到源项目运行通知；补充复现共享关注者通知目标指向不可访问源项目运行详情；最终批次 `20260622060425`：`15 PASS / 0 FAIL / 0 BLOCKED`，S18/S19/S01 探针均通过，浏览器点击通知可进入接收项目共享工作流详情 | `scripts/studio_s20_shared_follow_notification_probe.py`；`FollowApiRegressionTest#sharedWorkflowFollowersShouldFanOutOnlyWhileShareEnabled`；`ExecutionEventServiceRegressionTest#sharedWorkflowFollowerNotificationShouldTargetReadableProject`；浏览器 `/notifications` 点击通知 | BUG-S20-001、BUG-S20-002 |
 | 2026-06-22 | S21 共享采集关注通知与采集指标深挖 | 完成，修复前复现采集成功指标多算 1 条终止记录、重复主键路径因 MySQL insert/upsert 回归和逐行失败未收集脏数据导致状态/指标错误；最终批次 `20260622150929`：`18 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s21_shared_collection_follow_notification_probe.py`；`ChannelStatisticsTest`；`Mysql8WriterTest`；浏览器采集任务编辑页观察 | BUG-S21-001、BUG-S21-002、BUG-M05-001 回归防护 |
+| 2026-06-22 | S22 前端错误态与组件告警 | 完成，9 个直达错误态页面浏览器矩阵 `9 PASS / 0 FAIL / 0 BLOCKED`，缺失对象 API 7 个接口 404，工作流详情代码/单测已修复但运行中 Server 待重启 HTTP 复核；Element Plus `type.text` 告警已清零 | `records/20260622-S22前端错误态与组件告警执行记录.md`；`npm run build`；`WorkflowServiceRegressionTest`；9 个直达错误态 URL 浏览器矩阵 | BUG-S22-001、BUG-S22-002、BUG-S22-003 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -487,6 +504,8 @@ S20 新增的 `BUG-S20-001`、`BUG-S20-002` 纳入 `smoke`：后续涉及 `Follo
 S21 新增的 `BUG-S21-001`、`BUG-S21-002` 纳入 `smoke`：后续涉及 `Channel`、`CommunicationTool`、`CommonRdbmsWriter`、MySQL writer 写入模式、采集运行指标、重复主键失败、共享采集任务关注通知或资源共享撤销后旧关注隔离的修改，必须复跑 S21 共享采集关注通知探针、`ChannelStatisticsTest`、`Mysql8WriterTest` 和 S02 数据正确性探针，并用浏览器复核采集任务编辑页、采集运行列表和消息中心。
 
 S21 观察项 `OBS-S21-001`：共享禁用后接收项目成员直达已不可读采集任务编辑页时，后端 404 但前端停留空编辑表单，且存在 Element Plus radio deprecation warning。后续可作为 S22 前端错误态与组件弃用告警专项，不影响 S21 采集指标修复结论。
+
+S22 新增的 `BUG-S22-001`、`BUG-S22-002`、`BUG-S22-003` 纳入 `smoke`：后续涉及编辑/详情页直达、不可读对象错误态、工作流详情接口契约、CronExpressionPicker、Element Plus 组件兼容、Vite 构建配置或 `no-vue3-cron` 依赖升级的修改，必须复跑 S22 直达错误态浏览器矩阵、缺失对象 API 矩阵、`npm run build` 和 `WorkflowServiceRegressionTest`。`BUG-S22-002` 还需在 `StudioServerApplication` 重启后补运行中 HTTP 404 复核。
 
 ## 提交规则
 

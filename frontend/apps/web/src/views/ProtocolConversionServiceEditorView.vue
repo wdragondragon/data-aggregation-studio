@@ -7,11 +7,25 @@
       </div>
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/protocol-conversions')">返回列表</el-button>
-        <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
-        <el-button v-if="form.id" plain type="success" @click="publishService">发布</el-button>
+        <template v-if="detailLoadError && serviceId">
+          <el-button type="primary" plain @click="retryLoadService">刷新</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
+          <el-button v-if="form.id" plain type="success" @click="publishService">发布</el-button>
+        </template>
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError && serviceId" title="协议转换服务不可用" description="该协议转换服务可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="协议转换服务不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <div class="service-wizard">
       <button
         v-for="(step, index) in wizardSteps"
@@ -488,6 +502,7 @@
       <el-button v-if="activeStep < wizardSteps.length - 1" type="primary" @click="nextStep">下一步</el-button>
       <el-button v-else type="primary" :loading="saving" @click="saveService">保存服务</el-button>
     </div>
+    </template>
 
     <TransformerBindingEditor
       v-model:visible="rawTransformerDialogVisible"
@@ -533,6 +548,7 @@ import ProtocolConversionJsonObjectEditor from "@/components/protocol-conversion
 import ProtocolConversionTraceTimeline from "@/components/protocol-conversion/ProtocolConversionTraceTimeline.vue";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import { copyTextFallback } from "@/components/data-service/dataServiceEditorSupport";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const route = useRoute();
 const router = useRouter();
@@ -552,6 +568,7 @@ const rawDebugResultVisible = ref(false);
 const rawTransformerDialogVisible = ref(false);
 const curlCommand = ref("");
 const advancedPanels = ref<string[]>([]);
+const detailLoadError = ref("");
 
 interface ProtocolConversionDebugSummary {
   requestId?: string;
@@ -804,7 +821,10 @@ onMounted(async () => {
   datasources.value = datasourceItems;
   fieldMappingRules.value = rules;
   if (!isCreateMode.value && serviceId.value) {
-    await loadService(serviceId.value);
+    const loaded = await loadService(serviceId.value);
+    if (!loaded) {
+      return;
+    }
   } else {
     addMapping();
   }
@@ -812,13 +832,29 @@ onMounted(async () => {
 });
 
 async function loadService(id: EntityId) {
-  const detail = await studioApi.protocolConversions.get(id);
-  Object.assign(form, detail);
-  Object.assign(webserviceConfig, detail.webserviceConfig ?? {});
-  Object.assign(targetWebserviceConfig, detail.targetWebserviceConfig ?? detail.webserviceConfig ?? {});
-  debugSoapOptions.value = { header: "{}", requestBody: "" };
-  debugSoapHeaders.value = {};
-  debugSoapEntityBody.value = "";
+  try {
+    detailLoadError.value = "";
+    const detail = await studioApi.protocolConversions.get(id);
+    Object.assign(form, detail);
+    Object.assign(webserviceConfig, detail.webserviceConfig ?? {});
+    Object.assign(targetWebserviceConfig, detail.targetWebserviceConfig ?? detail.webserviceConfig ?? {});
+    debugSoapOptions.value = { header: "{}", requestBody: "" };
+    debugSoapHeaders.value = {};
+    debugSoapEntityBody.value = "";
+    return true;
+  } catch (error) {
+    const message = resolveErrorMessage(error, "加载协议转换服务失败");
+    detailLoadError.value = message;
+    ElMessage.error(message);
+    return false;
+  }
+}
+
+async function retryLoadService() {
+  if (!serviceId.value) {
+    return;
+  }
+  await loadService(serviceId.value);
 }
 
 function addMapping() {
@@ -858,6 +894,10 @@ function saveRawTransformers(transformers: TransformerBinding[]) {
 }
 
 async function saveService() {
+  if (detailLoadError.value && serviceId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   if (!targetHeadersValid.value || !targetQueryValid.value || !responseStatusValid.value) {
     ElMessage.error("请先修正目标协议中的 JSON 配置");
     activeStep.value = 1;
@@ -883,6 +923,10 @@ async function saveService() {
 }
 
 async function publishService() {
+  if (detailLoadError.value && serviceId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   if (!form.id) {
     await saveService();
   }

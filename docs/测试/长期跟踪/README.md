@@ -152,3 +152,7 @@
 - S21 保留最终通过批次 `20260622150929`：源表 `lt_reg_s21_src_20260622150929`、目标表 `lt_reg_s21_tgt_20260622150929`、采集任务 `长期回归-S21共享采集通知链路-20260622150929` / `2068954581974482945`、共享 `2068954600647524354`、成功运行 `2068954655354626050`、重复主键失败运行 `2068954758010216449`、通知 `2068954699550007298`。
 - S21 自动化入口：`docs/测试/长期跟踪/scripts/studio_s21_shared_collection_follow_notification_probe.py`。后续涉及 `Channel`、`CommonRdbmsWriter`、MySQL writer 写入模式、采集运行指标、共享采集任务关注通知或共享撤销后旧关注隔离的修改，至少复跑该脚本、`ChannelStatisticsTest`、`Mysql8WriterTest` 和 S02 数据正确性探针。
 - S21 观察项 `OBS-S21-001`：接收项目成员在共享禁用后直达已不可读采集任务编辑页时，API 已 404，但前端停留空编辑表单且出现 Element Plus radio deprecation warning；建议 S22 以前端错误态和组件弃用告警为专项继续验证。
+- 2026-06-22 已完成 S22 前端错误态与组件告警专项：确认并修复不可读/不存在编辑详情直达页停留空表单或暴露写入口的问题，`BUG-S22-001` 已进入缺陷回归索引；确认并修复 `no-vue3-cron` 隐藏语言按钮触发 Element Plus `type.text` 弃用告警的问题，`BUG-S22-003` 已进入缺陷回归索引。
+- S22 同时确认工作流详情缺失对象接口仍与其他详情接口不一致，运行中 Server 返回 `HTTP 200 / SUCCESS / data:null`；代码已修复为 `NOT_FOUND` 并补 `WorkflowServiceRegressionTest`，`BUG-S22-002` 已进入缺陷回归索引，但实服 HTTP 需重启 `StudioServerApplication` 后复核。
+- S22 最近通过：前端直达错误态 9 页浏览器矩阵 `9 PASS / 0 FAIL / 0 BLOCKED`，toolbar 均只保留“返回列表/刷新”，console warn/error 为 0；缺失对象 API 7 个接口返回 404，工作流详情实服复核 `BLOCKED(待重启)`；`npm run build` 与 `WorkflowServiceRegressionTest` 通过。
+- S22 回归入口：`records/20260622-S22前端错误态与组件告警执行记录.md`、9 个直达错误态 URL 浏览器矩阵、缺失对象 API 矩阵、`npm run build`、`WorkflowServiceRegressionTest`。后续涉及编辑/详情页直达、工作流详情接口、CronExpressionPicker、Element Plus 组件兼容或 Vite 构建配置的修改，至少复跑这些入口。

@@ -9,8 +9,8 @@
         <span class="json-editor__state" :class="{ invalid: Boolean(errorMessage), readonly }">
           {{ stateText }}
         </span>
-        <el-button size="small" text @click="formatContent">格式化</el-button>
-        <el-button v-if="!readonly" size="small" text @click="clearContent">清空</el-button>
+        <el-button size="small" link @click="formatContent">格式化</el-button>
+        <el-button v-if="!readonly" size="small" link @click="clearContent">清空</el-button>
       </div>
     </div>
 

@@ -2,9 +2,28 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
+function patchNoVue3CronDeprecatedButton() {
+  return {
+    name: 'studio-patch-no-vue3-cron-deprecated-button',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      const normalizedId = id.replace(/\\/g, '/');
+      if (!normalizedId.includes('/no-vue3-cron/lib/noVue3Cron.')) {
+        return null;
+      }
+
+      const patchedCode = code.replace(
+        /class:\s*["']language["'],\s*type:\s*["']text["']/g,
+        'class: "language", link: true',
+      );
+      return patchedCode === code ? null : { code: patchedCode, map: null };
+    },
+  };
+}
+
 export default defineConfig({
   base: '/dfs/data-aggregation-studio/',
-  plugins: [vue()],
+  plugins: [patchNoVue3CronDeprecatedButton(), vue()],
   resolve: {
     dedupe: ['@antv/x6'],
     alias: {

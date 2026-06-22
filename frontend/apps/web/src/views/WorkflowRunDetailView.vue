@@ -12,13 +12,22 @@
           {{ t("web.runs.terminateRun") }}
         </el-button>
         <FollowToggleButton
-          v-if="route.params.workflowRunId"
+          v-if="route.params.workflowRunId && !detailLoadError"
           :target-type="STUDIO_RESOURCE_TYPE.WORKFLOW_RUN"
           :target-id="String(route.params.workflowRunId)"
         />
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError" title="工作流运行不可用" description="该工作流运行可能已被删除，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="工作流运行不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <SectionCard :title="t('web.runs.detailSummaryTitle')" :description="t('web.runs.detailSummaryDescription')">
       <div class="summary-panel">
         <div class="summary-grid">
@@ -120,6 +129,7 @@
     </SectionCard>
 
     <RunLogDrawer v-model="logVisible" :run-record-id="activeRunRecordId" variant="workflow" />
+    </template>
   </div>
 </template>
 
@@ -138,6 +148,7 @@ import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { formatNodeType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -147,6 +158,7 @@ const runDetail = ref<WorkflowRunDetail | null>(null);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logVisible = ref(false);
 const terminating = ref(false);
+const detailLoadError = ref("");
 const isSharedRunDetail = computed(() =>
   isSharedFromAnotherProject(authStore.currentProjectId, runDetail.value?.projectId),
 );
@@ -168,9 +180,13 @@ const nodeStatuses = computed<Record<string, string>>(() => {
 
 async function loadDetail() {
   try {
+    detailLoadError.value = "";
     runDetail.value = await studioApi.workflowRuns.get(String(route.params.workflowRunId));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
+    const message = resolveErrorMessage(error, t("web.runs.loadFailed"));
+    detailLoadError.value = message;
+    runDetail.value = null;
+    ElMessage.error(message);
   }
 }
 
@@ -205,6 +221,10 @@ function goBack() {
 }
 
 async function terminateRun() {
+  if (detailLoadError.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   const workflowRunId = route.params.workflowRunId;
   if (!workflowRunId) {
     return;

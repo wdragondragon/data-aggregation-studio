@@ -1,64 +1,86 @@
 <template>
   <div class="studio-page">
-    <CollectionTaskEditorHeader
-      :task-id="taskId"
-      :saving="saving"
-      :actions="editorHeaderActions"
-    />
+    <template v-if="detailLoadError && taskId">
+      <div class="studio-toolbar">
+        <div>
+          <h3>{{ t("web.collectionTasks.editTitle") }}</h3>
+          <p>{{ t("web.collectionTasks.unavailableDescription") }}</p>
+        </div>
+        <div class="studio-toolbar-actions">
+          <el-button @click="router.push('/collection-tasks')">{{ t("common.backToList") }}</el-button>
+          <el-button type="primary" plain @click="retryLoadTask">{{ t("common.refresh") }}</el-button>
+        </div>
+      </div>
+      <SectionCard :title="t('web.collectionTasks.unavailableTitle')" :description="t('web.collectionTasks.unavailableDescription')">
+        <el-result
+          icon="warning"
+          :title="t('web.collectionTasks.unavailableTitle')"
+          :sub-title="detailLoadError"
+        />
+      </SectionCard>
+    </template>
 
-    <CollectionTaskStepIndicator v-model:active-step="activeStep" />
+    <template v-else>
+      <CollectionTaskEditorHeader
+        :task-id="taskId"
+        :saving="saving"
+        :actions="editorHeaderActions"
+      />
 
-    <CollectionTaskBindingSection
-      v-if="activeStep === 1"
-      v-model:collection-mode="collectionMode"
-      :form="form"
-      :task-id="taskId"
-      :task-type-label="taskTypeLabel"
-      :collection-mode-visible="collectionModeVisible"
-      :is-fusion-task="isFusionTask"
-      :datasources="datasources"
-      :writer-advanced-fields="writerAdvancedFields"
-      :binding-actions="bindingSectionActions"
-    />
+      <CollectionTaskStepIndicator v-model:active-step="activeStep" />
 
-    <CollectionTaskMappingSection
-      v-else-if="activeStep === 2"
-      v-model:join-keys="joinKeys"
-      v-model:join-type="joinType"
-      :form="form"
-      :is-fusion-task="isFusionTask"
-      :common-join-key-options="commonJoinKeyOptions"
-      :fusion-reader-advanced-fields="fusionReaderAdvancedFields"
-      :fusion-reader-options="fusionReaderOptions"
-      :source-alias-options="sourceAliasOptions"
-      :source-field-options-by-alias="sourceFieldOptionsByAlias"
-      :target-field-options="targetFieldOptions"
-      :field-mapping-rules="fieldMappingRules"
-      :writer-soap-body-preview-fields="writerSoapBodyPreviewFields"
-      :writer-options="form.targetBinding.writerOptions ?? {}"
-      :mapping-actions="mappingSectionActions"
-    />
+      <CollectionTaskBindingSection
+        v-if="activeStep === 1"
+        v-model:collection-mode="collectionMode"
+        :form="form"
+        :task-id="taskId"
+        :task-type-label="taskTypeLabel"
+        :collection-mode-visible="collectionModeVisible"
+        :is-fusion-task="isFusionTask"
+        :datasources="datasources"
+        :writer-advanced-fields="writerAdvancedFields"
+        :binding-actions="bindingSectionActions"
+      />
 
-    <CollectionTaskScheduleSection
-      v-else-if="activeStep === 3"
-      :schedule="form.schedule"
-    />
+      <CollectionTaskMappingSection
+        v-else-if="activeStep === 2"
+        v-model:join-keys="joinKeys"
+        v-model:join-type="joinType"
+        :form="form"
+        :is-fusion-task="isFusionTask"
+        :common-join-key-options="commonJoinKeyOptions"
+        :fusion-reader-advanced-fields="fusionReaderAdvancedFields"
+        :fusion-reader-options="fusionReaderOptions"
+        :source-alias-options="sourceAliasOptions"
+        :source-field-options-by-alias="sourceFieldOptionsByAlias"
+        :target-field-options="targetFieldOptions"
+        :field-mapping-rules="fieldMappingRules"
+        :writer-soap-body-preview-fields="writerSoapBodyPreviewFields"
+        :writer-options="form.targetBinding.writerOptions ?? {}"
+        :mapping-actions="mappingSectionActions"
+      />
 
-    <CollectionTaskReviewSection
-      v-else
-      :form="form"
-      :task-type-label="taskTypeLabel"
-      :preview-loading="previewLoading"
-      :can-preview-config="canPreviewConfig"
-      :preview-config="previewConfig"
-      :load-preview-config="loadPreviewConfig"
-    />
+      <CollectionTaskScheduleSection
+        v-else-if="activeStep === 3"
+        :schedule="form.schedule"
+      />
 
-    <CollectionTaskEditorFooter
-      v-model:active-step="activeStep"
-      :saving="saving"
-      :save-task="saveTask"
-    />
+      <CollectionTaskReviewSection
+        v-else
+        :form="form"
+        :task-type-label="taskTypeLabel"
+        :preview-loading="previewLoading"
+        :can-preview-config="canPreviewConfig"
+        :preview-config="previewConfig"
+        :load-preview-config="loadPreviewConfig"
+      />
+
+      <CollectionTaskEditorFooter
+        v-model:active-step="activeStep"
+        :saving="saving"
+        :save-task="saveTask"
+      />
+    </template>
   </div>
 </template>
 
@@ -79,6 +101,7 @@ import type {
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
 } from "@studio/api-sdk";
+import { SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import CollectionTaskBindingSection from "@/components/collection-task/CollectionTaskBindingSection.vue";
 import {
@@ -124,6 +147,7 @@ import {
   type SoapFieldSpec,
 } from "@/components/open-service/openServiceDebugSupport";
 import { cloneDeep } from "@/utils/studio";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -141,6 +165,7 @@ const saving = ref(false);
 const previewLoading = ref(false);
 const previewDirty = ref(true);
 const previewConfig = ref<JobContainerConfig | null>(null);
+const detailLoadError = ref("");
 const resettingIncrementalCursor = ref<Record<string, boolean>>({});
 const customSqlFieldCache = ref<Record<string, { datasourceId: string; sql: string; fields: string[]; loading: boolean; error?: string }>>({});
 const customSqlResolveTimers = new Map<string, number>();
@@ -316,9 +341,11 @@ async function loadReferenceData() {
 
 async function loadTask() {
   if (!taskId.value) {
+    detailLoadError.value = "";
     return;
   }
   try {
+    detailLoadError.value = "";
     const task = await studioApi.collectionTasks.get(taskId.value);
     applyTask(task);
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
@@ -327,8 +354,14 @@ async function loadTask() {
     await resolveCustomSqlFieldsForActiveStep();
     syncHttpSoapWriterRequestBodyFromMappings();
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
+    const message = resolveErrorMessage(error, t("web.collectionTasks.loadFailed"));
+    detailLoadError.value = message;
+    ElMessage.error(message);
   }
+}
+
+async function retryLoadTask() {
+  await loadTask();
 }
 
 function applyTask(task: CollectionTaskDefinitionView) {
@@ -1168,6 +1201,10 @@ async function loadPreviewConfig() {
 }
 
 async function saveTask() {
+  if (detailLoadError.value && taskId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   if (!validateHttpSoapRuntimeOptions()) {
     return;
   }

@@ -17,10 +17,10 @@
           <p>{{ t("web.notifications.recentDescription") }}</p>
         </div>
         <div class="notification-panel__actions">
-          <el-button text type="primary" :disabled="notificationStore.unreadCount < 1" @click="markAllRead">
+          <el-button link type="primary" :disabled="notificationStore.unreadCount < 1" @click="markAllRead">
             {{ t("web.notifications.markAllRead") }}
           </el-button>
-          <el-button text type="primary" @click="goToCenter">
+          <el-button link type="primary" @click="goToCenter">
             {{ t("web.notifications.openCenter") }}
           </el-button>
         </div>

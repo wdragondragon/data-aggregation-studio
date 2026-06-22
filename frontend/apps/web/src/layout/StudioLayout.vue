@@ -57,7 +57,7 @@
         </div>
         <div v-if="authStore.isAuthenticated && !authStore.currentProjectId" class="studio-layout__context-empty">
           <span>{{ t("common.noProjectBound") }}</span>
-          <el-button text type="primary" @click="router.push('/access-center')">
+          <el-button link type="primary" @click="router.push('/access-center')">
             {{ t("common.openAccessCenter") }}
           </el-button>
         </div>

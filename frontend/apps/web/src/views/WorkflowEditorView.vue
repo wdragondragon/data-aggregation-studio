@@ -7,11 +7,20 @@
       </div>
       <div class="studio-toolbar-actions">
         <el-button @click="router.push('/workflows')">{{ t("common.backToList") }}</el-button>
-        <el-button plain @click="loadReferenceData">{{ t("common.refresh") }}</el-button>
-        <el-button type="primary" :loading="saving" @click="saveWorkflow">{{ t("common.saveDraft") }}</el-button>
+        <el-button plain @click="refreshWorkflowEditor">{{ t("common.refresh") }}</el-button>
+        <el-button v-if="!(detailLoadError && workflowId)" type="primary" :loading="saving" @click="saveWorkflow">{{ t("common.saveDraft") }}</el-button>
       </div>
     </div>
 
+    <SectionCard v-if="detailLoadError && workflowId" title="工作流不可用" description="该工作流可能已被删除、取消共享，或当前项目无权访问。">
+      <el-result
+        icon="warning"
+        title="工作流不可用"
+        :sub-title="detailLoadError"
+      />
+    </SectionCard>
+
+    <template v-else>
     <WorkflowBasicsSection :form="form" />
 
     <WorkflowCanvasSection
@@ -86,6 +95,7 @@
       :preview-script="previewScript"
       :actions="resourceDialogActions"
     />
+    </template>
   </div>
 </template>
 
@@ -132,6 +142,7 @@ import {
   cloneDeep,
   prettyJson,
 } from "@/utils/studio";
+import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 interface WorkflowEditor extends WorkflowSaveRequest {
   definitionId?: string | number;
@@ -153,6 +164,7 @@ const onlineQualityTasks = ref<QualityTaskDefinitionView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
+const detailLoadError = ref("");
 const collectionTasksLoading = ref(false);
 const qualityTasksLoading = ref(false);
 const qualityTaskReloadPending = ref(false);
@@ -544,15 +556,30 @@ function upsertScript(script: DataDevelopmentScript) {
 
 async function loadWorkflow() {
   if (!workflowId.value) {
+    detailLoadError.value = "";
     resetWorkflow();
     return;
   }
   try {
+    detailLoadError.value = "";
     const workflow = await studioApi.workflows.get(workflowId.value);
+    if (!workflow?.id) {
+      throw new Error(`Workflow not found: ${workflowId.value}`);
+    }
     applyWorkflow(workflow);
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    const message = resolveErrorMessage(error, t("web.workflows.loadFailed"));
+    detailLoadError.value = message;
+    ElMessage.error(message);
   }
+}
+
+async function refreshWorkflowEditor() {
+  if (detailLoadError.value && workflowId.value) {
+    await loadWorkflow();
+    return;
+  }
+  await loadReferenceData();
 }
 
 function applyWorkflow(workflow: WorkflowDefinitionView) {
@@ -770,6 +797,10 @@ function updateEdgeCondition(index: number, condition: string) {
 }
 
 async function saveWorkflow() {
+  if (detailLoadError.value && workflowId.value) {
+    ElMessage.error(detailLoadError.value);
+    return;
+  }
   saving.value = true;
   try {
     if (selectedNode.value?.nodeType === "HTTP") {
