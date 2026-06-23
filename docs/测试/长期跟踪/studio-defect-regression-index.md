@@ -48,6 +48,7 @@
 | BUG-S22-001 | 前端错误态/直达页 | 中 | 不存在或当前项目不可读的编辑/详情直达页可能停留空表单或暴露保存、发布、调试、运行等写入口 | `CollectionTaskEditorView.vue`；`DataServiceEditorView.vue`；`DataIngestionServiceEditorView.vue`；`ProtocolConversionServiceEditorView.vue`；`QualityRuleEditorView.vue`；`QualityTaskEditorView.vue`；`WorkflowEditorView.vue`；`WorkflowDetailView.vue`；`WorkflowRunDetailView.vue`；`frontend/packages/i18n/src/messages/web.ts` | `records/20260622-S22前端错误态与组件告警执行记录.md` 的 S22-UI-001 至 S22-UI-009；9 个直达错误态页面浏览器矩阵 | smoke | 2026-06-22 | 本次提交 |
 | BUG-S22-002 | 工作流/API 契约 | 中 | `GET /workflows/{id}` 在缺失或不可读时返回 `HTTP 200 / SUCCESS / data:null`，与其他详情接口 404 契约不一致 | `backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowService.java`；`backend/studio-infra/src/test/java/com/jdragon/studio/infra/service/WorkflowServiceRegressionTest.java`；`backend/studio-infra/pom.xml` | `WorkflowServiceRegressionTest#getShouldRejectMissingWorkflowInsteadOfReturningNull`；缺失对象 API 矩阵；重启 `StudioServerApplication` 后复核 `/api/v1/workflows/999999999999999999` 返回 404 | smoke | 2026-06-22，实服 HTTP 待重启复核 | 本次提交 |
 | BUG-S22-003 | 前端组件兼容/Cron | 低 | `no-vue3-cron` 隐藏语言按钮仍渲染 `el-button type="text"`，打开含 Cron 的页面触发 Element Plus `type.text` 弃用告警 | `frontend/apps/web/vite.config.ts` | `npm run build`；最新 `CronExpressionPicker-*.js` 中 `class:"language",type:"text"` 为 false、`class:"language",link:!0` 为 true；S22 9 页浏览器矩阵 console warn/error 为 0 | smoke | 2026-06-22 | 本次提交 |
+| BUG-S23-001 | 前端分页/SDK | 中 | 多个前端 SDK 分页方法直接返回 `request<PageResult<T>>`，绕过 `normalizePageResult`；后端返回 `total:"0"` 字符串时会把字符串传给 Element Plus Pagination，触发弃用告警 | `frontend/packages/api-sdk/src/client.ts` | `scripts/studio_s23_acl_expansion_probe.py`；`npm run build:web`；API `/protocol-conversion-metrics/access-logs/query` 返回 `total:"0"`；浏览器协议转换/数据服务/数据接入访问日志和通知页分页可见且时间戳之后无新增 warn/error | smoke | 2026-06-23 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -83,3 +84,4 @@
 | S20 共享关注通知 Fanout | BUG-S20-001、BUG-S20-002 |
 | S21 共享采集关注通知与采集指标 | BUG-S21-001、BUG-S21-002、BUG-M05-001 |
 | S22 前端错误态与组件告警 | BUG-S22-001、BUG-S22-002、BUG-S22-003 |
+| S23 全量 ACL 扩展与分页契约告警 | BUG-S23-001 |

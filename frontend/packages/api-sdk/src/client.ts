@@ -347,6 +347,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
   );
 
   const request = <T>(config: StudioRequestConfig) => unwrap<T>(instance.request<Result<T>>(config) as Promise<{ data: Result<T> }>);
+  const requestPage = <T>(config: StudioRequestConfig, query?: { pageNo?: number; pageSize?: number }) =>
+    request<unknown>(config).then((payload) => normalizePageResult<T>(payload, query?.pageNo ?? 1, query?.pageSize ?? 20));
 
   return {
     auth: {
@@ -398,7 +400,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         mappingType?: string;
         enabled?: boolean;
       }) {
-        return request<PageResult<FieldMappingRuleView>>({ url: "/field-mapping-rules", method: "GET", params });
+        return requestPage<FieldMappingRuleView>({ url: "/field-mapping-rules", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<FieldMappingRuleView>({ url: `/field-mapping-rules/${id}`, method: "GET" });
@@ -426,7 +428,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         scopeType?: string;
         enabled?: boolean;
       }) {
-        return request<PageResult<QualityRuleView>>({ url: "/quality-rules", method: "GET", params });
+        return requestPage<QualityRuleView>({ url: "/quality-rules", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<QualityRuleView>({ url: `/quality-rules/${id}`, method: "GET" });
@@ -534,7 +536,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         status?: string;
         serviceType?: string;
       }) {
-        return request<PageResult<DataServiceDefinitionView>>({ url: "/data-services", method: "GET", params });
+        return requestPage<DataServiceDefinitionView>({ url: "/data-services", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<DataServiceDefinitionView>({ url: `/data-services/${id}`, method: "GET" });
@@ -604,7 +606,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         status?: string;
         targetType?: string;
       }) {
-        return request<PageResult<DataIngestionServiceView>>({ url: "/data-ingestion-services", method: "GET", params });
+        return requestPage<DataIngestionServiceView>({ url: "/data-ingestion-services", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}`, method: "GET" });
@@ -669,7 +671,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         keyword?: string;
         status?: string;
       }) {
-        return request<PageResult<ProtocolConversionServiceView>>({ url: "/protocol-conversions", method: "GET", params });
+        return requestPage<ProtocolConversionServiceView>({ url: "/protocol-conversions", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}`, method: "GET" });
@@ -723,7 +725,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<DataServiceMetricOptionsView>({ url: "/protocol-conversion-metrics/options", method: "GET" });
       },
       queryAccessLogs(payload?: ProtocolConversionMetricQueryRequest) {
-        return request<PageResult<ProtocolConversionAccessLogView>>({ url: "/protocol-conversion-metrics/access-logs/query", method: "POST", data: payload });
+        return requestPage<ProtocolConversionAccessLogView>({ url: "/protocol-conversion-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
       getAccessLogTrace(id: EntityId) {
         return request<ProtocolConversionTraceView>({ url: `/protocol-conversion-metrics/access-logs/${id}/trace`, method: "GET" });
@@ -737,10 +739,10 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<DataServiceMetricDashboardView>({ url: "/data-service-metrics/dashboard/query", method: "POST", data: payload });
       },
       queryApiStats(payload?: DataServiceMetricQueryRequest) {
-        return request<PageResult<DataServiceApiMetricView>>({ url: "/data-service-metrics/api-stats/query", method: "POST", data: payload });
+        return requestPage<DataServiceApiMetricView>({ url: "/data-service-metrics/api-stats/query", method: "POST", data: payload }, payload);
       },
       queryAccessLogs(payload?: DataServiceMetricQueryRequest) {
-        return request<PageResult<DataServiceAccessLogView>>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload });
+        return requestPage<DataServiceAccessLogView>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
     },
     dataIngestionMetrics: {
@@ -751,10 +753,10 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<DataIngestionMetricDashboardView>({ url: "/data-ingestion-metrics/dashboard/query", method: "POST", data: payload });
       },
       queryApiStats(payload?: DataIngestionMetricQueryRequest) {
-        return request<PageResult<DataIngestionApiMetricView>>({ url: "/data-ingestion-metrics/api-stats/query", method: "POST", data: payload });
+        return requestPage<DataIngestionApiMetricView>({ url: "/data-ingestion-metrics/api-stats/query", method: "POST", data: payload }, payload);
       },
       queryAccessLogs(payload?: DataIngestionMetricQueryRequest) {
-        return request<PageResult<DataIngestionAccessLogView>>({ url: "/data-ingestion-metrics/access-logs/query", method: "POST", data: payload });
+        return requestPage<DataIngestionAccessLogView>({ url: "/data-ingestion-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
     },
     models: {
@@ -938,7 +940,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         datasourceId?: EntityId;
         status?: string;
       }) {
-        return request<PageResult<ModelSyncTaskView>>({ url: "/model-sync-tasks", method: "GET", params });
+        return requestPage<ModelSyncTaskView>({ url: "/model-sync-tasks", method: "GET", params }, params);
       },
       get(taskId: EntityId) {
         return request<ModelSyncTaskView>({ url: `/model-sync-tasks/${taskId}`, method: "GET" });
@@ -949,11 +951,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         keyword?: string;
         status?: string;
       }) {
-        return request<PageResult<ModelSyncTaskItemView>>({
+        return requestPage<ModelSyncTaskItemView>({
           url: `/model-sync-tasks/${taskId}/items`,
           method: "GET",
           params,
-        });
+        }, params);
       },
       stop(taskId: EntityId) {
         return request<ModelSyncTaskView>({ url: `/model-sync-tasks/${taskId}/stop`, method: "POST" });
@@ -1239,27 +1241,27 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<OpsCenterOverviewView>({ url: "/ops-center/overview/query", method: "POST", data: payload });
       },
       queryRuns(payload?: OpsCenterQueryRequest) {
-        return request<PageResult<OpsCenterRunIncidentView>>({ url: "/ops-center/runs/query", method: "POST", data: payload });
+        return requestPage<OpsCenterRunIncidentView>({ url: "/ops-center/runs/query", method: "POST", data: payload }, payload);
       },
       queryQueue(payload?: OpsCenterQueryRequest) {
-        return request<PageResult<OpsCenterQueueItemView>>({ url: "/ops-center/queue/query", method: "POST", data: payload });
+        return requestPage<OpsCenterQueueItemView>({ url: "/ops-center/queue/query", method: "POST", data: payload }, payload);
       },
       queryWorkers(payload?: OpsCenterQueryRequest) {
-        return request<PageResult<OpsCenterWorkerGroupView>>({ url: "/ops-center/workers/query", method: "POST", data: payload });
+        return requestPage<OpsCenterWorkerGroupView>({ url: "/ops-center/workers/query", method: "POST", data: payload }, payload);
       },
       queryServiceEvents(payload?: OpsCenterQueryRequest) {
-        return request<PageResult<OpsCenterServiceEventView>>({ url: "/ops-center/service-events/query", method: "POST", data: payload });
+        return requestPage<OpsCenterServiceEventView>({ url: "/ops-center/service-events/query", method: "POST", data: payload }, payload);
       },
       queryIngestionEvents(payload?: OpsCenterQueryRequest) {
-        return request<PageResult<OpsCenterServiceEventView>>({ url: "/ops-center/ingestion-events/query", method: "POST", data: payload });
+        return requestPage<OpsCenterServiceEventView>({ url: "/ops-center/ingestion-events/query", method: "POST", data: payload }, payload);
       },
       queryLogEvents(payload?: OpsCenterQueryRequest) {
-        return request<PageResult<OpsCenterLogEventView>>({ url: "/ops-center/log-events/query", method: "POST", data: payload });
+        return requestPage<OpsCenterLogEventView>({ url: "/ops-center/log-events/query", method: "POST", data: payload }, payload);
       },
     },
     notifications: {
       list(params?: NotificationQueryRequest) {
-        return request<PageResult<NotificationView>>({ url: "/notifications", method: "GET", params });
+        return requestPage<NotificationView>({ url: "/notifications", method: "GET", params }, params);
       },
       snapshot() {
         return request<NotificationSnapshotView>({ url: "/notifications/snapshot", method: "GET" });
@@ -1295,11 +1297,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     workflowRuns: {
       list(params?: WorkflowRunListQuery) {
-        return request<PageResult<WorkflowRunSummary>>({
+        return requestPage<WorkflowRunSummary>({
           url: "/workflow-runs",
           method: "GET",
           params,
-        });
+        }, params);
       },
       get(workflowRunId: EntityId) {
         return request<WorkflowRunDetail>({ url: `/workflow-runs/${workflowRunId}`, method: "GET" });

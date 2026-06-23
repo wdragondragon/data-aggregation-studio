@@ -156,3 +156,6 @@
 - S22 同时确认工作流详情缺失对象接口仍与其他详情接口不一致，运行中 Server 返回 `HTTP 200 / SUCCESS / data:null`；代码已修复为 `NOT_FOUND` 并补 `WorkflowServiceRegressionTest`，`BUG-S22-002` 已进入缺陷回归索引，但实服 HTTP 需重启 `StudioServerApplication` 后复核。
 - S22 最近通过：前端直达错误态 9 页浏览器矩阵 `9 PASS / 0 FAIL / 0 BLOCKED`，toolbar 均只保留“返回列表/刷新”，console warn/error 为 0；缺失对象 API 7 个接口返回 404，工作流详情实服复核 `BLOCKED(待重启)`；`npm run build` 与 `WorkflowServiceRegressionTest` 通过。
 - S22 回归入口：`records/20260622-S22前端错误态与组件告警执行记录.md`、9 个直达错误态 URL 浏览器矩阵、缺失对象 API 矩阵、`npm run build`、`WorkflowServiceRegressionTest`。后续涉及编辑/详情页直达、工作流详情接口、CronExpressionPicker、Element Plus 组件兼容或 Vite 构建配置的修改，至少复跑这些入口。
+- 2026-06-23 已完成 S23 全量 ACL 扩展与分页契约告警：ACL 扩展脚本批次 `20260623091253` 为 `20 PASS / 0 FAIL / 0 BLOCKED / needFix 0`；确认并修复前端 SDK 多个分页接口绕过 `normalizePageResult`，导致后端 `total:"0"` 字符串传入 Element Plus Pagination 后触发弃用告警的问题，`BUG-S23-001` 已进入缺陷回归索引。
+- S23 保留字段映射规则 `2069227175755743233`、数据开发目录 `2069227184236625921`、脚本 `2069227194298761217` 作为 ACL 扩展长期夹具；浏览器复核协议转换访问日志、数据服务访问日志、数据接入运行日志和通知页均加载新构建资源，分页可见且时间戳之后无新增 warn/error。
+- S23 自动化入口：`docs/测试/长期跟踪/scripts/studio_s23_acl_expansion_probe.py`。后续涉及 `frontend/packages/api-sdk/src/client.ts`、分页 PageResult 契约、访问日志/指标页、通知页、运维分页列表或 ACL 扩展覆盖接口的修改，至少复跑该脚本、`npm run build:web`，并用浏览器复核协议转换/数据服务/数据接入访问日志页。

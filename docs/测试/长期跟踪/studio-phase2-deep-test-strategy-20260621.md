@@ -431,6 +431,22 @@
 - 缺失对象 API 矩阵中工作流详情完成代码修复和单测；运行中 Server 重启后需补 HTTP 404 实服复核。
 - 如发现真实缺陷，补充前端错误态、工作流契约或构建补丁回归入口，并写入缺陷索引。
 
+### S23 全量 ACL 扩展与分页契约告警
+
+覆盖场景：
+
+- 在 S01/S16/S17/S18 的权限基础上继续扩展 Controller/method 覆盖面，补字段映射规则、数据开发、模型、模型同步、质量问题、工作流运行、完整调用日志等低权限/跨项目访问。
+- 承接 S14/S15 观察到的 Element Plus Pagination deprecated warning，验证后端 PageResult 中 `total/pageNo/pageSize` 字符串或非数字类型时，前端 SDK 必须统一规范化。
+- 覆盖协议转换访问日志、数据服务访问日志、数据接入运行日志、通知页等空分页和零 total 场景。
+
+验收：
+
+- 产出 `records/20260623-S23全量ACL扩展与分页契约告警执行记录.md`。
+- 沉淀 `scripts/studio_s23_acl_expansion_probe.py`，脚本结果必须为 `20 PASS / 0 FAIL / 0 BLOCKED`。
+- 前端构建 `npm run build:web` 通过。
+- 浏览器时间戳过滤验证分页页加载新构建资源，分页可见，且无新增 Element Plus pagination warning。
+- 如发现真实缺陷，补充 SDK 层统一分页规范化修复，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -464,6 +480,7 @@
 | 2026-06-22 | S20 共享关注通知 Fanout 深挖 | 完成，修复前批次 `20260622052317` 复现共享工作流关注者收不到源项目运行通知；补充复现共享关注者通知目标指向不可访问源项目运行详情；最终批次 `20260622060425`：`15 PASS / 0 FAIL / 0 BLOCKED`，S18/S19/S01 探针均通过，浏览器点击通知可进入接收项目共享工作流详情 | `scripts/studio_s20_shared_follow_notification_probe.py`；`FollowApiRegressionTest#sharedWorkflowFollowersShouldFanOutOnlyWhileShareEnabled`；`ExecutionEventServiceRegressionTest#sharedWorkflowFollowerNotificationShouldTargetReadableProject`；浏览器 `/notifications` 点击通知 | BUG-S20-001、BUG-S20-002 |
 | 2026-06-22 | S21 共享采集关注通知与采集指标深挖 | 完成，修复前复现采集成功指标多算 1 条终止记录、重复主键路径因 MySQL insert/upsert 回归和逐行失败未收集脏数据导致状态/指标错误；最终批次 `20260622150929`：`18 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s21_shared_collection_follow_notification_probe.py`；`ChannelStatisticsTest`；`Mysql8WriterTest`；浏览器采集任务编辑页观察 | BUG-S21-001、BUG-S21-002、BUG-M05-001 回归防护 |
 | 2026-06-22 | S22 前端错误态与组件告警 | 完成，9 个直达错误态页面浏览器矩阵 `9 PASS / 0 FAIL / 0 BLOCKED`，缺失对象 API 7 个接口 404，工作流详情代码/单测已修复但运行中 Server 待重启 HTTP 复核；Element Plus `type.text` 告警已清零 | `records/20260622-S22前端错误态与组件告警执行记录.md`；`npm run build`；`WorkflowServiceRegressionTest`；9 个直达错误态 URL 浏览器矩阵 | BUG-S22-001、BUG-S22-002、BUG-S22-003 |
+| 2026-06-23 | S23 全量 ACL 扩展与分页契约告警 | 完成，ACL 扩展脚本批次 `20260623091253`：`20 PASS / 0 FAIL / 0 BLOCKED`；确认并修复前端 SDK 分页结果未统一规范化导致 Element Plus Pagination 告警 | `scripts/studio_s23_acl_expansion_probe.py`；`npm run build:web`；浏览器协议转换/数据服务/数据接入访问日志和通知页时间戳过滤 | BUG-S23-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -506,6 +523,8 @@ S21 新增的 `BUG-S21-001`、`BUG-S21-002` 纳入 `smoke`：后续涉及 `Chann
 S21 观察项 `OBS-S21-001`：共享禁用后接收项目成员直达已不可读采集任务编辑页时，后端 404 但前端停留空编辑表单，且存在 Element Plus radio deprecation warning。后续可作为 S22 前端错误态与组件弃用告警专项，不影响 S21 采集指标修复结论。
 
 S22 新增的 `BUG-S22-001`、`BUG-S22-002`、`BUG-S22-003` 纳入 `smoke`：后续涉及编辑/详情页直达、不可读对象错误态、工作流详情接口契约、CronExpressionPicker、Element Plus 组件兼容、Vite 构建配置或 `no-vue3-cron` 依赖升级的修改，必须复跑 S22 直达错误态浏览器矩阵、缺失对象 API 矩阵、`npm run build` 和 `WorkflowServiceRegressionTest`。`BUG-S22-002` 还需在 `StudioServerApplication` 重启后补运行中 HTTP 404 复核。
+
+S23 新增的 `BUG-S23-001` 纳入 `smoke`：后续涉及 `frontend/packages/api-sdk/src/client.ts`、PageResult 契约、访问日志/指标页、通知页、运维中心分页列表或前端分页组件兼容的修改，必须复跑 S23 ACL 扩展探针、`npm run build:web`，并用浏览器时间戳过滤复核协议转换访问日志、数据服务访问日志、数据接入运行日志和通知页。
 
 ## 提交规则
 
