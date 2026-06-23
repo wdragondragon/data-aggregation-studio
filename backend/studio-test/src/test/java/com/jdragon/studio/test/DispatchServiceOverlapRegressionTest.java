@@ -1,5 +1,6 @@
 package com.jdragon.studio.test;
 
+import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.QualityTaskStatus;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.function.Supplier;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -243,6 +245,117 @@ class DispatchServiceOverlapRegressionTest {
                 .isInstanceOf(StudioException.class)
                 .hasMessageContaining("Quality task already has an active run");
 
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldRejectWorkflowManualTriggerWhenCurrentProjectDoesNotOwnDefinition() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        StaleExecutionRecoveryService staleExecutionRecoveryService = mock(StaleExecutionRecoveryService.class);
+        WorkflowDefinitionView workflow = new WorkflowDefinitionView();
+        workflow.setId(100L);
+        workflow.setTenantId("default");
+        workflow.setProjectId(1000L);
+
+        when(workflowService.get(100L)).thenReturn(workflow);
+        when(securityService.currentProjectId()).thenReturn(2000L);
+
+        DispatchService dispatchService = new DispatchService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                mock(WorkflowDefinitionMapper.class),
+                workflowService,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                securityService,
+                workerAuthorizationService,
+                staleExecutionRecoveryService,
+                mock(ClusterLockService.class)
+        );
+
+        assertThatThrownBy(() -> dispatchService.triggerManualRun(100L))
+                .isInstanceOfSatisfying(StudioException.class, exception -> {
+                    assertThat(exception.getCode()).isEqualTo(StudioErrorCode.FORBIDDEN);
+                    assertThat(exception.getMessage()).contains("Resource belongs to another project");
+                });
+
+        verify(workerAuthorizationService, never()).assertProjectHasAvailableWorker(any(), any());
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldRejectCollectionTaskManualTriggerWhenCurrentProjectDoesNotOwnDefinition() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        StaleExecutionRecoveryService staleExecutionRecoveryService = mock(StaleExecutionRecoveryService.class);
+        CollectionTaskDefinitionView definition = collectionTaskDefinition();
+
+        when(collectionTaskService.requireOnline(200L)).thenReturn(definition);
+        when(securityService.currentProjectId()).thenReturn(2001L);
+
+        DispatchService dispatchService = new DispatchService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                mock(WorkflowDefinitionMapper.class),
+                mock(WorkflowService.class),
+                collectionTaskService,
+                mock(QualityTaskService.class),
+                securityService,
+                workerAuthorizationService,
+                staleExecutionRecoveryService,
+                mock(ClusterLockService.class)
+        );
+
+        assertThatThrownBy(() -> dispatchService.triggerCollectionTask(200L))
+                .isInstanceOfSatisfying(StudioException.class, exception -> {
+                    assertThat(exception.getCode()).isEqualTo(StudioErrorCode.FORBIDDEN);
+                    assertThat(exception.getMessage()).contains("Resource belongs to another project");
+                });
+
+        verify(workerAuthorizationService, never()).assertProjectHasAvailableWorker(any(), any());
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldRejectQualityTaskManualTriggerWhenCurrentProjectDoesNotOwnDefinition() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        QualityTaskService qualityTaskService = mock(QualityTaskService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        StaleExecutionRecoveryService staleExecutionRecoveryService = mock(StaleExecutionRecoveryService.class);
+        QualityTaskDefinitionView definition = qualityTaskDefinition();
+
+        when(qualityTaskService.requireOnline(300L)).thenReturn(definition);
+        when(securityService.currentProjectId()).thenReturn(3001L);
+
+        DispatchService dispatchService = new DispatchService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                mock(WorkflowDefinitionMapper.class),
+                mock(WorkflowService.class),
+                mock(CollectionTaskService.class),
+                qualityTaskService,
+                securityService,
+                workerAuthorizationService,
+                staleExecutionRecoveryService,
+                mock(ClusterLockService.class)
+        );
+
+        assertThatThrownBy(() -> dispatchService.triggerQualityTask(300L))
+                .isInstanceOfSatisfying(StudioException.class, exception -> {
+                    assertThat(exception.getCode()).isEqualTo(StudioErrorCode.FORBIDDEN);
+                    assertThat(exception.getMessage()).contains("Resource belongs to another project");
+                });
+
+        verify(workerAuthorizationService, never()).assertProjectHasAvailableWorker(any(), any());
         verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
     }
 

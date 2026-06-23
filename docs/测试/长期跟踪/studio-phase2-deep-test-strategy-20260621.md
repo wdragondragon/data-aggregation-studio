@@ -447,6 +447,22 @@
 - 浏览器时间戳过滤验证分页页加载新构建资源，分页可见，且无新增 Element Plus pagination warning。
 - 如发现真实缺陷，补充 SDK 层统一分页规范化修复，并写入缺陷索引。
 
+### S24 共享资源执行 ACL 深挖
+
+覆盖场景：
+
+- 资源共享只授予接收项目读权限，不应授予源项目资源的手动执行、调度或运行副作用创建权限。
+- 接收项目成员可读取共享工作流和共享采集任务，但不可手动触发源项目共享工作流或共享采集任务。
+- 跨项目触发被拒绝后，接收项目不得产生 `dispatch_task`、工作流运行记录或采集运行记录。
+- 工作流、采集任务、质量任务三类手动触发入口的资源所属项目校验必须一致。
+
+验收：
+
+- 产出 `records/20260623-S24共享资源执行ACL深挖执行记录.md`。
+- 沉淀 `scripts/studio_s24_shared_execution_acl_probe.py`，脚本结果必须为 `27 PASS / 0 FAIL / 0 BLOCKED`。
+- Maven 定向回归 `DispatchServiceOverlapRegressionTest`、`ClusterLockServiceRegressionTest` 通过。
+- 如发现真实缺陷，补充调度服务归属校验和跨项目触发回归测试，并写入缺陷索引。
+
 ## 自动化沉淀规则
 
 - 每个真实缺陷至少补一个可重复验证入口：单测、集成测试、API 探针或脚本。
@@ -481,6 +497,7 @@
 | 2026-06-22 | S21 共享采集关注通知与采集指标深挖 | 完成，修复前复现采集成功指标多算 1 条终止记录、重复主键路径因 MySQL insert/upsert 回归和逐行失败未收集脏数据导致状态/指标错误；最终批次 `20260622150929`：`18 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s21_shared_collection_follow_notification_probe.py`；`ChannelStatisticsTest`；`Mysql8WriterTest`；浏览器采集任务编辑页观察 | BUG-S21-001、BUG-S21-002、BUG-M05-001 回归防护 |
 | 2026-06-22 | S22 前端错误态与组件告警 | 完成，9 个直达错误态页面浏览器矩阵 `9 PASS / 0 FAIL / 0 BLOCKED`，缺失对象 API 7 个接口 404，工作流详情代码/单测已修复但运行中 Server 待重启 HTTP 复核；Element Plus `type.text` 告警已清零 | `records/20260622-S22前端错误态与组件告警执行记录.md`；`npm run build`；`WorkflowServiceRegressionTest`；9 个直达错误态 URL 浏览器矩阵 | BUG-S22-001、BUG-S22-002、BUG-S22-003 |
 | 2026-06-23 | S23 全量 ACL 扩展与分页契约告警 | 完成，ACL 扩展脚本批次 `20260623091253`：`20 PASS / 0 FAIL / 0 BLOCKED`；确认并修复前端 SDK 分页结果未统一规范化导致 Element Plus Pagination 告警 | `scripts/studio_s23_acl_expansion_probe.py`；`npm run build:web`；浏览器协议转换/数据服务/数据接入访问日志和通知页时间戳过滤 | BUG-S23-001 |
+| 2026-06-23 | S24 共享资源执行 ACL 深挖 | 完成，修复前批次 `20260623094218` 复现接收项目成员可手动触发源项目共享工作流/采集任务并产生运行副作用；修复后批次 `20260623095618`：`27 PASS / 0 FAIL / 0 BLOCKED` | `scripts/studio_s24_shared_execution_acl_probe.py`；`DispatchServiceOverlapRegressionTest`；`ClusterLockServiceRegressionTest` | BUG-S24-001 |
 
 S03 新增的 `BUG-S03-001`、`BUG-S03-002` 均纳入 `smoke`：后续涉及数据源连接错误、连接历史、运行异常、运维中心异常列表或错误消息展示的修改，必须复跑 S03 探针并做数据源/运维中心浏览器复核。
 
@@ -525,6 +542,8 @@ S21 观察项 `OBS-S21-001`：共享禁用后接收项目成员直达已不可�
 S22 新增的 `BUG-S22-001`、`BUG-S22-002`、`BUG-S22-003` 纳入 `smoke`：后续涉及编辑/详情页直达、不可读对象错误态、工作流详情接口契约、CronExpressionPicker、Element Plus 组件兼容、Vite 构建配置或 `no-vue3-cron` 依赖升级的修改，必须复跑 S22 直达错误态浏览器矩阵、缺失对象 API 矩阵、`npm run build` 和 `WorkflowServiceRegressionTest`。`BUG-S22-002` 还需在 `StudioServerApplication` 重启后补运行中 HTTP 404 复核。
 
 S23 新增的 `BUG-S23-001` 纳入 `smoke`：后续涉及 `frontend/packages/api-sdk/src/client.ts`、PageResult 契约、访问日志/指标页、通知页、运维中心分页列表或前端分页组件兼容的修改，必须复跑 S23 ACL 扩展探针、`npm run build:web`，并用浏览器时间戳过滤复核协议转换访问日志、数据服务访问日志、数据接入运行日志和通知页。
+
+S24 新增的 `BUG-S24-001` 纳入 `smoke`：后续涉及 `DispatchService`、资源共享、工作流/采集/质量手动触发、运行记录、Worker 调度锁或接收项目共享资源可见性的修改，必须复跑 S24 共享资源执行 ACL 探针、`DispatchServiceOverlapRegressionTest`、`ClusterLockServiceRegressionTest` 和 S01 权限探针。
 
 ## 提交规则
 

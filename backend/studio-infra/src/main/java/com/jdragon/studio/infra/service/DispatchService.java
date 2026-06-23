@@ -84,6 +84,7 @@ public class DispatchService implements WorkflowDispatcher {
     @Transactional
     public void triggerManualRun(Long workflowDefinitionId) {
         WorkflowDefinitionView workflow = requireWorkflow(workflowDefinitionId);
+        assertCurrentProjectOwnsResource(workflow.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), workflow.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), runtimeProjectId, workflow.getId());
@@ -111,6 +112,7 @@ public class DispatchService implements WorkflowDispatcher {
     @Transactional
     public void triggerCollectionTask(Long collectionTaskId) {
         CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
+        assertCurrentProjectOwnsResource(definition.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), runtimeProjectId, definition.getId());
@@ -138,6 +140,7 @@ public class DispatchService implements WorkflowDispatcher {
     @Transactional
     public void triggerQualityTask(Long qualityTaskId) {
         QualityTaskDefinitionView definition = qualityTaskService.requireOnline(qualityTaskId);
+        assertCurrentProjectOwnsResource(definition.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), runtimeProjectId, definition.getId());
@@ -170,6 +173,16 @@ public class DispatchService implements WorkflowDispatcher {
             queryWrapper.eq(DispatchTaskEntity::getProjectId, securityService.currentProjectId());
         }
         return dispatchTaskMapper.selectList(queryWrapper);
+    }
+
+    private void assertCurrentProjectOwnsResource(Long ownerProjectId) {
+        Long currentProjectId = securityService.currentProjectId();
+        if (currentProjectId == null || ownerProjectId == null) {
+            return;
+        }
+        if (currentProjectId.longValue() != ownerProjectId.longValue()) {
+            throw new StudioException(StudioErrorCode.FORBIDDEN, "Resource belongs to another project");
+        }
     }
 
     private boolean triggerWorkflowIfIdle(WorkflowDefinitionView workflow,
