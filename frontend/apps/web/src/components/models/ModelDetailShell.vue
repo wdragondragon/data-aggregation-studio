@@ -24,7 +24,7 @@
       />
     </el-tab-pane>
 
-    <el-tab-pane :label="t('web.models.detailTabLineage')" name="lineage">
+    <el-tab-pane :label="t('web.models.detailTabLineage')" name="lineage" lazy>
       <ModelLineagePanel :model-id="modelId" :model="model" />
     </el-tab-pane>
   </el-tabs>

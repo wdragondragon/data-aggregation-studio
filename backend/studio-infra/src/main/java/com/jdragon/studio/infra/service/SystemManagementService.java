@@ -1,9 +1,11 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
@@ -82,6 +84,9 @@ public class SystemManagementService {
     private final StudioSecurityService securityService;
     private final NotificationService notificationService;
     private final SystemResourceShareSupport resourceShareSupport;
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 10;
+    private static final int MAX_PAGE_SIZE = 200;
     private static final long WORKER_RECENT_INSTANCE_HOURS = 24L;
 
     public SystemManagementService(TenantMapper tenantMapper,
@@ -501,14 +506,19 @@ public class SystemManagementService {
 
     public List<ResourceShareEntity> listResourceShares(String resourceType, Long projectId) {
         ProjectEntity project = requireManageableProject(projectId);
-        LambdaQueryWrapper<ResourceShareEntity> queryWrapper = new LambdaQueryWrapper<ResourceShareEntity>()
-                .eq(ResourceShareEntity::getTenantId, project.getTenantId())
-                .eq(ResourceShareEntity::getSourceProjectId, project.getId())
-                .orderByDesc(ResourceShareEntity::getCreatedAt);
-        if (hasText(resourceType)) {
-            queryWrapper.eq(ResourceShareEntity::getResourceType, resourceType.trim().toUpperCase());
-        }
-        return resourceShareMapper.selectList(queryWrapper);
+        return resourceShareMapper.selectList(resourceShareQuery(project, resourceType));
+    }
+
+    public PageView<ResourceShareEntity> listResourceSharesPage(String resourceType,
+                                                                Long projectId,
+                                                                Integer pageNo,
+                                                                Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        ProjectEntity project = requireManageableProject(projectId);
+        Page<ResourceShareEntity> page = new Page<ResourceShareEntity>(safePageNo, safePageSize);
+        Page<ResourceShareEntity> entityPage = resourceShareMapper.selectPage(page, resourceShareQuery(project, resourceType));
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), entityPage.getRecords());
     }
 
     @Transactional
@@ -894,6 +904,29 @@ public class SystemManagementService {
             }
         }
         return false;
+    }
+
+    private LambdaQueryWrapper<ResourceShareEntity> resourceShareQuery(ProjectEntity project, String resourceType) {
+        LambdaQueryWrapper<ResourceShareEntity> queryWrapper = new LambdaQueryWrapper<ResourceShareEntity>()
+                .eq(ResourceShareEntity::getTenantId, project.getTenantId())
+                .eq(ResourceShareEntity::getSourceProjectId, project.getId());
+        if (hasText(resourceType)) {
+            queryWrapper.eq(ResourceShareEntity::getResourceType, resourceType.trim().toUpperCase());
+        }
+        return queryWrapper
+                .orderByDesc(ResourceShareEntity::getCreatedAt)
+                .orderByDesc(ResourceShareEntity::getId);
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        return pageNo == null || pageNo.intValue() < 1 ? DEFAULT_PAGE_NO : pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
     }
 
     private boolean hasText(String value) {

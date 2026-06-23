@@ -54,58 +54,60 @@
       </div>
     </SectionCard>
 
-    <div class="metric-grid metric-grid--ingestion">
-      <MetricCard label="总调用次数" :value="formatNumber(summary.accessCount)" tone="primary" />
-      <MetricCard label="成功调用" :value="formatNumber(summary.successCount)" tone="success" />
-      <MetricCard label="失败调用" :value="formatNumber(summary.failureCount)" tone="warning" />
-      <MetricCard label="调用成功率" :value="formatRate(summary.successRate)" tone="success" />
-      <MetricCard label="接收行数" :value="formatNumber(summary.receivedCount)" tone="primary" />
-      <MetricCard label="写入成功行数" :value="formatNumber(summary.writtenCount)" tone="success" />
-      <MetricCard label="写入失败行数" :value="formatNumber(summary.failedCount)" tone="warning" />
-      <MetricCard label="平均耗时" :value="formatMs(summary.avgResponseTimeMs)" tone="accent" />
-    </div>
+    <div v-loading="dashboardLoading" class="metrics-dashboard-sections">
+      <div class="metric-grid metric-grid--ingestion">
+        <MetricCard label="总调用次数" :value="formatNumber(summary.accessCount)" tone="primary" />
+        <MetricCard label="成功调用" :value="formatNumber(summary.successCount)" tone="success" />
+        <MetricCard label="失败调用" :value="formatNumber(summary.failureCount)" tone="warning" />
+        <MetricCard label="调用成功率" :value="formatRate(summary.successRate)" tone="success" />
+        <MetricCard label="接收行数" :value="formatNumber(summary.receivedCount)" tone="primary" />
+        <MetricCard label="写入成功行数" :value="formatNumber(summary.writtenCount)" tone="success" />
+        <MetricCard label="写入失败行数" :value="formatNumber(summary.failedCount)" tone="warning" />
+        <MetricCard label="平均耗时" :value="formatMs(summary.avgResponseTimeMs)" tone="accent" />
+      </div>
 
-    <div class="metrics-chart-grid">
-      <SectionCard title="调用趋势" description="按时间查看新增调用量，或切换为当前窗口内累计调用量。">
-        <template #actions>
-          <el-radio-group v-model="accessTrendMode" size="small">
-            <el-radio-button value="incremental">增量</el-radio-button>
-            <el-radio-button value="cumulative">总量</el-radio-button>
-          </el-radio-group>
-        </template>
-        <EChartPanel :option="trendOption(selectedAccessTrend, '')" height="260px" />
-      </SectionCard>
-      <SectionCard title="接收数据量" description="按请求解析后的行数统计接收规模。">
-        <template #actions>
-          <el-radio-group v-model="receivedTrendMode" size="small">
-            <el-radio-button value="incremental">增量</el-radio-button>
-            <el-radio-button value="cumulative">总量</el-radio-button>
-          </el-radio-group>
-        </template>
-        <EChartPanel :option="trendOption(selectedReceivedTrend, '行')" height="260px" />
-      </SectionCard>
-      <SectionCard title="写入成功数据量" description="按写入结果中的成功行数统计。">
-        <template #actions>
-          <el-radio-group v-model="writtenTrendMode" size="small">
-            <el-radio-button value="incremental">增量</el-radio-button>
-            <el-radio-button value="cumulative">总量</el-radio-button>
-          </el-radio-group>
-        </template>
-        <EChartPanel :option="trendOption(selectedWrittenTrend, '行')" height="260px" />
-      </SectionCard>
-      <SectionCard title="响应时间趋势" description="展示平均耗时、最大耗时、P95 和 P99。">
-        <EChartPanel :option="trendOption(dashboard.responseTimeTrend, 'ms')" height="260px" />
-      </SectionCard>
-      <SectionCard title="成功率趋势" description="观察接入 API 可用性变化。">
-        <EChartPanel :option="trendOption(dashboard.successRateTrend, '%')" height="260px" />
-      </SectionCard>
-      <SectionCard title="错误分布" description="按 HTTP 状态或业务错误码聚合失败调用。">
-        <EChartPanel :option="errorDistributionOption" height="260px" />
-      </SectionCard>
+      <div class="metrics-chart-grid">
+        <SectionCard title="调用趋势" description="按时间查看新增调用量，或切换为当前窗口内累计调用量。">
+          <template #actions>
+            <el-radio-group v-model="accessTrendMode" size="small">
+              <el-radio-button value="incremental">增量</el-radio-button>
+              <el-radio-button value="cumulative">总量</el-radio-button>
+            </el-radio-group>
+          </template>
+          <EChartPanel :option="trendOption(selectedAccessTrend, '')" height="260px" />
+        </SectionCard>
+        <SectionCard title="接收数据量" description="按请求解析后的行数统计接收规模。">
+          <template #actions>
+            <el-radio-group v-model="receivedTrendMode" size="small">
+              <el-radio-button value="incremental">增量</el-radio-button>
+              <el-radio-button value="cumulative">总量</el-radio-button>
+            </el-radio-group>
+          </template>
+          <EChartPanel :option="trendOption(selectedReceivedTrend, '行')" height="260px" />
+        </SectionCard>
+        <SectionCard title="写入成功数据量" description="按写入结果中的成功行数统计。">
+          <template #actions>
+            <el-radio-group v-model="writtenTrendMode" size="small">
+              <el-radio-button value="incremental">增量</el-radio-button>
+              <el-radio-button value="cumulative">总量</el-radio-button>
+            </el-radio-group>
+          </template>
+          <EChartPanel :option="trendOption(selectedWrittenTrend, '行')" height="260px" />
+        </SectionCard>
+        <SectionCard title="响应时间趋势" description="展示平均耗时、最大耗时、P95 和 P99。">
+          <EChartPanel :option="trendOption(dashboard.responseTimeTrend, 'ms')" height="260px" />
+        </SectionCard>
+        <SectionCard title="成功率趋势" description="观察接入 API 可用性变化。">
+          <EChartPanel :option="trendOption(dashboard.successRateTrend, '%')" height="260px" />
+        </SectionCard>
+        <SectionCard title="错误分布" description="按 HTTP 状态或业务错误码聚合失败调用。">
+          <EChartPanel :option="errorDistributionOption" height="260px" />
+        </SectionCard>
+      </div>
     </div>
 
     <SectionCard title="接入服务统计" description="按服务聚合调用次数、成功率、写入行数和响应时间。">
-      <StudioTableShell min-width="1460px">
+      <StudioTableShell v-loading="apiStatsLoading" min-width="1460px">
         <el-table :data="apiStats" border size="small">
           <el-table-column label="接入服务" min-width="220">
             <template #default="{ row }">
@@ -250,11 +252,13 @@ const options = reactive<DataServiceMetricOptionsView>({ services: [], subscript
 const dashboard = ref<DataIngestionMetricDashboardView>({});
 const apiStats = ref<DataIngestionApiMetricView[]>([]);
 const apiStatsTotal = ref(0);
-const isLoading = ref(false);
+const dashboardLoading = ref(false);
+const apiStatsLoading = ref(false);
 const apiStatsPagination = reactive({ page: 1, pageSize: 10 });
 const accessTrendMode = ref<"incremental" | "cumulative">("incremental");
 const receivedTrendMode = ref<"incremental" | "cumulative">("incremental");
 const writtenTrendMode = ref<"incremental" | "cumulative">("incremental");
+const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 
 const summary = computed(() => dashboard.value.summary || {});
 const selectedAccessTrend = computed(() => (
@@ -278,6 +282,7 @@ const filteredSubscriptions = computed(() => {
   }
   return options.subscriptions.filter((item) => String(item.serviceId) === String(filters.serviceId));
 });
+const isLoading = computed(() => dashboardLoading.value || apiStatsLoading.value);
 const errorDistributionOption = computed<EChartsOption>(() => {
   const items = dashboard.value.errorDistribution || [];
   return {
@@ -301,33 +306,40 @@ onMounted(async () => {
 });
 
 async function loadOptions() {
-  const payload = await studioApi.dataIngestionMetrics.options();
+  const payload = await studioApi.dataIngestionMetrics.options(LOCAL_LOADING_REQUEST);
   options.services = payload.services || [];
   options.subscriptions = payload.subscriptions || [];
 }
 
 async function reloadAll() {
-  isLoading.value = true;
-  try {
-    await Promise.all([loadDashboard(), loadApiStats()]);
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载服务接入监控失败");
-  } finally {
-    isLoading.value = false;
-  }
+  await Promise.all([loadDashboard(), loadApiStats()]);
 }
 
 async function loadDashboard() {
-  dashboard.value = await studioApi.dataIngestionMetrics.queryDashboard(buildQuery());
+  dashboardLoading.value = true;
+  try {
+    dashboard.value = await studioApi.dataIngestionMetrics.queryDashboard(buildQuery(), LOCAL_LOADING_REQUEST);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "加载服务接入监控失败");
+  } finally {
+    dashboardLoading.value = false;
+  }
 }
 
 async function loadApiStats() {
-  const page = await studioApi.dataIngestionMetrics.queryApiStats(buildQuery({
-    pageNo: apiStatsPagination.page,
-    pageSize: apiStatsPagination.pageSize,
-  }));
-  apiStats.value = page.items || [];
-  apiStatsTotal.value = Number(page.total || 0);
+  apiStatsLoading.value = true;
+  try {
+    const page = await studioApi.dataIngestionMetrics.queryApiStats(buildQuery({
+      pageNo: apiStatsPagination.page,
+      pageSize: apiStatsPagination.pageSize,
+    }), LOCAL_LOADING_REQUEST);
+    apiStats.value = page.items || [];
+    apiStatsTotal.value = Number(page.total || 0);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "加载接入服务统计失败");
+  } finally {
+    apiStatsLoading.value = false;
+  }
 }
 
 function buildQuery(extra: Partial<DataIngestionMetricQueryRequest> = {}): DataIngestionMetricQueryRequest {
@@ -526,6 +538,12 @@ function addHours(date: Date, hours: number) {
 .metrics-table-grid {
   display: grid;
   gap: 14px;
+}
+
+.metrics-dashboard-sections {
+  display: grid;
+  gap: 14px;
+  min-height: 180px;
 }
 
 .metric-grid--ingestion {

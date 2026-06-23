@@ -6,7 +6,7 @@
         <p>{{ t("web.system.description") }}</p>
       </div>
       <div class="studio-toolbar-actions">
-        <el-button plain @click="loadPage">{{ t("common.refresh") }}</el-button>
+        <el-button plain :loading="currentTabLoading" @click="loadCurrentTab">{{ t("common.refresh") }}</el-button>
       </div>
     </div>
 
@@ -20,7 +20,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openUserDialog()">新建用户</el-button>
           </div>
-          <StudioTableShell min-width="940px">
+          <StudioTableShell v-loading="tabLoading.users" min-width="940px">
           <el-table :data="users" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
@@ -40,7 +40,7 @@
         </el-tab-pane>
 
         <el-tab-pane v-if="isSuperAdmin" label="注册登记" name="registrationRequests">
-          <StudioTableShell min-width="1220px">
+          <StudioTableShell v-loading="tabLoading.registrationRequests" min-width="1220px">
           <el-table :data="registrationRequests" border size="small">
             <el-table-column prop="status" label="状态" width="110" align="center" />
             <el-table-column prop="username" label="用户名" min-width="160" />
@@ -68,7 +68,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openTenantDialog()">新建租户</el-button>
           </div>
-          <StudioTableShell min-width="980px">
+          <StudioTableShell v-loading="tabLoading.tenants" min-width="980px">
           <el-table :data="tenants" border size="small">
             <el-table-column prop="tenantCode" label="租户编码" min-width="160" />
             <el-table-column prop="tenantName" label="租户名称" min-width="180" />
@@ -91,7 +91,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openProjectDialog()">新建项目</el-button>
           </div>
-          <StudioTableShell min-width="1080px">
+          <StudioTableShell v-loading="tabLoading.projects" min-width="1080px">
           <el-table :data="projects" border size="small">
             <el-table-column prop="projectCode" label="项目编码" min-width="160" />
             <el-table-column prop="projectName" label="项目名称" min-width="180" />
@@ -119,7 +119,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openTenantMemberDialog()">新增成员</el-button>
           </div>
-          <StudioTableShell min-width="880px">
+          <StudioTableShell v-loading="tabLoading.tenantMembers" min-width="880px">
           <el-table :data="tenantMembers" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
@@ -138,7 +138,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openProjectMemberDialog()">新增项目成员</el-button>
           </div>
-          <StudioTableShell min-width="1060px">
+          <StudioTableShell v-loading="tabLoading.projectMembers" min-width="1060px">
           <el-table :data="projectMembers" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
@@ -158,7 +158,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openRequestDialog()">新增邀请</el-button>
           </div>
-          <StudioTableShell min-width="1260px">
+          <StudioTableShell v-loading="tabLoading.requests" min-width="1260px">
           <el-table :data="projectMemberRequests" border size="small">
             <el-table-column prop="username" label="用户" min-width="160" />
             <el-table-column prop="projectName" label="项目" min-width="180" />
@@ -180,7 +180,7 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openWorkerDialog()">绑定 Worker 组</el-button>
           </div>
-          <StudioTableShell min-width="1180px">
+          <StudioTableShell v-loading="tabLoading.workers" min-width="1180px">
           <el-table :data="projectWorkers" :row-key="workerRowKey" border size="small">
             <el-table-column type="expand" width="48">
               <template #default="{ row }">
@@ -262,10 +262,20 @@
         </el-tab-pane>
 
         <el-tab-pane label="资源共享" name="shares">
-          <div class="tab-toolbar">
+          <div class="tab-toolbar tab-toolbar--split">
+            <div class="tab-filters">
+              <el-select
+                v-model="shareFilters.resourceType"
+                placeholder="资源类型"
+                style="width: 180px"
+                @change="handleResourceShareTypeFilterChange"
+              >
+                <el-option v-for="item in resourceTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </div>
             <el-button type="primary" :disabled="!authStore.currentProjectId" @click="openShareDialog()">共享资源</el-button>
           </div>
-          <StudioTableShell min-width="980px">
+          <StudioTableShell v-loading="tabLoading.shares" min-width="980px">
           <el-table :data="resourceShares" border size="small">
             <el-table-column label="资源类型" width="150" align="center">
               <template #default="{ row }">
@@ -297,6 +307,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="resourceSharePagination.page"
+              v-model:page-size="resourceSharePagination.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="resourceSharePagination.total"
+              @current-change="reloadResourceShares"
+              @size-change="handleResourceSharePageSizeChange"
+            />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </SectionCard>
@@ -448,12 +470,18 @@
     <el-dialog v-model="shareDialogOpen" title="资源共享" width="520px">
       <el-form label-position="top">
         <el-form-item label="资源类型">
-          <el-select v-model="shareForm.resourceType" style="width: 100%">
+          <el-select v-model="shareForm.resourceType" style="width: 100%" @change="handleShareFormResourceTypeChange">
             <el-option v-for="item in resourceTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="资源">
-          <el-select v-model="shareForm.resourceId" filterable style="width: 100%">
+          <el-select
+            v-model="shareForm.resourceId"
+            filterable
+            :loading="shareResourceLoading"
+            :disabled="!shareForm.resourceType"
+            style="width: 100%"
+          >
             <el-option
               v-for="item in shareableResources"
               :key="String(item.id)"
@@ -526,12 +554,37 @@ import { normalizeDeletedFlag, normalizeResourceType, resourceTypeOptions, toBoo
 import { useAuthStore } from "@/stores/auth";
 import { resolveProjectName, sameEntityId } from "@/utils/studio";
 
+type SystemTabName =
+  | "users"
+  | "registrationRequests"
+  | "tenants"
+  | "projects"
+  | "tenantMembers"
+  | "projectMembers"
+  | "requests"
+  | "workers"
+  | "shares";
+
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
-const activeTab = ref("tenants");
+const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
+const DEFAULT_SHARE_RESOURCE_TYPE = resourceTypeOptions[0].value;
+const activeTab = ref<SystemTabName>("tenants");
+const systemMounted = ref(false);
 const isSuperAdmin = computed(() => authStore.systemRoleCodes.map((item) => item.toUpperCase()).includes("SUPER_ADMIN"));
+const tabLoading = reactive<Record<SystemTabName, boolean>>({
+  users: false,
+  registrationRequests: false,
+  tenants: false,
+  projects: false,
+  tenantMembers: false,
+  projectMembers: false,
+  requests: false,
+  workers: false,
+  shares: false,
+});
 const tenants = ref<SystemTenant[]>([]);
 const projects = ref<SystemProject[]>([]);
 const users = ref<StudioUser[]>([]);
@@ -549,6 +602,16 @@ const dataDevelopmentScriptResources = ref<DataDevelopmentScript[]>([]);
 const dataServiceResources = ref<DataServiceDefinitionView[]>([]);
 const dataIngestionServiceResources = ref<DataIngestionServiceView[]>([]);
 const protocolConversionResources = ref<ProtocolConversionServiceView[]>([]);
+const shareResourceLoading = ref(false);
+const loadedShareResourceTypes = reactive<Record<string, boolean>>({});
+const shareFilters = reactive<{ resourceType: string }>({
+  resourceType: DEFAULT_SHARE_RESOURCE_TYPE,
+});
+const resourceSharePagination = reactive({
+  page: 1,
+  pageSize: 10,
+  total: 0,
+});
 
 const userDialogOpen = ref(false);
 const tenantDialogOpen = ref(false);
@@ -586,54 +649,269 @@ const shareTargetProjects = computed(() =>
   projects.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
 );
 const shareableResources = computed(() => shareOptionList(normalizeResourceType(shareForm.resourceType)));
+const currentTabLoading = computed(() => tabLoading[activeTab.value]);
 
 function resetForm(target: Record<string, unknown>, defaults: Record<string, unknown>) {
   Object.keys(target).forEach((key) => delete target[key]);
   Object.assign(target, defaults);
 }
 
-async function loadPage() {
-  try {
-    const currentProjectId = authStore.currentProjectId ?? undefined;
-    const [tenantData, projectData, userData, registrationRequestData, tenantMemberData, projectMemberData, requestData, workerData, shareData, datasourceData, modelData, taskData, workflowData, dataDevelopmentScriptData, dataServiceData, dataIngestionServiceData, protocolConversionData] = await Promise.all([
-      studioApi.system.tenants.list(),
-      studioApi.system.projects.list(),
-      isSuperAdmin.value ? studioApi.users.list() : Promise.resolve([] as StudioUser[]),
-      isSuperAdmin.value ? studioApi.system.userRegistrationRequests.list() : Promise.resolve([] as UserRegistrationRequestView[]),
-      studioApi.system.tenantMembers.list(),
-      currentProjectId == null ? Promise.resolve([] as SystemProjectMember[]) : studioApi.system.projectMembers.list(currentProjectId),
-      currentProjectId == null ? Promise.resolve([] as SystemProjectMemberRequest[]) : studioApi.system.projectMemberRequests.list(currentProjectId),
-      currentProjectId == null ? Promise.resolve([] as SystemProjectWorker[]) : studioApi.system.projectWorkers.list(currentProjectId),
-      currentProjectId == null ? Promise.resolve([] as ResourceShare[]) : studioApi.system.resourceShares.list({ projectId: currentProjectId }),
-      currentProjectId == null ? Promise.resolve([] as DataSourceDefinition[]) : studioApi.datasources.list(),
-      currentProjectId == null ? Promise.resolve([] as DataModelDefinition[]) : studioApi.models.listPage({ pageNo: 1, pageSize: 5000 }),
-      currentProjectId == null ? Promise.resolve([] as CollectionTaskDefinitionView[]) : studioApi.collectionTasks.list(),
-      currentProjectId == null ? Promise.resolve([] as WorkflowDefinitionView[]) : studioApi.workflows.list(),
-      currentProjectId == null ? Promise.resolve([] as DataDevelopmentScript[]) : studioApi.dataDevelopment.listScripts(),
-      currentProjectId == null ? Promise.resolve({ pageNo: 1, pageSize: 5000, total: 0, items: [] as DataServiceDefinitionView[] }) : studioApi.dataServices.list({ pageNo: 1, pageSize: 5000 }),
-      currentProjectId == null ? Promise.resolve({ pageNo: 1, pageSize: 5000, total: 0, items: [] as DataIngestionServiceView[] }) : studioApi.dataIngestionServices.list({ pageNo: 1, pageSize: 5000 }),
-      currentProjectId == null ? Promise.resolve({ pageNo: 1, pageSize: 5000, total: 0, items: [] as ProtocolConversionServiceView[] }) : studioApi.protocolConversions.list({ pageNo: 1, pageSize: 5000 }),
-    ]);
-    tenants.value = tenantData;
-    projects.value = projectData;
-    users.value = userData;
-    registrationRequests.value = registrationRequestData;
-    tenantMembers.value = tenantMemberData;
-    projectMembers.value = projectMemberData;
-    projectMemberRequests.value = requestData;
-    projectWorkers.value = workerData;
-    resourceShares.value = shareData;
-    datasourceResources.value = datasourceData;
-    modelResources.value = Array.isArray(modelData) ? modelData : modelData.items ?? [];
-    taskResources.value = taskData;
-    workflowResources.value = workflowData;
-    dataDevelopmentScriptResources.value = dataDevelopmentScriptData;
-    dataServiceResources.value = dataServiceData.items ?? [];
-    dataIngestionServiceResources.value = dataIngestionServiceData.items ?? [];
-    protocolConversionResources.value = protocolConversionData.items ?? [];
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载系统管理数据失败");
+function normalizeSystemTab(value: unknown): SystemTabName {
+  if (value === "users" || value === "registrationRequests") {
+    return isSuperAdmin.value ? value : "tenants";
   }
+  if (value === "tenants"
+    || value === "projects"
+    || value === "tenantMembers"
+    || value === "projectMembers"
+    || value === "requests"
+    || value === "workers"
+    || value === "shares") {
+    return value;
+  }
+  return "tenants";
+}
+
+async function withTabLoading(tab: SystemTabName, action: () => Promise<void>, errorMessage: string) {
+  tabLoading[tab] = true;
+  try {
+    await action();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : errorMessage);
+  } finally {
+    tabLoading[tab] = false;
+  }
+}
+
+async function loadCurrentTab() {
+  await loadTab(activeTab.value);
+}
+
+async function loadTab(tab: SystemTabName) {
+  switch (tab) {
+    case "users":
+      await loadUsers();
+      break;
+    case "registrationRequests":
+      await loadRegistrationRequests();
+      break;
+    case "tenants":
+      await loadTenants();
+      break;
+    case "projects":
+      await loadProjects();
+      break;
+    case "tenantMembers":
+      await loadTenantMembers();
+      break;
+    case "projectMembers":
+      await loadProjectMembers();
+      break;
+    case "requests":
+      await loadProjectMemberRequests();
+      break;
+    case "workers":
+      await loadProjectWorkers();
+      break;
+    case "shares":
+      await loadResourceSharesTab();
+      break;
+    default:
+      await loadTenants();
+  }
+}
+
+async function loadUsers() {
+  await withTabLoading("users", async () => {
+    users.value = isSuperAdmin.value ? await studioApi.users.list(LOCAL_LOADING_REQUEST) : [];
+  }, "加载用户失败");
+}
+
+async function loadRegistrationRequests() {
+  await withTabLoading("registrationRequests", async () => {
+    registrationRequests.value = isSuperAdmin.value ? await studioApi.system.userRegistrationRequests.list(LOCAL_LOADING_REQUEST) : [];
+  }, "加载注册登记失败");
+}
+
+async function loadTenants() {
+  await withTabLoading("tenants", async () => {
+    tenants.value = await studioApi.system.tenants.list(LOCAL_LOADING_REQUEST);
+  }, "加载租户失败");
+}
+
+async function loadProjects() {
+  await withTabLoading("projects", async () => {
+    projects.value = await studioApi.system.projects.list(LOCAL_LOADING_REQUEST);
+  }, "加载项目失败");
+}
+
+async function loadTenantMembers() {
+  await withTabLoading("tenantMembers", async () => {
+    tenantMembers.value = await studioApi.system.tenantMembers.list(LOCAL_LOADING_REQUEST);
+  }, "加载租户成员失败");
+}
+
+async function loadProjectMembers() {
+  await withTabLoading("projectMembers", async () => {
+    const currentProjectId = authStore.currentProjectId ?? undefined;
+    projectMembers.value = currentProjectId == null ? [] : await studioApi.system.projectMembers.list(currentProjectId, LOCAL_LOADING_REQUEST);
+  }, "加载项目成员失败");
+}
+
+async function loadProjectMemberRequests() {
+  await withTabLoading("requests", async () => {
+    const currentProjectId = authStore.currentProjectId ?? undefined;
+    projectMemberRequests.value = currentProjectId == null ? [] : await studioApi.system.projectMemberRequests.list(currentProjectId, LOCAL_LOADING_REQUEST);
+  }, "加载申请 / 邀请失败");
+}
+
+async function loadProjectWorkers() {
+  await withTabLoading("workers", async () => {
+    const currentProjectId = authStore.currentProjectId ?? undefined;
+    projectWorkers.value = currentProjectId == null ? [] : await studioApi.system.projectWorkers.list(currentProjectId, LOCAL_LOADING_REQUEST);
+  }, "加载 Worker 下发失败");
+}
+
+async function loadResourceSharesTab() {
+  await withTabLoading("shares", async () => {
+    await Promise.all([loadProjectsData(), loadResourceSharesData(), loadShareResourceOptions(shareFilters.resourceType)]);
+  }, "加载资源共享失败");
+}
+
+async function loadProjectsData() {
+  projects.value = await studioApi.system.projects.list(LOCAL_LOADING_REQUEST);
+}
+
+async function loadResourceSharesData() {
+  const currentProjectId = authStore.currentProjectId ?? undefined;
+  if (currentProjectId == null) {
+    resourceShares.value = [];
+    resourceSharePagination.total = 0;
+    return;
+  }
+  const page = await studioApi.system.resourceShares.listPage({
+    projectId: currentProjectId,
+    resourceType: shareFilters.resourceType,
+    pageNo: resourceSharePagination.page,
+    pageSize: resourceSharePagination.pageSize,
+  }, LOCAL_LOADING_REQUEST);
+  resourceShares.value = page.items || [];
+  resourceSharePagination.total = page.total || 0;
+}
+
+async function loadShareResourceOptions(resourceType = shareFilters.resourceType, force = false) {
+  const currentProjectId = authStore.currentProjectId ?? undefined;
+  const normalizedType = normalizeResourceType(resourceType);
+  if (currentProjectId == null) {
+    resetShareResourceCache();
+    return;
+  }
+  if (!normalizedType || (loadedShareResourceTypes[normalizedType] && !force)) {
+    return;
+  }
+  shareResourceLoading.value = true;
+  try {
+    switch (normalizedType) {
+      case "DATASOURCE":
+        datasourceResources.value = await studioApi.datasources.list(LOCAL_LOADING_REQUEST);
+        break;
+      case "DATA_MODEL": {
+        const modelData = await studioApi.models.listPage({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
+        modelResources.value = modelData.items ?? [];
+        break;
+      }
+      case "COLLECTION_TASK":
+        taskResources.value = await studioApi.collectionTasks.list(undefined, LOCAL_LOADING_REQUEST);
+        break;
+      case "WORKFLOW":
+        workflowResources.value = await studioApi.workflows.list(LOCAL_LOADING_REQUEST);
+        break;
+      case "DATA_DEVELOPMENT_SCRIPT":
+        dataDevelopmentScriptResources.value = await studioApi.dataDevelopment.listScripts(undefined, LOCAL_LOADING_REQUEST);
+        break;
+      case "DATA_SERVICE": {
+        const dataServiceData = await studioApi.dataServices.list({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
+        dataServiceResources.value = dataServiceData.items ?? [];
+        break;
+      }
+      case "DATA_INGESTION_SERVICE": {
+        const dataIngestionServiceData = await studioApi.dataIngestionServices.list({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
+        dataIngestionServiceResources.value = dataIngestionServiceData.items ?? [];
+        break;
+      }
+      case "PROTOCOL_CONVERSION_SERVICE": {
+        const protocolConversionData = await studioApi.protocolConversions.list({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
+        protocolConversionResources.value = protocolConversionData.items ?? [];
+        break;
+      }
+      default:
+        break;
+    }
+    loadedShareResourceTypes[normalizedType] = true;
+  } finally {
+    shareResourceLoading.value = false;
+  }
+}
+
+function loadUsersForDialog() {
+  if (users.value.length === 0) {
+    void loadUsers();
+  }
+}
+
+function loadProjectsForDialog() {
+  if (projects.value.length === 0) {
+    void loadProjectsData().catch((error) => {
+      ElMessage.error(error instanceof Error ? error.message : "加载项目失败");
+    });
+  }
+}
+
+function loadWorkerGroupsForDialog() {
+  if (projectWorkers.value.length === 0) {
+    void loadProjectWorkers();
+  }
+}
+
+function loadShareResourcesForDialog() {
+  void Promise.all([loadProjectsData(), loadShareResourceOptions(normalizeResourceType(shareForm.resourceType) || shareFilters.resourceType)]).catch((error) => {
+    ElMessage.error(error instanceof Error ? error.message : "加载资源共享选项失败");
+  });
+}
+
+function reloadResourceShares() {
+  void withTabLoading("shares", async () => {
+    await Promise.all([loadResourceSharesData(), loadShareResourceOptions(shareFilters.resourceType)]);
+  }, "加载资源共享失败");
+}
+
+function handleResourceShareTypeFilterChange() {
+  resourceSharePagination.page = 1;
+  reloadResourceShares();
+}
+
+function handleResourceSharePageSizeChange() {
+  resourceSharePagination.page = 1;
+  reloadResourceShares();
+}
+
+function handleShareFormResourceTypeChange() {
+  shareForm.resourceId = undefined;
+  void loadShareResourceOptions(normalizeResourceType(shareForm.resourceType)).catch((error) => {
+    ElMessage.error(error instanceof Error ? error.message : "加载资源选项失败");
+  });
+}
+
+function resetShareResourceCache() {
+  datasourceResources.value = [];
+  modelResources.value = [];
+  taskResources.value = [];
+  workflowResources.value = [];
+  dataDevelopmentScriptResources.value = [];
+  dataServiceResources.value = [];
+  dataIngestionServiceResources.value = [];
+  protocolConversionResources.value = [];
+  Object.keys(loadedShareResourceTypes).forEach((key) => delete loadedShareResourceTypes[key]);
 }
 
 function requireCurrentProjectId() {
@@ -727,18 +1005,21 @@ function openProjectDialog(row?: SystemProject) {
 }
 
 function openTenantMemberDialog(row?: SystemTenantMember) {
+  loadUsersForDialog();
   resetForm(tenantMemberForm as Record<string, unknown>, { status: "ACTIVE", roleCode: "TENANT_ADMIN" });
   Object.assign(tenantMemberForm, row ?? {});
   tenantMemberDialogOpen.value = true;
 }
 
 function openProjectMemberDialog(row?: SystemProjectMember) {
+  loadUsersForDialog();
   resetForm(projectMemberForm as Record<string, unknown>, { status: "ACTIVE", roleCode: "PROJECT_MEMBER" });
   Object.assign(projectMemberForm, row ?? {});
   projectMemberDialogOpen.value = true;
 }
 
 function openRequestDialog(row?: SystemProjectMemberRequest) {
+  loadUsersForDialog();
   resetForm(requestForm as Record<string, unknown>, { requestType: "INVITE", status: "PENDING" });
   Object.assign(requestForm, row ?? {});
   requestDialogOpen.value = true;
@@ -810,6 +1091,7 @@ function workerKindLabel(value?: string | null) {
 }
 
 function openWorkerDialog(row?: SystemProjectWorker) {
+  loadWorkerGroupsForDialog();
   resetForm(workerForm as Record<string, unknown>, { enabled: true });
   Object.assign(workerForm, row ?? {});
   workerForm.workerGroupCode = workerForm.workerGroupCode || workerForm.workerCode;
@@ -818,9 +1100,17 @@ function openWorkerDialog(row?: SystemProjectWorker) {
 }
 
 function openShareDialog(row?: ResourceShare) {
-  resetForm(shareForm as Record<string, unknown>, { enabled: true, sourceProjectId: authStore.currentProjectId ?? undefined });
+  loadProjectsForDialog();
+  const resourceType = normalizeResourceType(row?.resourceType) || shareFilters.resourceType || DEFAULT_SHARE_RESOURCE_TYPE;
+  resetForm(shareForm as Record<string, unknown>, {
+    enabled: true,
+    sourceProjectId: authStore.currentProjectId ?? undefined,
+    resourceType,
+  });
   Object.assign(shareForm, row ?? {});
+  shareForm.resourceType = normalizeResourceType(shareForm.resourceType) || resourceType;
   shareForm.enabled = toBooleanFlag(shareForm.enabled);
+  loadShareResourcesForDialog();
   shareDialogOpen.value = true;
 }
 
@@ -894,7 +1184,7 @@ async function approveProjectRequest(row: SystemProjectMemberRequest) {
   });
   await studioApi.system.projectMemberRequests.save(payload);
   ElMessage.success("项目加入申请已通过");
-  await loadPage();
+  await loadCurrentTab();
 }
 
 async function rejectProjectRequest(row: SystemProjectMemberRequest) {
@@ -922,7 +1212,7 @@ async function rejectProjectRequest(row: SystemProjectMemberRequest) {
   });
   await studioApi.system.projectMemberRequests.save(payload);
   ElMessage.success("项目加入申请已拒绝");
-  await loadPage();
+  await loadCurrentTab();
 }
 
 async function saveProjectWorker() {
@@ -938,12 +1228,15 @@ async function saveProjectWorker() {
 }
 
 async function saveResourceShare() {
+  const normalizedResourceType = normalizeResourceType(shareForm.resourceType) || DEFAULT_SHARE_RESOURCE_TYPE;
   const payload = normalizeDeletedFlag<Partial<ResourceShare>>({
     ...shareForm,
     sourceProjectId: requireCurrentProjectId(),
-    resourceType: normalizeResourceType(shareForm.resourceType),
+    resourceType: normalizedResourceType,
     enabled: toIntegerFlag(shareForm.enabled),
   });
+  shareFilters.resourceType = normalizedResourceType;
+  resourceSharePagination.page = 1;
   await wrapSave(() => studioApi.system.resourceShares.save(payload), shareDialogOpen, "资源共享已保存");
 }
 
@@ -990,7 +1283,7 @@ async function approveRegistration(row: UserRegistrationRequestView) {
       reviewComment: result.value?.trim() || undefined,
     });
     ElMessage.success("注册登记已通过");
-    await loadPage();
+    await loadCurrentTab();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "审批失败");
@@ -1015,7 +1308,7 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
       reviewComment: result.value.trim(),
     });
     ElMessage.success("注册登记已拒绝");
-    await loadPage();
+    await loadCurrentTab();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "审批失败");
@@ -1033,7 +1326,7 @@ async function wrapSave(action: () => Promise<unknown>, dialogFlag: { value: boo
     dialogFlag.value = false;
     await authStore.refreshProfile();
     ElMessage.success(successMessage);
-    await loadPage();
+    await loadCurrentTab();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存失败");
   }
@@ -1045,7 +1338,7 @@ async function confirmDelete(message: string, action: () => Promise<unknown>) {
     await action();
     await authStore.refreshProfile();
     ElMessage.success("删除成功");
-    await loadPage();
+    await loadCurrentTab();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除失败");
@@ -1079,23 +1372,22 @@ const systemActionHandlers: SystemActionHandlers = {
 };
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  resetShareResourceCache();
+  resourceSharePagination.page = 1;
   if (authStore.isAuthenticated) {
-    loadPage();
+    loadCurrentTab();
   }
 });
 
 watch(() => route.query.tab, (value) => {
-  if (typeof value === "string" && value) {
-    if (!isSuperAdmin.value && (value === "users" || value === "registrationRequests")) {
-      activeTab.value = "tenants";
-      return;
-    }
-    activeTab.value = value;
-  }
+  activeTab.value = normalizeSystemTab(value);
 }, { immediate: true });
 
 watch(activeTab, (value) => {
   if (route.query.tab === value) {
+    if (systemMounted.value && authStore.isAuthenticated) {
+      loadCurrentTab();
+    }
     return;
   }
   router.replace({
@@ -1104,11 +1396,15 @@ watch(activeTab, (value) => {
       tab: value,
     },
   });
+  if (systemMounted.value && authStore.isAuthenticated) {
+    loadCurrentTab();
+  }
 });
 
 onMounted(() => {
+  systemMounted.value = true;
   if (authStore.isAuthenticated) {
-    loadPage();
+    loadCurrentTab();
   }
 });
 </script>
@@ -1135,7 +1431,25 @@ p {
 .tab-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   margin-bottom: 14px;
+}
+
+.tab-toolbar--split {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tab-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .stack-cell {

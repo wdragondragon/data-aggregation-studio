@@ -8,7 +8,7 @@
       <div class="studio-toolbar-actions">
         <el-button plain @click="router.push('/quality-tasks')">质量任务</el-button>
         <el-button plain @click="router.push('/quality-task-runs')">运行日志</el-button>
-        <el-button type="primary" :loading="isLoading" @click="reloadAll">刷新</el-button>
+        <el-button type="primary" :loading="isLoading" @click="loadCurrentTab">刷新</el-button>
       </div>
     </div>
 
@@ -28,36 +28,42 @@
 
     <el-tabs v-model="activeTab" class="quality-tabs">
       <el-tab-pane label="总览" name="overview">
-        <QualityMetricsOverviewTab
-          :dashboard="dashboard"
-          :has-score-trend="hasScoreTrend"
-          :has-issue-trend="hasIssueTrend"
-          :has-dimension-distribution="hasDimensionDistribution"
-          :has-coverage-matrix="hasCoverageMatrix"
-          :score-trend-option="scoreTrendOption"
-          :issue-trend-option="issueTrendOption"
-          :dimension-distribution-option="dimensionDistributionOption"
-          :coverage-matrix-option="coverageMatrixOption"
-          :overview-actions="overviewTabActions"
-        />
+        <div v-loading="loading.dashboard" class="quality-tab-body">
+          <QualityMetricsOverviewTab
+            :dashboard="dashboard"
+            :has-score-trend="hasScoreTrend"
+            :has-issue-trend="hasIssueTrend"
+            :has-dimension-distribution="hasDimensionDistribution"
+            :has-coverage-matrix="hasCoverageMatrix"
+            :score-trend-option="scoreTrendOption"
+            :issue-trend-option="issueTrendOption"
+            :dimension-distribution-option="dimensionDistributionOption"
+            :coverage-matrix-option="coverageMatrixOption"
+            :overview-actions="overviewTabActions"
+          />
+        </div>
       </el-tab-pane>
       <el-tab-pane label="资产洞察" name="assets">
-        <QualityMetricsAssetsTab
-          :asset-filters="assetFilters"
-          :paged-assets="pagedAssets"
-          :asset-pagination="assetPagination"
-          :asset-total="assets.length"
-          :asset-actions="assetTabActions"
-        />
+        <div v-loading="loading.assets" class="quality-tab-body">
+          <QualityMetricsAssetsTab
+            :asset-filters="assetFilters"
+            :paged-assets="pagedAssets"
+            :asset-pagination="assetPagination"
+            :asset-total="assets.length"
+            :asset-actions="assetTabActions"
+          />
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="问题中心" name="issues">
-        <QualityMetricsIssuesTab
-          :paged-issues="pagedIssues"
-          :issue-pagination="issuePagination"
-          :issue-total="issues.length"
-          :issue-actions="issueTabActions"
-        />
+        <div v-loading="loading.issues" class="quality-tab-body">
+          <QualityMetricsIssuesTab
+            :paged-issues="pagedIssues"
+            :issue-pagination="issuePagination"
+            :issue-total="issues.length"
+            :issue-actions="issueTabActions"
+          />
+        </div>
       </el-tab-pane>
     </el-tabs>
 
@@ -214,6 +220,7 @@ interface AssigneeOption {
 
 const router = useRouter();
 const authStore = useAuthStore();
+const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 
 const activeTab = ref<ActiveTab>("overview");
 const timePreset = ref<TimePreset>("7d");
@@ -265,7 +272,17 @@ const loading = reactive({
 const { pagination: assetPagination, pagedItems: pagedAssets, resetPagination: resetAssetPagination } = useClientPagination(computed(() => assets.value), 10);
 const { pagination: issuePagination, pagedItems: pagedIssues, resetPagination: resetIssuePagination } = useClientPagination(computed(() => issues.value), 10);
 
-const isLoading = computed(() => loading.options || loading.dashboard || loading.assets || loading.issues);
+const activeTabLoading = computed(() => {
+  switch (activeTab.value) {
+    case "assets":
+      return loading.assets;
+    case "issues":
+      return loading.issues;
+    default:
+      return loading.dashboard;
+  }
+});
+const isLoading = computed(() => loading.options || activeTabLoading.value);
 const hasScoreTrend = computed(() => (dashboard.value.scoreTrend ?? []).length > 0);
 const hasIssueTrend = computed(() => (dashboard.value.issueTrend ?? []).length > 0);
 const hasDimensionDistribution = computed(() => (dashboard.value.dimensionDistribution ?? []).some((item) => recordNumber(item, "totalRuns") > 0));
@@ -280,7 +297,7 @@ const assetScoreTrendOption = computed<EChartsOption>(() => buildScoreTrendOptio
 
 const filterSectionActions = {
   changeTimePreset,
-  reloadAll,
+  reloadAll: loadCurrentTab,
   resetFilters,
 };
 
@@ -337,8 +354,7 @@ const assetDrawerActions = {
 async function loadOptions() {
   loading.options = true;
   try {
-    options.value = await studioApi.qualityMetrics.options();
-    await loadAssignees();
+    options.value = await studioApi.qualityMetrics.options(LOCAL_LOADING_REQUEST);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量指标选项失败");
   } finally {
@@ -348,7 +364,7 @@ async function loadOptions() {
 
 async function loadAssignees() {
   try {
-    const members = await studioApi.system.projectMembers.list(authStore.currentProjectId ?? undefined);
+    const members = await studioApi.system.projectMembers.list(authStore.currentProjectId ?? undefined, LOCAL_LOADING_REQUEST);
     assigneeOptions.value = normalizeMemberOptions(members);
     if (assigneeOptions.value.length > 0) {
       return;
@@ -357,7 +373,7 @@ async function loadAssignees() {
     // Project member API may be hidden for non-admin users; user list below keeps the drawer usable.
   }
   try {
-    const users = await studioApi.users.list();
+    const users = await studioApi.users.list(LOCAL_LOADING_REQUEST);
     assigneeOptions.value = users
       .filter((item) => item.id != null)
       .map((item) => ({ value: item.id as EntityId, label: item.displayName || item.username || String(item.id) }));
@@ -366,10 +382,17 @@ async function loadAssignees() {
   }
 }
 
+async function ensureAssigneesLoaded() {
+  if (assigneeOptions.value.length > 0) {
+    return;
+  }
+  await loadAssignees();
+}
+
 async function loadDashboard() {
   loading.dashboard = true;
   try {
-    dashboard.value = await studioApi.qualityMetrics.queryDashboard({ ...baseQuery(), topN: 10 });
+    dashboard.value = await studioApi.qualityMetrics.queryDashboard({ ...baseQuery(), topN: 10 }, LOCAL_LOADING_REQUEST);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量指标总览失败");
   } finally {
@@ -384,7 +407,7 @@ async function loadAssets() {
       ...baseQuery(),
       onlyProblemAssets: assetFilters.onlyProblemAssets,
       onlyLowCoverageAssets: assetFilters.onlyLowCoverageAssets,
-    });
+    }, LOCAL_LOADING_REQUEST);
     resetAssetPagination();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量资产失败");
@@ -401,7 +424,7 @@ async function loadIssues() {
       severity: filters.severity,
       status: filters.issueStatus,
       assigneeUserId: filters.assigneeUserId,
-    });
+    }, LOCAL_LOADING_REQUEST);
     resetIssuePagination();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量问题失败");
@@ -410,8 +433,19 @@ async function loadIssues() {
   }
 }
 
-async function reloadAll() {
-  await Promise.all([loadDashboard(), loadAssets(), loadIssues()]);
+async function loadCurrentTab() {
+  switch (activeTab.value) {
+    case "assets":
+      await loadAssets();
+      break;
+    case "issues":
+      await ensureAssigneesLoaded();
+      await loadIssues();
+      break;
+    default:
+      await loadDashboard();
+      break;
+  }
 }
 
 async function resetFilters() {
@@ -427,7 +461,7 @@ async function resetFilters() {
   assetFilters.onlyLowCoverageAssets = false;
   timePreset.value = "7d";
   timeRange.value = presetRange("7d");
-  await reloadAll();
+  await loadCurrentTab();
 }
 
 function baseQuery(): QualityMetricDashboardQueryRequest {
@@ -587,7 +621,7 @@ async function addIssueComment() {
 }
 
 async function refreshAfterIssueAction() {
-  await Promise.all([loadDashboard(), loadAssets(), loadIssues()]);
+  await loadCurrentTab();
   if (assetDrawerVisible.value && assetDetail.value?.assetId) {
     await openAssetDrawer({ ...assetDetail.value });
   }
@@ -728,13 +762,19 @@ function normalizeMemberOptions(members: SystemProjectMember[]) {
 
 onMounted(async () => {
   await loadOptions();
-  await reloadAll();
+  await loadCurrentTab();
 });
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
     await loadOptions();
-    await reloadAll();
+    await loadCurrentTab();
+  }
+});
+
+watch(activeTab, async () => {
+  if (authStore.isAuthenticated) {
+    await loadCurrentTab();
   }
 });
 </script>
@@ -755,6 +795,10 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
 
 .quality-tabs {
   min-width: 0;
+}
+
+.quality-tab-body {
+  min-height: 160px;
 }
 
 .quality-empty {

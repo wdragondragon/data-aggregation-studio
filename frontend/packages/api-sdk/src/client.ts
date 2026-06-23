@@ -487,8 +487,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     datasources: {
-      list() {
-        return request<DataSourceDefinition[]>({ url: "/datasources", method: "GET" });
+      list(config?: StudioRequestConfig) {
+        return request<DataSourceDefinition[]>({ ...config, url: "/datasources", method: "GET" });
       },
       get(id: EntityId) {
         return request<DataSourceDefinition>({ url: `/datasources/${id}`, method: "GET" });
@@ -535,8 +535,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         keyword?: string;
         status?: string;
         serviceType?: string;
-      }) {
-        return requestPage<DataServiceDefinitionView>({ url: "/data-services", method: "GET", params }, params);
+      }, config?: StudioRequestConfig) {
+        return requestPage<DataServiceDefinitionView>({ ...config, url: "/data-services", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<DataServiceDefinitionView>({ url: `/data-services/${id}`, method: "GET" });
@@ -605,8 +605,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         keyword?: string;
         status?: string;
         targetType?: string;
-      }) {
-        return requestPage<DataIngestionServiceView>({ url: "/data-ingestion-services", method: "GET", params }, params);
+      }, config?: StudioRequestConfig) {
+        return requestPage<DataIngestionServiceView>({ ...config, url: "/data-ingestion-services", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}`, method: "GET" });
@@ -670,8 +670,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         pageSize?: number;
         keyword?: string;
         status?: string;
-      }) {
-        return requestPage<ProtocolConversionServiceView>({ url: "/protocol-conversions", method: "GET", params }, params);
+      }, config?: StudioRequestConfig) {
+        return requestPage<ProtocolConversionServiceView>({ ...config, url: "/protocol-conversions", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}`, method: "GET" });
@@ -732,28 +732,28 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     dataServiceMetrics: {
-      options() {
-        return request<DataServiceMetricOptionsView>({ url: "/data-service-metrics/options", method: "GET" });
+      options(config?: StudioRequestConfig) {
+        return request<DataServiceMetricOptionsView>({ ...config, url: "/data-service-metrics/options", method: "GET" });
       },
-      queryDashboard(payload?: DataServiceMetricQueryRequest) {
-        return request<DataServiceMetricDashboardView>({ url: "/data-service-metrics/dashboard/query", method: "POST", data: payload });
+      queryDashboard(payload?: DataServiceMetricQueryRequest, config?: StudioRequestConfig) {
+        return request<DataServiceMetricDashboardView>({ ...config, url: "/data-service-metrics/dashboard/query", method: "POST", data: payload });
       },
-      queryApiStats(payload?: DataServiceMetricQueryRequest) {
-        return requestPage<DataServiceApiMetricView>({ url: "/data-service-metrics/api-stats/query", method: "POST", data: payload }, payload);
+      queryApiStats(payload?: DataServiceMetricQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<DataServiceApiMetricView>({ ...config, url: "/data-service-metrics/api-stats/query", method: "POST", data: payload }, payload);
       },
       queryAccessLogs(payload?: DataServiceMetricQueryRequest) {
         return requestPage<DataServiceAccessLogView>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
     },
     dataIngestionMetrics: {
-      options() {
-        return request<DataServiceMetricOptionsView>({ url: "/data-ingestion-metrics/options", method: "GET" });
+      options(config?: StudioRequestConfig) {
+        return request<DataServiceMetricOptionsView>({ ...config, url: "/data-ingestion-metrics/options", method: "GET" });
       },
-      queryDashboard(payload?: DataIngestionMetricQueryRequest) {
-        return request<DataIngestionMetricDashboardView>({ url: "/data-ingestion-metrics/dashboard/query", method: "POST", data: payload });
+      queryDashboard(payload?: DataIngestionMetricQueryRequest, config?: StudioRequestConfig) {
+        return request<DataIngestionMetricDashboardView>({ ...config, url: "/data-ingestion-metrics/dashboard/query", method: "POST", data: payload });
       },
-      queryApiStats(payload?: DataIngestionMetricQueryRequest) {
-        return requestPage<DataIngestionApiMetricView>({ url: "/data-ingestion-metrics/api-stats/query", method: "POST", data: payload }, payload);
+      queryApiStats(payload?: DataIngestionMetricQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<DataIngestionApiMetricView>({ ...config, url: "/data-ingestion-metrics/api-stats/query", method: "POST", data: payload }, payload);
       },
       queryAccessLogs(payload?: DataIngestionMetricQueryRequest) {
         return requestPage<DataIngestionAccessLogView>({ url: "/data-ingestion-metrics/access-logs/query", method: "POST", data: payload }, payload);
@@ -766,8 +766,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         pageSize?: number;
         sortField?: string;
         sortOrder?: string;
-      }) {
-        return request<unknown>({ url: "/models", method: "GET", params }).then((payload) =>
+      }, config?: StudioRequestConfig) {
+        return request<unknown>({ ...config, url: "/models", method: "GET", params }).then((payload) =>
           normalizePageResult<DataModelDefinition>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
@@ -973,8 +973,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     workflows: {
-      list() {
-        return request<WorkflowDefinitionView[]>({ url: "/workflows", method: "GET" });
+      list(config?: StudioRequestConfig) {
+        return request<WorkflowDefinitionView[]>({ ...config, url: "/workflows", method: "GET" });
       },
       get(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}`, method: "GET" });
@@ -993,8 +993,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     collectionTasks: {
-      list(params?: CollectionTaskListQuery) {
-        return request<CollectionTaskDefinitionView[]>({ url: "/collection-tasks", method: "GET", params });
+      list(params?: CollectionTaskListQuery, config?: StudioRequestConfig) {
+        return request<CollectionTaskDefinitionView[]>({ ...config, url: "/collection-tasks", method: "GET", params });
       },
       listOnline() {
         return request<CollectionTaskDefinitionView[]>({ url: "/collection-tasks/online", method: "GET" });
@@ -1108,20 +1108,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     qualityMetrics: {
-      options() {
-        return request<QualityMetricOptionsView>({ url: "/quality-metrics/options", method: "GET" });
+      options(config?: StudioRequestConfig) {
+        return request<QualityMetricOptionsView>({ ...config, url: "/quality-metrics/options", method: "GET" });
       },
-      queryDashboard(payload?: QualityMetricDashboardQueryRequest) {
-        return request<QualityMetricDashboardView>({ url: "/quality-metrics/dashboard/query", method: "POST", data: payload });
+      queryDashboard(payload?: QualityMetricDashboardQueryRequest, config?: StudioRequestConfig) {
+        return request<QualityMetricDashboardView>({ ...config, url: "/quality-metrics/dashboard/query", method: "POST", data: payload });
       },
-      queryAssets(payload?: QualityAssetQueryRequest) {
-        return request<QualityAssetRiskView[]>({ url: "/quality-metrics/assets/query", method: "POST", data: payload });
+      queryAssets(payload?: QualityAssetQueryRequest, config?: StudioRequestConfig) {
+        return request<QualityAssetRiskView[]>({ ...config, url: "/quality-metrics/assets/query", method: "POST", data: payload });
       },
       getAsset(assetId: string, params?: { startTime?: string; endTime?: string }) {
         return request<QualityAssetDetailView>({ url: `/quality-metrics/assets/${assetId}`, method: "GET", params });
       },
-      queryIssues(payload?: QualityIssueQueryRequest) {
-        return request<QualityIssueView[]>({ url: "/quality-metrics/issues/query", method: "POST", data: payload });
+      queryIssues(payload?: QualityIssueQueryRequest, config?: StudioRequestConfig) {
+        return request<QualityIssueView[]>({ ...config, url: "/quality-metrics/issues/query", method: "POST", data: payload });
       },
       getIssue(id: EntityId) {
         return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}`, method: "GET" });
@@ -1155,8 +1155,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       deleteDirectory(id: EntityId) {
         return request<void>({ url: `/data-development/directories/${id}`, method: "DELETE" });
       },
-      listScripts(scriptType?: ScriptType) {
+      listScripts(scriptType?: ScriptType, config?: StudioRequestConfig) {
         return request<DataDevelopmentScript[]>({
+          ...config,
           url: "/data-development/scripts",
           method: "GET",
           params: scriptType ? { scriptType } : undefined,
@@ -1234,29 +1235,29 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     opsCenter: {
-      options() {
-        return request<OpsCenterOptionsView>({ url: "/ops-center/options", method: "GET" });
+      options(config?: StudioRequestConfig) {
+        return request<OpsCenterOptionsView>({ ...config, url: "/ops-center/options", method: "GET" });
       },
-      queryOverview(payload?: OpsCenterQueryRequest) {
-        return request<OpsCenterOverviewView>({ url: "/ops-center/overview/query", method: "POST", data: payload });
+      queryOverview(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return request<OpsCenterOverviewView>({ ...config, url: "/ops-center/overview/query", method: "POST", data: payload });
       },
-      queryRuns(payload?: OpsCenterQueryRequest) {
-        return requestPage<OpsCenterRunIncidentView>({ url: "/ops-center/runs/query", method: "POST", data: payload }, payload);
+      queryRuns(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterRunIncidentView>({ ...config, url: "/ops-center/runs/query", method: "POST", data: payload }, payload);
       },
-      queryQueue(payload?: OpsCenterQueryRequest) {
-        return requestPage<OpsCenterQueueItemView>({ url: "/ops-center/queue/query", method: "POST", data: payload }, payload);
+      queryQueue(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterQueueItemView>({ ...config, url: "/ops-center/queue/query", method: "POST", data: payload }, payload);
       },
-      queryWorkers(payload?: OpsCenterQueryRequest) {
-        return requestPage<OpsCenterWorkerGroupView>({ url: "/ops-center/workers/query", method: "POST", data: payload }, payload);
+      queryWorkers(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterWorkerGroupView>({ ...config, url: "/ops-center/workers/query", method: "POST", data: payload }, payload);
       },
-      queryServiceEvents(payload?: OpsCenterQueryRequest) {
-        return requestPage<OpsCenterServiceEventView>({ url: "/ops-center/service-events/query", method: "POST", data: payload }, payload);
+      queryServiceEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterServiceEventView>({ ...config, url: "/ops-center/service-events/query", method: "POST", data: payload }, payload);
       },
-      queryIngestionEvents(payload?: OpsCenterQueryRequest) {
-        return requestPage<OpsCenterServiceEventView>({ url: "/ops-center/ingestion-events/query", method: "POST", data: payload }, payload);
+      queryIngestionEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterServiceEventView>({ ...config, url: "/ops-center/ingestion-events/query", method: "POST", data: payload }, payload);
       },
-      queryLogEvents(payload?: OpsCenterQueryRequest) {
-        return requestPage<OpsCenterLogEventView>({ url: "/ops-center/log-events/query", method: "POST", data: payload }, payload);
+      queryLogEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterLogEventView>({ ...config, url: "/ops-center/log-events/query", method: "POST", data: payload }, payload);
       },
     },
     notifications: {
@@ -1311,8 +1312,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     users: {
-      list() {
-        return request<StudioUser[]>({ url: "/users", method: "GET" });
+      list(config?: StudioRequestConfig) {
+        return request<StudioUser[]>({ ...config, url: "/users", method: "GET" });
       },
       save(payload: Partial<StudioUser>) {
         return request<StudioUser>({ url: "/users", method: "POST", data: payload });
@@ -1345,8 +1346,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     system: {
       tenants: {
-        list() {
-          return request<SystemTenant[]>({ url: "/system/tenants", method: "GET" });
+        list(config?: StudioRequestConfig) {
+          return request<SystemTenant[]>({ ...config, url: "/system/tenants", method: "GET" });
         },
         save(payload: Partial<SystemTenant>) {
           return request<SystemTenant>({ url: "/system/tenants", method: "POST", data: payload });
@@ -1356,8 +1357,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       projects: {
-        list() {
-          return request<SystemProject[]>({ url: "/system/projects", method: "GET" });
+        list(config?: StudioRequestConfig) {
+          return request<SystemProject[]>({ ...config, url: "/system/projects", method: "GET" });
         },
         save(payload: Partial<SystemProject>) {
           return request<SystemProject>({ url: "/system/projects", method: "POST", data: payload });
@@ -1367,8 +1368,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       tenantMembers: {
-        list() {
-          return request<SystemTenantMember[]>({ url: "/system/tenant-members", method: "GET" });
+        list(config?: StudioRequestConfig) {
+          return request<SystemTenantMember[]>({ ...config, url: "/system/tenant-members", method: "GET" });
         },
         save(payload: Partial<SystemTenantMember>) {
           return request<SystemTenantMember>({ url: "/system/tenant-members", method: "POST", data: payload });
@@ -1378,8 +1379,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       projectMembers: {
-        list(projectId?: EntityId) {
+        list(projectId?: EntityId, config?: StudioRequestConfig) {
           return request<SystemProjectMember[]>({
+            ...config,
             url: "/system/project-members",
             method: "GET",
             params: projectId == null ? undefined : { projectId },
@@ -1393,8 +1395,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       projectMemberRequests: {
-        list(projectId?: EntityId) {
+        list(projectId?: EntityId, config?: StudioRequestConfig) {
           return request<SystemProjectMemberRequest[]>({
+            ...config,
             url: "/system/project-member-requests",
             method: "GET",
             params: projectId == null ? undefined : { projectId },
@@ -1408,8 +1411,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       projectWorkers: {
-        list(projectId?: EntityId) {
+        list(projectId?: EntityId, config?: StudioRequestConfig) {
           return request<SystemProjectWorker[]>({
+            ...config,
             url: "/system/project-workers",
             method: "GET",
             params: projectId == null ? undefined : { projectId },
@@ -1423,8 +1427,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       resourceShares: {
-        list(params?: { resourceType?: string; projectId?: EntityId }) {
-          return request<ResourceShare[]>({ url: "/system/resource-shares", method: "GET", params });
+        list(params?: { resourceType?: string; projectId?: EntityId }, config?: StudioRequestConfig) {
+          return request<ResourceShare[]>({ ...config, url: "/system/resource-shares", method: "GET", params });
+        },
+        listPage(params?: { resourceType?: string; projectId?: EntityId; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<ResourceShare>({ ...config, url: "/system/resource-shares/page", method: "GET", params }, params);
         },
         save(payload: Partial<ResourceShare>) {
           return request<ResourceShare>({ url: "/system/resource-shares", method: "POST", data: payload });
@@ -1434,8 +1441,8 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
       },
       userRegistrationRequests: {
-        list() {
-          return request<UserRegistrationRequestView[]>({ url: "/system/user-registration-requests", method: "GET" });
+        list(config?: StudioRequestConfig) {
+          return request<UserRegistrationRequestView[]>({ ...config, url: "/system/user-registration-requests", method: "GET" });
         },
         approve(id: EntityId, payload?: UserRegistrationRequestReviewRequest) {
           return request<UserRegistrationRequestView>({

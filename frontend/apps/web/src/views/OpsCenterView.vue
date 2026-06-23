@@ -1,5 +1,5 @@
 <template>
-  <div class="studio-page ops-center-page" v-loading="isLoading">
+  <div class="studio-page ops-center-page">
     <section class="ops-header">
       <div>
         <h3>{{ t("web.opsCenter.heading") }}</h3>
@@ -48,7 +48,7 @@
       </div>
     </SectionCard>
 
-    <section class="ops-health">
+    <section v-loading="sectionLoading.overview" class="ops-health">
       <div class="ops-health__main" :class="`is-${String(overview?.healthStatus || 'HEALTHY').toLowerCase()}`">
         <span>{{ t("web.opsCenter.healthTitle") }}</span>
         <strong>{{ healthLabel(overview?.healthStatus) }}</strong>
@@ -60,7 +60,7 @@
       </div>
     </section>
 
-    <div class="ops-metric-grid">
+    <div v-loading="sectionLoading.overview" class="ops-metric-grid">
       <MetricCard
         v-for="metric in overview?.metrics || []"
         :key="metric.key"
@@ -72,7 +72,7 @@
     </div>
 
     <div class="ops-grid two-columns">
-      <SectionCard :title="t('web.opsCenter.queueTitle')" :description="t('web.opsCenter.queueDescription')">
+      <SectionCard v-loading="sectionLoading.queue" :title="t('web.opsCenter.queueTitle')" :description="t('web.opsCenter.queueDescription')">
         <template #actions>
           <el-button link type="primary" @click="router.push('/runs')">{{ t("web.opsCenter.openRuns") }}</el-button>
         </template>
@@ -102,7 +102,7 @@
         </el-table>
       </SectionCard>
 
-      <SectionCard :title="t('web.opsCenter.workersTitle')" :description="t('web.opsCenter.workersDescription')">
+      <SectionCard v-loading="sectionLoading.workers" :title="t('web.opsCenter.workersTitle')" :description="t('web.opsCenter.workersDescription')">
         <template #actions>
           <el-button link type="primary" @click="router.push('/system?tab=workers')">{{ t("web.opsCenter.openWorkers") }}</el-button>
         </template>
@@ -143,7 +143,7 @@
       </SectionCard>
     </div>
 
-    <SectionCard :title="t('web.opsCenter.runsTitle')" :description="t('web.opsCenter.runsDescription')">
+    <SectionCard v-loading="sectionLoading.runs" :title="t('web.opsCenter.runsTitle')" :description="t('web.opsCenter.runsDescription')">
       <el-table :data="runIncidents" size="small" border empty-text="暂无数据">
         <el-table-column prop="executionType" :label="t('web.opsCenter.executionType')" min-width="140">
           <template #default="{ row }">{{ formatExecutionType(row.executionType) }}</template>
@@ -167,7 +167,7 @@
     </SectionCard>
 
     <div class="ops-grid two-columns">
-      <SectionCard :title="t('web.opsCenter.serviceTitle')" :description="t('web.opsCenter.serviceDescription')">
+      <SectionCard v-loading="sectionLoading.serviceEvents" :title="t('web.opsCenter.serviceTitle')" :description="t('web.opsCenter.serviceDescription')">
         <template #actions>
           <el-button link type="primary" @click="router.push('/data-service-metrics/access-logs')">{{ t("web.opsCenter.openServiceLogs") }}</el-button>
         </template>
@@ -187,7 +187,7 @@
         </el-table>
       </SectionCard>
 
-      <SectionCard :title="t('web.opsCenter.ingestionTitle')" :description="t('web.opsCenter.ingestionDescription')">
+      <SectionCard v-loading="sectionLoading.ingestionEvents" :title="t('web.opsCenter.ingestionTitle')" :description="t('web.opsCenter.ingestionDescription')">
         <template #actions>
           <el-button link type="primary" @click="router.push('/data-ingestion-metrics/access-logs')">{{ t("web.opsCenter.openIngestionLogs") }}</el-button>
         </template>
@@ -210,7 +210,7 @@
       </SectionCard>
     </div>
 
-    <SectionCard :title="t('web.opsCenter.logTitle')" :description="t('web.opsCenter.logDescription')">
+    <SectionCard v-loading="sectionLoading.logEvents" :title="t('web.opsCenter.logTitle')" :description="t('web.opsCenter.logDescription')">
       <el-table :data="logEvents" size="small" border empty-text="暂无数据">
         <el-table-column prop="executionType" :label="t('web.opsCenter.executionType')" min-width="140">
           <template #default="{ row }">{{ formatExecutionType(row.executionType) }}</template>
@@ -258,6 +258,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const PAGE_SIZE = 8;
 const AUTO_REFRESH_MS = 30_000;
+const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 
 const options = reactive<OpsCenterOptionsView>({
   executionTypes: [],
@@ -272,7 +273,16 @@ const filters = reactive({
 const timePreset = ref("24h");
 const timeRange = ref<[string, string] | []>([]);
 const autoRefresh = ref(true);
-const isLoading = ref(false);
+type OpsSectionKey = "overview" | "queue" | "workers" | "runs" | "serviceEvents" | "ingestionEvents" | "logEvents";
+const sectionLoading = reactive<Record<OpsSectionKey, boolean>>({
+  overview: false,
+  queue: false,
+  workers: false,
+  runs: false,
+  serviceEvents: false,
+  ingestionEvents: false,
+  logEvents: false,
+});
 const overview = ref<OpsCenterOverviewView | null>(null);
 const queueItems = ref<OpsCenterQueueItemView[]>([]);
 const workerGroups = ref<OpsCenterWorkerGroupView[]>([]);
@@ -292,6 +302,7 @@ const isWorkerOffline = computed(() =>
   && hasBoundWorkerGroup.value
   && Number(overview.value.onlineWorkerInstances || 0) <= 0,
 );
+const isLoading = computed(() => Object.values(sectionLoading).some(Boolean));
 let refreshTimer: number | null = null;
 let loadRequestId = 0;
 
@@ -320,7 +331,7 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
 
 async function loadOptions() {
   try {
-    const payload = await studioApi.opsCenter.options();
+    const payload = await studioApi.opsCenter.options(LOCAL_LOADING_REQUEST);
     options.executionTypes = payload.executionTypes || [];
     options.statuses = payload.statuses || [];
     options.workerGroups = payload.workerGroups || [];
@@ -334,38 +345,97 @@ async function loadAll() {
   if (timePreset.value !== "custom") {
     applyTimePreset(timePreset.value);
   }
-  isLoading.value = true;
-  try {
-    const query = buildQuery();
-    const [overviewPayload, queuePage, workerPage, runPage, servicePage, ingestionPage, logPage] = await Promise.all([
-      studioApi.opsCenter.queryOverview(query),
-      studioApi.opsCenter.queryQueue({ ...query, pageNo: 1, pageSize: PAGE_SIZE }),
-      studioApi.opsCenter.queryWorkers({ ...query, pageNo: 1, pageSize: PAGE_SIZE }),
-      studioApi.opsCenter.queryRuns({ ...query, pageNo: 1, pageSize: PAGE_SIZE }),
-      studioApi.opsCenter.queryServiceEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }),
-      studioApi.opsCenter.queryIngestionEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }),
-      studioApi.opsCenter.queryLogEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }),
-    ]);
-    if (requestId !== loadRequestId) {
-      return;
-    }
-    overview.value = overviewPayload;
-    queueItems.value = queuePage.items || [];
-    workerGroups.value = workerPage.items || [];
-    runIncidents.value = runPage.items || [];
-    serviceEvents.value = servicePage.items || [];
-    ingestionEvents.value = ingestionPage.items || [];
-    logEvents.value = logPage.items || [];
+  const query = buildQuery();
+  await Promise.all([
+    loadOverview(query, requestId),
+    loadQueue(query, requestId),
+    loadWorkers(query, requestId),
+    loadRuns(query, requestId),
+    loadServiceEvents(query, requestId),
+    loadIngestionEvents(query, requestId),
+    loadLogEvents(query, requestId),
+  ]);
+  if (requestId === loadRequestId) {
     lastUpdatedAt.value = formatDateTime(new Date());
+  }
+}
+
+async function withSectionLoading(section: OpsSectionKey, requestId: number, action: () => Promise<void>, errorMessage: string) {
+  sectionLoading[section] = true;
+  try {
+    await action();
   } catch (error) {
     if (requestId === loadRequestId) {
-      ElMessage.error(error instanceof Error ? error.message : t("web.opsCenter.loadFailed"));
+      ElMessage.error(error instanceof Error ? error.message : errorMessage);
     }
   } finally {
     if (requestId === loadRequestId) {
-      isLoading.value = false;
+      sectionLoading[section] = false;
     }
   }
+}
+
+async function loadOverview(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("overview", requestId, async () => {
+    const payload = await studioApi.opsCenter.queryOverview(query, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      overview.value = payload;
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
+async function loadQueue(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("queue", requestId, async () => {
+    const page = await studioApi.opsCenter.queryQueue({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      queueItems.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
+async function loadWorkers(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("workers", requestId, async () => {
+    const page = await studioApi.opsCenter.queryWorkers({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      workerGroups.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
+async function loadRuns(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("runs", requestId, async () => {
+    const page = await studioApi.opsCenter.queryRuns({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      runIncidents.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
+async function loadServiceEvents(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("serviceEvents", requestId, async () => {
+    const page = await studioApi.opsCenter.queryServiceEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      serviceEvents.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
+async function loadIngestionEvents(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("ingestionEvents", requestId, async () => {
+    const page = await studioApi.opsCenter.queryIngestionEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      ingestionEvents.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
+async function loadLogEvents(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("logEvents", requestId, async () => {
+    const page = await studioApi.opsCenter.queryLogEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      logEvents.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
 }
 
 function buildQuery(): OpsCenterQueryRequest {
