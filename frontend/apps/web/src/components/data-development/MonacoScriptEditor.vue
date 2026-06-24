@@ -24,14 +24,16 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { useI18n } from "vue-i18n";
 import type { ScriptType } from "@studio/api-sdk";
 import type * as MonacoType from "monaco-editor";
-import { ensureMonacoSetup, bindSqlHintSource } from "./monacoSetup";
+import { ensureMonacoSetup, bindJavaHintSource, bindSqlHintSource } from "./monacoSetup";
 import { resolveScriptEditorEntry } from "./scriptEditorRegistry";
-import type { SqlEditorHintSource } from "./editorTypes";
+import type { JavaEditorHintSource, SqlEditorHintSource } from "./editorTypes";
 
 const props = defineProps<{
   scriptType: ScriptType;
   placeholder?: string;
   sqlHints?: SqlEditorHintSource;
+  javaHintSource?: JavaEditorHintSource;
+  javaHintKey?: string | number;
   readonly?: boolean;
 }>();
 
@@ -43,6 +45,9 @@ const editorRef = shallowRef<MonacoType.editor.IStandaloneCodeEditor | null>(nul
 const monacoRef = shallowRef<typeof import("monaco-editor") | null>(null);
 const textModelRef = shallowRef<MonacoType.editor.ITextModel | null>(null);
 const disposeSqlHintsRef = ref<(() => void) | null>(null);
+const disposeJavaHintsRef = ref<(() => void) | null>(null);
+const suggestPositionObserverRef = ref<MutationObserver | null>(null);
+const suggestPositionFrameRef = ref<number | null>(null);
 const hasFocus = ref(false);
 const isInternalUpdate = ref(false);
 
@@ -89,6 +94,7 @@ function createEditor() {
   );
   textModelRef.value = model;
   disposeSqlHintsRef.value = bindSqlHintSource(model.uri, () => props.sqlHints);
+  disposeJavaHintsRef.value = bindJavaHintSource(model.uri, () => props.javaHintSource);
 
   const editor = monaco.editor.create(editorHostRef.value, {
     model,
@@ -125,6 +131,7 @@ function createEditor() {
     domReadOnly: props.readonly === true,
   });
   editorRef.value = editor;
+  setupSuggestPositionGuard();
 
   editor.onDidChangeModelContent(() => {
     if (!textModelRef.value) {
@@ -138,19 +145,114 @@ function createEditor() {
   });
   editor.onDidFocusEditorText(() => {
     hasFocus.value = true;
+    scrollEditorIntoComfortableView();
   });
   editor.onDidBlurEditorText(() => {
     hasFocus.value = false;
   });
 }
 
+function scrollEditorIntoComfortableView() {
+  const host = editorHostRef.value;
+  if (!host) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    const rect = host.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    if (rect.top < 120 || rect.bottom > viewportHeight - 80) {
+      host.scrollIntoView({ block: "center", behavior: "auto" });
+    }
+  });
+}
+
 function destroyEditor() {
+  destroySuggestPositionGuard();
   disposeSqlHintsRef.value?.();
   disposeSqlHintsRef.value = null;
+  disposeJavaHintsRef.value?.();
+  disposeJavaHintsRef.value = null;
   editorRef.value?.dispose();
   editorRef.value = null;
   textModelRef.value?.dispose();
   textModelRef.value = null;
+}
+
+function setupSuggestPositionGuard() {
+  const host = editorHostRef.value;
+  if (!host || typeof MutationObserver === "undefined") {
+    return;
+  }
+  const observer = new MutationObserver(scheduleSuggestPositionGuard);
+  observer.observe(host, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["class", "style"],
+  });
+  suggestPositionObserverRef.value = observer;
+}
+
+function scheduleSuggestPositionGuard() {
+  if (suggestPositionFrameRef.value !== null) {
+    return;
+  }
+  suggestPositionFrameRef.value = window.requestAnimationFrame(() => {
+    suggestPositionFrameRef.value = null;
+    keepSuggestWidgetInsideEditor();
+  });
+}
+
+function keepSuggestWidgetInsideEditor() {
+  const host = editorHostRef.value;
+  const widget = host?.querySelector<HTMLElement>(".suggest-widget.visible");
+  if (!host || !widget) {
+    return;
+  }
+  const minTop = host.getBoundingClientRect().top + 6;
+  const minLeft = 8;
+  const maxRight = window.innerWidth - 8;
+  const maxBottom = window.innerHeight - 8;
+  const widgetRect = widget.getBoundingClientRect();
+  let changed = false;
+  const currentTop = Number.parseFloat(widget.style.top || "0");
+  const baseTop = Number.isFinite(currentTop) ? currentTop : widget.offsetTop;
+  if (widgetRect.top < minTop) {
+    widget.style.top = `${baseTop + minTop - widgetRect.top}px`;
+    widget.style.bottom = "auto";
+    changed = true;
+  } else if (widgetRect.bottom > maxBottom && widgetRect.top > minTop) {
+    const upwardDelta = Math.min(widgetRect.bottom - maxBottom, widgetRect.top - minTop);
+    widget.style.top = `${baseTop - upwardDelta}px`;
+    widget.style.bottom = "auto";
+    changed = true;
+  }
+
+  const currentLeft = Number.parseFloat(widget.style.left || "0");
+  const baseLeft = Number.isFinite(currentLeft) ? currentLeft : widget.offsetLeft;
+  let leftDelta = 0;
+  if (widgetRect.right > maxRight) {
+    leftDelta = maxRight - widgetRect.right;
+  } else if (widgetRect.left < minLeft) {
+    leftDelta = minLeft - widgetRect.left;
+  }
+  if (leftDelta !== 0) {
+    widget.style.left = `${baseLeft + leftDelta}px`;
+    changed = true;
+  }
+
+  if (changed) {
+    scheduleSuggestPositionGuard();
+  }
+}
+
+function destroySuggestPositionGuard() {
+  suggestPositionObserverRef.value?.disconnect();
+  suggestPositionObserverRef.value = null;
+  if (suggestPositionFrameRef.value !== null) {
+    window.cancelAnimationFrame(suggestPositionFrameRef.value);
+    suggestPositionFrameRef.value = null;
+  }
 }
 
 watch(
@@ -185,6 +287,15 @@ watch(
     }
   },
   { deep: true },
+);
+
+watch(
+  () => [props.javaHintSource, props.javaHintKey] as const,
+  () => {
+    if (props.scriptType === "JAVA" && editorRef.value) {
+      editorRef.value.trigger("keyboard", "editor.action.triggerSuggest", {});
+    }
+  },
 );
 
 watch(
@@ -240,13 +351,19 @@ onBeforeUnmount(() => {
 }
 
 .monaco-script-editor__host {
+  position: relative;
   width: 100%;
   min-height: 420px;
   border: 1px solid var(--studio-border);
   border-radius: 14px;
-  overflow: hidden;
+  overflow: visible;
   background: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.monaco-script-editor__host :deep(.overflowingContentWidgets),
+.monaco-script-editor__host :deep(.suggest-widget) {
+  z-index: 1200;
 }
 
 .monaco-script-editor__placeholder {

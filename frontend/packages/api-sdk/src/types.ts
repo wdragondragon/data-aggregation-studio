@@ -1822,6 +1822,8 @@ export interface DataDevelopmentScript extends BaseRecord {
   datasourceId?: EntityId;
   datasourceName?: string;
   datasourceTypeCode?: string;
+  environmentId?: EntityId;
+  environmentName?: string;
   description?: string;
   content: string;
 }
@@ -1837,6 +1839,8 @@ export interface DataDevelopmentTreeNode {
   permissionCode?: string;
   scriptType?: ScriptType;
   datasourceName?: string;
+  environmentId?: EntityId;
+  environmentName?: string;
   children: DataDevelopmentTreeNode[];
 }
 
@@ -1854,6 +1858,7 @@ export interface DataDevelopmentScriptSaveRequest {
   fileName: string;
   scriptType: ScriptType;
   datasourceId?: EntityId;
+  environmentId?: EntityId;
   description?: string;
   content: string;
 }
@@ -1872,9 +1877,89 @@ export interface SqlExecutionRequest {
 export interface DataScriptExecutionRequest {
   scriptType: ScriptType;
   datasourceId?: EntityId;
+  environmentId?: EntityId;
   content: string;
   arguments?: Record<string, unknown>;
   maxRows?: number;
+}
+
+export interface EnvironmentDependency extends BaseRecord {
+  name: string;
+  version?: string;
+  artifactUrl: string;
+  artifactType: "JAR" | "ZIP" | string;
+  checksum?: string;
+  enabled: boolean;
+  description?: string;
+}
+
+export interface EnvironmentDependencySaveRequest {
+  id?: EntityId;
+  name: string;
+  version?: string;
+  artifactUrl: string;
+  artifactType: "JAR" | "ZIP" | string;
+  checksum?: string;
+  enabled?: boolean;
+  description?: string;
+}
+
+export interface ScriptEnvironment extends BaseRecord {
+  environmentName: string;
+  environmentCode: string;
+  enabled: boolean;
+  useApplicationParent: boolean;
+  environmentVersion?: number;
+  description?: string;
+  dependencyIds: EntityId[];
+  dependencies: EnvironmentDependency[];
+}
+
+export interface ScriptEnvironmentSaveRequest {
+  id?: EntityId;
+  environmentName: string;
+  environmentCode: string;
+  enabled?: boolean;
+  useApplicationParent?: boolean;
+  dependencyIds?: EntityId[];
+  description?: string;
+}
+
+export interface JavaImportHint {
+  qualifiedName: string;
+  simpleName: string;
+  packageName: string;
+  source?: string;
+  environmentDependencyId?: EntityId;
+}
+
+export interface JavaImportHintResponse {
+  environmentId?: EntityId;
+  environmentVersion?: number;
+  generatedAt?: string;
+  classes: JavaImportHint[];
+}
+
+export type JavaMemberHintKind = "METHOD" | "FIELD";
+
+export interface JavaMemberHint {
+  name: string;
+  kind: JavaMemberHintKind;
+  staticMember?: boolean;
+  returnType?: string;
+  declaringClass?: string;
+  parameterTypes?: string[];
+  parameterNames?: string[];
+  displaySignature?: string;
+  insertText?: string;
+}
+
+export interface JavaMemberHintResponse {
+  environmentId?: EntityId;
+  environmentVersion?: number;
+  className?: string;
+  generatedAt?: string;
+  members: JavaMemberHint[];
 }
 
 export interface SqlStatementExecutionResult {

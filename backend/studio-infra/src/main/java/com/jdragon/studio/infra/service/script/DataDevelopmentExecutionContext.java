@@ -12,6 +12,7 @@ public class DataDevelopmentExecutionContext {
     private ScriptType scriptType;
     private Long datasourceId;
     private DataSourceDefinition datasource;
+    private Long environmentId;
     private String content;
     private Integer maxRows;
     private String tenantId;
@@ -57,6 +58,14 @@ public class DataDevelopmentExecutionContext {
 
     public void setDatasource(DataSourceDefinition datasource) {
         this.datasource = datasource;
+    }
+
+    public Long getEnvironmentId() {
+        return environmentId;
+    }
+
+    public void setEnvironmentId(Long environmentId) {
+        this.environmentId = environmentId;
     }
 
     public String getContent() {

@@ -52,6 +52,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id bigint");
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id bigint");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id bigint");
+        ensureColumn("data_dev_script", "environment_id", "alter table data_dev_script add column environment_id bigint");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type varchar(64)");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id bigint");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
@@ -375,10 +376,13 @@ public class StudioSchemaUpgradeService {
                     "file_name varchar(255)," +
                     "script_type varchar(64)," +
                     "datasource_id bigint," +
+                    "environment_id bigint," +
                     "description varchar(1000)," +
                     "content longtext" +
                     ")");
         }
+
+        ensureScriptEnvironmentTablesMysql();
 
         if (!tableExists("studio_tenant")) {
             jdbcTemplate.execute("create table studio_tenant (" +
@@ -575,6 +579,20 @@ public class StudioSchemaUpgradeService {
                 "alter table data_dev_script add key idx_data_dev_script_directory (directory_id)");
         ensureIndex("data_dev_script", "idx_data_dev_script_datasource",
                 "alter table data_dev_script add key idx_data_dev_script_datasource (datasource_id)");
+        ensureIndex("data_dev_script", "idx_data_dev_script_environment",
+                "alter table data_dev_script add key idx_data_dev_script_environment (environment_id)");
+        ensureIndex("so_pf_env_dep", "idx_so_pf_env_dep_tenant_enabled",
+                "alter table so_pf_env_dep add key idx_so_pf_env_dep_tenant_enabled (tenant_id, enabled)");
+        ensureIndex("so_pf_env_dep", "uk_so_pf_env_dep_name_ver",
+                "alter table so_pf_env_dep add unique key uk_so_pf_env_dep_name_ver (tenant_id, name, version)");
+        ensureIndex("so_pf_script_env", "uk_so_pf_script_env_code",
+                "alter table so_pf_script_env add unique key uk_so_pf_script_env_code (tenant_id, environment_code)");
+        ensureIndex("so_pf_script_env", "idx_so_pf_script_env_enabled",
+                "alter table so_pf_script_env add key idx_so_pf_script_env_enabled (tenant_id, enabled)");
+        ensureIndex("so_pf_env_dep_rel", "idx_so_pf_env_dep_rel_env",
+                "alter table so_pf_env_dep_rel add key idx_so_pf_env_dep_rel_env (environment_id, sort_order)");
+        ensureIndex("so_pf_env_dep_rel", "uk_so_pf_env_dep_rel",
+                "alter table so_pf_env_dep_rel add unique key uk_so_pf_env_dep_rel (environment_id, dependency_id)");
         ensureIndex("dispatch_task", "idx_dispatch_task_project_status",
                 "alter table dispatch_task add key idx_dispatch_task_project_status (project_id, status)");
         ensureIndex("dispatch_task", "idx_dispatch_task_project_workflow_run",
@@ -654,6 +672,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id integer");
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id integer");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id integer");
+        ensureColumn("data_dev_script", "environment_id", "alter table data_dev_script add column environment_id integer");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type text");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id integer");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
@@ -936,6 +955,7 @@ public class StudioSchemaUpgradeService {
                 "file_name text," +
                 "script_type text," +
                 "datasource_id integer," +
+                "environment_id integer," +
                 "description text," +
                 "content text" +
                 ")");
@@ -944,6 +964,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_project_directory on data_dev_script(project_id, directory_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_directory on data_dev_script(directory_id)");
         jdbcTemplate.execute("create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id)");
+        jdbcTemplate.execute("create index if not exists idx_data_dev_script_environment on data_dev_script(environment_id)");
+        ensureScriptEnvironmentTablesSqlite();
         jdbcTemplate.execute("create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name)");
         jdbcTemplate.execute("create index if not exists idx_datasource_definition_project on datasource_definition(project_id)");
         ensureDataModelNameUniqueIndexSqlite();
@@ -3126,6 +3148,110 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create unique index if not exists uk_protocol_conversion_access_counter on protocol_conversion_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success)");
         jdbcTemplate.execute("create index if not exists idx_protocol_conversion_counter_project_bucket on protocol_conversion_access_counter(tenant_id, project_id, bucket_start)");
         jdbcTemplate.execute("create index if not exists idx_protocol_conversion_counter_service_bucket on protocol_conversion_access_counter(service_id, bucket_start)");
+    }
+
+    private void ensureScriptEnvironmentTablesMysql() {
+        if (!tableExists("so_pf_env_dep")) {
+            jdbcTemplate.execute("create table so_pf_env_dep (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "name varchar(255) not null," +
+                    "version varchar(128)," +
+                    "artifact_url text," +
+                    "artifact_type varchar(32)," +
+                    "checksum varchar(128)," +
+                    "enabled int default 1," +
+                    "description text" +
+                    ")");
+        }
+        if (!tableExists("so_pf_script_env")) {
+            jdbcTemplate.execute("create table so_pf_script_env (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "environment_name varchar(255) not null," +
+                    "environment_code varchar(128) not null," +
+                    "enabled int default 1," +
+                    "use_application_parent int default 1," +
+                    "environment_version bigint default 1," +
+                    "description text" +
+                    ")");
+        }
+        if (!tableExists("so_pf_env_dep_rel")) {
+            jdbcTemplate.execute("create table so_pf_env_dep_rel (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "environment_id bigint not null," +
+                    "dependency_id bigint not null," +
+                    "sort_order int default 0" +
+                    ")");
+        }
+        ensureIndex("so_pf_env_dep", "idx_so_pf_env_dep_tenant_enabled",
+                "alter table so_pf_env_dep add key idx_so_pf_env_dep_tenant_enabled (tenant_id, enabled)");
+        ensureIndex("so_pf_env_dep", "uk_so_pf_env_dep_name_ver",
+                "alter table so_pf_env_dep add unique key uk_so_pf_env_dep_name_ver (tenant_id, name, version)");
+        ensureIndex("so_pf_script_env", "uk_so_pf_script_env_code",
+                "alter table so_pf_script_env add unique key uk_so_pf_script_env_code (tenant_id, environment_code)");
+        ensureIndex("so_pf_script_env", "idx_so_pf_script_env_enabled",
+                "alter table so_pf_script_env add key idx_so_pf_script_env_enabled (tenant_id, enabled)");
+        ensureIndex("so_pf_env_dep_rel", "idx_so_pf_env_dep_rel_env",
+                "alter table so_pf_env_dep_rel add key idx_so_pf_env_dep_rel_env (environment_id, sort_order)");
+        ensureIndex("so_pf_env_dep_rel", "uk_so_pf_env_dep_rel",
+                "alter table so_pf_env_dep_rel add unique key uk_so_pf_env_dep_rel (environment_id, dependency_id)");
+    }
+
+    private void ensureScriptEnvironmentTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists so_pf_env_dep (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "name text not null," +
+                "version text," +
+                "artifact_url text," +
+                "artifact_type text," +
+                "checksum text," +
+                "enabled integer default 1," +
+                "description text" +
+                ")");
+        jdbcTemplate.execute("create table if not exists so_pf_script_env (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "environment_name text not null," +
+                "environment_code text not null," +
+                "enabled integer default 1," +
+                "use_application_parent integer default 1," +
+                "environment_version integer default 1," +
+                "description text" +
+                ")");
+        jdbcTemplate.execute("create table if not exists so_pf_env_dep_rel (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "environment_id integer not null," +
+                "dependency_id integer not null," +
+                "sort_order integer default 0" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_tenant_enabled on so_pf_env_dep(tenant_id, enabled)");
+        jdbcTemplate.execute("create unique index if not exists uk_so_pf_env_dep_name_ver on so_pf_env_dep(tenant_id, name, version)");
+        jdbcTemplate.execute("create unique index if not exists uk_so_pf_script_env_code on so_pf_script_env(tenant_id, environment_code)");
+        jdbcTemplate.execute("create index if not exists idx_so_pf_script_env_enabled on so_pf_script_env(tenant_id, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_rel_env on so_pf_env_dep_rel(environment_id, sort_order)");
+        jdbcTemplate.execute("create unique index if not exists uk_so_pf_env_dep_rel on so_pf_env_dep_rel(environment_id, dependency_id)");
     }
 
     private void ensureClusterLockTableMysql() {

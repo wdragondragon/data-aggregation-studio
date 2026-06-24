@@ -19,6 +19,9 @@ public class DataScriptExecutionRequest {
     @Schema(description = "Datasource id, required for SQL script")
     private Long datasourceId;
 
+    @Schema(description = "Script environment id, required for Java script")
+    private Long environmentId;
+
     @NotBlank(message = "Script content is required")
     @Schema(description = "Script content", required = true)
     private String content;

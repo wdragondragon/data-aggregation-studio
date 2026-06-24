@@ -191,6 +191,11 @@ export const sharedMessages = {
           subtitle: "Organize SQL scripts in tenant-scoped directories, execute them and reuse them in workflows.",
           menuCaption: "Script directory and SQL execution",
         },
+        scriptEnvironments: {
+          title: "Script Environments",
+          subtitle: "Manage Java script environments, dependency packages and class loader policies.",
+          menuCaption: "Java environment and dependencies",
+        },
         dataServices: {
           title: "Data Services",
           subtitle: "Publish model tables or SELECT queries as subscribable APIs with debugging and token control.",
@@ -536,6 +541,11 @@ export const sharedMessages = {
           title: "数据开发",
           subtitle: "在租户目录下组织 SQL 脚本，直接执行并复用到工作流里。",
           menuCaption: "脚本目录与 SQL 开发",
+        },
+        scriptEnvironments: {
+          title: "运行环境管理",
+          subtitle: "管理 Java 脚本运行环境、依赖包和类加载策略。",
+          menuCaption: "Java 运行环境与依赖",
         },
         dataServices: {
           title: "数据服务",

@@ -46,7 +46,7 @@
                   {{ slotProps?.data?.permissionCode || t("common.none") }}
                 </span>
                 <span v-else>
-                  {{ formatScriptType(t, slotProps?.data?.scriptType) }} · {{ slotProps?.data?.datasourceName || t("common.none") }}
+                  {{ formatScriptType(t, slotProps?.data?.scriptType) }} · {{ formatScriptNodeMeta(slotProps?.data) }}
                 </span>
               </div>
               <el-tag
@@ -93,6 +93,16 @@
                 />
               </el-select>
             </el-form-item>
+            <el-form-item v-if="isJavaScriptType" :label="t('web.dataDevelopment.scriptEnvironment')">
+              <el-select v-model="scriptForm.environmentId" filterable :placeholder="t('web.dataDevelopment.scriptEnvironmentPlaceholder')">
+                <el-option
+                  v-for="environment in scriptEnvironments"
+                  :key="environment.id"
+                  :label="`${environment.environmentName} (${environment.environmentCode})`"
+                  :value="String(environment.id)"
+                />
+              </el-select>
+            </el-form-item>
             <el-form-item :label="t('web.dataDevelopment.scriptDescription')" class="span-2">
               <el-input v-model="scriptForm.description" />
             </el-form-item>
@@ -113,6 +123,8 @@
               :script-type="scriptForm.scriptType"
               :placeholder="t('web.dataDevelopment.contentPlaceholder')"
               :sql-hints="currentSqlHints"
+              :java-hint-source="javaHintSource"
+              :java-hint-key="javaHintKey"
             />
           </el-form-item>
 
@@ -257,6 +269,7 @@ import type {
   DataDevelopmentTreeNode,
   DataSourceDefinition,
   EntityId,
+  ScriptEnvironment,
   SqlExecutionResult,
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
@@ -265,15 +278,17 @@ import { useAuthStore } from "@/stores/auth";
 import { formatScriptType, formatStatusLabel, isSharedFromAnotherProject, prettyJson, resolveProjectName, sameEntityId } from "@/utils/studio";
 import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.vue";
 import { defaultJavaTemplate, defaultPythonTemplate, normalizeEntityId, requireEntityId } from "../components/data-development/dataDevelopmentViewSupport";
-import type { SqlEditorHintSource } from "../components/data-development/editorTypes";
+import type { JavaEditorHintSource, SqlEditorHintSource } from "../components/data-development/editorTypes";
 import { resolveScriptEditorEntry } from "../components/data-development/scriptEditorRegistry";
 
 const { t } = useI18n();
 const authStore = useAuthStore();
+const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 
 const treeData = ref<DataDevelopmentTreeNode[]>([]);
 const directories = ref<DataDevelopmentDirectory[]>([]);
 const sqlDatasources = ref<DataSourceDefinition[]>([]);
+const scriptEnvironments = ref<ScriptEnvironment[]>([]);
 const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
 const executionResult = ref<DataScriptExecutionResult | null>(null);
@@ -301,6 +316,8 @@ const scriptForm = reactive<DataDevelopmentScript>({
   fileName: "",
   scriptType: "SQL",
   datasourceId: "",
+  environmentId: undefined,
+  environmentName: undefined,
   description: "",
   content: "",
 });
@@ -346,6 +363,13 @@ const currentSqlHints = computed<SqlEditorHintSource | undefined>(() => {
   }
   return sqlHintCache.value[String(scriptForm.datasourceId)];
 });
+const DEFAULT_SCRIPT_ENVIRONMENT_CODE = "default-application";
+const defaultScriptEnvironmentId = computed(() => {
+  const enabledEnvironments = scriptEnvironments.value.filter((item) => item.enabled !== false);
+  return enabledEnvironments.find((item) => item.environmentCode === DEFAULT_SCRIPT_ENVIRONMENT_CODE)?.id
+    ?? enabledEnvironments[0]?.id;
+});
+const javaHintKey = computed(() => `${scriptForm.scriptType}:${scriptForm.environmentId ?? defaultScriptEnvironmentId.value ?? "default"}`);
 const sqlExecutionResult = computed<SqlExecutionResult | null>(() => executionResult.value?.sqlResult ?? null);
 const executionResults = computed<SqlStatementExecutionResult[]>(() => {
   return sqlExecutionResult.value?.results?.length
@@ -404,10 +428,11 @@ async function refreshAll() {
     return;
   }
   try {
-    const [tree, directoryList, datasourceList] = await Promise.all([
+    const [tree, directoryList, datasourceList, environmentList] = await Promise.all([
       studioApi.dataDevelopment.tree(),
       studioApi.dataDevelopment.listDirectories(),
       studioApi.dataDevelopment.listSqlDatasources(),
+      studioApi.scriptEnvironments.options({ enabledOnly: true }),
     ]);
     if (currentRefreshToken !== refreshToken.value) {
       return;
@@ -415,6 +440,8 @@ async function refreshAll() {
     treeData.value = tree;
     directories.value = directoryList;
     sqlDatasources.value = datasourceList;
+    scriptEnvironments.value = environmentList;
+    ensureJavaEnvironmentSelected();
     if (selectedTreeNode.value) {
       synchronizeSelection();
     }
@@ -427,6 +454,7 @@ function resetProjectScopedState() {
   treeData.value = [];
   directories.value = [];
   sqlDatasources.value = [];
+  scriptEnvironments.value = [];
   sqlHintCache.value = {};
   selectedTreeNode.value = null;
   selectedDirectory.value = null;
@@ -443,6 +471,8 @@ function resetProjectScopedState() {
   scriptForm.datasourceId = "";
   scriptForm.datasourceName = undefined;
   scriptForm.datasourceTypeCode = undefined;
+  scriptForm.environmentId = undefined;
+  scriptForm.environmentName = undefined;
   scriptForm.description = "";
   scriptForm.content = "";
   scriptExecutionArgumentsText.value = "{\n  \n}";
@@ -506,8 +536,11 @@ async function loadScript(scriptId: string | number | undefined) {
   scriptForm.datasourceId = script.datasourceId;
   scriptForm.datasourceName = script.datasourceName;
   scriptForm.datasourceTypeCode = script.datasourceTypeCode;
+  scriptForm.environmentId = script.environmentId;
+  scriptForm.environmentName = script.environmentName;
   scriptForm.description = script.description;
   scriptForm.content = script.content;
+  ensureJavaEnvironmentSelected();
   scriptExecutionArgumentsText.value = "{\n  \n}";
   await ensureSqlHintsLoaded(script.datasourceId);
 }
@@ -523,6 +556,8 @@ function createNewScript() {
   scriptForm.datasourceId = "";
   scriptForm.datasourceName = undefined;
   scriptForm.datasourceTypeCode = undefined;
+  scriptForm.environmentId = undefined;
+  scriptForm.environmentName = undefined;
   scriptForm.description = "";
   scriptForm.content = "";
   scriptExecutionArgumentsText.value = "{\n  \n}";
@@ -567,11 +602,14 @@ async function saveScript() {
       datasourceId: currentScriptRegistryEntry.value.requiresDatasource
         ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
         : undefined,
+      environmentId: isJavaScriptType.value ? resolveJavaEnvironmentId() : undefined,
       description: scriptForm.description,
       content: scriptForm.content,
     });
     scriptForm.id = saved.id;
     scriptForm.projectId = saved.projectId;
+    scriptForm.environmentId = saved.environmentId;
+    scriptForm.environmentName = saved.environmentName;
     selectedTreeNode.value = saved.id
       ? {
           nodeKey: `script-${saved.id}`,
@@ -580,6 +618,8 @@ async function saveScript() {
           directoryId: saved.directoryId,
           projectId: saved.projectId,
           name: saved.fileName,
+          environmentId: saved.environmentId,
+          environmentName: saved.environmentName,
           children: [],
         }
       : selectedTreeNode.value;
@@ -601,6 +641,7 @@ async function executeCurrentScript() {
       datasourceId: currentScriptRegistryEntry.value.requiresDatasource
         ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
         : undefined,
+      environmentId: isJavaScriptType.value ? resolveJavaEnvironmentId() : undefined,
       content: scriptForm.content,
       arguments: supportsExecutionArguments.value ? parseScriptExecutionArguments() : undefined,
       maxRows: 100,
@@ -781,6 +822,63 @@ function isSharedScriptNode(node?: DataDevelopmentTreeNode | null) {
   return isSharedFromAnotherProject(authStore.currentProjectId, node.projectId);
 }
 
+function formatScriptNodeMeta(node?: DataDevelopmentTreeNode | null) {
+  if (!node || node.nodeType !== "SCRIPT") {
+    return t("common.none");
+  }
+  if (node.scriptType === "JAVA") {
+    return node.environmentName || t("web.dataDevelopment.scriptEnvironmentPlaceholder");
+  }
+  return node.datasourceName || t("common.none");
+}
+
+function ensureJavaEnvironmentSelected() {
+  if (!isJavaScriptType.value || scriptForm.environmentId) {
+    return;
+  }
+  scriptForm.environmentId = defaultScriptEnvironmentId.value;
+}
+
+function resolveJavaEnvironmentId() {
+  ensureJavaEnvironmentSelected();
+  return normalizeEntityId(scriptForm.environmentId ?? defaultScriptEnvironmentId.value);
+}
+
+const javaHintSource: JavaEditorHintSource = {
+  async loadImports(keyword, limit) {
+    if (!isJavaScriptType.value) {
+      return [];
+    }
+    try {
+      const response = await studioApi.dataDevelopment.javaImportHints({
+        environmentId: resolveJavaEnvironmentId(),
+        keyword,
+        limit,
+      }, LOCAL_LOADING_REQUEST);
+      return response.classes ?? [];
+    } catch {
+      return [];
+    }
+  },
+  async loadMembers(className, keyword, staticOnly, limit) {
+    if (!isJavaScriptType.value || !className) {
+      return [];
+    }
+    try {
+      const response = await studioApi.dataDevelopment.javaMemberHints({
+        environmentId: resolveJavaEnvironmentId(),
+        className,
+        keyword,
+        staticOnly,
+        limit,
+      }, LOCAL_LOADING_REQUEST);
+      return response.members ?? [];
+    } catch {
+      return [];
+    }
+  },
+};
+
 function resolveSelectedWritableDirectoryId() {
   const directoryId = selectedTreeNode.value?.nodeType === "DIRECTORY"
     ? selectedTreeNode.value.directoryId
@@ -814,13 +912,26 @@ watch(
       scriptForm.datasourceName = undefined;
       scriptForm.datasourceTypeCode = undefined;
     }
+    if (scriptType !== "JAVA") {
+      scriptForm.environmentId = undefined;
+      scriptForm.environmentName = undefined;
+    }
     if (scriptType === "JAVA" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
+      ensureJavaEnvironmentSelected();
       scriptForm.content = defaultJavaTemplate();
     }
     if (scriptType === "PYTHON" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
       scriptForm.content = defaultPythonTemplate();
     }
   },
+);
+
+watch(
+  () => scriptEnvironments.value,
+  () => {
+    ensureJavaEnvironmentSelected();
+  },
+  { deep: true },
 );
 
 watch(

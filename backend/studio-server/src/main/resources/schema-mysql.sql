@@ -1288,11 +1288,59 @@ create table if not exists data_dev_script (
     file_name varchar(255),
     script_type varchar(64),
     datasource_id bigint,
+    environment_id bigint,
     description varchar(1000),
     content longtext,
     key idx_data_dev_script_project_directory (project_id, directory_id),
     key idx_data_dev_script_directory (directory_id),
-    key idx_data_dev_script_datasource (datasource_id)
+    key idx_data_dev_script_datasource (datasource_id),
+    key idx_data_dev_script_environment (environment_id)
+);
+
+create table if not exists so_pf_env_dep (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    name varchar(255) not null,
+    version varchar(128),
+    artifact_url text,
+    artifact_type varchar(32),
+    checksum varchar(128),
+    enabled int default 1,
+    description text,
+    key idx_so_pf_env_dep_tenant_enabled (tenant_id, enabled),
+    unique key uk_so_pf_env_dep_name_ver (tenant_id, name, version)
+);
+
+create table if not exists so_pf_script_env (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    environment_name varchar(255) not null,
+    environment_code varchar(128) not null,
+    enabled int default 1,
+    use_application_parent int default 1,
+    environment_version bigint default 1,
+    description text,
+    unique key uk_so_pf_script_env_code (tenant_id, environment_code),
+    key idx_so_pf_script_env_enabled (tenant_id, enabled)
+);
+
+create table if not exists so_pf_env_dep_rel (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    environment_id bigint not null,
+    dependency_id bigint not null,
+    sort_order int default 0,
+    key idx_so_pf_env_dep_rel_env (environment_id, sort_order),
+    unique key uk_so_pf_env_dep_rel (environment_id, dependency_id)
 );
 
 create table if not exists dispatch_task (
