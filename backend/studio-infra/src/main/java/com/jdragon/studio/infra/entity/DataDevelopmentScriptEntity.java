@@ -12,6 +12,7 @@ public class DataDevelopmentScriptEntity extends BaseProjectTenantEntity {
     private String fileName;
     private String scriptType;
     private Long datasourceId;
+    private Long environmentId;
     private String description;
     private String content;
 }

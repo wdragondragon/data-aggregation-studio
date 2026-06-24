@@ -13,6 +13,8 @@ public class DataDevelopmentScriptView extends BaseDefinition {
     private Long datasourceId;
     private String datasourceName;
     private String datasourceTypeCode;
+    private Long environmentId;
+    private String environmentName;
     private String description;
     private String content;
 }

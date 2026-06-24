@@ -951,6 +951,7 @@ create table if not exists data_dev_script (
     file_name text,
     script_type text,
     datasource_id integer,
+    environment_id integer,
     description text,
     content text
 );
@@ -960,6 +961,53 @@ create index if not exists idx_data_dev_directory_parent on data_dev_directory(p
 create index if not exists idx_data_dev_script_project_directory on data_dev_script(project_id, directory_id);
 create index if not exists idx_data_dev_script_directory on data_dev_script(directory_id);
 create index if not exists idx_data_dev_script_datasource on data_dev_script(datasource_id);
+create index if not exists idx_data_dev_script_environment on data_dev_script(environment_id);
+
+create table if not exists so_pf_env_dep (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    name text not null,
+    version text,
+    artifact_url text,
+    artifact_type text,
+    checksum text,
+    enabled integer default 1,
+    description text
+);
+create index if not exists idx_so_pf_env_dep_tenant_enabled on so_pf_env_dep(tenant_id, enabled);
+create unique index if not exists uk_so_pf_env_dep_name_ver on so_pf_env_dep(tenant_id, name, version);
+
+create table if not exists so_pf_script_env (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    environment_name text not null,
+    environment_code text not null,
+    enabled integer default 1,
+    use_application_parent integer default 1,
+    environment_version integer default 1,
+    description text
+);
+create unique index if not exists uk_so_pf_script_env_code on so_pf_script_env(tenant_id, environment_code);
+create index if not exists idx_so_pf_script_env_enabled on so_pf_script_env(tenant_id, enabled);
+
+create table if not exists so_pf_env_dep_rel (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    environment_id integer not null,
+    dependency_id integer not null,
+    sort_order integer default 0
+);
+create index if not exists idx_so_pf_env_dep_rel_env on so_pf_env_dep_rel(environment_id, sort_order);
+create unique index if not exists uk_so_pf_env_dep_rel on so_pf_env_dep_rel(environment_id, dependency_id);
 
 create table if not exists dispatch_task (
     id integer primary key,

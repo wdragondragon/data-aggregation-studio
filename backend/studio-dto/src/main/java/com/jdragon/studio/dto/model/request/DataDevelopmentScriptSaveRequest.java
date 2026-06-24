@@ -27,6 +27,9 @@ public class DataDevelopmentScriptSaveRequest {
     @Schema(description = "Datasource id, required for SQL script")
     private Long datasourceId;
 
+    @Schema(description = "Script environment id, required for Java script")
+    private Long environmentId;
+
     @Schema(description = "Description")
     private String description;
 

@@ -6,6 +6,8 @@ import com.jdragon.studio.dto.model.DataDevelopmentDirectoryView;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
+import com.jdragon.studio.dto.model.JavaImportHintResponse;
+import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
@@ -115,6 +117,24 @@ public class DataDevelopmentController {
     @GetMapping("/datasource-types")
     public Result<List<String>> datasourceTypes() {
         return Result.success(dataDevelopmentService.listSqlDatasourceTypes());
+    }
+
+    @Operation(summary = "List Java import hints")
+    @GetMapping("/java/import-hints")
+    public Result<JavaImportHintResponse> javaImportHints(@RequestParam(value = "environmentId", required = false) Long environmentId,
+                                                          @RequestParam(value = "keyword", required = false) String keyword,
+                                                          @RequestParam(value = "limit", required = false) Integer limit) {
+        return Result.success(dataDevelopmentService.javaImportHints(environmentId, keyword, limit));
+    }
+
+    @Operation(summary = "List Java member hints")
+    @GetMapping("/java/member-hints")
+    public Result<JavaMemberHintResponse> javaMemberHints(@RequestParam(value = "environmentId", required = false) Long environmentId,
+                                                          @RequestParam("className") String className,
+                                                          @RequestParam(value = "keyword", required = false) String keyword,
+                                                          @RequestParam(value = "staticOnly", required = false) Boolean staticOnly,
+                                                          @RequestParam(value = "limit", required = false) Integer limit) {
+        return Result.success(dataDevelopmentService.javaMemberHints(environmentId, className, keyword, staticOnly, limit));
     }
 
     @Operation(summary = "Execute script in editor")

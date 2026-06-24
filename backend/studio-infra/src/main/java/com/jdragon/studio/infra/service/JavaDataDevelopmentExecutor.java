@@ -35,13 +35,16 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final ScriptEnvironmentRuntimeService environmentRuntimeService;
 
     public JavaDataDevelopmentExecutor(DataSourceService dataSourceService,
                                        DataModelService dataModelService,
-                                       DataDevelopmentSqlExecutor sqlExecutor) {
+                                       DataDevelopmentSqlExecutor sqlExecutor,
+                                       ScriptEnvironmentRuntimeService environmentRuntimeService) {
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.sqlExecutor = sqlExecutor;
+        this.environmentRuntimeService = environmentRuntimeService;
     }
 
     @Override
@@ -104,7 +107,8 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
         if (source.isEmpty()) {
             throw new IllegalArgumentException("Java script content is empty");
         }
-        String cacheKey = buildCacheKey(context.getScriptId(), source);
+        ScriptEnvironmentRuntimeService.RuntimeClassLoaderHolder runtime = environmentRuntimeService.resolveRuntime(context.getEnvironmentId());
+        String cacheKey = buildCacheKey(context.getScriptId(), runtime.getEnvironmentId(), runtime.getEnvironmentVersion(), source);
         Class<? extends JavaDataScript> cached = COMPILED_CACHE.get(cacheKey);
         if (cached != null) {
             return cached;
@@ -112,6 +116,7 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
 
         String fqcn = resolveClassName(source);
         SimpleCompiler compiler = new SimpleCompiler();
+        compiler.setParentClassLoader(runtime.getClassLoader());
         compiler.cook(source);
         Class<?> loadedClass = compiler.getClassLoader().loadClass(fqcn);
         if (!JavaDataScript.class.isAssignableFrom(loadedClass)) {
@@ -135,15 +140,21 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
         return className;
     }
 
-    private String buildCacheKey(Long scriptId, String source) throws Exception {
+    private String buildCacheKey(Long scriptId, Long environmentId, Long environmentVersion, String source) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         byte[] hash = digest.digest(source.getBytes("UTF-8"));
         StringBuilder builder = new StringBuilder();
         builder.append(scriptId == null ? "adhoc" : String.valueOf(scriptId)).append(':');
+        builder.append(environmentId == null ? "default" : String.valueOf(environmentId)).append(':');
+        builder.append(environmentVersion == null ? "0" : String.valueOf(environmentVersion)).append(':');
         for (byte item : hash) {
             builder.append(String.format(Locale.ENGLISH, "%02x", item));
         }
         return builder.toString();
+    }
+
+    public static void clearCompiledCache() {
+        COMPILED_CACHE.clear();
     }
 
     private String stackTraceOf(Throwable throwable) {

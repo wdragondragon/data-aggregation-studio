@@ -97,6 +97,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     captionKey: "routes.web.menuGroups.administration.caption",
     items: [
       { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN"] },
+      { path: "/script-environments", labelKey: "routes.web.scriptEnvironments.title", captionKey: "routes.web.scriptEnvironments.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN", "ADMIN"] },
     ],
   },
   {
@@ -280,6 +281,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.dataDevelopment.title",
           subtitleKey: "routes.web.dataDevelopment.subtitle",
+        },
+      },
+      {
+        path: "/script-environments",
+        name: "script-environments",
+        component: () => import("@/views/ScriptEnvironmentsView.vue"),
+        meta: {
+          titleKey: "routes.web.scriptEnvironments.title",
+          subtitleKey: "routes.web.scriptEnvironments.subtitle",
         },
       },
       {

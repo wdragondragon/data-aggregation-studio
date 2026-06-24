@@ -16,6 +16,8 @@ import type {
   DataDevelopmentScript,
   DataDevelopmentScriptSaveRequest,
   DataDevelopmentTreeNode,
+  EnvironmentDependency,
+  EnvironmentDependencySaveRequest,
   DataModelDefinition,
   DataModelLineageEdgeDetailView,
   DataModelLineageLevel,
@@ -63,6 +65,8 @@ import type {
   FollowRequest,
   FollowStatusView,
   JobContainerConfig,
+  JavaImportHintResponse,
+  JavaMemberHintResponse,
   LoginRequest,
   LoginResponse,
   MetadataSchemaDefinition,
@@ -127,6 +131,8 @@ import type {
   RunLogView,
   RunRecord,
   ScriptType,
+  ScriptEnvironment,
+  ScriptEnvironmentSaveRequest,
   SqlExecutionRequest,
   SqlExecutionResult,
   SystemProject,
@@ -1139,6 +1145,58 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}/comment`, method: "POST", data: payload });
       },
     },
+    environmentDependencies: {
+      queryPage(params?: { pageNum?: number; pageSize?: number; keyword?: string; enabled?: boolean }) {
+        return requestPage<EnvironmentDependency>(
+          { url: "/environment-dependencies/queryPage", method: "POST", params },
+          { pageNo: params?.pageNum, pageSize: params?.pageSize },
+        );
+      },
+      options(params?: { enabledOnly?: boolean }) {
+        return request<EnvironmentDependency[]>({ url: "/environment-dependencies/options", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<EnvironmentDependency>({ url: `/environment-dependencies/${id}`, method: "GET" });
+      },
+      saveOrUpdateCheck(payload: EnvironmentDependencySaveRequest) {
+        return request<EnvironmentDependency>({ url: "/environment-dependencies/saveOrUpdateCheck", method: "POST", data: payload });
+      },
+      enable(id: EntityId) {
+        return request<EnvironmentDependency>({ url: `/environment-dependencies/${id}/enable`, method: "POST" });
+      },
+      disable(id: EntityId) {
+        return request<EnvironmentDependency>({ url: `/environment-dependencies/${id}/disable`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/environment-dependencies/${id}`, method: "DELETE" });
+      },
+    },
+    scriptEnvironments: {
+      queryPage(params?: { pageNum?: number; pageSize?: number; keyword?: string; enabled?: boolean }) {
+        return requestPage<ScriptEnvironment>(
+          { url: "/script-environments/queryPage", method: "POST", params },
+          { pageNo: params?.pageNum, pageSize: params?.pageSize },
+        );
+      },
+      options(params?: { enabledOnly?: boolean }) {
+        return request<ScriptEnvironment[]>({ url: "/script-environments/options", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<ScriptEnvironment>({ url: `/script-environments/${id}`, method: "GET" });
+      },
+      saveOrUpdateCheck(payload: ScriptEnvironmentSaveRequest) {
+        return request<ScriptEnvironment>({ url: "/script-environments/saveOrUpdateCheck", method: "POST", data: payload });
+      },
+      enable(id: EntityId) {
+        return request<ScriptEnvironment>({ url: `/script-environments/${id}/enable`, method: "POST" });
+      },
+      disable(id: EntityId) {
+        return request<ScriptEnvironment>({ url: `/script-environments/${id}/disable`, method: "POST" });
+      },
+      refresh(id: EntityId) {
+        return request<ScriptEnvironment>({ url: `/script-environments/${id}/refresh`, method: "POST" });
+      },
+    },
     dataDevelopment: {
       tree() {
         return request<DataDevelopmentTreeNode[]>({ url: "/data-development/tree", method: "GET" });
@@ -1186,6 +1244,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       executeScript(payload: DataScriptExecutionRequest) {
         return request<DataScriptExecutionResult>({ url: "/data-development/scripts/execute", method: "POST", data: payload });
+      },
+      javaImportHints(params?: { environmentId?: EntityId; keyword?: string; limit?: number }, config?: StudioRequestConfig) {
+        return request<JavaImportHintResponse>({ ...config, url: "/data-development/java/import-hints", method: "GET", params });
+      },
+      javaMemberHints(params: { environmentId?: EntityId; className: string; keyword?: string; staticOnly?: boolean; limit?: number }, config?: StudioRequestConfig) {
+        return request<JavaMemberHintResponse>({ ...config, url: "/data-development/java/member-hints", method: "GET", params });
       },
     },
     schedules: {

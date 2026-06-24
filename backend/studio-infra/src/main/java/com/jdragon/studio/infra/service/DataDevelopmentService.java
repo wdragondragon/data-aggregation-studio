@@ -10,6 +10,8 @@ import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.JavaImportHintResponse;
+import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
@@ -44,6 +46,8 @@ public class DataDevelopmentService {
     private final DataDevelopmentSqlExecutor sqlExecutor;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final ScriptEnvironmentService scriptEnvironmentService;
+    private final ScriptEnvironmentRuntimeService scriptEnvironmentRuntimeService;
     private final Map<ScriptType, DataDevelopmentScriptExecutor> scriptExecutors;
 
     public DataDevelopmentService(DataDevelopmentDirectoryMapper directoryMapper,
@@ -52,6 +56,8 @@ public class DataDevelopmentService {
                                   DataDevelopmentSqlExecutor sqlExecutor,
                                   StudioSecurityService securityService,
                                   ProjectResourceAccessService projectResourceAccessService,
+                                  ScriptEnvironmentService scriptEnvironmentService,
+                                  ScriptEnvironmentRuntimeService scriptEnvironmentRuntimeService,
                                   List<DataDevelopmentScriptExecutor> scriptExecutors) {
         this.directoryMapper = directoryMapper;
         this.scriptMapper = scriptMapper;
@@ -59,6 +65,8 @@ public class DataDevelopmentService {
         this.sqlExecutor = sqlExecutor;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.scriptEnvironmentService = scriptEnvironmentService;
+        this.scriptEnvironmentRuntimeService = scriptEnvironmentRuntimeService;
         this.scriptExecutors = new HashMap<ScriptType, DataDevelopmentScriptExecutor>();
         if (scriptExecutors != null) {
             for (DataDevelopmentScriptExecutor executor : scriptExecutors) {
@@ -106,6 +114,14 @@ public class DataDevelopmentService {
 
     public List<String> listSqlDatasourceTypes() {
         return new ArrayList<String>(sqlExecutor.supportedDatasourceTypes());
+    }
+
+    public JavaImportHintResponse javaImportHints(Long environmentId, String keyword, Integer limit) {
+        return scriptEnvironmentRuntimeService.importHints(environmentId, keyword, limit);
+    }
+
+    public JavaMemberHintResponse javaMemberHints(Long environmentId, String className, String keyword, Boolean staticOnly, Integer limit) {
+        return scriptEnvironmentRuntimeService.memberHints(environmentId, className, keyword, staticOnly, limit);
     }
 
     public DataDevelopmentScriptView getScript(Long scriptId) {
@@ -188,6 +204,7 @@ public class DataDevelopmentService {
         entity.setFileName(request.getFileName().trim());
         entity.setScriptType(request.getScriptType().name());
         entity.setDatasourceId(datasource == null ? null : datasource.getId());
+        entity.setEnvironmentId(resolveScriptEnvironmentId(request.getScriptType(), request.getEnvironmentId()));
         entity.setDescription(blankToNull(request.getDescription()));
         entity.setContent(request.getContent());
         if (entity.getId() == null) {
@@ -232,6 +249,7 @@ public class DataDevelopmentService {
         context.setContent(request.getContent());
         context.setDatasourceId(request.getDatasourceId());
         context.setDatasource(resolveScriptDatasource(request.getScriptType(), request.getDatasourceId()));
+        context.setEnvironmentId(resolveScriptEnvironmentId(request.getScriptType(), request.getEnvironmentId()));
         context.setMaxRows(request.getMaxRows());
         context.setTenantId(securityService.currentTenantId());
         context.setUsername(securityService.currentUsername());
@@ -254,6 +272,7 @@ public class DataDevelopmentService {
         context.setContent(script.getContent());
         context.setDatasourceId(script.getDatasourceId());
         context.setDatasource(resolveScriptDatasource(scriptType, script.getDatasourceId()));
+        context.setEnvironmentId(resolveScriptEnvironmentId(scriptType, script.getEnvironmentId()));
         context.setMaxRows(maxRows);
         context.setTenantId(script.getTenantId());
         context.setUsername(resolveExecutionUsername(runtimeContext));
@@ -374,6 +393,11 @@ public class DataDevelopmentService {
             node.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
             DataSourceDefinition datasource = safeResolveScriptDatasource(entity.getDatasourceId());
             node.setDatasourceName(datasource == null ? null : datasource.getName());
+            if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
+                ScriptEnvironmentEntityView environment = safeResolveEnvironment(entity.getEnvironmentId());
+                node.setEnvironmentId(environment == null ? null : environment.id);
+                node.setEnvironmentName(environment == null ? null : environment.name);
+            }
             if (entity.getDirectoryId() != null && directoryNodes.containsKey(entity.getDirectoryId())) {
                 directoryNodes.get(entity.getDirectoryId()).getChildren().add(node);
             } else {
@@ -523,9 +547,30 @@ public class DataDevelopmentService {
             view.setDatasourceName(datasource.getName());
             view.setDatasourceTypeCode(datasource.getTypeCode());
         }
+        if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
+            ScriptEnvironmentEntityView environment = safeResolveEnvironment(entity.getEnvironmentId());
+            view.setEnvironmentId(environment == null ? null : environment.id);
+            view.setEnvironmentName(environment == null ? null : environment.name);
+        }
         view.setDescription(entity.getDescription());
         view.setContent(entity.getContent());
         return view;
+    }
+
+    private Long resolveScriptEnvironmentId(ScriptType scriptType, Long environmentId) {
+        if (scriptType != ScriptType.JAVA) {
+            return null;
+        }
+        return scriptEnvironmentService.requireEnabledEnvironment(environmentId).getId();
+    }
+
+    private ScriptEnvironmentEntityView safeResolveEnvironment(Long environmentId) {
+        try {
+            com.jdragon.studio.infra.entity.ScriptEnvironmentEntity entity = scriptEnvironmentService.requireEnabledEnvironment(environmentId);
+            return new ScriptEnvironmentEntityView(entity.getId(), entity.getEnvironmentName());
+        } catch (RuntimeException exception) {
+            return null;
+        }
     }
 
     private DataSourceDefinition safeResolveScriptDatasource(Long datasourceId) {
@@ -598,5 +643,15 @@ public class DataDevelopmentService {
             return null;
         }
         return value.trim();
+    }
+
+    private static final class ScriptEnvironmentEntityView {
+        private final Long id;
+        private final String name;
+
+        private ScriptEnvironmentEntityView(Long id, String name) {
+            this.id = id;
+            this.name = name;
+        }
     }
 }

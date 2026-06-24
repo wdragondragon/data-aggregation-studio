@@ -18,5 +18,7 @@ public class DataDevelopmentTreeNode {
     private String permissionCode;
     private ScriptType scriptType;
     private String datasourceName;
+    private Long environmentId;
+    private String environmentName;
     private List<DataDevelopmentTreeNode> children = new ArrayList<DataDevelopmentTreeNode>();
 }
