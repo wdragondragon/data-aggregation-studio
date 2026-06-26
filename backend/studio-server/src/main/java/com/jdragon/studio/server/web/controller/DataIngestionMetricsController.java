@@ -1,7 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
-import com.jdragon.studio.dto.model.DataIngestionAccessLogView;
+import com.jdragon.studio.dto.model.DataIngestionAccessLogListView;
 import com.jdragon.studio.dto.model.DataIngestionApiMetricView;
 import com.jdragon.studio.dto.model.DataIngestionMetricDashboardView;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionsView;
@@ -40,7 +40,7 @@ public class DataIngestionMetricsController {
     }
 
     @PostMapping("/access-logs/query")
-    public Result<PageView<DataIngestionAccessLogView>> queryAccessLogs(@RequestBody(required = false) DataIngestionMetricQueryRequest request) {
+    public Result<PageView<DataIngestionAccessLogListView>> queryAccessLogs(@RequestBody(required = false) DataIngestionMetricQueryRequest request) {
         return Result.success(dataIngestionMetricsService.queryAccessLogs(request));
     }
 }

@@ -2,7 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.jdragon.studio.dto.model.DataIngestionAccessLogView;
+import com.jdragon.studio.dto.model.DataIngestionAccessLogListView;
 import com.jdragon.studio.dto.model.DataIngestionApiMetricView;
 import com.jdragon.studio.dto.model.DataIngestionMetricDashboardView;
 import com.jdragon.studio.dto.model.DataIngestionMetricSummaryView;
@@ -75,6 +75,12 @@ public class DataIngestionMetricsService {
         }
         String tenantId = securityService.currentTenantId();
         List<DataIngestionServiceEntity> services = serviceMapper.selectList(new LambdaQueryWrapper<DataIngestionServiceEntity>()
+                .select(DataIngestionServiceEntity::getId,
+                        DataIngestionServiceEntity::getServiceCode,
+                        DataIngestionServiceEntity::getServiceName,
+                        DataIngestionServiceEntity::getStatus,
+                        DataIngestionServiceEntity::getTokenRequired,
+                        DataIngestionServiceEntity::getDefaultSubscriptionName)
                 .eq(DataIngestionServiceEntity::getTenantId, tenantId)
                 .eq(DataIngestionServiceEntity::getProjectId, projectId)
                 .orderByAsc(DataIngestionServiceEntity::getServiceName)
@@ -103,6 +109,10 @@ public class DataIngestionMetricsService {
             return view;
         }
         List<DataIngestionSubscriptionEntity> subscriptions = subscriptionMapper.selectList(new LambdaQueryWrapper<DataIngestionSubscriptionEntity>()
+                .select(DataIngestionSubscriptionEntity::getId,
+                        DataIngestionSubscriptionEntity::getServiceId,
+                        DataIngestionSubscriptionEntity::getSubscriptionName,
+                        DataIngestionSubscriptionEntity::getEnabled)
                 .in(DataIngestionSubscriptionEntity::getServiceId, serviceIds)
                 .orderByAsc(DataIngestionSubscriptionEntity::getSubscriptionName)
                 .orderByDesc(DataIngestionSubscriptionEntity::getId));
@@ -161,19 +171,19 @@ public class DataIngestionMetricsService {
         return metricViewSupport.pageList(metrics, context.pageNo, context.pageSize);
     }
 
-    public PageView<DataIngestionAccessLogView> queryAccessLogs(DataIngestionMetricQueryRequest request) {
+    public PageView<DataIngestionAccessLogListView> queryAccessLogs(DataIngestionMetricQueryRequest request) {
         DataIngestionMetricQueryRequest safeRequest = request == null ? new DataIngestionMetricQueryRequest() : request;
         MetricContext context = loadContext(safeRequest, true);
         if (context.serviceIds.isEmpty()) {
-            return PageView.of(context.pageNo, context.pageSize, 0L, new ArrayList<DataIngestionAccessLogView>());
+            return PageView.of(context.pageNo, context.pageSize, 0L, new ArrayList<DataIngestionAccessLogListView>());
         }
         Page<DataIngestionAccessLogEntity> page = new Page<DataIngestionAccessLogEntity>(context.pageNo, context.pageSize);
-        Page<DataIngestionAccessLogEntity> entityPage = accessLogMapper.selectPage(page, baseLogQuery(safeRequest, context)
+        Page<DataIngestionAccessLogEntity> entityPage = accessLogMapper.selectPage(page, accessLogListQuery(safeRequest, context)
                 .orderByDesc(DataIngestionAccessLogEntity::getOccurredAt)
                 .orderByDesc(DataIngestionAccessLogEntity::getId));
-        List<DataIngestionAccessLogView> items = new ArrayList<DataIngestionAccessLogView>();
+        List<DataIngestionAccessLogListView> items = new ArrayList<DataIngestionAccessLogListView>();
         for (DataIngestionAccessLogEntity entity : entityPage.getRecords()) {
-            items.add(metricViewSupport.toAccessLogView(entity));
+            items.add(metricViewSupport.toAccessLogListView(entity));
         }
         return PageView.of(context.pageNo, context.pageSize, entityPage.getTotal(), items);
     }
@@ -212,7 +222,7 @@ public class DataIngestionMetricsService {
                     subscriptionId, successFilter, context.startTime, context.endTime));
         }
         if (!skipLogList && !context.serviceIds.isEmpty()) {
-            context.logs.addAll(accessLogMapper.selectList(baseLogQuery(safeRequest, context)
+            context.logs.addAll(accessLogMapper.selectList(metricLogQuery(safeRequest, context)
                     .orderByAsc(DataIngestionAccessLogEntity::getOccurredAt)
                     .orderByAsc(DataIngestionAccessLogEntity::getId)));
         }
@@ -224,6 +234,10 @@ public class DataIngestionMetricsService {
             return new ArrayList<DataIngestionServiceEntity>();
         }
         return serviceMapper.selectList(new LambdaQueryWrapper<DataIngestionServiceEntity>()
+                .select(DataIngestionServiceEntity::getId,
+                        DataIngestionServiceEntity::getServiceCode,
+                        DataIngestionServiceEntity::getServiceName,
+                        DataIngestionServiceEntity::getStatus)
                 .eq(DataIngestionServiceEntity::getTenantId, context.tenantId)
                 .eq(DataIngestionServiceEntity::getProjectId, context.projectId)
                 .eq(request.getServiceId() != null, DataIngestionServiceEntity::getId, request.getServiceId())
@@ -259,6 +273,51 @@ public class DataIngestionMetricsService {
                                 .ge(DataIngestionAccessLogEntity::getDurationMs, minDurationMs);
                     }
                 });
+    }
+
+    private LambdaQueryWrapper<DataIngestionAccessLogEntity> accessLogListQuery(DataIngestionMetricQueryRequest request,
+                                                                                MetricContext context) {
+        return baseLogQuery(request, context)
+                .select(DataIngestionAccessLogEntity::getId,
+                        DataIngestionAccessLogEntity::getServiceId,
+                        DataIngestionAccessLogEntity::getServiceCodeSnapshot,
+                        DataIngestionAccessLogEntity::getServiceNameSnapshot,
+                        DataIngestionAccessLogEntity::getServiceStatusSnapshot,
+                        DataIngestionAccessLogEntity::getSubscriptionId,
+                        DataIngestionAccessLogEntity::getSubscriptionNameSnapshot,
+                        DataIngestionAccessLogEntity::getRequestId,
+                        DataIngestionAccessLogEntity::getRequestMethod,
+                        DataIngestionAccessLogEntity::getOccurredAt,
+                        DataIngestionAccessLogEntity::getDurationMs,
+                        DataIngestionAccessLogEntity::getSuccess,
+                        DataIngestionAccessLogEntity::getHttpStatus,
+                        DataIngestionAccessLogEntity::getErrorCode,
+                        DataIngestionAccessLogEntity::getErrorMessage,
+                        DataIngestionAccessLogEntity::getClientIp,
+                        DataIngestionAccessLogEntity::getUserAgent,
+                        DataIngestionAccessLogEntity::getReceivedCount,
+                        DataIngestionAccessLogEntity::getSuccessCount,
+                        DataIngestionAccessLogEntity::getFailedCount);
+    }
+
+    private LambdaQueryWrapper<DataIngestionAccessLogEntity> metricLogQuery(DataIngestionMetricQueryRequest request,
+                                                                            MetricContext context) {
+        return baseLogQuery(request, context)
+                .select(DataIngestionAccessLogEntity::getId,
+                        DataIngestionAccessLogEntity::getServiceId,
+                        DataIngestionAccessLogEntity::getServiceCodeSnapshot,
+                        DataIngestionAccessLogEntity::getServiceNameSnapshot,
+                        DataIngestionAccessLogEntity::getServiceStatusSnapshot,
+                        DataIngestionAccessLogEntity::getSubscriptionId,
+                        DataIngestionAccessLogEntity::getSubscriptionNameSnapshot,
+                        DataIngestionAccessLogEntity::getOccurredAt,
+                        DataIngestionAccessLogEntity::getDurationMs,
+                        DataIngestionAccessLogEntity::getSuccess,
+                        DataIngestionAccessLogEntity::getHttpStatus,
+                        DataIngestionAccessLogEntity::getErrorCode,
+                        DataIngestionAccessLogEntity::getReceivedCount,
+                        DataIngestionAccessLogEntity::getSuccessCount,
+                        DataIngestionAccessLogEntity::getFailedCount);
     }
 
     private DataIngestionMetricSummaryView buildSummary(List<DataIngestionAccessLogEntity> logs,

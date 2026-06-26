@@ -841,7 +841,8 @@ export interface ProtocolConversionDebugResult extends ProtocolConversionInvokeR
   conversionTrace?: ProtocolConversionTraceView;
 }
 
-export interface ProtocolConversionAccessLogView extends BaseRecord {
+export interface ProtocolConversionAccessLogListView {
+  id?: EntityId;
   serviceId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
@@ -859,12 +860,15 @@ export interface ProtocolConversionAccessLogView extends BaseRecord {
   targetHttpStatus?: number;
   errorCode?: string;
   errorMessage?: string;
-  systemLog?: string;
   clientIp?: string;
   userAgent?: string;
   receivedCount?: number;
   successCount?: number;
   failedCount?: number;
+}
+
+export interface ProtocolConversionAccessLogView extends ProtocolConversionAccessLogListView, BaseRecord {
+  systemLog?: string;
   logStorageType?: string;
   logObjectBucket?: string;
   logObjectKey?: string;
@@ -949,7 +953,8 @@ export interface DataServiceMetricDistributionView {
   count?: number;
 }
 
-export interface DataServiceAccessLogView extends BaseRecord {
+export interface DataServiceAccessLogListView {
+  id?: EntityId;
   serviceId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
@@ -964,12 +969,15 @@ export interface DataServiceAccessLogView extends BaseRecord {
   httpStatus?: number;
   errorCode?: string;
   errorMessage?: string;
-  systemLog?: string;
   clientIp?: string;
   userAgent?: string;
   cacheEnabled?: boolean;
   cacheHit?: boolean;
   rowCount?: number;
+}
+
+export interface DataServiceAccessLogView extends DataServiceAccessLogListView, BaseRecord {
+  systemLog?: string;
   logStorageType?: string;
   logObjectBucket?: string;
   logObjectKey?: string;
@@ -1063,7 +1071,8 @@ export interface DataIngestionApiMetricView {
   lastAccessAt?: string;
 }
 
-export interface DataIngestionAccessLogView extends BaseRecord {
+export interface DataIngestionAccessLogListView {
+  id?: EntityId;
   serviceId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
@@ -1078,12 +1087,15 @@ export interface DataIngestionAccessLogView extends BaseRecord {
   httpStatus?: number;
   errorCode?: string;
   errorMessage?: string;
-  systemLog?: string;
   clientIp?: string;
   userAgent?: string;
   receivedCount?: number;
   successCount?: number;
   failedCount?: number;
+}
+
+export interface DataIngestionAccessLogView extends DataIngestionAccessLogListView, BaseRecord {
+  systemLog?: string;
   logStorageType?: string;
   logObjectBucket?: string;
   logObjectKey?: string;

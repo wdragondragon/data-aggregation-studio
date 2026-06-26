@@ -2,7 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.jdragon.studio.dto.model.DataServiceAccessLogView;
+import com.jdragon.studio.dto.model.DataServiceAccessLogListView;
 import com.jdragon.studio.dto.model.DataServiceApiMetricView;
 import com.jdragon.studio.dto.model.DataServiceMetricDashboardView;
 import com.jdragon.studio.dto.model.DataServiceMetricDistributionView;
@@ -75,6 +75,12 @@ public class DataServiceMetricsService {
         }
         String tenantId = securityService.currentTenantId();
         List<DataServiceDefinitionEntity> services = definitionMapper.selectList(new LambdaQueryWrapper<DataServiceDefinitionEntity>()
+                .select(DataServiceDefinitionEntity::getId,
+                        DataServiceDefinitionEntity::getServiceCode,
+                        DataServiceDefinitionEntity::getServiceName,
+                        DataServiceDefinitionEntity::getStatus,
+                        DataServiceDefinitionEntity::getTokenRequired,
+                        DataServiceDefinitionEntity::getDefaultSubscriptionName)
                 .eq(DataServiceDefinitionEntity::getTenantId, tenantId)
                 .eq(DataServiceDefinitionEntity::getProjectId, projectId)
                 .orderByAsc(DataServiceDefinitionEntity::getServiceName)
@@ -103,6 +109,10 @@ public class DataServiceMetricsService {
             return view;
         }
         List<DataServiceSubscriptionEntity> subscriptions = subscriptionMapper.selectList(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
+                .select(DataServiceSubscriptionEntity::getId,
+                        DataServiceSubscriptionEntity::getServiceId,
+                        DataServiceSubscriptionEntity::getSubscriptionName,
+                        DataServiceSubscriptionEntity::getEnabled)
                 .in(DataServiceSubscriptionEntity::getServiceId, serviceIds)
                 .orderByAsc(DataServiceSubscriptionEntity::getSubscriptionName)
                 .orderByDesc(DataServiceSubscriptionEntity::getId));
@@ -161,18 +171,19 @@ public class DataServiceMetricsService {
         return metricViewSupport.pageList(metrics, context.pageNo, context.pageSize);
     }
 
-    public PageView<DataServiceAccessLogView> queryAccessLogs(DataServiceMetricQueryRequest request) {
-        MetricContext context = loadContext(request, true);
+    public PageView<DataServiceAccessLogListView> queryAccessLogs(DataServiceMetricQueryRequest request) {
+        DataServiceMetricQueryRequest safeRequest = request == null ? new DataServiceMetricQueryRequest() : request;
+        MetricContext context = loadContext(safeRequest, true);
         if (context.serviceIds.isEmpty()) {
-            return PageView.of(context.pageNo, context.pageSize, 0L, new ArrayList<DataServiceAccessLogView>());
+            return PageView.of(context.pageNo, context.pageSize, 0L, new ArrayList<DataServiceAccessLogListView>());
         }
         Page<DataServiceAccessLogEntity> page = new Page<DataServiceAccessLogEntity>(context.pageNo, context.pageSize);
-        Page<DataServiceAccessLogEntity> entityPage = accessLogMapper.selectPage(page, baseLogQuery(request, context)
+        Page<DataServiceAccessLogEntity> entityPage = accessLogMapper.selectPage(page, accessLogListQuery(safeRequest, context)
                 .orderByDesc(DataServiceAccessLogEntity::getOccurredAt)
                 .orderByDesc(DataServiceAccessLogEntity::getId));
-        List<DataServiceAccessLogView> items = new ArrayList<DataServiceAccessLogView>();
+        List<DataServiceAccessLogListView> items = new ArrayList<DataServiceAccessLogListView>();
         for (DataServiceAccessLogEntity entity : entityPage.getRecords()) {
-            items.add(metricViewSupport.toAccessLogView(entity));
+            items.add(metricViewSupport.toAccessLogListView(entity));
         }
         return PageView.of(context.pageNo, context.pageSize, entityPage.getTotal(), items);
     }
@@ -217,7 +228,7 @@ public class DataServiceMetricsService {
                     counterSubscriptionId, successFilter, cacheHitFilter, context.startTime, context.endTime));
         }
         if (!skipLogList && !context.serviceIds.isEmpty()) {
-            context.logs.addAll(accessLogMapper.selectList(baseLogQuery(safeRequest, context)
+            context.logs.addAll(accessLogMapper.selectList(metricLogQuery(safeRequest, context)
                     .orderByAsc(DataServiceAccessLogEntity::getOccurredAt)
                     .orderByAsc(DataServiceAccessLogEntity::getId)));
         }
@@ -229,6 +240,10 @@ public class DataServiceMetricsService {
             return new ArrayList<DataServiceDefinitionEntity>();
         }
         LambdaQueryWrapper<DataServiceDefinitionEntity> queryWrapper = new LambdaQueryWrapper<DataServiceDefinitionEntity>()
+                .select(DataServiceDefinitionEntity::getId,
+                        DataServiceDefinitionEntity::getServiceCode,
+                        DataServiceDefinitionEntity::getServiceName,
+                        DataServiceDefinitionEntity::getStatus)
                 .eq(DataServiceDefinitionEntity::getTenantId, context.tenantId)
                 .eq(DataServiceDefinitionEntity::getProjectId, context.projectId)
                 .eq(request.getServiceId() != null, DataServiceDefinitionEntity::getId, request.getServiceId())
@@ -267,6 +282,51 @@ public class DataServiceMetricsService {
                                 .ge(DataServiceAccessLogEntity::getDurationMs, minDurationMs);
                     }
                 });
+    }
+
+    private LambdaQueryWrapper<DataServiceAccessLogEntity> accessLogListQuery(DataServiceMetricQueryRequest request,
+                                                                              MetricContext context) {
+        return baseLogQuery(request, context)
+                .select(DataServiceAccessLogEntity::getId,
+                        DataServiceAccessLogEntity::getServiceId,
+                        DataServiceAccessLogEntity::getServiceCodeSnapshot,
+                        DataServiceAccessLogEntity::getServiceNameSnapshot,
+                        DataServiceAccessLogEntity::getServiceStatusSnapshot,
+                        DataServiceAccessLogEntity::getSubscriptionId,
+                        DataServiceAccessLogEntity::getSubscriptionNameSnapshot,
+                        DataServiceAccessLogEntity::getRequestId,
+                        DataServiceAccessLogEntity::getRequestMethod,
+                        DataServiceAccessLogEntity::getOccurredAt,
+                        DataServiceAccessLogEntity::getDurationMs,
+                        DataServiceAccessLogEntity::getSuccess,
+                        DataServiceAccessLogEntity::getHttpStatus,
+                        DataServiceAccessLogEntity::getErrorCode,
+                        DataServiceAccessLogEntity::getErrorMessage,
+                        DataServiceAccessLogEntity::getClientIp,
+                        DataServiceAccessLogEntity::getUserAgent,
+                        DataServiceAccessLogEntity::getCacheEnabled,
+                        DataServiceAccessLogEntity::getCacheHit,
+                        DataServiceAccessLogEntity::getRowCount);
+    }
+
+    private LambdaQueryWrapper<DataServiceAccessLogEntity> metricLogQuery(DataServiceMetricQueryRequest request,
+                                                                          MetricContext context) {
+        return baseLogQuery(request, context)
+                .select(DataServiceAccessLogEntity::getId,
+                        DataServiceAccessLogEntity::getServiceId,
+                        DataServiceAccessLogEntity::getServiceCodeSnapshot,
+                        DataServiceAccessLogEntity::getServiceNameSnapshot,
+                        DataServiceAccessLogEntity::getServiceStatusSnapshot,
+                        DataServiceAccessLogEntity::getSubscriptionId,
+                        DataServiceAccessLogEntity::getSubscriptionNameSnapshot,
+                        DataServiceAccessLogEntity::getOccurredAt,
+                        DataServiceAccessLogEntity::getDurationMs,
+                        DataServiceAccessLogEntity::getSuccess,
+                        DataServiceAccessLogEntity::getHttpStatus,
+                        DataServiceAccessLogEntity::getErrorCode,
+                        DataServiceAccessLogEntity::getCacheEnabled,
+                        DataServiceAccessLogEntity::getCacheHit,
+                        DataServiceAccessLogEntity::getRowCount);
     }
 
     private DataServiceMetricSummaryView buildSummary(List<DataServiceAccessLogEntity> logs) {

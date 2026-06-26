@@ -187,8 +187,8 @@
           <pre class="log-detail-message">{{ errorSummary(activeLog) }}</pre>
         </SectionCard>
 
-        <SectionCard title="系统日志" description="隔离展示本次接入请求的任务线程日志，与采集任务日志保持一致。">
-          <pre class="log-detail-system-log">{{ systemLogContent(activeLog) }}</pre>
+        <SectionCard title="日志摘要" description="展示列表可用字段生成的调用摘要；完整线程日志通过完整日志按钮按 id 获取。">
+          <pre class="log-detail-system-log">{{ summaryLogContent(activeLog) }}</pre>
         </SectionCard>
       </template>
     </el-drawer>
@@ -206,7 +206,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
-  DataIngestionAccessLogView,
+  DataIngestionAccessLogListView,
   DataIngestionMetricQueryRequest,
   DataServiceMetricOptionsView,
   EntityId,
@@ -239,11 +239,11 @@ const filters = reactive<{
   success: "",
 });
 const pagination = reactive({ page: 1, pageSize: 20 });
-const logs = ref<DataIngestionAccessLogView[]>([]);
+const logs = ref<DataIngestionAccessLogListView[]>([]);
 const total = ref(0);
 const isLoading = ref(false);
 const logDetailVisible = ref(false);
-const activeLog = ref<DataIngestionAccessLogView | null>(null);
+const activeLog = ref<DataIngestionAccessLogListView | null>(null);
 const invocationLogVisible = ref(false);
 const activeInvocationLogId = ref<EntityId | null>(null);
 
@@ -314,12 +314,12 @@ function handlePageSizeChange() {
   void loadLogs();
 }
 
-function openLogDetail(row: DataIngestionAccessLogView) {
+function openLogDetail(row: DataIngestionAccessLogListView) {
   activeLog.value = row;
   logDetailVisible.value = true;
 }
 
-function openInvocationLog(row: DataIngestionAccessLogView) {
+function openInvocationLog(row: DataIngestionAccessLogListView) {
   activeInvocationLogId.value = row.id || null;
   invocationLogVisible.value = Boolean(activeInvocationLogId.value);
 }
@@ -347,7 +347,7 @@ function parseTriState(value: TriState) {
   return undefined;
 }
 
-function logTypeLabel(row: DataIngestionAccessLogView) {
+function logTypeLabel(row: DataIngestionAccessLogListView) {
   if (!row.success) {
     return "异常";
   }
@@ -357,7 +357,7 @@ function logTypeLabel(row: DataIngestionAccessLogView) {
   return "正常";
 }
 
-function logTypeTone(row: DataIngestionAccessLogView): "success" | "warning" | "neutral" | "primary" | "danger" {
+function logTypeTone(row: DataIngestionAccessLogListView): "success" | "warning" | "neutral" | "primary" | "danger" {
   if (!row.success) {
     return "danger";
   }
@@ -367,7 +367,7 @@ function logTypeTone(row: DataIngestionAccessLogView): "success" | "warning" | "
   return "success";
 }
 
-function errorSummary(row: DataIngestionAccessLogView) {
+function errorSummary(row: DataIngestionAccessLogListView) {
   if (row.errorCode || row.errorMessage) {
     return `${row.errorCode || ""} ${row.errorMessage || ""}`.trim();
   }
@@ -377,10 +377,7 @@ function errorSummary(row: DataIngestionAccessLogView) {
   return "-";
 }
 
-function systemLogContent(row: DataIngestionAccessLogView) {
-  if (row.systemLog?.trim()) {
-    return row.systemLog.trim();
-  }
+function summaryLogContent(row: DataIngestionAccessLogListView) {
   return [
     `[requestId] ${row.requestId || "-"}`,
     `[occurredAt] ${formatDateTime(row.occurredAt)}`,

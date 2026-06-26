@@ -203,7 +203,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
-  DataServiceAccessLogView,
+  DataServiceAccessLogListView,
   DataServiceMetricOptionsView,
   DataServiceMetricQueryRequest,
   EntityId,
@@ -241,11 +241,11 @@ const filters = reactive<{
   cacheHit: "",
 });
 const pagination = reactive({ page: 1, pageSize: 20 });
-const logs = ref<DataServiceAccessLogView[]>([]);
+const logs = ref<DataServiceAccessLogListView[]>([]);
 const total = ref(0);
 const isLoading = ref(false);
 const logDetailVisible = ref(false);
-const activeLog = ref<DataServiceAccessLogView | null>(null);
+const activeLog = ref<DataServiceAccessLogListView | null>(null);
 const invocationLogVisible = ref(false);
 const activeInvocationLogId = ref<EntityId | null>(null);
 
@@ -318,12 +318,12 @@ function handlePageSizeChange() {
   void loadLogs();
 }
 
-function openLogDetail(row: DataServiceAccessLogView) {
+function openLogDetail(row: DataServiceAccessLogListView) {
   activeLog.value = row;
   logDetailVisible.value = true;
 }
 
-function openInvocationLog(row: DataServiceAccessLogView) {
+function openInvocationLog(row: DataServiceAccessLogListView) {
   activeInvocationLogId.value = row.id || null;
   invocationLogVisible.value = Boolean(activeInvocationLogId.value);
 }
@@ -351,7 +351,7 @@ function parseTriState(value: TriState) {
   return undefined;
 }
 
-function logTypeLabel(row: DataServiceAccessLogView) {
+function logTypeLabel(row: DataServiceAccessLogListView) {
   if (!row.success) {
     return "异常";
   }
@@ -361,7 +361,7 @@ function logTypeLabel(row: DataServiceAccessLogView) {
   return "正常";
 }
 
-function logTypeTone(row: DataServiceAccessLogView): "success" | "warning" | "neutral" | "primary" | "danger" {
+function logTypeTone(row: DataServiceAccessLogListView): "success" | "warning" | "neutral" | "primary" | "danger" {
   if (!row.success) {
     return "danger";
   }
@@ -371,7 +371,7 @@ function logTypeTone(row: DataServiceAccessLogView): "success" | "warning" | "ne
   return "success";
 }
 
-function errorSummary(row: DataServiceAccessLogView) {
+function errorSummary(row: DataServiceAccessLogListView) {
   if (row.errorCode || row.errorMessage) {
     return `${row.errorCode || ""} ${row.errorMessage || ""}`.trim();
   }
@@ -381,7 +381,7 @@ function errorSummary(row: DataServiceAccessLogView) {
   return "-";
 }
 
-function cacheLabel(row: DataServiceAccessLogView) {
+function cacheLabel(row: DataServiceAccessLogListView) {
   if (!row.cacheEnabled) {
     return "未开启";
   }

@@ -1,6 +1,6 @@
 package com.jdragon.studio.infra.service;
 
-import com.jdragon.studio.dto.model.DataIngestionAccessLogView;
+import com.jdragon.studio.dto.model.DataIngestionAccessLogListView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.DataIngestionAccessLogEntity;
 import com.jdragon.studio.infra.entity.DataIngestionServiceEntity;
@@ -13,14 +13,9 @@ import java.util.Map;
 
 final class DataIngestionMetricViewSupport {
 
-    DataIngestionAccessLogView toAccessLogView(DataIngestionAccessLogEntity entity) {
-        DataIngestionAccessLogView view = new DataIngestionAccessLogView();
+    DataIngestionAccessLogListView toAccessLogListView(DataIngestionAccessLogEntity entity) {
+        DataIngestionAccessLogListView view = new DataIngestionAccessLogListView();
         view.setId(entity.getId());
-        view.setTenantId(entity.getTenantId());
-        view.setProjectId(entity.getProjectId());
-        view.setDeleted(Integer.valueOf(1).equals(entity.getDeleted()));
-        view.setCreatedAt(entity.getCreatedAt());
-        view.setUpdatedAt(entity.getUpdatedAt());
         view.setServiceId(entity.getServiceId());
         view.setServiceCode(entity.getServiceCodeSnapshot());
         view.setServiceName(entity.getServiceNameSnapshot());
@@ -35,19 +30,11 @@ final class DataIngestionMetricViewSupport {
         view.setHttpStatus(entity.getHttpStatus());
         view.setErrorCode(entity.getErrorCode());
         view.setErrorMessage(entity.getErrorMessage());
-        view.setSystemLog(entity.getSystemLog());
         view.setClientIp(entity.getClientIp());
         view.setUserAgent(entity.getUserAgent());
         view.setReceivedCount(entity.getReceivedCount());
         view.setSuccessCount(entity.getSuccessCount());
         view.setFailedCount(entity.getFailedCount());
-        view.setLogStorageType(entity.getLogStorageType());
-        view.setLogObjectBucket(entity.getLogObjectBucket());
-        view.setLogObjectKey(entity.getLogObjectKey());
-        view.setLogSizeBytes(entity.getLogSizeBytes());
-        view.setLogCharset(entity.getLogCharset());
-        view.setLogArchiveStatus(entity.getLogArchiveStatus());
-        view.setLogArchiveError(entity.getLogArchiveError());
         return view;
     }
 

@@ -3,7 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionsView;
 import com.jdragon.studio.dto.model.PageView;
-import com.jdragon.studio.dto.model.ProtocolConversionAccessLogView;
+import com.jdragon.studio.dto.model.ProtocolConversionAccessLogListView;
 import com.jdragon.studio.dto.model.ProtocolConversionTraceView;
 import com.jdragon.studio.dto.model.request.ProtocolConversionMetricQueryRequest;
 import com.jdragon.studio.infra.service.ProtocolConversionMetricsService;
@@ -30,7 +30,7 @@ public class ProtocolConversionMetricsController {
     }
 
     @PostMapping("/access-logs/query")
-    public Result<PageView<ProtocolConversionAccessLogView>> queryAccessLogs(@RequestBody(required = false) ProtocolConversionMetricQueryRequest request) {
+    public Result<PageView<ProtocolConversionAccessLogListView>> queryAccessLogs(@RequestBody(required = false) ProtocolConversionMetricQueryRequest request) {
         return Result.success(protocolConversionMetricsService.queryAccessLogs(request));
     }
 

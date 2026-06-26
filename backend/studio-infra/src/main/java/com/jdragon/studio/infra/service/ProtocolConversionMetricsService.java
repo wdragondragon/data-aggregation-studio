@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionView;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionsView;
 import com.jdragon.studio.dto.model.PageView;
-import com.jdragon.studio.dto.model.ProtocolConversionAccessLogView;
+import com.jdragon.studio.dto.model.ProtocolConversionAccessLogListView;
 import com.jdragon.studio.dto.model.ProtocolConversionTraceStepView;
 import com.jdragon.studio.dto.model.ProtocolConversionTraceView;
 import com.jdragon.studio.dto.model.RunLogView;
@@ -71,6 +71,12 @@ public class ProtocolConversionMetricsService {
             return view;
         }
         List<ProtocolConversionServiceEntity> services = serviceMapper.selectList(new LambdaQueryWrapper<ProtocolConversionServiceEntity>()
+                .select(ProtocolConversionServiceEntity::getId,
+                        ProtocolConversionServiceEntity::getServiceCode,
+                        ProtocolConversionServiceEntity::getServiceName,
+                        ProtocolConversionServiceEntity::getStatus,
+                        ProtocolConversionServiceEntity::getTokenRequired,
+                        ProtocolConversionServiceEntity::getDefaultSubscriptionName)
                 .eq(ProtocolConversionServiceEntity::getTenantId, securityService.currentTenantId())
                 .eq(ProtocolConversionServiceEntity::getProjectId, projectId)
                 .orderByAsc(ProtocolConversionServiceEntity::getServiceName)
@@ -99,6 +105,10 @@ public class ProtocolConversionMetricsService {
             return view;
         }
         List<ProtocolConversionSubscriptionEntity> subscriptions = subscriptionMapper.selectList(new LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>()
+                .select(ProtocolConversionSubscriptionEntity::getId,
+                        ProtocolConversionSubscriptionEntity::getServiceId,
+                        ProtocolConversionSubscriptionEntity::getSubscriptionName,
+                        ProtocolConversionSubscriptionEntity::getEnabled)
                 .in(ProtocolConversionSubscriptionEntity::getServiceId, serviceIds)
                 .orderByAsc(ProtocolConversionSubscriptionEntity::getSubscriptionName)
                 .orderByDesc(ProtocolConversionSubscriptionEntity::getId));
@@ -114,22 +124,22 @@ public class ProtocolConversionMetricsService {
         return view;
     }
 
-    public PageView<ProtocolConversionAccessLogView> queryAccessLogs(ProtocolConversionMetricQueryRequest request) {
+    public PageView<ProtocolConversionAccessLogListView> queryAccessLogs(ProtocolConversionMetricQueryRequest request) {
         ProtocolConversionMetricQueryRequest safeRequest = request == null ? new ProtocolConversionMetricQueryRequest() : request;
         int pageNo = normalizePageNo(safeRequest.getPageNo());
         int pageSize = normalizePageSize(safeRequest.getPageSize());
         Long projectId = projectResourceAccessService.currentProjectId();
         if (projectId == null) {
-            return PageView.of(pageNo, pageSize, 0L, new ArrayList<ProtocolConversionAccessLogView>());
+            return PageView.of(pageNo, pageSize, 0L, new ArrayList<ProtocolConversionAccessLogListView>());
         }
         TimeRange range = resolveTimeRange(safeRequest);
         Page<ProtocolConversionAccessLogEntity> page = new Page<ProtocolConversionAccessLogEntity>(pageNo, pageSize);
-        Page<ProtocolConversionAccessLogEntity> entityPage = accessLogMapper.selectPage(page, baseLogQuery(safeRequest, projectId, range)
+        Page<ProtocolConversionAccessLogEntity> entityPage = accessLogMapper.selectPage(page, accessLogListQuery(safeRequest, projectId, range)
                 .orderByDesc(ProtocolConversionAccessLogEntity::getOccurredAt)
                 .orderByDesc(ProtocolConversionAccessLogEntity::getId));
-        List<ProtocolConversionAccessLogView> items = new ArrayList<ProtocolConversionAccessLogView>();
+        List<ProtocolConversionAccessLogListView> items = new ArrayList<ProtocolConversionAccessLogListView>();
         for (ProtocolConversionAccessLogEntity entity : entityPage.getRecords()) {
-            items.add(toAccessLogView(entity));
+            items.add(toAccessLogListView(entity));
         }
         return PageView.of(pageNo, pageSize, entityPage.getTotal(), items);
     }
@@ -182,14 +192,38 @@ public class ProtocolConversionMetricsService {
                 });
     }
 
-    private ProtocolConversionAccessLogView toAccessLogView(ProtocolConversionAccessLogEntity entity) {
-        ProtocolConversionAccessLogView view = new ProtocolConversionAccessLogView();
+    private LambdaQueryWrapper<ProtocolConversionAccessLogEntity> accessLogListQuery(ProtocolConversionMetricQueryRequest request,
+                                                                                     Long projectId,
+                                                                                     TimeRange range) {
+        return baseLogQuery(request, projectId, range)
+                .select(ProtocolConversionAccessLogEntity::getId,
+                        ProtocolConversionAccessLogEntity::getServiceId,
+                        ProtocolConversionAccessLogEntity::getServiceCodeSnapshot,
+                        ProtocolConversionAccessLogEntity::getServiceNameSnapshot,
+                        ProtocolConversionAccessLogEntity::getServiceStatusSnapshot,
+                        ProtocolConversionAccessLogEntity::getSubscriptionId,
+                        ProtocolConversionAccessLogEntity::getSubscriptionNameSnapshot,
+                        ProtocolConversionAccessLogEntity::getRequestId,
+                        ProtocolConversionAccessLogEntity::getRequestMethod,
+                        ProtocolConversionAccessLogEntity::getSourceProtocolSnapshot,
+                        ProtocolConversionAccessLogEntity::getTargetProtocolSnapshot,
+                        ProtocolConversionAccessLogEntity::getOccurredAt,
+                        ProtocolConversionAccessLogEntity::getDurationMs,
+                        ProtocolConversionAccessLogEntity::getSuccess,
+                        ProtocolConversionAccessLogEntity::getHttpStatus,
+                        ProtocolConversionAccessLogEntity::getTargetHttpStatus,
+                        ProtocolConversionAccessLogEntity::getErrorCode,
+                        ProtocolConversionAccessLogEntity::getErrorMessage,
+                        ProtocolConversionAccessLogEntity::getClientIp,
+                        ProtocolConversionAccessLogEntity::getUserAgent,
+                        ProtocolConversionAccessLogEntity::getReceivedCount,
+                        ProtocolConversionAccessLogEntity::getSuccessCount,
+                        ProtocolConversionAccessLogEntity::getFailedCount);
+    }
+
+    private ProtocolConversionAccessLogListView toAccessLogListView(ProtocolConversionAccessLogEntity entity) {
+        ProtocolConversionAccessLogListView view = new ProtocolConversionAccessLogListView();
         view.setId(entity.getId());
-        view.setTenantId(entity.getTenantId());
-        view.setProjectId(entity.getProjectId());
-        view.setDeleted(Integer.valueOf(1).equals(entity.getDeleted()));
-        view.setCreatedAt(entity.getCreatedAt());
-        view.setUpdatedAt(entity.getUpdatedAt());
         view.setServiceId(entity.getServiceId());
         view.setServiceCode(entity.getServiceCodeSnapshot());
         view.setServiceName(entity.getServiceNameSnapshot());
@@ -207,19 +241,11 @@ public class ProtocolConversionMetricsService {
         view.setTargetHttpStatus(entity.getTargetHttpStatus());
         view.setErrorCode(entity.getErrorCode());
         view.setErrorMessage(entity.getErrorMessage());
-        view.setSystemLog(entity.getSystemLog());
         view.setClientIp(entity.getClientIp());
         view.setUserAgent(entity.getUserAgent());
         view.setReceivedCount(entity.getReceivedCount());
         view.setSuccessCount(entity.getSuccessCount());
         view.setFailedCount(entity.getFailedCount());
-        view.setLogStorageType(entity.getLogStorageType());
-        view.setLogObjectBucket(entity.getLogObjectBucket());
-        view.setLogObjectKey(entity.getLogObjectKey());
-        view.setLogSizeBytes(entity.getLogSizeBytes());
-        view.setLogCharset(entity.getLogCharset());
-        view.setLogArchiveStatus(entity.getLogArchiveStatus());
-        view.setLogArchiveError(entity.getLogArchiveError());
         return view;
     }
 

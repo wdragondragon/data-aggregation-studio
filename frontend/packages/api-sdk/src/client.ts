@@ -42,7 +42,7 @@ import type {
   DataSourceDefinition,
   DataSourceListView,
   DataIngestionDebugRequest,
-  DataIngestionAccessLogView,
+  DataIngestionAccessLogListView,
   DataIngestionApiMetricView,
   DataIngestionInvokeResult,
   DataIngestionMetricDashboardView,
@@ -57,7 +57,7 @@ import type {
   DataServiceListView,
   DataServiceDebugRequest,
   DataServiceInvokeResponse,
-  DataServiceAccessLogView,
+  DataServiceAccessLogListView,
   DataServiceApiMetricView,
   DataServiceMetricDashboardView,
   DataServiceMetricOptionsView,
@@ -98,7 +98,7 @@ import type {
   PermissionEntity,
   PageResult,
   PluginRuntimeOptionSchemaView,
-  ProtocolConversionAccessLogView,
+  ProtocolConversionAccessLogListView,
   ProtocolConversionDebugResult,
   ProtocolConversionDebugRequest,
   ProtocolConversionMetricQueryRequest,
@@ -748,7 +748,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<DataServiceMetricOptionsView>({ url: "/protocol-conversion-metrics/options", method: "GET" });
       },
       queryAccessLogs(payload?: ProtocolConversionMetricQueryRequest) {
-        return requestPage<ProtocolConversionAccessLogView>({ url: "/protocol-conversion-metrics/access-logs/query", method: "POST", data: payload }, payload);
+        return requestPage<ProtocolConversionAccessLogListView>({ url: "/protocol-conversion-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
       getAccessLogTrace(id: EntityId) {
         return request<ProtocolConversionTraceView>({ url: `/protocol-conversion-metrics/access-logs/${id}/trace`, method: "GET" });
@@ -765,7 +765,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return requestPage<DataServiceApiMetricView>({ ...config, url: "/data-service-metrics/api-stats/query", method: "POST", data: payload }, payload);
       },
       queryAccessLogs(payload?: DataServiceMetricQueryRequest) {
-        return requestPage<DataServiceAccessLogView>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload }, payload);
+        return requestPage<DataServiceAccessLogListView>({ url: "/data-service-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
     },
     dataIngestionMetrics: {
@@ -779,7 +779,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return requestPage<DataIngestionApiMetricView>({ ...config, url: "/data-ingestion-metrics/api-stats/query", method: "POST", data: payload }, payload);
       },
       queryAccessLogs(payload?: DataIngestionMetricQueryRequest) {
-        return requestPage<DataIngestionAccessLogView>({ url: "/data-ingestion-metrics/access-logs/query", method: "POST", data: payload }, payload);
+        return requestPage<DataIngestionAccessLogListView>({ url: "/data-ingestion-metrics/access-logs/query", method: "POST", data: payload }, payload);
       },
     },
     models: {

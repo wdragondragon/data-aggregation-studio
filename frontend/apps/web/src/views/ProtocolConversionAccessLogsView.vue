@@ -180,8 +180,8 @@
           </div>
         </SectionCard>
 
-        <SectionCard title="系统日志" description="包含转换模式、目标状态和失败摘要。">
-          <pre class="log-detail-message">{{ activeLog.systemLog || errorSummary(activeLog) }}</pre>
+        <SectionCard title="日志摘要" description="展示列表可用字段生成的调用摘要；完整线程日志通过完整日志按钮按 id 获取。">
+          <pre class="log-detail-message">{{ errorSummary(activeLog) }}</pre>
         </SectionCard>
       </template>
     </el-drawer>
@@ -201,7 +201,7 @@ import { ElMessage } from "element-plus";
 import type {
   DataServiceMetricOptionsView,
   EntityId,
-  ProtocolConversionAccessLogView,
+  ProtocolConversionAccessLogListView,
   ProtocolConversionMetricQueryRequest,
   ProtocolConversionTraceView,
 } from "@studio/api-sdk";
@@ -234,11 +234,11 @@ const filters = reactive<{
   success: "",
 });
 const pagination = reactive({ page: 1, pageSize: 20 });
-const logs = ref<ProtocolConversionAccessLogView[]>([]);
+const logs = ref<ProtocolConversionAccessLogListView[]>([]);
 const total = ref(0);
 const isLoading = ref(false);
 const logDetailVisible = ref(false);
-const activeLog = ref<ProtocolConversionAccessLogView | null>(null);
+const activeLog = ref<ProtocolConversionAccessLogListView | null>(null);
 const activeTrace = ref<ProtocolConversionTraceView | null>(null);
 const traceLoading = ref(false);
 const invocationLogVisible = ref(false);
@@ -311,7 +311,7 @@ function handlePageSizeChange() {
   void loadLogs();
 }
 
-async function openLogDetail(row: ProtocolConversionAccessLogView) {
+async function openLogDetail(row: ProtocolConversionAccessLogListView) {
   activeLog.value = row;
   activeTrace.value = null;
   logDetailVisible.value = true;
@@ -328,7 +328,7 @@ async function openLogDetail(row: ProtocolConversionAccessLogView) {
   }
 }
 
-function openInvocationLog(row: ProtocolConversionAccessLogView) {
+function openInvocationLog(row: ProtocolConversionAccessLogListView) {
   activeInvocationLogId.value = row.id || null;
   invocationLogVisible.value = Boolean(activeInvocationLogId.value);
 }
@@ -356,7 +356,7 @@ function parseTriState(value: TriState) {
   return undefined;
 }
 
-function logTypeLabel(row: ProtocolConversionAccessLogView) {
+function logTypeLabel(row: ProtocolConversionAccessLogListView) {
   if (!row.success) {
     return "异常";
   }
@@ -366,7 +366,7 @@ function logTypeLabel(row: ProtocolConversionAccessLogView) {
   return "正常";
 }
 
-function logTypeTone(row: ProtocolConversionAccessLogView): "success" | "warning" | "neutral" | "primary" | "danger" {
+function logTypeTone(row: ProtocolConversionAccessLogListView): "success" | "warning" | "neutral" | "primary" | "danger" {
   if (!row.success) {
     return "danger";
   }
@@ -376,7 +376,7 @@ function logTypeTone(row: ProtocolConversionAccessLogView): "success" | "warning
   return "success";
 }
 
-function errorSummary(row: ProtocolConversionAccessLogView) {
+function errorSummary(row: ProtocolConversionAccessLogListView) {
   if (row.errorCode || row.errorMessage) {
     return `${row.errorCode || ""} ${row.errorMessage || ""}`.trim();
   }

@@ -1,7 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
-import com.jdragon.studio.dto.model.DataServiceAccessLogView;
+import com.jdragon.studio.dto.model.DataServiceAccessLogListView;
 import com.jdragon.studio.dto.model.DataServiceApiMetricView;
 import com.jdragon.studio.dto.model.DataServiceMetricDashboardView;
 import com.jdragon.studio.dto.model.DataServiceMetricOptionsView;
@@ -40,7 +40,7 @@ public class DataServiceMetricsController {
     }
 
     @PostMapping("/access-logs/query")
-    public Result<PageView<DataServiceAccessLogView>> queryAccessLogs(@RequestBody(required = false) DataServiceMetricQueryRequest request) {
+    public Result<PageView<DataServiceAccessLogListView>> queryAccessLogs(@RequestBody(required = false) DataServiceMetricQueryRequest request) {
         return Result.success(dataServiceMetricsService.queryAccessLogs(request));
     }
 }
