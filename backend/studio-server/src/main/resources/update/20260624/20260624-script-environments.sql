@@ -17,12 +17,22 @@ create table if not exists so_pf_env_dep (
     updated_at datetime default current_timestamp,
     name varchar(255) not null,
     version varchar(128),
+    script_type varchar(32) default 'JAVA',
     artifact_url text,
     artifact_type varchar(32),
     checksum varchar(128),
     enabled int default 1,
     description text
 );
+
+set @sql = if((select count(*) from information_schema.columns where table_schema = @schema_name and table_name = 'so_pf_env_dep' and column_name = 'script_type') = 0,
+  'alter table so_pf_env_dep add column script_type varchar(32) default ''JAVA'' after version',
+  'select 1');
+prepare stmt from @sql;
+execute stmt;
+deallocate prepare stmt;
+
+update so_pf_env_dep set script_type = 'JAVA' where script_type is null or script_type = '';
 
 create table if not exists so_pf_script_env (
     id bigint primary key,

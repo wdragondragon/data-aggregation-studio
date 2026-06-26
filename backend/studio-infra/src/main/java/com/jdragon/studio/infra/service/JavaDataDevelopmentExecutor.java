@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -58,8 +59,8 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
         BufferingJavaDataScriptLogger logger = new BufferingJavaDataScriptLogger(log);
         DataScriptExecutionResultView result = new DataScriptExecutionResultView();
         result.setScriptType(ScriptType.JAVA);
-        try {
-            Class<? extends JavaDataScript> scriptClass = resolveScriptClass(context);
+        try (ScriptEnvironmentRuntimeService.RuntimeLease lease = environmentRuntimeService.resolveRuntime(context.getEnvironmentId())) {
+            Class<? extends JavaDataScript> scriptClass = resolveScriptClass(context, lease.getRuntime());
             JavaDataScript script = scriptClass.getDeclaredConstructor().newInstance();
             DefaultJavaDataScriptContext scriptContext = new DefaultJavaDataScriptContext(
                     context.getTenantId(),
@@ -102,12 +103,12 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
     }
 
     @SuppressWarnings("unchecked")
-    private Class<? extends JavaDataScript> resolveScriptClass(DataDevelopmentExecutionContext context) throws Exception {
+    private Class<? extends JavaDataScript> resolveScriptClass(DataDevelopmentExecutionContext context,
+                                                               ScriptEnvironmentRuntimeService.RuntimeClassLoaderHolder runtime) throws Exception {
         String source = context.getContent() == null ? "" : context.getContent().trim();
         if (source.isEmpty()) {
             throw new IllegalArgumentException("Java script content is empty");
         }
-        ScriptEnvironmentRuntimeService.RuntimeClassLoaderHolder runtime = environmentRuntimeService.resolveRuntime(context.getEnvironmentId());
         String cacheKey = buildCacheKey(context.getScriptId(), runtime.getEnvironmentId(), runtime.getEnvironmentVersion(), source);
         Class<? extends JavaDataScript> cached = COMPILED_CACHE.get(cacheKey);
         if (cached != null) {
@@ -155,6 +156,29 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
 
     public static void clearCompiledCache() {
         COMPILED_CACHE.clear();
+    }
+
+    public static void clearCompiledCache(Long environmentId, Long environmentVersion) {
+        if (environmentId == null && environmentVersion == null) {
+            clearCompiledCache();
+            return;
+        }
+        for (String key : new ArrayList<String>(COMPILED_CACHE.keySet())) {
+            if (matchesEnvironment(key, environmentId, environmentVersion)) {
+                COMPILED_CACHE.remove(key);
+            }
+        }
+    }
+
+    private static boolean matchesEnvironment(String key, Long environmentId, Long environmentVersion) {
+        String[] parts = key == null ? new String[0] : key.split(":", 4);
+        if (parts.length < 4) {
+            return false;
+        }
+        if (environmentId != null && !String.valueOf(environmentId).equals(parts[1])) {
+            return false;
+        }
+        return environmentVersion == null || String.valueOf(environmentVersion).equals(parts[2]);
     }
 
     private String stackTraceOf(Throwable throwable) {

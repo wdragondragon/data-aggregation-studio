@@ -17,6 +17,7 @@ import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentScriptSaveRequest;
 import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
+import com.jdragon.studio.dto.model.request.SavedDataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.infra.entity.DataDevelopmentDirectoryEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
@@ -48,6 +49,7 @@ public class DataDevelopmentService {
     private final ProjectResourceAccessService projectResourceAccessService;
     private final ScriptEnvironmentService scriptEnvironmentService;
     private final ScriptEnvironmentRuntimeService scriptEnvironmentRuntimeService;
+    private final DataDevelopmentWorkerExecutionService workerExecutionService;
     private final Map<ScriptType, DataDevelopmentScriptExecutor> scriptExecutors;
 
     public DataDevelopmentService(DataDevelopmentDirectoryMapper directoryMapper,
@@ -58,6 +60,7 @@ public class DataDevelopmentService {
                                   ProjectResourceAccessService projectResourceAccessService,
                                   ScriptEnvironmentService scriptEnvironmentService,
                                   ScriptEnvironmentRuntimeService scriptEnvironmentRuntimeService,
+                                  DataDevelopmentWorkerExecutionService workerExecutionService,
                                   List<DataDevelopmentScriptExecutor> scriptExecutors) {
         this.directoryMapper = directoryMapper;
         this.scriptMapper = scriptMapper;
@@ -67,6 +70,7 @@ public class DataDevelopmentService {
         this.projectResourceAccessService = projectResourceAccessService;
         this.scriptEnvironmentService = scriptEnvironmentService;
         this.scriptEnvironmentRuntimeService = scriptEnvironmentRuntimeService;
+        this.workerExecutionService = workerExecutionService;
         this.scriptExecutors = new HashMap<ScriptType, DataDevelopmentScriptExecutor>();
         if (scriptExecutors != null) {
             for (DataDevelopmentScriptExecutor executor : scriptExecutors) {
@@ -244,6 +248,9 @@ public class DataDevelopmentService {
     public DataScriptExecutionResultView execute(DataScriptExecutionRequest request) {
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         validateScriptType(request.getScriptType());
+        if (request.getScriptType() != ScriptType.SQL) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Non-SQL scripts must be saved before execution");
+        }
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
         context.setScriptType(request.getScriptType());
         context.setContent(request.getContent());
@@ -260,6 +267,23 @@ public class DataDevelopmentService {
         runtimeContext.put("username", context.getUsername());
         context.setRuntimeContext(runtimeContext);
         return requireExecutor(request.getScriptType()).execute(context);
+    }
+
+    public DataScriptExecutionResultView executeSavedScript(Long scriptId, SavedDataScriptExecutionRequest request) {
+        DataDevelopmentScriptEntity script = requireReadableScript(scriptId);
+        ScriptType scriptType = ScriptType.valueOf(script.getScriptType());
+        validateScriptType(scriptType);
+        if (scriptType == ScriptType.SQL) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL scripts should use the SQL execution endpoint");
+        }
+        requireExecutor(scriptType);
+        resolveScriptEnvironmentId(scriptType, script.getEnvironmentId());
+        SavedDataScriptExecutionRequest effectiveRequest = request == null ? new SavedDataScriptExecutionRequest() : request;
+        return workerExecutionService.executeSavedScript(script,
+                scriptType,
+                effectiveRequest.getArguments(),
+                effectiveRequest.getMaxRows(),
+                effectiveRequest.getWaitTimeoutSeconds());
     }
 
     public DataScriptExecutionResultView executeScript(Long scriptId, Integer maxRows, Map<String, Object> arguments, Map<String, Object> runtimeContext) {

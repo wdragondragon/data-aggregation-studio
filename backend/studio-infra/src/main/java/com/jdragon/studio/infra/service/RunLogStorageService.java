@@ -25,10 +25,14 @@ public class RunLogStorageService {
 
     private final StudioPlatformProperties properties;
     private final RunLogObjectStore objectStore;
+    private final CloudObjectStorageService cloudObjectStorageService;
 
-    public RunLogStorageService(StudioPlatformProperties properties, RunLogObjectStore objectStore) {
+    public RunLogStorageService(StudioPlatformProperties properties,
+                                RunLogObjectStore objectStore,
+                                CloudObjectStorageService cloudObjectStorageService) {
         this.properties = properties;
         this.objectStore = objectStore;
+        this.cloudObjectStorageService = cloudObjectStorageService;
     }
 
     public boolean objectStorageEnabled() {
@@ -45,18 +49,25 @@ public class RunLogStorageService {
     }
 
     public String resolveBucket() {
-        String bucket = properties.getRunLog().getObjectStorage().getBucket();
-        if (!StringUtils.hasText(bucket)) {
-            throw new IllegalStateException("studio.run-log.object-storage.bucket is required");
-        }
-        return bucket.trim();
+        return cloudObjectStorageService.resolveBucket();
+    }
+
+    public boolean objectStorageBucketConfigured() {
+        return cloudObjectStorageService.bucketConfigured();
     }
 
     public String buildObjectKey(String relativePath) {
         if (!StringUtils.hasText(relativePath)) {
             throw new IllegalArgumentException("relativePath must not be blank");
         }
-        String prefix = properties.getRunLog().getObjectStorage().getPrefix();
+        StudioPlatformProperties.RunLogProperties runLog = properties.getRunLog();
+        String prefix = runLog == null ? null : runLog.getObjectPrefix();
+        if (!StringUtils.hasText(prefix) && runLog != null && runLog.getObjectStorage() != null) {
+            prefix = runLog.getObjectStorage().getPrefix();
+        }
+        if (!StringUtils.hasText(prefix)) {
+            prefix = "studio/run-logs";
+        }
         String normalizedPrefix = StringUtils.hasText(prefix) ? trimSlashes(prefix.trim()) : "";
         String normalizedPath = trimSlashes(relativePath.replace('\\', '/'));
         return normalizedPrefix.isEmpty() ? normalizedPath : normalizedPrefix + "/" + normalizedPath;

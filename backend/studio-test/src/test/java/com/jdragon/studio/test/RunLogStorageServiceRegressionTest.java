@@ -29,7 +29,7 @@ class RunLogStorageServiceRegressionTest {
         entity.setLogObjectKey("run.log");
         entity.setLogCharset("UTF-8");
 
-        RunLogView view = new RunLogStorageService(properties, objectStore)
+        RunLogView view = new RunLogStorageService(properties, objectStore, null)
                 .readObjectLog(entity, 2, 4, false);
 
         assertFalse(view.getContent().contains("\uFFFD"));

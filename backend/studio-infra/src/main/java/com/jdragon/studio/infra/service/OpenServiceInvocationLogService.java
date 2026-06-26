@@ -320,9 +320,7 @@ public class OpenServiceInvocationLogService {
     }
 
     private boolean objectStorageBucketConfigured() {
-        StudioPlatformProperties.RunLogProperties runLog = properties.getRunLog();
-        StudioPlatformProperties.ObjectStorageProperties objectStorage = runLog == null ? null : runLog.getObjectStorage();
-        return objectStorage != null && StringUtils.hasText(objectStorage.getBucket());
+        return runLogStorageService.objectStorageBucketConfigured();
     }
 
     private StudioPlatformProperties.InvocationLogProperties invocationLogProperties() {

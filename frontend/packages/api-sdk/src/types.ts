@@ -1883,22 +1883,44 @@ export interface DataScriptExecutionRequest {
   maxRows?: number;
 }
 
+export interface SavedDataScriptExecutionRequest {
+  arguments?: Record<string, unknown>;
+  maxRows?: number;
+  waitTimeoutSeconds?: number;
+}
+
 export interface EnvironmentDependency extends BaseRecord {
   name: string;
   version?: string;
-  artifactUrl: string;
-  artifactType: "JAR" | "ZIP" | string;
+  scriptType: ScriptType | string;
+  artifactUrl?: string;
+  artifactType?: "JAR" | "ZIP" | string;
   checksum?: string;
   enabled: boolean;
   description?: string;
+  files?: EnvironmentDependencyFile[];
+}
+
+export interface EnvironmentDependencyFile extends BaseRecord {
+  dependencyId?: EntityId;
+  originalFileName: string;
+  artifactType: "JAR" | "ZIP" | string;
+  checksum?: string;
+  sizeBytes?: number;
+  visible?: boolean;
+  runtimeArtifact?: boolean;
+  sourceFileId?: EntityId;
+  enabled?: boolean;
+  uploadedAt?: string;
 }
 
 export interface EnvironmentDependencySaveRequest {
   id?: EntityId;
   name: string;
   version?: string;
-  artifactUrl: string;
-  artifactType: "JAR" | "ZIP" | string;
+  scriptType?: ScriptType | string;
+  artifactUrl?: string;
+  artifactType?: "JAR" | "ZIP" | string;
   checksum?: string;
   enabled?: boolean;
   description?: string;
@@ -1993,6 +2015,9 @@ export interface DataScriptExecutionResult {
   status?: string;
   message?: string;
   executionMs?: number;
+  dispatchTaskId?: EntityId;
+  runRecordId?: EntityId;
+  logStatus?: string;
   datasourceName?: string;
   logs?: string;
   resultJson: Record<string, unknown>;

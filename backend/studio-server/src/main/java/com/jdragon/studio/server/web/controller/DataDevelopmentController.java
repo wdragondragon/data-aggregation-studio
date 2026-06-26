@@ -14,6 +14,7 @@ import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentScriptSaveRequest;
 import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
+import com.jdragon.studio.dto.model.request.SavedDataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.infra.service.DataDevelopmentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -141,6 +142,13 @@ public class DataDevelopmentController {
     @PostMapping("/scripts/execute")
     public Result<DataScriptExecutionResultView> executeScript(@Valid @RequestBody DataScriptExecutionRequest request) {
         return Result.success(dataDevelopmentService.execute(request));
+    }
+
+    @Operation(summary = "Execute saved script through worker")
+    @PostMapping("/scripts/{id}/execute")
+    public Result<DataScriptExecutionResultView> executeSavedScript(@PathVariable("id") Long id,
+                                                                    @Valid @RequestBody(required = false) SavedDataScriptExecutionRequest request) {
+        return Result.success(dataDevelopmentService.executeSavedScript(id, request));
     }
 
     @Operation(summary = "Execute SQL in editor")

@@ -7,12 +7,17 @@ import com.jdragon.studio.dto.model.JavaImportHintResponse;
 import com.jdragon.studio.dto.model.JavaMemberHint;
 import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.infra.entity.EnvironmentDependencyEntity;
+import com.jdragon.studio.infra.entity.EnvironmentDependencyFileEntity;
 import com.jdragon.studio.infra.entity.ScriptEnvironmentEntity;
 import com.jdragon.studio.infra.script.java.JavaDataScript;
 import com.jdragon.studio.infra.script.java.JavaDataScriptContext;
 import com.jdragon.studio.infra.script.java.JavaDataScriptResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -20,12 +25,15 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -42,65 +50,95 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 @Service
 public class ScriptEnvironmentRuntimeService {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptEnvironmentRuntimeService.class);
     private static final int DEFAULT_HINT_LIMIT = 100;
     private static final int MAX_HINT_LIMIT = 500;
     private static final String SOURCE_APPLICATION = "APPLICATION";
     private static final String SOURCE_DEPENDENCY = "DEPENDENCY";
     private static final String SOURCE_JDK = "JDK";
+    private static final String INSTANCE_ID = UUID.randomUUID().toString();
+    private static final long CACHE_CLEANUP_INITIAL_DELAY_MS = 300000L;
+    private static final long CACHE_CLEANUP_FIXED_DELAY_MS = 300000L;
 
     private final ScriptEnvironmentService environmentService;
+    private final EnvironmentDependencyService dependencyService;
+    private final CloudObjectStorageService cloudObjectStorageService;
     private final Map<String, RuntimeClassLoaderHolder> classLoaderCache = new ConcurrentHashMap<String, RuntimeClassLoaderHolder>();
+    private final Map<String, RuntimeClassLoaderHolder> retiredClassLoaderCache = new ConcurrentHashMap<String, RuntimeClassLoaderHolder>();
     private final Map<String, JavaImportHintResponse> importHintCache = new ConcurrentHashMap<String, JavaImportHintResponse>();
     private final Map<String, JavaMemberHintResponse> memberHintCache = new ConcurrentHashMap<String, JavaMemberHintResponse>();
+    private final Set<Path> buildingEnvironmentDirs = ConcurrentHashMap.newKeySet();
 
-    public ScriptEnvironmentRuntimeService(ScriptEnvironmentService environmentService) {
+    public ScriptEnvironmentRuntimeService(ScriptEnvironmentService environmentService,
+                                           EnvironmentDependencyService dependencyService,
+                                           CloudObjectStorageService cloudObjectStorageService) {
         this.environmentService = environmentService;
+        this.dependencyService = dependencyService;
+        this.cloudObjectStorageService = cloudObjectStorageService;
     }
 
-    public RuntimeClassLoaderHolder resolveRuntime(Long environmentId) {
+    public RuntimeLease resolveRuntime(Long environmentId) {
         ScriptEnvironmentEntity environment = environmentService.requireEnabledEnvironment(environmentId);
         String cacheKey = cacheKey(environment);
-        RuntimeClassLoaderHolder cached = classLoaderCache.get(cacheKey);
-        if (cached != null) {
-            return cached;
+        while (true) {
+            RuntimeClassLoaderHolder cached = classLoaderCache.get(cacheKey);
+            if (cached != null) {
+                RuntimeLease lease = cached.tryAcquire(this);
+                if (lease != null) {
+                    retireOlderRuntimes(environment.getId(), environment.getEnvironmentVersion());
+                    return lease;
+                }
+                classLoaderCache.remove(cacheKey, cached);
+                continue;
+            }
+            RuntimeClassLoaderHolder created = buildRuntime(environment);
+            RuntimeClassLoaderHolder previous = classLoaderCache.putIfAbsent(cacheKey, created);
+            if (previous == null) {
+                RuntimeLease lease = created.tryAcquire(this);
+                if (lease != null) {
+                    retireOlderRuntimes(environment.getId(), environment.getEnvironmentVersion());
+                    return lease;
+                }
+                retireCachedHolder(cacheKey, created);
+                continue;
+            }
+            closeRuntimeOnly(created);
         }
-        RuntimeClassLoaderHolder created = buildRuntime(environment);
-        RuntimeClassLoaderHolder previous = classLoaderCache.putIfAbsent(cacheKey, created);
-        if (previous != null) {
-            closeQuietly(created);
-            return previous;
-        }
-        return created;
     }
 
     public JavaImportHintResponse importHints(Long environmentId, String keyword, Integer limit) {
-        RuntimeClassLoaderHolder runtime = resolveRuntime(environmentId);
-        String cacheKey = runtime.getEnvironmentId() + ":" + runtime.getEnvironmentVersion();
-        JavaImportHintResponse cached = importHintCache.get(cacheKey);
-        if (cached == null) {
-            cached = buildImportHintResponse(runtime);
-            JavaImportHintResponse previous = importHintCache.putIfAbsent(cacheKey, cached);
-            if (previous != null) {
-                cached = previous;
+        try (RuntimeLease lease = resolveRuntime(environmentId)) {
+            RuntimeClassLoaderHolder runtime = lease.getRuntime();
+            String cacheKey = runtime.getEnvironmentId() + ":" + runtime.getEnvironmentVersion();
+            JavaImportHintResponse cached = importHintCache.get(cacheKey);
+            if (cached == null) {
+                cached = buildImportHintResponse(runtime);
+                JavaImportHintResponse previous = importHintCache.putIfAbsent(cacheKey, cached);
+                if (previous != null) {
+                    cached = previous;
+                }
             }
+            JavaImportHintResponse response = new JavaImportHintResponse();
+            response.setEnvironmentId(cached.getEnvironmentId());
+            response.setEnvironmentVersion(cached.getEnvironmentVersion());
+            response.setGeneratedAt(cached.getGeneratedAt());
+            response.setClasses(filterHints(cached.getClasses(), keyword, normalizeLimit(limit)));
+            return response;
         }
-        JavaImportHintResponse response = new JavaImportHintResponse();
-        response.setEnvironmentId(cached.getEnvironmentId());
-        response.setEnvironmentVersion(cached.getEnvironmentVersion());
-        response.setGeneratedAt(cached.getGeneratedAt());
-        response.setClasses(filterHints(cached.getClasses(), keyword, normalizeLimit(limit)));
-        return response;
     }
 
     public JavaMemberHintResponse memberHints(Long environmentId,
@@ -108,32 +146,34 @@ public class ScriptEnvironmentRuntimeService {
                                               String keyword,
                                               Boolean staticOnly,
                                               Integer limit) {
-        RuntimeClassLoaderHolder runtime = resolveRuntime(environmentId);
-        String normalizedClassName = normalizeClassName(className);
-        String normalizedKeyword = normalizeKeyword(keyword);
-        boolean staticOnlyValue = Boolean.TRUE.equals(staticOnly);
-        int normalizedLimit = normalizeLimit(limit);
-        String cacheKey = runtime.getEnvironmentId()
-                + ":" + runtime.getEnvironmentVersion()
-                + ":" + normalizedClassName
-                + ":" + staticOnlyValue
-                + ":" + normalizedKeyword
-                + ":" + normalizedLimit;
-        JavaMemberHintResponse cached = memberHintCache.get(cacheKey);
-        if (cached == null) {
-            cached = buildMemberHintResponse(runtime, normalizedClassName, normalizedKeyword, staticOnlyValue, normalizedLimit);
-            JavaMemberHintResponse previous = memberHintCache.putIfAbsent(cacheKey, cached);
-            if (previous != null) {
-                cached = previous;
+        try (RuntimeLease lease = resolveRuntime(environmentId)) {
+            RuntimeClassLoaderHolder runtime = lease.getRuntime();
+            String normalizedClassName = normalizeClassName(className);
+            String normalizedKeyword = normalizeKeyword(keyword);
+            boolean staticOnlyValue = Boolean.TRUE.equals(staticOnly);
+            int normalizedLimit = normalizeLimit(limit);
+            String cacheKey = runtime.getEnvironmentId()
+                    + ":" + runtime.getEnvironmentVersion()
+                    + ":" + normalizedClassName
+                    + ":" + staticOnlyValue
+                    + ":" + normalizedKeyword
+                    + ":" + normalizedLimit;
+            JavaMemberHintResponse cached = memberHintCache.get(cacheKey);
+            if (cached == null) {
+                cached = buildMemberHintResponse(runtime, normalizedClassName, normalizedKeyword, staticOnlyValue, normalizedLimit);
+                JavaMemberHintResponse previous = memberHintCache.putIfAbsent(cacheKey, cached);
+                if (previous != null) {
+                    cached = previous;
+                }
             }
+            JavaMemberHintResponse response = new JavaMemberHintResponse();
+            response.setEnvironmentId(cached.getEnvironmentId());
+            response.setEnvironmentVersion(cached.getEnvironmentVersion());
+            response.setClassName(cached.getClassName());
+            response.setGeneratedAt(cached.getGeneratedAt());
+            response.setMembers(new ArrayList<JavaMemberHint>(cached.getMembers()));
+            return response;
         }
-        JavaMemberHintResponse response = new JavaMemberHintResponse();
-        response.setEnvironmentId(cached.getEnvironmentId());
-        response.setEnvironmentVersion(cached.getEnvironmentVersion());
-        response.setClassName(cached.getClassName());
-        response.setGeneratedAt(cached.getGeneratedAt());
-        response.setMembers(new ArrayList<JavaMemberHint>(cached.getMembers()));
-        return response;
     }
 
     public void clearEnvironment(Long environmentId) {
@@ -144,7 +184,7 @@ public class ScriptEnvironmentRuntimeService {
         String prefix = environmentId + ":";
         for (String key : new ArrayList<String>(classLoaderCache.keySet())) {
             if (key.startsWith(prefix)) {
-                closeQuietly(classLoaderCache.remove(key));
+                retireCachedHolder(key, classLoaderCache.get(key));
             }
         }
         for (String key : new ArrayList<String>(importHintCache.keySet())) {
@@ -157,21 +197,29 @@ public class ScriptEnvironmentRuntimeService {
                 memberHintCache.remove(key);
             }
         }
+        JavaDataDevelopmentExecutor.clearCompiledCache(environmentId, null);
     }
 
     public void clearAll() {
-        for (RuntimeClassLoaderHolder holder : classLoaderCache.values()) {
-            closeQuietly(holder);
+        for (String key : new ArrayList<String>(classLoaderCache.keySet())) {
+            retireCachedHolder(key, classLoaderCache.get(key));
         }
-        classLoaderCache.clear();
         importHintCache.clear();
         memberHintCache.clear();
+        JavaDataDevelopmentExecutor.clearCompiledCache();
+    }
+
+    @Scheduled(initialDelay = CACHE_CLEANUP_INITIAL_DELAY_MS, fixedDelay = CACHE_CLEANUP_FIXED_DELAY_MS)
+    public void cleanupRuntimeCache() {
+        cleanupRetiredRuntimeCache();
+        cleanupOrphanEnvironmentDirectories();
     }
 
     private RuntimeClassLoaderHolder buildRuntime(ScriptEnvironmentEntity environment) {
+        Path environmentDir = cacheRoot().resolve(String.valueOf(environment.getId()))
+                .resolve(String.valueOf(environment.getEnvironmentVersion()));
+        buildingEnvironmentDirs.add(environmentDir);
         try {
-            Path environmentDir = cacheRoot().resolve(String.valueOf(environment.getId()))
-                    .resolve(String.valueOf(environment.getEnvironmentVersion()));
             Files.createDirectories(environmentDir);
             List<ResolvedJar> jars = resolveJars(environment, environmentDir);
             List<URL> urls = new ArrayList<URL>();
@@ -186,16 +234,25 @@ public class ScriptEnvironmentRuntimeService {
                     ? appClassLoader
                     : new ScriptApiParentClassLoader(appClassLoader);
             URLClassLoader classLoader = new URLClassLoader(urls.toArray(new URL[0]), parent);
-            return new RuntimeClassLoaderHolder(environment.getId(), environment.getEnvironmentVersion(), classLoader, jars,
+            return new RuntimeClassLoaderHolder(environment.getId(), environment.getEnvironmentVersion(), environmentDir, classLoader, jars,
                     environment.getUseApplicationParent() == null || environment.getUseApplicationParent().intValue() == 1);
         } catch (Exception ex) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Failed to prepare script environment: " + ex.getMessage(), ex);
+        } finally {
+            buildingEnvironmentDirs.remove(environmentDir);
         }
     }
 
     private List<ResolvedJar> resolveJars(ScriptEnvironmentEntity environment, Path environmentDir) throws Exception {
         List<ResolvedJar> result = new ArrayList<ResolvedJar>();
         for (EnvironmentDependencyEntity dependency : environmentService.listEnabledDependencies(environment.getId())) {
+            List<EnvironmentDependencyFileEntity> runtimeArtifacts = dependencyService.listRuntimeArtifacts(dependency.getId());
+            if (!runtimeArtifacts.isEmpty()) {
+                for (EnvironmentDependencyFileEntity runtimeArtifact : runtimeArtifacts) {
+                    result.add(new ResolvedJar(dependency.getId(), downloadRuntimeArtifact(dependency, runtimeArtifact, environmentDir)));
+                }
+                continue;
+            }
             Path artifact = downloadArtifact(dependency, environmentDir);
             if ("JAR".equalsIgnoreCase(dependency.getArtifactType())) {
                 result.add(new ResolvedJar(dependency.getId(), artifact));
@@ -204,6 +261,21 @@ public class ScriptEnvironmentRuntimeService {
             }
         }
         return result;
+    }
+
+    private Path downloadRuntimeArtifact(EnvironmentDependencyEntity dependency,
+                                         EnvironmentDependencyFileEntity file,
+                                         Path environmentDir) throws Exception {
+        Path artifactDir = environmentDir.resolve("runtime-artifacts").resolve(String.valueOf(dependency.getId()));
+        Files.createDirectories(artifactDir);
+        Path target = artifactDir.resolve(file.getId() + ".jar");
+        if (!Files.exists(target)) {
+            try (InputStream inputStream = openArtifactStream(file.getObjectUrl())) {
+                Files.copy(inputStream, target);
+            }
+        }
+        verifyChecksum(dependency.getName() + "/" + file.getOriginalFileName(), file.getChecksum(), target);
+        return target;
     }
 
     private Path downloadArtifact(EnvironmentDependencyEntity dependency, Path environmentDir) throws Exception {
@@ -225,6 +297,10 @@ public class ScriptEnvironmentRuntimeService {
             throw new IllegalArgumentException("Artifact URL is blank");
         }
         String normalized = artifactUrl.trim();
+        if (normalized.startsWith("oss://")) {
+            OssArtifact artifact = parseOssArtifact(normalized);
+            return new ByteArrayInputStream(cloudObjectStorageService.get(artifact.bucket, artifact.objectKey));
+        }
         if (normalized.startsWith("http://")
                 || normalized.startsWith("https://")
                 || normalized.startsWith("file:")) {
@@ -233,14 +309,30 @@ public class ScriptEnvironmentRuntimeService {
         return Files.newInputStream(Paths.get(normalized));
     }
 
+    private OssArtifact parseOssArtifact(String artifactUrl) {
+        String value = artifactUrl.substring("oss://".length());
+        int splitIndex = value.indexOf('/');
+        if (splitIndex <= 0 || splitIndex >= value.length() - 1) {
+            throw new IllegalArgumentException("Invalid OSS artifact URL: " + artifactUrl);
+        }
+        return new OssArtifact(value.substring(0, splitIndex), value.substring(splitIndex + 1));
+    }
+
     private void verifyChecksum(EnvironmentDependencyEntity dependency, Path artifact) throws Exception {
         if (dependency.getChecksum() == null || dependency.getChecksum().trim().isEmpty()) {
             return;
         }
-        String expected = dependency.getChecksum().trim().toLowerCase(Locale.ROOT);
+        verifyChecksum(dependency.getName(), dependency.getChecksum(), artifact);
+    }
+
+    private void verifyChecksum(String displayName, String checksum, Path artifact) throws Exception {
+        if (checksum == null || checksum.trim().isEmpty()) {
+            return;
+        }
+        String expected = checksum.trim().toLowerCase(Locale.ROOT);
         String actual = sha256(artifact);
         if (!expected.equals(actual)) {
-            throw new IllegalArgumentException("Checksum mismatch for dependency " + dependency.getName());
+            throw new IllegalArgumentException("Checksum mismatch for dependency " + displayName);
         }
     }
 
@@ -293,7 +385,7 @@ public class ScriptEnvironmentRuntimeService {
     }
 
     private Path cacheRoot() {
-        return Paths.get("runtime", "script-environments").toAbsolutePath().normalize();
+        return Paths.get("runtime", "script-environments", INSTANCE_ID).toAbsolutePath().normalize();
     }
 
     private JavaImportHintResponse buildImportHintResponse(RuntimeClassLoaderHolder runtime) {
@@ -897,11 +989,161 @@ public class ScriptEnvironmentRuntimeService {
         return environment.getId() + ":" + environment.getEnvironmentVersion();
     }
 
-    private void closeQuietly(RuntimeClassLoaderHolder holder) {
+    private String cacheKey(Long environmentId, Long environmentVersion) {
+        return environmentId + ":" + environmentVersion;
+    }
+
+    private void retireOlderRuntimes(Long environmentId, Long activeVersion) {
+        String activeKey = cacheKey(environmentId, activeVersion);
+        String prefix = environmentId + ":";
+        for (String key : new ArrayList<String>(classLoaderCache.keySet())) {
+            if (key.startsWith(prefix) && !activeKey.equals(key)) {
+                retireCachedHolder(key, classLoaderCache.get(key));
+            }
+        }
+        removeStaleHintCaches(environmentId, activeVersion);
+    }
+
+    private void retireCachedHolder(String key, RuntimeClassLoaderHolder holder) {
         if (holder == null) {
             return;
         }
-        closeQuietly(holder.getClassLoader());
+        classLoaderCache.remove(key, holder);
+        holder.retire();
+        retiredClassLoaderCache.put(key, holder);
+        JavaDataDevelopmentExecutor.clearCompiledCache(holder.getEnvironmentId(), holder.getEnvironmentVersion());
+        cleanupRetiredHolder(key, holder);
+    }
+
+    private void closeRuntimeOnly(RuntimeClassLoaderHolder holder) {
+        if (holder == null) {
+            return;
+        }
+        holder.retire();
+        JavaDataDevelopmentExecutor.clearCompiledCache(holder.getEnvironmentId(), holder.getEnvironmentVersion());
+        closeQuietly(holder.markClosedForCleanup());
+    }
+
+    private void release(RuntimeClassLoaderHolder holder) {
+        if (holder == null) {
+            return;
+        }
+        if (holder.release() && holder.isRetired()) {
+            cleanupRetiredHolder(cacheKey(holder.getEnvironmentId(), holder.getEnvironmentVersion()), holder);
+        }
+    }
+
+    private void cleanupRetiredRuntimeCache() {
+        for (Map.Entry<String, RuntimeClassLoaderHolder> entry : new ArrayList<Map.Entry<String, RuntimeClassLoaderHolder>>(retiredClassLoaderCache.entrySet())) {
+            cleanupRetiredHolder(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private void cleanupRetiredHolder(String key, RuntimeClassLoaderHolder holder) {
+        if (holder == null || !holder.isReadyForCleanup()) {
+            return;
+        }
+        boolean deleted = cleanupHolderResources(holder);
+        if (deleted) {
+            retiredClassLoaderCache.remove(key, holder);
+        }
+    }
+
+    private boolean cleanupHolderResources(RuntimeClassLoaderHolder holder) {
+        Closeable closeable = holder.markClosedForCleanup();
+        closeQuietly(closeable);
+        return deleteDirectoryQuietly(holder.getEnvironmentDir());
+    }
+
+    private void removeStaleHintCaches(Long environmentId, Long activeVersion) {
+        String activePrefix = environmentId + ":" + activeVersion;
+        String environmentPrefix = environmentId + ":";
+        for (String key : new ArrayList<String>(importHintCache.keySet())) {
+            if (key.startsWith(environmentPrefix) && !activePrefix.equals(key)) {
+                importHintCache.remove(key);
+            }
+        }
+        for (String key : new ArrayList<String>(memberHintCache.keySet())) {
+            if (key.startsWith(environmentPrefix) && !key.startsWith(activePrefix + ":")) {
+                memberHintCache.remove(key);
+            }
+        }
+    }
+
+    private void cleanupOrphanEnvironmentDirectories() {
+        Path root = cacheRoot();
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        Set<Path> protectedDirs = protectedEnvironmentDirs();
+        try (Stream<Path> stream = Files.list(root)) {
+            stream.filter(Files::isDirectory).forEach(environmentDir -> cleanupOrphanVersionDirectories(environmentDir, protectedDirs));
+        } catch (IOException ex) {
+            log.warn("Failed to scan script environment runtime cache root {}", root, ex);
+        }
+    }
+
+    private void cleanupOrphanVersionDirectories(Path environmentDir, Set<Path> protectedDirs) {
+        try (Stream<Path> stream = Files.list(environmentDir)) {
+            stream.filter(Files::isDirectory).forEach(versionDir -> {
+                Path normalized = versionDir.toAbsolutePath().normalize();
+                if (!protectedDirs.contains(normalized)) {
+                    deleteDirectoryQuietly(normalized);
+                }
+            });
+        } catch (IOException ex) {
+            log.warn("Failed to scan script environment runtime cache directory {}", environmentDir, ex);
+        }
+    }
+
+    private Set<Path> protectedEnvironmentDirs() {
+        Set<Path> result = new LinkedHashSet<Path>();
+        for (RuntimeClassLoaderHolder holder : classLoaderCache.values()) {
+            result.add(holder.getEnvironmentDir().toAbsolutePath().normalize());
+        }
+        for (RuntimeClassLoaderHolder holder : retiredClassLoaderCache.values()) {
+            result.add(holder.getEnvironmentDir().toAbsolutePath().normalize());
+        }
+        for (Path path : buildingEnvironmentDirs) {
+            result.add(path.toAbsolutePath().normalize());
+        }
+        return result;
+    }
+
+    private boolean deleteDirectoryQuietly(Path directory) {
+        if (directory == null) {
+            return true;
+        }
+        Path normalized = directory.toAbsolutePath().normalize();
+        if (!normalized.startsWith(cacheRoot())) {
+            log.warn("Skip deleting script environment cache outside current instance root: {}", normalized);
+            return false;
+        }
+        if (!Files.exists(normalized)) {
+            return true;
+        }
+        try {
+            Files.walkFileTree(normalized, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Files.deleteIfExists(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                    if (exc != null) {
+                        throw exc;
+                    }
+                    Files.deleteIfExists(dir);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+            return !Files.exists(normalized);
+        } catch (IOException ex) {
+            log.warn("Failed to delete script environment runtime cache directory {}", normalized, ex);
+            return false;
+        }
     }
 
     private void closeQuietly(Closeable closeable) {
@@ -918,20 +1160,63 @@ public class ScriptEnvironmentRuntimeService {
     public static final class RuntimeClassLoaderHolder {
         private final Long environmentId;
         private final Long environmentVersion;
+        private final Path environmentDir;
         private final URLClassLoader classLoader;
         private final List<ResolvedJar> jars;
         private final boolean useApplicationParent;
+        private final AtomicInteger activeCount = new AtomicInteger(0);
+        private volatile boolean retired;
+        private volatile boolean closed;
 
         private RuntimeClassLoaderHolder(Long environmentId,
-                                         Long environmentVersion,
-                                         URLClassLoader classLoader,
-                                         List<ResolvedJar> jars,
-                                         boolean useApplicationParent) {
+                                          Long environmentVersion,
+                                          Path environmentDir,
+                                          URLClassLoader classLoader,
+                                          List<ResolvedJar> jars,
+                                          boolean useApplicationParent) {
             this.environmentId = environmentId;
             this.environmentVersion = environmentVersion;
+            this.environmentDir = environmentDir;
             this.classLoader = classLoader;
             this.jars = jars;
             this.useApplicationParent = useApplicationParent;
+        }
+
+        private synchronized RuntimeLease tryAcquire(ScriptEnvironmentRuntimeService owner) {
+            if (retired || closed) {
+                return null;
+            }
+            activeCount.incrementAndGet();
+            return new RuntimeLease(owner, this);
+        }
+
+        private synchronized boolean release() {
+            int current = activeCount.decrementAndGet();
+            if (current < 0) {
+                activeCount.set(0);
+                return false;
+            }
+            return current == 0;
+        }
+
+        private synchronized void retire() {
+            retired = true;
+        }
+
+        private synchronized boolean isReadyForCleanup() {
+            return retired && activeCount.get() == 0;
+        }
+
+        private synchronized Closeable markClosedForCleanup() {
+            if (!isReadyForCleanup() || closed) {
+                return null;
+            }
+            closed = true;
+            return classLoader;
+        }
+
+        private boolean isRetired() {
+            return retired;
         }
 
         public Long getEnvironmentId() {
@@ -940,6 +1225,10 @@ public class ScriptEnvironmentRuntimeService {
 
         public Long getEnvironmentVersion() {
             return environmentVersion;
+        }
+
+        private Path getEnvironmentDir() {
+            return environmentDir;
         }
 
         public URLClassLoader getClassLoader() {
@@ -963,6 +1252,30 @@ public class ScriptEnvironmentRuntimeService {
         }
     }
 
+    public static final class RuntimeLease implements AutoCloseable {
+        private final ScriptEnvironmentRuntimeService owner;
+        private final RuntimeClassLoaderHolder runtime;
+        private volatile boolean closed;
+
+        private RuntimeLease(ScriptEnvironmentRuntimeService owner, RuntimeClassLoaderHolder runtime) {
+            this.owner = owner;
+            this.runtime = runtime;
+        }
+
+        public RuntimeClassLoaderHolder getRuntime() {
+            return runtime;
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            owner.release(runtime);
+        }
+    }
+
     private static final class ResolvedJar {
         private final Long dependencyId;
         private final Path path;
@@ -970,6 +1283,16 @@ public class ScriptEnvironmentRuntimeService {
         private ResolvedJar(Long dependencyId, Path path) {
             this.dependencyId = dependencyId;
             this.path = path;
+        }
+    }
+
+    private static final class OssArtifact {
+        private final String bucket;
+        private final String objectKey;
+
+        private OssArtifact(String bucket, String objectKey) {
+            this.bucket = bucket;
+            this.objectKey = objectKey;
         }
     }
 

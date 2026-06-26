@@ -1,11 +1,6 @@
 package com.jdragon.studio.infra.script.java;
 
-public interface JavaDataScriptLogger {
-    void info(String message);
+import org.slf4j.Logger;
 
-    void warn(String message);
-
-    void error(String message);
-
-    void debug(String message);
+public interface JavaDataScriptLogger extends Logger {
 }

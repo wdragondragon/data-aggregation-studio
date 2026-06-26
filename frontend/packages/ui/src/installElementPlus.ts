@@ -1,5 +1,6 @@
 import type { App, Plugin } from "vue";
 import {
+  ElAlert,
   ElButton,
   ElCheckbox,
   ElCheckboxGroup,
@@ -39,9 +40,11 @@ import {
   ElTimelineItem,
   ElTooltip,
   ElTree,
+  ElUpload,
   ElInputNumber,
   ElLoading
 } from "element-plus";
+import "element-plus/es/components/alert/style/css";
 import "element-plus/es/components/button/style/css";
 import "element-plus/es/components/checkbox/style/css";
 import "element-plus/es/components/checkbox-group/style/css";
@@ -83,10 +86,12 @@ import "element-plus/es/components/timeline/style/css";
 import "element-plus/es/components/timeline-item/style/css";
 import "element-plus/es/components/tooltip/style/css";
 import "element-plus/es/components/tree/style/css";
+import "element-plus/es/components/upload/style/css";
 import "element-plus/es/components/input-number/style/css";
 import "element-plus/es/components/loading/style/css";
 
 const components: Plugin[] = [
+  ElAlert,
   ElButton,
   ElCheckbox,
   ElCheckboxGroup,
@@ -126,6 +131,7 @@ const components: Plugin[] = [
   ElTimelineItem,
   ElTooltip,
   ElTree,
+  ElUpload,
   ElInputNumber
 ];
 

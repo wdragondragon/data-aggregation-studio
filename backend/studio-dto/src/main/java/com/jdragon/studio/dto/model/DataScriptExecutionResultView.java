@@ -13,6 +13,9 @@ public class DataScriptExecutionResultView {
     private String status;
     private String message;
     private Long executionMs;
+    private Long dispatchTaskId;
+    private Long runRecordId;
+    private String logStatus;
     private String datasourceName;
     private String logs;
     private Map<String, Object> resultJson = new LinkedHashMap<String, Object>();

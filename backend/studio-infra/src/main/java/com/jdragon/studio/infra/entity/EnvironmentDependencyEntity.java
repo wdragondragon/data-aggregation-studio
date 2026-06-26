@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 public class EnvironmentDependencyEntity extends BaseTenantEntity {
     private String name;
     private String version;
+    private String scriptType;
     private String artifactUrl;
     private String artifactType;
     private String checksum;

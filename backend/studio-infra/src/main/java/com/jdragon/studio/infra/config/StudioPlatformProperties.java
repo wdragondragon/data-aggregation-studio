@@ -28,6 +28,7 @@ public class StudioPlatformProperties {
     private PythonProperties python = new PythonProperties();
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
     private DispatchProperties dispatch = new DispatchProperties();
+    private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
     private RunLogProperties runLog = new RunLogProperties();
     private InvocationLogProperties invocationLog = new InvocationLogProperties();
     private DatasourceHealthProperties datasourceHealth = new DatasourceHealthProperties();
@@ -73,6 +74,7 @@ public class StudioPlatformProperties {
     @Data
     public static class RunLogProperties {
         private String storageType = "LOCAL";
+        private String objectPrefix = "studio/run-logs";
         private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
     }
 
@@ -141,7 +143,7 @@ public class StudioPlatformProperties {
         private String secretKey;
         private String bucket;
         private String region;
-        private String prefix = "studio/run-logs";
+        private String prefix;
         private boolean createBucket = true;
     }
 

@@ -585,6 +585,10 @@ public class StudioSchemaUpgradeService {
                 "alter table so_pf_env_dep add key idx_so_pf_env_dep_tenant_enabled (tenant_id, enabled)");
         ensureIndex("so_pf_env_dep", "uk_so_pf_env_dep_name_ver",
                 "alter table so_pf_env_dep add unique key uk_so_pf_env_dep_name_ver (tenant_id, name, version)");
+        ensureIndex("so_pf_env_dep_file", "idx_so_pf_env_dep_file_dep",
+                "alter table so_pf_env_dep_file add key idx_so_pf_env_dep_file_dep (tenant_id, dependency_id, visible)");
+        ensureIndex("so_pf_env_dep_file", "idx_so_pf_env_dep_file_runtime",
+                "alter table so_pf_env_dep_file add key idx_so_pf_env_dep_file_runtime (tenant_id, dependency_id, runtime_artifact)");
         ensureIndex("so_pf_script_env", "uk_so_pf_script_env_code",
                 "alter table so_pf_script_env add unique key uk_so_pf_script_env_code (tenant_id, environment_code)");
         ensureIndex("so_pf_script_env", "idx_so_pf_script_env_enabled",
@@ -3160,11 +3164,35 @@ public class StudioSchemaUpgradeService {
                     "updated_at datetime default current_timestamp," +
                     "name varchar(255) not null," +
                     "version varchar(128)," +
+                    "script_type varchar(32) default 'JAVA'," +
                     "artifact_url text," +
                     "artifact_type varchar(32)," +
                     "checksum varchar(128)," +
                     "enabled int default 1," +
                     "description text" +
+                    ")");
+        }
+        ensureColumn("so_pf_env_dep", "script_type",
+                "alter table so_pf_env_dep add column script_type varchar(32) default 'JAVA' after version");
+        jdbcTemplate.execute("update so_pf_env_dep set script_type = 'JAVA' where script_type is null or script_type = ''");
+        if (!tableExists("so_pf_env_dep_file")) {
+            jdbcTemplate.execute("create table so_pf_env_dep_file (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "dependency_id bigint not null," +
+                    "original_file_name varchar(512) not null," +
+                    "artifact_type varchar(32) not null," +
+                    "object_key text," +
+                    "object_url text," +
+                    "checksum varchar(128)," +
+                    "size_bytes bigint," +
+                    "visible int default 1," +
+                    "runtime_artifact int default 0," +
+                    "source_file_id bigint," +
+                    "enabled int default 1" +
                     ")");
         }
         if (!tableExists("so_pf_script_env")) {
@@ -3198,6 +3226,10 @@ public class StudioSchemaUpgradeService {
                 "alter table so_pf_env_dep add key idx_so_pf_env_dep_tenant_enabled (tenant_id, enabled)");
         ensureIndex("so_pf_env_dep", "uk_so_pf_env_dep_name_ver",
                 "alter table so_pf_env_dep add unique key uk_so_pf_env_dep_name_ver (tenant_id, name, version)");
+        ensureIndex("so_pf_env_dep_file", "idx_so_pf_env_dep_file_dep",
+                "alter table so_pf_env_dep_file add key idx_so_pf_env_dep_file_dep (tenant_id, dependency_id, visible)");
+        ensureIndex("so_pf_env_dep_file", "idx_so_pf_env_dep_file_runtime",
+                "alter table so_pf_env_dep_file add key idx_so_pf_env_dep_file_runtime (tenant_id, dependency_id, runtime_artifact)");
         ensureIndex("so_pf_script_env", "uk_so_pf_script_env_code",
                 "alter table so_pf_script_env add unique key uk_so_pf_script_env_code (tenant_id, environment_code)");
         ensureIndex("so_pf_script_env", "idx_so_pf_script_env_enabled",
@@ -3217,11 +3249,33 @@ public class StudioSchemaUpgradeService {
                 "updated_at text," +
                 "name text not null," +
                 "version text," +
+                "script_type text default 'JAVA'," +
                 "artifact_url text," +
                 "artifact_type text," +
                 "checksum text," +
                 "enabled integer default 1," +
                 "description text" +
+                ")");
+        ensureColumn("so_pf_env_dep", "script_type",
+                "alter table so_pf_env_dep add column script_type text default 'JAVA'");
+        jdbcTemplate.execute("update so_pf_env_dep set script_type = 'JAVA' where script_type is null or script_type = ''");
+        jdbcTemplate.execute("create table if not exists so_pf_env_dep_file (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "dependency_id integer not null," +
+                "original_file_name text not null," +
+                "artifact_type text not null," +
+                "object_key text," +
+                "object_url text," +
+                "checksum text," +
+                "size_bytes integer," +
+                "visible integer default 1," +
+                "runtime_artifact integer default 0," +
+                "source_file_id integer," +
+                "enabled integer default 1" +
                 ")");
         jdbcTemplate.execute("create table if not exists so_pf_script_env (" +
                 "id integer primary key," +
@@ -3248,6 +3302,8 @@ public class StudioSchemaUpgradeService {
                 ")");
         jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_tenant_enabled on so_pf_env_dep(tenant_id, enabled)");
         jdbcTemplate.execute("create unique index if not exists uk_so_pf_env_dep_name_ver on so_pf_env_dep(tenant_id, name, version)");
+        jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_file_dep on so_pf_env_dep_file(tenant_id, dependency_id, visible)");
+        jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_file_runtime on so_pf_env_dep_file(tenant_id, dependency_id, runtime_artifact)");
         jdbcTemplate.execute("create unique index if not exists uk_so_pf_script_env_code on so_pf_script_env(tenant_id, environment_code)");
         jdbcTemplate.execute("create index if not exists idx_so_pf_script_env_enabled on so_pf_script_env(tenant_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_rel_env on so_pf_env_dep_rel(environment_id, sort_order)");

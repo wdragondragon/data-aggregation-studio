@@ -2,6 +2,7 @@ package com.jdragon.studio.test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.infra.service.CloudObjectStorageService;
 import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.RunLogObjectStore;
 import com.jdragon.studio.infra.service.RunLogStorageService;
@@ -11,6 +12,8 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class OpenServiceInvocationLogServiceTest {
 
@@ -55,9 +58,11 @@ class OpenServiceInvocationLogServiceTest {
 
     private static OpenServiceInvocationLogService invocationLogService(StudioPlatformProperties properties,
                                                                         CountingObjectStore objectStore) {
+        CloudObjectStorageService cloudObjectStorageService = mock(CloudObjectStorageService.class);
+        when(cloudObjectStorageService.bucketConfigured()).thenReturn(false);
         return new OpenServiceInvocationLogService(
                 properties,
-                new RunLogStorageService(properties, objectStore),
+                new RunLogStorageService(properties, objectStore, cloudObjectStorageService),
                 null,
                 null,
                 null,

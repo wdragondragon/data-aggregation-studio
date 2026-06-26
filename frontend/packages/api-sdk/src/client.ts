@@ -130,6 +130,7 @@ import type {
   RunLogQuery,
   RunLogView,
   RunRecord,
+  SavedDataScriptExecutionRequest,
   ScriptType,
   ScriptEnvironment,
   ScriptEnvironmentSaveRequest,
@@ -1161,6 +1162,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       saveOrUpdateCheck(payload: EnvironmentDependencySaveRequest) {
         return request<EnvironmentDependency>({ url: "/environment-dependencies/saveOrUpdateCheck", method: "POST", data: payload });
       },
+      saveOrUpdateCheckForm(payload: FormData) {
+        return request<EnvironmentDependency>({ url: "/environment-dependencies/saveOrUpdateCheck", method: "POST", data: payload });
+      },
+      async downloadFile(dependencyId: EntityId, fileId: EntityId) {
+        const response = await instance.request<Blob>({
+          url: `/environment-dependencies/${dependencyId}/files/${fileId}/download`,
+          method: "GET",
+          responseType: "blob",
+        });
+        return response.data;
+      },
+      deleteFile(dependencyId: EntityId, fileId: EntityId) {
+        return request<void>({ url: `/environment-dependencies/${dependencyId}/files/${fileId}`, method: "DELETE" });
+      },
       enable(id: EntityId) {
         return request<EnvironmentDependency>({ url: `/environment-dependencies/${id}/enable`, method: "POST" });
       },
@@ -1244,6 +1259,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       executeScript(payload: DataScriptExecutionRequest) {
         return request<DataScriptExecutionResult>({ url: "/data-development/scripts/execute", method: "POST", data: payload });
+      },
+      executeSavedScript(id: EntityId, payload?: SavedDataScriptExecutionRequest) {
+        return request<DataScriptExecutionResult>({ url: `/data-development/scripts/${id}/execute`, method: "POST", data: payload ?? {} });
       },
       javaImportHints(params?: { environmentId?: EntityId; keyword?: string; limit?: number }, config?: StudioRequestConfig) {
         return request<JavaImportHintResponse>({ ...config, url: "/data-development/java/import-hints", method: "GET", params });

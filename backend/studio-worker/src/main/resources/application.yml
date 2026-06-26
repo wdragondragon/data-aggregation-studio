@@ -74,8 +74,17 @@ studio:
     worker-scheduler-pool-size: ${STUDIO_WORKER_SCHEDULER_POOL_SIZE:4}
     dispatch-lease-minutes: ${STUDIO_DISPATCH_LEASE_MINUTES:10}
     worker-offline-grace-minutes: ${STUDIO_WORKER_OFFLINE_GRACE_MINUTES:120}
+  object-storage:
+    provider: ${STUDIO_OBJECT_PROVIDER:${STUDIO_RUN_LOG_OBJECT_PROVIDER:MINIO}}
+    endpoint: ${STUDIO_OBJECT_ENDPOINT:${STUDIO_RUN_LOG_OBJECT_ENDPOINT:}}
+    access-key: ${STUDIO_OBJECT_ACCESS_KEY:${STUDIO_RUN_LOG_OBJECT_ACCESS_KEY:}}
+    secret-key: ${STUDIO_OBJECT_SECRET_KEY:${STUDIO_RUN_LOG_OBJECT_SECRET_KEY:}}
+    bucket: ${STUDIO_OBJECT_BUCKET:${STUDIO_RUN_LOG_OBJECT_BUCKET:}}
+    region: ${STUDIO_OBJECT_REGION:${STUDIO_RUN_LOG_OBJECT_REGION:}}
+    create-bucket: ${STUDIO_OBJECT_CREATE_BUCKET:${STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET:true}}
   run-log:
     storage-type: ${STUDIO_RUN_LOG_STORAGE_TYPE:LOCAL}
+    object-prefix: ${STUDIO_RUN_LOG_OBJECT_PREFIX:studio/run-logs}
     object-storage:
       provider: ${STUDIO_RUN_LOG_OBJECT_PROVIDER:MINIO}
       endpoint: ${STUDIO_RUN_LOG_OBJECT_ENDPOINT:}

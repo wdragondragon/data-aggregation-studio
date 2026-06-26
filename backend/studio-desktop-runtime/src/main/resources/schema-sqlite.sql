@@ -971,6 +971,7 @@ create table if not exists so_pf_env_dep (
     updated_at text,
     name text not null,
     version text,
+    script_type text default 'JAVA',
     artifact_url text,
     artifact_type text,
     checksum text,
@@ -979,6 +980,27 @@ create table if not exists so_pf_env_dep (
 );
 create index if not exists idx_so_pf_env_dep_tenant_enabled on so_pf_env_dep(tenant_id, enabled);
 create unique index if not exists uk_so_pf_env_dep_name_ver on so_pf_env_dep(tenant_id, name, version);
+
+create table if not exists so_pf_env_dep_file (
+    id integer primary key,
+    tenant_id text default 'default',
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    dependency_id integer not null,
+    original_file_name text not null,
+    artifact_type text not null,
+    object_key text,
+    object_url text,
+    checksum text,
+    size_bytes integer,
+    visible integer default 1,
+    runtime_artifact integer default 0,
+    source_file_id integer,
+    enabled integer default 1
+);
+create index if not exists idx_so_pf_env_dep_file_dep on so_pf_env_dep_file(tenant_id, dependency_id, visible);
+create index if not exists idx_so_pf_env_dep_file_runtime on so_pf_env_dep_file(tenant_id, dependency_id, runtime_artifact);
 
 create table if not exists so_pf_script_env (
     id integer primary key,

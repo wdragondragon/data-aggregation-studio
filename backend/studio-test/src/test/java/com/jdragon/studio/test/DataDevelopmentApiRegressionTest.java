@@ -102,7 +102,7 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
     }
 
     @Test
-    void shouldSaveAndExecuteJavaScriptWithoutDatasource() throws Exception {
+    void shouldSaveJavaScriptAndRejectDirectEditorExecution() throws Exception {
         JsonNode loginBody = loginAsAdmin();
         String authorization = adminAuthorizationHeader(loginBody);
         String currentProjectId = currentProjectId(loginBody).toString();
@@ -115,11 +115,14 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 + "import com.jdragon.studio.infra.script.java.JavaDataScript;\n"
                 + "import com.jdragon.studio.infra.script.java.JavaDataScriptContext;\n"
                 + "import com.jdragon.studio.infra.script.java.JavaDataScriptResult;\n"
+                + "import org.slf4j.Logger;\n"
                 + "\n"
                 + "public class DemoJavaDataScript implements JavaDataScript {\n"
                 + "    @Override\n"
                 + "    public JavaDataScriptResult execute(JavaDataScriptContext context) throws Exception {\n"
                 + "        context.getLogger().info(\"Java script started\");\n"
+                + "        Logger logger = context.getLogger();\n"
+                + "        logger.info(\"Java script slf4j logger started by {}\", context.getUsername());\n"
                 + "        JavaDataScriptResult result = new JavaDataScriptResult();\n"
                 + "        result.setMessage(\"Java script executed successfully\");\n"
                 + "        result.getResultJson().put(\"tenantId\", context.getTenantId());\n"
@@ -149,23 +152,17 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                         .header("Authorization", authorization)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(executionPayload)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.scriptType").value("JAVA"))
-                .andExpect(jsonPath("$.data.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.data.message").value("Java script executed successfully"))
-                .andExpect(jsonPath("$.data.logs").isNotEmpty())
-                .andExpect(jsonPath("$.data.resultJson.tenantId").value("default"))
-                .andExpect(jsonPath("$.data.resultJson.arguments.batchSize").value(100));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Non-SQL scripts must be saved before execution"));
     }
 
     @Test
-    void shouldSaveAndExecutePythonScriptWithoutDatasource() throws Exception {
+    void shouldSavePythonScriptAndRejectDirectEditorExecution() throws Exception {
         JsonNode loginBody = loginAsAdmin();
         String authorization = adminAuthorizationHeader(loginBody);
         String currentProjectId = currentProjectId(loginBody).toString();
-        createSqlDatasource(authorization, "Python Bridge Datasource");
 
         Map<String, Object> scriptPayload = new LinkedHashMap<String, Object>();
         scriptPayload.put("fileName", "demo_job.py");
@@ -202,34 +199,10 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                         .header("Authorization", authorization)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(executionPayload)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.scriptType").value("PYTHON"))
-                .andExpect(jsonPath("$.data.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.data.logs").isNotEmpty())
-                .andExpect(jsonPath("$.data.resultJson.tenantId").value("default"))
-                .andExpect(jsonPath("$.data.resultJson.arguments.batchSize").value(64))
-                .andExpect(jsonPath("$.data.resultJson.datasourceCount").value(1));
-    }
-
-    private String createSqlDatasource(String authorization, String name) throws Exception {
-        Map<String, Object> datasourcePayload = new LinkedHashMap<String, Object>();
-        datasourcePayload.put("name", name);
-        datasourcePayload.put("typeCode", "mysql8");
-        datasourcePayload.put("enabled", true);
-        datasourcePayload.put("executable", false);
-        datasourcePayload.put("technicalMetadata", minimalSqlMetadata());
-        datasourcePayload.put("businessMetadata", new LinkedHashMap<String, Object>());
-
-        MvcResult datasourceResult = mockMvc.perform(post("/api/v1/datasources")
-                        .header("Authorization", authorization)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(datasourcePayload)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andReturn();
-        return readBody(datasourceResult).path("data").path("id").asText();
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Non-SQL scripts must be saved before execution"));
     }
 
     private Map<String, Object> minimalSqlMetadata() {

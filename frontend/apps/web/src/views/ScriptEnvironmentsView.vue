@@ -14,9 +14,9 @@
 
     <el-tabs v-model="activeTab" class="environment-tabs">
       <el-tab-pane label="依赖包" name="dependencies">
-        <SectionCard title="依赖包" description="保存 JAR/ZIP 的可访问地址和校验信息；文件上传由前端或外部流程完成。">
+        <SectionCard title="依赖包" description="上传 Java 脚本运行环境使用的 JAR/ZIP 文件。">
           <div class="environment-filter-grid">
-            <el-input v-model="dependencyFilters.keyword" clearable placeholder="名称、版本、URL 或描述" />
+            <el-input v-model="dependencyFilters.keyword" clearable placeholder="名称、版本、脚本类型或描述" />
             <el-select v-model="dependencyFilters.enabled" clearable placeholder="状态">
               <el-option label="启用" :value="true" />
               <el-option label="停用" :value="false" />
@@ -36,9 +36,30 @@
               </el-table-column>
               <el-table-column prop="name" label="名称" min-width="180" />
               <el-table-column prop="version" label="版本" min-width="120" />
-              <el-table-column prop="artifactType" label="类型" width="90" />
-              <el-table-column prop="artifactUrl" label="文件地址" min-width="260" show-overflow-tooltip />
-              <el-table-column prop="checksum" label="SHA-256" min-width="220" show-overflow-tooltip />
+              <el-table-column label="脚本类型" width="110">
+                <template #default="{ row }">
+                  {{ formatScriptType(row.scriptType) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="文件" min-width="300">
+                <template #default="{ row }">
+                  <div v-if="dependencyVisibleFiles(row).length" class="dependency-file-summary">
+                    <el-tag
+                      v-for="file in dependencyVisibleFiles(row).slice(0, 3)"
+                      :key="file.id ?? file.originalFileName"
+                      size="small"
+                      effect="plain"
+                      class="dependency-file-tag"
+                    >
+                      {{ file.originalFileName }} · {{ file.artifactType }} · {{ formatFileSize(file.sizeBytes) }}
+                    </el-tag>
+                    <span v-if="dependencyVisibleFiles(row).length > 3" class="dependency-file-more">
+                      +{{ dependencyVisibleFiles(row).length - 3 }}
+                    </span>
+                  </div>
+                  <span v-else class="muted-text">未上传文件</span>
+                </template>
+              </el-table-column>
               <el-table-column label="状态" width="100" align="center" header-align="center">
                 <template #default="{ row }">
                   <StatusPill :label="row.enabled ? '启用' : '停用'" :tone="row.enabled ? 'success' : 'neutral'" />
@@ -132,7 +153,7 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="dependencyDialogVisible" title="依赖包" width="640px">
+    <el-dialog v-model="dependencyDialogVisible" title="依赖包" width="760px">
       <div class="studio-form-grid">
         <el-form-item label="名称">
           <el-input v-model="dependencyForm.name" placeholder="mysql-driver" />
@@ -140,20 +161,50 @@
         <el-form-item label="版本">
           <el-input v-model="dependencyForm.version" placeholder="8.0.33" />
         </el-form-item>
-        <el-form-item label="文件类型">
-          <el-select v-model="dependencyForm.artifactType">
-            <el-option label="JAR" value="JAR" />
-            <el-option label="ZIP" value="ZIP" />
+        <el-form-item label="脚本类型">
+          <el-select v-model="dependencyForm.scriptType">
+            <el-option label="Java" value="JAVA" />
           </el-select>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="dependencyForm.enabled" />
         </el-form-item>
-        <el-form-item label="文件地址" class="span-2">
-          <el-input v-model="dependencyForm.artifactUrl" placeholder="https://oss.example.com/script-deps/mysql-driver.jar" />
+        <el-form-item label="依赖文件" class="span-2">
+          <el-upload
+            v-model:file-list="dependencyUploadFiles"
+            accept=".jar,.zip"
+            :auto-upload="false"
+            name="files"
+            multiple
+            :on-change="handleDependencyFileChange"
+            :on-remove="handleDependencyFileRemove"
+          >
+            <el-button>选择 JAR/ZIP 文件</el-button>
+            <template #tip>
+              <div class="upload-tip">
+                {{ dependencyForm.id ? "可一次选择多个文件；与已上传文件同名时会覆盖。" : "新建依赖包必须上传 JAR 或包含 JAR 的 ZIP。" }}
+              </div>
+            </template>
+          </el-upload>
         </el-form-item>
-        <el-form-item label="SHA-256" class="span-2">
-          <el-input v-model="dependencyForm.checksum" placeholder="可选；填写后执行前校验文件内容" />
+        <el-form-item v-if="dependencyForm.id" label="已上传文件" class="span-2">
+          <div class="dependency-file-list">
+            <div
+              v-for="file in dependencyForm.uploadedFiles"
+              :key="file.id ?? file.originalFileName"
+              class="dependency-file-row"
+            >
+              <div class="dependency-file-main">
+                <span class="dependency-file-name">{{ file.originalFileName }}</span>
+                <span class="dependency-file-meta">{{ file.artifactType }} · {{ formatFileSize(file.sizeBytes) }}</span>
+              </div>
+              <div class="dependency-file-actions">
+                <el-button link type="primary" :disabled="!file.id" @click="downloadDependencyFile(file)">下载</el-button>
+                <el-button link type="danger" :disabled="!file.id" @click="deleteDependencyFile(file)">删除</el-button>
+              </div>
+            </div>
+            <div v-if="dependencyForm.uploadedFiles.length === 0" class="dependency-file-empty">暂无已上传文件</div>
+          </div>
         </el-form-item>
         <el-form-item label="描述" class="span-2">
           <el-input v-model="dependencyForm.description" type="textarea" :rows="3" />
@@ -208,10 +259,12 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import type { UploadFile, UploadFiles, UploadUserFile } from "element-plus";
 import type {
   EntityId,
   EnvironmentDependency,
-  EnvironmentDependencySaveRequest,
+  EnvironmentDependencyFile,
+  ScriptType,
   ScriptEnvironment,
   ScriptEnvironmentSaveRequest,
 } from "@studio/api-sdk";
@@ -222,6 +275,7 @@ const activeTab = ref<"dependencies" | "environments">("dependencies");
 const dependencyDialogVisible = ref(false);
 const environmentDialogVisible = ref(false);
 const dependencyOptions = ref<EnvironmentDependency[]>([]);
+const dependencyUploadFiles = ref<UploadUserFile[]>([]);
 
 const dependencyFilters = reactive<{ keyword: string; enabled?: boolean }>({
   keyword: "",
@@ -249,9 +303,9 @@ const dependencyForm = reactive({
   id: undefined as EntityId | undefined,
   name: "",
   version: "",
-  artifactUrl: "",
-  artifactType: "JAR",
-  checksum: "",
+  scriptType: "JAVA" as ScriptType,
+  files: [] as File[],
+  uploadedFiles: [] as EnvironmentDependencyFile[],
   enabled: true,
   description: "",
 });
@@ -343,12 +397,30 @@ function openDependencyDialog(dependency?: EnvironmentDependency) {
   dependencyForm.id = dependency?.id;
   dependencyForm.name = dependency?.name ?? "";
   dependencyForm.version = dependency?.version ?? "";
-  dependencyForm.artifactUrl = dependency?.artifactUrl ?? "";
-  dependencyForm.artifactType = dependency?.artifactType || "JAR";
-  dependencyForm.checksum = dependency?.checksum ?? "";
+  dependencyForm.scriptType = (dependency?.scriptType ?? "JAVA") as ScriptType;
+  dependencyForm.files = [];
+  dependencyForm.uploadedFiles = dependencyVisibleFiles(dependency);
   dependencyForm.enabled = dependency?.enabled !== false;
   dependencyForm.description = dependency?.description ?? "";
+  dependencyUploadFiles.value = [];
   dependencyDialogVisible.value = true;
+  if (dependency?.id) {
+    void refreshDependencyForm(dependency.id);
+  }
+}
+
+function handleDependencyFileChange(_uploadFile: UploadFile, uploadFiles: UploadFiles) {
+  dependencyUploadFiles.value = uploadFiles;
+  dependencyForm.files = uploadFiles
+    .map((item) => item.raw as File | undefined)
+    .filter((item): item is File => Boolean(item));
+}
+
+function handleDependencyFileRemove(_uploadFile: UploadFile, uploadFiles: UploadFiles) {
+  dependencyUploadFiles.value = uploadFiles;
+  dependencyForm.files = uploadFiles
+    .map((item) => item.raw as File | undefined)
+    .filter((item): item is File => Boolean(item));
 }
 
 function openEnvironmentDialog(environment?: ScriptEnvironment) {
@@ -365,22 +437,86 @@ function openEnvironmentDialog(environment?: ScriptEnvironment) {
 
 async function saveDependency() {
   try {
-    const payload: EnvironmentDependencySaveRequest = {
-      id: dependencyForm.id,
-      name: dependencyForm.name.trim(),
-      version: dependencyForm.version.trim() || undefined,
-      artifactUrl: dependencyForm.artifactUrl.trim(),
-      artifactType: dependencyForm.artifactType,
-      checksum: dependencyForm.checksum.trim() || undefined,
-      enabled: dependencyForm.enabled,
-      description: dependencyForm.description.trim() || undefined,
-    };
-    await studioApi.environmentDependencies.saveOrUpdateCheck(payload);
+    const name = dependencyForm.name.trim();
+    if (!name) {
+      ElMessage.error("请填写依赖包名称");
+      return;
+    }
+    if (!dependencyForm.id && dependencyForm.files.length === 0) {
+      ElMessage.error("请上传依赖文件");
+      return;
+    }
+    const payload = new FormData();
+    if (dependencyForm.id != null) {
+      payload.append("id", String(dependencyForm.id));
+    }
+    payload.append("name", name);
+    if (dependencyForm.version.trim()) {
+      payload.append("version", dependencyForm.version.trim());
+    }
+    payload.append("scriptType", dependencyForm.scriptType);
+    payload.append("enabled", String(dependencyForm.enabled));
+    if (dependencyForm.description.trim()) {
+      payload.append("description", dependencyForm.description.trim());
+    }
+    for (const file of dependencyForm.files) {
+      payload.append("files", file);
+    }
+    await studioApi.environmentDependencies.saveOrUpdateCheckForm(payload);
     dependencyDialogVisible.value = false;
     ElMessage.success("依赖包已保存");
     await Promise.all([loadDependencies(), loadDependencyOptions()]);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存依赖包失败");
+  }
+}
+
+async function refreshDependencyForm(id: EntityId) {
+  try {
+    const latest = await studioApi.environmentDependencies.get(id);
+    dependencyForm.uploadedFiles = dependencyVisibleFiles(latest);
+  } catch {
+    dependencyForm.uploadedFiles = [];
+  }
+}
+
+async function downloadDependencyFile(file: EnvironmentDependencyFile) {
+  if (!dependencyForm.id || !file.id) {
+    return;
+  }
+  try {
+    const blob = await studioApi.environmentDependencies.downloadFile(dependencyForm.id, file.id);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.originalFileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "下载依赖文件失败");
+  }
+}
+
+async function deleteDependencyFile(file: EnvironmentDependencyFile) {
+  if (!dependencyForm.id || !file.id) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(`确认删除文件 ${file.originalFileName} 吗？`, "确认", { type: "warning" });
+    await studioApi.environmentDependencies.deleteFile(dependencyForm.id, file.id);
+    ElMessage.success("文件已删除");
+    await Promise.all([
+      refreshDependencyForm(dependencyForm.id),
+      loadDependencies(),
+      loadDependencyOptions(),
+      loadEnvironments(),
+    ]);
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : "删除依赖文件失败");
+    }
   }
 }
 
@@ -494,8 +630,40 @@ function formatDependencyNames(dependencies?: EnvironmentDependency[]) {
   return dependencies.map(formatDependencyOption).join("，");
 }
 
+function dependencyVisibleFiles(dependency?: EnvironmentDependency) {
+  return (dependency?.files ?? []).filter((file) => file.visible !== false && file.enabled !== false);
+}
+
 function formatDependencyOption(dependency: EnvironmentDependency) {
-  return dependency.version ? `${dependency.name}@${dependency.version}` : dependency.name;
+  const name = dependency.version ? `${dependency.name}@${dependency.version}` : dependency.name;
+  return `${formatScriptType(dependency.scriptType)} / ${name}`;
+}
+
+function formatFileSize(value?: number) {
+  if (value == null || Number.isNaN(Number(value))) {
+    return "-";
+  }
+  const size = Number(value);
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatScriptType(scriptType?: string) {
+  if (scriptType === "JAVA") {
+    return "Java";
+  }
+  if (scriptType === "SQL") {
+    return "SQL";
+  }
+  if (scriptType === "PYTHON") {
+    return "Python";
+  }
+  return scriptType || "Java";
 }
 
 onMounted(refreshAll);
@@ -525,12 +693,90 @@ onMounted(refreshAll);
   grid-column: span 2;
 }
 
+.upload-tip {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+
+.muted-text {
+  color: var(--el-text-color-secondary);
+}
+
+.dependency-file-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.dependency-file-tag {
+  max-width: 100%;
+}
+
+.dependency-file-more {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.dependency-file-list {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.dependency-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.dependency-file-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dependency-file-name {
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dependency-file-meta,
+.dependency-file-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.dependency-file-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
 @media (max-width: 900px) {
   .environment-filter-grid {
     grid-template-columns: 1fr;
   }
 
   .environment-filter-actions {
+    justify-content: flex-start;
+  }
+
+  .dependency-file-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dependency-file-actions {
     justify-content: flex-start;
   }
 }

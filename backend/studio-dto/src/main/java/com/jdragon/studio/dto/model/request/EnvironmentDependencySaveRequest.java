@@ -15,10 +15,10 @@ public class EnvironmentDependencySaveRequest {
 
     private String version;
 
-    @NotBlank(message = "Artifact URL is required")
+    private String scriptType;
+
     private String artifactUrl;
 
-    @NotBlank(message = "Artifact type is required")
     private String artifactType;
 
     private String checksum;

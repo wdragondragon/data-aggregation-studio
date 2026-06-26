@@ -193,7 +193,7 @@
 
               <template v-else>
                 <el-form-item :label="t('web.dataDevelopment.executionLogs')" class="execution-output-item">
-                  <el-input :model-value="executionResult.logs || ''" type="textarea" :rows="8" readonly />
+                  <el-input :model-value="executionLogContent || executionResult.logs || ''" type="textarea" :rows="8" readonly />
                 </el-form-item>
                 <el-form-item :label="t('web.dataDevelopment.executionResultJson')" class="execution-output-item">
                   <el-input :model-value="prettyJson(executionResult.resultJson)" type="textarea" :rows="10" readonly />
@@ -292,6 +292,7 @@ const scriptEnvironments = ref<ScriptEnvironment[]>([]);
 const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
 const executionResult = ref<DataScriptExecutionResult | null>(null);
+const executionLogContent = ref("");
 const activeExecutionTab = ref("1");
 const scriptEditorVisible = ref(false);
 const directoryDialogVisible = ref(false);
@@ -459,6 +460,7 @@ function resetProjectScopedState() {
   selectedTreeNode.value = null;
   selectedDirectory.value = null;
   executionResult.value = null;
+  executionLogContent.value = "";
   scriptEditorVisible.value = false;
   directoryDialogVisible.value = false;
   moveDialogVisible.value = false;
@@ -510,6 +512,7 @@ function findTreeNode(nodeKey: string, nodes: DataDevelopmentTreeNode[]): DataDe
 async function handleTreeClick(node: DataDevelopmentTreeNode) {
   selectedTreeNode.value = node;
   executionResult.value = null;
+  executionLogContent.value = "";
   if (node.nodeType === "DIRECTORY") {
     selectedDirectory.value = directories.value.find((item) => String(item.id) === String(node.directoryId)) ?? null;
     createNewScript();
@@ -562,6 +565,7 @@ function createNewScript() {
   scriptForm.content = "";
   scriptExecutionArgumentsText.value = "{\n  \n}";
   executionResult.value = null;
+  executionLogContent.value = "";
   activeExecutionTab.value = "1";
 }
 
@@ -589,45 +593,129 @@ async function saveDirectory() {
 }
 
 async function saveScript() {
-  if (!currentScriptRegistryEntry.value.supportsSave) {
-    ElMessage.warning(t("web.dataDevelopment.unsupportedScriptType"));
-    return;
-  }
   try {
-    const saved = await studioApi.dataDevelopment.saveScript({
-      id: scriptForm.id,
-      directoryId: normalizeEntityId(scriptForm.directoryId),
-      fileName: scriptForm.fileName,
-      scriptType: scriptForm.scriptType,
-      datasourceId: currentScriptRegistryEntry.value.requiresDatasource
-        ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
-        : undefined,
-      environmentId: isJavaScriptType.value ? resolveJavaEnvironmentId() : undefined,
-      description: scriptForm.description,
-      content: scriptForm.content,
-    });
-    scriptForm.id = saved.id;
-    scriptForm.projectId = saved.projectId;
-    scriptForm.environmentId = saved.environmentId;
-    scriptForm.environmentName = saved.environmentName;
-    selectedTreeNode.value = saved.id
-      ? {
-          nodeKey: `script-${saved.id}`,
-          nodeType: "SCRIPT",
-          scriptId: saved.id,
-          directoryId: saved.directoryId,
-          projectId: saved.projectId,
-          name: saved.fileName,
-          environmentId: saved.environmentId,
-          environmentName: saved.environmentName,
-          children: [],
-        }
-      : selectedTreeNode.value;
-    ElMessage.success(t("web.dataDevelopment.saveScriptSuccess"));
-    await refreshAll();
+    await persistCurrentScript(true);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.saveScriptFailed"));
   }
+}
+
+async function persistCurrentScript(showSuccessMessage: boolean) {
+  if (!currentScriptRegistryEntry.value.supportsSave) {
+    throw new Error(t("web.dataDevelopment.unsupportedScriptType"));
+  }
+  const saved = await studioApi.dataDevelopment.saveScript({
+    id: scriptForm.id,
+    directoryId: normalizeEntityId(scriptForm.directoryId),
+    fileName: scriptForm.fileName,
+    scriptType: scriptForm.scriptType,
+    datasourceId: currentScriptRegistryEntry.value.requiresDatasource
+      ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
+      : undefined,
+    environmentId: isJavaScriptType.value ? resolveJavaEnvironmentId() : undefined,
+    description: scriptForm.description,
+    content: scriptForm.content,
+  });
+  applySavedScript(saved);
+  if (showSuccessMessage) {
+    ElMessage.success(t("web.dataDevelopment.saveScriptSuccess"));
+  }
+  return saved;
+}
+
+function applySavedScript(saved: DataDevelopmentScript) {
+  scriptForm.id = saved.id;
+  scriptForm.directoryId = saved.directoryId;
+  scriptForm.projectId = saved.projectId;
+  scriptForm.fileName = saved.fileName;
+  scriptForm.scriptType = saved.scriptType;
+  scriptForm.datasourceId = saved.datasourceId;
+  scriptForm.datasourceName = saved.datasourceName;
+  scriptForm.datasourceTypeCode = saved.datasourceTypeCode;
+  scriptForm.environmentId = saved.environmentId;
+  scriptForm.environmentName = saved.environmentName;
+  scriptForm.description = saved.description;
+  scriptForm.content = saved.content;
+  const treeNode = upsertSavedScriptTreeNode(saved);
+  selectedTreeNode.value = treeNode ?? selectedTreeNode.value;
+  selectedDirectory.value = saved.directoryId
+    ? directories.value.find((item) => sameEntityId(item.id, saved.directoryId)) ?? null
+    : null;
+}
+
+function upsertSavedScriptTreeNode(saved: DataDevelopmentScript) {
+  if (!saved.id) {
+    return null;
+  }
+  removeScriptTreeNode(saved.id, treeData.value);
+  const node = toScriptTreeNode(saved);
+  const targetChildren = resolveScriptTreeTargetChildren(saved.directoryId);
+  targetChildren.push(node);
+  sortTreeNodes(targetChildren);
+  treeData.value = [...treeData.value];
+  return node;
+}
+
+function toScriptTreeNode(script: DataDevelopmentScript): DataDevelopmentTreeNode {
+  return {
+    nodeKey: `script-${script.id}`,
+    nodeType: "SCRIPT",
+    scriptId: script.id,
+    directoryId: script.directoryId,
+    projectId: script.projectId,
+    name: script.fileName,
+    scriptType: script.scriptType,
+    datasourceName: script.datasourceName,
+    environmentId: script.environmentId,
+    environmentName: script.environmentName,
+    children: [],
+  };
+}
+
+function resolveScriptTreeTargetChildren(directoryId?: EntityId | null) {
+  if (directoryId == null || directoryId === "") {
+    return treeData.value;
+  }
+  const directoryNode = findDirectoryTreeNode(directoryId, treeData.value);
+  return directoryNode?.children ?? treeData.value;
+}
+
+function findDirectoryTreeNode(directoryId: EntityId, nodes: DataDevelopmentTreeNode[]): DataDevelopmentTreeNode | null {
+  for (const node of nodes) {
+    if (node.nodeType === "DIRECTORY" && sameEntityId(node.directoryId, directoryId)) {
+      return node;
+    }
+    const child = findDirectoryTreeNode(directoryId, node.children ?? []);
+    if (child) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function removeScriptTreeNode(scriptId: EntityId, nodes: DataDevelopmentTreeNode[]): DataDevelopmentTreeNode | null {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node.nodeType === "SCRIPT" && sameEntityId(node.scriptId, scriptId)) {
+      return nodes.splice(index, 1)[0] ?? null;
+    }
+    const removed = removeScriptTreeNode(scriptId, node.children ?? []);
+    if (removed) {
+      return removed;
+    }
+  }
+  return null;
+}
+
+function sortTreeNodes(nodes: DataDevelopmentTreeNode[]) {
+  nodes.sort((left, right) => {
+    const leftRank = left.nodeType === "DIRECTORY" ? 0 : 1;
+    const rightRank = right.nodeType === "DIRECTORY" ? 0 : 1;
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+    return String(left.name ?? "").localeCompare(String(right.name ?? ""), undefined, { sensitivity: "base" });
+  });
 }
 
 async function executeCurrentScript() {
@@ -636,16 +724,27 @@ async function executeCurrentScript() {
     return;
   }
   try {
-    executionResult.value = await studioApi.dataDevelopment.executeScript({
-      scriptType: scriptForm.scriptType,
-      datasourceId: currentScriptRegistryEntry.value.requiresDatasource
-        ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
-        : undefined,
-      environmentId: isJavaScriptType.value ? resolveJavaEnvironmentId() : undefined,
-      content: scriptForm.content,
-      arguments: supportsExecutionArguments.value ? parseScriptExecutionArguments() : undefined,
-      maxRows: 100,
-    });
+    executionLogContent.value = "";
+    if (scriptForm.scriptType === "SQL") {
+      executionResult.value = await studioApi.dataDevelopment.executeScript({
+        scriptType: scriptForm.scriptType,
+        datasourceId: currentScriptRegistryEntry.value.requiresDatasource
+          ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
+          : undefined,
+        environmentId: undefined,
+        content: scriptForm.content,
+        arguments: undefined,
+        maxRows: 100,
+      });
+    } else {
+      const savedScriptId = await ensureSavedScriptForExecution();
+      executionResult.value = await studioApi.dataDevelopment.executeSavedScript(savedScriptId, {
+        arguments: supportsExecutionArguments.value ? parseScriptExecutionArguments() : undefined,
+        maxRows: 100,
+        waitTimeoutSeconds: 120,
+      });
+      await loadExecutionRunLog(executionResult.value);
+    }
     activeExecutionTab.value = String(executionResult.value.sqlResult?.results?.[0]?.statementIndex ?? 1);
     if (executionResult.value.success === false) {
       ElMessage.error(executionResult.value.message || t("web.dataDevelopment.executeFailed"));
@@ -654,6 +753,33 @@ async function executeCurrentScript() {
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.executeFailed"));
+  }
+}
+
+async function ensureSavedScriptForExecution(): Promise<EntityId> {
+  if (isCurrentScriptShared.value) {
+    if (!scriptForm.id) {
+      throw new Error(t("web.dataDevelopment.executeFailed"));
+    }
+    return scriptForm.id;
+  }
+  const saved = await persistCurrentScript(false);
+  if (!saved.id) {
+    throw new Error(t("web.dataDevelopment.executeFailed"));
+  }
+  return saved.id;
+}
+
+async function loadExecutionRunLog(result: DataScriptExecutionResult) {
+  if (!result.runRecordId) {
+    executionLogContent.value = result.logs || "";
+    return;
+  }
+  try {
+    const log = await studioApi.runs.downloadLog(result.runRecordId);
+    executionLogContent.value = log.content || result.logs || "";
+  } catch (error) {
+    executionLogContent.value = result.logs || "";
   }
 }
 
