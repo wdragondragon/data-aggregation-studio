@@ -1463,6 +1463,14 @@ export interface FieldMappingRuleView extends BaseRecord {
   params: FieldMappingRuleParamView[];
 }
 
+export interface FieldMappingRuleListView extends BaseRecord {
+  mappingName: string;
+  mappingType: string;
+  mappingCode: string;
+  enabled?: boolean;
+  createdByName?: string;
+}
+
 export interface FieldMappingRuleParamSaveRequest {
   id?: EntityId;
   paramName: string;
@@ -1972,6 +1980,18 @@ export interface DataDevelopmentScript extends BaseRecord {
   content: string;
 }
 
+export interface DataDevelopmentScriptListView extends BaseRecord {
+  directoryId?: EntityId;
+  fileName: string;
+  scriptType: ScriptType;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  environmentId?: EntityId;
+  environmentName?: string;
+  description?: string;
+}
+
 export interface DataDevelopmentTreeNode {
   nodeKey: string;
   nodeType: "DIRECTORY" | "SCRIPT";
@@ -2045,6 +2065,14 @@ export interface EnvironmentDependency extends BaseRecord {
   files?: EnvironmentDependencyFile[];
 }
 
+export interface EnvironmentDependencyListView extends BaseRecord {
+  name: string;
+  version?: string;
+  scriptType: ScriptType | string;
+  enabled: boolean;
+  files?: EnvironmentDependencyFileListView[];
+}
+
 export interface EnvironmentDependencyOption extends BaseRecord {
   name: string;
   version?: string;
@@ -2063,6 +2091,15 @@ export interface EnvironmentDependencyFile extends BaseRecord {
   sourceFileId?: EntityId;
   enabled?: boolean;
   uploadedAt?: string;
+}
+
+export interface EnvironmentDependencyFileListView extends BaseRecord {
+  dependencyId?: EntityId;
+  originalFileName: string;
+  artifactType: "JAR" | "ZIP" | string;
+  sizeBytes?: number;
+  visible?: boolean;
+  enabled?: boolean;
 }
 
 export interface EnvironmentDependencySaveRequest {
@@ -2086,6 +2123,16 @@ export interface ScriptEnvironment extends BaseRecord {
   description?: string;
   dependencyIds: EntityId[];
   dependencies: EnvironmentDependency[];
+}
+
+export interface ScriptEnvironmentListView extends BaseRecord {
+  environmentName: string;
+  environmentCode: string;
+  enabled: boolean;
+  useApplicationParent: boolean;
+  environmentVersion?: number;
+  dependencyIds: EntityId[];
+  dependencies: EnvironmentDependencyOption[];
 }
 
 export interface ScriptEnvironmentSaveRequest {

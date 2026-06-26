@@ -107,6 +107,7 @@ import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskListView,
   DataDevelopmentScript,
+  DataDevelopmentScriptListView,
   DataDevelopmentTreeNode,
   DataSourceListView,
   MetadataFieldDefinition,
@@ -161,7 +162,7 @@ const workflowId = computed(() => route.params.workflowId as string | undefined)
 const datasources = ref<DataSourceListView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
 const onlineQualityTasks = ref<QualityTaskListView[]>([]);
-const scripts = ref<DataDevelopmentScript[]>([]);
+const scripts = ref<DataDevelopmentScriptListView[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
 const detailLoadError = ref("");

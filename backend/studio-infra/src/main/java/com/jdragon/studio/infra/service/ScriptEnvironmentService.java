@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.ScriptEnvironmentListView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentView;
 import com.jdragon.studio.dto.model.request.ScriptEnvironmentSaveRequest;
 import com.jdragon.studio.infra.entity.EnvironmentDependencyEntity;
@@ -20,8 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -50,13 +54,23 @@ public class ScriptEnvironmentService {
         this.runtimeServiceProvider = runtimeServiceProvider;
     }
 
-    public PageView<ScriptEnvironmentView> queryPage(Integer pageNum, Integer pageSize, String keyword, Boolean enabled) {
+    public PageView<ScriptEnvironmentListView> queryPage(Integer pageNum, Integer pageSize, String keyword, Boolean enabled) {
         ensureDefaultEnvironmentId();
         int safePageNo = normalizePageNo(pageNum);
         int safePageSize = normalizePageSize(pageSize);
         String normalizedKeyword = normalizeNullableText(keyword);
         Page<ScriptEnvironmentEntity> page = new Page<ScriptEnvironmentEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<ScriptEnvironmentEntity> wrapper = new LambdaQueryWrapper<ScriptEnvironmentEntity>()
+                .select(ScriptEnvironmentEntity::getId,
+                        ScriptEnvironmentEntity::getTenantId,
+                        ScriptEnvironmentEntity::getDeleted,
+                        ScriptEnvironmentEntity::getCreatedAt,
+                        ScriptEnvironmentEntity::getUpdatedAt,
+                        ScriptEnvironmentEntity::getEnvironmentName,
+                        ScriptEnvironmentEntity::getEnvironmentCode,
+                        ScriptEnvironmentEntity::getEnabled,
+                        ScriptEnvironmentEntity::getUseApplicationParent,
+                        ScriptEnvironmentEntity::getEnvironmentVersion)
                 .eq(ScriptEnvironmentEntity::getTenantId, securityService.currentTenantId())
                 .and(hasText(normalizedKeyword), query -> query.like(ScriptEnvironmentEntity::getEnvironmentName, normalizedKeyword)
                         .or()
@@ -68,9 +82,10 @@ public class ScriptEnvironmentService {
                 .orderByDesc(ScriptEnvironmentEntity::getUpdatedAt)
                 .orderByDesc(ScriptEnvironmentEntity::getId);
         Page<ScriptEnvironmentEntity> entityPage = environmentMapper.selectPage(page, wrapper);
-        List<ScriptEnvironmentView> items = new ArrayList<ScriptEnvironmentView>();
+        Map<Long, EnvironmentDependencyListBundle> dependencyMap = loadDependencyOptionsByEnvironment(entityPage.getRecords());
+        List<ScriptEnvironmentListView> items = new ArrayList<ScriptEnvironmentListView>();
         for (ScriptEnvironmentEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity, true));
+            items.add(toListView(entity, dependencyMap.get(entity.getId())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -254,6 +269,108 @@ public class ScriptEnvironmentService {
         return view;
     }
 
+    private ScriptEnvironmentListView toListView(ScriptEnvironmentEntity entity, EnvironmentDependencyListBundle dependencies) {
+        ScriptEnvironmentListView view = new ScriptEnvironmentListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setEnvironmentName(entity.getEnvironmentName());
+        view.setEnvironmentCode(entity.getEnvironmentCode());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setUseApplicationParent(entity.getUseApplicationParent() == null || entity.getUseApplicationParent().intValue() == 1);
+        view.setEnvironmentVersion(entity.getEnvironmentVersion());
+        if (dependencies != null) {
+            view.setDependencyIds(dependencies.dependencyIds);
+            view.setDependencies(dependencies.dependencies);
+        }
+        return view;
+    }
+
+    private Map<Long, EnvironmentDependencyListBundle> loadDependencyOptionsByEnvironment(List<ScriptEnvironmentEntity> environments) {
+        Map<Long, EnvironmentDependencyListBundle> result = new HashMap<Long, EnvironmentDependencyListBundle>();
+        if (environments == null || environments.isEmpty()) {
+            return result;
+        }
+        List<Long> environmentIds = new ArrayList<Long>();
+        for (ScriptEnvironmentEntity environment : environments) {
+            if (environment.getId() != null) {
+                environmentIds.add(environment.getId());
+                result.put(environment.getId(), new EnvironmentDependencyListBundle());
+            }
+        }
+        if (environmentIds.isEmpty()) {
+            return result;
+        }
+        List<ScriptEnvironmentDependencyRelEntity> relations = relationMapper.selectList(new LambdaQueryWrapper<ScriptEnvironmentDependencyRelEntity>()
+                .select(ScriptEnvironmentDependencyRelEntity::getEnvironmentId,
+                        ScriptEnvironmentDependencyRelEntity::getDependencyId,
+                        ScriptEnvironmentDependencyRelEntity::getSortOrder,
+                        ScriptEnvironmentDependencyRelEntity::getId)
+                .eq(ScriptEnvironmentDependencyRelEntity::getTenantId, securityService.currentTenantId())
+                .in(ScriptEnvironmentDependencyRelEntity::getEnvironmentId, environmentIds)
+                .orderByAsc(ScriptEnvironmentDependencyRelEntity::getEnvironmentId)
+                .orderByAsc(ScriptEnvironmentDependencyRelEntity::getSortOrder)
+                .orderByAsc(ScriptEnvironmentDependencyRelEntity::getId));
+        Set<Long> dependencyIds = new LinkedHashSet<Long>();
+        for (ScriptEnvironmentDependencyRelEntity relation : relations) {
+            if (relation.getDependencyId() != null) {
+                dependencyIds.add(relation.getDependencyId());
+            }
+        }
+        Map<Long, EnvironmentDependencyOptionView> dependenciesById = loadDependencyOptionsById(dependencyIds);
+        for (ScriptEnvironmentDependencyRelEntity relation : relations) {
+            EnvironmentDependencyListBundle bundle = result.get(relation.getEnvironmentId());
+            if (bundle == null || relation.getDependencyId() == null) {
+                continue;
+            }
+            bundle.dependencyIds.add(relation.getDependencyId());
+            EnvironmentDependencyOptionView dependency = dependenciesById.get(relation.getDependencyId());
+            if (dependency != null) {
+                bundle.dependencies.add(dependency);
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, EnvironmentDependencyOptionView> loadDependencyOptionsById(Set<Long> dependencyIds) {
+        Map<Long, EnvironmentDependencyOptionView> result = new HashMap<Long, EnvironmentDependencyOptionView>();
+        if (dependencyIds == null || dependencyIds.isEmpty()) {
+            return result;
+        }
+        List<EnvironmentDependencyEntity> dependencies = dependencyMapper.selectList(new LambdaQueryWrapper<EnvironmentDependencyEntity>()
+                .select(EnvironmentDependencyEntity::getId,
+                        EnvironmentDependencyEntity::getTenantId,
+                        EnvironmentDependencyEntity::getDeleted,
+                        EnvironmentDependencyEntity::getCreatedAt,
+                        EnvironmentDependencyEntity::getUpdatedAt,
+                        EnvironmentDependencyEntity::getName,
+                        EnvironmentDependencyEntity::getVersion,
+                        EnvironmentDependencyEntity::getScriptType,
+                        EnvironmentDependencyEntity::getEnabled)
+                .eq(EnvironmentDependencyEntity::getTenantId, securityService.currentTenantId())
+                .in(EnvironmentDependencyEntity::getId, dependencyIds));
+        for (EnvironmentDependencyEntity dependency : dependencies) {
+            result.put(dependency.getId(), toDependencyOptionView(dependency));
+        }
+        return result;
+    }
+
+    private EnvironmentDependencyOptionView toDependencyOptionView(EnvironmentDependencyEntity entity) {
+        EnvironmentDependencyOptionView view = new EnvironmentDependencyOptionView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setVersion(entity.getVersion());
+        view.setScriptType(hasText(entity.getScriptType()) ? entity.getScriptType() : "JAVA");
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        return view;
+    }
+
     private List<EnvironmentDependencyEntity> listDependencies(Long environmentId) {
         List<ScriptEnvironmentDependencyRelEntity> relations = relationMapper.selectList(new LambdaQueryWrapper<ScriptEnvironmentDependencyRelEntity>()
                 .eq(ScriptEnvironmentDependencyRelEntity::getTenantId, securityService.currentTenantId())
@@ -367,5 +484,10 @@ public class ScriptEnvironmentService {
     private String normalizeNullableText(String value) {
         String normalized = normalizeText(value);
         return hasText(normalized) ? normalized : null;
+    }
+
+    private static final class EnvironmentDependencyListBundle {
+        private final List<Long> dependencyIds = new ArrayList<Long>();
+        private final List<EnvironmentDependencyOptionView> dependencies = new ArrayList<EnvironmentDependencyOptionView>();
     }
 }

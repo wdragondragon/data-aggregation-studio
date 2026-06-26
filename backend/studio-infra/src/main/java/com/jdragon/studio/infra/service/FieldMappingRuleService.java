@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.FieldMappingRuleListView;
 import com.jdragon.studio.dto.model.FieldMappingRuleParamView;
 import com.jdragon.studio.dto.model.FieldMappingRuleView;
 import com.jdragon.studio.dto.model.PageView;
@@ -73,11 +74,11 @@ public class FieldMappingRuleService {
         this.objectMapper = objectMapper;
     }
 
-    public PageView<FieldMappingRuleView> list(Integer pageNo,
-                                               Integer pageSize,
-                                               String keyword,
-                                               String mappingType,
-                                               Boolean enabled) {
+    public PageView<FieldMappingRuleListView> list(Integer pageNo,
+                                                   Integer pageSize,
+                                                   String keyword,
+                                                   String mappingType,
+                                                   Boolean enabled) {
         requireSuperAdmin();
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
@@ -85,6 +86,15 @@ public class FieldMappingRuleService {
         String normalizedType = normalizeText(mappingType);
         Page<FieldMappingRuleEntity> page = new Page<FieldMappingRuleEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<FieldMappingRuleEntity> queryWrapper = new LambdaQueryWrapper<FieldMappingRuleEntity>()
+                .select(FieldMappingRuleEntity::getId,
+                        FieldMappingRuleEntity::getDeleted,
+                        FieldMappingRuleEntity::getCreatedAt,
+                        FieldMappingRuleEntity::getUpdatedAt,
+                        FieldMappingRuleEntity::getMappingName,
+                        FieldMappingRuleEntity::getMappingType,
+                        FieldMappingRuleEntity::getMappingCode,
+                        FieldMappingRuleEntity::getEnabled,
+                        FieldMappingRuleEntity::getCreatedBy)
                 .and(hasText(normalizedKeyword), wrapper -> wrapper.like(FieldMappingRuleEntity::getMappingName, normalizedKeyword)
                         .or()
                         .like(FieldMappingRuleEntity::getMappingCode, normalizedKeyword)
@@ -96,9 +106,9 @@ public class FieldMappingRuleService {
                 .orderByDesc(FieldMappingRuleEntity::getId);
         Page<FieldMappingRuleEntity> entityPage = fieldMappingRuleMapper.selectPage(page, queryWrapper);
         Map<Long, String> creatorNames = resolveCreatorNames(entityPage.getRecords());
-        List<FieldMappingRuleView> items = new ArrayList<FieldMappingRuleView>();
+        List<FieldMappingRuleListView> items = new ArrayList<FieldMappingRuleListView>();
         for (FieldMappingRuleEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity, creatorNames.get(entity.getCreatedBy()), false));
+            items.add(toListView(entity, creatorNames.get(entity.getCreatedBy())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -192,6 +202,20 @@ public class FieldMappingRuleService {
         if (includeParams) {
             view.setParams(loadParams(entity.getId()));
         }
+        return view;
+    }
+
+    private FieldMappingRuleListView toListView(FieldMappingRuleEntity entity, String createdByName) {
+        FieldMappingRuleListView view = new FieldMappingRuleListView();
+        view.setId(entity.getId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setMappingName(entity.getMappingName());
+        view.setMappingType(entity.getMappingType());
+        view.setMappingCode(entity.getMappingCode());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setCreatedByName(createdByName);
         return view;
     }
 

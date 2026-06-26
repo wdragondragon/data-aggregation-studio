@@ -76,7 +76,7 @@ import { onMounted, reactive } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { FieldMappingRuleView } from "@studio/api-sdk";
+import type { FieldMappingRuleListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
@@ -104,7 +104,7 @@ const page = reactive<{
   pageNo: number;
   pageSize: number;
   total: number;
-  items: FieldMappingRuleView[];
+  items: FieldMappingRuleListView[];
 }>({
   pageNo: 1,
   pageSize: 20,
@@ -143,14 +143,14 @@ function handlePageSizeChange() {
   void loadRules();
 }
 
-function buildRuleActions(rule: FieldMappingRuleView) {
+function buildRuleActions(rule: FieldMappingRuleListView) {
   return [
     { key: "edit", label: t("common.edit"), type: "primary", onClick: () => { void router.push(`/field-mapping-rules/${rule.id}/edit`); } },
     { key: "delete", label: t("common.delete"), type: "danger", onClick: () => deleteRule(rule) },
   ];
 }
 
-async function deleteRule(rule: FieldMappingRuleView) {
+async function deleteRule(rule: FieldMappingRuleListView) {
   if (!rule.id) {
     return;
   }
@@ -162,7 +162,12 @@ async function deleteRule(rule: FieldMappingRuleView) {
     );
     await studioApi.fieldMappingRules.delete(rule.id);
     ElMessage.success(t("web.fieldMappingRules.deleteSuccess"));
-    await loadRules();
+    page.items = page.items.filter((item) => String(item.id) !== String(rule.id));
+    page.total = Math.max(0, page.total - 1);
+    if (page.items.length === 0 && page.pageNo > 1 && page.total > 0) {
+      page.pageNo -= 1;
+      await loadRules();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.fieldMappingRules.deleteFailed"));

@@ -218,7 +218,7 @@ import { useRouter } from "vue-router";
 import type {
   CapabilityMatrix,
   CollectionTaskListView,
-  DataDevelopmentScript,
+  DataDevelopmentScriptListView,
   DataSourceListView,
   RunListResponse,
   WorkflowListView,
@@ -237,7 +237,7 @@ const authStore = useAuthStore();
 const datasources = ref<DataSourceListView[]>([]);
 const workflows = ref<WorkflowListView[]>([]);
 const collectionTasks = ref<CollectionTaskListView[]>([]);
-const scripts = ref<DataDevelopmentScript[]>([]);
+const scripts = ref<DataDevelopmentScriptListView[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 let dashboardLoadToken = 0;
 

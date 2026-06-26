@@ -15,9 +15,11 @@ import type {
   DataScriptExecutionResult,
   DataDevelopmentMoveRequest,
   DataDevelopmentScript,
+  DataDevelopmentScriptListView,
   DataDevelopmentScriptSaveRequest,
   DataDevelopmentTreeNode,
   EnvironmentDependency,
+  EnvironmentDependencyListView,
   EnvironmentDependencyOption,
   EnvironmentDependencySaveRequest,
   DataModelDefinition,
@@ -67,6 +69,7 @@ import type {
   EntityId,
   ExportProjectBundle,
   FieldMappingRuleSaveRequest,
+  FieldMappingRuleListView,
   FieldMappingRuleView,
   FollowRequest,
   FollowStatusView,
@@ -142,6 +145,7 @@ import type {
   SavedDataScriptExecutionRequest,
   ScriptType,
   ScriptEnvironment,
+  ScriptEnvironmentListView,
   ScriptEnvironmentSaveRequest,
   SqlExecutionRequest,
   SqlExecutionResult,
@@ -418,7 +422,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         mappingType?: string;
         enabled?: boolean;
       }) {
-        return requestPage<FieldMappingRuleView>({ url: "/field-mapping-rules", method: "GET", params }, params);
+        return requestPage<FieldMappingRuleListView>({ url: "/field-mapping-rules", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<FieldMappingRuleView>({ url: `/field-mapping-rules/${id}`, method: "GET" });
@@ -1254,7 +1258,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     environmentDependencies: {
       queryPage(params?: { pageNum?: number; pageSize?: number; keyword?: string; enabled?: boolean }) {
-        return requestPage<EnvironmentDependency>(
+        return requestPage<EnvironmentDependencyListView>(
           { url: "/environment-dependencies/queryPage", method: "POST", params },
           { pageNo: params?.pageNum, pageSize: params?.pageSize },
         );
@@ -1294,7 +1298,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     scriptEnvironments: {
       queryPage(params?: { pageNum?: number; pageSize?: number; keyword?: string; enabled?: boolean }) {
-        return requestPage<ScriptEnvironment>(
+        return requestPage<ScriptEnvironmentListView>(
           { url: "/script-environments/queryPage", method: "POST", params },
           { pageNo: params?.pageNum, pageSize: params?.pageSize },
         );
@@ -1335,7 +1339,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<void>({ url: `/data-development/directories/${id}`, method: "DELETE" });
       },
       listScripts(scriptType?: ScriptType, config?: StudioRequestConfig) {
-        return request<DataDevelopmentScript[]>({
+        return request<DataDevelopmentScriptListView[]>({
           ...config,
           url: "/data-development/scripts",
           method: "GET",

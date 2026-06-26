@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.FieldMappingRuleListView;
 import com.jdragon.studio.dto.model.FieldMappingRuleView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.FieldMappingRuleSaveRequest;
@@ -32,11 +33,11 @@ public class FieldMappingRuleController {
 
     @Operation(summary = "List field mapping rules")
     @GetMapping
-    public Result<PageView<FieldMappingRuleView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                       @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                       @RequestParam(value = "keyword", required = false) String keyword,
-                                                       @RequestParam(value = "mappingType", required = false) String mappingType,
-                                                       @RequestParam(value = "enabled", required = false) Boolean enabled) {
+    public Result<PageView<FieldMappingRuleListView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                           @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                           @RequestParam(value = "keyword", required = false) String keyword,
+                                                           @RequestParam(value = "mappingType", required = false) String mappingType,
+                                                           @RequestParam(value = "enabled", required = false) Boolean enabled) {
         return Result.success(fieldMappingRuleService.list(pageNo, pageSize, keyword, mappingType, enabled));
     }
 

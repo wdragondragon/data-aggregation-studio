@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataDevelopmentDirectoryView;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
+import com.jdragon.studio.dto.model.DataDevelopmentScriptListView;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.JavaImportHintResponse;
@@ -77,7 +78,7 @@ public class DataDevelopmentController {
 
     @Operation(summary = "List scripts")
     @GetMapping("/scripts")
-    public Result<List<DataDevelopmentScriptView>> scripts(@RequestParam(value = "scriptType", required = false) ScriptType scriptType) {
+    public Result<List<DataDevelopmentScriptListView>> scripts(@RequestParam(value = "scriptType", required = false) ScriptType scriptType) {
         return Result.success(dataDevelopmentService.listScripts(scriptType));
     }
 

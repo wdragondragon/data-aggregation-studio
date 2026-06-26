@@ -263,14 +263,19 @@ import type { UploadFile, UploadFiles, UploadUserFile } from "element-plus";
 import type {
   EntityId,
   EnvironmentDependency,
+  EnvironmentDependencyListView,
   EnvironmentDependencyOption,
   EnvironmentDependencyFile,
+  EnvironmentDependencyFileListView,
   ScriptType,
   ScriptEnvironment,
+  ScriptEnvironmentListView,
   ScriptEnvironmentSaveRequest,
 } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+
+type VisibleDependencyFile = EnvironmentDependencyFile | EnvironmentDependencyFileListView;
 
 const activeTab = ref<"dependencies" | "environments">("dependencies");
 const dependencyDialogVisible = ref(false);
@@ -291,13 +296,13 @@ const dependencyPage = reactive({
   pageNo: 1,
   pageSize: 20,
   total: 0,
-  items: [] as EnvironmentDependency[],
+  items: [] as EnvironmentDependencyListView[],
 });
 const environmentPage = reactive({
   pageNo: 1,
   pageSize: 20,
   total: 0,
-  items: [] as ScriptEnvironment[],
+  items: [] as ScriptEnvironmentListView[],
 });
 
 const dependencyForm = reactive({
@@ -394,19 +399,19 @@ function handleEnvironmentPageSizeChange() {
   void loadEnvironments();
 }
 
-function openDependencyDialog(dependency?: EnvironmentDependency) {
+function openDependencyDialog(dependency?: EnvironmentDependencyListView) {
   dependencyForm.id = dependency?.id;
   dependencyForm.name = dependency?.name ?? "";
   dependencyForm.version = dependency?.version ?? "";
   dependencyForm.scriptType = (dependency?.scriptType ?? "JAVA") as ScriptType;
   dependencyForm.files = [];
-  dependencyForm.uploadedFiles = dependencyVisibleFiles(dependency);
+  dependencyForm.uploadedFiles = [];
   dependencyForm.enabled = dependency?.enabled !== false;
-  dependencyForm.description = dependency?.description ?? "";
+  dependencyForm.description = "";
   dependencyUploadFiles.value = [];
   dependencyDialogVisible.value = true;
   if (dependency?.id) {
-    void refreshDependencyForm(dependency.id);
+    void loadDependencyDetailIntoForm(dependency.id);
   }
 }
 
@@ -424,16 +429,19 @@ function handleDependencyFileRemove(_uploadFile: UploadFile, uploadFiles: Upload
     .filter((item): item is File => Boolean(item));
 }
 
-function openEnvironmentDialog(environment?: ScriptEnvironment) {
+function openEnvironmentDialog(environment?: ScriptEnvironmentListView) {
   environmentForm.id = environment?.id;
   environmentForm.environmentName = environment?.environmentName ?? "";
   environmentForm.environmentCode = environment?.environmentCode ?? "";
   environmentForm.enabled = environment?.enabled !== false;
   environmentForm.useApplicationParent = environment?.useApplicationParent !== false;
   environmentForm.dependencyIds = (environment?.dependencyIds ?? []).map((item) => String(item));
-  environmentForm.description = environment?.description ?? "";
+  environmentForm.description = "";
   environmentDialogVisible.value = true;
   void loadDependencyOptions();
+  if (environment?.id) {
+    void loadEnvironmentDetailIntoForm(environment.id);
+  }
 }
 
 async function saveDependency() {
@@ -463,21 +471,48 @@ async function saveDependency() {
     for (const file of dependencyForm.files) {
       payload.append("files", file);
     }
-    await studioApi.environmentDependencies.saveOrUpdateCheckForm(payload);
+    const saved = await studioApi.environmentDependencies.saveOrUpdateCheckForm(payload);
     dependencyDialogVisible.value = false;
     ElMessage.success("依赖包已保存");
-    await Promise.all([loadDependencies(), loadDependencyOptions()]);
+    upsertDependencyRow(toDependencyListItem(saved));
+    upsertDependencyOption(saved);
+    updateEnvironmentDependencyReference(saved);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存依赖包失败");
   }
 }
 
-async function refreshDependencyForm(id: EntityId) {
+async function loadDependencyDetailIntoForm(id: EntityId) {
   try {
     const latest = await studioApi.environmentDependencies.get(id);
-    dependencyForm.uploadedFiles = dependencyVisibleFiles(latest);
+    if (String(dependencyForm.id) !== String(id)) {
+      return;
+    }
+    dependencyForm.name = latest.name;
+    dependencyForm.version = latest.version ?? "";
+    dependencyForm.scriptType = latest.scriptType as ScriptType;
+    dependencyForm.enabled = latest.enabled !== false;
+    dependencyForm.description = latest.description ?? "";
+    dependencyForm.uploadedFiles = uploadedDependencyFiles(latest);
   } catch {
     dependencyForm.uploadedFiles = [];
+  }
+}
+
+async function loadEnvironmentDetailIntoForm(id: EntityId) {
+  try {
+    const latest = await studioApi.scriptEnvironments.get(id);
+    if (String(environmentForm.id) !== String(id)) {
+      return;
+    }
+    environmentForm.environmentName = latest.environmentName;
+    environmentForm.environmentCode = latest.environmentCode;
+    environmentForm.enabled = latest.enabled !== false;
+    environmentForm.useApplicationParent = latest.useApplicationParent !== false;
+    environmentForm.dependencyIds = (latest.dependencyIds ?? []).map((item) => String(item));
+    environmentForm.description = latest.description ?? "";
+  } catch {
+    environmentForm.description = "";
   }
 }
 
@@ -507,11 +542,10 @@ async function deleteDependencyFile(file: EnvironmentDependencyFile) {
   try {
     await ElMessageBox.confirm(`确认删除文件 ${file.originalFileName} 吗？`, "确认", { type: "warning" });
     await studioApi.environmentDependencies.deleteFile(dependencyForm.id, file.id);
+    const latest = await studioApi.environmentDependencies.get(dependencyForm.id);
+    dependencyForm.uploadedFiles = uploadedDependencyFiles(latest);
+    upsertDependencyRow(toDependencyListItem(latest));
     ElMessage.success("文件已删除");
-    await Promise.all([
-      refreshDependencyForm(dependencyForm.id),
-      loadDependencies(),
-    ]);
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除依赖文件失败");
@@ -530,16 +564,16 @@ async function saveEnvironment() {
       dependencyIds: environmentForm.dependencyIds,
       description: environmentForm.description.trim() || undefined,
     };
-    await studioApi.scriptEnvironments.saveOrUpdateCheck(payload);
+    const saved = await studioApi.scriptEnvironments.saveOrUpdateCheck(payload);
     environmentDialogVisible.value = false;
     ElMessage.success("运行环境已保存");
-    await loadEnvironments();
+    upsertEnvironmentRow(toScriptEnvironmentListItem(saved));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存运行环境失败");
   }
 }
 
-function buildDependencyActions(dependency: EnvironmentDependency) {
+function buildDependencyActions(dependency: EnvironmentDependencyListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => openDependencyDialog(dependency) },
     dependency.enabled
@@ -549,7 +583,7 @@ function buildDependencyActions(dependency: EnvironmentDependency) {
   ];
 }
 
-function buildEnvironmentActions(environment: ScriptEnvironment) {
+function buildEnvironmentActions(environment: ScriptEnvironmentListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => openEnvironmentDialog(environment) },
     { key: "refresh", label: "刷新", onClick: () => refreshEnvironment(environment) },
@@ -559,24 +593,27 @@ function buildEnvironmentActions(environment: ScriptEnvironment) {
   ];
 }
 
-async function updateDependencyEnabled(dependency: EnvironmentDependency, enabled: boolean) {
+async function updateDependencyEnabled(dependency: EnvironmentDependencyListView, enabled: boolean) {
   if (!dependency.id) {
     return;
   }
   try {
+    let updated: EnvironmentDependency;
     if (enabled) {
-      await studioApi.environmentDependencies.enable(dependency.id);
+      updated = await studioApi.environmentDependencies.enable(dependency.id);
     } else {
-      await studioApi.environmentDependencies.disable(dependency.id);
+      updated = await studioApi.environmentDependencies.disable(dependency.id);
     }
     ElMessage.success(enabled ? "依赖包已启用" : "依赖包已停用");
-    await Promise.all([loadDependencies(), loadDependencyOptions()]);
+    upsertDependencyRow(toDependencyListItem(updated));
+    upsertDependencyOption(updated);
+    updateEnvironmentDependencyReference(updated);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "更新依赖包状态失败");
   }
 }
 
-async function deleteDependency(dependency: EnvironmentDependency) {
+async function deleteDependency(dependency: EnvironmentDependencyListView) {
   if (!dependency.id) {
     return;
   }
@@ -584,7 +621,13 @@ async function deleteDependency(dependency: EnvironmentDependency) {
     await ElMessageBox.confirm(`确认删除依赖包 ${dependency.name} 吗？`, "确认", { type: "warning" });
     await studioApi.environmentDependencies.delete(dependency.id);
     ElMessage.success("依赖包已删除");
-    await Promise.all([loadDependencies(), loadDependencyOptions(), loadEnvironments()]);
+    removeDependencyRow(dependency.id);
+    dependencyOptions.value = dependencyOptions.value.filter((item) => String(item.id) !== String(dependency.id));
+    removeDependencyFromEnvironmentRows(dependency.id);
+    if (dependencyPage.items.length === 0 && dependencyPage.pageNo > 1 && dependencyPage.total > 0) {
+      dependencyPage.pageNo -= 1;
+      await loadDependencies();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除依赖包失败");
@@ -592,48 +635,218 @@ async function deleteDependency(dependency: EnvironmentDependency) {
   }
 }
 
-async function updateEnvironmentEnabled(environment: ScriptEnvironment, enabled: boolean) {
+async function updateEnvironmentEnabled(environment: ScriptEnvironmentListView, enabled: boolean) {
   if (!environment.id) {
     return;
   }
   try {
+    let updated: ScriptEnvironment;
     if (enabled) {
-      await studioApi.scriptEnvironments.enable(environment.id);
+      updated = await studioApi.scriptEnvironments.enable(environment.id);
     } else {
-      await studioApi.scriptEnvironments.disable(environment.id);
+      updated = await studioApi.scriptEnvironments.disable(environment.id);
     }
     ElMessage.success(enabled ? "运行环境已启用" : "运行环境已停用");
-    await loadEnvironments();
+    upsertEnvironmentRow(toScriptEnvironmentListItem(updated));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "更新运行环境状态失败");
   }
 }
 
-async function refreshEnvironment(environment: ScriptEnvironment) {
+async function refreshEnvironment(environment: ScriptEnvironmentListView) {
   if (!environment.id) {
     return;
   }
   try {
-    await studioApi.scriptEnvironments.refresh(environment.id);
+    const updated = await studioApi.scriptEnvironments.refresh(environment.id);
     ElMessage.success("运行环境缓存已刷新");
-    await loadEnvironments();
+    upsertEnvironmentRow(toScriptEnvironmentListItem(updated));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "刷新运行环境失败");
   }
 }
 
-function formatDependencyNames(dependencies?: EnvironmentDependency[]) {
+function toDependencyListItem(dependency: EnvironmentDependency): EnvironmentDependencyListView {
+  return {
+    id: dependency.id,
+    tenantId: dependency.tenantId,
+    deleted: dependency.deleted,
+    createdAt: dependency.createdAt,
+    updatedAt: dependency.updatedAt,
+    name: dependency.name,
+    version: dependency.version,
+    scriptType: dependency.scriptType,
+    enabled: dependency.enabled,
+    files: uploadedDependencyFiles(dependency).map(toDependencyFileListItem),
+  };
+}
+
+function toDependencyFileListItem(file: EnvironmentDependencyFile | EnvironmentDependencyFileListView): EnvironmentDependencyFileListView {
+  return {
+    id: file.id,
+    tenantId: file.tenantId,
+    deleted: file.deleted,
+    createdAt: file.createdAt,
+    updatedAt: file.updatedAt,
+    dependencyId: file.dependencyId,
+    originalFileName: file.originalFileName,
+    artifactType: file.artifactType,
+    sizeBytes: file.sizeBytes,
+    visible: file.visible,
+    enabled: file.enabled,
+  };
+}
+
+function toDependencyOption(dependency: EnvironmentDependency): EnvironmentDependencyOption {
+  return {
+    id: dependency.id,
+    tenantId: dependency.tenantId,
+    deleted: dependency.deleted,
+    createdAt: dependency.createdAt,
+    updatedAt: dependency.updatedAt,
+    name: dependency.name,
+    version: dependency.version,
+    scriptType: dependency.scriptType,
+    enabled: dependency.enabled,
+  };
+}
+
+function toScriptEnvironmentListItem(environment: ScriptEnvironment): ScriptEnvironmentListView {
+  return {
+    id: environment.id,
+    tenantId: environment.tenantId,
+    deleted: environment.deleted,
+    createdAt: environment.createdAt,
+    updatedAt: environment.updatedAt,
+    environmentName: environment.environmentName,
+    environmentCode: environment.environmentCode,
+    enabled: environment.enabled,
+    useApplicationParent: environment.useApplicationParent,
+    environmentVersion: environment.environmentVersion,
+    dependencyIds: environment.dependencyIds ?? [],
+    dependencies: (environment.dependencies ?? []).map(toDependencyOption),
+  };
+}
+
+function upsertDependencyRow(dependency: EnvironmentDependencyListView) {
+  const index = dependencyPage.items.findIndex((item) => String(item.id) === String(dependency.id));
+  if (!matchesDependencyFilters(dependency)) {
+    if (index >= 0) {
+      dependencyPage.items.splice(index, 1);
+      dependencyPage.total = Math.max(0, dependencyPage.total - 1);
+    }
+    return;
+  }
+  if (index >= 0) {
+    dependencyPage.items.splice(index, 1, dependency);
+    return;
+  }
+  dependencyPage.items.unshift(dependency);
+  dependencyPage.items = dependencyPage.items.slice(0, dependencyPage.pageSize);
+  dependencyPage.total += 1;
+}
+
+function removeDependencyRow(id: EntityId) {
+  const beforeLength = dependencyPage.items.length;
+  dependencyPage.items = dependencyPage.items.filter((item) => String(item.id) !== String(id));
+  if (dependencyPage.items.length !== beforeLength) {
+    dependencyPage.total = Math.max(0, dependencyPage.total - 1);
+  }
+}
+
+function upsertDependencyOption(dependency: EnvironmentDependency) {
+  if (dependency.enabled === false) {
+    dependencyOptions.value = dependencyOptions.value.filter((item) => String(item.id) !== String(dependency.id));
+    return;
+  }
+  const option = toDependencyOption(dependency);
+  const index = dependencyOptions.value.findIndex((item) => String(item.id) === String(option.id));
+  if (index >= 0) {
+    dependencyOptions.value = dependencyOptions.value.map((item, itemIndex) => itemIndex === index ? option : item);
+    return;
+  }
+  dependencyOptions.value = [option, ...dependencyOptions.value];
+}
+
+function updateEnvironmentDependencyReference(dependency: EnvironmentDependency) {
+  const option = toDependencyOption(dependency);
+  environmentPage.items = environmentPage.items.map((environment) => {
+    if (!(environment.dependencyIds ?? []).some((id) => String(id) === String(dependency.id))) {
+      return environment;
+    }
+    return {
+      ...environment,
+      dependencies: (environment.dependencies ?? []).map((item) => String(item.id) === String(dependency.id) ? option : item),
+    };
+  });
+}
+
+function removeDependencyFromEnvironmentRows(id: EntityId) {
+  environmentPage.items = environmentPage.items.map((environment) => ({
+    ...environment,
+    dependencyIds: (environment.dependencyIds ?? []).filter((item) => String(item) !== String(id)),
+    dependencies: (environment.dependencies ?? []).filter((item) => String(item.id) !== String(id)),
+  }));
+}
+
+function upsertEnvironmentRow(environment: ScriptEnvironmentListView) {
+  const index = environmentPage.items.findIndex((item) => String(item.id) === String(environment.id));
+  if (!matchesEnvironmentFilters(environment)) {
+    if (index >= 0) {
+      environmentPage.items.splice(index, 1);
+      environmentPage.total = Math.max(0, environmentPage.total - 1);
+    }
+    return;
+  }
+  if (index >= 0) {
+    environmentPage.items.splice(index, 1, environment);
+    return;
+  }
+  environmentPage.items.unshift(environment);
+  environmentPage.items = environmentPage.items.slice(0, environmentPage.pageSize);
+  environmentPage.total += 1;
+}
+
+function matchesDependencyFilters(dependency: EnvironmentDependencyListView) {
+  if (dependencyFilters.enabled != null && dependency.enabled !== dependencyFilters.enabled) {
+    return false;
+  }
+  const keyword = dependencyFilters.keyword.trim().toLowerCase();
+  if (!keyword) {
+    return true;
+  }
+  return [dependency.name, dependency.version, dependency.scriptType]
+    .some((value) => String(value ?? "").toLowerCase().includes(keyword));
+}
+
+function matchesEnvironmentFilters(environment: ScriptEnvironmentListView) {
+  if (environmentFilters.enabled != null && environment.enabled !== environmentFilters.enabled) {
+    return false;
+  }
+  const keyword = environmentFilters.keyword.trim().toLowerCase();
+  if (!keyword) {
+    return true;
+  }
+  return [environment.environmentName, environment.environmentCode]
+    .some((value) => String(value ?? "").toLowerCase().includes(keyword));
+}
+
+function formatDependencyNames(dependencies?: Array<Pick<EnvironmentDependencyOption, "name" | "version" | "scriptType">>) {
   if (!dependencies || dependencies.length === 0) {
     return "无额外依赖";
   }
   return dependencies.map(formatDependencyOption).join("，");
 }
 
-function dependencyVisibleFiles(dependency?: EnvironmentDependency) {
+function dependencyVisibleFiles(dependency?: { files?: VisibleDependencyFile[] }) {
   return (dependency?.files ?? []).filter((file) => file.visible !== false && file.enabled !== false);
 }
 
-function formatDependencyOption(dependency: Pick<EnvironmentDependency, "name" | "version" | "scriptType">) {
+function uploadedDependencyFiles(dependency?: EnvironmentDependency) {
+  return (dependency?.files ?? []).filter((file) => file.visible !== false && file.enabled !== false);
+}
+
+function formatDependencyOption(dependency: Pick<EnvironmentDependencyOption, "name" | "version" | "scriptType">) {
   const name = dependency.version ? `${dependency.name}@${dependency.version}` : dependency.name;
   return `${formatScriptType(dependency.scriptType)} / ${name}`;
 }

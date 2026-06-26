@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
@@ -120,6 +121,31 @@ public class DataSourceService {
         List<DataSourceListView> result = new ArrayList<DataSourceListView>();
         for (DataSourceDefinition definition : definitions) {
             result.add(toListView(definition));
+        }
+        return result;
+    }
+
+    public Map<Long, DataSourceListView> listBasicSummaryMap(Set<Long> datasourceIds) {
+        Map<Long, DataSourceListView> result = new LinkedHashMap<Long, DataSourceListView>();
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return result;
+        }
+        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
+                .select(DatasourceEntity::getId,
+                        DatasourceEntity::getTenantId,
+                        DatasourceEntity::getProjectId,
+                        DatasourceEntity::getDeleted,
+                        DatasourceEntity::getCreatedAt,
+                        DatasourceEntity::getUpdatedAt,
+                        DatasourceEntity::getName,
+                        DatasourceEntity::getTypeCode,
+                        DatasourceEntity::getSchemaVersionId,
+                        DatasourceEntity::getEnabled,
+                        DatasourceEntity::getExecutable)
+                .in(DatasourceEntity::getId, datasourceIds));
+        for (DatasourceEntity entity : entities) {
+            DataSourceListView view = toBasicListView(entity);
+            result.put(view.getId(), view);
         }
         return result;
     }
@@ -363,6 +389,22 @@ public class DataSourceService {
         view.setManualConnectionTestTimeoutSeconds(definition.getManualConnectionTestTimeoutSeconds());
         view.setScheduledConnectionTestTimeoutSeconds(definition.getScheduledConnectionTestTimeoutSeconds());
         view.setRecentConnectionTests(toTrendPoints(definition.getRecentConnectionTests()));
+        return view;
+    }
+
+    private DataSourceListView toBasicListView(DatasourceEntity entity) {
+        DataSourceListView view = new DataSourceListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setTypeCode(entity.getTypeCode());
+        view.setSchemaVersionId(entity.getSchemaVersionId());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setExecutable(entity.getExecutable() != null && entity.getExecutable().intValue() == 1);
         return view;
     }
 

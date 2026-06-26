@@ -7,9 +7,11 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataDevelopmentDirectoryView;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
+import com.jdragon.studio.dto.model.DataDevelopmentScriptListView;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.JavaImportHintResponse;
 import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
@@ -82,7 +84,8 @@ public class DataDevelopmentService {
     public List<DataDevelopmentTreeNode> tree() {
         String tenantId = securityService.currentTenantId();
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
-        return buildTree(listDirectoryEntities(tenantId, projectId), listScriptEntities(tenantId, projectId, null));
+        List<DataDevelopmentScriptEntity> scripts = listScriptEntities(tenantId, projectId, null);
+        return buildTree(listDirectoryEntities(tenantId, projectId), scripts, listDatasourceSummaries(scripts));
     }
 
     public List<DataDevelopmentDirectoryView> listDirectories() {
@@ -95,12 +98,14 @@ public class DataDevelopmentService {
         return result;
     }
 
-    public List<DataDevelopmentScriptView> listScripts(ScriptType scriptType) {
+    public List<DataDevelopmentScriptListView> listScripts(ScriptType scriptType) {
         String tenantId = securityService.currentTenantId();
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
-        List<DataDevelopmentScriptView> result = new ArrayList<DataDevelopmentScriptView>();
-        for (DataDevelopmentScriptEntity entity : listScriptEntities(tenantId, projectId, scriptType)) {
-            result.add(toScriptView(entity));
+        List<DataDevelopmentScriptEntity> scripts = listScriptEntities(tenantId, projectId, scriptType);
+        Map<Long, DataSourceListView> datasourceMap = listDatasourceSummaries(scripts);
+        List<DataDevelopmentScriptListView> result = new ArrayList<DataDevelopmentScriptListView>();
+        for (DataDevelopmentScriptEntity entity : scripts) {
+            result.add(toScriptListView(entity, datasourceMap));
         }
         return result;
     }
@@ -362,6 +367,18 @@ public class DataDevelopmentService {
 
     private List<DataDevelopmentScriptEntity> listScriptEntities(String tenantId, Long projectId, ScriptType scriptType) {
         LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+                .select(DataDevelopmentScriptEntity::getId,
+                        DataDevelopmentScriptEntity::getTenantId,
+                        DataDevelopmentScriptEntity::getProjectId,
+                        DataDevelopmentScriptEntity::getDeleted,
+                        DataDevelopmentScriptEntity::getCreatedAt,
+                        DataDevelopmentScriptEntity::getUpdatedAt,
+                        DataDevelopmentScriptEntity::getDirectoryId,
+                        DataDevelopmentScriptEntity::getFileName,
+                        DataDevelopmentScriptEntity::getScriptType,
+                        DataDevelopmentScriptEntity::getDatasourceId,
+                        DataDevelopmentScriptEntity::getEnvironmentId,
+                        DataDevelopmentScriptEntity::getDescription)
                 .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
                 .orderByAsc(DataDevelopmentScriptEntity::getDirectoryId)
                 .orderByAsc(DataDevelopmentScriptEntity::getProjectId)
@@ -383,7 +400,8 @@ public class DataDevelopmentService {
     }
 
     private List<DataDevelopmentTreeNode> buildTree(List<DataDevelopmentDirectoryEntity> directories,
-                                                    List<DataDevelopmentScriptEntity> scripts) {
+                                                    List<DataDevelopmentScriptEntity> scripts,
+                                                    Map<Long, DataSourceListView> datasourceMap) {
         Map<Long, DataDevelopmentTreeNode> directoryNodes = new LinkedHashMap<Long, DataDevelopmentTreeNode>();
         List<DataDevelopmentTreeNode> roots = new ArrayList<DataDevelopmentTreeNode>();
         for (DataDevelopmentDirectoryEntity entity : directories) {
@@ -415,7 +433,7 @@ public class DataDevelopmentService {
             node.setProjectId(entity.getProjectId());
             node.setName(entity.getFileName());
             node.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
-            DataSourceDefinition datasource = safeResolveScriptDatasource(entity.getDatasourceId());
+            DataSourceListView datasource = datasourceMap.get(entity.getDatasourceId());
             node.setDatasourceName(datasource == null ? null : datasource.getName());
             if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
                 ScriptEnvironmentEntityView environment = safeResolveEnvironment(entity.getEnvironmentId());
@@ -579,6 +597,44 @@ public class DataDevelopmentService {
         view.setDescription(entity.getDescription());
         view.setContent(entity.getContent());
         return view;
+    }
+
+    private DataDevelopmentScriptListView toScriptListView(DataDevelopmentScriptEntity entity, Map<Long, DataSourceListView> datasourceMap) {
+        DataDevelopmentScriptListView view = new DataDevelopmentScriptListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setDirectoryId(entity.getDirectoryId());
+        view.setFileName(entity.getFileName());
+        view.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
+        view.setDatasourceId(entity.getDatasourceId());
+        DataSourceListView datasource = datasourceMap.get(entity.getDatasourceId());
+        if (datasource != null) {
+            view.setDatasourceName(datasource.getName());
+            view.setDatasourceTypeCode(datasource.getTypeCode());
+        }
+        if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
+            ScriptEnvironmentEntityView environment = safeResolveEnvironment(entity.getEnvironmentId());
+            view.setEnvironmentId(environment == null ? null : environment.id);
+            view.setEnvironmentName(environment == null ? null : environment.name);
+        }
+        view.setDescription(entity.getDescription());
+        return view;
+    }
+
+    private Map<Long, DataSourceListView> listDatasourceSummaries(List<DataDevelopmentScriptEntity> scripts) {
+        Set<Long> datasourceIds = new LinkedHashSet<Long>();
+        if (scripts != null) {
+            for (DataDevelopmentScriptEntity script : scripts) {
+                if (script.getDatasourceId() != null) {
+                    datasourceIds.add(script.getDatasourceId());
+                }
+            }
+        }
+        return dataSourceService.listBasicSummaryMap(datasourceIds);
     }
 
     private Long resolveScriptEnvironmentId(ScriptType scriptType, Long environmentId) {

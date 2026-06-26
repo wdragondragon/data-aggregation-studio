@@ -7,6 +7,8 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.EnvironmentDependencyFileView;
+import com.jdragon.studio.dto.model.EnvironmentDependencyFileListView;
+import com.jdragon.studio.dto.model.EnvironmentDependencyListView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
@@ -74,12 +76,23 @@ public class EnvironmentDependencyService {
         this.cloudObjectStorageService = cloudObjectStorageService;
     }
 
-    public PageView<EnvironmentDependencyView> queryPage(Integer pageNum, Integer pageSize, String keyword, Boolean enabled) {
+    public PageView<EnvironmentDependencyListView> queryPage(Integer pageNum, Integer pageSize, String keyword, Boolean enabled) {
         int safePageNo = normalizePageNo(pageNum);
         int safePageSize = normalizePageSize(pageSize);
         String normalizedKeyword = normalizeNullableText(keyword);
         Page<EnvironmentDependencyEntity> page = new Page<EnvironmentDependencyEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<EnvironmentDependencyEntity> wrapper = new LambdaQueryWrapper<EnvironmentDependencyEntity>()
+                .select(EnvironmentDependencyEntity::getId,
+                        EnvironmentDependencyEntity::getTenantId,
+                        EnvironmentDependencyEntity::getDeleted,
+                        EnvironmentDependencyEntity::getCreatedAt,
+                        EnvironmentDependencyEntity::getUpdatedAt,
+                        EnvironmentDependencyEntity::getName,
+                        EnvironmentDependencyEntity::getVersion,
+                        EnvironmentDependencyEntity::getScriptType,
+                        EnvironmentDependencyEntity::getArtifactUrl,
+                        EnvironmentDependencyEntity::getArtifactType,
+                        EnvironmentDependencyEntity::getEnabled)
                 .eq(EnvironmentDependencyEntity::getTenantId, securityService.currentTenantId())
                 .and(hasText(normalizedKeyword), query -> query.like(EnvironmentDependencyEntity::getName, normalizedKeyword)
                         .or()
@@ -92,9 +105,10 @@ public class EnvironmentDependencyService {
                 .orderByDesc(EnvironmentDependencyEntity::getUpdatedAt)
                 .orderByDesc(EnvironmentDependencyEntity::getId);
         Page<EnvironmentDependencyEntity> entityPage = dependencyMapper.selectPage(page, wrapper);
-        List<EnvironmentDependencyView> items = new ArrayList<EnvironmentDependencyView>();
+        Map<Long, List<EnvironmentDependencyFileListView>> fileMap = loadVisibleFileSummaries(entityPage.getRecords());
+        List<EnvironmentDependencyListView> items = new ArrayList<EnvironmentDependencyListView>();
         for (EnvironmentDependencyEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity));
+            items.add(toListView(entity, fileMap.get(entity.getId())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -313,6 +327,70 @@ public class EnvironmentDependencyService {
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         view.setDescription(entity.getDescription());
         return view;
+    }
+
+    private EnvironmentDependencyListView toListView(EnvironmentDependencyEntity entity, List<EnvironmentDependencyFileListView> files) {
+        EnvironmentDependencyListView view = new EnvironmentDependencyListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setVersion(entity.getVersion());
+        view.setScriptType(hasText(entity.getScriptType()) ? entity.getScriptType() : DEFAULT_SCRIPT_TYPE);
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        List<EnvironmentDependencyFileListView> visibleFiles = files == null
+                ? new ArrayList<EnvironmentDependencyFileListView>()
+                : new ArrayList<EnvironmentDependencyFileListView>(files);
+        if (visibleFiles.isEmpty() && hasText(entity.getArtifactUrl())) {
+            visibleFiles.add(toLegacyFileListView(entity));
+        }
+        view.setFiles(visibleFiles);
+        return view;
+    }
+
+    private Map<Long, List<EnvironmentDependencyFileListView>> loadVisibleFileSummaries(List<EnvironmentDependencyEntity> dependencies) {
+        Map<Long, List<EnvironmentDependencyFileListView>> result = new HashMap<Long, List<EnvironmentDependencyFileListView>>();
+        if (dependencies == null || dependencies.isEmpty()) {
+            return result;
+        }
+        List<Long> dependencyIds = new ArrayList<Long>();
+        for (EnvironmentDependencyEntity dependency : dependencies) {
+            if (dependency.getId() != null) {
+                dependencyIds.add(dependency.getId());
+                result.put(dependency.getId(), new ArrayList<EnvironmentDependencyFileListView>());
+            }
+        }
+        if (dependencyIds.isEmpty()) {
+            return result;
+        }
+        List<EnvironmentDependencyFileEntity> files = dependencyFileMapper.selectList(new LambdaQueryWrapper<EnvironmentDependencyFileEntity>()
+                .select(EnvironmentDependencyFileEntity::getId,
+                        EnvironmentDependencyFileEntity::getTenantId,
+                        EnvironmentDependencyFileEntity::getDeleted,
+                        EnvironmentDependencyFileEntity::getCreatedAt,
+                        EnvironmentDependencyFileEntity::getUpdatedAt,
+                        EnvironmentDependencyFileEntity::getDependencyId,
+                        EnvironmentDependencyFileEntity::getOriginalFileName,
+                        EnvironmentDependencyFileEntity::getArtifactType,
+                        EnvironmentDependencyFileEntity::getSizeBytes,
+                        EnvironmentDependencyFileEntity::getVisible,
+                        EnvironmentDependencyFileEntity::getEnabled)
+                .eq(EnvironmentDependencyFileEntity::getTenantId, securityService.currentTenantId())
+                .in(EnvironmentDependencyFileEntity::getDependencyId, dependencyIds)
+                .eq(EnvironmentDependencyFileEntity::getVisible, Integer.valueOf(1))
+                .eq(EnvironmentDependencyFileEntity::getEnabled, Integer.valueOf(1))
+                .orderByAsc(EnvironmentDependencyFileEntity::getDependencyId)
+                .orderByAsc(EnvironmentDependencyFileEntity::getOriginalFileName)
+                .orderByAsc(EnvironmentDependencyFileEntity::getId));
+        for (EnvironmentDependencyFileEntity file : files) {
+            List<EnvironmentDependencyFileListView> dependencyFiles = result.get(file.getDependencyId());
+            if (dependencyFiles != null) {
+                dependencyFiles.add(toFileListView(file));
+            }
+        }
+        return result;
     }
 
     private EnvironmentDependencyOptionView toOptionView(EnvironmentDependencyEntity entity) {
@@ -830,6 +908,35 @@ public class EnvironmentDependencyService {
         view.setRuntimeArtifact(Boolean.TRUE);
         view.setEnabled(Boolean.TRUE);
         view.setUploadedAt(entity.getUpdatedAt() == null ? entity.getCreatedAt() : entity.getUpdatedAt());
+        return view;
+    }
+
+    private EnvironmentDependencyFileListView toFileListView(EnvironmentDependencyFileEntity file) {
+        EnvironmentDependencyFileListView view = new EnvironmentDependencyFileListView();
+        view.setId(file.getId());
+        view.setTenantId(file.getTenantId());
+        view.setDeleted(file.getDeleted() != null && file.getDeleted().intValue() == 1);
+        view.setCreatedAt(file.getCreatedAt());
+        view.setUpdatedAt(file.getUpdatedAt());
+        view.setDependencyId(file.getDependencyId());
+        view.setOriginalFileName(file.getOriginalFileName());
+        view.setArtifactType(file.getArtifactType());
+        view.setSizeBytes(file.getSizeBytes());
+        view.setVisible(file.getVisible() != null && file.getVisible().intValue() == 1);
+        view.setEnabled(file.getEnabled() != null && file.getEnabled().intValue() == 1);
+        return view;
+    }
+
+    private EnvironmentDependencyFileListView toLegacyFileListView(EnvironmentDependencyEntity entity) {
+        EnvironmentDependencyFileListView view = new EnvironmentDependencyFileListView();
+        view.setDependencyId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setOriginalFileName(legacyFileName(entity.getArtifactUrl()));
+        view.setArtifactType(entity.getArtifactType());
+        view.setVisible(Boolean.TRUE);
+        view.setEnabled(Boolean.TRUE);
         return view;
     }
 

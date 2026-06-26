@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.EnvironmentDependencyListView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
@@ -40,10 +41,10 @@ public class EnvironmentDependencyController {
 
     @Operation(summary = "Query environment dependencies")
     @PostMapping("/queryPage")
-    public Result<PageView<EnvironmentDependencyView>> queryPage(@RequestParam(value = "pageNum", required = false) Integer pageNum,
-                                                                 @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                                 @RequestParam(value = "keyword", required = false) String keyword,
-                                                                 @RequestParam(value = "enabled", required = false) Boolean enabled) {
+    public Result<PageView<EnvironmentDependencyListView>> queryPage(@RequestParam(value = "pageNum", required = false) Integer pageNum,
+                                                                     @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                     @RequestParam(value = "keyword", required = false) String keyword,
+                                                                     @RequestParam(value = "enabled", required = false) Boolean enabled) {
         return Result.success(environmentDependencyService.queryPage(pageNum, pageSize, keyword, enabled));
     }
 

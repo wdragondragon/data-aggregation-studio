@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.ScriptEnvironmentListView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentView;
 import com.jdragon.studio.dto.model.request.ScriptEnvironmentSaveRequest;
 import com.jdragon.studio.infra.service.ScriptEnvironmentService;
@@ -31,10 +32,10 @@ public class ScriptEnvironmentController {
 
     @Operation(summary = "Query script environments")
     @PostMapping("/queryPage")
-    public Result<PageView<ScriptEnvironmentView>> queryPage(@RequestParam(value = "pageNum", required = false) Integer pageNum,
-                                                             @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                             @RequestParam(value = "keyword", required = false) String keyword,
-                                                             @RequestParam(value = "enabled", required = false) Boolean enabled) {
+    public Result<PageView<ScriptEnvironmentListView>> queryPage(@RequestParam(value = "pageNum", required = false) Integer pageNum,
+                                                                 @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                 @RequestParam(value = "keyword", required = false) String keyword,
+                                                                 @RequestParam(value = "enabled", required = false) Boolean enabled) {
         return Result.success(scriptEnvironmentService.queryPage(pageNum, pageSize, keyword, enabled));
     }
 
