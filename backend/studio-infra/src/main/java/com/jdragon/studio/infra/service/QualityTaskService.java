@@ -18,6 +18,7 @@ import com.jdragon.studio.dto.model.QualityRuleOutputParamView;
 import com.jdragon.studio.dto.model.QualityRuleView;
 import com.jdragon.studio.dto.model.QualityTaskAlertConfig;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
+import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.QualityTaskParamBinding;
 import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
@@ -87,17 +88,17 @@ public class QualityTaskService {
         this.objectMapper = objectMapper;
     }
 
-    public PageView<QualityTaskDefinitionView> list(Integer pageNo,
-                                                    Integer pageSize,
-                                                    String keyword,
-                                                    String status,
-                                                    String ruleDimension,
-                                                    String granularity) {
+    public PageView<QualityTaskListView> list(Integer pageNo,
+                                              Integer pageSize,
+                                              String keyword,
+                                              String status,
+                                              String ruleDimension,
+                                              String granularity) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         Long currentProjectId = projectResourceAccessService.currentProjectId();
         if (currentProjectId == null) {
-            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityTaskDefinitionView>());
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityTaskListView>());
         }
         String normalizedKeyword = normalizeText(keyword);
         String normalizedStatus = normalizeText(status);
@@ -125,21 +126,21 @@ public class QualityTaskService {
                 .orderByDesc(QualityTaskDefinitionEntity::getUpdatedAt)
                 .orderByDesc(QualityTaskDefinitionEntity::getId);
         Page<QualityTaskDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
-        List<QualityTaskDefinitionView> result = new ArrayList<QualityTaskDefinitionView>();
+        List<QualityTaskListView> result = new ArrayList<QualityTaskListView>();
         for (QualityTaskDefinitionEntity entity : entityPage.getRecords()) {
-            result.add(toView(entity));
+            result.add(toListView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), result);
     }
 
-    public List<QualityTaskDefinitionView> list(String keyword,
-                                                String status,
-                                                String ruleDimension,
-                                                String granularity) {
+    public List<QualityTaskListView> list(String keyword,
+                                          String status,
+                                          String ruleDimension,
+                                          String granularity) {
         int pageNo = 1;
         int pageSize = 200;
-        List<QualityTaskDefinitionView> result = new ArrayList<QualityTaskDefinitionView>();
-        PageView<QualityTaskDefinitionView> page;
+        List<QualityTaskListView> result = new ArrayList<QualityTaskListView>();
+        PageView<QualityTaskListView> page;
         do {
             page = list(pageNo, pageSize, keyword, status, ruleDimension, granularity);
             result.addAll(page.getItems());
@@ -148,10 +149,10 @@ public class QualityTaskService {
         return result;
     }
 
-    public List<QualityTaskDefinitionView> listOnline() {
+    public List<QualityTaskListView> listOnline() {
         Long currentProjectId = projectResourceAccessService.currentProjectId();
         if (currentProjectId == null) {
-            return new ArrayList<QualityTaskDefinitionView>();
+            return new ArrayList<QualityTaskListView>();
         }
         List<QualityTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
                 .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
@@ -159,9 +160,9 @@ public class QualityTaskService {
                 .eq(QualityTaskDefinitionEntity::getStatus, QualityTaskStatus.ONLINE.name())
                 .orderByAsc(QualityTaskDefinitionEntity::getTaskName)
                 .orderByAsc(QualityTaskDefinitionEntity::getId));
-        List<QualityTaskDefinitionView> result = new ArrayList<QualityTaskDefinitionView>();
+        List<QualityTaskListView> result = new ArrayList<QualityTaskListView>();
         for (QualityTaskDefinitionEntity entity : entities) {
-            result.add(toView(entity));
+            result.add(toListView(entity));
         }
         return result;
     }
@@ -527,6 +528,32 @@ public class QualityTaskService {
                 : new ArrayList<QualityRuleOutputParamView>(snapshot.getOutputParams()));
         view.setAlertConfigs(loadAlertConfigs(entity.getId()));
         view.setSchedule(loadSchedule(entity.getId()));
+        return view;
+    }
+
+    private QualityTaskListView toListView(QualityTaskDefinitionEntity entity) {
+        QualityTaskListView view = new QualityTaskListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setCreatedBy(entity.getCreatedBy());
+        view.setTaskName(entity.getTaskName());
+        view.setTaskCode(entity.getTaskCode());
+        view.setStatus(entity.getStatus() == null ? null : QualityTaskStatus.valueOf(entity.getStatus()));
+        view.setRuleId(entity.getRuleId());
+        view.setRuleName(entity.getRuleNameSnapshot());
+        view.setRuleDimension(entity.getRuleDimension() == null ? null : com.jdragon.studio.dto.enums.QualityRuleDimension.valueOf(entity.getRuleDimension()));
+        view.setGranularity(entity.getGranularity() == null ? null : QualityRuleGranularity.valueOf(entity.getGranularity()));
+        view.setDatasourceId(entity.getDatasourceId());
+        view.setDatasourceName(entity.getDatasourceNameSnapshot());
+        view.setDatasourceTypeCode(entity.getDatasourceTypeCode());
+        view.setModelId(entity.getModelId());
+        view.setModelName(entity.getModelNameSnapshot());
+        view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        view.setColumnName(entity.getColumnName());
         return view;
     }
 

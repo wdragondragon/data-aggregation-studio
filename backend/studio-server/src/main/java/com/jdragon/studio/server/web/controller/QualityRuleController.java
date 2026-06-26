@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleParseResultView;
+import com.jdragon.studio.dto.model.QualityRuleListView;
 import com.jdragon.studio.dto.model.QualityRuleValidationResultView;
 import com.jdragon.studio.dto.model.QualityRuleView;
 import com.jdragon.studio.dto.model.request.QualityRuleBatchDeleteRequest;
@@ -37,12 +38,12 @@ public class QualityRuleController {
 
     @Operation(summary = "List quality rules")
     @GetMapping
-    public Result<PageView<QualityRuleView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                  @RequestParam(value = "keyword", required = false) String keyword,
-                                                  @RequestParam(value = "ruleDimension", required = false) String ruleDimension,
-                                                  @RequestParam(value = "scopeType", required = false) String scopeType,
-                                                  @RequestParam(value = "enabled", required = false) Boolean enabled) {
+    public Result<PageView<QualityRuleListView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                      @RequestParam(value = "keyword", required = false) String keyword,
+                                                      @RequestParam(value = "ruleDimension", required = false) String ruleDimension,
+                                                      @RequestParam(value = "scopeType", required = false) String scopeType,
+                                                      @RequestParam(value = "enabled", required = false) Boolean enabled) {
         return Result.success(qualityRuleService.list(pageNo, pageSize, keyword, ruleDimension, scopeType, enabled));
     }
 

@@ -11,6 +11,7 @@ import com.jdragon.studio.dto.enums.QualityRuleParamType;
 import com.jdragon.studio.dto.enums.QualityRuleScopeType;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleInputParamView;
+import com.jdragon.studio.dto.model.QualityRuleListView;
 import com.jdragon.studio.dto.model.QualityRuleOutputParamView;
 import com.jdragon.studio.dto.model.QualityRuleParseResultView;
 import com.jdragon.studio.dto.model.QualityRuleValidationResultView;
@@ -68,12 +69,12 @@ public class QualityRuleService {
         this.qualitySqlTemplateService = qualitySqlTemplateService;
     }
 
-    public PageView<QualityRuleView> list(Integer pageNo,
-                                          Integer pageSize,
-                                          String keyword,
-                                          String ruleDimension,
-                                          String scopeType,
-                                          Boolean enabled) {
+    public PageView<QualityRuleListView> list(Integer pageNo,
+                                              Integer pageSize,
+                                              String keyword,
+                                              String ruleDimension,
+                                              String scopeType,
+                                              Boolean enabled) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         String normalizedKeyword = normalizeText(keyword);
@@ -81,7 +82,7 @@ public class QualityRuleService {
         String normalizedScopeType = normalizeText(scopeType);
         if (QualityRuleScopeType.PROJECT.name().equalsIgnoreCase(normalizedScopeType)
                 && projectResourceAccessService.currentProjectId() == null) {
-            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityRuleView>());
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityRuleListView>());
         }
         Page<QualityRuleEntity> page = new Page<QualityRuleEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<QualityRuleEntity> queryWrapper = buildAccessibleQuery(normalizedScopeType)
@@ -97,9 +98,9 @@ public class QualityRuleService {
                 .orderByDesc(QualityRuleEntity::getId);
         Page<QualityRuleEntity> entityPage = qualityRuleMapper.selectPage(page, queryWrapper);
         Map<Long, String> creatorNames = resolveCreatorNames(entityPage.getRecords());
-        List<QualityRuleView> items = new ArrayList<QualityRuleView>();
+        List<QualityRuleListView> items = new ArrayList<QualityRuleListView>();
         for (QualityRuleEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity, creatorNames.get(entity.getCreatedBy()), false));
+            items.add(toListView(entity, creatorNames.get(entity.getCreatedBy())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -366,6 +367,27 @@ public class QualityRuleService {
             view.setInputParams(loadInputParams(entity.getId()));
             view.setOutputParams(loadOutputParams(entity.getId()));
         }
+        return view;
+    }
+
+    private QualityRuleListView toListView(QualityRuleEntity entity, String createdByName) {
+        QualityRuleListView view = new QualityRuleListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuleName(entity.getRuleName());
+        view.setRuleCode(entity.getRuleCode());
+        view.setScopeType(entity.getScopeType() == null ? null : QualityRuleScopeType.valueOf(entity.getScopeType()));
+        view.setRuleDimension(entity.getRuleDimension() == null ? null : com.jdragon.studio.dto.enums.QualityRuleDimension.valueOf(entity.getRuleDimension()));
+        view.setGranularity(entity.getGranularity() == null ? null : QualityRuleGranularity.valueOf(entity.getGranularity()));
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setCreatedBy(entity.getCreatedBy());
+        view.setCreatedByName(createdByName);
+        view.setEditable(canManage(entity));
+        view.setDeletable(canManage(entity));
         return view;
     }
 

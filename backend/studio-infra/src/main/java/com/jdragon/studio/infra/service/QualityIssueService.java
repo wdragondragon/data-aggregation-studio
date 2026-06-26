@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.QualityIssueDetailView;
 import com.jdragon.studio.dto.model.QualityIssueTimelineEvent;
 import com.jdragon.studio.dto.model.QualityIssueView;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
+import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.dto.model.request.QualityIssueAssignRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueCommentRequest;
@@ -539,7 +540,7 @@ public class QualityIssueService {
             return null;
         }
         List<Long> ids = new ArrayList<Long>();
-        for (QualityTaskDefinitionView task : qualityTaskService.list(null,
+        for (QualityTaskListView task : qualityTaskService.list(null,
                 request == null ? null : request.getTaskStatus(),
                 request == null ? null : request.getRuleDimension(),
                 request == null ? null : request.getGranularity())) {

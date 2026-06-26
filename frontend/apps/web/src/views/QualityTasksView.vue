@@ -124,7 +124,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { EntityId, QualityTaskDefinitionView } from "@studio/api-sdk";
+import type { EntityId, QualityTaskListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -156,7 +156,7 @@ const filters = reactive<{
   granularity: "",
 });
 
-const tasks = ref<QualityTaskDefinitionView[]>([]);
+const tasks = ref<QualityTaskListView[]>([]);
 const taskTotal = ref(0);
 const taskPagination = reactive<ClientPaginationState>({
   page: 1,
@@ -217,11 +217,11 @@ function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedTask(row: QualityTaskDefinitionView) {
+function isSharedTask(row: QualityTaskListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, row.projectId);
 }
 
-function buildActions(row: QualityTaskDefinitionView) {
+function buildActions(row: QualityTaskListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/quality-tasks/${row.id}/edit`); } },
     { key: "publish", label: row.status === STUDIO_RUN_STATUS.ONLINE ? "重新发布" : "发布", onClick: () => publishTask(row) },
@@ -231,20 +231,51 @@ function buildActions(row: QualityTaskDefinitionView) {
   ];
 }
 
-async function publishTask(task: QualityTaskDefinitionView) {
+async function publishTask(task: QualityTaskListView) {
   if (!task.id) {
     return;
   }
   try {
-    await studioApi.qualityTasks.publish(task.id);
+    const updated = await studioApi.qualityTasks.publish(task.id);
+    patchTaskRow(task, updated);
     ElMessage.success("质量任务已发布");
-    await loadTasks();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "发布质量任务失败");
   }
 }
 
-async function triggerTask(task: QualityTaskDefinitionView) {
+function patchTaskRow(task: QualityTaskListView, patch: Partial<QualityTaskListView>) {
+  const target = tasks.value.find((item) => item.id === task.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof QualityTaskListView)[] = [
+    "updatedAt",
+    "taskName",
+    "taskCode",
+    "status",
+    "ruleId",
+    "ruleName",
+    "ruleDimension",
+    "granularity",
+    "datasourceId",
+    "datasourceName",
+    "datasourceTypeCode",
+    "modelId",
+    "modelName",
+    "modelPhysicalLocator",
+    "columnName",
+  ];
+  const next: Partial<QualityTaskListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
+}
+
+async function triggerTask(task: QualityTaskListView) {
   if (!task.id) {
     return;
   }
@@ -256,7 +287,7 @@ async function triggerTask(task: QualityTaskDefinitionView) {
   }
 }
 
-async function deleteTask(task: QualityTaskDefinitionView) {
+async function deleteTask(task: QualityTaskListView) {
   if (!task.id) {
     return;
   }
@@ -272,7 +303,7 @@ async function deleteTask(task: QualityTaskDefinitionView) {
   }
 }
 
-function viewTaskRuns(task: QualityTaskDefinitionView) {
+function viewTaskRuns(task: QualityTaskListView) {
   router.push({
     path: "/quality-task-runs",
     query: task.id ? { qualityTaskId: String(task.id) } : undefined,

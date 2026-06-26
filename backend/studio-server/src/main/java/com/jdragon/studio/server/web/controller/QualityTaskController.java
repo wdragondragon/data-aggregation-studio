@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
+import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
 import com.jdragon.studio.dto.model.request.QualityTaskSaveRequest;
@@ -39,18 +40,18 @@ public class QualityTaskController {
 
     @Operation(summary = "List quality tasks")
     @GetMapping
-    public Result<PageView<QualityTaskDefinitionView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                        @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                        @RequestParam(value = "keyword", required = false) String keyword,
-                                                        @RequestParam(value = "status", required = false) String status,
-                                                        @RequestParam(value = "ruleDimension", required = false) String ruleDimension,
-                                                        @RequestParam(value = "granularity", required = false) String granularity) {
+    public Result<PageView<QualityTaskListView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                      @RequestParam(value = "keyword", required = false) String keyword,
+                                                      @RequestParam(value = "status", required = false) String status,
+                                                      @RequestParam(value = "ruleDimension", required = false) String ruleDimension,
+                                                      @RequestParam(value = "granularity", required = false) String granularity) {
         return Result.success(qualityTaskService.list(pageNo, pageSize, keyword, status, ruleDimension, granularity));
     }
 
     @Operation(summary = "List online quality tasks")
     @GetMapping("/online")
-    public Result<List<QualityTaskDefinitionView>> listOnline() {
+    public Result<List<QualityTaskListView>> listOnline() {
         return Result.success(qualityTaskService.listOnline());
     }
 

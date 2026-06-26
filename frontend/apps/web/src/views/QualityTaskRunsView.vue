@@ -157,7 +157,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { QualityTaskDefinitionView, RunRecord } from "@studio/api-sdk";
+import type { QualityTaskListView, RunRecordListView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -172,8 +172,8 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const qualityTasks = ref<QualityTaskDefinitionView[]>([]);
-const allRunRecords = ref<RunRecord[]>([]);
+const qualityTasks = ref<QualityTaskListView[]>([]);
+const allRunRecords = ref<RunRecordListView[]>([]);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
 
@@ -188,7 +188,7 @@ const filters = ref<{
 });
 
 const taskMap = computed(() => {
-  const map = new Map<string, QualityTaskDefinitionView>();
+  const map = new Map<string, QualityTaskListView>();
   for (const item of qualityTasks.value) {
     if (item.id != null) {
       map.set(String(item.id), item);
@@ -305,7 +305,7 @@ function resolveProjectLabel(projectId?: string | number | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function resolveRuleSummary(row: RunRecord) {
+function resolveRuleSummary(row: RunRecordListView) {
   if (row.qualityTaskId == null) {
     return "-";
   }
@@ -313,7 +313,7 @@ function resolveRuleSummary(row: RunRecord) {
   return task ? resolveRuleSummaryByTask(task) : "-";
 }
 
-function resolveRuleSummaryByTask(task?: QualityTaskDefinitionView | null) {
+function resolveRuleSummaryByTask(task?: QualityTaskListView | null) {
   if (!task) {
     return "-";
   }
@@ -330,8 +330,8 @@ function resolveRuleSummaryByTask(task?: QualityTaskDefinitionView | null) {
   return `${task.ruleName || "-"} / ${dimension} / ${granularity}`;
 }
 
-function formatDuration(record: RunRecord) {
-  const durationMs = Number(record.resultJson?.durationMs ?? record.payloadJson?.durationMs);
+function formatDuration(record: RunRecordListView) {
+  const durationMs = Number(record.durationMs);
   if (Number.isFinite(durationMs) && durationMs >= 0) {
     return humanizeDuration(durationMs);
   }

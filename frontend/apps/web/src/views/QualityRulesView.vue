@@ -89,7 +89,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { QualityRuleView } from "@studio/api-sdk";
+import type { QualityRuleListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
@@ -120,7 +120,7 @@ const page = reactive<{
   pageNo: number;
   pageSize: number;
   total: number;
-  items: QualityRuleView[];
+  items: QualityRuleListView[];
 }>({
   pageNo: 1,
   pageSize: 20,
@@ -153,7 +153,7 @@ function resolveDimensionLabel(value?: string) {
   return dimensionOptions.find((item) => item.value === value)?.label ?? value ?? "-";
 }
 
-function buildActions(row: QualityRuleView) {
+function buildActions(row: QualityRuleListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", disabled: !row.editable, onClick: () => { void router.push(`/quality-rules/${row.id}/edit`); } },
     { key: row.enabled ? "disable" : "enable", label: row.enabled ? "停用" : "启用", disabled: !row.editable, onClick: () => toggleRule(row) },
@@ -161,7 +161,7 @@ function buildActions(row: QualityRuleView) {
   ];
 }
 
-function handleSelectionChange(rows: QualityRuleView[]) {
+function handleSelectionChange(rows: QualityRuleListView[]) {
   selectedIds.value = rows.map((item) => item.id!).filter(Boolean);
 }
 
@@ -179,25 +179,53 @@ function resetFilters() {
   void loadRules();
 }
 
-async function toggleRule(rule: QualityRuleView) {
+async function toggleRule(rule: QualityRuleListView) {
   if (!rule.id) {
     return;
   }
   try {
+    const updated = rule.enabled
+      ? await studioApi.qualityRules.disable(rule.id)
+      : await studioApi.qualityRules.enable(rule.id);
     if (rule.enabled) {
-      await studioApi.qualityRules.disable(rule.id);
       ElMessage.success("规则已停用");
     } else {
-      await studioApi.qualityRules.enable(rule.id);
       ElMessage.success("规则已启用");
     }
-    await loadRules();
+    patchRuleRow(rule, updated);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "更新规则状态失败");
   }
 }
 
-async function deleteRule(rule: QualityRuleView) {
+function patchRuleRow(rule: QualityRuleListView, patch: Partial<QualityRuleListView>) {
+  const target = page.items.find((item) => item.id === rule.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof QualityRuleListView)[] = [
+    "updatedAt",
+    "ruleName",
+    "ruleCode",
+    "scopeType",
+    "ruleDimension",
+    "granularity",
+    "enabled",
+    "createdBy",
+    "createdByName",
+    "editable",
+    "deletable",
+  ];
+  const next: Partial<QualityRuleListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
+}
+
+async function deleteRule(rule: QualityRuleListView) {
   if (!rule.id) {
     return;
   }

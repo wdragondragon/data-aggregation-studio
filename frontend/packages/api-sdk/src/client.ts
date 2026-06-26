@@ -104,6 +104,7 @@ import type {
   ProtocolConversionServiceView,
   ProtocolConversionSubscriptionView,
   ProtocolConversionTraceView,
+  QualityRuleListView,
   QualityRuleParseRequest,
   QualityRuleParseResult,
   QualityRuleSaveRequest,
@@ -111,6 +112,7 @@ import type {
   QualityRuleValidateRequest,
   QualityRuleView,
   QualityTaskDefinitionView,
+  QualityTaskListView,
   QualityMetricOptionsView,
   QualityMetricDashboardView,
   QualityMetricDashboardQueryRequest,
@@ -444,7 +446,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         scopeType?: string;
         enabled?: boolean;
       }) {
-        return requestPage<QualityRuleView>({ url: "/quality-rules", method: "GET", params }, params);
+        return requestPage<QualityRuleListView>({ url: "/quality-rules", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<QualityRuleView>({ url: `/quality-rules/${id}`, method: "GET" });
@@ -1153,7 +1155,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         granularity?: string;
       }) {
         return request<unknown>({ url: "/quality-tasks", method: "GET", params }).then((payload) =>
-          normalizePageResult<QualityTaskDefinitionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+          normalizePageResult<QualityTaskListView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
       async list(params?: {
@@ -1172,7 +1174,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             pageSize,
           },
         });
-        const firstPage = normalizePageResult<QualityTaskDefinitionView>(firstPagePayload, 1, pageSize);
+        const firstPage = normalizePageResult<QualityTaskListView>(firstPagePayload, 1, pageSize);
         const items = [...firstPage.items];
         const totalPages = Math.ceil(firstPage.total / pageSize);
         for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
@@ -1185,13 +1187,13 @@ export function createStudioApi(options: StudioApiOptions = {}) {
               pageSize,
             },
           });
-          const page = normalizePageResult<QualityTaskDefinitionView>(pagePayload, pageNo, pageSize);
+          const page = normalizePageResult<QualityTaskListView>(pagePayload, pageNo, pageSize);
           items.push(...page.items);
         }
         return items;
       },
       listOnline() {
-        return request<QualityTaskDefinitionView[]>({ url: "/quality-tasks/online", method: "GET" });
+        return request<QualityTaskListView[]>({ url: "/quality-tasks/online", method: "GET" });
       },
       get(id: EntityId) {
         return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}`, method: "GET" });

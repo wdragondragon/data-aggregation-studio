@@ -173,7 +173,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskListView, RunRecord } from "@studio/api-sdk";
+import type { CollectionTaskListView, RunRecordListView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -191,7 +191,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const collectionTasks = ref<CollectionTaskListView[]>([]);
-const allRunRecords = ref<RunRecord[]>([]);
+const allRunRecords = ref<RunRecordListView[]>([]);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
 
@@ -316,8 +316,8 @@ function openCollectionTask(taskId: string | number) {
   router.push(`/collection-tasks/${taskId}/edit`);
 }
 
-function formatDuration(record: RunRecord) {
-  const durationMs = Number(record.resultJson?.durationMs ?? record.payloadJson?.durationMs);
+function formatDuration(record: RunRecordListView) {
+  const durationMs = Number(record.durationMs);
   if (Number.isFinite(durationMs) && durationMs >= 0) {
     return humanizeDuration(durationMs);
   }

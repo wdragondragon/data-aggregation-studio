@@ -110,7 +110,7 @@ import type {
   DataDevelopmentTreeNode,
   DataSourceListView,
   MetadataFieldDefinition,
-  QualityTaskDefinitionView,
+  QualityTaskListView,
   WorkflowDefinitionView,
   WorkflowNodeDefinition,
   WorkflowSaveRequest,
@@ -160,7 +160,7 @@ const router = useRouter();
 const workflowId = computed(() => route.params.workflowId as string | undefined);
 const datasources = ref<DataSourceListView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
-const onlineQualityTasks = ref<QualityTaskDefinitionView[]>([]);
+const onlineQualityTasks = ref<QualityTaskListView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
@@ -308,7 +308,7 @@ const selectedNodeFields = computed<MetadataFieldDefinition[]>(() => {
   ];
 });
 
-function buildSelectedQualityTaskFallback(): QualityTaskDefinitionView | undefined {
+function buildSelectedQualityTaskFallback(): QualityTaskListView | undefined {
   const config = selectedNode.value?.config;
   if (!config?.qualityTaskId) {
     return undefined;
@@ -317,22 +317,19 @@ function buildSelectedQualityTaskFallback(): QualityTaskDefinitionView | undefin
     ?? readSelectedNodeConfigText("qualityTaskCode")
     ?? String(config.qualityTaskId);
   return {
-    id: config.qualityTaskId as QualityTaskDefinitionView["id"],
+    id: config.qualityTaskId as QualityTaskListView["id"],
     taskName,
     taskCode: readSelectedNodeConfigText("qualityTaskCode") ?? taskName,
     status: "ONLINE",
-    ruleId: config.ruleId as QualityTaskDefinitionView["ruleId"],
+    ruleId: config.ruleId as QualityTaskListView["ruleId"],
     ruleName: readSelectedNodeConfigText("ruleName"),
-    ruleDimension: config.ruleDimension as QualityTaskDefinitionView["ruleDimension"],
-    granularity: config.granularity as QualityTaskDefinitionView["granularity"],
-    datasourceId: config.datasourceId as QualityTaskDefinitionView["datasourceId"],
+    ruleDimension: config.ruleDimension as QualityTaskListView["ruleDimension"],
+    granularity: config.granularity as QualityTaskListView["granularity"],
+    datasourceId: config.datasourceId as QualityTaskListView["datasourceId"],
     datasourceName: readSelectedNodeConfigText("datasourceName"),
-    modelId: config.modelId as QualityTaskDefinitionView["modelId"],
+    modelId: config.modelId as QualityTaskListView["modelId"],
     modelName: readSelectedNodeConfigText("modelName"),
     columnName: readSelectedNodeConfigText("columnName"),
-    parameterBindings: [],
-    outputParams: [],
-    alertConfigs: [],
   };
 }
 

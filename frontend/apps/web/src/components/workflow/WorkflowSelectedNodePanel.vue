@@ -230,7 +230,7 @@ import type {
   CollectionTaskListView,
   DataDevelopmentScript,
   MetadataFieldDefinition,
-  QualityTaskDefinitionView,
+  QualityTaskListView,
   WorkflowNodeDefinition,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
@@ -271,7 +271,7 @@ interface WorkflowSelectedNodeActions {
 const props = defineProps<{
   selectedNode?: WorkflowNodeDefinition;
   selectedBoundTask?: CollectionTaskListView;
-  selectedBoundQualityTask?: QualityTaskDefinitionView;
+  selectedBoundQualityTask?: QualityTaskListView;
   selectedBoundScript?: DataDevelopmentScript;
   collectionTasksLoading: boolean;
   qualityTasksLoading: boolean;

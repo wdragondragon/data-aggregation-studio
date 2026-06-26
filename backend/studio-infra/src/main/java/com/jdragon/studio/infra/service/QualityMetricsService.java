@@ -8,7 +8,7 @@ import com.jdragon.studio.dto.model.QualityAssetRiskView;
 import com.jdragon.studio.dto.model.QualityIssueView;
 import com.jdragon.studio.dto.model.QualityMetricDashboardView;
 import com.jdragon.studio.dto.model.QualityMetricOptionsView;
-import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
+import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.QualityScoreTrendPoint;
 import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.dto.model.request.QualityAssetQueryRequest;
@@ -191,7 +191,7 @@ public class QualityMetricsService {
                 context.modelById.put(model.getId(), model);
             }
         }
-        for (QualityTaskDefinitionView task : qualityTaskService.list(null, taskStatus, ruleDimension, granularity)) {
+        for (QualityTaskListView task : qualityTaskService.list(null, taskStatus, ruleDimension, granularity)) {
             if (datasourceId != null && !datasourceId.equals(task.getDatasourceId())) {
                 continue;
             }
@@ -236,7 +236,7 @@ public class QualityMetricsService {
 
     private List<QualityAssetRiskView> buildAssetViews(MetricsContext context, Boolean onlyProblems, Boolean onlyLowCoverage) {
         Map<String, AssetState> assetStates = new LinkedHashMap<String, AssetState>();
-        for (QualityTaskDefinitionView task : context.tasks) {
+        for (QualityTaskListView task : context.tasks) {
             AssetState state = ensureAssetState(assetStates, task.getDatasourceId(), task.getModelId());
             state.datasource = context.datasourceById.get(task.getDatasourceId());
             if (state.model == null && task.getModelId() != null) {
@@ -248,7 +248,7 @@ public class QualityMetricsService {
             }
         }
         for (RunRecordEntity record : context.runRecords) {
-            QualityTaskDefinitionView task = context.taskById.get(record.getQualityTaskId());
+            QualityTaskListView task = context.taskById.get(record.getQualityTaskId());
             if (task == null) {
                 continue;
             }
@@ -412,7 +412,7 @@ public class QualityMetricsService {
         metrics.put("COMPLETENESS", new long[]{0L, 0L});
         metrics.put("VALIDITY", new long[]{0L, 0L});
         for (RunRecordEntity record : context.runRecords) {
-            QualityTaskDefinitionView task = context.taskById.get(record.getQualityTaskId());
+            QualityTaskListView task = context.taskById.get(record.getQualityTaskId());
             String dimension = task == null || task.getRuleDimension() == null ? null : task.getRuleDimension().name();
             if (!metrics.containsKey(dimension)) {
                 continue;
@@ -436,7 +436,7 @@ public class QualityMetricsService {
 
     private List<Map<String, Object>> buildCoverageMatrix(MetricsContext context) {
         Map<String, Set<Long>> matrix = new LinkedHashMap<String, Set<Long>>();
-        for (QualityTaskDefinitionView task : context.tasks) {
+        for (QualityTaskListView task : context.tasks) {
             String key = calculationSupport.safeText(task.getDatasourceTypeCode(), "UNKNOWN") + "|" + calculationSupport.safeText(task.getRuleDimension() == null ? null : task.getRuleDimension().name(), "UNKNOWN");
             Set<Long> modelIds = matrix.containsKey(key) ? matrix.get(key) : new LinkedHashSet<Long>();
             if (!matrix.containsKey(key)) {
@@ -471,7 +471,7 @@ public class QualityMetricsService {
             if (!calculationSupport.isFailureOrAlert(record)) {
                 continue;
             }
-            QualityTaskDefinitionView task = context.taskById.get(record.getQualityTaskId());
+            QualityTaskListView task = context.taskById.get(record.getQualityTaskId());
             if (task != null && task.getId() != null) {
                 accumulateNoisy(noisy, "TASK", task.getId(), task.getTaskName(), task.getRuleDimension() == null ? null : task.getRuleDimension().name(), record.getEndedAt());
             }
@@ -535,7 +535,7 @@ public class QualityMetricsService {
 
     private List<Map<String, Object>> buildRelatedTasks(MetricsContext context) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-        for (QualityTaskDefinitionView task : context.tasks) {
+        for (QualityTaskListView task : context.tasks) {
             Map<String, Object> row = new LinkedHashMap<String, Object>();
             row.put("taskId", task.getId());
             row.put("taskName", task.getTaskName());
@@ -559,7 +559,7 @@ public class QualityMetricsService {
             if (!calculationSupport.isFailureOrAlert(record)) {
                 continue;
             }
-            QualityTaskDefinitionView task = context.taskById.get(record.getQualityTaskId());
+            QualityTaskListView task = context.taskById.get(record.getQualityTaskId());
             Map<String, Object> row = new LinkedHashMap<String, Object>();
             row.put("runRecordId", record.getId());
             row.put("qualityTaskId", task == null ? null : task.getId());
@@ -671,8 +671,8 @@ public class QualityMetricsService {
         private final List<DataModelDefinition> models = new ArrayList<DataModelDefinition>();
         private final Map<Long, DataModelDefinition> modelById = new LinkedHashMap<Long, DataModelDefinition>();
         private final Map<Long, DataSourceDefinition> datasourceById = new LinkedHashMap<Long, DataSourceDefinition>();
-        private final List<QualityTaskDefinitionView> tasks = new ArrayList<QualityTaskDefinitionView>();
-        private final Map<Long, QualityTaskDefinitionView> taskById = new LinkedHashMap<Long, QualityTaskDefinitionView>();
+        private final List<QualityTaskListView> tasks = new ArrayList<QualityTaskListView>();
+        private final Map<Long, QualityTaskListView> taskById = new LinkedHashMap<Long, QualityTaskListView>();
         private final Set<Long> taskIds = new LinkedHashSet<Long>();
         private final Set<String> coveredAssetKeys = new LinkedHashSet<String>();
         private List<RunRecordEntity> runRecords = new ArrayList<RunRecordEntity>();
@@ -687,7 +687,7 @@ public class QualityMetricsService {
         private Long modelId;
         private DataSourceDefinition datasource;
         private DataModelDefinition model;
-        private final List<QualityTaskDefinitionView> tasks = new ArrayList<QualityTaskDefinitionView>();
+        private final List<QualityTaskListView> tasks = new ArrayList<QualityTaskListView>();
         private final List<RunRecordEntity> runRecords = new ArrayList<RunRecordEntity>();
         private final List<QualityIssueEntity> issues = new ArrayList<QualityIssueEntity>();
         private final List<QualityIssueEntity> activeIssues = new ArrayList<QualityIssueEntity>();

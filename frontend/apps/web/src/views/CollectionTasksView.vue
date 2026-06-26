@@ -195,7 +195,7 @@ import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskListQuery, CollectionTaskListView, RunRecord } from "@studio/api-sdk";
+import type { CollectionTaskListQuery, CollectionTaskListView, RunRecordListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
@@ -212,7 +212,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const tasks = ref<CollectionTaskListView[]>([]);
 const activeTask = ref<CollectionTaskListView | null>(null);
-const taskRunRecords = ref<RunRecord[]>([]);
+const taskRunRecords = ref<RunRecordListView[]>([]);
 const { pagination: taskPagination, pagedItems: pagedTasks, resetPagination: resetTaskPagination } = useClientPagination(tasks);
 const { pagination: taskRunPagination, pagedItems: pagedTaskRunRecords, resetPagination: resetTaskRunPagination } = useClientPagination(taskRunRecords);
 const logsVisible = ref(false);
@@ -370,8 +370,8 @@ async function deleteTask(task: CollectionTaskListView) {
   }
 }
 
-function formatDuration(record: RunRecord) {
-  const durationMs = Number(record.resultJson?.durationMs ?? record.payloadJson?.durationMs);
+function formatDuration(record: RunRecordListView) {
+  const durationMs = Number(record.durationMs);
   if (Number.isFinite(durationMs) && durationMs >= 0) {
     return humanizeDuration(durationMs);
   }

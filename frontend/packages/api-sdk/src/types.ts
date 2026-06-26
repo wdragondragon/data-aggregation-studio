@@ -1622,6 +1622,19 @@ export interface QualityRuleView extends BaseRecord {
   outputParams: QualityRuleOutputParamView[];
 }
 
+export interface QualityRuleListView extends BaseRecord {
+  ruleName: string;
+  ruleCode: string;
+  scopeType?: QualityRuleScopeType;
+  ruleDimension?: QualityRuleDimension;
+  granularity?: QualityRuleGranularity;
+  enabled?: boolean;
+  createdBy?: EntityId;
+  createdByName?: string;
+  editable?: boolean;
+  deletable?: boolean;
+}
+
 export interface QualityRuleInputParamSaveRequest {
   id?: EntityId;
   paramOrder?: number;
@@ -1718,6 +1731,24 @@ export interface QualityTaskDefinitionView extends BaseRecord {
   alertConfigs: QualityTaskAlertConfig[];
   schedule?: CollectionTaskScheduleDefinition;
   ruleSnapshot?: Record<string, unknown>;
+}
+
+export interface QualityTaskListView extends BaseRecord {
+  createdBy?: EntityId;
+  taskName: string;
+  taskCode: string;
+  status?: QualityTaskStatus;
+  ruleId?: EntityId;
+  ruleName?: string;
+  ruleDimension?: QualityRuleDimension;
+  granularity?: QualityRuleGranularity;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  columnName?: string;
 }
 
 export interface QualityTaskSaveRequest {
@@ -2212,6 +2243,24 @@ export interface QueuedTask extends BaseRecord {
   payloadJson?: Record<string, unknown>;
 }
 
+export interface QueuedTaskListView extends BaseRecord {
+  executionType?: string;
+  workflowRunId?: EntityId;
+  workflowDefinitionId?: EntityId;
+  workflowVersionId?: EntityId;
+  workflowName?: string;
+  collectionTaskId?: EntityId;
+  collectionTaskName?: string;
+  qualityTaskId?: EntityId;
+  qualityTaskName?: string;
+  nodeCode?: string;
+  status?: string;
+  workerGroupCode?: string;
+  leaseOwner?: string;
+  attempts?: number;
+  maxRetries?: number;
+}
+
 export interface RunRecord extends BaseRecord {
   executionType?: string;
   workflowRunId?: EntityId;
@@ -2238,6 +2287,30 @@ export interface RunRecord extends BaseRecord {
   metricSummary?: RunMetricSummary;
   payloadJson?: Record<string, unknown>;
   resultJson?: Record<string, unknown>;
+}
+
+export interface RunRecordListView extends BaseRecord {
+  executionType?: string;
+  workflowRunId?: EntityId;
+  workflowDefinitionId?: EntityId;
+  workflowVersionId?: EntityId;
+  workflowName?: string;
+  collectionTaskId?: EntityId;
+  collectionTaskName?: string;
+  qualityTaskId?: EntityId;
+  qualityTaskName?: string;
+  nodeCode?: string;
+  workerGroupCode?: string;
+  workerCode?: string;
+  workerInstanceId?: string;
+  workerPodName?: string;
+  workerNodeName?: string;
+  status?: string;
+  message?: string;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
+  metricSummary?: RunMetricSummary;
 }
 
 export interface RunMetricSummary {
@@ -2322,8 +2395,8 @@ export interface RunLogView {
 }
 
 export interface RunListResponse {
-  queuedTasks: QueuedTask[];
-  runRecords: RunRecord[];
+  queuedTasks: QueuedTaskListView[];
+  runRecords: RunRecordListView[];
 }
 
 export interface RunListQuery {

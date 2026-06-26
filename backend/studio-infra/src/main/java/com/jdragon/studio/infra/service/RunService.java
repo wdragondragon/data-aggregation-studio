@@ -5,10 +5,11 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.RunLogView;
-import com.jdragon.studio.dto.model.QueuedTaskView;
+import com.jdragon.studio.dto.model.QueuedTaskListView;
 import com.jdragon.studio.dto.model.RunListView;
+import com.jdragon.studio.dto.model.RunRecordListView;
 import com.jdragon.studio.dto.model.RunRecordView;
-import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
+import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
@@ -17,6 +18,7 @@ import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -73,7 +75,7 @@ public class RunService {
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING")
                 .orderByDesc(DispatchTaskEntity::getCreatedAt));
         for (DispatchTaskEntity entity : queued) {
-            view.getQueuedTasks().add(toQueuedTaskView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
+            view.getQueuedTasks().add(toQueuedTaskListView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
         }
         if (Boolean.FALSE.equals(includeRunRecords)) {
             return view;
@@ -88,7 +90,7 @@ public class RunService {
                 .le(endTime != null, RunRecordEntity::getCreatedAt, endTime)
                 .orderByDesc(RunRecordEntity::getCreatedAt));
         for (RunRecordEntity entity : records) {
-            view.getRunRecords().add(toRunRecordView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
+            view.getRunRecords().add(toRunRecordListView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
         }
         return view;
     }
@@ -142,7 +144,7 @@ public class RunService {
 
     private Map<Long, String> qualityTaskNames() {
         Map<Long, String> result = new LinkedHashMap<Long, String>();
-        for (QualityTaskDefinitionView task : qualityTaskService.list(null, null, null, null)) {
+        for (QualityTaskListView task : qualityTaskService.list(null, null, null, null)) {
             if (task.getId() != null) {
                 result.put(task.getId(), task.getTaskName());
             }
@@ -163,11 +165,11 @@ public class RunService {
         return result;
     }
 
-    private QueuedTaskView toQueuedTaskView(DispatchTaskEntity entity,
-                                            Map<Long, String> collectionTaskNames,
-                                            Map<Long, String> qualityTaskNames,
-                                            Map<Long, String> workflowNames) {
-        QueuedTaskView view = new QueuedTaskView();
+    private QueuedTaskListView toQueuedTaskListView(DispatchTaskEntity entity,
+                                                    Map<Long, String> collectionTaskNames,
+                                                    Map<Long, String> qualityTaskNames,
+                                                    Map<Long, String> workflowNames) {
+        QueuedTaskListView view = new QueuedTaskListView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
@@ -189,9 +191,41 @@ public class RunService {
         view.setLeaseOwner(entity.getLeaseOwner());
         view.setAttempts(entity.getAttempts());
         view.setMaxRetries(entity.getMaxRetries());
-        view.setPayloadJson(entity.getPayloadJson() == null
-                ? new LinkedHashMap<String, Object>()
-                : new LinkedHashMap<String, Object>(entity.getPayloadJson()));
+        return view;
+    }
+
+    private RunRecordListView toRunRecordListView(RunRecordEntity entity,
+                                                  Map<Long, String> collectionTaskNames,
+                                                  Map<Long, String> qualityTaskNames,
+                                                  Map<Long, String> workflowNames) {
+        RunRecordListView view = new RunRecordListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setExecutionType(entity.getExecutionType());
+        view.setWorkflowRunId(entity.getWorkflowRunId());
+        view.setWorkflowDefinitionId(entity.getWorkflowDefinitionId());
+        view.setWorkflowVersionId(entity.getWorkflowVersionId());
+        view.setWorkflowName(resolveWorkflowName(entity.getWorkflowDefinitionId(), workflowNames));
+        view.setCollectionTaskId(entity.getCollectionTaskId());
+        view.setCollectionTaskName(resolveCollectionTaskName(entity.getCollectionTaskId(), collectionTaskNames));
+        view.setQualityTaskId(entity.getQualityTaskId());
+        view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
+        view.setNodeCode(entity.getNodeCode());
+        view.setWorkerGroupCode(entity.getWorkerGroupCode());
+        view.setWorkerCode(entity.getWorkerCode());
+        view.setWorkerInstanceId(entity.getWorkerInstanceId());
+        view.setWorkerPodName(entity.getWorkerPodName());
+        view.setWorkerNodeName(entity.getWorkerNodeName());
+        view.setStatus(entity.getStatus());
+        view.setMessage(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(entity.getMessage()));
+        view.setStartedAt(entity.getStartedAt());
+        view.setEndedAt(entity.getEndedAt());
+        view.setDurationMs(resolveDurationMs(entity));
+        view.setMetricSummary(runMetricSummaryMapper.fromEntity(entity));
         return view;
     }
 
@@ -235,6 +269,46 @@ public class RunService {
         view.setPayloadJson(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getPayloadJson()));
         view.setResultJson(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getResultJson()));
         return view;
+    }
+
+    private Long resolveDurationMs(RunRecordEntity entity) {
+        Long resultDuration = readDurationMs(entity.getResultJson());
+        if (resultDuration != null) {
+            return resultDuration;
+        }
+        Long payloadDuration = readDurationMs(entity.getPayloadJson());
+        if (payloadDuration != null) {
+            return payloadDuration;
+        }
+        if (entity.getStartedAt() == null || entity.getEndedAt() == null) {
+            return null;
+        }
+        long duration = Duration.between(entity.getStartedAt(), entity.getEndedAt()).toMillis();
+        return duration < 0L ? null : Long.valueOf(duration);
+    }
+
+    private Long readDurationMs(Map<String, Object> payload) {
+        if (payload == null) {
+            return null;
+        }
+        Object value = payload.get("durationMs");
+        if (value instanceof Number) {
+            long duration = ((Number) value).longValue();
+            return duration >= 0L ? Long.valueOf(duration) : null;
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (text.isEmpty()) {
+                return null;
+            }
+            try {
+                long duration = Long.parseLong(text);
+                return duration >= 0L ? Long.valueOf(duration) : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private String resolveCollectionTaskName(Long collectionTaskId, Map<Long, String> collectionTaskNames) {
