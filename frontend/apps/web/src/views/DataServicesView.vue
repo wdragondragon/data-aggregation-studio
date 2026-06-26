@@ -225,9 +225,9 @@ async function publishService(row: DataServiceListView) {
     return;
   }
   try {
-    await studioApi.dataServices.publish(row.id);
+    const updated = await studioApi.dataServices.publish(row.id);
+    patchServiceRow(row, updated);
     ElMessage.success("数据服务已发布");
-    await loadServices();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "发布失败");
   }
@@ -238,11 +238,49 @@ async function offlineService(row: DataServiceListView) {
     return;
   }
   try {
-    await studioApi.dataServices.offline(row.id);
+    const updated = await studioApi.dataServices.offline(row.id);
+    patchServiceRow(row, updated);
     ElMessage.success("数据服务已下线");
-    await loadServices();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "下线失败");
+  }
+}
+
+function patchServiceRow(row: DataServiceListView, patch: Partial<DataServiceListView>) {
+  const target = services.value.find((item) => item.id === row.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof DataServiceListView)[] = [
+    "updatedAt",
+    "serviceCode",
+    "serviceName",
+    "serviceType",
+    "status",
+    "sourceType",
+    "datasourceId",
+    "datasourceName",
+    "datasourceTypeCode",
+    "modelId",
+    "modelName",
+    "modelPhysicalLocator",
+    "requestMethod",
+    "responseType",
+    "endpointPath",
+    "cacheEnabled",
+    "tokenRequired",
+    "defaultSubscriptionName",
+    "webserviceEnabled",
+  ];
+  const next: Partial<DataServiceListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
+  if (selectedService.value?.id === target.id) {
+    selectedService.value = target;
   }
 }
 

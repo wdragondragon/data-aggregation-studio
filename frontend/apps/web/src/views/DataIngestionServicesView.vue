@@ -217,15 +217,54 @@ function buildActions(row: DataIngestionServiceListView) {
 }
 
 async function publishService(row: DataIngestionServiceListView) {
-  await studioApi.dataIngestionServices.publish(row.id as EntityId);
+  const updated = await studioApi.dataIngestionServices.publish(row.id as EntityId);
+  patchServiceRow(row, updated);
   ElMessage.success("数据接入服务已发布");
-  await loadServices();
 }
 
 async function offlineService(row: DataIngestionServiceListView) {
-  await studioApi.dataIngestionServices.offline(row.id as EntityId);
+  const updated = await studioApi.dataIngestionServices.offline(row.id as EntityId);
+  patchServiceRow(row, updated);
   ElMessage.success("数据接入服务已下线");
-  await loadServices();
+}
+
+function patchServiceRow(row: DataIngestionServiceListView, patch: Partial<DataIngestionServiceListView>) {
+  const target = services.value.find((item) => item.id === row.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof DataIngestionServiceListView)[] = [
+    "updatedAt",
+    "serviceCode",
+    "serviceName",
+    "status",
+    "requestFormat",
+    "payloadMode",
+    "dataNodePath",
+    "targetType",
+    "datasourceId",
+    "datasourceName",
+    "datasourceTypeCode",
+    "modelId",
+    "modelName",
+    "modelPhysicalLocator",
+    "endpointPath",
+    "maxBatchSize",
+    "tokenRequired",
+    "defaultSubscriptionName",
+    "webserviceEnabled",
+    "sourcePositions",
+  ];
+  const next: Partial<DataIngestionServiceListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
+  if (selectedService.value?.id === target.id) {
+    selectedService.value = target;
+  }
 }
 
 async function deleteService(row: DataIngestionServiceListView) {

@@ -273,7 +273,7 @@ import type {
   CollectionTaskSourceBinding,
   CollectionTaskTargetBinding,
   DataModelDefinition,
-  DataSourceDefinition,
+  DataSourceListView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
 } from "@studio/api-sdk";
@@ -333,7 +333,7 @@ const props = defineProps<{
   collectionModeVisible: boolean;
   collectionMode: string;
   isFusionTask: boolean;
-  datasources: DataSourceDefinition[];
+  datasources: DataSourceListView[];
   writerAdvancedFields: MetadataFieldDefinition[];
   bindingActions: CollectionTaskBindingActions;
 }>();

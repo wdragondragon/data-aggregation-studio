@@ -95,7 +95,7 @@ import type {
   CollectionTaskSaveRequest,
   CollectionTaskSourceBinding,
   DataModelDefinition,
-  DataSourceDefinition,
+  DataSourceListView,
   FieldMappingDefinition,
   FieldMappingRuleView,
   MetadataFieldDefinition,
@@ -155,7 +155,7 @@ const router = useRouter();
 
 const taskId = computed(() => route.params.taskId as string | undefined);
 const activeStep = ref(1);
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
 const modelCache = ref<Record<string, DataModelDefinition[]>>({});
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});

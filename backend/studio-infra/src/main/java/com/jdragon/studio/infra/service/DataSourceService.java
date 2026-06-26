@@ -14,6 +14,7 @@ import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
+import com.jdragon.studio.dto.model.dto.DatasourceConnectionTrendPointView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -361,8 +362,23 @@ public class DataSourceService {
         view.setNextConnectionProbeAt(definition.getNextConnectionProbeAt());
         view.setManualConnectionTestTimeoutSeconds(definition.getManualConnectionTestTimeoutSeconds());
         view.setScheduledConnectionTestTimeoutSeconds(definition.getScheduledConnectionTestTimeoutSeconds());
-        view.setRecentConnectionTests(definition.getRecentConnectionTests());
+        view.setRecentConnectionTests(toTrendPoints(definition.getRecentConnectionTests()));
         return view;
+    }
+
+    private List<DatasourceConnectionTrendPointView> toTrendPoints(List<DatasourceConnectionTestRecordView> records) {
+        List<DatasourceConnectionTrendPointView> points = new ArrayList<DatasourceConnectionTrendPointView>();
+        if (records == null) {
+            return points;
+        }
+        for (DatasourceConnectionTestRecordView record : records) {
+            DatasourceConnectionTrendPointView point = new DatasourceConnectionTrendPointView();
+            point.setStatus(record.getStatus());
+            point.setTestedAt(record.getTestedAt());
+            point.setEndedAt(record.getEndedAt());
+            points.add(point);
+        }
+        return points;
     }
 
     private DataSourceDefinition buildDefinitionForTest(DataSourceSaveRequest request) {

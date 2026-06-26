@@ -1,7 +1,7 @@
 package com.jdragon.studio.dto.model;
 
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
-import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
+import com.jdragon.studio.dto.model.dto.DatasourceConnectionTrendPointView;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -27,5 +27,5 @@ public class DataSourceListView extends BaseDefinition {
     private LocalDateTime nextConnectionProbeAt;
     private Integer manualConnectionTestTimeoutSeconds;
     private Integer scheduledConnectionTestTimeoutSeconds;
-    private List<DatasourceConnectionTestRecordView> recentConnectionTests = new ArrayList<DatasourceConnectionTestRecordView>();
+    private List<DatasourceConnectionTrendPointView> recentConnectionTests = new ArrayList<DatasourceConnectionTrendPointView>();
 }

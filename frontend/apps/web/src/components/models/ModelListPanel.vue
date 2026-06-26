@@ -118,7 +118,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { DataModelListView, DataSourceDefinition, EntityId, MetadataSchemaDefinition } from "@studio/api-sdk";
+import type { DataModelListView, DataSourceListView, EntityId, MetadataSchemaDefinition } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StudioTableShell } from "@studio/ui";
 import type { OverflowActionItem } from "@studio/ui";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
@@ -164,7 +164,7 @@ const props = defineProps<{
   datasourceType: string;
   datasourceId?: EntityId;
   queryDatasourceTypes: string[];
-  datasourceOptions: DataSourceDefinition[];
+  datasourceOptions: DataSourceListView[];
   currentProjectId?: EntityId | null;
   queryGroups: ModelQueryGroupState[];
   activeQueryDatasourceType: string;

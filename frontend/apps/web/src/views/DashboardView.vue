@@ -219,7 +219,7 @@ import type {
   CapabilityMatrix,
   CollectionTaskListView,
   DataDevelopmentScript,
-  DataSourceDefinition,
+  DataSourceListView,
   RunListResponse,
   WorkflowListView,
   WorkflowRunSummary,
@@ -234,7 +234,7 @@ const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const workflows = ref<WorkflowListView[]>([]);
 const collectionTasks = ref<CollectionTaskListView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);

@@ -108,7 +108,7 @@ import type {
   CollectionTaskListView,
   DataDevelopmentScript,
   DataDevelopmentTreeNode,
-  DataSourceDefinition,
+  DataSourceListView,
   MetadataFieldDefinition,
   QualityTaskDefinitionView,
   WorkflowDefinitionView,
@@ -158,7 +158,7 @@ const route = useRoute();
 const router = useRouter();
 
 const workflowId = computed(() => route.params.workflowId as string | undefined);
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
 const onlineQualityTasks = ref<QualityTaskDefinitionView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);

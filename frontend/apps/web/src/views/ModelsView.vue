@@ -114,7 +114,7 @@ import type {
   DataModelIndexQueueStatusView,
   DataModelListView,
   DataModelSaveRequest,
-  DataSourceDefinition,
+  DataSourceListView,
   EntityId,
   MetadataSchemaDefinition,
   ModelSyncTaskView,
@@ -136,7 +136,7 @@ const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 const authStore = useAuthStore();
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const models = ref<DataModelListView[]>([]);
 const modelPagination = reactive({

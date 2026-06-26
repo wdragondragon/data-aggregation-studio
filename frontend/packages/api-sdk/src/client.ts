@@ -38,6 +38,7 @@ import type {
   DatasourceConnectionTestRecordView,
   DatasourceTypeCapabilityView,
   DataSourceDefinition,
+  DataSourceListView,
   DataIngestionDebugRequest,
   DataIngestionAccessLogView,
   DataIngestionApiMetricView,
@@ -503,7 +504,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     datasources: {
       list(config?: StudioRequestConfig) {
-        return request<DataSourceDefinition[]>({ ...config, url: "/datasources", method: "GET" });
+        return request<DataSourceListView[]>({ ...config, url: "/datasources", method: "GET" });
       },
       get(id: EntityId) {
         return request<DataSourceDefinition>({ url: `/datasources/${id}`, method: "GET" });

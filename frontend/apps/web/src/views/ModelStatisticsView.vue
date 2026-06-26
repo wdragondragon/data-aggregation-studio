@@ -70,7 +70,7 @@ import type {
   DataModelStatisticsRequest,
   DataModelStatisticsSchemaOptionView,
   DataModelStatisticsView,
-  DataSourceDefinition,
+  DataSourceListView,
   EntityId,
   StatisticsChartType,
 } from "@studio/api-sdk";
@@ -110,7 +110,7 @@ const authStore = useAuthStore();
 
 const chartTypes: StatisticsChartType[] = ["TREND", "BAR", "PIE", "TOPN"];
 
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const workspaceAction = useAsyncAction();
 const analysisAction = useAsyncAction();
 const workspaceLoading = workspaceAction.loading;

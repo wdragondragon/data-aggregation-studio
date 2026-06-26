@@ -308,12 +308,34 @@ async function publishTask(task: CollectionTaskListView) {
     return;
   }
   try {
-    await studioApi.collectionTasks.publish(task.id);
+    const updated = await studioApi.collectionTasks.publish(task.id);
+    patchTaskRow(task, updated);
     ElMessage.success(t("web.collectionTasks.onlineSuccess"));
-    await loadTasks();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.onlineFailed"));
   }
+}
+
+function patchTaskRow(task: CollectionTaskListView, patch: Partial<CollectionTaskListView>) {
+  const target = tasks.value.find((item) => item.id === task.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof CollectionTaskListView)[] = [
+    "updatedAt",
+    "name",
+    "taskType",
+    "status",
+    "sourceCount",
+    "schedule",
+  ];
+  const next: Partial<CollectionTaskListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
 }
 
 async function triggerTask(task: CollectionTaskListView) {

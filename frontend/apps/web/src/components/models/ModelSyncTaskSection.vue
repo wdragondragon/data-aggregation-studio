@@ -113,7 +113,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { DataSourceDefinition, EntityId, ModelSyncTaskView } from "@studio/api-sdk";
+import type { DataSourceListView, EntityId, ModelSyncTaskView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { formatStatusLabel, toneFromStatus } from "@/utils/studio";
 
@@ -143,7 +143,7 @@ interface SyncTaskActions {
 
 defineProps<{
   datasourceTypes: string[];
-  datasourceOptions: DataSourceDefinition[];
+  datasourceOptions: DataSourceListView[];
   statusOptions: string[];
   filters: SyncTaskFilters;
   tasks: ModelSyncTaskView[];

@@ -342,7 +342,7 @@ import type {
   DataIngestionServiceView,
   DataIngestionSourcePosition,
   DataModelDefinition,
-  DataSourceDefinition,
+  DataSourceListView,
   DatasourceTypeCapabilityView,
   EntityId,
   FieldValueType,
@@ -447,7 +447,7 @@ const wizardSteps: WizardStep[] = [
 const sourcePositionOrder: DataIngestionSourcePosition[] = ["BODY", "FORM", "QUERY", "HEADER"];
 const serviceId = computed(() => route.params.serviceId as EntityId | undefined);
 const activeStep = ref(0);
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
 const models = ref<DataModelDefinition[]>([]);
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});

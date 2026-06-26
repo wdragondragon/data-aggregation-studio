@@ -132,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import type { DataSourceDefinition, MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
+import type { DataSourceListView, MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StatusPill } from "@studio/ui";
 import { useI18n } from "vue-i18n";
@@ -160,7 +160,7 @@ const props = defineProps<{
   panelDescription: string;
   form: ModelFormState;
   saving: boolean;
-  datasourceOptions: DataSourceDefinition[];
+  datasourceOptions: DataSourceListView[];
   modelSchemas: MetadataSchemaDefinition[];
   hasSelectedModelSchema: boolean;
   showManualDatasourceHint: boolean;

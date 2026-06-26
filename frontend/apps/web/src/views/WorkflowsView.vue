@@ -163,12 +163,35 @@ async function publishWorkflow(workflow: WorkflowListView) {
     return;
   }
   try {
-    await studioApi.workflows.publish(workflow.id);
+    const updated = await studioApi.workflows.publish(workflow.id);
+    patchWorkflowRow(workflow, updated);
     ElMessage.success(t("web.workflows.publishSuccess"));
-    await loadWorkflows();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.publishFailed"));
   }
+}
+
+function patchWorkflowRow(workflow: WorkflowListView, patch: Partial<WorkflowListView>) {
+  const target = workflows.value.find((item) => item.id === workflow.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof WorkflowListView)[] = [
+    "updatedAt",
+    "code",
+    "name",
+    "versionId",
+    "versionNumber",
+    "published",
+    "schedule",
+  ];
+  const next: Partial<WorkflowListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
 }
 
 async function triggerWorkflow(workflow: WorkflowListView) {

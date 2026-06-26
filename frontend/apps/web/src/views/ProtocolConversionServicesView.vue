@@ -211,15 +211,53 @@ function buildActions(row: ProtocolConversionServiceListView) {
 }
 
 async function publishService(row: ProtocolConversionServiceListView) {
-  await studioApi.protocolConversions.publish(row.id as EntityId);
+  const updated = await studioApi.protocolConversions.publish(row.id as EntityId);
+  patchServiceRow(row, updated);
   ElMessage.success("协议转换服务已发布");
-  await loadServices();
 }
 
 async function offlineService(row: ProtocolConversionServiceListView) {
-  await studioApi.protocolConversions.offline(row.id as EntityId);
+  const updated = await studioApi.protocolConversions.offline(row.id as EntityId);
+  patchServiceRow(row, updated);
   ElMessage.success("协议转换服务已下线");
-  await loadServices();
+}
+
+function patchServiceRow(row: ProtocolConversionServiceListView, patch: Partial<ProtocolConversionServiceListView>) {
+  const target = services.value.find((item) => item.id === row.id);
+  if (!target) {
+    return;
+  }
+  const keys: (keyof ProtocolConversionServiceListView)[] = [
+    "updatedAt",
+    "serviceCode",
+    "serviceName",
+    "status",
+    "endpointPath",
+    "webserviceEndpointPath",
+    "tokenRequired",
+    "defaultSubscriptionName",
+    "sourceProtocol",
+    "sourceMethod",
+    "sourceDataNodePath",
+    "conversionMode",
+    "targetDatasourceId",
+    "targetDatasourceName",
+    "targetPath",
+    "targetProtocol",
+    "targetMethod",
+    "payloadMode",
+    "batchSize",
+  ];
+  const next: Partial<ProtocolConversionServiceListView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
+  if (selectedService.value?.id === target.id) {
+    selectedService.value = target;
+  }
 }
 
 async function deleteService(row: ProtocolConversionServiceListView) {

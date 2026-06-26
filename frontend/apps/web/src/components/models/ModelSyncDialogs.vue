@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import type { DataSourceDefinition } from "@studio/api-sdk";
+import type { DataSourceListView } from "@studio/api-sdk";
 import { useI18n } from "vue-i18n";
 import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
 import type { ModelSyncFormState, ModelSyncTaskFormState } from "./modelViewTypes";
@@ -129,8 +129,8 @@ defineProps<{
   syncing: boolean;
   creatingSyncTask: boolean;
   databaseDatasourceTypes: string[];
-  syncDatasourceOptions: DataSourceDefinition[];
-  syncTaskDatasourceOptions: DataSourceDefinition[];
+  syncDatasourceOptions: DataSourceListView[];
+  syncTaskDatasourceOptions: DataSourceListView[];
   actions: ModelSyncDialogActions;
 }>();
 

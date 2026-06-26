@@ -304,7 +304,9 @@ import type {
   CapabilityMatrix,
   ConnectionTestResult,
   DataSourceDefinition,
+  DataSourceListView,
   DatasourceConnectionTestRecordView,
+  DatasourceConnectionTrendPointView,
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
   ModelDiscoveryResult,
@@ -344,7 +346,7 @@ interface DatasourceBusinessSection {
 const { t } = useI18n();
 const authStore = useAuthStore();
 
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceListView[]>([]);
 const { pagination: datasourcePagination, pagedItems: pagedDatasources, resetPagination: resetDatasourcePagination } = useClientPagination(datasources);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const capabilityMatrix = reactive<CapabilityMatrix>({
@@ -359,7 +361,7 @@ const discoverDialogOpen = ref(false);
 const discoveredModels = ref<ModelDiscoveryResult["models"]>([]);
 const connectionHistoryDialogOpen = ref(false);
 const connectionHistoryLoading = ref(false);
-const historyDatasource = ref<DataSourceDefinition | null>(null);
+const historyDatasource = ref<DataSourceListView | null>(null);
 const connectionHistoryRecords = ref<DatasourceConnectionTestRecordView[]>([]);
 const form = reactive<DataSourceForm>({
   name: "",
@@ -449,7 +451,7 @@ const connectionHistoryDialogTitle = computed(() =>
     : t("web.datasources.connectionHistoryTitle"),
 );
 
-function buildDatasourceActions(datasource: DataSourceDefinition) {
+function buildDatasourceActions(datasource: DataSourceListView) {
   const shared = isSharedDatasource(datasource);
   const testing = isTestingDatasource(datasource);
   return [
@@ -464,24 +466,24 @@ function resolveProjectLabel(projectId?: string | number) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedDatasource(datasource: DataSourceDefinition) {
+function isSharedDatasource(datasource: DataSourceListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, datasource.projectId);
 }
 
-function canTestDatasource(datasource: DataSourceDefinition) {
+function canTestDatasource(datasource: DataSourceListView) {
   return Boolean(datasource.id && datasource.enabled && datasource.executable);
 }
 
-function datasourceTestKey(datasource: DataSourceDefinition) {
+function datasourceTestKey(datasource: DataSourceListView) {
   return String(datasource.id ?? "");
 }
 
-function isTestingDatasource(datasource: DataSourceDefinition) {
+function isTestingDatasource(datasource: DataSourceListView) {
   const key = datasourceTestKey(datasource);
   return key.length > 0 && testingDatasourceIds.value.includes(key);
 }
 
-function setDatasourceTesting(datasource: DataSourceDefinition, testing: boolean) {
+function setDatasourceTesting(datasource: DataSourceListView, testing: boolean) {
   const key = datasourceTestKey(datasource);
   if (!key) {
     return;
@@ -493,7 +495,7 @@ function setDatasourceTesting(datasource: DataSourceDefinition, testing: boolean
   testingDatasourceIds.value = testingDatasourceIds.value.filter((item) => item !== key);
 }
 
-function connectionStatusLabel(datasource: DataSourceDefinition) {
+function connectionStatusLabel(datasource: DataSourceListView) {
   if (!canTestDatasource(datasource)) {
     return t("web.datasources.connectionNotTestable");
   }
@@ -509,7 +511,7 @@ function connectionStatusLabel(datasource: DataSourceDefinition) {
   return t("web.datasources.connectionUnknown");
 }
 
-function connectionStatusTone(datasource: DataSourceDefinition) {
+function connectionStatusTone(datasource: DataSourceListView) {
   if (!canTestDatasource(datasource)) {
     return "neutral";
   }
@@ -525,15 +527,15 @@ function connectionStatusTone(datasource: DataSourceDefinition) {
   return "warning";
 }
 
-function connectionTrendPoints(datasource: DataSourceDefinition) {
+function connectionTrendPoints(datasource: DataSourceListView) {
   const records = [...(datasource.recentConnectionTests ?? [])]
     .sort((left, right) => String(left.testedAt || left.endedAt || "").localeCompare(String(right.testedAt || right.endedAt || "")))
     .slice(-10);
-  const padding = Array.from({ length: Math.max(0, 10 - records.length) }, () => ({} as DatasourceConnectionTestRecordView));
+  const padding = Array.from({ length: Math.max(0, 10 - records.length) }, () => ({} as DatasourceConnectionTrendPointView));
   return [...padding, ...records];
 }
 
-function connectionTrendPointClass(point: DatasourceConnectionTestRecordView) {
+function connectionTrendPointClass(point: DatasourceConnectionTrendPointView) {
   if (point.status === "AVAILABLE") {
     return "connection-trend__dot--success";
   }
@@ -637,7 +639,7 @@ function openCreate() {
   drawerOpen.value = true;
 }
 
-async function editDatasource(item: DataSourceDefinition) {
+async function editDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
@@ -839,7 +841,7 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
     if (options.closeAfterSave !== false) {
       drawerOpen.value = false;
     }
-    await loadPage();
+    upsertDatasourceRow(saved);
     return saved;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.saveFailed"));
@@ -848,7 +850,45 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
   }
 }
 
-async function testDatasource(item: DataSourceDefinition) {
+function upsertDatasourceRow(saved: DataSourceDefinition) {
+  const next = toDataSourceListView(saved);
+  const index = datasources.value.findIndex((item) => item.id === next.id);
+  if (index >= 0) {
+    Object.assign(datasources.value[index], next);
+    return;
+  }
+  datasources.value = [...datasources.value, next].sort((left, right) => left.name.localeCompare(right.name));
+  resetDatasourcePagination();
+}
+
+function toDataSourceListView(source: DataSourceDefinition): DataSourceListView {
+  return {
+    id: source.id,
+    tenantId: source.tenantId,
+    projectId: source.projectId,
+    deleted: source.deleted,
+    createdAt: source.createdAt,
+    updatedAt: source.updatedAt,
+    name: source.name,
+    typeCode: source.typeCode,
+    schemaVersionId: source.schemaVersionId,
+    enabled: source.enabled,
+    executable: source.executable,
+    connectionFingerprint: source.connectionFingerprint,
+    connectionStatus: source.connectionStatus,
+    lastConnectionTestAt: source.lastConnectionTestAt,
+    lastConnectionTestMessage: source.lastConnectionTestMessage,
+    lastConnectionTestDurationMs: source.lastConnectionTestDurationMs,
+    connectionTesting: source.connectionTesting,
+    connectionStale: source.connectionStale,
+    nextConnectionProbeAt: source.nextConnectionProbeAt,
+    manualConnectionTestTimeoutSeconds: source.manualConnectionTestTimeoutSeconds,
+    scheduledConnectionTestTimeoutSeconds: source.scheduledConnectionTestTimeoutSeconds,
+    recentConnectionTests: toConnectionTrendPoints(source.recentConnectionTests ?? []),
+  };
+}
+
+async function testDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
@@ -896,14 +936,14 @@ function isConnectionTestSuccessful(result: ConnectionTestResult) {
   return Boolean(result.success);
 }
 
-function applyConnectionTestResult(item: DataSourceDefinition, result: ConnectionTestResult) {
+function applyConnectionTestResult(item: DataSourceListView, result: ConnectionTestResult) {
   const hasPersistedSnapshot = !result.busy && Boolean(result.lastTestAt);
   const status = hasPersistedSnapshot
     ? (result.status ?? (result.success ? "AVAILABLE" : "UNAVAILABLE"))
     : item.connectionStatus;
   const now = result.lastTestAt ?? new Date().toISOString();
   const durationMs = normalizeNumber(result.durationMs);
-  const patch: Partial<DataSourceDefinition> = {
+  const patch: Partial<DataSourceListView> = {
     connectionStatus: status,
     lastConnectionTestAt: hasPersistedSnapshot ? now : item.lastConnectionTestAt,
     lastConnectionTestMessage: hasPersistedSnapshot && typeof result.message === "string" ? result.message : item.lastConnectionTestMessage,
@@ -911,7 +951,7 @@ function applyConnectionTestResult(item: DataSourceDefinition, result: Connectio
     connectionTesting: Boolean(result.testing),
     connectionStale: Boolean(result.stale),
     nextConnectionProbeAt: result.nextProbeAt,
-    recentConnectionTests: result.recentConnectionTests ?? item.recentConnectionTests,
+    recentConnectionTests: result.recentConnectionTests ? toConnectionTrendPoints(result.recentConnectionTests) : item.recentConnectionTests,
   };
   applyConnectionPatch(item, patch);
   if (form.id === item.id) {
@@ -919,7 +959,15 @@ function applyConnectionTestResult(item: DataSourceDefinition, result: Connectio
   }
 }
 
-function applyConnectionPatch(item: DataSourceDefinition, patch: Partial<DataSourceDefinition>) {
+function toConnectionTrendPoints(records: DatasourceConnectionTestRecordView[]) {
+  return records.map((record) => ({
+    status: record.status,
+    testedAt: record.testedAt,
+    endedAt: record.endedAt,
+  }));
+}
+
+function applyConnectionPatch(item: DataSourceListView, patch: Partial<DataSourceListView>) {
   const fingerprint = item.connectionFingerprint;
   for (const datasource of datasources.value) {
     if (datasource.id === item.id || (fingerprint && datasource.connectionFingerprint === fingerprint)) {
@@ -928,7 +976,7 @@ function applyConnectionPatch(item: DataSourceDefinition, patch: Partial<DataSou
   }
 }
 
-async function discoverModels(item: DataSourceDefinition) {
+async function discoverModels(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
@@ -941,7 +989,7 @@ async function discoverModels(item: DataSourceDefinition) {
   }
 }
 
-async function openConnectionHistory(item: DataSourceDefinition) {
+async function openConnectionHistory(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
@@ -958,7 +1006,7 @@ async function openConnectionHistory(item: DataSourceDefinition) {
   }
 }
 
-async function deleteDatasource(item: DataSourceDefinition) {
+async function deleteDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }

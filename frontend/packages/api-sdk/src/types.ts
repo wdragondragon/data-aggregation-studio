@@ -286,6 +286,12 @@ export interface DatasourceConnectionTestRecordView {
   datasourceName?: string;
 }
 
+export interface DatasourceConnectionTrendPointView {
+  status?: DataSourceConnectionStatus;
+  testedAt?: string;
+  endedAt?: string;
+}
+
 export interface DataSourceDefinition extends BaseRecord {
   name: string;
   typeCode: string;
@@ -305,6 +311,25 @@ export interface DataSourceDefinition extends BaseRecord {
   recentConnectionTests?: DatasourceConnectionTestRecordView[];
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
+}
+
+export interface DataSourceListView extends BaseRecord {
+  name: string;
+  typeCode: string;
+  schemaVersionId?: EntityId;
+  enabled?: boolean;
+  executable?: boolean;
+  connectionFingerprint?: string;
+  connectionStatus?: DataSourceConnectionStatus;
+  lastConnectionTestAt?: string;
+  lastConnectionTestMessage?: string;
+  lastConnectionTestDurationMs?: number | string | null;
+  connectionTesting?: boolean;
+  connectionStale?: boolean;
+  nextConnectionProbeAt?: string;
+  manualConnectionTestTimeoutSeconds?: number;
+  scheduledConnectionTestTimeoutSeconds?: number;
+  recentConnectionTests?: DatasourceConnectionTrendPointView[];
 }
 
 export interface ConnectionTestResult {
