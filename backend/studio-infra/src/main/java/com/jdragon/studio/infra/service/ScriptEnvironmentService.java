@@ -248,7 +248,7 @@ public class ScriptEnvironmentService {
         if (includeDependencies) {
             for (EnvironmentDependencyEntity dependency : listDependencies(entity.getId())) {
                 view.getDependencyIds().add(dependency.getId());
-                view.getDependencies().add(dependencyService.toView(dependency));
+                view.getDependencies().add(dependencyService.toReferenceView(dependency));
             }
         }
         return view;

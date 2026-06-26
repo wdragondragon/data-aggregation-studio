@@ -263,6 +263,7 @@ import type { UploadFile, UploadFiles, UploadUserFile } from "element-plus";
 import type {
   EntityId,
   EnvironmentDependency,
+  EnvironmentDependencyOption,
   EnvironmentDependencyFile,
   ScriptType,
   ScriptEnvironment,
@@ -274,7 +275,7 @@ import { studioApi } from "@/api/studio";
 const activeTab = ref<"dependencies" | "environments">("dependencies");
 const dependencyDialogVisible = ref(false);
 const environmentDialogVisible = ref(false);
-const dependencyOptions = ref<EnvironmentDependency[]>([]);
+const dependencyOptions = ref<EnvironmentDependencyOption[]>([]);
 const dependencyUploadFiles = ref<UploadUserFile[]>([]);
 
 const dependencyFilters = reactive<{ keyword: string; enabled?: boolean }>({
@@ -510,8 +511,6 @@ async function deleteDependencyFile(file: EnvironmentDependencyFile) {
     await Promise.all([
       refreshDependencyForm(dependencyForm.id),
       loadDependencies(),
-      loadDependencyOptions(),
-      loadEnvironments(),
     ]);
   } catch (error) {
     if (error !== "cancel") {
@@ -634,7 +633,7 @@ function dependencyVisibleFiles(dependency?: EnvironmentDependency) {
   return (dependency?.files ?? []).filter((file) => file.visible !== false && file.enabled !== false);
 }
 
-function formatDependencyOption(dependency: EnvironmentDependency) {
+function formatDependencyOption(dependency: Pick<EnvironmentDependency, "name" | "version" | "scriptType">) {
   const name = dependency.version ? `${dependency.name}@${dependency.version}` : dependency.name;
   return `${formatScriptType(dependency.scriptType)} / ${name}`;
 }

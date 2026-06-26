@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.EnvironmentDependencySaveRequest;
@@ -48,7 +49,7 @@ public class EnvironmentDependencyController {
 
     @Operation(summary = "List selectable environment dependencies")
     @GetMapping("/options")
-    public Result<List<EnvironmentDependencyView>> options(@RequestParam(value = "enabledOnly", required = false, defaultValue = "true") Boolean enabledOnly) {
+    public Result<List<EnvironmentDependencyOptionView>> options(@RequestParam(value = "enabledOnly", required = false, defaultValue = "true") Boolean enabledOnly) {
         return Result.success(environmentDependencyService.options(enabledOnly));
     }
 

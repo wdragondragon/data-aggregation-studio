@@ -516,17 +516,10 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type {
-  CollectionTaskDefinitionView,
-  DataDevelopmentScript,
-  DataIngestionServiceView,
-  DataModelDefinition,
-  DataServiceDefinitionView,
-  DataSourceDefinition,
   EntityId,
-  ProtocolConversionServiceView,
   ResourceShare,
+  ShareResourceOption,
   StudioUser,
-  WorkflowDefinitionView,
   SystemProject,
   SystemProjectMember,
   SystemProjectMemberRequest,
@@ -594,14 +587,7 @@ const projectMembers = ref<SystemProjectMember[]>([]);
 const projectMemberRequests = ref<SystemProjectMemberRequest[]>([]);
 const projectWorkers = ref<SystemProjectWorker[]>([]);
 const resourceShares = ref<ResourceShare[]>([]);
-const datasourceResources = ref<DataSourceDefinition[]>([]);
-const modelResources = ref<DataModelDefinition[]>([]);
-const taskResources = ref<CollectionTaskDefinitionView[]>([]);
-const workflowResources = ref<WorkflowDefinitionView[]>([]);
-const dataDevelopmentScriptResources = ref<DataDevelopmentScript[]>([]);
-const dataServiceResources = ref<DataServiceDefinitionView[]>([]);
-const dataIngestionServiceResources = ref<DataIngestionServiceView[]>([]);
-const protocolConversionResources = ref<ProtocolConversionServiceView[]>([]);
+const shareResourceOptions = reactive<Record<string, ShareResourceOption[]>>({});
 const shareResourceLoading = ref(false);
 const loadedShareResourceTypes = reactive<Record<string, boolean>>({});
 const shareFilters = reactive<{ resourceType: string }>({
@@ -811,42 +797,10 @@ async function loadShareResourceOptions(resourceType = shareFilters.resourceType
   }
   shareResourceLoading.value = true;
   try {
-    switch (normalizedType) {
-      case "DATASOURCE":
-        datasourceResources.value = await studioApi.datasources.list(LOCAL_LOADING_REQUEST);
-        break;
-      case "DATA_MODEL": {
-        const modelData = await studioApi.models.listPage({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
-        modelResources.value = modelData.items ?? [];
-        break;
-      }
-      case "COLLECTION_TASK":
-        taskResources.value = await studioApi.collectionTasks.list(undefined, LOCAL_LOADING_REQUEST);
-        break;
-      case "WORKFLOW":
-        workflowResources.value = await studioApi.workflows.list(LOCAL_LOADING_REQUEST);
-        break;
-      case "DATA_DEVELOPMENT_SCRIPT":
-        dataDevelopmentScriptResources.value = await studioApi.dataDevelopment.listScripts(undefined, LOCAL_LOADING_REQUEST);
-        break;
-      case "DATA_SERVICE": {
-        const dataServiceData = await studioApi.dataServices.list({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
-        dataServiceResources.value = dataServiceData.items ?? [];
-        break;
-      }
-      case "DATA_INGESTION_SERVICE": {
-        const dataIngestionServiceData = await studioApi.dataIngestionServices.list({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
-        dataIngestionServiceResources.value = dataIngestionServiceData.items ?? [];
-        break;
-      }
-      case "PROTOCOL_CONVERSION_SERVICE": {
-        const protocolConversionData = await studioApi.protocolConversions.list({ pageNo: 1, pageSize: 5000 }, LOCAL_LOADING_REQUEST);
-        protocolConversionResources.value = protocolConversionData.items ?? [];
-        break;
-      }
-      default:
-        break;
-    }
+    shareResourceOptions[normalizedType] = await studioApi.system.resourceShares.options({
+      resourceType: normalizedType,
+      projectId: currentProjectId,
+    }, LOCAL_LOADING_REQUEST);
     loadedShareResourceTypes[normalizedType] = true;
   } finally {
     shareResourceLoading.value = false;
@@ -903,14 +857,7 @@ function handleShareFormResourceTypeChange() {
 }
 
 function resetShareResourceCache() {
-  datasourceResources.value = [];
-  modelResources.value = [];
-  taskResources.value = [];
-  workflowResources.value = [];
-  dataDevelopmentScriptResources.value = [];
-  dataServiceResources.value = [];
-  dataIngestionServiceResources.value = [];
-  protocolConversionResources.value = [];
+  Object.keys(shareResourceOptions).forEach((key) => delete shareResourceOptions[key]);
   Object.keys(loadedShareResourceTypes).forEach((key) => delete loadedShareResourceTypes[key]);
 }
 
@@ -931,42 +878,9 @@ function resolveProjectLabel(projectId?: EntityId | null) {
 
 function shareOptionList(resourceType: string) {
   const currentProjectId = authStore.currentProjectId;
-  switch (resourceType) {
-    case "DATASOURCE":
-      return datasourceResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.name} (${item.typeCode})` }));
-    case "DATA_MODEL":
-      return modelResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.name} / ${item.physicalLocator}` }));
-    case "COLLECTION_TASK":
-      return taskResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: item.name }));
-    case "WORKFLOW":
-      return workflowResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.name} (${item.code})` }));
-    case "DATA_DEVELOPMENT_SCRIPT":
-      return dataDevelopmentScriptResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.fileName} (${item.scriptType})` }));
-    case "DATA_SERVICE":
-      return dataServiceResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.serviceName} (${item.serviceCode})` }));
-    case "DATA_INGESTION_SERVICE":
-      return dataIngestionServiceResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.serviceName} (${item.serviceCode})` }));
-    case "PROTOCOL_CONVERSION_SERVICE":
-      return protocolConversionResources.value
-        .filter((item) => sameEntityId(item.projectId, currentProjectId))
-        .map((item) => ({ id: item.id!, label: `${item.serviceName} (${item.serviceCode})` }));
-    default:
-      return [];
-  }
+  return (shareResourceOptions[resourceType] ?? [])
+    .filter((item) => sameEntityId(item.projectId, currentProjectId))
+    .map((item) => ({ id: item.id!, label: item.label }));
 }
 
 function resourceTypeLabel(resourceType?: string | null) {

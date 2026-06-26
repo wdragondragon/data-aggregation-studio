@@ -43,10 +43,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 @Service
@@ -123,6 +125,32 @@ public class DataIngestionService {
         String normalizedTargetType = normalizeText(targetType);
         Page<DataIngestionServiceEntity> page = new Page<DataIngestionServiceEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<DataIngestionServiceEntity> queryWrapper = new LambdaQueryWrapper<DataIngestionServiceEntity>()
+                .select(DataIngestionServiceEntity::getId,
+                        DataIngestionServiceEntity::getTenantId,
+                        DataIngestionServiceEntity::getProjectId,
+                        DataIngestionServiceEntity::getDeleted,
+                        DataIngestionServiceEntity::getCreatedAt,
+                        DataIngestionServiceEntity::getUpdatedAt,
+                        DataIngestionServiceEntity::getCreatedBy,
+                        DataIngestionServiceEntity::getServiceCode,
+                        DataIngestionServiceEntity::getServiceName,
+                        DataIngestionServiceEntity::getStatus,
+                        DataIngestionServiceEntity::getRequestFormat,
+                        DataIngestionServiceEntity::getPayloadMode,
+                        DataIngestionServiceEntity::getDataNodePath,
+                        DataIngestionServiceEntity::getTargetType,
+                        DataIngestionServiceEntity::getDatasourceId,
+                        DataIngestionServiceEntity::getDatasourceNameSnapshot,
+                        DataIngestionServiceEntity::getDatasourceTypeCode,
+                        DataIngestionServiceEntity::getModelId,
+                        DataIngestionServiceEntity::getModelNameSnapshot,
+                        DataIngestionServiceEntity::getModelPhysicalLocator,
+                        DataIngestionServiceEntity::getEndpointPath,
+                        DataIngestionServiceEntity::getMaxBatchSize,
+                        DataIngestionServiceEntity::getTokenRequired,
+                        DataIngestionServiceEntity::getDefaultSubscriptionName,
+                        DataIngestionServiceEntity::getWebserviceEnabled,
+                        DataIngestionServiceEntity::getFieldMappingsJson)
                 .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -149,7 +177,7 @@ public class DataIngestionService {
         Page<DataIngestionServiceEntity> entityPage = serviceMapper.selectPage(page, queryWrapper);
         List<DataIngestionServiceView> items = new ArrayList<DataIngestionServiceView>();
         for (DataIngestionServiceEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity));
+            items.add(toListView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -540,7 +568,7 @@ public class DataIngestionService {
         return requested == null ? DataIngestionRequestFormat.JSON : requested;
     }
 
-    private DataIngestionServiceView toView(DataIngestionServiceEntity entity) {
+    private DataIngestionServiceView toListView(DataIngestionServiceEntity entity) {
         DataIngestionServiceView view = new DataIngestionServiceView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
@@ -562,7 +590,6 @@ public class DataIngestionService {
         view.setModelName(entity.getModelNameSnapshot());
         view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
         view.setEndpointPath(entity.getEndpointPath());
-        view.setServiceKey(entity.getServiceKey());
         view.setMaxBatchSize(entity.getMaxBatchSize() == null ? Integer.valueOf(DEFAULT_MAX_BATCH_SIZE) : entity.getMaxBatchSize());
         view.setTokenRequired(isTokenRequired(entity));
         view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
@@ -570,6 +597,13 @@ public class DataIngestionService {
         view.setRequestFormat(Boolean.TRUE.equals(view.getWebserviceEnabled())
                 ? DataIngestionRequestFormat.SOAP
                 : enumValue(DataIngestionRequestFormat.class, entity.getRequestFormat(), DataIngestionRequestFormat.JSON));
+        view.setSourcePositions(sourcePositions(entity.getFieldMappingsJson()));
+        return view;
+    }
+
+    private DataIngestionServiceView toView(DataIngestionServiceEntity entity) {
+        DataIngestionServiceView view = toListView(entity);
+        view.setServiceKey(entity.getServiceKey());
         view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-ingestion-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         view.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());
         view.setFieldMappings(fromMapList(entity.getFieldMappingsJson()));
@@ -938,6 +972,18 @@ public class DataIngestionService {
         }
         return objectMapper.convertValue(mappings, new TypeReference<List<DataIngestionFieldMapping>>() {
         });
+    }
+
+    private List<String> sourcePositions(List<Map<String, Object>> mappings) {
+        Set<String> positions = new LinkedHashSet<String>();
+        if (mappings != null) {
+            for (Map<String, Object> mapping : mappings) {
+                Object value = mapping == null ? null : mapping.get("sourcePosition");
+                String position = value == null ? null : String.valueOf(value).trim();
+                positions.add(hasText(position) ? position.toUpperCase(Locale.ROOT) : DataIngestionSourcePosition.BODY.name());
+            }
+        }
+        return new ArrayList<String>(positions);
     }
 
     private WebServiceConfig normalizedWebServiceConfig(DataIngestionServiceView view) {

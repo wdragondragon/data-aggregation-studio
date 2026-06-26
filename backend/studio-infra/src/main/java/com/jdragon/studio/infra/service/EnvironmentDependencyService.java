@@ -7,6 +7,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.EnvironmentDependencyFileView;
+import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.EnvironmentDependencySaveRequest;
@@ -98,7 +99,7 @@ public class EnvironmentDependencyService {
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
-    public List<EnvironmentDependencyView> options(Boolean enabledOnly) {
+    public List<EnvironmentDependencyOptionView> options(Boolean enabledOnly) {
         LambdaQueryWrapper<EnvironmentDependencyEntity> wrapper = new LambdaQueryWrapper<EnvironmentDependencyEntity>()
                 .eq(EnvironmentDependencyEntity::getTenantId, securityService.currentTenantId())
                 .eq(Boolean.TRUE.equals(enabledOnly), EnvironmentDependencyEntity::getEnabled, Integer.valueOf(1))
@@ -106,9 +107,9 @@ public class EnvironmentDependencyService {
                 .orderByAsc(EnvironmentDependencyEntity::getName)
                 .orderByAsc(EnvironmentDependencyEntity::getVersion)
                 .orderByAsc(EnvironmentDependencyEntity::getId);
-        List<EnvironmentDependencyView> result = new ArrayList<EnvironmentDependencyView>();
+        List<EnvironmentDependencyOptionView> result = new ArrayList<EnvironmentDependencyOptionView>();
         for (EnvironmentDependencyEntity entity : dependencyMapper.selectList(wrapper)) {
-            result.add(toView(entity));
+            result.add(toOptionView(entity));
         }
         return result;
     }
@@ -296,6 +297,35 @@ public class EnvironmentDependencyService {
             fileViews.add(toLegacyFileView(entity));
         }
         view.setFiles(fileViews);
+        return view;
+    }
+
+    EnvironmentDependencyView toReferenceView(EnvironmentDependencyEntity entity) {
+        EnvironmentDependencyView view = new EnvironmentDependencyView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setVersion(entity.getVersion());
+        view.setScriptType(hasText(entity.getScriptType()) ? entity.getScriptType() : DEFAULT_SCRIPT_TYPE);
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setDescription(entity.getDescription());
+        return view;
+    }
+
+    private EnvironmentDependencyOptionView toOptionView(EnvironmentDependencyEntity entity) {
+        EnvironmentDependencyOptionView view = new EnvironmentDependencyOptionView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setVersion(entity.getVersion());
+        view.setScriptType(hasText(entity.getScriptType()) ? entity.getScriptType() : DEFAULT_SCRIPT_TYPE);
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         return view;
     }
 

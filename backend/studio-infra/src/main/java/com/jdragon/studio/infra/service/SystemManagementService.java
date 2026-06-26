@@ -7,6 +7,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
+import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
@@ -519,6 +520,16 @@ public class SystemManagementService {
         Page<ResourceShareEntity> page = new Page<ResourceShareEntity>(safePageNo, safePageSize);
         Page<ResourceShareEntity> entityPage = resourceShareMapper.selectPage(page, resourceShareQuery(project, resourceType));
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), entityPage.getRecords());
+    }
+
+    public List<ShareResourceOptionView> listShareResourceOptions(String resourceType, Long projectId) {
+        if (!hasText(resourceType)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Resource type is required");
+        }
+        ProjectEntity project = requireManageableProject(projectId);
+        return resourceShareSupport.listShareResourceOptions(project.getTenantId(),
+                project.getId(),
+                resourceType.trim().toUpperCase());
     }
 
     @Transactional

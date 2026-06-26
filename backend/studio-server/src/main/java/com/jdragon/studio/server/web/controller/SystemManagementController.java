@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
@@ -174,6 +175,13 @@ public class SystemManagementController {
                                                                         @RequestParam(value = "resourceType", required = false) String resourceType,
                                                                         @RequestParam(value = "projectId", required = false) Long projectId) {
         return Result.success(systemManagementService.listResourceSharesPage(resourceType, projectId, pageNo, pageSize));
+    }
+
+    @Operation(summary = "List lightweight resource options for sharing")
+    @GetMapping("/resource-share-options")
+    public Result<List<ShareResourceOptionView>> listShareResourceOptions(@RequestParam("resourceType") String resourceType,
+                                                                          @RequestParam(value = "projectId", required = false) Long projectId) {
+        return Result.success(systemManagementService.listShareResourceOptions(resourceType, projectId));
     }
 
     @Operation(summary = "Create or update resource share")

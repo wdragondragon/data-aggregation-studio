@@ -140,6 +140,30 @@ public class ProtocolConversionService {
         String normalizedStatus = normalizeText(status);
         Page<ProtocolConversionServiceEntity> page = new Page<ProtocolConversionServiceEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<ProtocolConversionServiceEntity> queryWrapper = new LambdaQueryWrapper<ProtocolConversionServiceEntity>()
+                .select(ProtocolConversionServiceEntity::getId,
+                        ProtocolConversionServiceEntity::getTenantId,
+                        ProtocolConversionServiceEntity::getProjectId,
+                        ProtocolConversionServiceEntity::getDeleted,
+                        ProtocolConversionServiceEntity::getCreatedAt,
+                        ProtocolConversionServiceEntity::getUpdatedAt,
+                        ProtocolConversionServiceEntity::getCreatedBy,
+                        ProtocolConversionServiceEntity::getServiceCode,
+                        ProtocolConversionServiceEntity::getServiceName,
+                        ProtocolConversionServiceEntity::getStatus,
+                        ProtocolConversionServiceEntity::getEndpointPath,
+                        ProtocolConversionServiceEntity::getWebserviceEndpointPath,
+                        ProtocolConversionServiceEntity::getTokenRequired,
+                        ProtocolConversionServiceEntity::getDefaultSubscriptionName,
+                        ProtocolConversionServiceEntity::getSourceProtocol,
+                        ProtocolConversionServiceEntity::getSourceMethod,
+                        ProtocolConversionServiceEntity::getSourceDataNodePath,
+                        ProtocolConversionServiceEntity::getConversionMode,
+                        ProtocolConversionServiceEntity::getTargetDatasourceId,
+                        ProtocolConversionServiceEntity::getTargetDatasourceNameSnapshot,
+                        ProtocolConversionServiceEntity::getTargetPath,
+                        ProtocolConversionServiceEntity::getTargetProtocol,
+                        ProtocolConversionServiceEntity::getTargetMethod,
+                        ProtocolConversionServiceEntity::getPayloadMode)
                 .eq(ProtocolConversionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -162,7 +186,7 @@ public class ProtocolConversionService {
         Page<ProtocolConversionServiceEntity> entityPage = serviceMapper.selectPage(page, queryWrapper);
         List<ProtocolConversionServiceView> items = new ArrayList<ProtocolConversionServiceView>();
         for (ProtocolConversionServiceEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity));
+            items.add(toListView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -1220,7 +1244,7 @@ public class ProtocolConversionService {
         return toSubscriptionView(entity, null);
     }
 
-    private ProtocolConversionServiceView toView(ProtocolConversionServiceEntity entity) {
+    private ProtocolConversionServiceView toListView(ProtocolConversionServiceEntity entity) {
         ProtocolConversionServiceView view = new ProtocolConversionServiceView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
@@ -1234,14 +1258,26 @@ public class ProtocolConversionService {
         view.setStatus(enumValue(ProtocolConversionStatus.class, entity.getStatus(), ProtocolConversionStatus.DRAFT));
         view.setEndpointPath(entity.getEndpointPath());
         view.setWebserviceEndpointPath(entity.getWebserviceEndpointPath());
-        view.setServiceKey(entity.getServiceKey());
         view.setTokenRequired(isTokenRequired(entity));
         view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
         view.setSourceProtocol(enumValue(ProtocolConversionProtocol.class, entity.getSourceProtocol(), ProtocolConversionProtocol.HTTP_JSON));
         view.setSourceMethod(entity.getSourceMethod());
         view.setSourceDataNodePath(entity.getSourceDataNodePath());
-        view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), entity.getServiceCode()));
         view.setConversionMode(enumValue(ProtocolConversionMode.class, entity.getConversionMode(), ProtocolConversionMode.FIELD_MAPPING));
+        view.setTargetDatasourceId(entity.getTargetDatasourceId());
+        view.setTargetDatasourceName(entity.getTargetDatasourceNameSnapshot());
+        view.setTargetPath(entity.getTargetPath());
+        view.setTargetProtocol(enumValue(ProtocolConversionProtocol.class, entity.getTargetProtocol(), ProtocolConversionProtocol.HTTP_JSON));
+        view.setTargetMethod(entity.getTargetMethod());
+        view.setPayloadMode(enumValue(DataIngestionPayloadMode.class, entity.getPayloadMode(), DataIngestionPayloadMode.OBJECT));
+        view.setBatchSize(Integer.valueOf(DEFAULT_BATCH_SIZE));
+        return view;
+    }
+
+    private ProtocolConversionServiceView toView(ProtocolConversionServiceEntity entity) {
+        ProtocolConversionServiceView view = toListView(entity);
+        view.setServiceKey(entity.getServiceKey());
+        view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), entity.getServiceCode()));
         view.setFieldMappings(fromMapList(entity.getFieldMappingsJson(), new TypeReference<List<ProtocolConversionFieldMapping>>() {
         }));
         view.setRawTransformers(fromMapList(entity.getRawTransformersJson(), new TypeReference<List<TransformerBinding>>() {
@@ -1250,18 +1286,11 @@ public class ProtocolConversionService {
         }));
         view.setBodyBridgeOptions(safeMap(entity.getBodyBridgeOptionsJson()));
         view.setRequestPassthrough(safeMap(entity.getRequestPassthroughJson()));
-        view.setTargetDatasourceId(entity.getTargetDatasourceId());
-        view.setTargetDatasourceName(entity.getTargetDatasourceNameSnapshot());
-        view.setTargetPath(entity.getTargetPath());
-        view.setTargetProtocol(enumValue(ProtocolConversionProtocol.class, entity.getTargetProtocol(), ProtocolConversionProtocol.HTTP_JSON));
-        view.setTargetMethod(entity.getTargetMethod());
         view.setTargetHeaders(safeMap(entity.getTargetHeadersJson()));
         view.setTargetQuery(safeMap(entity.getTargetQueryJson()));
         view.setTargetWebserviceConfig(fromTargetWebServiceConfigMap(entity.getTargetWebserviceConfigJson(), entity.getWebserviceConfigJson(), entity.getServiceCode()));
         view.setTargetBodyTemplate(entity.getTargetBodyTemplate());
         view.setTargetDataNodePath(entity.getTargetDataNodePath());
-        view.setPayloadMode(enumValue(DataIngestionPayloadMode.class, entity.getPayloadMode(), DataIngestionPayloadMode.OBJECT));
-        view.setBatchSize(Integer.valueOf(DEFAULT_BATCH_SIZE));
         view.setResponseStatus(safeMap(entity.getResponseStatusJson()));
         return view;
     }

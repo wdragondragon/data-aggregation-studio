@@ -38,4 +38,5 @@ public class DataIngestionServiceView extends BaseDefinition {
     private WebServiceConfig webserviceConfig;
     private Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
     private List<DataIngestionFieldMapping> fieldMappings = new ArrayList<DataIngestionFieldMapping>();
+    private List<String> sourcePositions = new ArrayList<String>();
 }

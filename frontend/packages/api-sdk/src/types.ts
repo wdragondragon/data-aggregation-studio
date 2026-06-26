@@ -541,7 +541,8 @@ export interface DataIngestionServiceView extends BaseRecord {
   webserviceEnabled?: boolean;
   webserviceConfig?: WebServiceConfig;
   writerOptions?: Record<string, unknown>;
-  fieldMappings: DataIngestionFieldMapping[];
+  fieldMappings?: DataIngestionFieldMapping[];
+  sourcePositions?: string[];
 }
 
 export interface DataIngestionServiceSaveRequest {
@@ -1901,6 +1902,13 @@ export interface EnvironmentDependency extends BaseRecord {
   files?: EnvironmentDependencyFile[];
 }
 
+export interface EnvironmentDependencyOption extends BaseRecord {
+  name: string;
+  version?: string;
+  scriptType: ScriptType | string;
+  enabled: boolean;
+}
+
 export interface EnvironmentDependencyFile extends BaseRecord {
   dependencyId?: EntityId;
   originalFileName: string;
@@ -2559,6 +2567,14 @@ export interface ResourceShare extends BaseRecord {
   resourceId?: EntityId;
   sharedByUserId?: EntityId;
   enabled?: boolean | number;
+}
+
+export interface ShareResourceOption extends BaseRecord {
+  resourceType?: string;
+  label: string;
+  name?: string;
+  code?: string;
+  status?: string;
 }
 
 export interface RoleEntity extends BaseRecord {

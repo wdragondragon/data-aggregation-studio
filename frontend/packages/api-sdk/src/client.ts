@@ -17,6 +17,7 @@ import type {
   DataDevelopmentScriptSaveRequest,
   DataDevelopmentTreeNode,
   EnvironmentDependency,
+  EnvironmentDependencyOption,
   EnvironmentDependencySaveRequest,
   DataModelDefinition,
   DataModelLineageEdgeDetailView,
@@ -153,6 +154,7 @@ import type {
   WorkflowRunSummary,
   RuntimeModeResponse,
   ResourceShare,
+  ShareResourceOption,
   StudioUser,
   WebServiceDebugRequest,
   WebServiceDebugResult,
@@ -1154,7 +1156,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         );
       },
       options(params?: { enabledOnly?: boolean }) {
-        return request<EnvironmentDependency[]>({ url: "/environment-dependencies/options", method: "GET", params });
+        return request<EnvironmentDependencyOption[]>({ url: "/environment-dependencies/options", method: "GET", params });
       },
       get(id: EntityId) {
         return request<EnvironmentDependency>({ url: `/environment-dependencies/${id}`, method: "GET" });
@@ -1514,6 +1516,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
         listPage(params?: { resourceType?: string; projectId?: EntityId; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
           return requestPage<ResourceShare>({ ...config, url: "/system/resource-shares/page", method: "GET", params }, params);
+        },
+        options(params: { resourceType: string; projectId?: EntityId }, config?: StudioRequestConfig) {
+          return request<ShareResourceOption[]>({ ...config, url: "/system/resource-share-options", method: "GET", params });
         },
         save(payload: Partial<ResourceShare>) {
           return request<ResourceShare>({ url: "/system/resource-shares", method: "POST", data: payload });

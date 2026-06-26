@@ -350,12 +350,15 @@ function targetTypeLabel(targetType?: string) {
 
 function sourceSummary(row: DataIngestionServiceView) {
   const labels = new Set<string>();
-  for (const mapping of row.fieldMappings ?? []) {
-    if (mapping.sourcePosition === "FORM") {
+  const positions = row.sourcePositions?.length
+    ? row.sourcePositions
+    : (row.fieldMappings ?? []).map((mapping) => mapping.sourcePosition || "BODY");
+  for (const position of positions) {
+    if (position === "FORM") {
       labels.add("Form Body");
-    } else if (mapping.sourcePosition === "QUERY") {
+    } else if (position === "QUERY") {
       labels.add("Query");
-    } else if (mapping.sourcePosition === "HEADER") {
+    } else if (position === "HEADER") {
       labels.add("Header");
     } else {
       labels.add("JSON Body");
