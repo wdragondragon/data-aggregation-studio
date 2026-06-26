@@ -92,13 +92,16 @@ public class NotificationService {
             pageSize = 100;
         }
         boolean unreadOnly = request != null && Boolean.TRUE.equals(request.getUnreadOnly());
-        LambdaQueryWrapper<NotificationEntity> query = baseUserNotificationQuery(currentUserId)
+        Long total = notificationMapper.selectCount(baseUserNotificationQuery(currentUserId)
+                .isNull(NotificationEntity::getArchivedAt)
+                .isNull(unreadOnly, NotificationEntity::getReadAt));
+        LambdaQueryWrapper<NotificationEntity> query = notificationViewQuery(currentUserId)
                 .isNull(NotificationEntity::getArchivedAt)
                 .isNull(unreadOnly, NotificationEntity::getReadAt)
                 .orderByDesc(NotificationEntity::getCreatedAt)
-                .orderByDesc(NotificationEntity::getId);
-        Long total = notificationMapper.selectCount(query);
-        List<NotificationEntity> entities = notificationMapper.selectList(query.last("limit " + ((pageNo - 1) * pageSize) + "," + pageSize));
+                .orderByDesc(NotificationEntity::getId)
+                .last("limit " + ((pageNo - 1) * pageSize) + "," + pageSize);
+        List<NotificationEntity> entities = notificationMapper.selectList(query);
         List<NotificationView> items = new ArrayList<NotificationView>();
         for (NotificationEntity entity : entities) {
             items.add(toView(entity));
@@ -134,6 +137,9 @@ public class NotificationService {
     public void markAllRead() {
         Long currentUserId = requireCurrentUserId();
         List<NotificationEntity> unread = notificationMapper.selectList(baseUserNotificationQuery(currentUserId)
+                .select(NotificationEntity::getId,
+                        NotificationEntity::getRecipientUserId,
+                        NotificationEntity::getReadAt)
                 .isNull(NotificationEntity::getReadAt)
                 .isNull(NotificationEntity::getArchivedAt));
         if (unread.isEmpty()) {
@@ -306,6 +312,18 @@ public class NotificationService {
                 .isNull(NotificationEntity::getArchivedAt));
         snapshot.setUnreadCount(unreadCount == null ? 0L : unreadCount.longValue());
         List<NotificationEntity> entities = notificationMapper.selectList(baseUserNotificationQuery(userId)
+                .select(NotificationEntity::getId,
+                        NotificationEntity::getCategory,
+                        NotificationEntity::getTitle,
+                        NotificationEntity::getContent,
+                        NotificationEntity::getTargetType,
+                        NotificationEntity::getTargetId,
+                        NotificationEntity::getTargetPath,
+                        NotificationEntity::getTargetTenantId,
+                        NotificationEntity::getTargetProjectId,
+                        NotificationEntity::getReadAt,
+                        NotificationEntity::getArchivedAt,
+                        NotificationEntity::getCreatedAt)
                 .isNull(NotificationEntity::getArchivedAt)
                 .orderByDesc(NotificationEntity::getCreatedAt)
                 .orderByDesc(NotificationEntity::getId)
@@ -322,8 +340,10 @@ public class NotificationService {
         if (notificationId == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Notification id is required");
         }
-        NotificationEntity entity = notificationMapper.selectById(notificationId);
-        if (entity == null || !requireCurrentUserId().equals(entity.getRecipientUserId())) {
+        NotificationEntity entity = notificationMapper.selectOne(notificationViewQuery(requireCurrentUserId())
+                .eq(NotificationEntity::getId, notificationId)
+                .last("limit 1"));
+        if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Notification not found");
         }
         return entity;
@@ -350,6 +370,24 @@ public class NotificationService {
                 .orderByDesc(NotificationEntity::getId);
     }
 
+    private LambdaQueryWrapper<NotificationEntity> notificationViewQuery(Long userId) {
+        return new LambdaQueryWrapper<NotificationEntity>()
+                .select(NotificationEntity::getId,
+                        NotificationEntity::getRecipientUserId,
+                        NotificationEntity::getCategory,
+                        NotificationEntity::getTitle,
+                        NotificationEntity::getContent,
+                        NotificationEntity::getTargetType,
+                        NotificationEntity::getTargetId,
+                        NotificationEntity::getTargetPath,
+                        NotificationEntity::getTargetTenantId,
+                        NotificationEntity::getTargetProjectId,
+                        NotificationEntity::getReadAt,
+                        NotificationEntity::getArchivedAt,
+                        NotificationEntity::getCreatedAt)
+                .eq(NotificationEntity::getRecipientUserId, userId);
+    }
+
     private NotificationView toView(NotificationEntity entity) {
         NotificationView view = new NotificationView();
         view.setId(entity.getId());
@@ -365,9 +403,6 @@ public class NotificationService {
         view.setReadAt(entity.getReadAt());
         view.setArchivedAt(entity.getArchivedAt());
         view.setCreatedAt(entity.getCreatedAt());
-        view.setPayloadJson(entity.getPayloadJson() == null
-                ? new java.util.LinkedHashMap<String, Object>()
-                : new java.util.LinkedHashMap<String, Object>(entity.getPayloadJson()));
         return view;
     }
 

@@ -168,6 +168,7 @@ import type {
   ResourceShare,
   ShareResourceOption,
   StudioUser,
+  StudioUserListView,
   WebServiceDebugRequest,
   WebServiceDebugResult,
   WebServicePreviewView,
@@ -1505,7 +1506,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     users: {
       list(config?: StudioRequestConfig) {
-        return request<StudioUser[]>({ ...config, url: "/users", method: "GET" });
+        return request<StudioUserListView[]>({ ...config, url: "/users", method: "GET" });
       },
       save(payload: Partial<StudioUser>) {
         return request<StudioUser>({ url: "/users", method: "POST", data: payload });

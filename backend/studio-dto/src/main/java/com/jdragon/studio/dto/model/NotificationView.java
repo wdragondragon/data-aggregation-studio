@@ -3,9 +3,6 @@ package com.jdragon.studio.dto.model;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 @Data
 public class NotificationView {
     private Long id;
@@ -21,5 +18,4 @@ public class NotificationView {
     private LocalDateTime readAt;
     private LocalDateTime archivedAt;
     private LocalDateTime createdAt;
-    private Map<String, Object> payloadJson = new LinkedHashMap<String, Object>();
 }

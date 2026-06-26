@@ -2669,6 +2669,12 @@ export interface StudioUser extends BaseRecord {
   externalAccount?: string;
 }
 
+export interface StudioUserListView extends BaseRecord {
+  username: string;
+  displayName?: string;
+  enabled?: number | boolean;
+}
+
 export interface UserRegistrationRequestView extends BaseRecord {
   status?: string;
   username: string;
@@ -2696,7 +2702,6 @@ export interface NotificationView {
   readAt?: string;
   archivedAt?: string;
   createdAt?: string;
-  payloadJson?: Record<string, unknown>;
 }
 
 export interface NotificationSnapshotView {

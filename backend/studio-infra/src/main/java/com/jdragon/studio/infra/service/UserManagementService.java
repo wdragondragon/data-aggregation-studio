@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.infra.entity.StudioExternalUserBindingEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.UserRoleEntity;
@@ -38,13 +39,21 @@ public class UserManagementService {
         this.externalUserBindingMapper = externalUserBindingMapper;
     }
 
-    public List<StudioUserEntity> list() {
+    public List<StudioUserListView> list() {
         requireSuperAdmin();
         List<StudioUserEntity> users = userMapper.selectList(new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getTenantId,
+                        StudioUserEntity::getDeleted,
+                        StudioUserEntity::getCreatedAt,
+                        StudioUserEntity::getUpdatedAt,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName,
+                        StudioUserEntity::getEnabled)
                 .orderByAsc(StudioUserEntity::getUsername));
-        List<StudioUserEntity> result = new ArrayList<StudioUserEntity>();
+        List<StudioUserListView> result = new ArrayList<StudioUserListView>();
         for (StudioUserEntity user : users) {
-            result.add(sanitize(user));
+            result.add(toListView(user));
         }
         return result;
     }
@@ -158,6 +167,19 @@ public class UserManagementService {
                         .eq(StudioExternalUserBindingEntity::getProviderCode, StudioConstants.GATEWAY_PROVIDER_CODE)
                         .last("limit 1"));
         return binding == null ? null : binding.getExternalAccount();
+    }
+
+    private StudioUserListView toListView(StudioUserEntity entity) {
+        StudioUserListView view = new StudioUserListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(Boolean.valueOf(entity.getDeleted() != null && entity.getDeleted().intValue() == 1));
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setUsername(entity.getUsername());
+        view.setDisplayName(entity.getDisplayName());
+        view.setEnabled(entity.getEnabled());
+        return view;
     }
 
     private void requireSuperAdmin() {

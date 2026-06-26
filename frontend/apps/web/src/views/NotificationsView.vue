@@ -125,7 +125,7 @@ function handlePageSizeChange(pageSize: number) {
 async function markRead(id: string | number) {
   try {
     await notificationStore.markRead(id);
-    await loadNotifications();
+    patchNotificationRead(id);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.notifications.loadFailed"));
   }
@@ -134,7 +134,12 @@ async function markRead(id: string | number) {
 async function markAllRead() {
   try {
     await notificationStore.markAllRead();
-    await loadNotifications();
+    if (unreadOnly.value) {
+      notifications.value = [];
+      total.value = 0;
+    } else {
+      notifications.value = notifications.value.map((item) => ({ ...item, read: true, readAt: item.readAt || currentReadTime() }));
+    }
     ElMessage.success(t("web.notifications.markAllReadSuccess"));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.notifications.loadFailed"));
@@ -145,12 +150,32 @@ async function openNotification(notification: NotificationView) {
   try {
     if (notification.id && !notification.read) {
       await notificationStore.markRead(notification.id);
+      patchNotificationRead(notification.id);
     }
-    await loadNotifications();
     await openNotificationTarget(notification, authStore, router);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.notifications.loadFailed"));
   }
+}
+
+function patchNotificationRead(id: string | number) {
+  if (unreadOnly.value) {
+    const before = notifications.value.length;
+    notifications.value = notifications.value.filter((item) => String(item.id) !== String(id));
+    if (before !== notifications.value.length) {
+      total.value = Math.max(0, total.value - 1);
+    }
+    return;
+  }
+  notifications.value = notifications.value.map((item) => (
+    String(item.id) === String(id)
+      ? { ...item, read: true, readAt: item.readAt || currentReadTime() }
+      : item
+  ));
+}
+
+function currentReadTime() {
+  return new Date().toISOString();
 }
 
 onMounted(async () => {

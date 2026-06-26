@@ -520,6 +520,7 @@ import type {
   ResourceShare,
   ShareResourceOption,
   StudioUser,
+  StudioUserListView,
   SystemProject,
   SystemProjectMember,
   SystemProjectMemberRequest,
@@ -580,7 +581,7 @@ const tabLoading = reactive<Record<SystemTabName, boolean>>({
 });
 const tenants = ref<SystemTenant[]>([]);
 const projects = ref<SystemProject[]>([]);
-const users = ref<StudioUser[]>([]);
+const users = ref<StudioUserListView[]>([]);
 const registrationRequests = ref<UserRegistrationRequestView[]>([]);
 const tenantMembers = ref<SystemTenantMember[]>([]);
 const projectMembers = ref<SystemProjectMember[]>([]);
@@ -868,8 +869,28 @@ function requireCurrentProjectId() {
   return authStore.currentProjectId;
 }
 
-function userLabel(user: StudioUser) {
+function userLabel(user: StudioUserListView) {
   return user.displayName ? `${user.displayName} (${user.username})` : user.username;
+}
+
+function patchUserRow(saved: StudioUser) {
+  const row: StudioUserListView = {
+    id: saved.id,
+    tenantId: saved.tenantId,
+    deleted: saved.deleted,
+    createdAt: saved.createdAt,
+    updatedAt: saved.updatedAt,
+    username: saved.username,
+    displayName: saved.displayName,
+    enabled: saved.enabled,
+  };
+  const index = users.value.findIndex((item) => sameEntityId(item.id, row.id));
+  if (index >= 0) {
+    users.value.splice(index, 1, row);
+  } else {
+    users.value.push(row);
+  }
+  users.value.sort((left, right) => String(left.username || "").localeCompare(String(right.username || "")));
 }
 
 function resolveProjectLabel(projectId?: EntityId | null) {
@@ -902,7 +923,7 @@ function openTenantDialog(row?: SystemTenant) {
   tenantDialogOpen.value = true;
 }
 
-function openUserDialog(row?: StudioUser) {
+function openUserDialog(row?: StudioUserListView) {
   resetForm(userForm as Record<string, unknown>, { enabled: 1, passwordHash: "" });
   Object.assign(userForm, row ?? {});
   userForm.enabled = toBooleanFlag(userForm.enabled);
@@ -1042,7 +1063,14 @@ async function saveUser() {
     enabled: toIntegerFlag(userForm.enabled),
     passwordHash: userForm.passwordHash?.trim() ? userForm.passwordHash.trim() : undefined,
   };
-  await wrapSave(() => studioApi.users.save(payload), userDialogOpen, "用户保存成功");
+  try {
+    const saved = await studioApi.users.save(payload);
+    patchUserRow(saved);
+    userDialogOpen.value = false;
+    ElMessage.success("用户保存成功");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "保存失败");
+  }
 }
 
 async function saveProject() {
@@ -1158,8 +1186,17 @@ async function deleteTenant(row: SystemTenant) {
   await confirmDelete(`确认删除租户 ${row.tenantName} 吗？`, () => studioApi.system.tenants.delete(row.id!));
 }
 
-async function deleteUser(row: StudioUser) {
-  await confirmDelete(`确认删除用户 ${row.username} 吗？`, () => studioApi.users.delete(row.id!));
+async function deleteUser(row: StudioUserListView) {
+  try {
+    await ElMessageBox.confirm(`确认删除用户 ${row.username} 吗？`, t("common.confirm"), { type: "warning" });
+    await studioApi.users.delete(row.id!);
+    users.value = users.value.filter((item) => !sameEntityId(item.id, row.id));
+    ElMessage.success("删除成功");
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(error instanceof Error ? error.message : "删除失败");
+    }
+  }
 }
 
 async function deleteProject(row: SystemProject) {

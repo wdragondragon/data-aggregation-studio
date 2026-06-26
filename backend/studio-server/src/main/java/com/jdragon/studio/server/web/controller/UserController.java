@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.service.UserManagementService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,7 +29,7 @@ public class UserController {
 
     @Operation(summary = "List users")
     @GetMapping
-    public Result<List<StudioUserEntity>> list() {
+    public Result<List<StudioUserListView>> list() {
         return Result.success(userManagementService.list());
     }
 

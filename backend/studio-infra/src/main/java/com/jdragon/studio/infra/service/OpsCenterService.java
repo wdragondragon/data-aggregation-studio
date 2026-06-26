@@ -293,6 +293,26 @@ public class OpsCenterService {
         String status = request == null ? null : request.getStatus();
         String workerGroupCode = request == null ? null : request.getWorkerGroupCode();
         LambdaQueryWrapper<DispatchTaskEntity> query = new LambdaQueryWrapper<DispatchTaskEntity>()
+                .select(DispatchTaskEntity::getId,
+                        DispatchTaskEntity::getTenantId,
+                        DispatchTaskEntity::getProjectId,
+                        DispatchTaskEntity::getDeleted,
+                        DispatchTaskEntity::getCreatedAt,
+                        DispatchTaskEntity::getUpdatedAt,
+                        DispatchTaskEntity::getExecutionType,
+                        DispatchTaskEntity::getWorkflowRunId,
+                        DispatchTaskEntity::getWorkflowDefinitionId,
+                        DispatchTaskEntity::getWorkflowVersionId,
+                        DispatchTaskEntity::getCollectionTaskId,
+                        DispatchTaskEntity::getQualityTaskId,
+                        DispatchTaskEntity::getNodeCode,
+                        DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getWorkerGroupCode,
+                        DispatchTaskEntity::getLeaseOwner,
+                        DispatchTaskEntity::getWorkerInstanceId,
+                        DispatchTaskEntity::getScheduledFireTime,
+                        DispatchTaskEntity::getAttempts,
+                        DispatchTaskEntity::getMaxRetries)
                 .eq(DispatchTaskEntity::getTenantId, scope.tenantId)
                 .eq(DispatchTaskEntity::getProjectId, scope.projectId)
                 .ge(DispatchTaskEntity::getCreatedAt, scope.startTime)
@@ -310,6 +330,31 @@ public class OpsCenterService {
         String status = request == null ? null : request.getStatus();
         String workerGroupCode = request == null ? null : request.getWorkerGroupCode();
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getDeleted,
+                        RunRecordEntity::getCreatedAt,
+                        RunRecordEntity::getUpdatedAt,
+                        RunRecordEntity::getExecutionType,
+                        RunRecordEntity::getWorkflowRunId,
+                        RunRecordEntity::getWorkflowDefinitionId,
+                        RunRecordEntity::getWorkflowVersionId,
+                        RunRecordEntity::getCollectionTaskId,
+                        RunRecordEntity::getQualityTaskId,
+                        RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getWorkerGroupCode,
+                        RunRecordEntity::getWorkerCode,
+                        RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getWorkerPodName,
+                        RunRecordEntity::getWorkerNodeName,
+                        RunRecordEntity::getMessage,
+                        RunRecordEntity::getStartedAt,
+                        RunRecordEntity::getEndedAt,
+                        RunRecordEntity::getLogStorageType,
+                        RunRecordEntity::getLogStatus,
+                        RunRecordEntity::getLogErrorSummary)
                 .eq(RunRecordEntity::getTenantId, scope.tenantId)
                 .eq(RunRecordEntity::getProjectId, scope.projectId)
                 .ge(RunRecordEntity::getCreatedAt, scope.startTime)
@@ -335,6 +380,23 @@ public class OpsCenterService {
             return Collections.emptyList();
         }
         List<DataServiceAccessLogEntity> logs = dataServiceAccessLogMapper.selectList(new LambdaQueryWrapper<DataServiceAccessLogEntity>()
+                .select(DataServiceAccessLogEntity::getId,
+                        DataServiceAccessLogEntity::getTenantId,
+                        DataServiceAccessLogEntity::getProjectId,
+                        DataServiceAccessLogEntity::getServiceId,
+                        DataServiceAccessLogEntity::getServiceCodeSnapshot,
+                        DataServiceAccessLogEntity::getServiceNameSnapshot,
+                        DataServiceAccessLogEntity::getServiceStatusSnapshot,
+                        DataServiceAccessLogEntity::getSubscriptionId,
+                        DataServiceAccessLogEntity::getSubscriptionNameSnapshot,
+                        DataServiceAccessLogEntity::getRequestMethod,
+                        DataServiceAccessLogEntity::getOccurredAt,
+                        DataServiceAccessLogEntity::getDurationMs,
+                        DataServiceAccessLogEntity::getSuccess,
+                        DataServiceAccessLogEntity::getHttpStatus,
+                        DataServiceAccessLogEntity::getErrorCode,
+                        DataServiceAccessLogEntity::getErrorMessage,
+                        DataServiceAccessLogEntity::getRowCount)
                 .eq(DataServiceAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataServiceAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataServiceAccessLogEntity::getOccurredAt, scope.startTime)
@@ -358,6 +420,25 @@ public class OpsCenterService {
             return Collections.emptyList();
         }
         List<DataIngestionAccessLogEntity> logs = dataIngestionAccessLogMapper.selectList(new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
+                .select(DataIngestionAccessLogEntity::getId,
+                        DataIngestionAccessLogEntity::getTenantId,
+                        DataIngestionAccessLogEntity::getProjectId,
+                        DataIngestionAccessLogEntity::getServiceId,
+                        DataIngestionAccessLogEntity::getServiceCodeSnapshot,
+                        DataIngestionAccessLogEntity::getServiceNameSnapshot,
+                        DataIngestionAccessLogEntity::getServiceStatusSnapshot,
+                        DataIngestionAccessLogEntity::getSubscriptionId,
+                        DataIngestionAccessLogEntity::getSubscriptionNameSnapshot,
+                        DataIngestionAccessLogEntity::getRequestMethod,
+                        DataIngestionAccessLogEntity::getOccurredAt,
+                        DataIngestionAccessLogEntity::getDurationMs,
+                        DataIngestionAccessLogEntity::getSuccess,
+                        DataIngestionAccessLogEntity::getHttpStatus,
+                        DataIngestionAccessLogEntity::getErrorCode,
+                        DataIngestionAccessLogEntity::getErrorMessage,
+                        DataIngestionAccessLogEntity::getReceivedCount,
+                        DataIngestionAccessLogEntity::getSuccessCount,
+                        DataIngestionAccessLogEntity::getFailedCount)
                 .eq(DataIngestionAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataIngestionAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataIngestionAccessLogEntity::getOccurredAt, scope.startTime)
@@ -379,10 +460,24 @@ public class OpsCenterService {
     private List<OpsCenterWorkerGroupView> workerGroups(Scope scope) {
         LocalDateTime recentThreshold = scope.now.minusHours(WORKER_RECENT_HOURS);
         List<ProjectWorkerBindingEntity> bindings = projectWorkerBindingMapper.selectList(new LambdaQueryWrapper<ProjectWorkerBindingEntity>()
+                .select(ProjectWorkerBindingEntity::getTenantId,
+                        ProjectWorkerBindingEntity::getProjectId,
+                        ProjectWorkerBindingEntity::getWorkerGroupCode,
+                        ProjectWorkerBindingEntity::getWorkerCode,
+                        ProjectWorkerBindingEntity::getEnabled)
                 .eq(ProjectWorkerBindingEntity::getTenantId, scope.tenantId)
                 .eq(ProjectWorkerBindingEntity::getProjectId, scope.projectId)
                 .orderByAsc(ProjectWorkerBindingEntity::getWorkerGroupCode));
         List<WorkerLeaseEntity> leases = workerLeaseMapper.selectList(new LambdaQueryWrapper<WorkerLeaseEntity>()
+                .select(WorkerLeaseEntity::getTenantId,
+                        WorkerLeaseEntity::getWorkerGroupCode,
+                        WorkerLeaseEntity::getWorkerCode,
+                        WorkerLeaseEntity::getInstanceId,
+                        WorkerLeaseEntity::getPodName,
+                        WorkerLeaseEntity::getNodeName,
+                        WorkerLeaseEntity::getStatus,
+                        WorkerLeaseEntity::getLastHeartbeatAt,
+                        WorkerLeaseEntity::getLeaseExpiresAt)
                 .eq(WorkerLeaseEntity::getTenantId, scope.tenantId)
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt));
         Map<String, ProjectWorkerBindingEntity> bindingMap = new LinkedHashMap<String, ProjectWorkerBindingEntity>();
@@ -873,6 +968,8 @@ public class OpsCenterService {
         private String resolveWorkflowName(Long definitionId) {
             if (!workflowNames.containsKey(definitionId)) {
                 WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectOne(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                        .select(WorkflowDefinitionEntity::getId,
+                                WorkflowDefinitionEntity::getName)
                         .eq(WorkflowDefinitionEntity::getTenantId, scope.tenantId)
                         .eq(WorkflowDefinitionEntity::getProjectId, scope.projectId)
                         .eq(WorkflowDefinitionEntity::getId, definitionId));
@@ -884,6 +981,8 @@ public class OpsCenterService {
         private String resolveCollectionTaskName(Long taskId) {
             if (!collectionTaskNames.containsKey(taskId)) {
                 CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectOne(new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+                        .select(CollectionTaskDefinitionEntity::getId,
+                                CollectionTaskDefinitionEntity::getName)
                         .eq(CollectionTaskDefinitionEntity::getTenantId, scope.tenantId)
                         .eq(CollectionTaskDefinitionEntity::getProjectId, scope.projectId)
                         .eq(CollectionTaskDefinitionEntity::getId, taskId));
@@ -895,6 +994,8 @@ public class OpsCenterService {
         private String resolveQualityTaskName(Long taskId) {
             if (!qualityTaskNames.containsKey(taskId)) {
                 QualityTaskDefinitionEntity entity = qualityTaskDefinitionMapper.selectOne(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+                        .select(QualityTaskDefinitionEntity::getId,
+                                QualityTaskDefinitionEntity::getTaskName)
                         .eq(QualityTaskDefinitionEntity::getTenantId, scope.tenantId)
                         .eq(QualityTaskDefinitionEntity::getProjectId, scope.projectId)
                         .eq(QualityTaskDefinitionEntity::getId, taskId));

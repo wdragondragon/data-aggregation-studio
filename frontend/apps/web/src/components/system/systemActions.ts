@@ -1,6 +1,6 @@
 import type {
   ResourceShare,
-  StudioUser,
+  StudioUserListView,
   SystemProject,
   SystemProjectMember,
   SystemProjectMemberRequest,
@@ -12,8 +12,8 @@ import type {
 import type { OverflowActionItem } from "@studio/ui";
 
 export interface SystemActionHandlers {
-  openUserDialog: (row?: StudioUser) => void;
-  deleteUser: (row: StudioUser) => void | Promise<void>;
+  openUserDialog: (row?: StudioUserListView) => void;
+  deleteUser: (row: StudioUserListView) => void | Promise<void>;
   approveRegistration: (row: UserRegistrationRequestView) => void | Promise<void>;
   rejectRegistration: (row: UserRegistrationRequestView) => void | Promise<void>;
   deleteRegistration: (row: UserRegistrationRequestView) => void | Promise<void>;
@@ -36,7 +36,7 @@ export interface SystemActionHandlers {
   deleteResourceShare: (row: ResourceShare) => void | Promise<void>;
 }
 
-export function buildUserActions(row: StudioUser, handlers: SystemActionHandlers): OverflowActionItem[] {
+export function buildUserActions(row: StudioUserListView, handlers: SystemActionHandlers): OverflowActionItem[] {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => handlers.openUserDialog(row) },
     { key: "delete", label: "删除", type: "danger", onClick: () => handlers.deleteUser(row) },
