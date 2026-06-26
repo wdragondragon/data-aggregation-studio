@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionResolveFieldsView;
+import com.jdragon.studio.dto.model.DataIngestionServiceListView;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
 import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.PageView;
@@ -41,11 +42,11 @@ public class DataIngestionServiceController {
 
     @Operation(summary = "List data ingestion services")
     @GetMapping
-    public Result<PageView<DataIngestionServiceView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                           @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                           @RequestParam(value = "keyword", required = false) String keyword,
-                                                           @RequestParam(value = "status", required = false) String status,
-                                                           @RequestParam(value = "targetType", required = false) String targetType) {
+    public Result<PageView<DataIngestionServiceListView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                               @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                               @RequestParam(value = "keyword", required = false) String keyword,
+                                                               @RequestParam(value = "status", required = false) String status,
+                                                               @RequestParam(value = "targetType", required = false) String targetType) {
         return Result.success(dataIngestionService.list(pageNo, pageSize, keyword, status, targetType));
     }
 

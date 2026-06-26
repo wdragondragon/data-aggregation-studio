@@ -8,6 +8,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
+import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
 import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
@@ -102,6 +103,30 @@ public class CollectionTaskService {
         return result;
     }
 
+    public List<CollectionTaskListView> listSummaries(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getTenantId,
+                        CollectionTaskDefinitionEntity::getProjectId,
+                        CollectionTaskDefinitionEntity::getDeleted,
+                        CollectionTaskDefinitionEntity::getCreatedAt,
+                        CollectionTaskDefinitionEntity::getUpdatedAt,
+                        CollectionTaskDefinitionEntity::getName,
+                        CollectionTaskDefinitionEntity::getTaskType,
+                        CollectionTaskDefinitionEntity::getStatus,
+                        CollectionTaskDefinitionEntity::getSourceCount,
+                        CollectionTaskDefinitionEntity::getTargetBindingJson)
+                .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt));
+        List<CollectionTaskListView> result = new ArrayList<CollectionTaskListView>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            CollectionTaskListView view = toListView(entity);
+            if (matchesSummaryKeywords(view, nameKeyword, targetDatasourceKeyword, targetModelKeyword)) {
+                result.add(view);
+            }
+        }
+        return result;
+    }
+
     public List<CollectionTaskDefinitionView> listOnline() {
         List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
@@ -109,6 +134,28 @@ public class CollectionTaskService {
         List<CollectionTaskDefinitionView> result = new ArrayList<CollectionTaskDefinitionView>();
         for (CollectionTaskDefinitionEntity entity : entities) {
             result.add(toView(entity));
+        }
+        return result;
+    }
+
+    public List<CollectionTaskListView> listOnlineSummaries() {
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getTenantId,
+                        CollectionTaskDefinitionEntity::getProjectId,
+                        CollectionTaskDefinitionEntity::getDeleted,
+                        CollectionTaskDefinitionEntity::getCreatedAt,
+                        CollectionTaskDefinitionEntity::getUpdatedAt,
+                        CollectionTaskDefinitionEntity::getName,
+                        CollectionTaskDefinitionEntity::getTaskType,
+                        CollectionTaskDefinitionEntity::getStatus,
+                        CollectionTaskDefinitionEntity::getSourceCount,
+                        CollectionTaskDefinitionEntity::getTargetBindingJson)
+                .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
+                .orderByAsc(CollectionTaskDefinitionEntity::getName));
+        List<CollectionTaskListView> result = new ArrayList<CollectionTaskListView>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            result.add(toListView(entity));
         }
         return result;
     }
@@ -301,6 +348,38 @@ public class CollectionTaskService {
         return view;
     }
 
+    private CollectionTaskListView toListView(CollectionTaskDefinitionEntity entity) {
+        CollectionTaskListView view = new CollectionTaskListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
+        view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
+        view.setSourceCount(entity.getSourceCount());
+        CollectionTaskTargetBinding targetBinding = convertMap(entity.getTargetBindingJson(), CollectionTaskTargetBinding.class);
+        if (targetBinding != null) {
+            view.setTargetDatasourceName(targetBinding.getDatasourceName());
+            view.setTargetDatasourceTypeCode(targetBinding.getDatasourceTypeCode());
+            view.setTargetModelName(targetBinding.getModelName());
+            view.setTargetModelPhysicalLocator(targetBinding.getModelPhysicalLocator());
+        }
+        CollectionTaskScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
+                .eq(CollectionTaskScheduleEntity::getCollectionTaskId, entity.getId())
+                .last("limit 1"));
+        if (scheduleEntity != null) {
+            CollectionTaskScheduleDefinition schedule = new CollectionTaskScheduleDefinition();
+            schedule.setCronExpression(scheduleEntity.getCronExpression());
+            schedule.setEnabled(scheduleEntity.getEnabled() != null && scheduleEntity.getEnabled() == 1);
+            schedule.setTimezone(scheduleEntity.getTimezone());
+            view.setSchedule(schedule);
+        }
+        return view;
+    }
+
     private LambdaQueryWrapper<CollectionTaskDefinitionEntity> buildAccessibleQuery() {
         LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper = new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
                 .eq(CollectionTaskDefinitionEntity::getTenantId, securityService.currentTenantId());
@@ -416,6 +495,24 @@ public class CollectionTaskService {
         }
         if (!containsIgnoreCase(targetBinding.getModelName(), targetModelKeyword)
                 && !containsIgnoreCase(targetBinding.getModelPhysicalLocator(), targetModelKeyword)) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean matchesSummaryKeywords(CollectionTaskListView view,
+                                           String nameKeyword,
+                                           String targetDatasourceKeyword,
+                                           String targetModelKeyword) {
+        if (!containsIgnoreCase(view.getName(), nameKeyword)) {
+            return false;
+        }
+        if (!containsIgnoreCase(view.getTargetDatasourceName(), targetDatasourceKeyword)
+                && !containsIgnoreCase(view.getTargetDatasourceTypeCode(), targetDatasourceKeyword)) {
+            return false;
+        }
+        if (!containsIgnoreCase(view.getTargetModelName(), targetModelKeyword)
+                && !containsIgnoreCase(view.getTargetModelPhysicalLocator(), targetModelKeyword)) {
             return false;
         }
         return true;

@@ -144,7 +144,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { DataIngestionServiceView, DataIngestionSubscriptionView, EntityId } from "@studio/api-sdk";
+import type { DataIngestionServiceListView, DataIngestionSubscriptionView, EntityId } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -152,7 +152,7 @@ import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const router = useRouter();
 const authStore = useAuthStore();
-const services = ref<DataIngestionServiceView[]>([]);
+const services = ref<DataIngestionServiceListView[]>([]);
 const total = ref(0);
 const filters = reactive({
   keyword: "",
@@ -164,7 +164,7 @@ const pagination = reactive({
   pageSize: 10,
 });
 const subscriptionDialogVisible = ref(false);
-const selectedService = ref<DataIngestionServiceView | null>(null);
+const selectedService = ref<DataIngestionServiceListView | null>(null);
 const subscriptions = ref<DataIngestionSubscriptionView[]>([]);
 const subscriptionName = ref("");
 const creatingSubscription = ref(false);
@@ -203,7 +203,7 @@ function handlePageSizeChange() {
   void loadServices();
 }
 
-function buildActions(row: DataIngestionServiceView) {
+function buildActions(row: DataIngestionServiceListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/data-ingestion-services/${row.id}/edit`); } },
     { key: "debug", label: "调试", onClick: () => { void router.push(`/data-ingestion-services/${row.id}/edit?debug=1`); } },
@@ -216,26 +216,26 @@ function buildActions(row: DataIngestionServiceView) {
   ];
 }
 
-async function publishService(row: DataIngestionServiceView) {
+async function publishService(row: DataIngestionServiceListView) {
   await studioApi.dataIngestionServices.publish(row.id as EntityId);
   ElMessage.success("数据接入服务已发布");
   await loadServices();
 }
 
-async function offlineService(row: DataIngestionServiceView) {
+async function offlineService(row: DataIngestionServiceListView) {
   await studioApi.dataIngestionServices.offline(row.id as EntityId);
   ElMessage.success("数据接入服务已下线");
   await loadServices();
 }
 
-async function deleteService(row: DataIngestionServiceView) {
+async function deleteService(row: DataIngestionServiceListView) {
   await ElMessageBox.confirm(`确认删除接入服务「${row.serviceName}」？`, "删除确认", { type: "warning" });
   await studioApi.dataIngestionServices.delete(row.id as EntityId);
   ElMessage.success("数据接入服务已删除");
   await loadServices();
 }
 
-async function openSubscriptions(row: DataIngestionServiceView) {
+async function openSubscriptions(row: DataIngestionServiceListView) {
   selectedService.value = row;
   subscriptionName.value = "";
   newToken.value = "";
@@ -312,7 +312,7 @@ async function copyNewToken() {
   }
 }
 
-function resolveEndpoint(row: DataIngestionServiceView) {
+function resolveEndpoint(row: DataIngestionServiceListView) {
   return resolveDataServiceOpenUrl(row.endpointPath);
 }
 
@@ -320,7 +320,7 @@ function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedService(row: DataIngestionServiceView) {
+function isSharedService(row: DataIngestionServiceListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, row.projectId);
 }
 
@@ -348,11 +348,9 @@ function targetTypeLabel(targetType?: string) {
   return targetType === "FILE" ? "文件模型" : "数据库表";
 }
 
-function sourceSummary(row: DataIngestionServiceView) {
+function sourceSummary(row: DataIngestionServiceListView) {
   const labels = new Set<string>();
-  const positions = row.sourcePositions?.length
-    ? row.sourcePositions
-    : (row.fieldMappings ?? []).map((mapping) => mapping.sourcePosition || "BODY");
+  const positions = row.sourcePositions ?? [];
   for (const position of positions) {
     if (position === "FORM") {
       labels.add("Form Body");

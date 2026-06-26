@@ -23,6 +23,7 @@ import com.jdragon.studio.dto.model.ProtocolConversionDebugResult;
 import com.jdragon.studio.dto.model.ProtocolConversionFieldMapping;
 import com.jdragon.studio.dto.model.ProtocolConversionFixedField;
 import com.jdragon.studio.dto.model.ProtocolConversionInvokeResult;
+import com.jdragon.studio.dto.model.ProtocolConversionServiceListView;
 import com.jdragon.studio.dto.model.ProtocolConversionServiceView;
 import com.jdragon.studio.dto.model.ProtocolConversionSubscriptionView;
 import com.jdragon.studio.dto.model.ProtocolConversionTraceStepView;
@@ -126,15 +127,15 @@ public class ProtocolConversionService {
         this.invocationLogService = invocationLogService;
     }
 
-    public PageView<ProtocolConversionServiceView> list(Integer pageNo,
-                                                        Integer pageSize,
-                                                        String keyword,
-                                                        String status) {
+    public PageView<ProtocolConversionServiceListView> list(Integer pageNo,
+                                                            Integer pageSize,
+                                                            String keyword,
+                                                            String status) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         Long currentProjectId = projectResourceAccessService.currentProjectId();
         if (currentProjectId == null) {
-            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<ProtocolConversionServiceView>());
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<ProtocolConversionServiceListView>());
         }
         String normalizedKeyword = normalizeText(keyword);
         String normalizedStatus = normalizeText(status);
@@ -184,7 +185,7 @@ public class ProtocolConversionService {
                 .orderByDesc(ProtocolConversionServiceEntity::getUpdatedAt)
                 .orderByDesc(ProtocolConversionServiceEntity::getId);
         Page<ProtocolConversionServiceEntity> entityPage = serviceMapper.selectPage(page, queryWrapper);
-        List<ProtocolConversionServiceView> items = new ArrayList<ProtocolConversionServiceView>();
+        List<ProtocolConversionServiceListView> items = new ArrayList<ProtocolConversionServiceListView>();
         for (ProtocolConversionServiceEntity entity : entityPage.getRecords()) {
             items.add(toListView(entity));
         }
@@ -1244,8 +1245,8 @@ public class ProtocolConversionService {
         return toSubscriptionView(entity, null);
     }
 
-    private ProtocolConversionServiceView toListView(ProtocolConversionServiceEntity entity) {
-        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+    private ProtocolConversionServiceListView toListView(ProtocolConversionServiceEntity entity) {
+        ProtocolConversionServiceListView view = new ProtocolConversionServiceListView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
@@ -1275,7 +1276,33 @@ public class ProtocolConversionService {
     }
 
     private ProtocolConversionServiceView toView(ProtocolConversionServiceEntity entity) {
-        ProtocolConversionServiceView view = toListView(entity);
+        ProtocolConversionServiceListView listView = toListView(entity);
+        ProtocolConversionServiceView view = new ProtocolConversionServiceView();
+        view.setId(listView.getId());
+        view.setTenantId(listView.getTenantId());
+        view.setProjectId(listView.getProjectId());
+        view.setDeleted(listView.getDeleted());
+        view.setCreatedAt(listView.getCreatedAt());
+        view.setUpdatedAt(listView.getUpdatedAt());
+        view.setCreatedBy(listView.getCreatedBy());
+        view.setServiceCode(listView.getServiceCode());
+        view.setServiceName(listView.getServiceName());
+        view.setStatus(listView.getStatus());
+        view.setEndpointPath(listView.getEndpointPath());
+        view.setWebserviceEndpointPath(listView.getWebserviceEndpointPath());
+        view.setTokenRequired(listView.getTokenRequired());
+        view.setDefaultSubscriptionName(listView.getDefaultSubscriptionName());
+        view.setSourceProtocol(listView.getSourceProtocol());
+        view.setSourceMethod(listView.getSourceMethod());
+        view.setSourceDataNodePath(listView.getSourceDataNodePath());
+        view.setConversionMode(listView.getConversionMode());
+        view.setTargetDatasourceId(listView.getTargetDatasourceId());
+        view.setTargetDatasourceName(listView.getTargetDatasourceName());
+        view.setTargetPath(listView.getTargetPath());
+        view.setTargetProtocol(listView.getTargetProtocol());
+        view.setTargetMethod(listView.getTargetMethod());
+        view.setPayloadMode(listView.getPayloadMode());
+        view.setBatchSize(listView.getBatchSize());
         view.setServiceKey(entity.getServiceKey());
         view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), entity.getServiceCode()));
         view.setFieldMappings(fromMapList(entity.getFieldMappingsJson(), new TypeReference<List<ProtocolConversionFieldMapping>>() {

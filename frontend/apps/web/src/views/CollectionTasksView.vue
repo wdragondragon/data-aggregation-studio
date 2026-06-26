@@ -54,8 +54,8 @@
         <el-table-column :label="`${t('web.collectionTasks.targetDatasource')} / ${t('web.collectionTasks.targetModel')}`" min-width="200">
           <template #default="{ row }">
             <div class="stack-cell">
-              <span>{{ row.targetBinding?.datasourceName ?? t('common.none') }}</span>
-              <span class="cell-subtle">{{ row.targetBinding?.modelPhysicalLocator ?? row.targetBinding?.modelName ?? t('common.none') }}</span>
+              <span>{{ row.targetDatasourceName ?? t('common.none') }}</span>
+              <span class="cell-subtle">{{ row.targetModelPhysicalLocator ?? row.targetModelName ?? t('common.none') }}</span>
             </div>
           </template>
         </el-table-column>
@@ -195,7 +195,7 @@ import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskDefinitionView, CollectionTaskListQuery, RunRecord } from "@studio/api-sdk";
+import type { CollectionTaskListQuery, CollectionTaskListView, RunRecord } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
@@ -210,8 +210,8 @@ import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/run
 const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
-const tasks = ref<CollectionTaskDefinitionView[]>([]);
-const activeTask = ref<CollectionTaskDefinitionView | null>(null);
+const tasks = ref<CollectionTaskListView[]>([]);
+const activeTask = ref<CollectionTaskListView | null>(null);
 const taskRunRecords = ref<RunRecord[]>([]);
 const { pagination: taskPagination, pagedItems: pagedTasks, resetPagination: resetTaskPagination } = useClientPagination(tasks);
 const { pagination: taskRunPagination, pagedItems: pagedTaskRunRecords, resetPagination: resetTaskRunPagination } = useClientPagination(taskRunRecords);
@@ -246,26 +246,26 @@ function resetFilters() {
   void loadTasks();
 }
 
-function editTask(task: CollectionTaskDefinitionView) {
+function editTask(task: CollectionTaskListView) {
   router.push(`/collection-tasks/${task.id}/edit`);
 }
 
-function viewTask(task: CollectionTaskDefinitionView) {
+function viewTask(task: CollectionTaskListView) {
   router.push(`/collection-tasks/${task.id}/edit`);
 }
 
-function manageSchedule(task: CollectionTaskDefinitionView) {
+function manageSchedule(task: CollectionTaskListView) {
   router.push(`/collection-tasks/${task.id}/edit?step=3`);
 }
 
-function viewTaskRuns(task: CollectionTaskDefinitionView) {
+function viewTaskRuns(task: CollectionTaskListView) {
   router.push({
     path: "/collection-task-runs",
     query: task.id ? { collectionTaskId: String(task.id) } : undefined,
   });
 }
 
-function buildTaskActions(task: CollectionTaskDefinitionView) {
+function buildTaskActions(task: CollectionTaskListView) {
   const shared = isSharedTask(task);
   return [
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editTask(task) },
@@ -281,11 +281,11 @@ function resolveProjectLabel(projectId?: string | number) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedTask(task: CollectionTaskDefinitionView) {
+function isSharedTask(task: CollectionTaskListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, task.projectId);
 }
 
-async function openLogs(task: CollectionTaskDefinitionView) {
+async function openLogs(task: CollectionTaskListView) {
   activeTask.value = task;
   logsVisible.value = true;
   try {
@@ -303,7 +303,7 @@ async function openLogs(task: CollectionTaskDefinitionView) {
   }
 }
 
-async function publishTask(task: CollectionTaskDefinitionView) {
+async function publishTask(task: CollectionTaskListView) {
   if (!task.id) {
     return;
   }
@@ -316,7 +316,7 @@ async function publishTask(task: CollectionTaskDefinitionView) {
   }
 }
 
-async function triggerTask(task: CollectionTaskDefinitionView) {
+async function triggerTask(task: CollectionTaskListView) {
   if (!task.id) {
     return;
   }
@@ -328,7 +328,7 @@ async function triggerTask(task: CollectionTaskDefinitionView) {
   }
 }
 
-async function deleteTask(task: CollectionTaskDefinitionView) {
+async function deleteTask(task: CollectionTaskListView) {
   if (!task.id) {
     return;
   }

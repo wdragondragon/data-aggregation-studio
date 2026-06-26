@@ -173,7 +173,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskDefinitionView, RunRecord } from "@studio/api-sdk";
+import type { CollectionTaskListView, RunRecord } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -190,7 +190,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const collectionTasks = ref<CollectionTaskDefinitionView[]>([]);
+const collectionTasks = ref<CollectionTaskListView[]>([]);
 const allRunRecords = ref<RunRecord[]>([]);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);

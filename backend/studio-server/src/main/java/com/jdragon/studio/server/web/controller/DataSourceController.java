@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
@@ -34,8 +35,8 @@ public class DataSourceController {
 
     @Operation(summary = "List datasources")
     @GetMapping
-    public Result<List<DataSourceDefinition>> list() {
-        return Result.success(dataSourceService.list());
+    public Result<List<DataSourceListView>> list() {
+        return Result.success(dataSourceService.listSummaries());
     }
 
     @Operation(summary = "Get datasource detail")

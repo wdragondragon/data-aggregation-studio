@@ -146,7 +146,7 @@ import type {
   EntityId,
   ProtocolConversionMode,
   ProtocolConversionProtocol,
-  ProtocolConversionServiceView,
+  ProtocolConversionServiceListView,
   ProtocolConversionSubscriptionView,
 } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
@@ -156,12 +156,12 @@ import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const router = useRouter();
 const authStore = useAuthStore();
-const services = ref<ProtocolConversionServiceView[]>([]);
+const services = ref<ProtocolConversionServiceListView[]>([]);
 const total = ref(0);
 const filters = reactive({ keyword: "", status: "" });
 const pagination = reactive({ page: 1, pageSize: 10 });
 const subscriptionDialogVisible = ref(false);
-const selectedService = ref<ProtocolConversionServiceView | null>(null);
+const selectedService = ref<ProtocolConversionServiceListView | null>(null);
 const subscriptions = ref<ProtocolConversionSubscriptionView[]>([]);
 const subscriptionName = ref("");
 const creatingSubscription = ref(false);
@@ -198,7 +198,7 @@ function handlePageSizeChange() {
   void loadServices();
 }
 
-function buildActions(row: ProtocolConversionServiceView) {
+function buildActions(row: ProtocolConversionServiceListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/protocol-conversions/${row.id}/edit`); } },
     { key: "debug", label: "调试", onClick: () => { void router.push(`/protocol-conversions/${row.id}/edit?debug=1`); } },
@@ -210,26 +210,26 @@ function buildActions(row: ProtocolConversionServiceView) {
   ];
 }
 
-async function publishService(row: ProtocolConversionServiceView) {
+async function publishService(row: ProtocolConversionServiceListView) {
   await studioApi.protocolConversions.publish(row.id as EntityId);
   ElMessage.success("协议转换服务已发布");
   await loadServices();
 }
 
-async function offlineService(row: ProtocolConversionServiceView) {
+async function offlineService(row: ProtocolConversionServiceListView) {
   await studioApi.protocolConversions.offline(row.id as EntityId);
   ElMessage.success("协议转换服务已下线");
   await loadServices();
 }
 
-async function deleteService(row: ProtocolConversionServiceView) {
+async function deleteService(row: ProtocolConversionServiceListView) {
   await ElMessageBox.confirm(`确认删除协议转换服务「${row.serviceName}」？`, "删除确认", { type: "warning" });
   await studioApi.protocolConversions.delete(row.id as EntityId);
   ElMessage.success("协议转换服务已删除");
   await loadServices();
 }
 
-async function openSubscriptions(row: ProtocolConversionServiceView) {
+async function openSubscriptions(row: ProtocolConversionServiceListView) {
   selectedService.value = row;
   subscriptionName.value = "";
   newToken.value = "";
@@ -287,7 +287,7 @@ function copyNewToken() {
   ElMessage.success("Token 已复制");
 }
 
-function resolveEndpoint(row: ProtocolConversionServiceView) {
+function resolveEndpoint(row: ProtocolConversionServiceListView) {
   const path = row.sourceProtocol === "SOAP_11" || row.sourceProtocol === "SOAP_12"
     ? row.webserviceEndpointPath
     : row.endpointPath;
@@ -329,7 +329,7 @@ function resolveProjectLabel(projectId?: EntityId) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedService(row: ProtocolConversionServiceView) {
+function isSharedService(row: ProtocolConversionServiceListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, row.projectId);
 }
 </script>

@@ -217,11 +217,11 @@ import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import type {
   CapabilityMatrix,
-  CollectionTaskDefinitionView,
+  CollectionTaskListView,
   DataDevelopmentScript,
   DataSourceDefinition,
   RunListResponse,
-  WorkflowDefinitionView,
+  WorkflowListView,
   WorkflowRunSummary,
 } from "@studio/api-sdk";
 import { MetricCard, SectionCard, StatusPill } from "@studio/ui";
@@ -235,8 +235,8 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const datasources = ref<DataSourceDefinition[]>([]);
-const workflows = ref<WorkflowDefinitionView[]>([]);
-const collectionTasks = ref<CollectionTaskDefinitionView[]>([]);
+const workflows = ref<WorkflowListView[]>([]);
+const collectionTasks = ref<CollectionTaskListView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 let dashboardLoadToken = 0;

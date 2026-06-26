@@ -17,6 +17,7 @@ import com.jdragon.studio.dto.enums.DataIngestionTargetType;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
 import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionResolveFieldsView;
+import com.jdragon.studio.dto.model.DataIngestionServiceListView;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
 import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
@@ -109,16 +110,16 @@ public class DataIngestionService {
         this.invocationLogService = invocationLogService;
     }
 
-    public PageView<DataIngestionServiceView> list(Integer pageNo,
-                                                   Integer pageSize,
-                                                   String keyword,
-                                                   String status,
-                                                   String targetType) {
+    public PageView<DataIngestionServiceListView> list(Integer pageNo,
+                                                       Integer pageSize,
+                                                       String keyword,
+                                                       String status,
+                                                       String targetType) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         Long currentProjectId = projectResourceAccessService.currentProjectId();
         if (currentProjectId == null) {
-            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<DataIngestionServiceView>());
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<DataIngestionServiceListView>());
         }
         String normalizedKeyword = normalizeText(keyword);
         String normalizedStatus = normalizeText(status);
@@ -175,7 +176,7 @@ public class DataIngestionService {
                 .orderByDesc(DataIngestionServiceEntity::getUpdatedAt)
                 .orderByDesc(DataIngestionServiceEntity::getId);
         Page<DataIngestionServiceEntity> entityPage = serviceMapper.selectPage(page, queryWrapper);
-        List<DataIngestionServiceView> items = new ArrayList<DataIngestionServiceView>();
+        List<DataIngestionServiceListView> items = new ArrayList<DataIngestionServiceListView>();
         for (DataIngestionServiceEntity entity : entityPage.getRecords()) {
             items.add(toListView(entity));
         }
@@ -568,8 +569,8 @@ public class DataIngestionService {
         return requested == null ? DataIngestionRequestFormat.JSON : requested;
     }
 
-    private DataIngestionServiceView toListView(DataIngestionServiceEntity entity) {
-        DataIngestionServiceView view = new DataIngestionServiceView();
+    private DataIngestionServiceListView toListView(DataIngestionServiceEntity entity) {
+        DataIngestionServiceListView view = new DataIngestionServiceListView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
@@ -602,7 +603,34 @@ public class DataIngestionService {
     }
 
     private DataIngestionServiceView toView(DataIngestionServiceEntity entity) {
-        DataIngestionServiceView view = toListView(entity);
+        DataIngestionServiceListView listView = toListView(entity);
+        DataIngestionServiceView view = new DataIngestionServiceView();
+        view.setId(listView.getId());
+        view.setTenantId(listView.getTenantId());
+        view.setProjectId(listView.getProjectId());
+        view.setDeleted(listView.getDeleted());
+        view.setCreatedAt(listView.getCreatedAt());
+        view.setUpdatedAt(listView.getUpdatedAt());
+        view.setCreatedBy(listView.getCreatedBy());
+        view.setServiceCode(listView.getServiceCode());
+        view.setServiceName(listView.getServiceName());
+        view.setStatus(listView.getStatus());
+        view.setRequestFormat(listView.getRequestFormat());
+        view.setPayloadMode(listView.getPayloadMode());
+        view.setDataNodePath(listView.getDataNodePath());
+        view.setTargetType(listView.getTargetType());
+        view.setDatasourceId(listView.getDatasourceId());
+        view.setDatasourceName(listView.getDatasourceName());
+        view.setDatasourceTypeCode(listView.getDatasourceTypeCode());
+        view.setModelId(listView.getModelId());
+        view.setModelName(listView.getModelName());
+        view.setModelPhysicalLocator(listView.getModelPhysicalLocator());
+        view.setEndpointPath(listView.getEndpointPath());
+        view.setMaxBatchSize(listView.getMaxBatchSize());
+        view.setTokenRequired(listView.getTokenRequired());
+        view.setDefaultSubscriptionName(listView.getDefaultSubscriptionName());
+        view.setWebserviceEnabled(listView.getWebserviceEnabled());
+        view.setSourcePositions(listView.getSourcePositions());
         view.setServiceKey(entity.getServiceKey());
         view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-ingestion-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         view.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());

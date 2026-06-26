@@ -5,6 +5,7 @@ import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataModelIndexQueueStatusView;
 import com.jdragon.studio.dto.model.DataModelLineageEdgeDetailView;
 import com.jdragon.studio.dto.model.DataModelLineageView;
+import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.DataModelStatisticsView;
 import com.jdragon.studio.dto.enums.LineageLevel;
@@ -63,6 +64,16 @@ public class ModelController {
         return Result.success(dataModelService.listPage(datasourceType, pageNo, pageSize, sortField, sortOrder));
     }
 
+    @Operation(summary = "List datasource model summaries")
+    @GetMapping("/summaries")
+    public Result<PageView<DataModelListView>> listSummaries(@RequestParam(value = "datasourceType", required = false) String datasourceType,
+                                                            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                            @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                            @RequestParam(value = "sortField", required = false) String sortField,
+                                                            @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        return Result.success(dataModelService.listSummaryPage(datasourceType, pageNo, pageSize, sortField, sortOrder));
+    }
+
     @Operation(summary = "List models by datasource")
     @GetMapping("/datasource/{datasourceId}")
     public Result<PageView<DataModelDefinition>> listByDatasource(@PathVariable("datasourceId") Long datasourceId,
@@ -71,6 +82,16 @@ public class ModelController {
                                                                   @RequestParam(value = "sortField", required = false) String sortField,
                                                                   @RequestParam(value = "sortOrder", required = false) String sortOrder) {
         return Result.success(dataModelService.listByDatasourcePage(datasourceId, pageNo, pageSize, sortField, sortOrder));
+    }
+
+    @Operation(summary = "List model summaries by datasource")
+    @GetMapping("/datasource/{datasourceId}/summaries")
+    public Result<PageView<DataModelListView>> listSummariesByDatasource(@PathVariable("datasourceId") Long datasourceId,
+                                                                        @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                        @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                        @RequestParam(value = "sortField", required = false) String sortField,
+                                                                        @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        return Result.success(dataModelService.listByDatasourceSummaryPage(datasourceId, pageNo, pageSize, sortField, sortOrder));
     }
 
     @Operation(summary = "Get datasource model detail")
@@ -85,6 +106,14 @@ public class ModelController {
                                                        @RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                        @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         return Result.success(dataModelService.queryPage(request, pageNo, pageSize));
+    }
+
+    @Operation(summary = "Query model summaries by dynamic metadata conditions")
+    @PostMapping("/query/summaries")
+    public Result<PageView<DataModelListView>> querySummaries(@RequestBody(required = false) DataModelQueryRequest request,
+                                                             @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                             @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataModelService.querySummaryPage(request, pageNo, pageSize));
     }
 
     @Operation(summary = "Statistic models by dynamic metadata conditions")

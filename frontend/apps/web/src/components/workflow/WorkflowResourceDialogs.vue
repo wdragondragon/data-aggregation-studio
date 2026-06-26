@@ -234,9 +234,9 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type {
-  CollectionTaskDefinitionView,
   DataDevelopmentScript,
   DataDevelopmentTreeNode,
+  CollectionTaskListView,
   QualityTaskDefinitionView,
 } from "@studio/api-sdk";
 import ScriptEditorPanel from "@web/components/data-development/ScriptEditorPanel.vue";
@@ -279,8 +279,8 @@ const props = defineProps<{
   qualityTasksLoading: boolean;
   scriptTreeLoading: boolean;
   scriptPreviewLoading: boolean;
-  pagedCollectionTasks: CollectionTaskDefinitionView[];
-  filteredCollectionTasks: CollectionTaskDefinitionView[];
+  pagedCollectionTasks: CollectionTaskListView[];
+  filteredCollectionTasks: CollectionTaskListView[];
   collectionTaskPagination: DialogPagination;
   onlineQualityTasks: QualityTaskDefinitionView[];
   qualityTaskPagination: DialogPagination;

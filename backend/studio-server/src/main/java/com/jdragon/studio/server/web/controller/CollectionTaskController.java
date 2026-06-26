@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
+import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.infra.service.CollectionTaskService;
@@ -37,16 +38,16 @@ public class CollectionTaskController {
 
     @Operation(summary = "List collection tasks")
     @GetMapping
-    public Result<List<CollectionTaskDefinitionView>> list(@RequestParam(value = "name", required = false) String name,
-                                                           @RequestParam(value = "targetDatasource", required = false) String targetDatasource,
-                                                           @RequestParam(value = "targetModel", required = false) String targetModel) {
-        return Result.success(collectionTaskService.list(name, targetDatasource, targetModel));
+    public Result<List<CollectionTaskListView>> list(@RequestParam(value = "name", required = false) String name,
+                                                     @RequestParam(value = "targetDatasource", required = false) String targetDatasource,
+                                                     @RequestParam(value = "targetModel", required = false) String targetModel) {
+        return Result.success(collectionTaskService.listSummaries(name, targetDatasource, targetModel));
     }
 
     @Operation(summary = "List online collection tasks")
     @GetMapping("/online")
-    public Result<List<CollectionTaskDefinitionView>> listOnline() {
-        return Result.success(collectionTaskService.listOnline());
+    public Result<List<CollectionTaskListView>> listOnline() {
+        return Result.success(collectionTaskService.listOnlineSummaries());
     }
 
     @Operation(summary = "Get collection task detail")

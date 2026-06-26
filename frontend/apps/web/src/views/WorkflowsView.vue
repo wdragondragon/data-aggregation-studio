@@ -98,7 +98,7 @@ import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { WorkflowDefinitionView } from "@studio/api-sdk";
+import type { WorkflowListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
@@ -110,7 +110,7 @@ import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
-const workflows = ref<WorkflowDefinitionView[]>([]);
+const workflows = ref<WorkflowListView[]>([]);
 const { pagination: workflowPagination, pagedItems: pagedWorkflows, resetPagination: resetWorkflowPagination } = useClientPagination(workflows);
 
 async function loadWorkflows() {
@@ -122,15 +122,15 @@ async function loadWorkflows() {
   }
 }
 
-function editWorkflow(workflow: WorkflowDefinitionView) {
+function editWorkflow(workflow: WorkflowListView) {
   router.push(`/workflows/${workflow.id}/edit`);
 }
 
-function viewWorkflow(workflow: WorkflowDefinitionView) {
+function viewWorkflow(workflow: WorkflowListView) {
   router.push(`/workflows/${workflow.id}`);
 }
 
-function viewWorkflowLogs(workflow: WorkflowDefinitionView) {
+function viewWorkflowLogs(workflow: WorkflowListView) {
   router.push({
     path: "/runs",
     query: {
@@ -139,7 +139,7 @@ function viewWorkflowLogs(workflow: WorkflowDefinitionView) {
   });
 }
 
-function buildWorkflowActions(workflow: WorkflowDefinitionView) {
+function buildWorkflowActions(workflow: WorkflowListView) {
   const shared = isSharedWorkflow(workflow);
   return [
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editWorkflow(workflow) },
@@ -154,11 +154,11 @@ function resolveProjectLabel(projectId?: string | number) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedWorkflow(workflow: WorkflowDefinitionView) {
+function isSharedWorkflow(workflow: WorkflowListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, workflow.projectId);
 }
 
-async function publishWorkflow(workflow: WorkflowDefinitionView) {
+async function publishWorkflow(workflow: WorkflowListView) {
   if (!workflow.id) {
     return;
   }
@@ -171,7 +171,7 @@ async function publishWorkflow(workflow: WorkflowDefinitionView) {
   }
 }
 
-async function triggerWorkflow(workflow: WorkflowDefinitionView) {
+async function triggerWorkflow(workflow: WorkflowListView) {
   if (!workflow.id) {
     return;
   }
@@ -184,7 +184,7 @@ async function triggerWorkflow(workflow: WorkflowDefinitionView) {
   }
 }
 
-async function deleteWorkflow(workflow: WorkflowDefinitionView) {
+async function deleteWorkflow(workflow: WorkflowListView) {
   if (!workflow.id) {
     return;
   }

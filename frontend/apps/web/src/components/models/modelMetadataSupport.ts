@@ -2,6 +2,7 @@ import { computed, type ComputedRef, type Ref } from "vue";
 import { ElInput, ElInputNumber, ElSelect, ElSwitch } from "element-plus";
 import type {
   DataModelDefinition,
+  DataModelListView,
   DataModelQueryCondition,
   DataModelQueryGroup,
   DataModelQueryRequest,
@@ -45,7 +46,7 @@ const DATABASE_TYPE_HINTS = [
 export function normalizeModelPagePayload(payload: unknown) {
   if (Array.isArray(payload)) {
     return {
-      items: payload as DataModelDefinition[],
+      items: payload as DataModelListView[],
       total: payload.length,
     };
   }
@@ -53,13 +54,13 @@ export function normalizeModelPagePayload(payload: unknown) {
     const candidate = payload as { items?: unknown; total?: unknown };
     if (Array.isArray(candidate.items)) {
       return {
-        items: candidate.items as DataModelDefinition[],
+        items: candidate.items as DataModelListView[],
         total: Number(candidate.total ?? candidate.items.length ?? 0),
       };
     }
   }
   return {
-    items: [] as DataModelDefinition[],
+    items: [] as DataModelListView[],
     total: 0,
   };
 }

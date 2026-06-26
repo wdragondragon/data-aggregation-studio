@@ -118,7 +118,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { DataModelDefinition, DataSourceDefinition, EntityId, MetadataSchemaDefinition } from "@studio/api-sdk";
+import type { DataModelListView, DataSourceDefinition, EntityId, MetadataSchemaDefinition } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StudioTableShell } from "@studio/ui";
 import type { OverflowActionItem } from "@studio/ui";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
@@ -150,11 +150,11 @@ interface ModelListActions {
   rebuildQueryIndex: () => void | Promise<void>;
   openStatisticsWorkspace: () => void;
   refreshModels: () => void | Promise<void>;
-  openModelDetail: (model: DataModelDefinition) => void;
+  openModelDetail: (model: DataModelListView) => void;
   resolveDatasourceLabel: (datasourceId?: EntityId) => string;
   resolveProjectLabel: (projectId?: EntityId | null) => string;
-  isSharedModel: (model: DataModelDefinition) => boolean;
-  buildModelActions: (model: DataModelDefinition) => OverflowActionItem[];
+  isSharedModel: (model: DataModelListView) => boolean;
+  buildModelActions: (model: DataModelListView) => OverflowActionItem[];
   handleModelPageChange: (page: number) => void | Promise<void>;
   handleModelPageSizeChange: (pageSize: number) => void | Promise<void>;
   handleModelSortChange: (sort: ModelSortChange) => void | Promise<void>;
@@ -170,7 +170,7 @@ const props = defineProps<{
   activeQueryDatasourceType: string;
   querySchemaOptions: MetadataSchemaDefinition[];
   dynamicFilterActions: ModelDynamicFilterActions;
-  models: DataModelDefinition[];
+  models: DataModelListView[];
   pagination: ModelListPagination;
   sortState: ModelSortState;
   emptyText?: string;

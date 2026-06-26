@@ -8,6 +8,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -138,6 +139,39 @@ public class DataModelService {
         LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind(), request.getSortField(), request.getSortOrder())
                 .in(DataModelEntity::getId, matchedIds);
         return pageQuery(queryWrapper, pageNo, pageSize);
+    }
+
+    public PageView<DataModelListView> listSummaryPage(String datasourceType, Integer pageNo, Integer pageSize,
+                                                       String sortField, String sortOrder) {
+        return summaryPageQuery(buildBaseQuery(null, datasourceType, null, sortField, sortOrder), pageNo, pageSize);
+    }
+
+    public PageView<DataModelListView> listByDatasourceSummaryPage(Long datasourceId, Integer pageNo, Integer pageSize,
+                                                                   String sortField, String sortOrder) {
+        dataSourceService.get(datasourceId);
+        return summaryPageQuery(buildBaseQuery(datasourceId, null, null, sortField, sortOrder), pageNo, pageSize);
+    }
+
+    public PageView<DataModelListView> querySummaryPage(DataModelQueryRequest request, Integer pageNo, Integer pageSize) {
+        if (request == null) {
+            return summaryPageQuery(buildBaseQuery(null, null, null), pageNo, pageSize);
+        }
+        List<DataModelQueryGroup> groups = normalizeQueryGroups(request.getGroups());
+        if (groups.isEmpty()) {
+            return summaryPageQuery(buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind(), request.getSortField(), request.getSortOrder()), pageNo, pageSize);
+        }
+        DataModelQueryRequest normalizedRequest = new DataModelQueryRequest();
+        normalizedRequest.setDatasourceId(request.getDatasourceId());
+        normalizedRequest.setDatasourceType(request.getDatasourceType());
+        normalizedRequest.setModelKind(request.getModelKind());
+        normalizedRequest.setGroups(groups);
+        Set<Long> matchedIds = dataModelSearchIndexService.queryModelIds(normalizedRequest);
+        if (matchedIds.isEmpty()) {
+            return PageView.of(normalizePageNo(pageNo), normalizePageSize(pageSize), 0L, new ArrayList<DataModelListView>());
+        }
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(request.getDatasourceId(), request.getDatasourceType(), request.getModelKind(), request.getSortField(), request.getSortOrder())
+                .in(DataModelEntity::getId, matchedIds);
+        return summaryPageQuery(queryWrapper, pageNo, pageSize);
     }
 
     @Transactional
@@ -380,6 +414,24 @@ public class DataModelService {
         return definition;
     }
 
+    private DataModelListView toListView(DataModelEntity entity) {
+        DataModelListView view = new DataModelListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setDatasourceId(entity.getDatasourceId());
+        view.setName(entity.getName());
+        view.setPhysicalLocator(entity.getPhysicalLocator());
+        view.setSchemaVersionId(entity.getSchemaVersionId());
+        if (entity.getModelKind() != null) {
+            view.setModelKind(ModelKind.valueOf(entity.getModelKind()));
+        }
+        return view;
+    }
+
     private PageView<DataModelDefinition> pageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
         return pageQuery(queryWrapper, null, null);
     }
@@ -397,6 +449,32 @@ public class DataModelService {
         List<DataModelEntity> entities = dataModelMapper.selectList(cloneQuery(queryWrapper)
                 .last("limit " + resolvedPageSize + " offset " + offset));
         return PageView.of(resolvedPageNo, resolvedPageSize, total, toDefinitions(entities));
+    }
+
+    private PageView<DataModelListView> summaryPageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper,
+                                                         Integer pageNo,
+                                                         Integer pageSize) {
+        int resolvedPageNo = normalizePageNo(pageNo);
+        int resolvedPageSize = normalizePageSize(pageSize);
+        long total = safeCount(queryWrapper);
+        if (total <= 0L) {
+            return PageView.of(resolvedPageNo, resolvedPageSize, 0L, Collections.<DataModelListView>emptyList());
+        }
+        long offset = (long) (resolvedPageNo - 1) * resolvedPageSize;
+        List<DataModelEntity> entities = dataModelMapper.selectList(cloneQuery(queryWrapper)
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getTenantId,
+                        DataModelEntity::getProjectId,
+                        DataModelEntity::getDeleted,
+                        DataModelEntity::getCreatedAt,
+                        DataModelEntity::getUpdatedAt,
+                        DataModelEntity::getDatasourceId,
+                        DataModelEntity::getName,
+                        DataModelEntity::getModelKind,
+                        DataModelEntity::getPhysicalLocator,
+                        DataModelEntity::getSchemaVersionId)
+                .last("limit " + resolvedPageSize + " offset " + offset));
+        return PageView.of(resolvedPageNo, resolvedPageSize, total, toListViews(entities));
     }
 
     private long safeCount(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
@@ -559,6 +637,14 @@ public class DataModelService {
         List<DataModelDefinition> result = new ArrayList<DataModelDefinition>();
         for (DataModelEntity entity : entities) {
             result.add(toDefinition(entity));
+        }
+        return result;
+    }
+
+    private List<DataModelListView> toListViews(List<DataModelEntity> entities) {
+        List<DataModelListView> result = new ArrayList<DataModelListView>();
+        for (DataModelEntity entity : entities) {
+            result.add(toListView(entity));
         }
         return result;
     }

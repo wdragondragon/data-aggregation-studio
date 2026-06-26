@@ -4,6 +4,7 @@ import type {
   AuthProfile,
   CapabilityMatrix,
   CollectionTaskDefinitionView,
+  CollectionTaskListView,
   CollectionTaskListQuery,
   CollectionTaskSaveRequest,
   CollectionTaskScheduleDefinition,
@@ -20,6 +21,7 @@ import type {
   EnvironmentDependencyOption,
   EnvironmentDependencySaveRequest,
   DataModelDefinition,
+  DataModelListView,
   DataModelLineageEdgeDetailView,
   DataModelLineageLevel,
   DataModelLineageView,
@@ -45,9 +47,11 @@ import type {
   DataIngestionResolveFieldsRequest,
   DataIngestionResolveFieldsView,
   DataIngestionServiceSaveRequest,
+  DataIngestionServiceListView,
   DataIngestionServiceView,
   DataIngestionSubscriptionView,
   DataServiceDefinitionView,
+  DataServiceListView,
   DataServiceDebugRequest,
   DataServiceInvokeResponse,
   DataServiceAccessLogView,
@@ -95,6 +99,7 @@ import type {
   ProtocolConversionDebugRequest,
   ProtocolConversionMetricQueryRequest,
   ProtocolConversionServiceSaveRequest,
+  ProtocolConversionServiceListView,
   ProtocolConversionServiceView,
   ProtocolConversionSubscriptionView,
   ProtocolConversionTraceView,
@@ -160,6 +165,7 @@ import type {
   WebServiceDebugResult,
   WebServicePreviewView,
   WorkflowDefinitionView,
+  WorkflowListView,
   WorkflowSaveRequest,
 } from "./types";
 
@@ -545,7 +551,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         status?: string;
         serviceType?: string;
       }, config?: StudioRequestConfig) {
-        return requestPage<DataServiceDefinitionView>({ ...config, url: "/data-services", method: "GET", params }, params);
+        return requestPage<DataServiceListView>({ ...config, url: "/data-services", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<DataServiceDefinitionView>({ url: `/data-services/${id}`, method: "GET" });
@@ -615,7 +621,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         status?: string;
         targetType?: string;
       }, config?: StudioRequestConfig) {
-        return requestPage<DataIngestionServiceView>({ ...config, url: "/data-ingestion-services", method: "GET", params }, params);
+        return requestPage<DataIngestionServiceListView>({ ...config, url: "/data-ingestion-services", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}`, method: "GET" });
@@ -680,7 +686,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         keyword?: string;
         status?: string;
       }, config?: StudioRequestConfig) {
-        return requestPage<ProtocolConversionServiceView>({ ...config, url: "/protocol-conversions", method: "GET", params }, params);
+        return requestPage<ProtocolConversionServiceListView>({ ...config, url: "/protocol-conversions", method: "GET", params }, params);
       },
       get(id: EntityId) {
         return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}`, method: "GET" });
@@ -780,6 +786,17 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           normalizePageResult<DataModelDefinition>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
+      listSummaryPage(params?: {
+        datasourceType?: string;
+        pageNo?: number;
+        pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
+      }, config?: StudioRequestConfig) {
+        return request<unknown>({ ...config, url: "/models/summaries", method: "GET", params }).then((payload) =>
+          normalizePageResult<DataModelListView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
       async list(params?: {
         datasourceType?: string;
         pageNo?: number;
@@ -789,6 +806,26 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       }) {
         const result = await request<PageResult<DataModelDefinition>>({
           url: "/models",
+          method: "GET",
+          params: {
+            datasourceType: params?.datasourceType,
+            pageNo: params?.pageNo ?? 1,
+            pageSize: params?.pageSize ?? 5000,
+            sortField: params?.sortField,
+            sortOrder: params?.sortOrder,
+          },
+        });
+        return result.items;
+      },
+      async listSummaries(params?: {
+        datasourceType?: string;
+        pageNo?: number;
+        pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
+      }) {
+        const result = await request<PageResult<DataModelListView>>({
+          url: "/models/summaries",
           method: "GET",
           params: {
             datasourceType: params?.datasourceType,
@@ -814,6 +851,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           normalizePageResult<DataModelDefinition>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
+      listSummaryByDatasourcePage(datasourceId: EntityId, params?: {
+        pageNo?: number;
+        pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
+      }) {
+        return request<unknown>({
+          url: `/models/datasource/${datasourceId}/summaries`,
+          method: "GET",
+          params,
+        }).then((payload) =>
+          normalizePageResult<DataModelListView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
       async listByDatasource(datasourceId: EntityId, params?: {
         pageNo?: number;
         pageSize?: number;
@@ -822,6 +873,24 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       }) {
         const result = await request<PageResult<DataModelDefinition>>({
           url: `/models/datasource/${datasourceId}`,
+          method: "GET",
+          params: {
+            pageNo: params?.pageNo ?? 1,
+            pageSize: params?.pageSize ?? 5000,
+            sortField: params?.sortField,
+            sortOrder: params?.sortOrder,
+          },
+        });
+        return result.items;
+      },
+      async listSummariesByDatasource(datasourceId: EntityId, params?: {
+        pageNo?: number;
+        pageSize?: number;
+        sortField?: string;
+        sortOrder?: string;
+      }) {
+        const result = await request<PageResult<DataModelListView>>({
+          url: `/models/datasource/${datasourceId}/summaries`,
           method: "GET",
           params: {
             pageNo: params?.pageNo ?? 1,
@@ -852,12 +921,44 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           ),
         );
       },
+      querySummaryPage(payload: DataModelQueryRequest, params?: {
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        return request<unknown>({
+          url: "/models/query/summaries",
+          method: "POST",
+          data: payload,
+          params,
+        }).then((result) =>
+          normalizePageResult<DataModelListView>(
+            result,
+            params?.pageNo ?? payload.pageNo ?? 1,
+            params?.pageSize ?? payload.pageSize ?? 20,
+          ),
+        );
+      },
       async query(payload: DataModelQueryRequest, params?: {
         pageNo?: number;
         pageSize?: number;
       }) {
         const result = await request<PageResult<DataModelDefinition>>({
           url: "/models/query",
+          method: "POST",
+          data: payload,
+          params: {
+            pageNo: params?.pageNo ?? payload.pageNo ?? 1,
+            pageSize: params?.pageSize ?? payload.pageSize ?? 5000,
+          },
+        });
+        return result.items;
+      },
+      async querySummaries(payload: DataModelQueryRequest, params?: {
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        const result = await request<PageResult<DataModelListView>>({
+          url: "/models/query/summaries",
           method: "POST",
           data: payload,
           params: {
@@ -983,7 +1084,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     workflows: {
       list(config?: StudioRequestConfig) {
-        return request<WorkflowDefinitionView[]>({ ...config, url: "/workflows", method: "GET" });
+        return request<WorkflowListView[]>({ ...config, url: "/workflows", method: "GET" });
       },
       get(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}`, method: "GET" });
@@ -1003,10 +1104,10 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     collectionTasks: {
       list(params?: CollectionTaskListQuery, config?: StudioRequestConfig) {
-        return request<CollectionTaskDefinitionView[]>({ ...config, url: "/collection-tasks", method: "GET", params });
+        return request<CollectionTaskListView[]>({ ...config, url: "/collection-tasks", method: "GET", params });
       },
       listOnline() {
-        return request<CollectionTaskDefinitionView[]>({ url: "/collection-tasks/online", method: "GET" });
+        return request<CollectionTaskListView[]>({ url: "/collection-tasks/online", method: "GET" });
       },
       get(id: EntityId) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}`, method: "GET" });
@@ -1274,7 +1375,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     },
     schedules: {
       list() {
-        return request<WorkflowDefinitionView[]>({ url: "/schedules", method: "GET" });
+        return request<WorkflowListView[]>({ url: "/schedules", method: "GET" });
       },
     },
     runs: {

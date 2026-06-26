@@ -637,11 +637,19 @@ function openCreate() {
   drawerOpen.value = true;
 }
 
-function editDatasource(item: DataSourceDefinition) {
-  Object.assign(form, cloneDeep(item));
-  applyBusinessMetadataDefaults();
-  testResult.value = null;
-  drawerOpen.value = true;
+async function editDatasource(item: DataSourceDefinition) {
+  if (!item.id) {
+    return;
+  }
+  try {
+    const detail = await studioApi.datasources.get(item.id);
+    Object.assign(form, cloneDeep(detail));
+    applyBusinessMetadataDefaults();
+    testResult.value = null;
+    drawerOpen.value = true;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+  }
 }
 
 function handleTypeChange() {

@@ -1,7 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
-import com.jdragon.studio.dto.model.WorkflowDefinitionView;
+import com.jdragon.studio.dto.model.WorkflowListView;
 import com.jdragon.studio.infra.service.WorkflowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,7 +24,7 @@ public class ScheduleController {
 
     @Operation(summary = "List workflow schedules")
     @GetMapping
-    public Result<List<WorkflowDefinitionView>> list() {
-        return Result.success(workflowService.list());
+    public Result<List<WorkflowListView>> list() {
+        return Result.success(workflowService.listSummaries());
     }
 }

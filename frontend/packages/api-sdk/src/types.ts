@@ -333,6 +333,14 @@ export interface DataModelDefinition extends BaseRecord {
   businessMetadata: Record<string, unknown>;
 }
 
+export interface DataModelListView extends BaseRecord {
+  datasourceId: EntityId;
+  name: string;
+  modelKind?: ModelKind;
+  physicalLocator: string;
+  schemaVersionId?: EntityId;
+}
+
 export interface DataServiceRequestParam {
   id?: EntityId;
   serviceId?: EntityId;
@@ -451,6 +459,28 @@ export interface DataServiceDefinitionView extends BaseRecord {
   publishParams: DataServicePublishParam[];
 }
 
+export interface DataServiceListView extends BaseRecord {
+  createdBy?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  serviceType?: DataServiceType;
+  status?: DataServiceStatus;
+  sourceType?: DataServiceSourceType;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  requestMethod?: DataServiceRequestMethod;
+  responseType?: DataServiceResponseType;
+  endpointPath?: string;
+  cacheEnabled?: boolean;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  webserviceEnabled?: boolean;
+}
+
 export interface DataServiceSaveRequest {
   id?: EntityId;
   serviceCode: string;
@@ -542,6 +572,29 @@ export interface DataIngestionServiceView extends BaseRecord {
   webserviceConfig?: WebServiceConfig;
   writerOptions?: Record<string, unknown>;
   fieldMappings?: DataIngestionFieldMapping[];
+  sourcePositions?: string[];
+}
+
+export interface DataIngestionServiceListView extends BaseRecord {
+  createdBy?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  status?: DataIngestionStatus;
+  requestFormat?: DataIngestionRequestFormat;
+  payloadMode?: DataIngestionPayloadMode;
+  dataNodePath?: string;
+  targetType?: DataIngestionTargetType;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  endpointPath?: string;
+  maxBatchSize?: number;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  webserviceEnabled?: boolean;
   sourcePositions?: string[];
 }
 
@@ -656,6 +709,28 @@ export interface ProtocolConversionServiceView extends BaseRecord {
   payloadMode?: DataIngestionPayloadMode;
   batchSize?: number;
   responseStatus?: Record<string, unknown>;
+}
+
+export interface ProtocolConversionServiceListView extends BaseRecord {
+  createdBy?: EntityId;
+  serviceCode: string;
+  serviceName: string;
+  status?: ProtocolConversionStatus;
+  endpointPath?: string;
+  webserviceEndpointPath?: string;
+  tokenRequired?: boolean;
+  defaultSubscriptionName?: string;
+  sourceProtocol?: ProtocolConversionProtocol;
+  sourceMethod?: string;
+  sourceDataNodePath?: string;
+  conversionMode?: ProtocolConversionMode;
+  targetDatasourceId?: EntityId;
+  targetDatasourceName?: string;
+  targetPath?: string;
+  targetProtocol?: ProtocolConversionProtocol;
+  targetMethod?: string;
+  payloadMode?: DataIngestionPayloadMode;
+  batchSize?: number;
 }
 
 export interface ProtocolConversionServiceSaveRequest {
@@ -1450,6 +1525,18 @@ export interface CollectionTaskDefinitionView extends BaseRecord {
   schedule?: CollectionTaskScheduleDefinition;
 }
 
+export interface CollectionTaskListView extends BaseRecord {
+  name: string;
+  taskType?: CollectionTaskType;
+  status?: CollectionTaskStatus;
+  sourceCount?: number;
+  targetDatasourceName?: string;
+  targetDatasourceTypeCode?: string;
+  targetModelName?: string;
+  targetModelPhysicalLocator?: string;
+  schedule?: CollectionTaskScheduleDefinition;
+}
+
 export interface CollectionTaskListQuery {
   name?: string;
   targetDatasource?: string;
@@ -2061,6 +2148,15 @@ export interface WorkflowDefinitionView extends BaseRecord {
   schedule?: WorkflowScheduleDefinition;
   nodes: WorkflowNodeDefinition[];
   edges: WorkflowEdgeDefinition[];
+}
+
+export interface WorkflowListView extends BaseRecord {
+  code: string;
+  name: string;
+  versionId?: EntityId;
+  versionNumber?: number;
+  published?: boolean;
+  schedule?: WorkflowScheduleDefinition;
 }
 
 export interface WorkflowSaveRequest {

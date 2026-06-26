@@ -146,7 +146,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { DataServiceDefinitionView, DataServiceSubscriptionView, EntityId } from "@studio/api-sdk";
+import type { DataServiceListView, DataServiceSubscriptionView, EntityId } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -164,10 +164,10 @@ const pagination = reactive({
   page: 1,
   pageSize: 10,
 });
-const services = ref<DataServiceDefinitionView[]>([]);
+const services = ref<DataServiceListView[]>([]);
 const total = ref(0);
 const subscriptionDialogVisible = ref(false);
-const selectedService = ref<DataServiceDefinitionView | null>(null);
+const selectedService = ref<DataServiceListView | null>(null);
 const subscriptions = ref<DataServiceSubscriptionView[]>([]);
 const subscriptionName = ref("");
 const newToken = ref("");
@@ -207,7 +207,7 @@ function handlePageSizeChange() {
   void loadServices();
 }
 
-function buildActions(row: DataServiceDefinitionView) {
+function buildActions(row: DataServiceListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/data-services/${row.id}/edit`); } },
     { key: "debug", label: "调试", onClick: () => { void router.push(`/data-services/${row.id}/edit?debug=1`); } },
@@ -220,7 +220,7 @@ function buildActions(row: DataServiceDefinitionView) {
   ];
 }
 
-async function publishService(row: DataServiceDefinitionView) {
+async function publishService(row: DataServiceListView) {
   if (!row.id) {
     return;
   }
@@ -233,7 +233,7 @@ async function publishService(row: DataServiceDefinitionView) {
   }
 }
 
-async function offlineService(row: DataServiceDefinitionView) {
+async function offlineService(row: DataServiceListView) {
   if (!row.id) {
     return;
   }
@@ -246,7 +246,7 @@ async function offlineService(row: DataServiceDefinitionView) {
   }
 }
 
-async function deleteService(row: DataServiceDefinitionView) {
+async function deleteService(row: DataServiceListView) {
   if (!row.id) {
     return;
   }
@@ -262,7 +262,7 @@ async function deleteService(row: DataServiceDefinitionView) {
   }
 }
 
-async function openSubscriptions(row: DataServiceDefinitionView) {
+async function openSubscriptions(row: DataServiceListView) {
   selectedService.value = row;
   subscriptionDialogVisible.value = true;
   subscriptionName.value = "";
@@ -376,7 +376,7 @@ function fallbackCopyText(value: string) {
   ElMessage.success("Token 已复制");
 }
 
-function resolveEndpoint(row: DataServiceDefinitionView) {
+function resolveEndpoint(row: DataServiceListView) {
   if (!row.endpointPath) {
     return "-";
   }
@@ -387,7 +387,7 @@ function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedService(row: DataServiceDefinitionView) {
+function isSharedService(row: DataServiceListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, row.projectId);
 }
 

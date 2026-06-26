@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
@@ -85,6 +86,40 @@ public class DataSourceService {
             result.add(toDefinition(entity, true));
         }
         datasourceConnectionHealthService.hydrateDefinitions(result);
+        return result;
+    }
+
+    public List<DataSourceListView> listSummaries() {
+        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
+                .select(DatasourceEntity::getId,
+                        DatasourceEntity::getTenantId,
+                        DatasourceEntity::getProjectId,
+                        DatasourceEntity::getDeleted,
+                        DatasourceEntity::getCreatedAt,
+                        DatasourceEntity::getUpdatedAt,
+                        DatasourceEntity::getName,
+                        DatasourceEntity::getTypeCode,
+                        DatasourceEntity::getSchemaVersionId,
+                        DatasourceEntity::getEnabled,
+                        DatasourceEntity::getExecutable,
+                        DatasourceEntity::getConnectionFingerprint,
+                        DatasourceEntity::getConnectionStatus,
+                        DatasourceEntity::getLastConnectionTestAt,
+                        DatasourceEntity::getLastConnectionTestMessage,
+                        DatasourceEntity::getLastConnectionTestDurationMs,
+                        DatasourceEntity::getManualConnectionTestTimeoutSeconds,
+                        DatasourceEntity::getScheduledConnectionTestTimeoutSeconds)
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
+        for (DatasourceEntity entity : entities) {
+            definitions.add(toDefinition(entity, true));
+        }
+        datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        List<DataSourceListView> result = new ArrayList<DataSourceListView>();
+        for (DataSourceDefinition definition : definitions) {
+            result.add(toListView(definition));
+        }
         return result;
     }
 
@@ -301,6 +336,33 @@ public class DataSourceService {
         definition.setTechnicalMetadata(maskSensitive ? maskSensitive(entity.getTechnicalMetadata()) : entity.getTechnicalMetadata());
         definition.setBusinessMetadata(entity.getBusinessMetadata());
         return definition;
+    }
+
+    private DataSourceListView toListView(DataSourceDefinition definition) {
+        DataSourceListView view = new DataSourceListView();
+        view.setId(definition.getId());
+        view.setTenantId(definition.getTenantId());
+        view.setProjectId(definition.getProjectId());
+        view.setDeleted(definition.getDeleted());
+        view.setCreatedAt(definition.getCreatedAt());
+        view.setUpdatedAt(definition.getUpdatedAt());
+        view.setName(definition.getName());
+        view.setTypeCode(definition.getTypeCode());
+        view.setSchemaVersionId(definition.getSchemaVersionId());
+        view.setEnabled(definition.getEnabled());
+        view.setExecutable(definition.getExecutable());
+        view.setConnectionFingerprint(definition.getConnectionFingerprint());
+        view.setConnectionStatus(definition.getConnectionStatus());
+        view.setLastConnectionTestAt(definition.getLastConnectionTestAt());
+        view.setLastConnectionTestMessage(definition.getLastConnectionTestMessage());
+        view.setLastConnectionTestDurationMs(definition.getLastConnectionTestDurationMs());
+        view.setConnectionTesting(definition.getConnectionTesting());
+        view.setConnectionStale(definition.getConnectionStale());
+        view.setNextConnectionProbeAt(definition.getNextConnectionProbeAt());
+        view.setManualConnectionTestTimeoutSeconds(definition.getManualConnectionTestTimeoutSeconds());
+        view.setScheduledConnectionTestTimeoutSeconds(definition.getScheduledConnectionTestTimeoutSeconds());
+        view.setRecentConnectionTests(definition.getRecentConnectionTests());
+        return view;
     }
 
     private DataSourceDefinition buildDefinitionForTest(DataSourceSaveRequest request) {

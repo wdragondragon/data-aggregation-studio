@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
+import com.jdragon.studio.dto.model.WorkflowListView;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.WorkflowScheduleDefinition;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
@@ -80,6 +81,26 @@ public class WorkflowService {
         return result;
     }
 
+    public List<WorkflowListView> listSummaries() {
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getTenantId,
+                        WorkflowDefinitionEntity::getProjectId,
+                        WorkflowDefinitionEntity::getDeleted,
+                        WorkflowDefinitionEntity::getCreatedAt,
+                        WorkflowDefinitionEntity::getUpdatedAt,
+                        WorkflowDefinitionEntity::getCode,
+                        WorkflowDefinitionEntity::getName,
+                        WorkflowDefinitionEntity::getCurrentVersionId,
+                        WorkflowDefinitionEntity::getPublished)
+                .orderByAsc(WorkflowDefinitionEntity::getCode));
+        List<WorkflowListView> result = new ArrayList<WorkflowListView>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            result.add(toListView(definition));
+        }
+        return result;
+    }
+
     public List<WorkflowDefinitionView> listOwnedByCurrentProject() {
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
@@ -89,6 +110,29 @@ public class WorkflowService {
         List<WorkflowDefinitionView> result = new ArrayList<WorkflowDefinitionView>();
         for (WorkflowDefinitionEntity definition : definitions) {
             result.add(get(definition.getId()));
+        }
+        return result;
+    }
+
+    public List<WorkflowListView> listOwnedSummariesByCurrentProject() {
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getTenantId,
+                        WorkflowDefinitionEntity::getProjectId,
+                        WorkflowDefinitionEntity::getDeleted,
+                        WorkflowDefinitionEntity::getCreatedAt,
+                        WorkflowDefinitionEntity::getUpdatedAt,
+                        WorkflowDefinitionEntity::getCode,
+                        WorkflowDefinitionEntity::getName,
+                        WorkflowDefinitionEntity::getCurrentVersionId,
+                        WorkflowDefinitionEntity::getPublished)
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(WorkflowDefinitionEntity::getProjectId, currentProjectId)
+                .orderByAsc(WorkflowDefinitionEntity::getCode));
+        List<WorkflowListView> result = new ArrayList<WorkflowListView>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            result.add(toListView(definition));
         }
         return result;
     }
@@ -155,6 +199,31 @@ public class WorkflowService {
         }
         WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
                 .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definitionId)
+                .last("limit 1"));
+        if (scheduleEntity != null) {
+            WorkflowScheduleDefinition schedule = new WorkflowScheduleDefinition();
+            schedule.setCronExpression(scheduleEntity.getCronExpression());
+            schedule.setEnabled(scheduleEntity.getEnabled() != null && scheduleEntity.getEnabled() == 1);
+            schedule.setTimezone(scheduleEntity.getTimezone());
+            view.setSchedule(schedule);
+        }
+        return view;
+    }
+
+    private WorkflowListView toListView(WorkflowDefinitionEntity definition) {
+        WorkflowListView view = new WorkflowListView();
+        view.setId(definition.getId());
+        view.setTenantId(definition.getTenantId());
+        view.setProjectId(definition.getProjectId());
+        view.setDeleted(definition.getDeleted() != null && definition.getDeleted() == 1);
+        view.setCreatedAt(definition.getCreatedAt());
+        view.setUpdatedAt(definition.getUpdatedAt());
+        view.setCode(definition.getCode());
+        view.setName(definition.getName());
+        view.setVersionId(definition.getCurrentVersionId());
+        view.setPublished(definition.getPublished() != null && definition.getPublished() == 1);
+        WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definition.getId())
                 .last("limit 1"));
         if (scheduleEntity != null) {
             WorkflowScheduleDefinition schedule = new WorkflowScheduleDefinition();

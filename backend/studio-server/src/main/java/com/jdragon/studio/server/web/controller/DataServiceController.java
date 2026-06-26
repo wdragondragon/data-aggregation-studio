@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataServiceDefinitionView;
+import com.jdragon.studio.dto.model.DataServiceListView;
 import com.jdragon.studio.dto.model.DataServiceResolveFieldsView;
 import com.jdragon.studio.dto.model.DataServiceSubscriptionView;
 import com.jdragon.studio.dto.model.PageView;
@@ -41,11 +42,11 @@ public class DataServiceController {
 
     @Operation(summary = "List data services")
     @GetMapping
-    public Result<PageView<DataServiceDefinitionView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                            @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                            @RequestParam(value = "keyword", required = false) String keyword,
-                                                            @RequestParam(value = "status", required = false) String status,
-                                                            @RequestParam(value = "serviceType", required = false) String serviceType) {
+    public Result<PageView<DataServiceListView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                      @RequestParam(value = "keyword", required = false) String keyword,
+                                                      @RequestParam(value = "status", required = false) String status,
+                                                      @RequestParam(value = "serviceType", required = false) String serviceType) {
         return Result.success(dataServiceService.list(pageNo, pageSize, keyword, status, serviceType));
     }
 

@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
+import com.jdragon.studio.dto.model.WorkflowListView;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.WorkflowService;
@@ -33,8 +34,8 @@ public class WorkflowController {
 
     @Operation(summary = "List workflows")
     @GetMapping
-    public Result<List<WorkflowDefinitionView>> list() {
-        return Result.success(workflowService.list());
+    public Result<List<WorkflowListView>> list() {
+        return Result.success(workflowService.listSummaries());
     }
 
     @Operation(summary = "Get workflow detail")

@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.ProtocolConversionDebugResult;
+import com.jdragon.studio.dto.model.ProtocolConversionServiceListView;
 import com.jdragon.studio.dto.model.ProtocolConversionServiceView;
 import com.jdragon.studio.dto.model.ProtocolConversionSubscriptionView;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
@@ -36,10 +37,10 @@ public class ProtocolConversionServiceController {
 
     @Operation(summary = "List protocol conversion services")
     @GetMapping
-    public Result<PageView<ProtocolConversionServiceView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                                @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                                @RequestParam(value = "keyword", required = false) String keyword,
-                                                                @RequestParam(value = "status", required = false) String status) {
+    public Result<PageView<ProtocolConversionServiceListView>> list(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                    @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                    @RequestParam(value = "keyword", required = false) String keyword,
+                                                                    @RequestParam(value = "status", required = false) String status) {
         return Result.success(protocolConversionService.list(pageNo, pageSize, keyword, status));
     }
 

@@ -105,7 +105,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
-  CollectionTaskDefinitionView,
+  CollectionTaskListView,
   DataDevelopmentScript,
   DataDevelopmentTreeNode,
   DataSourceDefinition,
@@ -159,7 +159,7 @@ const router = useRouter();
 
 const workflowId = computed(() => route.params.workflowId as string | undefined);
 const datasources = ref<DataSourceDefinition[]>([]);
-const onlineCollectionTasks = ref<CollectionTaskDefinitionView[]>([]);
+const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
 const onlineQualityTasks = ref<QualityTaskDefinitionView[]>([]);
 const scripts = ref<DataDevelopmentScript[]>([]);
 const selectedNodeCode = ref<string | null>(null);

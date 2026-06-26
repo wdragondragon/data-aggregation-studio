@@ -165,7 +165,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import type { DataModelDefinition, DataModelLineageContributorView, DataModelLineageEdgeDetailView, DataModelLineageLevel, DataModelLineageView, DataModelManualLineageSaveRequest, EntityId } from "@studio/api-sdk";
+import type { DataModelDefinition, DataModelLineageContributorView, DataModelLineageEdgeDetailView, DataModelLineageLevel, DataModelLineageView, DataModelListView, DataModelManualLineageSaveRequest, EntityId } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import ModelLineageGraph from "@/components/ModelLineageGraph.vue";
 import ModelLineageEdgeDrawer from "@/components/model-lineage/ModelLineageEdgeDrawer.vue";
@@ -185,7 +185,8 @@ const edgeLoading = ref(false);
 const edgeDrawerOpen = ref(false);
 const edgeDetail = ref<DataModelLineageEdgeDetailView>();
 const currentModel = ref<DataModelDefinition>();
-const availableModels = ref<DataModelDefinition[]>([]);
+const availableModels = ref<DataModelListView[]>([]);
+const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const loadingModelOptions = ref(false);
 const manualDialogOpen = ref(false);
 const manualSaving = ref(false);
@@ -236,9 +237,10 @@ const legendItems = computed(() => [
 ]);
 const manualDialogTitle = computed(() => (manualForm.relationId != null ? t("web.models.lineageEditRelation") : t("web.models.lineageCreateRelation")));
 const manualModelOptions = computed(() => {
-  const items = new Map<string, DataModelDefinition>();
+  const items = new Map<string, DataModelListView | DataModelDefinition>();
   for (const item of normalizeModelListPayload(availableModels.value)) {
-    items.set(normalizeId(item.id), item);
+    const id = normalizeId(item.id);
+    items.set(id, modelDetailCache.value[id] ?? item);
   }
   if (currentModel.value?.id != null) {
     items.set(normalizeId(currentModel.value.id), currentModel.value);
@@ -288,8 +290,9 @@ watch(
 
 watch(
   () => [manualForm.sourceModelId, manualForm.level],
-  () => {
+  async () => {
     if (manualForm.level === "FIELD") {
+      await ensureManualModelDetail(manualForm.sourceModelId);
       const options = sourceFieldOptions.value;
       if (!options.some((item) => item.value === manualForm.sourceFieldKey)) {
         manualForm.sourceFieldKey = options[0]?.value;
@@ -302,8 +305,9 @@ watch(
 
 watch(
   () => [manualForm.targetModelId, manualForm.level],
-  () => {
+  async () => {
     if (manualForm.level === "FIELD") {
+      await ensureManualModelDetail(manualForm.targetModelId);
       const options = targetFieldOptions.value;
       if (!options.some((item) => item.value === manualForm.targetFieldKey)) {
         manualForm.targetFieldKey = options[0]?.value;
@@ -356,8 +360,8 @@ function parseObjectRows(value: unknown) {
     .map((item) => ({ ...(item as Record<string, unknown>) }));
 }
 
-function pickFieldRows(model?: DataModelDefinition) {
-  const metadata = model?.technicalMetadata ?? {};
+function pickFieldRows(model?: DataModelListView | DataModelDefinition) {
+  const metadata = "technicalMetadata" in (model ?? {}) ? (model as DataModelDefinition).technicalMetadata ?? {} : {};
   const preferredKeys = ["columns", "fields", "items"];
   const entries = Object.entries(metadata);
   const scored = entries
@@ -387,7 +391,7 @@ function resolveFieldLabel(row: Record<string, unknown>) {
   return firstNonBlank(row.fieldName, row.name, row.columnName, row.physicalName, row.fieldKey, row.code);
 }
 
-function extractFieldOptions(model?: DataModelDefinition) {
+function extractFieldOptions(model?: DataModelListView | DataModelDefinition) {
   const items = new Map<string, { value: string; label: string }>();
   for (const row of pickFieldRows(model)) {
     const value = String(resolveFieldKey(row) || "").trim();
@@ -548,7 +552,7 @@ async function ensureModelOptionsLoaded() {
   }
   loadingModelOptions.value = true;
   try {
-    const payload = await studioApi.models.listPage({ pageNo: 1, pageSize: 5000 });
+    const payload = await studioApi.models.listSummaryPage({ pageNo: 1, pageSize: 5000 });
     availableModels.value = normalizeModelListPayload(payload);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.lineageModelOptionsLoadFailed"));
@@ -557,17 +561,30 @@ async function ensureModelOptionsLoaded() {
   }
 }
 
-function normalizeModelListPayload(payload: unknown): DataModelDefinition[] {
+function normalizeModelListPayload(payload: unknown): DataModelListView[] {
   if (Array.isArray(payload)) {
-    return payload.filter((item): item is DataModelDefinition => item != null && typeof item === "object");
+    return payload.filter((item): item is DataModelListView => item != null && typeof item === "object");
   }
   if (payload && typeof payload === "object") {
     const items = (payload as { items?: unknown }).items;
     if (Array.isArray(items)) {
-      return items.filter((item): item is DataModelDefinition => item != null && typeof item === "object");
+      return items.filter((item): item is DataModelListView => item != null && typeof item === "object");
     }
   }
   return [];
+}
+
+async function ensureManualModelDetail(modelId?: EntityId) {
+  const id = normalizeId(modelId);
+  if (!id || modelDetailCache.value[id]) {
+    return;
+  }
+  if (currentModel.value?.id != null && normalizeId(currentModel.value.id) === id) {
+    modelDetailCache.value = { ...modelDetailCache.value, [id]: currentModel.value };
+    return;
+  }
+  const detail = await studioApi.models.get(id, { studioSkipGlobalLoading: true });
+  modelDetailCache.value = { ...modelDetailCache.value, [id]: detail };
 }
 
 async function openCreateManualRelation() {

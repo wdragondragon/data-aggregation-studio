@@ -112,6 +112,7 @@ import { useRoute, useRouter } from "vue-router";
 import type {
   DataModelDefinition,
   DataModelIndexQueueStatusView,
+  DataModelListView,
   DataModelSaveRequest,
   DataSourceDefinition,
   EntityId,
@@ -137,7 +138,7 @@ const { t } = useI18n();
 const authStore = useAuthStore();
 const datasources = ref<DataSourceDefinition[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
-const models = ref<DataModelDefinition[]>([]);
+const models = ref<DataModelListView[]>([]);
 const modelPagination = reactive({
   page: 1,
   pageSize: 20,
@@ -393,7 +394,7 @@ function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
 
-function isSharedModel(model: DataModelDefinition) {
+function isSharedModel(model: DataModelListView) {
   return isSharedFromAnotherProject(authStore.currentProjectId, model.projectId);
 }
 
@@ -617,17 +618,17 @@ async function loadModelsForSelectedDatasource() {
     sortOrder: modelSortState.order,
   };
   const payload = queryRequest.groups.length > 0
-    ? await studioApi.models.queryPage(queryRequest, {
+    ? await studioApi.models.querySummaryPage(queryRequest, {
       pageNo: modelPagination.page,
       pageSize: modelPagination.pageSize,
     })
     : (selectedDatasourceId.value
-      ? await studioApi.models.listByDatasourcePage(selectedDatasourceId.value, {
+      ? await studioApi.models.listSummaryByDatasourcePage(selectedDatasourceId.value, {
         pageNo: modelPagination.page,
         pageSize: modelPagination.pageSize,
         ...sortParams,
       })
-      : await studioApi.models.listPage({
+      : await studioApi.models.listSummaryPage({
         datasourceType: selectedDatasourceType.value || undefined,
         pageNo: modelPagination.page,
         pageSize: modelPagination.pageSize,
@@ -734,7 +735,7 @@ async function loadModelPreviewRows(modelId: EntityId) {
   }
 }
 
-function openModelDetail(model: DataModelDefinition, edit = false) {
+function openModelDetail(model: DataModelListView, edit = false) {
   if (!model.id) {
     return;
   }
@@ -840,10 +841,7 @@ async function saveModel() {
     } else {
       modelPagination.page = 1;
       await handleDatasourceChange();
-      const current = models.value.find((item) => sameId(item.id, saved.id));
-      if (current) {
-        await selectModel(current);
-      }
+      await selectModel(saved);
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.saveFailed"));
@@ -937,7 +935,7 @@ async function submitSyncTaskCreate() {
   }
 }
 
-async function deleteModel(model: DataModelDefinition) {
+async function deleteModel(model: DataModelListView) {
   if (!model.id) {
     return;
   }
@@ -965,7 +963,7 @@ async function deleteModel(model: DataModelDefinition) {
   }
 }
 
-function buildModelActions(model: DataModelDefinition) {
+function buildModelActions(model: DataModelListView) {
   const shared = isSharedModel(model);
   return [
     {

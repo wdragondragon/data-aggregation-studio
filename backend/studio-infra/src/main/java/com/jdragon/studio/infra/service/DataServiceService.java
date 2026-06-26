@@ -17,6 +17,7 @@ import com.jdragon.studio.dto.enums.DataServiceType;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataServiceDefinitionView;
 import com.jdragon.studio.dto.model.DataServiceFieldView;
+import com.jdragon.studio.dto.model.DataServiceListView;
 import com.jdragon.studio.dto.model.DataServicePublishParamView;
 import com.jdragon.studio.dto.model.DataServiceRequestParamView;
 import com.jdragon.studio.dto.model.DataServiceResolveFieldsView;
@@ -109,22 +110,47 @@ public class DataServiceService {
         this.dataServiceAccessLogSupport = new DataServiceAccessLogSupport(accessLogMapper, accessCounterMapper, dataServiceInvocationSupport);
     }
 
-    public PageView<DataServiceDefinitionView> list(Integer pageNo,
-                                                    Integer pageSize,
-                                                    String keyword,
-                                                    String status,
-                                                    String serviceType) {
+    public PageView<DataServiceListView> list(Integer pageNo,
+                                              Integer pageSize,
+                                              String keyword,
+                                              String status,
+                                              String serviceType) {
         int safePageNo = dataServiceInvocationSupport.normalizePageNo(pageNo);
         int safePageSize = dataServiceInvocationSupport.normalizePageSize(pageSize);
         Long currentProjectId = projectResourceAccessService.currentProjectId();
         if (currentProjectId == null) {
-            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<DataServiceDefinitionView>());
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<DataServiceListView>());
         }
         String normalizedKeyword = dataServiceInvocationSupport.normalizeText(keyword);
         String normalizedStatus = dataServiceInvocationSupport.normalizeText(status);
         String normalizedServiceType = dataServiceInvocationSupport.normalizeText(serviceType);
         Page<DataServiceDefinitionEntity> page = new Page<DataServiceDefinitionEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<DataServiceDefinitionEntity> queryWrapper = new LambdaQueryWrapper<DataServiceDefinitionEntity>()
+                .select(DataServiceDefinitionEntity::getId,
+                        DataServiceDefinitionEntity::getTenantId,
+                        DataServiceDefinitionEntity::getProjectId,
+                        DataServiceDefinitionEntity::getDeleted,
+                        DataServiceDefinitionEntity::getCreatedAt,
+                        DataServiceDefinitionEntity::getUpdatedAt,
+                        DataServiceDefinitionEntity::getCreatedBy,
+                        DataServiceDefinitionEntity::getServiceCode,
+                        DataServiceDefinitionEntity::getServiceName,
+                        DataServiceDefinitionEntity::getServiceType,
+                        DataServiceDefinitionEntity::getStatus,
+                        DataServiceDefinitionEntity::getSourceType,
+                        DataServiceDefinitionEntity::getDatasourceId,
+                        DataServiceDefinitionEntity::getDatasourceNameSnapshot,
+                        DataServiceDefinitionEntity::getDatasourceTypeCode,
+                        DataServiceDefinitionEntity::getModelId,
+                        DataServiceDefinitionEntity::getModelNameSnapshot,
+                        DataServiceDefinitionEntity::getModelPhysicalLocator,
+                        DataServiceDefinitionEntity::getRequestMethod,
+                        DataServiceDefinitionEntity::getResponseType,
+                        DataServiceDefinitionEntity::getEndpointPath,
+                        DataServiceDefinitionEntity::getCacheEnabled,
+                        DataServiceDefinitionEntity::getTokenRequired,
+                        DataServiceDefinitionEntity::getDefaultSubscriptionName,
+                        DataServiceDefinitionEntity::getWebserviceEnabled)
                 .eq(DataServiceDefinitionEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -149,9 +175,9 @@ public class DataServiceService {
                 .orderByDesc(DataServiceDefinitionEntity::getUpdatedAt)
                 .orderByDesc(DataServiceDefinitionEntity::getId);
         Page<DataServiceDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
-        List<DataServiceDefinitionView> items = new ArrayList<DataServiceDefinitionView>();
+        List<DataServiceListView> items = new ArrayList<DataServiceListView>();
         for (DataServiceDefinitionEntity entity : entityPage.getRecords()) {
-            items.add(toView(entity, false));
+            items.add(toListView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -802,6 +828,38 @@ public class DataServiceService {
             view.setResponseParams(dataServiceParamSupport.loadResponseParams(entity.getId()));
             view.setPublishParams(dataServiceParamSupport.loadPublishParams(entity.getId()));
         }
+        return view;
+    }
+
+    private DataServiceListView toListView(DataServiceDefinitionEntity entity) {
+        DataServiceListView view = new DataServiceListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setCreatedBy(entity.getCreatedBy());
+        view.setServiceCode(entity.getServiceCode());
+        view.setServiceName(entity.getServiceName());
+        view.setServiceType(dataServiceInvocationSupport.enumValue(DataServiceType.class, entity.getServiceType(), DataServiceType.MODEL_PUBLISH));
+        view.setStatus(dataServiceInvocationSupport.enumValue(DataServiceStatus.class, entity.getStatus(), DataServiceStatus.DRAFT));
+        view.setSourceType(dataServiceInvocationSupport.enumValue(DataServiceSourceType.class, entity.getSourceType(), DataServiceSourceType.TABLE));
+        view.setDatasourceId(entity.getDatasourceId());
+        view.setDatasourceName(entity.getDatasourceNameSnapshot());
+        view.setDatasourceTypeCode(entity.getDatasourceTypeCode());
+        view.setModelId(entity.getModelId());
+        view.setModelName(entity.getModelNameSnapshot());
+        view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        view.setRequestMethod(dataServiceInvocationSupport.enumValue(DataServiceRequestMethod.class, entity.getRequestMethod(), DataServiceRequestMethod.GET));
+        view.setEndpointPath(entity.getEndpointPath());
+        view.setCacheEnabled(entity.getCacheEnabled() != null && entity.getCacheEnabled() == 1);
+        view.setTokenRequired(isTokenRequired(entity));
+        view.setDefaultSubscriptionName(entity.getDefaultSubscriptionName());
+        view.setWebserviceEnabled(entity.getWebserviceEnabled() != null && entity.getWebserviceEnabled().intValue() == 1);
+        view.setResponseType(Boolean.TRUE.equals(view.getWebserviceEnabled())
+                ? DataServiceResponseType.XML
+                : dataServiceInvocationSupport.enumValue(DataServiceResponseType.class, entity.getResponseType(), DataServiceResponseType.JSON));
         return view;
     }
 
