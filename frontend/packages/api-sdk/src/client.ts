@@ -120,6 +120,7 @@ import type {
   QualityRuleView,
   QualityTaskDefinitionView,
   QualityTaskListView,
+  QualityTaskOptionView,
   QualityMetricOptionsView,
   QualityMetricDashboardView,
   QualityMetricDashboardQueryRequest,
@@ -1254,6 +1255,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       listOnline() {
         return request<QualityTaskListView[]>({ url: "/quality-tasks/online", method: "GET" });
+      },
+      options() {
+        return request<QualityTaskOptionView[]>({ url: "/quality-tasks/options", method: "GET" });
       },
       get(id: EntityId) {
         return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}`, method: "GET" });

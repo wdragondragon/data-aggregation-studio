@@ -1810,6 +1810,15 @@ export interface QualityTaskListView extends BaseRecord {
   columnName?: string;
 }
 
+export interface QualityTaskOptionView {
+  id?: EntityId;
+  projectId?: EntityId;
+  taskName: string;
+  ruleName?: string;
+  ruleDimension?: QualityRuleDimension | string;
+  granularity?: QualityRuleGranularity | string;
+}
+
 export interface QualityTaskSaveRequest {
   id?: EntityId;
   taskName: string;

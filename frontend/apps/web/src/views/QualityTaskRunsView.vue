@@ -159,7 +159,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { QualityTaskListView, RunRecordListView } from "@studio/api-sdk";
+import type { QualityTaskOptionView, RunRecordListView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -175,7 +175,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const qualityTasks = ref<QualityTaskListView[]>([]);
+const qualityTasks = ref<QualityTaskOptionView[]>([]);
 const pagedRunRecords = ref<RunRecordListView[]>([]);
 const taskRunTotal = ref(0);
 const failedCount = ref(0);
@@ -195,7 +195,7 @@ const filters = ref<{
 });
 
 const taskMap = computed(() => {
-  const map = new Map<string, QualityTaskListView>();
+  const map = new Map<string, QualityTaskOptionView>();
   for (const item of qualityTasks.value) {
     if (item.id != null) {
       map.set(String(item.id), item);
@@ -220,7 +220,7 @@ function syncFiltersFromRoute() {
 
 async function loadQualityTasks() {
   try {
-    qualityTasks.value = await studioApi.qualityTasks.list();
+    qualityTasks.value = await studioApi.qualityTasks.options();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量任务失败");
   }
@@ -311,7 +311,7 @@ function resolveRuleSummary(row: RunRecordListView) {
   return task ? resolveRuleSummaryByTask(task) : "-";
 }
 
-function resolveRuleSummaryByTask(task?: QualityTaskListView | null) {
+function resolveRuleSummaryByTask(task?: QualityTaskOptionView | null) {
   if (!task) {
     return "-";
   }

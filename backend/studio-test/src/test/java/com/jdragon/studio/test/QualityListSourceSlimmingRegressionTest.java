@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.enums.QualityTaskStatus;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleListView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
+import com.jdragon.studio.dto.model.QualityTaskOptionView;
 import com.jdragon.studio.infra.entity.QualityRuleEntity;
 import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
@@ -121,6 +122,27 @@ class QualityListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<QualityTaskDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(taskMapper).selectList(captor.capture());
         assertTaskListSelectIsSlim(captor.getValue().getSqlSelect());
+    }
+
+    @Test
+    void qualityTaskRunFilterOptionsShouldSelectOnlyLabelColumns() {
+        QualityTaskDefinitionMapper taskMapper = mock(QualityTaskDefinitionMapper.class);
+        QualityTaskService service = qualityTaskService(taskMapper);
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(taskEntity()));
+
+        List<QualityTaskOptionView> options = service.listOptions();
+
+        assertThat(options)
+                .extracting(QualityTaskOptionView::getTaskName)
+                .containsExactly("客户手机号完整性巡检任务");
+        assertThat(options.get(0).getRuleName()).isEqualTo("客户手机号完整性规则");
+        ArgumentCaptor<LambdaQueryWrapper<QualityTaskDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(taskMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "project_id", "task_name", "rule_name_snapshot", "rule_dimension", "granularity")
+                .doesNotContain("task_code", "status", "datasource_id", "datasource_name_snapshot",
+                        "model_id", "model_name_snapshot", "model_physical_locator", "column_name",
+                        "where_clause", "resolved_sql_preview", "parameter_bindings_json", "rule_snapshot_json");
     }
 
     private static void initTableInfo(Class<?> entityClass) {

@@ -19,6 +19,7 @@ import com.jdragon.studio.dto.model.QualityRuleView;
 import com.jdragon.studio.dto.model.QualityTaskAlertConfig;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
+import com.jdragon.studio.dto.model.QualityTaskOptionView;
 import com.jdragon.studio.dto.model.QualityTaskParamBinding;
 import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
@@ -163,6 +164,29 @@ public class QualityTaskService {
         List<QualityTaskListView> result = new ArrayList<QualityTaskListView>();
         for (QualityTaskDefinitionEntity entity : entities) {
             result.add(toListView(entity));
+        }
+        return result;
+    }
+
+    public List<QualityTaskOptionView> listOptions() {
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return new ArrayList<QualityTaskOptionView>();
+        }
+        List<QualityTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+                .select(QualityTaskDefinitionEntity::getId,
+                        QualityTaskDefinitionEntity::getProjectId,
+                        QualityTaskDefinitionEntity::getTaskName,
+                        QualityTaskDefinitionEntity::getRuleNameSnapshot,
+                        QualityTaskDefinitionEntity::getRuleDimension,
+                        QualityTaskDefinitionEntity::getGranularity)
+                .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
+                .orderByAsc(QualityTaskDefinitionEntity::getTaskName)
+                .orderByAsc(QualityTaskDefinitionEntity::getId));
+        List<QualityTaskOptionView> result = new ArrayList<QualityTaskOptionView>();
+        for (QualityTaskDefinitionEntity entity : entities) {
+            result.add(toOptionView(entity));
         }
         return result;
     }
@@ -575,6 +599,17 @@ public class QualityTaskService {
         view.setModelName(entity.getModelNameSnapshot());
         view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
         view.setColumnName(entity.getColumnName());
+        return view;
+    }
+
+    private QualityTaskOptionView toOptionView(QualityTaskDefinitionEntity entity) {
+        QualityTaskOptionView view = new QualityTaskOptionView();
+        view.setId(entity.getId());
+        view.setProjectId(entity.getProjectId());
+        view.setTaskName(entity.getTaskName());
+        view.setRuleName(entity.getRuleNameSnapshot());
+        view.setRuleDimension(entity.getRuleDimension());
+        view.setGranularity(entity.getGranularity());
         return view;
     }
 

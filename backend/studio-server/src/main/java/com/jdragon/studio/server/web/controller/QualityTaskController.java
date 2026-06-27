@@ -5,6 +5,7 @@ import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
+import com.jdragon.studio.dto.model.QualityTaskOptionView;
 import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
 import com.jdragon.studio.dto.model.request.QualityTaskSaveRequest;
@@ -53,6 +54,12 @@ public class QualityTaskController {
     @GetMapping("/online")
     public Result<List<QualityTaskListView>> listOnline() {
         return Result.success(qualityTaskService.listOnline());
+    }
+
+    @Operation(summary = "List quality task options")
+    @GetMapping("/options")
+    public Result<List<QualityTaskOptionView>> listOptions() {
+        return Result.success(qualityTaskService.listOptions());
     }
 
     @Operation(summary = "Get quality task detail")
