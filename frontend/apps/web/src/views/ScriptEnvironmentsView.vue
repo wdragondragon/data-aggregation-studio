@@ -281,6 +281,7 @@ const activeTab = ref<"dependencies" | "environments">("dependencies");
 const dependencyDialogVisible = ref(false);
 const environmentDialogVisible = ref(false);
 const dependencyOptions = ref<EnvironmentDependencyOption[]>([]);
+const dependencyOptionsLoaded = ref(false);
 const dependencyUploadFiles = ref<UploadUserFile[]>([]);
 
 const dependencyFilters = reactive<{ keyword: string; enabled?: boolean }>({
@@ -326,11 +327,14 @@ const environmentForm = reactive({
 });
 
 async function refreshAll() {
-  await Promise.all([
+  const tasks = [
     loadDependencies(),
     loadEnvironments(),
-    loadDependencyOptions(),
-  ]);
+  ];
+  if (dependencyOptionsLoaded.value) {
+    tasks.push(loadDependencyOptions());
+  }
+  await Promise.all(tasks);
 }
 
 async function loadDependencies() {
@@ -370,8 +374,16 @@ async function loadEnvironments() {
 async function loadDependencyOptions() {
   try {
     dependencyOptions.value = await studioApi.environmentDependencies.options({ enabledOnly: true });
+    dependencyOptionsLoaded.value = true;
   } catch (error) {
     dependencyOptions.value = [];
+    dependencyOptionsLoaded.value = false;
+  }
+}
+
+function ensureDependencyOptionsLoaded() {
+  if (!dependencyOptionsLoaded.value) {
+    void loadDependencyOptions();
   }
 }
 
@@ -438,7 +450,7 @@ function openEnvironmentDialog(environment?: ScriptEnvironmentListView) {
   environmentForm.dependencyIds = (environment?.dependencyIds ?? []).map((item) => String(item));
   environmentForm.description = "";
   environmentDialogVisible.value = true;
-  void loadDependencyOptions();
+  ensureDependencyOptionsLoaded();
   if (environment?.id) {
     void loadEnvironmentDetailIntoForm(environment.id);
   }
@@ -475,7 +487,9 @@ async function saveDependency() {
     dependencyDialogVisible.value = false;
     ElMessage.success("依赖包已保存");
     upsertDependencyRow(toDependencyListItem(saved));
-    upsertDependencyOption(saved);
+    if (dependencyOptionsLoaded.value) {
+      upsertDependencyOption(saved);
+    }
     updateEnvironmentDependencyReference(saved);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存依赖包失败");
@@ -606,7 +620,9 @@ async function updateDependencyEnabled(dependency: EnvironmentDependencyListView
     }
     ElMessage.success(enabled ? "依赖包已启用" : "依赖包已停用");
     upsertDependencyRow(toDependencyListItem(updated));
-    upsertDependencyOption(updated);
+    if (dependencyOptionsLoaded.value) {
+      upsertDependencyOption(updated);
+    }
     updateEnvironmentDependencyReference(updated);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "更新依赖包状态失败");
@@ -622,7 +638,9 @@ async function deleteDependency(dependency: EnvironmentDependencyListView) {
     await studioApi.environmentDependencies.delete(dependency.id);
     ElMessage.success("依赖包已删除");
     removeDependencyRow(dependency.id);
-    dependencyOptions.value = dependencyOptions.value.filter((item) => String(item.id) !== String(dependency.id));
+    if (dependencyOptionsLoaded.value) {
+      dependencyOptions.value = dependencyOptions.value.filter((item) => String(item.id) !== String(dependency.id));
+    }
     removeDependencyFromEnvironmentRows(dependency.id);
     if (dependencyPage.items.length === 0 && dependencyPage.pageNo > 1 && dependencyPage.total > 0) {
       dependencyPage.pageNo -= 1;

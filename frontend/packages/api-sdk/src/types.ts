@@ -2197,6 +2197,12 @@ export interface ScriptEnvironmentListView extends BaseRecord {
   dependencies: EnvironmentDependencyOption[];
 }
 
+export interface ScriptEnvironmentOption extends BaseRecord {
+  environmentName: string;
+  environmentCode: string;
+  enabled: boolean;
+}
+
 export interface ScriptEnvironmentSaveRequest {
   id?: EntityId;
   environmentName: string;

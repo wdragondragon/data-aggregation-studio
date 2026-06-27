@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentListView;
+import com.jdragon.studio.dto.model.ScriptEnvironmentOptionView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentView;
 import com.jdragon.studio.dto.model.request.ScriptEnvironmentSaveRequest;
 import com.jdragon.studio.infra.entity.EnvironmentDependencyEntity;
@@ -90,16 +91,24 @@ public class ScriptEnvironmentService {
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
-    public List<ScriptEnvironmentView> options(Boolean enabledOnly) {
+    public List<ScriptEnvironmentOptionView> options(Boolean enabledOnly) {
         ensureDefaultEnvironmentId();
         LambdaQueryWrapper<ScriptEnvironmentEntity> wrapper = new LambdaQueryWrapper<ScriptEnvironmentEntity>()
+                .select(ScriptEnvironmentEntity::getId,
+                        ScriptEnvironmentEntity::getTenantId,
+                        ScriptEnvironmentEntity::getDeleted,
+                        ScriptEnvironmentEntity::getCreatedAt,
+                        ScriptEnvironmentEntity::getUpdatedAt,
+                        ScriptEnvironmentEntity::getEnvironmentName,
+                        ScriptEnvironmentEntity::getEnvironmentCode,
+                        ScriptEnvironmentEntity::getEnabled)
                 .eq(ScriptEnvironmentEntity::getTenantId, securityService.currentTenantId())
                 .eq(Boolean.TRUE.equals(enabledOnly), ScriptEnvironmentEntity::getEnabled, Integer.valueOf(1))
                 .orderByAsc(ScriptEnvironmentEntity::getEnvironmentName)
                 .orderByAsc(ScriptEnvironmentEntity::getId);
-        List<ScriptEnvironmentView> result = new ArrayList<ScriptEnvironmentView>();
+        List<ScriptEnvironmentOptionView> result = new ArrayList<ScriptEnvironmentOptionView>();
         for (ScriptEnvironmentEntity entity : environmentMapper.selectList(wrapper)) {
-            result.add(toView(entity, false));
+            result.add(toOptionView(entity));
         }
         return result;
     }
@@ -285,6 +294,19 @@ public class ScriptEnvironmentService {
             view.setDependencyIds(dependencies.dependencyIds);
             view.setDependencies(dependencies.dependencies);
         }
+        return view;
+    }
+
+    private ScriptEnvironmentOptionView toOptionView(ScriptEnvironmentEntity entity) {
+        ScriptEnvironmentOptionView view = new ScriptEnvironmentOptionView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setEnvironmentName(entity.getEnvironmentName());
+        view.setEnvironmentCode(entity.getEnvironmentCode());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         return view;
     }
 

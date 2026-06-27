@@ -115,6 +115,15 @@ public class EnvironmentDependencyService {
 
     public List<EnvironmentDependencyOptionView> options(Boolean enabledOnly) {
         LambdaQueryWrapper<EnvironmentDependencyEntity> wrapper = new LambdaQueryWrapper<EnvironmentDependencyEntity>()
+                .select(EnvironmentDependencyEntity::getId,
+                        EnvironmentDependencyEntity::getTenantId,
+                        EnvironmentDependencyEntity::getDeleted,
+                        EnvironmentDependencyEntity::getCreatedAt,
+                        EnvironmentDependencyEntity::getUpdatedAt,
+                        EnvironmentDependencyEntity::getName,
+                        EnvironmentDependencyEntity::getVersion,
+                        EnvironmentDependencyEntity::getScriptType,
+                        EnvironmentDependencyEntity::getEnabled)
                 .eq(EnvironmentDependencyEntity::getTenantId, securityService.currentTenantId())
                 .eq(Boolean.TRUE.equals(enabledOnly), EnvironmentDependencyEntity::getEnabled, Integer.valueOf(1))
                 .orderByAsc(EnvironmentDependencyEntity::getScriptType)

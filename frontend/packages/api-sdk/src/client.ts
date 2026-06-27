@@ -153,6 +153,7 @@ import type {
   ScriptType,
   ScriptEnvironment,
   ScriptEnvironmentListView,
+  ScriptEnvironmentOption,
   ScriptEnvironmentSaveRequest,
   SqlExecutionRequest,
   SqlExecutionResult,
@@ -1370,7 +1371,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         );
       },
       options(params?: { enabledOnly?: boolean }) {
-        return request<ScriptEnvironment[]>({ url: "/script-environments/options", method: "GET", params });
+        return request<ScriptEnvironmentOption[]>({ url: "/script-environments/options", method: "GET", params });
       },
       get(id: EntityId) {
         return request<ScriptEnvironment>({ url: `/script-environments/${id}`, method: "GET" });

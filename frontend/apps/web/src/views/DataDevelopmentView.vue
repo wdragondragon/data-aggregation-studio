@@ -269,7 +269,7 @@ import type {
   DataDevelopmentTreeNode,
   DataSourceOptionView,
   EntityId,
-  ScriptEnvironment,
+  ScriptEnvironmentOption,
   SqlExecutionResult,
 } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
@@ -288,7 +288,7 @@ const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 const treeData = ref<DataDevelopmentTreeNode[]>([]);
 const directories = ref<DataDevelopmentDirectory[]>([]);
 const sqlDatasources = ref<DataSourceOptionView[]>([]);
-const scriptEnvironments = ref<ScriptEnvironment[]>([]);
+const scriptEnvironments = ref<ScriptEnvironmentOption[]>([]);
 const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
 const executionResult = ref<DataScriptExecutionResult | null>(null);

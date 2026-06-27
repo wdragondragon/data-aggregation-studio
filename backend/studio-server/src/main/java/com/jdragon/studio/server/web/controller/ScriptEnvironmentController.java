@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentListView;
+import com.jdragon.studio.dto.model.ScriptEnvironmentOptionView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentView;
 import com.jdragon.studio.dto.model.request.ScriptEnvironmentSaveRequest;
 import com.jdragon.studio.infra.service.ScriptEnvironmentService;
@@ -41,7 +42,7 @@ public class ScriptEnvironmentController {
 
     @Operation(summary = "List selectable script environments")
     @GetMapping("/options")
-    public Result<List<ScriptEnvironmentView>> options(@RequestParam(value = "enabledOnly", required = false, defaultValue = "true") Boolean enabledOnly) {
+    public Result<List<ScriptEnvironmentOptionView>> options(@RequestParam(value = "enabledOnly", required = false, defaultValue = "true") Boolean enabledOnly) {
         return Result.success(scriptEnvironmentService.options(enabledOnly));
     }
 
