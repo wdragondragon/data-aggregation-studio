@@ -6,7 +6,7 @@ import type {
   DataModelQueryCondition,
   DataModelQueryGroup,
   DataModelQueryRequest,
-  DataSourceListView,
+  DataSourceOptionView,
   EntityId,
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
@@ -91,8 +91,8 @@ interface ModelMetadataSupportOptions {
   schemas: Ref<MetadataSchemaDefinition[]>;
   modelForm: ModelFormState;
   selectedModel: Ref<DataModelDefinition | undefined>;
-  selectedDatasource: ComputedRef<DataSourceListView | undefined>;
-  editorDatasource: ComputedRef<DataSourceListView | undefined>;
+  selectedDatasource: ComputedRef<DataSourceOptionView | undefined>;
+  editorDatasource: ComputedRef<DataSourceOptionView | undefined>;
   activeQueryDatasourceType: ComputedRef<string>;
   queryGroups: Ref<ModelQueryGroupState[]>;
   t: (key: string) => string;
@@ -316,7 +316,7 @@ export function useModelMetadataSupport(options: ModelMetadataSupportOptions) {
     return ordered;
   }
 
-  function deriveModelKindFromDatasource(datasource?: DataSourceListView): ModelKind | undefined {
+  function deriveModelKindFromDatasource(datasource?: DataSourceOptionView): ModelKind | undefined {
     const type = normalizeTypeCode(datasource?.typeCode);
     if (!type) {
       return undefined;
@@ -336,7 +336,7 @@ export function useModelMetadataSupport(options: ModelMetadataSupportOptions) {
     return "CUSTOM" as ModelKind;
   }
 
-  function deriveModelKindFromSchema(schema?: MetadataSchemaDefinition, datasource?: DataSourceListView): ModelKind | undefined {
+  function deriveModelKindFromSchema(schema?: MetadataSchemaDefinition, datasource?: DataSourceOptionView): ModelKind | undefined {
     const parsed = schema ? parseMetaModelSchema(schema).config : undefined;
     const code = normalizeTypeCode(parsed?.metaModelCode);
     if (code === "table") {

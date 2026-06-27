@@ -535,6 +535,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(config?: StudioRequestConfig) {
         return request<DataSourceListView[]>({ ...config, url: "/datasources", method: "GET" });
       },
+      options(config?: StudioRequestConfig) {
+        return request<DataSourceOptionView[]>({ ...config, url: "/datasources/options", method: "GET" });
+      },
       listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
         return requestPage<DataSourceListView>({ ...config, url: "/datasources/page", method: "GET", params }, params);
       },

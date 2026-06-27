@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DatasourceConnectionHealthEntity;
@@ -37,6 +38,7 @@ import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -113,6 +115,39 @@ class DataSourceListSourceSlimmingRegressionTest {
                 .contains("connection_fingerprint", "manual_connection_test_timeout_seconds")
                 .doesNotContain("technical_metadata", "business_metadata");
         verify(recordMapper).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
+    }
+
+    @Test
+    void datasourceOptionsShouldSelectOnlyOptionFieldsAndSkipHealthHydration() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
+        DatasourceConnectionTestRecordMapper recordMapper = mock(DatasourceConnectionTestRecordMapper.class);
+        DataSourceService service = dataSourceService(datasourceMapper, healthMapper, recordMapper);
+        when(datasourceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(datasource()));
+
+        List<DataSourceOptionView> options = service.listBasicOptions();
+
+        assertThat(options).hasSize(1);
+        DataSourceOptionView option = options.get(0);
+        assertThat(option.getName()).isEqualTo("长期回归-客户订单数据源");
+        assertThat(option.getTypeCode()).isEqualTo("mysql8");
+        assertThat(option.getSchemaVersionId()).isEqualTo(7001L);
+        assertThat(option.getEnabled()).isTrue();
+        assertThat(option.getExecutable()).isTrue();
+
+        ArgumentCaptor<LambdaQueryWrapper<DatasourceEntity>> datasourceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(datasourceMapper).selectList(datasourceCaptor.capture());
+        assertThat(datasourceCaptor.getValue().getSqlSelect())
+                .contains("id", "tenant_id", "project_id", "name", "type_code", "schema_version_id", "enabled", "executable")
+                .doesNotContain("connection_fingerprint",
+                        "connection_status",
+                        "last_connection_test_message",
+                        "manual_connection_test_timeout_seconds",
+                        "scheduled_connection_test_timeout_seconds",
+                        "technical_metadata",
+                        "business_metadata");
+        verify(healthMapper, never()).selectList(any());
+        verify(recordMapper, never()).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
     }
 
     @Test

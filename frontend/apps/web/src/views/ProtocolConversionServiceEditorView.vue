@@ -521,7 +521,7 @@ import { useRoute, useRouter } from "vue-router";
 import { Delete } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import type {
-  DataSourceListView,
+  DataSourceOptionView,
   EntityId,
   FieldMappingRuleView,
   MetadataFieldDefinition,
@@ -557,7 +557,7 @@ const isCreateMode = computed(() => !serviceId.value || serviceId.value === "new
 const activeStep = ref(0);
 const saving = ref(false);
 const debugging = ref(false);
-const datasources = ref<DataSourceListView[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const debugResultText = ref("");
 const debugError = ref("");
 const debugTrace = ref<ProtocolConversionTraceView | null>(null);
@@ -815,7 +815,7 @@ watch(
 
 onMounted(async () => {
   const [datasourceItems, rules] = await Promise.all([
-    studioApi.datasources.list(),
+    studioApi.datasources.options(),
     studioApi.fieldMappingRules.options(),
   ]);
   datasources.value = datasourceItems;

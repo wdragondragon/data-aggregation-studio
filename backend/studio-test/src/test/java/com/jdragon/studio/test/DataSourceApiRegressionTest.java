@@ -1,5 +1,6 @@
 package com.jdragon.studio.test;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.jdragon.studio.test.support.StudioApiRegressionTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -8,6 +9,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -45,6 +48,36 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.message").value("Resource belongs to another project"));
     }
 
+    @Test
+    void datasourceOptionsShouldExposeSlimOptionView() throws Exception {
+        String authorization = adminAuthorizationHeader();
+        Long projectId = createProject(authorization, "lt_reg_s51_options", "长期回归-S51数据源选项项目");
+        Long datasourceId = createDatasource(authorization, projectId, "长期回归-S51数据源选项经营数据库");
+
+        MvcResult result = mockMvc.perform(get("/api/v1/datasources/options")
+                        .header("Authorization", authorization)
+                        .header("X-Project-Id", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+
+        JsonNode data = readBody(result).path("data");
+        JsonNode target = null;
+        for (JsonNode item : data) {
+            if (item.path("id").asLong() == datasourceId.longValue()) {
+                target = item;
+                break;
+            }
+        }
+        assertThat(target).isNotNull();
+        assertThat(target.path("name").asText()).isEqualTo("长期回归-S51数据源选项经营数据库");
+        assertThat(target.path("typeCode").asText()).isEqualTo("mysql8");
+        assertThat(target.has("connectionStatus")).isFalse();
+        assertThat(target.has("recentConnectionTests")).isFalse();
+        assertThat(target.has("technicalMetadata")).isFalse();
+        assertThat(target.has("businessMetadata")).isFalse();
+    }
+
     private Long createProject(String authorization, String projectCode, String projectName) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("projectCode", projectCode);
@@ -62,8 +95,12 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
     }
 
     private Long createDatasource(String authorization, Long projectId) throws Exception {
+        return createDatasource(authorization, projectId, "长期回归-S17客户经营敏感数据源");
+    }
+
+    private Long createDatasource(String authorization, Long projectId, String datasourceName) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("name", "长期回归-S17客户经营敏感数据源");
+        payload.put("name", datasourceName);
         payload.put("typeCode", "mysql8");
         payload.put("enabled", true);
         payload.put("executable", true);

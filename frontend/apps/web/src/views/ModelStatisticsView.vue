@@ -70,7 +70,7 @@ import type {
   DataModelStatisticsRequest,
   DataModelStatisticsSchemaOptionView,
   DataModelStatisticsView,
-  DataSourceListView,
+  DataSourceOptionView,
   EntityId,
   StatisticsChartType,
 } from "@studio/api-sdk";
@@ -110,7 +110,7 @@ const authStore = useAuthStore();
 
 const chartTypes: StatisticsChartType[] = ["TREND", "BAR", "PIE", "TOPN"];
 
-const datasources = ref<DataSourceListView[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const workspaceAction = useAsyncAction();
 const analysisAction = useAsyncAction();
 const workspaceLoading = workspaceAction.loading;
@@ -830,7 +830,7 @@ function applyRouteQuery() {
 }
 
 async function loadDatasources() {
-  const items = await studioApi.datasources.list();
+  const items = await studioApi.datasources.options();
   datasources.value = [...items].sort((left, right) => left.name.localeCompare(right.name));
 }
 

@@ -109,7 +109,7 @@ import type {
   DataDevelopmentScript,
   DataDevelopmentScriptListView,
   DataDevelopmentTreeNode,
-  DataSourceListView,
+  DataSourceOptionView,
   MetadataFieldDefinition,
   QualityTaskListView,
   WorkflowDefinitionView,
@@ -159,7 +159,7 @@ const route = useRoute();
 const router = useRouter();
 
 const workflowId = computed(() => route.params.workflowId as string | undefined);
-const datasources = ref<DataSourceListView[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
 const onlineQualityTasks = ref<QualityTaskListView[]>([]);
 const scripts = ref<DataDevelopmentScriptListView[]>([]);
@@ -356,7 +356,7 @@ function resetWorkflow() {
 async function loadReferenceData() {
   try {
     const [datasourceData] = await Promise.all([
-      studioApi.datasources.list(),
+      studioApi.datasources.options(),
     ]);
     datasources.value = datasourceData;
     await refreshSelectedNodeCandidates();

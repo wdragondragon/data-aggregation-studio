@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
@@ -45,6 +46,12 @@ public class DataSourceController {
     public Result<PageView<DataSourceListView>> listPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                          @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         return Result.success(dataSourceService.listSummaryPage(pageNo, pageSize));
+    }
+
+    @Operation(summary = "List datasource options")
+    @GetMapping("/options")
+    public Result<List<DataSourceOptionView>> options() {
+        return Result.success(dataSourceService.listBasicOptions());
     }
 
     @Operation(summary = "Get datasource detail")

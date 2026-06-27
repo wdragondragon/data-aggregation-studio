@@ -96,7 +96,7 @@ import type {
   CollectionTaskSourceBinding,
   DataModelDefinition,
   DataModelListView,
-  DataSourceListView,
+  DataSourceOptionView,
   FieldMappingDefinition,
   FieldMappingRuleView,
   MetadataFieldDefinition,
@@ -156,7 +156,7 @@ const router = useRouter();
 
 const taskId = computed(() => route.params.taskId as string | undefined);
 const activeStep = ref(1);
-const datasources = ref<DataSourceListView[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
 const modelCache = ref<Record<string, DataModelListView[]>>({});
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
@@ -326,7 +326,7 @@ const mappingSectionActions = {
 async function loadReferenceData() {
   try {
     const [datasourceData, fieldMappingRuleData] = await Promise.all([
-      studioApi.datasources.list(),
+      studioApi.datasources.options(),
       studioApi.fieldMappingRules.options(),
     ]);
     datasources.value = datasourceData;

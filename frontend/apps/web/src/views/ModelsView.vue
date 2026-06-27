@@ -114,7 +114,7 @@ import type {
   DataModelIndexQueueStatusView,
   DataModelListView,
   DataModelSaveRequest,
-  DataSourceListView,
+  DataSourceOptionView,
   EntityId,
   MetadataSchemaDefinition,
   ModelSyncTaskView,
@@ -137,7 +137,7 @@ const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 const authStore = useAuthStore();
-const datasources = ref<DataSourceListView[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const models = ref<DataModelListView[]>([]);
@@ -669,7 +669,7 @@ async function deleteSyncTask(task: ModelSyncTaskView) {
 async function loadPage() {
   try {
     const [datasourceData, schemaData] = await Promise.all([
-      studioApi.datasources.list(),
+      studioApi.datasources.options(),
       studioApi.metaSchemas.list({ includeFields: false }),
     ]);
     datasources.value = datasourceData;

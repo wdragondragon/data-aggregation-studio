@@ -246,7 +246,7 @@ import { useI18n } from "vue-i18n";
 import type {
   DataModelStatisticsFieldOptionView,
   DataModelStatisticsSchemaOptionView,
-  DataSourceListView,
+  DataSourceOptionView,
   EntityId,
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
@@ -308,7 +308,7 @@ const props = defineProps<{
   selectedTargetScope: TargetScope;
   datasourceTypes: string[];
   selectedDatasourceType: string;
-  filteredDatasourceOptions: DataSourceListView[];
+  filteredDatasourceOptions: DataSourceOptionView[];
   selectedDatasourceId?: EntityId;
   targetMetaSchemaCode: string;
   targetSchemaOptions: DataModelStatisticsSchemaOptionView[];

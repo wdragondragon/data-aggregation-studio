@@ -343,7 +343,7 @@ import type {
   DataIngestionSourcePosition,
   DataModelDefinition,
   DataModelListView,
-  DataSourceListView,
+  DataSourceOptionView,
   DatasourceTypeCapabilityView,
   EntityId,
   FieldValueType,
@@ -448,7 +448,7 @@ const wizardSteps: WizardStep[] = [
 const sourcePositionOrder: DataIngestionSourcePosition[] = ["BODY", "FORM", "QUERY", "HEADER"];
 const serviceId = computed(() => route.params.serviceId as EntityId | undefined);
 const activeStep = ref(0);
-const datasources = ref<DataSourceListView[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
 const models = ref<DataModelListView[]>([]);
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
@@ -751,7 +751,7 @@ function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): We
 
 onMounted(async () => {
   const [datasourceData, datasourceTypeData] = await Promise.all([
-    studioApi.datasources.list(),
+    studioApi.datasources.options(),
     studioApi.catalog.datasourceTypes(),
   ]);
   datasources.value = datasourceData;

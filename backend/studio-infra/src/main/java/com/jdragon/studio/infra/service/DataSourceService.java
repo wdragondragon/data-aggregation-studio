@@ -130,22 +130,22 @@ public class DataSourceService {
         return result;
     }
 
+    public List<DataSourceOptionView> listBasicOptions() {
+        List<DatasourceEntity> entities = datasourceMapper.selectList(selectOptionColumns(buildAccessibleQuery())
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        List<DataSourceOptionView> result = new ArrayList<DataSourceOptionView>();
+        for (DatasourceEntity entity : entities) {
+            result.add(toOptionView(entity));
+        }
+        return result;
+    }
+
     public List<DataSourceOptionView> listBasicOptionsByTypes(Set<String> typeCodes) {
         if (typeCodes == null || typeCodes.isEmpty()) {
             return new ArrayList<DataSourceOptionView>();
         }
-        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
-                .select(DatasourceEntity::getId,
-                        DatasourceEntity::getTenantId,
-                        DatasourceEntity::getProjectId,
-                        DatasourceEntity::getDeleted,
-                        DatasourceEntity::getCreatedAt,
-                        DatasourceEntity::getUpdatedAt,
-                        DatasourceEntity::getName,
-                        DatasourceEntity::getTypeCode,
-                        DatasourceEntity::getSchemaVersionId,
-                        DatasourceEntity::getEnabled,
-                        DatasourceEntity::getExecutable)
+        List<DatasourceEntity> entities = datasourceMapper.selectList(selectOptionColumns(buildAccessibleQuery())
                 .in(DatasourceEntity::getTypeCode, typeCodes)
                 .orderByAsc(DatasourceEntity::getProjectId)
                 .orderByAsc(DatasourceEntity::getName));
@@ -440,6 +440,20 @@ public class DataSourceService {
                 DatasourceEntity::getLastConnectionTestDurationMs,
                 DatasourceEntity::getManualConnectionTestTimeoutSeconds,
                 DatasourceEntity::getScheduledConnectionTestTimeoutSeconds);
+    }
+
+    private LambdaQueryWrapper<DatasourceEntity> selectOptionColumns(LambdaQueryWrapper<DatasourceEntity> queryWrapper) {
+        return queryWrapper.select(DatasourceEntity::getId,
+                DatasourceEntity::getTenantId,
+                DatasourceEntity::getProjectId,
+                DatasourceEntity::getDeleted,
+                DatasourceEntity::getCreatedAt,
+                DatasourceEntity::getUpdatedAt,
+                DatasourceEntity::getName,
+                DatasourceEntity::getTypeCode,
+                DatasourceEntity::getSchemaVersionId,
+                DatasourceEntity::getEnabled,
+                DatasourceEntity::getExecutable);
     }
 
     private DataSourceListView toBasicListView(DatasourceEntity entity) {
