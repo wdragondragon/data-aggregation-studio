@@ -58,6 +58,9 @@
 | FIX-S29-003 | 协议转换/访问日志 | 中 | 协议转换访问日志分页返回 `systemLog` 和归档定位字段，详情页已按 id 获取 Trace 但仍预载列表系统日志；options 源头读取完整协议转换配置 | `ProtocolConversionMetricsService.java`；`ProtocolConversionAccessLogListView.java`；`ProtocolConversionMetricsController.java`；`ProtocolConversionAccessLogsView.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts` | `/protocol-conversion-metrics/access-logs/query` 响应无 `systemLog/logObject*/logArchive*/tenantId/projectId`；Trace 和完整日志按 id 获取；`/protocol-conversions/access-logs` 浏览器烟测；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 | FIX-S30-001 | 数据资产/元模型中心 | 中 | `/metadata` 首屏调用元模型列表默认返回所有字段定义，树和基础详情仅需摘要；保存、发布、删除、同步后整页重拉元模型、字段和数据源类型 | `MetadataSchemaService.java`；`MetaSchemaController.java`；`MetadataSchemasView.vue`；`frontend/packages/api-sdk/src/client.ts`；`StudioInitializationApiRegressionTest.java` | `GET /meta-schemas?includeFields=false` 返回 82 个元模型且无字段；`GET /meta-schemas/{id}` 返回 mysql8 表元模型 11 个字段；`/metadata` 浏览器选择 mysql8 表信息显示表单预览；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 | FIX-S30-002 | 数据资产/统计分析中心 | 中 | `/statistics` 选项接口为筛选控件调用 `listSchemas()` 两次并加载所有元模型字段，其中可用模型 code 计算完全不需要字段 | `DataModelStatisticsWorkspaceService.java`；`MetadataSchemaService.java` | `POST /statistics/options` 返回 `querySchemas=6/targetSchemas=6`；统计页面浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
+| FIX-S31-001 | 数据资产/数据源中心 | 中 | `/datasources` 首屏默认拉取所有元模型字段，实际只需 schema 摘要；编辑和类型切换才需要字段详情 | `MetaSchemaController.java`；`DatasourcesView.vue`；`frontend/packages/api-sdk/src/client.ts` | `GET /meta-schemas?includeFields=false` 字段数为 0；`GET /meta-schemas/details?schemaIds=...` 返回字段；`/datasources` 浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | `36d73a9` |
+| FIX-S31-002 | 数据资产/模型中心 | 中 | `/models` 首屏默认拉取所有元模型字段，模型列表和筛选只需摘要；模型创建/编辑再按数据源类型拉取相关详情 | `MetaSchemaController.java`；`ModelsView.vue`；`frontend/packages/api-sdk/src/client.ts` | `GET /meta-schemas?includeFields=false` 字段数为 0；`GET /meta-schemas/details?schemaIds=...` 返回字段；`/models` 浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | `36d73a9` |
+| FIX-S32-001 | 工作台/Dashboard | 中 | `/dashboard` 首屏用 7 个通用列表/能力接口拼概览，读取范围远超展示需要；运行队列名称解析还触发完整采集任务视图读取 | `StudioDashboardView.java`；`StudioDashboardService.java`；`DashboardController.java`；`DashboardView.vue`；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts` | `GET /dashboard/overview` 返回约 7.5KB 且无详情大字段；旧 7 请求约 35.1KB；build 后 nginx `/dashboard` 浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -96,3 +99,5 @@
 | S23 全量 ACL 扩展与分页契约告警 | BUG-S23-001 |
 | S24 共享资源执行 ACL 深挖 | BUG-S24-001 |
 | S30 数据资产二级页面取数瘦身 | FIX-S30-001、FIX-S30-002 |
+| S31 模型数据源页面元模型按需加载 | FIX-S31-001、FIX-S31-002 |
+| S32 工作台概览首屏聚合接口 | FIX-S32-001 |

@@ -29,14 +29,14 @@
         </article>
         <article class="dashboard-highlight">
           <span class="dashboard-highlight__label">{{ t("web.dashboard.heroScriptsTitle") }}</span>
-          <strong class="dashboard-highlight__value">{{ scripts.length }}</strong>
+          <strong class="dashboard-highlight__value">{{ scriptTotalCount }}</strong>
           <p class="dashboard-highlight__hint">{{ t("web.dashboard.heroScriptsHint") }}</p>
         </article>
       </div>
     </section>
 
     <div class="metrics-grid">
-      <MetricCard :label="t('web.dashboard.datasources')" :value="datasources.length" tone="accent" :hint="t('web.dashboard.datasourcesHint')" :description="t('web.dashboard.datasourcesDescription')" />
+      <MetricCard :label="t('web.dashboard.datasources')" :value="datasourceCount" tone="accent" :hint="t('web.dashboard.datasourcesHint')" :description="t('web.dashboard.datasourcesDescription')" />
       <MetricCard :label="t('web.dashboard.publishedWorkflows')" :value="publishedWorkflowCount" tone="success" :hint="t('web.dashboard.publishedWorkflowsHint')" :description="t('web.dashboard.publishedWorkflowsDescription')" />
       <MetricCard :label="t('web.dashboard.onlineTasks')" :value="onlineCollectionTaskCount" tone="warning" :hint="t('web.dashboard.onlineTasksHint')" :description="t('web.dashboard.onlineTasksDescription')" />
     </div>
@@ -55,7 +55,7 @@
           <div class="dashboard-pulse__stats">
             <div class="dashboard-pulse-stat">
               <span>{{ t("web.dashboard.queuedNow") }}</span>
-              <strong>{{ runData.queuedTasks.length }}</strong>
+              <strong>{{ queuedTaskCount }}</strong>
             </div>
             <div class="dashboard-pulse-stat">
               <span>{{ t("web.dashboard.runningNow") }}</span>
@@ -182,7 +182,7 @@
             </div>
             <div class="dashboard-readiness-stat">
               <span>{{ t("web.dashboard.scriptMixLabel") }}</span>
-              <strong>{{ scripts.length }}</strong>
+              <strong>{{ scriptTotalCount }}</strong>
             </div>
           </div>
 
@@ -216,11 +216,7 @@ import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import type {
-  CapabilityMatrix,
-  CollectionTaskListView,
   DataDevelopmentScriptListView,
-  DataSourceListView,
-  RunListResponse,
   WorkflowListView,
   WorkflowRunSummary,
 } from "@studio/api-sdk";
@@ -234,44 +230,33 @@ const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const datasources = ref<DataSourceListView[]>([]);
-const workflows = ref<WorkflowListView[]>([]);
-const collectionTasks = ref<CollectionTaskListView[]>([]);
-const scripts = ref<DataDevelopmentScriptListView[]>([]);
-const workflowRuns = ref<WorkflowRunSummary[]>([]);
+const datasourceCount = ref(0);
+const publishedWorkflowCount = ref(0);
+const scheduledWorkflowCount = ref(0);
+const onlineCollectionTaskCount = ref(0);
+const queuedTaskCount = ref(0);
+const executableDatasourceTypes = ref<string[]>([]);
+const recentWorkflowDefinitions = ref<WorkflowListView[]>([]);
+const recentWorkflowRuns = ref<WorkflowRunSummary[]>([]);
+const recentScripts = ref<DataDevelopmentScriptListView[]>([]);
 let dashboardLoadToken = 0;
 
-const capabilityMatrix = reactive<CapabilityMatrix>({
-  executableSourceTypes: [],
+const scriptTypeCounts = reactive({
+  SQL: 0,
+  JAVA: 0,
+  PYTHON: 0,
 });
 
-const runData = reactive<RunListResponse>({
-  queuedTasks: [],
-  runRecords: [],
-});
-
-const executableDatasourceTypes = computed(() => capabilityMatrix.executableDatasourceTypes ?? capabilityMatrix.executableSourceTypes ?? []);
-const publishedWorkflowCount = computed(() => workflows.value.filter((item) => Boolean(item.published)).length);
-const scheduledWorkflowCount = computed(() => workflows.value.filter((item) => Boolean(item.schedule?.enabled)).length);
-const onlineCollectionTaskCount = computed(() => collectionTasks.value.filter((item) => item.status === "ONLINE").length);
-const runningWorkflowRunCount = computed(() => workflowRuns.value.filter((item) => String(item.status ?? "").toUpperCase() === "RUNNING").length);
-const failedWorkflowRunCount = computed(() => workflowRuns.value.filter((item) => ["FAILED", "ERROR"].includes(String(item.status ?? "").toUpperCase())).length);
-const scriptTypeCounts = computed(() => ({
-  SQL: scripts.value.filter((item) => item.scriptType === "SQL").length,
-  JAVA: scripts.value.filter((item) => item.scriptType === "JAVA").length,
-  PYTHON: scripts.value.filter((item) => item.scriptType === "PYTHON").length,
-}));
-
-const recentWorkflowDefinitions = computed(() => sortByFreshness(workflows.value, ["updatedAt", "createdAt"]).slice(0, 5));
-const recentWorkflowRuns = computed(() => sortByFreshness(workflowRuns.value, ["startedAt", "endedAt", "createdAt"]).slice(0, 5));
-const recentScripts = computed(() => sortByFreshness(scripts.value, ["updatedAt", "createdAt"]).slice(0, 4));
+const runningWorkflowRunCount = computed(() => recentWorkflowRuns.value.filter((item) => String(item.status ?? "").toUpperCase() === "RUNNING").length);
+const failedWorkflowRunCount = computed(() => recentWorkflowRuns.value.filter((item) => ["FAILED", "ERROR"].includes(String(item.status ?? "").toUpperCase())).length);
+const scriptTotalCount = computed(() => scriptTypeCounts.SQL + scriptTypeCounts.JAVA + scriptTypeCounts.PYTHON);
 
 const workspaceLinks = computed(() => [
   {
     path: "/datasources",
     label: t("routes.web.datasources.title"),
     caption: t("routes.web.datasources.menuCaption"),
-    metric: t("web.dashboard.linkMetricCount", { count: datasources.value.length }),
+    metric: t("web.dashboard.linkMetricCount", { count: datasourceCount.value }),
   },
   {
     path: "/collection-tasks",
@@ -289,56 +274,37 @@ const workspaceLinks = computed(() => [
     path: "/data-development",
     label: t("routes.web.dataDevelopment.title"),
     caption: t("routes.web.dataDevelopment.menuCaption"),
-    metric: t("web.dashboard.linkMetricCount", { count: scripts.value.length }),
+    metric: t("web.dashboard.linkMetricCount", { count: scriptTotalCount.value }),
   },
 ]);
 
 async function loadDashboard() {
   const loadToken = ++dashboardLoadToken;
   try {
-    const [datasourceData, workflowData, capabilityData, runsData, collectionTaskData, scriptsData, workflowRunData] = await Promise.all([
-      studioApi.datasources.list(),
-      studioApi.workflows.list(),
-      studioApi.catalog.capabilities(),
-      studioApi.runs.list({ includeRunRecords: false }),
-      studioApi.collectionTasks.list(),
-      studioApi.dataDevelopment.listScripts(),
-      studioApi.workflowRuns.list({ pageNo: 1, pageSize: 6 }),
-    ]);
+    const overview = await studioApi.dashboard.overview();
     if (loadToken !== dashboardLoadToken) {
       return;
     }
-    datasources.value = datasourceData;
-    workflows.value = workflowData;
-    collectionTasks.value = collectionTaskData;
-    scripts.value = scriptsData;
-    workflowRuns.value = workflowRunData.items;
-    capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
-    capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
-    capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
-    capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
-    runData.queuedTasks = runsData.queuedTasks;
-    runData.runRecords = runsData.runRecords;
+    datasourceCount.value = toCount(overview.datasourceCount);
+    publishedWorkflowCount.value = toCount(overview.publishedWorkflowCount);
+    scheduledWorkflowCount.value = toCount(overview.scheduledWorkflowCount);
+    onlineCollectionTaskCount.value = toCount(overview.onlineCollectionTaskCount);
+    queuedTaskCount.value = toCount(overview.queuedTaskCount);
+    scriptTypeCounts.SQL = toCount(overview.scriptTypeCounts?.SQL);
+    scriptTypeCounts.JAVA = toCount(overview.scriptTypeCounts?.JAVA);
+    scriptTypeCounts.PYTHON = toCount(overview.scriptTypeCounts?.PYTHON);
+    executableDatasourceTypes.value = overview.executableDatasourceTypes ?? [];
+    recentWorkflowDefinitions.value = overview.recentWorkflowDefinitions ?? [];
+    recentWorkflowRuns.value = overview.recentWorkflowRuns ?? [];
+    recentScripts.value = overview.recentScripts ?? [];
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dashboard.loadFailed"));
   }
 }
 
-function sortByFreshness<T extends Record<string, unknown>>(items: T[], fields: string[]) {
-  return [...items].sort((left, right) => resolveFreshness(right, fields) - resolveFreshness(left, fields));
-}
-
-function resolveFreshness(record: Record<string, unknown>, fields: string[]) {
-  for (const field of fields) {
-    const value = record[field];
-    if (typeof value === "string") {
-      const timestamp = Date.parse(value);
-      if (Number.isFinite(timestamp)) {
-        return timestamp;
-      }
-    }
-  }
-  return 0;
+function toCount(value?: number | string | null) {
+  const numberValue = Number(value ?? 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
 function formatDuration(durationMs?: number) {

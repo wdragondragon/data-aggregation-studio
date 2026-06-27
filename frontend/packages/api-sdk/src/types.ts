@@ -271,6 +271,19 @@ export interface CapabilityMatrix {
   sourceCapabilities?: SourceCapabilityEntry[];
 }
 
+export interface StudioDashboardView {
+  datasourceCount?: number | string | null;
+  publishedWorkflowCount?: number | string | null;
+  scheduledWorkflowCount?: number | string | null;
+  onlineCollectionTaskCount?: number | string | null;
+  queuedTaskCount?: number | string | null;
+  scriptTypeCounts?: Record<string, number | string | null>;
+  executableDatasourceTypes?: string[];
+  recentWorkflowDefinitions?: WorkflowListView[];
+  recentWorkflowRuns?: WorkflowRunSummary[];
+  recentScripts?: DataDevelopmentScriptListView[];
+}
+
 export type DataSourceConnectionStatus = "UNKNOWN" | "AVAILABLE" | "UNAVAILABLE";
 
 export interface DatasourceConnectionTestRecordView {

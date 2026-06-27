@@ -113,6 +113,14 @@ public class RunService {
         return entity;
     }
 
+    public Long countQueuedTasks() {
+        Long count = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, securityService.currentTenantId())
+                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
+        return count == null ? 0L : count;
+    }
+
     public RunLogView buildHistoricalFallback(RunRecordEntity entity) {
         RunLogView view = new RunLogView();
         view.setRunRecordId(entity.getId());

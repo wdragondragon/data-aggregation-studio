@@ -167,6 +167,7 @@ import type {
   RuntimeModeResponse,
   ResourceShare,
   ShareResourceOption,
+  StudioDashboardView,
   StudioUser,
   StudioUserListView,
   WebServiceDebugRequest,
@@ -397,6 +398,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       cancel(requestId: EntityId) {
         return request<WorkspaceAccessRequestView>({ url: `/access/project-requests/${requestId}/cancel`, method: "POST" });
+      },
+    },
+    dashboard: {
+      overview() {
+        return request<StudioDashboardView>({ url: "/dashboard/overview", method: "GET" });
       },
     },
     catalog: {

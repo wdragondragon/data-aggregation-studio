@@ -127,6 +127,12 @@ public class CollectionTaskService {
         return result;
     }
 
+    public Long countOnlineSummaries() {
+        Long count = definitionMapper.selectCount(buildAccessibleQuery()
+                .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name()));
+        return count == null ? 0L : count;
+    }
+
     public List<CollectionTaskDefinitionView> listOnline() {
         List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())

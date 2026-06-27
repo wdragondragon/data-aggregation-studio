@@ -33,10 +33,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class WorkflowService {
@@ -97,6 +99,66 @@ public class WorkflowService {
         List<WorkflowListView> result = new ArrayList<WorkflowListView>();
         for (WorkflowDefinitionEntity definition : definitions) {
             result.add(toListView(definition));
+        }
+        return result;
+    }
+
+    public Long countPublishedSummaries() {
+        Long count = definitionMapper.selectCount(buildAccessibleQuery()
+                .eq(WorkflowDefinitionEntity::getPublished, Integer.valueOf(1)));
+        return count == null ? 0L : count;
+    }
+
+    public Long countScheduledSummaries() {
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
+                .select(WorkflowDefinitionEntity::getId));
+        if (definitions.isEmpty()) {
+            return 0L;
+        }
+        List<Long> definitionIds = new ArrayList<Long>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            if (definition.getId() != null) {
+                definitionIds.add(definition.getId());
+            }
+        }
+        if (definitionIds.isEmpty()) {
+            return 0L;
+        }
+        List<WorkflowScheduleEntity> schedules = scheduleMapper.selectList(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .select(WorkflowScheduleEntity::getWorkflowDefinitionId)
+                .in(WorkflowScheduleEntity::getWorkflowDefinitionId, definitionIds)
+                .eq(WorkflowScheduleEntity::getEnabled, Integer.valueOf(1)));
+        Set<Long> scheduledDefinitionIds = new HashSet<Long>();
+        for (WorkflowScheduleEntity schedule : schedules) {
+            if (schedule.getWorkflowDefinitionId() != null) {
+                scheduledDefinitionIds.add(schedule.getWorkflowDefinitionId());
+            }
+        }
+        return Long.valueOf(scheduledDefinitionIds.size());
+    }
+
+    public List<WorkflowListView> listRecentSummaries(int limit) {
+        int safeLimit = limit <= 0 ? 5 : Math.min(limit, 20);
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getTenantId,
+                        WorkflowDefinitionEntity::getProjectId,
+                        WorkflowDefinitionEntity::getDeleted,
+                        WorkflowDefinitionEntity::getCreatedAt,
+                        WorkflowDefinitionEntity::getUpdatedAt,
+                        WorkflowDefinitionEntity::getCode,
+                        WorkflowDefinitionEntity::getName,
+                        WorkflowDefinitionEntity::getCurrentVersionId,
+                        WorkflowDefinitionEntity::getPublished)
+                .orderByDesc(WorkflowDefinitionEntity::getUpdatedAt)
+                .orderByDesc(WorkflowDefinitionEntity::getCreatedAt)
+                .last("limit " + safeLimit));
+        Map<Long, WorkflowScheduleDefinition> schedules = scheduleMap(definitions);
+        List<WorkflowListView> result = new ArrayList<WorkflowListView>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            WorkflowListView view = toBasicListView(definition);
+            view.setSchedule(schedules.get(definition.getId()));
+            result.add(view);
         }
         return result;
     }
@@ -211,6 +273,17 @@ public class WorkflowService {
     }
 
     private WorkflowListView toListView(WorkflowDefinitionEntity definition) {
+        WorkflowListView view = toBasicListView(definition);
+        WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definition.getId())
+                .last("limit 1"));
+        if (scheduleEntity != null) {
+            view.setSchedule(toScheduleDefinition(scheduleEntity));
+        }
+        return view;
+    }
+
+    private WorkflowListView toBasicListView(WorkflowDefinitionEntity definition) {
         WorkflowListView view = new WorkflowListView();
         view.setId(definition.getId());
         view.setTenantId(definition.getTenantId());
@@ -222,17 +295,39 @@ public class WorkflowService {
         view.setName(definition.getName());
         view.setVersionId(definition.getCurrentVersionId());
         view.setPublished(definition.getPublished() != null && definition.getPublished() == 1);
-        WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
-                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definition.getId())
-                .last("limit 1"));
-        if (scheduleEntity != null) {
-            WorkflowScheduleDefinition schedule = new WorkflowScheduleDefinition();
-            schedule.setCronExpression(scheduleEntity.getCronExpression());
-            schedule.setEnabled(scheduleEntity.getEnabled() != null && scheduleEntity.getEnabled() == 1);
-            schedule.setTimezone(scheduleEntity.getTimezone());
-            view.setSchedule(schedule);
-        }
         return view;
+    }
+
+    private Map<Long, WorkflowScheduleDefinition> scheduleMap(List<WorkflowDefinitionEntity> definitions) {
+        Map<Long, WorkflowScheduleDefinition> result = new LinkedHashMap<Long, WorkflowScheduleDefinition>();
+        if (definitions == null || definitions.isEmpty()) {
+            return result;
+        }
+        Set<Long> ids = new HashSet<Long>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            if (definition.getId() != null) {
+                ids.add(definition.getId());
+            }
+        }
+        if (ids.isEmpty()) {
+            return result;
+        }
+        List<WorkflowScheduleEntity> schedules = scheduleMapper.selectList(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .in(WorkflowScheduleEntity::getWorkflowDefinitionId, ids));
+        for (WorkflowScheduleEntity schedule : schedules) {
+            if (schedule.getWorkflowDefinitionId() != null && !result.containsKey(schedule.getWorkflowDefinitionId())) {
+                result.put(schedule.getWorkflowDefinitionId(), toScheduleDefinition(schedule));
+            }
+        }
+        return result;
+    }
+
+    private WorkflowScheduleDefinition toScheduleDefinition(WorkflowScheduleEntity scheduleEntity) {
+        WorkflowScheduleDefinition schedule = new WorkflowScheduleDefinition();
+        schedule.setCronExpression(scheduleEntity.getCronExpression());
+        schedule.setEnabled(scheduleEntity.getEnabled() != null && scheduleEntity.getEnabled() == 1);
+        schedule.setTimezone(scheduleEntity.getTimezone());
+        return schedule;
     }
 
     @Transactional

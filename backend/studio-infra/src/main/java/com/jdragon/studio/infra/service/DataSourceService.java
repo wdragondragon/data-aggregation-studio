@@ -91,6 +91,11 @@ public class DataSourceService {
         return result;
     }
 
+    public Long countSummaries() {
+        Long count = datasourceMapper.selectCount(buildAccessibleQuery());
+        return count == null ? 0L : count;
+    }
+
     public List<DataSourceListView> listSummaries() {
         List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
                 .select(DatasourceEntity::getId,

@@ -110,6 +110,44 @@ public class DataDevelopmentService {
         return result;
     }
 
+    public Map<String, Long> scriptTypeCounts() {
+        String tenantId = securityService.currentTenantId();
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
+        Map<String, Long> result = new LinkedHashMap<String, Long>();
+        for (ScriptType scriptType : ScriptType.values()) {
+            Long count = scriptMapper.selectCount(buildScriptQuery(tenantId, projectId, scriptType));
+            result.put(scriptType.name(), count == null ? 0L : count);
+        }
+        return result;
+    }
+
+    public List<DataDevelopmentScriptListView> listRecentScriptSummaries(int limit) {
+        String tenantId = securityService.currentTenantId();
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
+        int safeLimit = limit <= 0 ? 4 : Math.min(limit, 20);
+        List<DataDevelopmentScriptEntity> scripts = scriptMapper.selectList(buildScriptQuery(tenantId, projectId, null)
+                .select(DataDevelopmentScriptEntity::getId,
+                        DataDevelopmentScriptEntity::getTenantId,
+                        DataDevelopmentScriptEntity::getProjectId,
+                        DataDevelopmentScriptEntity::getDeleted,
+                        DataDevelopmentScriptEntity::getCreatedAt,
+                        DataDevelopmentScriptEntity::getUpdatedAt,
+                        DataDevelopmentScriptEntity::getDirectoryId,
+                        DataDevelopmentScriptEntity::getFileName,
+                        DataDevelopmentScriptEntity::getScriptType,
+                        DataDevelopmentScriptEntity::getDatasourceId,
+                        DataDevelopmentScriptEntity::getEnvironmentId,
+                        DataDevelopmentScriptEntity::getDescription)
+                .orderByDesc(DataDevelopmentScriptEntity::getUpdatedAt)
+                .orderByDesc(DataDevelopmentScriptEntity::getCreatedAt)
+                .last("limit " + safeLimit));
+        List<DataDevelopmentScriptListView> result = new ArrayList<DataDevelopmentScriptListView>();
+        for (DataDevelopmentScriptEntity entity : scripts) {
+            result.add(toScriptListView(entity, Collections.emptyMap()));
+        }
+        return result;
+    }
+
     public List<DataSourceDefinition> listSqlCapableDatasources() {
         projectResourceAccessService.requireCurrentProjectId();
         List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
@@ -366,7 +404,7 @@ public class DataDevelopmentService {
     }
 
     private List<DataDevelopmentScriptEntity> listScriptEntities(String tenantId, Long projectId, ScriptType scriptType) {
-        LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+        LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = buildScriptQuery(tenantId, projectId, scriptType)
                 .select(DataDevelopmentScriptEntity::getId,
                         DataDevelopmentScriptEntity::getTenantId,
                         DataDevelopmentScriptEntity::getProjectId,
@@ -379,10 +417,15 @@ public class DataDevelopmentService {
                         DataDevelopmentScriptEntity::getDatasourceId,
                         DataDevelopmentScriptEntity::getEnvironmentId,
                         DataDevelopmentScriptEntity::getDescription)
-                .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
                 .orderByAsc(DataDevelopmentScriptEntity::getDirectoryId)
                 .orderByAsc(DataDevelopmentScriptEntity::getProjectId)
                 .orderByAsc(DataDevelopmentScriptEntity::getFileName);
+        return scriptMapper.selectList(wrapper);
+    }
+
+    private LambdaQueryWrapper<DataDevelopmentScriptEntity> buildScriptQuery(String tenantId, Long projectId, ScriptType scriptType) {
+        LambdaQueryWrapper<DataDevelopmentScriptEntity> wrapper = new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+                .eq(DataDevelopmentScriptEntity::getTenantId, tenantId);
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT);
         if (projectId != null) {
             if (sharedIds.isEmpty()) {
@@ -396,7 +439,7 @@ public class DataDevelopmentService {
         if (scriptType != null) {
             wrapper.eq(DataDevelopmentScriptEntity::getScriptType, scriptType.name());
         }
-        return scriptMapper.selectList(wrapper);
+        return wrapper;
     }
 
     private List<DataDevelopmentTreeNode> buildTree(List<DataDevelopmentDirectoryEntity> directories,
