@@ -326,6 +326,14 @@ export interface DataSourceDefinition extends BaseRecord {
   businessMetadata: Record<string, unknown>;
 }
 
+export interface DataSourceOptionView extends BaseRecord {
+  name: string;
+  typeCode: string;
+  schemaVersionId?: EntityId;
+  enabled?: boolean;
+  executable?: boolean;
+}
+
 export interface DataSourceListView extends BaseRecord {
   name: string;
   typeCode: string;

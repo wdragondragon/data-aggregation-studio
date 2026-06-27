@@ -41,6 +41,7 @@ import type {
   DatasourceTypeCapabilityView,
   DataSourceDefinition,
   DataSourceListView,
+  DataSourceOptionView,
   DataIngestionDebugRequest,
   DataIngestionAccessLogListView,
   DataIngestionApiMetricView,
@@ -1377,6 +1378,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       listSqlDatasources() {
         return request<DataSourceDefinition[]>({ url: "/data-development/datasources", method: "GET" });
+      },
+      listSqlDatasourceOptions() {
+        return request<DataSourceOptionView[]>({ url: "/data-development/datasource-options", method: "GET" });
       },
       listSqlDatasourceTypes() {
         return request<string[]>({ url: "/data-development/datasource-types", method: "GET" });

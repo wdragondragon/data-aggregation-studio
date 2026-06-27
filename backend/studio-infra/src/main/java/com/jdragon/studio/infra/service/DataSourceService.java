@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
@@ -126,6 +127,32 @@ public class DataSourceService {
         List<DataSourceListView> result = new ArrayList<DataSourceListView>();
         for (DataSourceDefinition definition : definitions) {
             result.add(toListView(definition));
+        }
+        return result;
+    }
+
+    public List<DataSourceOptionView> listBasicOptionsByTypes(Set<String> typeCodes) {
+        if (typeCodes == null || typeCodes.isEmpty()) {
+            return new ArrayList<DataSourceOptionView>();
+        }
+        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
+                .select(DatasourceEntity::getId,
+                        DatasourceEntity::getTenantId,
+                        DatasourceEntity::getProjectId,
+                        DatasourceEntity::getDeleted,
+                        DatasourceEntity::getCreatedAt,
+                        DatasourceEntity::getUpdatedAt,
+                        DatasourceEntity::getName,
+                        DatasourceEntity::getTypeCode,
+                        DatasourceEntity::getSchemaVersionId,
+                        DatasourceEntity::getEnabled,
+                        DatasourceEntity::getExecutable)
+                .in(DatasourceEntity::getTypeCode, typeCodes)
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        List<DataSourceOptionView> result = new ArrayList<DataSourceOptionView>();
+        for (DatasourceEntity entity : entities) {
+            result.add(toOptionView(entity));
         }
         return result;
     }
@@ -399,6 +426,22 @@ public class DataSourceService {
 
     private DataSourceListView toBasicListView(DatasourceEntity entity) {
         DataSourceListView view = new DataSourceListView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setTypeCode(entity.getTypeCode());
+        view.setSchemaVersionId(entity.getSchemaVersionId());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setExecutable(entity.getExecutable() != null && entity.getExecutable().intValue() == 1);
+        return view;
+    }
+
+    private DataSourceOptionView toOptionView(DatasourceEntity entity) {
+        DataSourceOptionView view = new DataSourceOptionView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());

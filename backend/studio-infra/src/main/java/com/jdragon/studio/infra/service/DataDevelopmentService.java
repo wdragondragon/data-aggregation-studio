@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.JavaImportHintResponse;
 import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
@@ -157,6 +158,11 @@ public class DataDevelopmentService {
             }
         }
         return result;
+    }
+
+    public List<DataSourceOptionView> listSqlCapableDatasourceOptions() {
+        projectResourceAccessService.requireCurrentProjectId();
+        return dataSourceService.listBasicOptionsByTypes(sqlExecutor.supportedDatasourceTypes());
     }
 
     public List<String> listSqlDatasourceTypes() {

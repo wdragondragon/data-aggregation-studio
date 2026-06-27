@@ -82,6 +82,18 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data[0].typeCode").value("mysql8"));
 
+        MvcResult datasourceOptionsResult = mockMvc.perform(get("/api/v1/data-development/datasource-options")
+                        .header("Authorization", authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data[0].typeCode").value("mysql8"))
+                .andReturn();
+        String datasourceOptionsBody = datasourceOptionsResult.getResponse().getContentAsString();
+        assertThat(datasourceOptionsBody).doesNotContain("technicalMetadata");
+        assertThat(datasourceOptionsBody).doesNotContain("businessMetadata");
+        assertThat(datasourceOptionsBody).doesNotContain("recentConnectionTests");
+
         MvcResult treeResult = mockMvc.perform(get("/api/v1/data-development/tree")
                         .header("Authorization", authorization)
                         .accept(MediaType.APPLICATION_JSON))

@@ -394,7 +394,7 @@ import type {
   DataServiceRequestParam,
   DataServiceSaveRequest,
   DataServiceValueType,
-  DataSourceDefinition,
+  DataSourceOptionView,
   EntityId,
   FieldMappingRuleView,
   TransformerBinding,
@@ -501,7 +501,7 @@ const form = reactive<DataServiceSaveRequest & {
   publishParams: [],
 });
 
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const models = ref<DataModelDefinition[]>([]);
 const fieldOptions = ref<DataServiceFieldView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
@@ -788,7 +788,7 @@ function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): We
 
 async function loadInitialData() {
   const [sqlDatasources, rules] = await Promise.all([
-    studioApi.dataDevelopment.listSqlDatasources(),
+    studioApi.dataDevelopment.listSqlDatasourceOptions(),
     studioApi.fieldMappingRules.options(),
   ]);
   datasources.value = sqlDatasources;

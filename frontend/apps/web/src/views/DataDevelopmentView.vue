@@ -267,7 +267,7 @@ import type {
   DataModelDefinition,
   SqlStatementExecutionResult,
   DataDevelopmentTreeNode,
-  DataSourceDefinition,
+  DataSourceOptionView,
   EntityId,
   ScriptEnvironment,
   SqlExecutionResult,
@@ -287,7 +287,7 @@ const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 
 const treeData = ref<DataDevelopmentTreeNode[]>([]);
 const directories = ref<DataDevelopmentDirectory[]>([]);
-const sqlDatasources = ref<DataSourceDefinition[]>([]);
+const sqlDatasources = ref<DataSourceOptionView[]>([]);
 const scriptEnvironments = ref<ScriptEnvironment[]>([]);
 const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
@@ -432,7 +432,7 @@ async function refreshAll() {
     const [tree, directoryList, datasourceList, environmentList] = await Promise.all([
       studioApi.dataDevelopment.tree(),
       studioApi.dataDevelopment.listDirectories(),
-      studioApi.dataDevelopment.listSqlDatasources(),
+      studioApi.dataDevelopment.listSqlDatasourceOptions(),
       studioApi.scriptEnvironments.options({ enabledOnly: true }),
     ]);
     if (currentRefreshToken !== refreshToken.value) {
@@ -448,6 +448,33 @@ async function refreshAll() {
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.loadFailed"));
+  }
+}
+
+async function refreshTreeOnly() {
+  if (!hasCurrentProject.value) {
+    resetProjectScopedState();
+    return;
+  }
+  treeData.value = await studioApi.dataDevelopment.tree();
+  if (selectedTreeNode.value) {
+    synchronizeSelection();
+  }
+}
+
+async function refreshStructure() {
+  if (!hasCurrentProject.value) {
+    resetProjectScopedState();
+    return;
+  }
+  const [tree, directoryList] = await Promise.all([
+    studioApi.dataDevelopment.tree(),
+    studioApi.dataDevelopment.listDirectories(),
+  ]);
+  treeData.value = tree;
+  directories.value = directoryList;
+  if (selectedTreeNode.value) {
+    synchronizeSelection();
   }
 }
 
@@ -586,7 +613,7 @@ async function saveDirectory() {
     });
     directoryDialogVisible.value = false;
     ElMessage.success(t("web.dataDevelopment.saveDirectorySuccess"));
-    await refreshAll();
+    await refreshStructure();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.saveDirectoryFailed"));
   }
@@ -817,7 +844,7 @@ async function ensureSqlHintsLoaded(datasourceId: EntityId | undefined) {
   }
 }
 
-function buildSqlHintSource(models: DataModelDefinition[], datasource?: DataSourceDefinition): SqlEditorHintSource {
+function buildSqlHintSource(models: DataModelDefinition[], datasource?: DataSourceOptionView): SqlEditorHintSource {
   const tableMap = new Map<string, { name: string; modelName?: string; columns: Set<string> }>();
   for (const model of models) {
     const tableName = String(model.physicalLocator || model.name || "").trim();
@@ -877,6 +904,7 @@ async function moveSelectedNode() {
   if (!selectedTreeNode.value) {
     return;
   }
+  const movingDirectory = selectedTreeNode.value.nodeType === "DIRECTORY";
   try {
     const payload = { targetDirectoryId: normalizeEntityId(moveTargetDirectoryId.value) };
     if (selectedTreeNode.value.nodeType === "DIRECTORY" && selectedTreeNode.value.directoryId) {
@@ -888,7 +916,11 @@ async function moveSelectedNode() {
       ElMessage.success(t("web.dataDevelopment.moveScriptSuccess"));
     }
     moveDialogVisible.value = false;
-    await refreshAll();
+    if (movingDirectory) {
+      await refreshStructure();
+    } else {
+      await refreshTreeOnly();
+    }
   } catch (error) {
     const messageKey = selectedTreeNode.value?.nodeType === "DIRECTORY"
       ? "web.dataDevelopment.moveDirectoryFailed"
@@ -901,6 +933,7 @@ async function deleteSelectedNode() {
   if (!selectedTreeNode.value) {
     return;
   }
+  const deletingDirectory = selectedTreeNode.value.nodeType === "DIRECTORY";
   try {
     if (selectedTreeNode.value.nodeType === "DIRECTORY" && selectedTreeNode.value.directoryId) {
       await ElMessageBox.confirm(
@@ -926,7 +959,11 @@ async function deleteSelectedNode() {
     if (!scriptForm.id && !scriptForm.fileName && !scriptForm.content && !scriptForm.datasourceId) {
       scriptEditorVisible.value = false;
     }
-    await refreshAll();
+    if (deletingDirectory) {
+      await refreshStructure();
+    } else {
+      await refreshTreeOnly();
+    }
   } catch (error) {
     if (error !== "cancel") {
       const messageKey = selectedTreeNode.value?.nodeType === "DIRECTORY"

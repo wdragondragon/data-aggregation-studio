@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.JavaImportHintResponse;
 import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
@@ -113,6 +114,12 @@ public class DataDevelopmentController {
     @GetMapping("/datasources")
     public Result<List<DataSourceDefinition>> datasources() {
         return Result.success(dataDevelopmentService.listSqlCapableDatasources());
+    }
+
+    @Operation(summary = "List SQL-capable datasource options")
+    @GetMapping("/datasource-options")
+    public Result<List<DataSourceOptionView>> datasourceOptions() {
+        return Result.success(dataDevelopmentService.listSqlCapableDatasourceOptions());
     }
 
     @Operation(summary = "List SQL-capable datasource types")

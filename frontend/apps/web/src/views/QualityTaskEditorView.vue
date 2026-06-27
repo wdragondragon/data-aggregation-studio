@@ -95,7 +95,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
   DataModelDefinition,
-  DataSourceDefinition,
+  DataSourceOptionView,
   QualityRuleDimension,
   QualityRuleGranularity,
   QualityRuleOutputParamView,
@@ -155,7 +155,7 @@ const publishing = ref(false);
 const triggering = ref(false);
 const rulesLoading = ref(false);
 const detailLoadError = ref("");
-const datasources = ref<DataSourceDefinition[]>([]);
+const datasources = ref<DataSourceOptionView[]>([]);
 const modelCache = ref<Record<string, DataModelDefinition[]>>({});
 const ruleOptions = ref<QualityRuleView[]>([]);
 const selectedRuleDetail = ref<QualityRuleView | null>(null);
@@ -351,7 +351,7 @@ async function loadTask() {
 
 async function loadDatasources() {
   try {
-    datasources.value = await studioApi.dataDevelopment.listSqlDatasources();
+    datasources.value = await studioApi.dataDevelopment.listSqlDatasourceOptions();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载数据源失败");
   }

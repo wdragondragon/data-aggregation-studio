@@ -64,6 +64,7 @@
 | FIX-S33-001 | 系统管理/Worker 下发与写后刷新 | 中 | Worker 下发表格源查询读取 `worker_lease.capabilitiesJson` 后丢弃；系统管理多类保存/删除后重拉当前 tab，资源共享还重拉项目和资源选项 | `SystemManagementService.java`；`SystemView.vue` | `/system/project-workers` 默认项目和长期项目响应不含 `capabilitiesJson`；`/system?tab=workers` 浏览器烟测无 warn/error；`SystemView.vue` 保存/删除封装无 `loadCurrentTab()`；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 | FIX-S34-001 | 运行与质量指标 | 中 | 运行指标、质量指标和质量问题列表存在源头字段过取；质量问题单行处置后重拉当前 tab | `CollectionTaskService.java`；`RunMetricsService.java`；`RunRecordEntity.java`；`RunMetricSummaryMapper.java`；`RunMetricBackfillService.java`；`QualityMetricsService.java`；`QualityIssueService.java`；`QualityMetricsView.vue`；schema/upgrade 脚本 | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；`mvn -pl studio-server -am test -DskipTests`；`records/20260627-S34运行与质量指标源头瘦身执行记录.md` | module-regression | 2026-06-27 | `5a71563` |
 | FIX-S35-001 | 开放服务/订阅 Token | 中 | 数据服务、数据接入、协议转换订阅弹窗列表源头读取 `tokenHash` 和完整服务配置；订阅创建/轮换/启停后重拉整个订阅列表 | `DataServiceService.java`；`DataIngestionService.java`；`ProtocolConversionService.java`；`DataServicesView.vue`；`DataIngestionServicesView.vue`；`ProtocolConversionServicesView.vue`；`SubscriptionTokenRotationRegressionTest.java` | `SubscriptionTokenRotationRegressionTest`；长期项目 nginx API 遍历 80 条订阅响应无 `tokenHash/serviceKey/webserviceConfig`；三页 build 后浏览器 smoke 无 warn/error；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
+| FIX-S36-001 | 数据开发/SQL 数据源选项 | 中 | 数据开发、数据服务、质量规则/任务编辑页的 SQL 数据源下拉使用完整数据源定义接口，读取并返回连接元数据、业务元数据和连接历史；数据开发目录/脚本结构写后重拉整页初始化数据 | `DataSourceService.java`；`DataDevelopmentService.java`；`DataDevelopmentController.java`；`DataSourceOptionView.java`；`DataDevelopmentView.vue`；`DataServiceEditorView.vue`；`QualityRuleEditorView.vue`；`QualityTaskEditorView.vue`；`QualityTaskBindingSection.vue`；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts`；`DataDevelopmentApiRegressionTest.java` | `DataDevelopmentApiRegressionTest`；长期项目 `/data-development/datasource-options` 响应无 `technicalMetadata/businessMetadata/recentConnectionTests/connectionFingerprint`；build 后 nginx `/data-development` 浏览器 smoke 无 warn/error；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -107,3 +108,4 @@
 | S33 系统管理 Worker 与写后刷新收敛 | FIX-S33-001 |
 | S34 运行与质量指标源头瘦身 | FIX-S34-001 |
 | S35 开放服务订阅列表与写后刷新收敛 | FIX-S35-001 |
+| S36 数据开发 SQL 数据源选项与写后刷新收敛 | FIX-S36-001 |

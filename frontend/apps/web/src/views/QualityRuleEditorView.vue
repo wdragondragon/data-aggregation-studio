@@ -316,7 +316,7 @@ async function loadDatasourceTypes() {
 }
 
 async function loadDatasourceTypesFromInstances() {
-  const items = await studioApi.dataDevelopment.listSqlDatasources();
+  const items = await studioApi.dataDevelopment.listSqlDatasourceOptions();
   datasourceTypeOptions.value = uniqueDatasourceTypes(items.map((item) => item.typeCode));
 }
 
