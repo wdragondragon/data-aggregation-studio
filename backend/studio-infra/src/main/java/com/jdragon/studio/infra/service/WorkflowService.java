@@ -13,6 +13,7 @@ import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowListView;
+import com.jdragon.studio.dto.model.WorkflowOptionView;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.WorkflowScheduleDefinition;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
@@ -103,6 +104,24 @@ public class WorkflowService {
                 .orderByAsc(WorkflowDefinitionEntity::getCode);
         Page<WorkflowDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
         return PageView.of(current, size, entityPage.getTotal(), toListViews(entityPage.getRecords()));
+    }
+
+    public List<WorkflowOptionView> listOptions() {
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getProjectId,
+                        WorkflowDefinitionEntity::getName)
+                .orderByAsc(WorkflowDefinitionEntity::getName)
+                .orderByAsc(WorkflowDefinitionEntity::getId));
+        List<WorkflowOptionView> result = new ArrayList<WorkflowOptionView>();
+        for (WorkflowDefinitionEntity definition : definitions) {
+            WorkflowOptionView view = new WorkflowOptionView();
+            view.setId(definition.getId());
+            view.setProjectId(definition.getProjectId());
+            view.setName(definition.getName());
+            result.add(view);
+        }
+        return result;
     }
 
     private List<WorkflowListView> toListViews(List<WorkflowDefinitionEntity> definitions) {

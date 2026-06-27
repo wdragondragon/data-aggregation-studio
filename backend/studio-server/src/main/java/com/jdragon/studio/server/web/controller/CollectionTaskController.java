@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
+import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
@@ -53,6 +54,12 @@ public class CollectionTaskController {
                                                              @RequestParam(value = "targetDatasource", required = false) String targetDatasource,
                                                              @RequestParam(value = "targetModel", required = false) String targetModel) {
         return Result.success(collectionTaskService.listSummaryPage(pageNo, pageSize, name, targetDatasource, targetModel));
+    }
+
+    @Operation(summary = "List collection task options")
+    @GetMapping("/options")
+    public Result<List<CollectionTaskOptionView>> options() {
+        return Result.success(collectionTaskService.listOptions());
     }
 
     @Operation(summary = "List online collection tasks")

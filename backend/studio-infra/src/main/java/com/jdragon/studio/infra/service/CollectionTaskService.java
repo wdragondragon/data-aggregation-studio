@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
+import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
 import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
@@ -183,6 +184,24 @@ public class CollectionTaskService {
             if (entity.getId() != null) {
                 result.put(entity.getId(), entity.getName());
             }
+        }
+        return result;
+    }
+
+    public List<CollectionTaskOptionView> listOptions() {
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getProjectId,
+                        CollectionTaskDefinitionEntity::getName)
+                .orderByAsc(CollectionTaskDefinitionEntity::getName)
+                .orderByAsc(CollectionTaskDefinitionEntity::getId));
+        List<CollectionTaskOptionView> result = new ArrayList<CollectionTaskOptionView>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            CollectionTaskOptionView view = new CollectionTaskOptionView();
+            view.setId(entity.getId());
+            view.setProjectId(entity.getProjectId());
+            view.setName(entity.getName());
+            result.add(view);
         }
         return result;
     }

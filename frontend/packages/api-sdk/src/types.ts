@@ -1611,6 +1611,12 @@ export interface CollectionTaskListView extends BaseRecord {
   schedule?: CollectionTaskScheduleDefinition;
 }
 
+export interface CollectionTaskOptionView {
+  id?: EntityId;
+  projectId?: EntityId;
+  name?: string;
+}
+
 export interface CollectionTaskListQuery {
   name?: string;
   targetDatasource?: string;
@@ -2303,6 +2309,12 @@ export interface WorkflowListView extends BaseRecord {
   versionNumber?: number;
   published?: boolean;
   schedule?: WorkflowScheduleDefinition;
+}
+
+export interface WorkflowOptionView {
+  id?: EntityId;
+  projectId?: EntityId;
+  name?: string;
 }
 
 export interface WorkflowSaveRequest {

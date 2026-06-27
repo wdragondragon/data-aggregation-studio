@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.WorkflowListView;
+import com.jdragon.studio.dto.model.WorkflowOptionView;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.entity.WorkflowScheduleEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
@@ -89,6 +90,26 @@ class WorkflowListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<WorkflowScheduleEntity>> scheduleCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(scheduleMapper).selectList(scheduleCaptor.capture());
         assertScheduleSummarySelect(scheduleCaptor.getValue().getSqlSelect());
+        verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void workflowOptionsShouldSelectOnlyIdProjectAndNameWithoutSchedules() {
+        WorkflowDefinitionMapper definitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowScheduleMapper scheduleMapper = mock(WorkflowScheduleMapper.class);
+        WorkflowService service = workflowService(definitionMapper, scheduleMapper);
+        when(definitionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(workflowDefinition()));
+
+        assertThat(service.listOptions())
+                .extracting(WorkflowOptionView::getName)
+                .containsExactly("长期回归-客户订单日终工作流");
+
+        ArgumentCaptor<LambdaQueryWrapper<WorkflowDefinitionEntity>> definitionCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper).selectList(definitionCaptor.capture());
+        assertThat(definitionCaptor.getValue().getSqlSelect())
+                .contains("id", "project_id", "name")
+                .doesNotContain("code", "current_version_id", "published", "created_by");
+        verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
     }
 

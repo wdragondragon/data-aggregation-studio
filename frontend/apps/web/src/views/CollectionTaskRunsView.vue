@@ -175,7 +175,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskListView, RunRecordListView } from "@studio/api-sdk";
+import type { CollectionTaskOptionView, RunRecordListView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -193,7 +193,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
-const collectionTasks = ref<CollectionTaskListView[]>([]);
+const collectionTasks = ref<CollectionTaskOptionView[]>([]);
 const pagedRunRecords = ref<RunRecordListView[]>([]);
 const taskRunTotal = ref(0);
 const failedCount = ref(0);
@@ -232,7 +232,7 @@ function syncFiltersFromRoute() {
 
 async function loadCollectionTasks() {
   try {
-    collectionTasks.value = await studioApi.collectionTasks.list();
+    collectionTasks.value = await studioApi.collectionTasks.options();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }

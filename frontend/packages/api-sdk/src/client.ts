@@ -6,6 +6,7 @@ import type {
   CollectionTaskDefinitionView,
   CollectionTaskListView,
   CollectionTaskListQuery,
+  CollectionTaskOptionView,
   CollectionTaskSaveRequest,
   CollectionTaskScheduleDefinition,
   ConnectionTestResult,
@@ -179,6 +180,7 @@ import type {
   WebServicePreviewView,
   WorkflowDefinitionView,
   WorkflowListView,
+  WorkflowOptionView,
   WorkflowSaveRequest,
 } from "./types";
 
@@ -1120,6 +1122,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(config?: StudioRequestConfig) {
         return request<WorkflowListView[]>({ ...config, url: "/workflows", method: "GET" });
       },
+      options(config?: StudioRequestConfig) {
+        return request<WorkflowOptionView[]>({ ...config, url: "/workflows/options", method: "GET" });
+      },
       listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
         return requestPage<WorkflowListView>({ ...config, url: "/workflows/page", method: "GET", params }, params);
       },
@@ -1142,6 +1147,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     collectionTasks: {
       list(params?: CollectionTaskListQuery, config?: StudioRequestConfig) {
         return request<CollectionTaskListView[]>({ ...config, url: "/collection-tasks", method: "GET", params });
+      },
+      options(config?: StudioRequestConfig) {
+        return request<CollectionTaskOptionView[]>({ ...config, url: "/collection-tasks/options", method: "GET" });
       },
       listPage(params?: CollectionTaskListQuery & { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
         return request<unknown>({ ...config, url: "/collection-tasks/page", method: "GET", params }).then((payload) =>

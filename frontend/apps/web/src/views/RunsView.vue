@@ -151,7 +151,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { WorkflowListView, WorkflowRunSummary } from "@studio/api-sdk";
+import type { WorkflowOptionView, WorkflowRunSummary } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
@@ -166,7 +166,7 @@ const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
-const workflows = ref<WorkflowListView[]>([]);
+const workflows = ref<WorkflowOptionView[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
 const workflowRunTotal = ref(0);
 const { pagination, resetPage, setPage, setPageSize, ensureValidPage } = usePageQuery(10);
@@ -204,7 +204,7 @@ function syncFiltersFromRoute() {
 
 async function loadWorkflows() {
   try {
-    workflows.value = await studioApi.workflows.list();
+    workflows.value = await studioApi.workflows.options();
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, t("web.workflows.loadFailed")));
   }

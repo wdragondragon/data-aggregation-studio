@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowListView;
+import com.jdragon.studio.dto.model.WorkflowOptionView;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.WorkflowService;
@@ -45,6 +46,12 @@ public class WorkflowController {
     public Result<PageView<WorkflowListView>> listPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                        @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         return Result.success(workflowService.listSummaryPage(pageNo, pageSize));
+    }
+
+    @Operation(summary = "List workflow options")
+    @GetMapping("/options")
+    public Result<List<WorkflowOptionView>> options() {
+        return Result.success(workflowService.listOptions());
     }
 
     @Operation(summary = "Get workflow detail")

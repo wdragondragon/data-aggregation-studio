@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
+import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskScheduleEntity;
@@ -95,6 +96,28 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         verify(definitionMapper).selectList(taskCaptor.capture());
         assertTaskListSelectIsSlim(taskCaptor.getValue().getSqlSelect());
         verify(scheduleMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void collectionTaskOptionsShouldSelectOnlyIdProjectAndNameWithoutSchedules() {
+        CollectionTaskDefinitionMapper definitionMapper = mock(CollectionTaskDefinitionMapper.class);
+        CollectionTaskScheduleMapper scheduleMapper = mock(CollectionTaskScheduleMapper.class);
+        CollectionTaskService service = collectionTaskService(definitionMapper, scheduleMapper);
+        when(definitionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(taskEntity()));
+
+        assertThat(service.listOptions())
+                .extracting(CollectionTaskOptionView::getName)
+                .containsExactly("长期回归-客户订单增量采集任务");
+
+        ArgumentCaptor<LambdaQueryWrapper<CollectionTaskDefinitionEntity>> taskCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper).selectList(taskCaptor.capture());
+        assertThat(taskCaptor.getValue().getSqlSelect())
+                .contains("id", "project_id", "name")
+                .doesNotContain("task_type", "status", "source_count",
+                        "target_datasource_name_snapshot", "target_model_name_snapshot",
+                        "source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
+        verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
     }
 
