@@ -37,6 +37,7 @@ public class RunRecordEntity extends BaseProjectTenantEntity {
     private Long writeSucceedRecords;
     private Long writeFailedRecords;
     private Long failedRecords;
+    private Long successRecords;
     private Long transformerTotalRecords;
     private Long transformerSuccessRecords;
     private Long transformerFailedRecords;

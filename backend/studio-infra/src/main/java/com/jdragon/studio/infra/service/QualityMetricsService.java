@@ -1,8 +1,9 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.jdragon.studio.dto.model.DataModelDefinition;
-import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataModelListView;
+import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityAssetDetailView;
 import com.jdragon.studio.dto.model.QualityAssetRiskView;
 import com.jdragon.studio.dto.model.QualityIssueView;
@@ -66,7 +67,7 @@ public class QualityMetricsService {
 
     public QualityMetricOptionsView options() {
         QualityMetricOptionsView view = new QualityMetricOptionsView();
-        for (DataSourceDefinition datasource : dataSourceService.list()) {
+        for (DataSourceListView datasource : dataSourceService.listSummaries()) {
             RunMetricFilterOptionView option = new RunMetricFilterOptionView();
             option.setId(datasource.getId());
             option.setName(datasource.getName());
@@ -74,7 +75,7 @@ public class QualityMetricsService {
             option.setTypeCode(datasource.getTypeCode());
             view.getDatasources().add(option);
         }
-        for (DataModelDefinition model : dataModelService.list()) {
+        for (DataModelListView model : listModelSummaries()) {
             RunMetricFilterOptionView option = new RunMetricFilterOptionView();
             option.setId(model.getId());
             option.setName(model.getName());
@@ -174,12 +175,12 @@ public class QualityMetricsService {
         }
         context.startTime = startTime == null ? LocalDateTime.now().minusDays(7) : startTime;
         context.endTime = endTime == null ? LocalDateTime.now() : endTime;
-        for (DataSourceDefinition datasource : dataSourceService.list()) {
+        for (DataSourceListView datasource : dataSourceService.listSummaries()) {
             if (datasource.getId() != null) {
                 context.datasourceById.put(datasource.getId(), datasource);
             }
         }
-        for (DataModelDefinition model : dataModelService.list()) {
+        for (DataModelListView model : listModelSummaries()) {
             if (datasourceId != null && !datasourceId.equals(model.getDatasourceId())) {
                 continue;
             }
@@ -213,6 +214,15 @@ public class QualityMetricsService {
                     .in(RunRecordEntity::getStatus, Arrays.asList("SUCCESS", "FAILED"))
                     .ge(RunRecordEntity::getEndedAt, context.startTime)
                     .le(RunRecordEntity::getEndedAt, context.endTime)
+                    .select(RunRecordEntity::getId,
+                            RunRecordEntity::getTenantId,
+                            RunRecordEntity::getProjectId,
+                            RunRecordEntity::getQualityTaskId,
+                            RunRecordEntity::getStatus,
+                            RunRecordEntity::getMessage,
+                            RunRecordEntity::getStartedAt,
+                            RunRecordEntity::getEndedAt,
+                            RunRecordEntity::getResultJson)
                     .orderByDesc(RunRecordEntity::getEndedAt)
                     .orderByDesc(RunRecordEntity::getId));
         }
@@ -599,6 +609,18 @@ public class QualityMetricsService {
         return rows;
     }
 
+    private List<DataModelListView> listModelSummaries() {
+        List<DataModelListView> result = new ArrayList<DataModelListView>();
+        int pageNo = 1;
+        PageView<DataModelListView> page;
+        do {
+            page = dataModelService.listSummaryPage(null, pageNo, 5000, null, null);
+            result.addAll(page.getItems());
+            pageNo++;
+        } while (result.size() < page.getTotal());
+        return result;
+    }
+
     private List<QualityIssueView> sortedIssueViews(List<QualityIssueEntity> issues) {
         List<QualityIssueView> rows = new ArrayList<QualityIssueView>();
         for (QualityIssueEntity issue : issues) {
@@ -668,9 +690,9 @@ public class QualityMetricsService {
         private boolean available;
         private LocalDateTime startTime;
         private LocalDateTime endTime;
-        private final List<DataModelDefinition> models = new ArrayList<DataModelDefinition>();
-        private final Map<Long, DataModelDefinition> modelById = new LinkedHashMap<Long, DataModelDefinition>();
-        private final Map<Long, DataSourceDefinition> datasourceById = new LinkedHashMap<Long, DataSourceDefinition>();
+        private final List<DataModelListView> models = new ArrayList<DataModelListView>();
+        private final Map<Long, DataModelListView> modelById = new LinkedHashMap<Long, DataModelListView>();
+        private final Map<Long, DataSourceListView> datasourceById = new LinkedHashMap<Long, DataSourceListView>();
         private final List<QualityTaskListView> tasks = new ArrayList<QualityTaskListView>();
         private final Map<Long, QualityTaskListView> taskById = new LinkedHashMap<Long, QualityTaskListView>();
         private final Set<Long> taskIds = new LinkedHashSet<Long>();
@@ -685,8 +707,8 @@ public class QualityMetricsService {
         private String assetId;
         private Long datasourceId;
         private Long modelId;
-        private DataSourceDefinition datasource;
-        private DataModelDefinition model;
+        private DataSourceListView datasource;
+        private DataModelListView model;
         private final List<QualityTaskListView> tasks = new ArrayList<QualityTaskListView>();
         private final List<RunRecordEntity> runRecords = new ArrayList<RunRecordEntity>();
         private final List<QualityIssueEntity> issues = new ArrayList<QualityIssueEntity>();

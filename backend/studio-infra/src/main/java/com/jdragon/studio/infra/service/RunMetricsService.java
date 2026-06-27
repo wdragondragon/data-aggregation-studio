@@ -69,7 +69,7 @@ public class RunMetricsService {
     }
 
     public RunMetricOptionsView options() {
-        List<CollectionTaskDefinitionView> tasks = collectionTaskService.list(null, null, null);
+        List<CollectionTaskDefinitionView> tasks = collectionTaskService.listMetricBindings();
         RunMetricOptionsView view = new RunMetricOptionsView();
         Map<Long, RunMetricFilterOptionView> datasourceOptions = new LinkedHashMap<Long, RunMetricFilterOptionView>();
         Map<Long, RunMetricFilterOptionView> sourceModelOptions = new LinkedHashMap<Long, RunMetricFilterOptionView>();
@@ -115,7 +115,7 @@ public class RunMetricsService {
         TimeWindow timeWindow = resolveTimeWindow(request);
         int topN = normalizeTopN(request == null ? null : request.getTopN());
         String granularity = normalizeGranularity(request == null ? null : request.getGranularity());
-        List<CollectionTaskDefinitionView> matchedTasks = filterTasks(collectionTaskService.list(null, null, null), request);
+        List<CollectionTaskDefinitionView> matchedTasks = filterTasks(collectionTaskService.listMetricBindings(), request);
         RunMetricDashboardView view = new RunMetricDashboardView();
         view.setTrend(createEmptyTrend(timeWindow, granularity));
         view.setLegacyRunCount(Long.valueOf(0L));
@@ -143,6 +143,23 @@ public class RunMetricsService {
                 .isNotNull(RunRecordEntity::getEndedAt)
                 .ge(RunRecordEntity::getEndedAt, timeWindow.getStart())
                 .le(RunRecordEntity::getEndedAt, timeWindow.getEnd())
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getCollectionTaskId,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getEndedAt,
+                        RunRecordEntity::getCollectedRecords,
+                        RunRecordEntity::getReadSucceedRecords,
+                        RunRecordEntity::getReadFailedRecords,
+                        RunRecordEntity::getWriteSucceedRecords,
+                        RunRecordEntity::getWriteFailedRecords,
+                        RunRecordEntity::getFailedRecords,
+                        RunRecordEntity::getSuccessRecords,
+                        RunRecordEntity::getTransformerTotalRecords,
+                        RunRecordEntity::getTransformerSuccessRecords,
+                        RunRecordEntity::getTransformerFailedRecords,
+                        RunRecordEntity::getTransformerFilterRecords)
                 .orderByAsc(RunRecordEntity::getEndedAt)
                 .orderByAsc(RunRecordEntity::getId));
 

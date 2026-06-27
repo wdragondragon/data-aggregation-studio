@@ -190,6 +190,7 @@ alter table run_record add column read_failed_records integer;
 alter table run_record add column write_succeed_records integer;
 alter table run_record add column write_failed_records integer;
 alter table run_record add column failed_records integer;
+alter table run_record add column success_records integer;
 alter table run_record add column transformer_total_records integer;
 alter table run_record add column transformer_success_records integer;
 alter table run_record add column transformer_failed_records integer;

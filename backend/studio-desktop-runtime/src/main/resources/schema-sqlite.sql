@@ -1090,6 +1090,7 @@ create table if not exists run_record (
     write_succeed_records integer,
     write_failed_records integer,
     failed_records integer,
+    success_records integer,
     transformer_total_records integer,
     transformer_success_records integer,
     transformer_failed_records integer,

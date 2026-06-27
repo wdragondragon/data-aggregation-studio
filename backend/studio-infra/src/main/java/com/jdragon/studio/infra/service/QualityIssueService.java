@@ -125,7 +125,41 @@ public class QualityIssueService {
                 .eq(request != null && request.getAssigneeUserId() != null, QualityIssueEntity::getAssigneeUserId, request == null ? null : request.getAssigneeUserId())
                 .ge(request != null && request.getStartTime() != null, QualityIssueEntity::getLastSeenAt, request == null ? null : request.getStartTime())
                 .le(request != null && request.getEndTime() != null, QualityIssueEntity::getLastSeenAt, request == null ? null : request.getEndTime())
-                .in(taskIds != null && !taskIds.isEmpty(), QualityIssueEntity::getQualityTaskId, taskIds);
+                .in(taskIds != null && !taskIds.isEmpty(), QualityIssueEntity::getQualityTaskId, taskIds)
+                .select(QualityIssueEntity::getId,
+                        QualityIssueEntity::getIssueCode,
+                        QualityIssueEntity::getIssueType,
+                        QualityIssueEntity::getQualityTaskId,
+                        QualityIssueEntity::getQualityTaskNameSnapshot,
+                        QualityIssueEntity::getRuleId,
+                        QualityIssueEntity::getRuleNameSnapshot,
+                        QualityIssueEntity::getRuleDimension,
+                        QualityIssueEntity::getDatasourceId,
+                        QualityIssueEntity::getDatasourceNameSnapshot,
+                        QualityIssueEntity::getDatasourceTypeCode,
+                        QualityIssueEntity::getModelId,
+                        QualityIssueEntity::getModelNameSnapshot,
+                        QualityIssueEntity::getModelPhysicalLocator,
+                        QualityIssueEntity::getColumnName,
+                        QualityIssueEntity::getOutputField,
+                        QualityIssueEntity::getGranularity,
+                        QualityIssueEntity::getTitle,
+                        QualityIssueEntity::getLatestMessage,
+                        QualityIssueEntity::getSeverity,
+                        QualityIssueEntity::getSystemSeverity,
+                        QualityIssueEntity::getManualSeverity,
+                        QualityIssueEntity::getStatus,
+                        QualityIssueEntity::getAssigneeUserId,
+                        QualityIssueEntity::getAssigneeNameSnapshot,
+                        QualityIssueEntity::getFirstSeenAt,
+                        QualityIssueEntity::getLastSeenAt,
+                        QualityIssueEntity::getLastRecoveryAt,
+                        QualityIssueEntity::getSlaDueAt,
+                        QualityIssueEntity::getOccurrenceCount,
+                        QualityIssueEntity::getConsecutiveFailureCount,
+                        QualityIssueEntity::getReopenCount,
+                        QualityIssueEntity::getLastRunRecordId,
+                        QualityIssueEntity::getLastRunStatus);
         List<QualityIssueView> items = new ArrayList<QualityIssueView>();
         for (QualityIssueEntity entity : issueMapper.selectList(wrapper)) {
             items.add(toView(entity));
@@ -258,7 +292,41 @@ public class QualityIssueService {
         }
         return issueMapper.selectList(new LambdaQueryWrapper<QualityIssueEntity>()
                 .eq(QualityIssueEntity::getTenantId, securityService.currentTenantId())
-                .eq(QualityIssueEntity::getProjectId, currentProjectId));
+                .eq(QualityIssueEntity::getProjectId, currentProjectId)
+                .select(QualityIssueEntity::getId,
+                        QualityIssueEntity::getIssueCode,
+                        QualityIssueEntity::getIssueType,
+                        QualityIssueEntity::getQualityTaskId,
+                        QualityIssueEntity::getQualityTaskNameSnapshot,
+                        QualityIssueEntity::getRuleId,
+                        QualityIssueEntity::getRuleNameSnapshot,
+                        QualityIssueEntity::getRuleDimension,
+                        QualityIssueEntity::getDatasourceId,
+                        QualityIssueEntity::getDatasourceNameSnapshot,
+                        QualityIssueEntity::getDatasourceTypeCode,
+                        QualityIssueEntity::getModelId,
+                        QualityIssueEntity::getModelNameSnapshot,
+                        QualityIssueEntity::getModelPhysicalLocator,
+                        QualityIssueEntity::getColumnName,
+                        QualityIssueEntity::getOutputField,
+                        QualityIssueEntity::getGranularity,
+                        QualityIssueEntity::getTitle,
+                        QualityIssueEntity::getLatestMessage,
+                        QualityIssueEntity::getSeverity,
+                        QualityIssueEntity::getSystemSeverity,
+                        QualityIssueEntity::getManualSeverity,
+                        QualityIssueEntity::getStatus,
+                        QualityIssueEntity::getAssigneeUserId,
+                        QualityIssueEntity::getAssigneeNameSnapshot,
+                        QualityIssueEntity::getFirstSeenAt,
+                        QualityIssueEntity::getLastSeenAt,
+                        QualityIssueEntity::getLastRecoveryAt,
+                        QualityIssueEntity::getSlaDueAt,
+                        QualityIssueEntity::getOccurrenceCount,
+                        QualityIssueEntity::getConsecutiveFailureCount,
+                        QualityIssueEntity::getReopenCount,
+                        QualityIssueEntity::getLastRunRecordId,
+                        QualityIssueEntity::getLastRunStatus));
     }
 
     public List<QualityIssueEventEntity> listProjectIssueEvents(LocalDateTime startTime, LocalDateTime endTime) {
@@ -270,7 +338,14 @@ public class QualityIssueService {
                 .eq(QualityIssueEventEntity::getTenantId, securityService.currentTenantId())
                 .eq(QualityIssueEventEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, QualityIssueEventEntity::getCreatedAt, startTime)
-                .le(endTime != null, QualityIssueEventEntity::getCreatedAt, endTime));
+                .le(endTime != null, QualityIssueEventEntity::getCreatedAt, endTime)
+                .select(QualityIssueEventEntity::getId,
+                        QualityIssueEventEntity::getTenantId,
+                        QualityIssueEventEntity::getProjectId,
+                        QualityIssueEventEntity::getCreatedAt,
+                        QualityIssueEventEntity::getIssueId,
+                        QualityIssueEventEntity::getEventType,
+                        QualityIssueEventEntity::getMetadataJson));
     }
 
     private QualityIssueEntity upsertFailureIssue(QualityTaskDefinitionView task, ExecutionEvent event, RunRecordEntity runRecord) {

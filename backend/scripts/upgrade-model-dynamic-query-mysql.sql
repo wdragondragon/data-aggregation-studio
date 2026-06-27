@@ -190,6 +190,7 @@ alter table run_record add column if not exists read_failed_records bigint;
 alter table run_record add column if not exists write_succeed_records bigint;
 alter table run_record add column if not exists write_failed_records bigint;
 alter table run_record add column if not exists failed_records bigint;
+alter table run_record add column if not exists success_records bigint;
 alter table run_record add column if not exists transformer_total_records bigint;
 alter table run_record add column if not exists transformer_success_records bigint;
 alter table run_record add column if not exists transformer_failed_records bigint;

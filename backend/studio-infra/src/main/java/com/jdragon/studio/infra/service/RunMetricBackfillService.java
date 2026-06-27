@@ -66,6 +66,7 @@ public class RunMetricBackfillService {
         changed |= assignMetric(record.getWriteSucceedRecords(), summary.getWriteSucceedRecords(), record::setWriteSucceedRecords);
         changed |= assignMetric(record.getWriteFailedRecords(), summary.getWriteFailedRecords(), record::setWriteFailedRecords);
         changed |= assignMetric(record.getFailedRecords(), summary.getFailedRecords(), record::setFailedRecords);
+        changed |= assignMetric(record.getSuccessRecords(), summary.getSuccessRecords(), record::setSuccessRecords);
         changed |= assignMetric(record.getTransformerTotalRecords(), summary.getTransformerTotalRecords(), record::setTransformerTotalRecords);
         changed |= assignMetric(record.getTransformerSuccessRecords(), summary.getTransformerSuccessRecords(), record::setTransformerSuccessRecords);
         changed |= assignMetric(record.getTransformerFailedRecords(), summary.getTransformerFailedRecords(), record::setTransformerFailedRecords);

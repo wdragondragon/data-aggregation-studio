@@ -89,6 +89,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "write_succeed_records", "alter table run_record add column write_succeed_records bigint");
         ensureColumn("run_record", "write_failed_records", "alter table run_record add column write_failed_records bigint");
         ensureColumn("run_record", "failed_records", "alter table run_record add column failed_records bigint");
+        ensureColumn("run_record", "success_records", "alter table run_record add column success_records bigint");
         ensureColumn("run_record", "transformer_total_records", "alter table run_record add column transformer_total_records bigint");
         ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records bigint");
         ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records bigint");
@@ -713,6 +714,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "write_succeed_records", "alter table run_record add column write_succeed_records integer");
         ensureColumn("run_record", "write_failed_records", "alter table run_record add column write_failed_records integer");
         ensureColumn("run_record", "failed_records", "alter table run_record add column failed_records integer");
+        ensureColumn("run_record", "success_records", "alter table run_record add column success_records integer");
         ensureColumn("run_record", "transformer_total_records", "alter table run_record add column transformer_total_records integer");
         ensureColumn("run_record", "transformer_success_records", "alter table run_record add column transformer_success_records integer");
         ensureColumn("run_record", "transformer_failed_records", "alter table run_record add column transformer_failed_records integer");

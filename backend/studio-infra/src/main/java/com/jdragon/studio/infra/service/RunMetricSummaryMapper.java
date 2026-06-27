@@ -21,8 +21,8 @@ public class RunMetricSummaryMapper {
         summary.setWriteSucceedRecords(firstNonNull(entity.getWriteSucceedRecords(), extractMetric(entity.getResultJson(), "writeSucceedRecords")));
         summary.setWriteFailedRecords(firstNonNull(entity.getWriteFailedRecords(), extractMetric(entity.getResultJson(), "writeFailedRecords")));
         summary.setFailedRecords(firstNonNull(entity.getFailedRecords(), extractMetric(entity.getResultJson(), "failedRecords", "errorRecords")));
-        summary.setSuccessRecords(firstNonNull(extractMetric(entity.getResultJson(), "successRecords"),
-                calculateSuccessRecords(summary.getReadSucceedRecords(), summary.getWriteFailedRecords())));
+        summary.setSuccessRecords(firstNonNull(entity.getSuccessRecords(), firstNonNull(extractMetric(entity.getResultJson(), "successRecords"),
+                calculateSuccessRecords(summary.getReadSucceedRecords(), summary.getWriteFailedRecords()))));
         Long transformerSuccess = firstNonNull(entity.getTransformerSuccessRecords(), extractMetric(entity.getResultJson(), "transformerSuccessRecords", "transformerSuccess"));
         Long transformerFailed = firstNonNull(entity.getTransformerFailedRecords(), extractMetric(entity.getResultJson(), "transformerFailedRecords", "transformerError"));
         Long transformerFilter = firstNonNull(entity.getTransformerFilterRecords(), extractMetric(entity.getResultJson(), "transformerFilterRecords", "transformerFilter"));
@@ -48,6 +48,7 @@ public class RunMetricSummaryMapper {
         entity.setWriteSucceedRecords(summary.getWriteSucceedRecords());
         entity.setWriteFailedRecords(summary.getWriteFailedRecords());
         entity.setFailedRecords(summary.getFailedRecords());
+        entity.setSuccessRecords(summary.getSuccessRecords());
         entity.setTransformerTotalRecords(summary.getTransformerTotalRecords());
         entity.setTransformerSuccessRecords(summary.getTransformerSuccessRecords());
         entity.setTransformerFailedRecords(summary.getTransformerFailedRecords());

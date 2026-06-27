@@ -1424,6 +1424,7 @@ create table if not exists run_record (
     write_succeed_records bigint,
     write_failed_records bigint,
     failed_records bigint,
+    success_records bigint,
     transformer_total_records bigint,
     transformer_success_records bigint,
     transformer_failed_records bigint,

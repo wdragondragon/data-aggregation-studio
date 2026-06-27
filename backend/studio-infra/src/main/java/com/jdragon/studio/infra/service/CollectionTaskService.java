@@ -127,6 +127,28 @@ public class CollectionTaskService {
         return result;
     }
 
+    public List<CollectionTaskDefinitionView> listMetricBindings() {
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getTenantId,
+                        CollectionTaskDefinitionEntity::getProjectId,
+                        CollectionTaskDefinitionEntity::getDeleted,
+                        CollectionTaskDefinitionEntity::getCreatedAt,
+                        CollectionTaskDefinitionEntity::getUpdatedAt,
+                        CollectionTaskDefinitionEntity::getName,
+                        CollectionTaskDefinitionEntity::getTaskType,
+                        CollectionTaskDefinitionEntity::getStatus,
+                        CollectionTaskDefinitionEntity::getSourceCount,
+                        CollectionTaskDefinitionEntity::getSourceBindingsJson,
+                        CollectionTaskDefinitionEntity::getTargetBindingJson)
+                .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt));
+        List<CollectionTaskDefinitionView> result = new ArrayList<CollectionTaskDefinitionView>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            result.add(toMetricBindingView(entity));
+        }
+        return result;
+    }
+
     public Long countOnlineSummaries() {
         Long count = definitionMapper.selectCount(buildAccessibleQuery()
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name()));
@@ -383,6 +405,25 @@ public class CollectionTaskService {
             schedule.setTimezone(scheduleEntity.getTimezone());
             view.setSchedule(schedule);
         }
+        return view;
+    }
+
+    private CollectionTaskDefinitionView toMetricBindingView(CollectionTaskDefinitionEntity entity) {
+        CollectionTaskDefinitionView view = new CollectionTaskDefinitionView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
+        view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
+        view.setSourceCount(entity.getSourceCount());
+        List<CollectionTaskSourceBinding> sourceBindings = convertList(entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class);
+        sanitizeSourceReaderOptionsForView(sourceBindings);
+        view.setSourceBindings(sourceBindings);
+        view.setTargetBinding(convertMap(entity.getTargetBindingJson(), CollectionTaskTargetBinding.class));
         return view;
     }
 

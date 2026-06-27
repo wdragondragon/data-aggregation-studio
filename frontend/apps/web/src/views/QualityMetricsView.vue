@@ -621,10 +621,50 @@ async function addIssueComment() {
 }
 
 async function refreshAfterIssueAction() {
-  await loadCurrentTab();
+  patchIssueListItem(issueDetail.value);
   if (assetDrawerVisible.value && assetDetail.value?.assetId) {
     await openAssetDrawer({ ...assetDetail.value });
   }
+}
+
+function patchIssueListItem(detail?: QualityIssueDetailView | null) {
+  if (!detail?.id) {
+    return;
+  }
+  const index = issues.value.findIndex((item) => String(item.id) === String(detail.id));
+  if (index < 0) {
+    return;
+  }
+  if (!matchesCurrentIssueFilters(detail)) {
+    issues.value.splice(index, 1);
+    return;
+  }
+  issues.value.splice(index, 1, { ...issues.value[index], ...detail });
+}
+
+function matchesCurrentIssueFilters(issue: QualityIssueView) {
+  if (filters.datasourceId != null && String(issue.datasourceId) !== String(filters.datasourceId)) {
+    return false;
+  }
+  if (filters.modelId != null && String(issue.modelId) !== String(filters.modelId)) {
+    return false;
+  }
+  if (filters.ruleDimension && issue.ruleDimension !== filters.ruleDimension) {
+    return false;
+  }
+  if (filters.granularity && issue.granularity !== filters.granularity) {
+    return false;
+  }
+  if (filters.severity && issue.severity !== filters.severity) {
+    return false;
+  }
+  if (filters.issueStatus && issue.status !== filters.issueStatus) {
+    return false;
+  }
+  if (filters.assigneeUserId != null && String(issue.assigneeUserId) !== String(filters.assigneeUserId)) {
+    return false;
+  }
+  return true;
 }
 
 function openNoisyTarget(row: Record<string, unknown>) {
