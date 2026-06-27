@@ -74,6 +74,7 @@
 | FIX-S43-001 | 采集/质量运行日志 | 中 | `/collection-task-runs` 和 `/quality-task-runs` 通过旧 `/runs` 全量拉取运行记录，再在前端按域、状态和分页裁剪；长期项目旧接口一次返回 255 条、约 306KB | `RunRecordPageView.java`；`RunService.java`；`RunController.java`；`CollectionTaskRunsView.vue`；`QualityTaskRunsView.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts`；`RunListSourceSlimmingRegressionTest.java` | `RunListSourceSlimmingRegressionTest`；`RunServiceRegressionTest`；`npm run build:web`；长期项目 nginx `/runs/page?collectionTaskOnly=true`、`/runs/page?qualityTaskOnly=true`；build 后 nginx `/collection-task-runs`、`/quality-task-runs` 浏览器 smoke 无 warn/error | module-regression | 2026-06-27 | 本次提交 |
 | FIX-S44-001 | 数据质量/问题中心 | 中 | `/quality-metrics` 问题中心通过旧 `/quality-metrics/issues/query` 全量拉取问题列表，再在前端本地分页；后端虽然已瘦字段但仍 `selectList` 全量读取和内存排序 | `QualityIssueQueryRequest.java`；`QualityIssueService.java`；`QualityMetricsController.java`；`QualityMetricsView.vue`；`QualityMetricsIssuesTab.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；长期项目 nginx `/quality-metrics/issues/page`；build 后 nginx `/quality-metrics` 问题中心浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S45-001 | 数据接入/编辑页模型下拉 | 中 | `/data-ingestion-services/new` 选择数据源后用完整模型列表填充目标模型下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段映射只需选中模型详情 | `DataIngestionServiceEditorView.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries` 响应约 7.0KB 且无 `technicalMetadata/businessMetadata`；选中模型后 `/models/{id}` 详情保留字段元数据；build 后 nginx `/data-ingestion-services/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
+| FIX-S46-001 | 数据服务/编辑页模型下拉 | 中 | `/data-services/new` 服务开发步骤用完整模型列表填充数据表下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段解析由后端按 `modelId` 完成 | `DataServiceEditorView.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=500` 响应约 10.8KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 45.1KB；build 后 nginx `/data-services/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -127,3 +128,4 @@
 | S43 采集与质量运行日志分页源头瘦身 | FIX-S43-001 |
 | S44 质量问题中心分页源头瘦身 | FIX-S44-001 |
 | S45 数据接入目标模型下拉按需详情 | FIX-S45-001 |
+| S46 数据服务目标模型下拉源头瘦身 | FIX-S46-001 |

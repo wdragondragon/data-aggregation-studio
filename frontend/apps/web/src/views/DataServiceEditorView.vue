@@ -384,7 +384,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
-  DataModelDefinition,
+  DataModelListView,
   DataServiceDefinitionView,
   DataServiceFieldView,
   DataServiceParamPosition,
@@ -502,7 +502,7 @@ const form = reactive<DataServiceSaveRequest & {
 });
 
 const datasources = ref<DataSourceOptionView[]>([]);
-const models = ref<DataModelDefinition[]>([]);
+const models = ref<DataModelListView[]>([]);
 const fieldOptions = ref<DataServiceFieldView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
 const saving = ref(false);
@@ -864,7 +864,7 @@ function applyDetail(detail: DataServiceDefinitionView) {
 }
 
 async function loadModels(datasourceId: EntityId) {
-  const page = await studioApi.models.listByDatasourcePage(datasourceId, { pageNo: 1, pageSize: 500 });
+  const page = await studioApi.models.listSummaryByDatasourcePage(datasourceId, { pageNo: 1, pageSize: 500 });
   models.value = page.items;
 }
 
