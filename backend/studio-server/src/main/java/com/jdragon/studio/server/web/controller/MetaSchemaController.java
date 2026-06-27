@@ -52,6 +52,12 @@ public class MetaSchemaController {
         return Result.success(metadataSchemaService.getSchema(schemaId));
     }
 
+    @Operation(summary = "List metadata schema details by ids")
+    @GetMapping("/details")
+    public Result<List<MetadataSchemaDefinition>> details(@RequestParam("schemaIds") List<Long> schemaIds) {
+        return Result.success(metadataSchemaService.listSchemasWithFieldsByIds(schemaIds));
+    }
+
     @Operation(summary = "Save metadata schema draft")
     @PostMapping("/draft")
     public Result<MetadataSchemaDefinition> saveDraft(@Valid @RequestBody MetadataSchemaSaveRequest request) {

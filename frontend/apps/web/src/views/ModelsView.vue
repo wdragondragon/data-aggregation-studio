@@ -130,6 +130,7 @@ import { canDeleteSyncTask, canStopSyncTask, formatSyncTaskDurationMs, modelSync
 import ModelSyncDialogs from "@/components/models/ModelSyncDialogs.vue";
 import type { MetaSectionBinding, ModelDynamicFilterActions, ModelFormState, ModelMetaSection, ModelQueryConditionState, ModelQueryGroupState, ModelSyncFormState, ModelSyncTaskFormState } from "@/components/models/modelViewTypes";
 import ModelSyncTaskSection from "@/components/models/ModelSyncTaskSection.vue";
+import { parseMetaModelSchema } from "@/utils/metaModel";
 import { cloneDeep, isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const route = useRoute();
@@ -138,6 +139,7 @@ const { t } = useI18n();
 const authStore = useAuthStore();
 const datasources = ref<DataSourceListView[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
+const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const models = ref<DataModelListView[]>([]);
 const modelPagination = reactive({
   page: 1,
@@ -390,6 +392,78 @@ function findDatasourceById(datasourceId?: EntityId) {
   return datasources.value.find((item) => sameId(item.id, datasourceId));
 }
 
+function toSchemaSummary(schema: MetadataSchemaDefinition) {
+  return {
+    ...schema,
+    fields: [],
+  };
+}
+
+function compareSchema(left: MetadataSchemaDefinition, right: MetadataSchemaDefinition) {
+  return (left.schemaCode || "").localeCompare(right.schemaCode || "");
+}
+
+function upsertSchemaDetails(details: MetadataSchemaDefinition[]) {
+  if (details.length === 0) {
+    return;
+  }
+  const nextDetails = { ...schemaDetails.value };
+  const nextSchemas = [...schemas.value];
+  for (const detail of details) {
+    if (!detail.id) {
+      continue;
+    }
+    nextDetails[String(detail.id)] = detail;
+    const index = nextSchemas.findIndex((schema) => sameId(schema.id, detail.id));
+    if (index >= 0) {
+      nextSchemas[index] = detail;
+    } else {
+      nextSchemas.push(detail);
+    }
+  }
+  schemaDetails.value = nextDetails;
+  schemas.value = nextSchemas.sort(compareSchema);
+}
+
+function modelSchemaDetailCandidates(datasourceType?: string) {
+  const normalizedType = normalizeTypeCode(datasourceType);
+  if (!normalizedType) {
+    return [] as MetadataSchemaDefinition[];
+  }
+  const technicalSchemas = schemas.value.filter((schema) => {
+    if (normalizeTypeCode(schema.objectType) !== "model") {
+      return false;
+    }
+    const schemaType = normalizeTypeCode(schema.typeCode);
+    if (!(schemaType === normalizedType || schemaType.startsWith(`${normalizedType}.`))) {
+      return false;
+    }
+    return parseMetaModelSchema(schema).config.metaModelCode !== "source";
+  });
+  const businessMetaModelCodes = new Set(
+    technicalSchemas
+      .map((schema) => normalizeTypeCode(parseMetaModelSchema(schema).config.metaModelCode))
+      .filter(Boolean),
+  );
+  const businessSchemas = schemas.value.filter((schema) => {
+    const config = parseMetaModelSchema(schema).config;
+    return config.domain === "BUSINESS" && businessMetaModelCodes.has(normalizeTypeCode(config.metaModelCode));
+  });
+  return [...technicalSchemas, ...businessSchemas];
+}
+
+async function ensureModelSchemaDetails(datasourceType?: string) {
+  const ids = modelSchemaDetailCandidates(datasourceType)
+    .map((schema) => schema.id)
+    .filter((id): id is EntityId => id != null)
+    .filter((id) => !schemaDetails.value[String(id)]);
+  if (ids.length === 0) {
+    return;
+  }
+  const details = await studioApi.metaSchemas.details(ids);
+  upsertSchemaDetails(details);
+}
+
 function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(authStore.projects, projectId);
 }
@@ -427,14 +501,21 @@ function handleModelSortChange(sort: { prop?: string; order?: "ascending" | "des
   void handleDatasourceChange();
 }
 
-function openCreateDialog() {
+async function openCreateDialog() {
   const prefillDatasourceId =
     selectedDatasource.value && !isDatabaseDatasourceType(selectedDatasource.value.typeCode) ? selectedDatasource.value.id : undefined;
+  const datasource = findDatasourceById(prefillDatasourceId);
+  try {
+    await ensureModelSchemaDetails(datasource?.typeCode);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.models.loadDatasourcesFailed"));
+    return;
+  }
   resetModelForm(prefillDatasourceId);
   editorOpen.value = true;
 }
 
-function editModel(model: DataModelDefinition) {
+async function editModel(model: DataModelDefinition) {
   modelForm.id = model.id;
   modelForm.datasourceId = model.datasourceId;
   modelForm.name = model.name;
@@ -443,13 +524,20 @@ function editModel(model: DataModelDefinition) {
   modelForm.schemaVersionId = model.schemaVersionId;
   modelForm.technicalMetadata = cloneDeep(model.technicalMetadata ?? {});
   modelForm.businessMetadata = cloneDeep(model.businessMetadata ?? {});
+  await ensureModelSchemaDetails(editorDatasource.value?.typeCode);
   applyModelSchemaContext({ resetMetadata: false, forceKind: false });
   editorOpen.value = true;
 }
 
-function handleModelDatasourceChange() {
+async function handleModelDatasourceChange() {
   modelForm.schemaVersionId = undefined;
   modelForm.modelKind = undefined;
+  try {
+    await ensureModelSchemaDetails(editorDatasource.value?.typeCode);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.models.loadDatasourcesFailed"));
+    return;
+  }
   applyModelSchemaContext({ resetMetadata: true, forceKind: true });
 }
 
@@ -582,10 +670,11 @@ async function loadPage() {
   try {
     const [datasourceData, schemaData] = await Promise.all([
       studioApi.datasources.list(),
-      studioApi.metaSchemas.list(),
+      studioApi.metaSchemas.list({ includeFields: false }),
     ]);
     datasources.value = datasourceData;
-    schemas.value = schemaData;
+    schemas.value = schemaData.map(toSchemaSummary);
+    schemaDetails.value = {};
     if (selectedDatasourceType.value && !queryDatasourceTypes.value.some((item) => normalizeTypeCode(item) === normalizeTypeCode(selectedDatasourceType.value))) {
       selectedDatasourceType.value = "";
     }
@@ -667,6 +756,7 @@ async function handleDatasourceChange() {
     if (datasource?.typeCode) {
       selectedDatasourceType.value = datasource.typeCode;
     }
+    await ensureModelSchemaDetails(activeQueryDatasourceType.value);
     normalizeQueryGroupsForDatasource();
     await loadModelsForSelectedDatasource();
   } catch (error) {
@@ -762,11 +852,15 @@ function goBackToList() {
   router.push({ name: "models" });
 }
 
-function openDetailEdit() {
+async function openDetailEdit() {
   if (!selectedModel.value) {
     return;
   }
-  editModel(selectedModel.value);
+  try {
+    await editModel(selectedModel.value);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.models.loadModelDetailFailed"));
+  }
 }
 
 async function loadModelDetail() {
@@ -784,9 +878,14 @@ async function loadModelDetail() {
     if (seq !== modelDetailLoadSeq) {
       return;
     }
+    const datasource = findDatasourceById(model.datasourceId);
+    await ensureModelSchemaDetails(datasource?.typeCode);
+    if (seq !== modelDetailLoadSeq) {
+      return;
+    }
     selectModel(model);
     if (route.query.edit === "1") {
-      editModel(model);
+      await editModel(model);
       const nextQuery = { ...route.query };
       delete nextQuery.edit;
       router.replace({ name: "model-detail", params: { modelId: String(detailModelId.value) }, query: nextQuery });
@@ -806,6 +905,12 @@ async function refreshDetail() {
 async function saveModel() {
   if (!modelForm.datasourceId) {
     ElMessage.warning(t("web.models.saveSelectDatasourceFirst"));
+    return;
+  }
+  try {
+    await ensureModelSchemaDetails(editorDatasource.value?.typeCode);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.models.loadDatasourcesFailed"));
     return;
   }
   if (!isEditingModel.value && editorDatasource.value && isDatabaseDatasourceType(editorDatasource.value.typeCode)) {

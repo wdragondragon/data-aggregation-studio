@@ -307,6 +307,7 @@ import type {
   DataSourceListView,
   DatasourceConnectionTestRecordView,
   DatasourceConnectionTrendPointView,
+  EntityId,
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
   ModelDiscoveryResult,
@@ -349,6 +350,7 @@ const authStore = useAuthStore();
 const datasources = ref<DataSourceListView[]>([]);
 const { pagination: datasourcePagination, pagedItems: pagedDatasources, resetPagination: resetDatasourcePagination } = useClientPagination(datasources);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
+const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
 });
@@ -646,6 +648,7 @@ async function editDatasource(item: DataSourceListView) {
   try {
     const detail = await studioApi.datasources.get(item.id);
     Object.assign(form, cloneDeep(detail));
+    await ensureDatasourceSchemaDetails(form.typeCode);
     applyBusinessMetadataDefaults();
     testResult.value = null;
     drawerOpen.value = true;
@@ -654,7 +657,13 @@ async function editDatasource(item: DataSourceListView) {
   }
 }
 
-function handleTypeChange() {
+async function handleTypeChange() {
+  try {
+    await ensureDatasourceSchemaDetails(form.typeCode);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+    return;
+  }
   const schema = datasourceSchemas.value[0];
   form.schemaVersionId = schema?.currentVersionId ?? schema?.id;
   form.executable = executableDatasourceTypes.value.includes(form.typeCode);
@@ -813,20 +822,91 @@ function applyBusinessMetadataDefaults() {
   }
 }
 
+function toSchemaSummary(schema: MetadataSchemaDefinition) {
+  return {
+    ...schema,
+    fields: [],
+  };
+}
+
+function compareSchema(left: MetadataSchemaDefinition, right: MetadataSchemaDefinition) {
+  return (left.schemaCode || "").localeCompare(right.schemaCode || "");
+}
+
+function upsertSchemaDetails(details: MetadataSchemaDefinition[]) {
+  if (details.length === 0) {
+    return;
+  }
+  const nextDetails = { ...schemaDetails.value };
+  const nextSchemas = [...schemas.value];
+  for (const detail of details) {
+    if (!detail.id) {
+      continue;
+    }
+    nextDetails[String(detail.id)] = detail;
+    const index = nextSchemas.findIndex((schema) => sameEntityId(schema.id, detail.id));
+    if (index >= 0) {
+      nextSchemas[index] = detail;
+    } else {
+      nextSchemas.push(detail);
+    }
+  }
+  schemaDetails.value = nextDetails;
+  schemas.value = nextSchemas.sort(compareSchema);
+}
+
+function datasourceSchemaDetailCandidates(typeCode?: string) {
+  if (!typeCode) {
+    return [] as MetadataSchemaDefinition[];
+  }
+  return schemas.value.filter((schema) => {
+    const config = parseMetaModelSchema(schema).config;
+    if (schema.objectType === "datasource"
+        && schema.typeCode === typeCode
+        && config.domain === "TECHNICAL"
+        && config.metaModelCode === "source") {
+      return true;
+    }
+    return config.domain === "BUSINESS" && config.metaModelCode === "source";
+  });
+}
+
+async function ensureDatasourceSchemaDetails(typeCode?: string) {
+  const ids = datasourceSchemaDetailCandidates(typeCode)
+    .map((schema) => schema.id)
+    .filter((id): id is EntityId => id != null)
+    .filter((id) => !schemaDetails.value[String(id)]);
+  if (ids.length === 0) {
+    return;
+  }
+  const details = await studioApi.metaSchemas.details(ids);
+  upsertSchemaDetails(details);
+}
+
+function removeDatasourceRow(item: DataSourceListView) {
+  datasources.value = datasources.value.filter((datasource) => !sameEntityId(datasource.id, item.id));
+  resetDatasourcePagination();
+}
+
 async function loadPage() {
   try {
     const [datasourceData, schemaData, capabilityData] = await Promise.all([
       studioApi.datasources.list(),
-      studioApi.metaSchemas.list(),
+      studioApi.metaSchemas.list({ includeFields: false }),
       studioApi.catalog.capabilities(),
     ]);
     datasources.value = datasourceData;
     resetDatasourcePagination();
-    schemas.value = schemaData;
+    schemas.value = schemaData.map(toSchemaSummary);
+    schemaDetails.value = {};
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
     capabilityMatrix.executableTargetTypes = capabilityData.executableTargetTypes;
     capabilityMatrix.executableDatasourceTypes = capabilityData.executableDatasourceTypes;
     capabilityMatrix.sourceCapabilities = capabilityData.sourceCapabilities;
+    if (drawerOpen.value && form.typeCode) {
+      await ensureDatasourceSchemaDetails(form.typeCode);
+      applyBusinessMetadataDefaults();
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
   }
@@ -1022,7 +1102,7 @@ async function deleteDatasource(item: DataSourceListView) {
       resetForm();
     }
     ElMessage.success(t("web.datasources.deleteSuccess"));
-    await loadPage();
+    removeDatasourceRow(item);
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.datasources.deleteFailed"));

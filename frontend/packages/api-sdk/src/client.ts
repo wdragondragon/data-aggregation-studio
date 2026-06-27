@@ -493,6 +493,13 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       get(schemaId: EntityId) {
         return request<MetadataSchemaDefinition>({ url: `/meta-schemas/${schemaId}`, method: "GET" });
       },
+      details(schemaIds: EntityId[]) {
+        return request<MetadataSchemaDefinition[]>({
+          url: "/meta-schemas/details",
+          method: "GET",
+          params: { schemaIds: schemaIds.map(String).join(",") },
+        });
+      },
       syncTechnical(typeCode: string) {
         return request<MetadataSchemaDefinition[]>({ url: `/meta-schemas/technical/sync/${typeCode}`, method: "POST" });
       },
