@@ -82,6 +82,7 @@
 | FIX-S51-001 | 数据源/编辑页下拉 | 中 | 采集、接入、协议转换、工作流、模型和统计页面的数据源下拉/筛选只需选项字段，却复用数据源表格接口并读取连接健康、探测历史和连接超时等表格字段 | `DataSourceService.java`；`DataSourceController.java`；`DataSourceListSourceSlimmingRegressionTest.java`；`DataSourceApiRegressionTest.java`；`CollectionTaskEditorView.vue`；`DataIngestionServiceEditorView.vue`；`ProtocolConversionServiceEditorView.vue`；`WorkflowEditorView.vue`；`ModelsView.vue`；`ModelStatisticsView.vue`；相关数据源选项子组件；`frontend/packages/api-sdk/src/client.ts` | `DataSourceListSourceSlimmingRegressionTest`；`DataSourceApiRegressionTest`；`npm run build:web`；长期项目 nginx `/datasources/options` 返回 1980 bytes 且无 `connectionStatus/recentConnectionTests/technicalMetadata/businessMetadata`；build 后 nginx 6 个页面 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S52-001 | 数据资产/模型血缘 | 中 | 模型血缘手工关系弹窗只需模型 `id/name`，却调用模型摘要分页批量读取 `datasourceId/modelKind/physicalLocator/schemaVersionId` 等表格字段 | `DataModelOptionView.java`；`DataModelService.java`；`ModelController.java`；`ModelLineagePanel.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts`；`DataModelSqlHintSourceSlimmingRegressionTest.java` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；长期项目 nginx `/models/options?pageNo=1&pageSize=50` 只返回选项字段；`/models/summaries` 保留为基线 | module-regression | 2026-06-28 | `3e0acde` |
 | FIX-S53-001 | 数据质量/运行日志筛选 | 中 | `/quality-task-runs` 质量任务筛选只需任务名和规则摘要，却调用 `qualityTasks.list()` 翻页拉取质量任务表格字段 | `QualityTaskOptionView.java`；`QualityTaskService.java`；`QualityTaskController.java`；`QualityTaskRunsView.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts`；`QualityListSourceSlimmingRegressionTest.java` | `QualityListSourceSlimmingRegressionTest`；`npm run build:web`；长期项目 nginx `/quality-tasks/options` 只返回 `id/projectId/taskName/ruleName/ruleDimension/granularity`；build 后 nginx `/quality-task-runs` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
+| FIX-S54-001 | 工作流/数据脚本选择 | 中 | `/workflows/new` 数据脚本节点选中和脚本选择弹窗重复调用脚本批量列表；弹窗实际用脚本树展示、按选中脚本详情预览和绑定 | `WorkflowEditorView.vue`；`WorkflowResourceDialogs.vue` | `npm run build:web`；`WorkflowEditorView` 源码和构建 chunk 无 `listScripts/ensureScriptsLoaded/scriptsLoaded`；build 后 nginx `/workflows/new` 拖入数据脚本、打开脚本树、预览并绑定长期回归 SQL 脚本，console warn/error 为 0 | module-regression | 2026-06-28 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -143,3 +144,4 @@
 | S51 数据源编辑页下拉源头瘦身 | FIX-S51-001 |
 | S52 模型血缘手工关系模型下拉源头瘦身 | FIX-S52-001 |
 | S53 质量任务运行筛选下拉源头瘦身 | FIX-S53-001 |
+| S54 工作流数据脚本选择重复批量取数 | FIX-S54-001 |

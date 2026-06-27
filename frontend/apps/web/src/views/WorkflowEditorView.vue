@@ -172,7 +172,6 @@ const qualityTaskReloadPending = ref(false);
 const scriptsLoading = ref(false);
 const collectionTasksLoaded = ref(false);
 const qualityTasksLoaded = ref(false);
-const scriptsLoaded = ref(false);
 const collectionTaskDialogVisible = ref(false);
 const qualityTaskDialogVisible = ref(false);
 const scriptDialogVisible = ref(false);
@@ -249,7 +248,7 @@ const selectedScriptId = computed(() => {
   return String(selectedNode.value.config.scriptId);
 });
 const selectedBoundScript = computed(() =>
-  scripts.value.find((item) => String(item.id) === selectedScriptId.value),
+  scripts.value.find((item) => String(item.id) === selectedScriptId.value) ?? buildSelectedScriptFallback(),
 );
 
 const selectedNodeConfig = computed<Record<string, unknown>>({
@@ -334,6 +333,25 @@ function buildSelectedQualityTaskFallback(): QualityTaskListView | undefined {
   };
 }
 
+function buildSelectedScriptFallback(scriptId = selectedScriptId.value): DataDevelopmentScriptListView | undefined {
+  const config = selectedNode.value?.config;
+  if (!scriptId || !config?.scriptId || String(config.scriptId) !== String(scriptId)) {
+    return undefined;
+  }
+  const scriptType = readSelectedNodeConfigText("scriptType");
+  if (!scriptType) {
+    return undefined;
+  }
+  const fileName = readSelectedNodeConfigText("scriptName") ?? String(config.scriptId);
+  return {
+    id: config.scriptId as DataDevelopmentScriptListView["id"],
+    fileName,
+    scriptType: scriptType as DataDevelopmentScriptListView["scriptType"],
+    datasourceId: config.datasourceId as DataDevelopmentScriptListView["datasourceId"],
+    datasourceName: readSelectedNodeConfigText("datasourceName"),
+  };
+}
+
 function readSelectedNodeConfigText(key: string) {
   const value = selectedNode.value?.config?.[key];
   return value == null || value === "" ? undefined : String(value);
@@ -372,10 +390,6 @@ async function refreshSelectedNodeCandidates() {
   }
   if (selectedNode.value?.nodeType === "QUALITY_TASK") {
     await ensureQualityTasksLoaded(true);
-    return;
-  }
-  if (selectedNode.value?.nodeType === "DATA_SCRIPT") {
-    await ensureScriptsLoaded(true);
   }
 }
 
@@ -438,21 +452,6 @@ async function loadQualityTasks() {
   }
 }
 
-async function ensureScriptsLoaded(force = false) {
-  if ((scriptsLoaded.value && !force) || scriptsLoading.value) {
-    return;
-  }
-  scriptsLoading.value = true;
-  try {
-    scripts.value = await studioApi.dataDevelopment.listScripts();
-    scriptsLoaded.value = true;
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
-  } finally {
-    scriptsLoading.value = false;
-  }
-}
-
 async function ensureScriptTreeLoaded(force = false) {
   if ((scriptTreeLoaded.value && !force) || scriptTreeLoading.value) {
     return;
@@ -510,7 +509,7 @@ async function openScriptDialog() {
   scriptDialogVisible.value = true;
   pendingScriptId.value = selectedScriptId.value;
   previewScript.value = null;
-  await Promise.all([ensureScriptsLoaded(), ensureScriptTreeLoaded()]);
+  await ensureScriptTreeLoaded();
   if (pendingScriptId.value) {
     await loadScriptPreview(pendingScriptId.value);
   }
@@ -531,14 +530,25 @@ async function loadScriptPreview(scriptId: string | number) {
     const script = await studioApi.dataDevelopment.getScript(scriptId);
     previewScript.value = script;
     upsertScript(script);
+    return true;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    return false;
   } finally {
     scriptPreviewLoading.value = false;
   }
 }
 
-function confirmScriptSelection() {
+async function confirmScriptSelection() {
+  if (!pendingScriptId.value) {
+    return;
+  }
+  if (!scripts.value.some((item) => String(item.id) === String(pendingScriptId.value))) {
+    const loaded = await loadScriptPreview(pendingScriptId.value);
+    if (!loaded) {
+      return;
+    }
+  }
   bindScript(pendingScriptId.value);
   scriptDialogVisible.value = false;
 }
@@ -550,6 +560,39 @@ function upsertScript(script: DataDevelopmentScript) {
     return;
   }
   scripts.value = [script, ...scripts.value];
+}
+
+function findScriptTreeNode(scriptId: string | number, nodes: DataDevelopmentTreeNode[]): DataDevelopmentTreeNode | undefined {
+  for (const node of nodes) {
+    if (node.nodeType === "SCRIPT" && node.scriptId != null && String(node.scriptId) === String(scriptId)) {
+      return node;
+    }
+    const matched = findScriptTreeNode(scriptId, node.children ?? []);
+    if (matched) {
+      return matched;
+    }
+  }
+  return undefined;
+}
+
+function buildScriptListViewFromTreeNode(node?: DataDevelopmentTreeNode): DataDevelopmentScriptListView | undefined {
+  if (!node?.scriptId || !node.scriptType) {
+    return undefined;
+  }
+  return {
+    id: node.scriptId,
+    fileName: node.name,
+    scriptType: node.scriptType,
+    datasourceName: node.datasourceName,
+    environmentId: node.environmentId,
+    environmentName: node.environmentName,
+  };
+}
+
+function resolveScriptForBinding(scriptId: string | number): DataDevelopmentScriptListView | undefined {
+  return scripts.value.find((item) => String(item.id) === String(scriptId))
+    ?? buildScriptListViewFromTreeNode(findScriptTreeNode(scriptId, scriptTreeData.value))
+    ?? buildSelectedScriptFallback(String(scriptId));
 }
 
 async function loadWorkflow() {
@@ -671,7 +714,7 @@ function bindScript(value?: string) {
   if (!value) {
     return;
   }
-  const script = scripts.value.find((item) => String(item.id) === String(value));
+  const script = resolveScriptForBinding(value);
   if (!selectedNode.value || !script) {
     return;
   }
@@ -680,9 +723,17 @@ function bindScript(value?: string) {
     scriptId: script.id,
     scriptName: script.fileName,
     scriptType: script.scriptType,
-    datasourceId: script.datasourceId,
-    datasourceName: script.datasourceName,
   };
+  if (script.datasourceId != null) {
+    nextConfig.datasourceId = script.datasourceId;
+  } else {
+    delete nextConfig.datasourceId;
+  }
+  if (script.datasourceName != null) {
+    nextConfig.datasourceName = script.datasourceName;
+  } else {
+    delete nextConfig.datasourceName;
+  }
   if (script.scriptType !== "SQL") {
     delete nextConfig.maxRows;
     if (nextConfig.arguments == null) {
@@ -829,9 +880,6 @@ watch(
     if (nodeType === "QUALITY_TASK") {
       void ensureQualityTasksLoaded();
       return;
-    }
-    if (nodeType === "DATA_SCRIPT") {
-      void ensureScriptsLoaded();
     }
   },
   { immediate: true },

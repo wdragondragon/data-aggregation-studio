@@ -258,7 +258,7 @@ interface WorkflowResourceDialogActions {
   confirmQualityTaskSelection: () => void;
   ensureScriptTreeLoaded: (force?: boolean) => void | Promise<void>;
   handleScriptTreeClick: (node: DataDevelopmentTreeNode) => void | Promise<void>;
-  confirmScriptSelection: () => void;
+  confirmScriptSelection: () => void | Promise<void>;
   formatNullableText: (value: unknown) => string;
   formatQualityDimension: (value?: string | null) => string;
   formatQualityGranularity: (value?: string | null) => string;
