@@ -15,6 +15,7 @@ import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
+import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.dto.model.request.DataModelQueryCondition;
 import com.jdragon.studio.dto.model.request.DataModelQueryGroup;
 import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
@@ -155,6 +156,23 @@ public class DataModelService {
             queryWrapper.like(DataModelEntity::getName, keyword.trim());
         }
         return optionPageQuery(queryWrapper, pageNo, pageSize);
+    }
+
+    public PageView<RunMetricFilterOptionView> listMetricFilterOptionPage(Long datasourceId,
+                                                                          String keyword,
+                                                                          Integer pageNo,
+                                                                          Integer pageSize) {
+        if (datasourceId != null) {
+            dataSourceService.get(datasourceId);
+        }
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(datasourceId, null, null, "name", "asc");
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            String normalizedKeyword = keyword.trim();
+            queryWrapper.and(query -> query.like(DataModelEntity::getName, normalizedKeyword)
+                    .or()
+                    .like(DataModelEntity::getPhysicalLocator, normalizedKeyword));
+        }
+        return metricFilterOptionPageQuery(queryWrapper, pageNo, pageSize);
     }
 
     public PageView<DataModelListView> listByDatasourceSummaryPage(Long datasourceId, Integer pageNo, Integer pageSize,
@@ -522,6 +540,24 @@ public class DataModelService {
         return PageView.of(resolvedPageNo, resolvedPageSize, total, toOptionViews(entities));
     }
 
+    private PageView<RunMetricFilterOptionView> metricFilterOptionPageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper,
+                                                                            Integer pageNo,
+                                                                            Integer pageSize) {
+        int resolvedPageNo = normalizePageNo(pageNo);
+        int resolvedPageSize = Math.min(normalizePageSize(pageSize), 100);
+        long total = safeCount(queryWrapper);
+        if (total <= 0L) {
+            return PageView.of(resolvedPageNo, resolvedPageSize, 0L, Collections.<RunMetricFilterOptionView>emptyList());
+        }
+        long offset = (long) (resolvedPageNo - 1) * resolvedPageSize;
+        List<DataModelEntity> entities = dataModelMapper.selectList(cloneQuery(queryWrapper)
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getName,
+                        DataModelEntity::getPhysicalLocator)
+                .last("limit " + resolvedPageSize + " offset " + offset));
+        return PageView.of(resolvedPageNo, resolvedPageSize, total, toMetricFilterOptionViews(entities));
+    }
+
     private long safeCount(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
         Long total = dataModelMapper.selectCount(cloneQuery(queryWrapper));
         return total == null ? 0L : total.longValue();
@@ -700,6 +736,25 @@ public class DataModelService {
             result.add(toOptionView(entity));
         }
         return result;
+    }
+
+    private List<RunMetricFilterOptionView> toMetricFilterOptionViews(List<DataModelEntity> entities) {
+        List<RunMetricFilterOptionView> result = new ArrayList<RunMetricFilterOptionView>();
+        for (DataModelEntity entity : entities) {
+            RunMetricFilterOptionView view = new RunMetricFilterOptionView();
+            view.setId(entity.getId());
+            view.setName(entity.getName());
+            view.setLabel(buildMetricFilterOptionLabel(entity));
+            result.add(view);
+        }
+        return result;
+    }
+
+    private String buildMetricFilterOptionLabel(DataModelEntity entity) {
+        if (entity.getPhysicalLocator() == null || entity.getPhysicalLocator().trim().isEmpty()) {
+            return entity.getName();
+        }
+        return entity.getName() + " / " + entity.getPhysicalLocator();
     }
 
     private DataModelOptionView toOptionView(DataModelEntity entity) {

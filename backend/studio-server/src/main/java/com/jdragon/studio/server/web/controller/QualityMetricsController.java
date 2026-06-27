@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.QualityIssueDetailView;
 import com.jdragon.studio.dto.model.QualityIssueView;
 import com.jdragon.studio.dto.model.QualityMetricDashboardView;
 import com.jdragon.studio.dto.model.QualityMetricOptionsView;
+import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.dto.model.request.QualityAssetQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueAssignRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueCommentRequest;
@@ -50,6 +51,15 @@ public class QualityMetricsController {
     @GetMapping("/options")
     public Result<QualityMetricOptionsView> options() {
         return Result.success(qualityMetricsService.options());
+    }
+
+    @Operation(summary = "Query quality metric model filter options")
+    @GetMapping("/model-options")
+    public Result<PageView<RunMetricFilterOptionView>> modelOptions(@RequestParam(value = "datasourceId", required = false) Long datasourceId,
+                                                                    @RequestParam(value = "keyword", required = false) String keyword,
+                                                                    @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                    @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(qualityMetricsService.modelOptions(datasourceId, keyword, pageNo, pageSize));
     }
 
     @Operation(summary = "Query quality metric dashboard")

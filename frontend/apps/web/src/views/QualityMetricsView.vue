@@ -19,6 +19,8 @@
       :is-loading="isLoading"
       :filters="filters"
       :options="options"
+      :model-options="modelOptions"
+      :model-options-loading="modelOptionsLoading"
       :dimension-options="dimensionOptions"
       :severity-options="severityOptions"
       :issue-status-options="issueStatusOptions"
@@ -174,6 +176,7 @@ import type {
   QualityMetricDashboardQueryRequest,
   QualityMetricDashboardView,
   QualityMetricOptionsView,
+  RunMetricFilterOption,
   SystemProjectMember,
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
@@ -228,6 +231,8 @@ const activeTab = ref<ActiveTab>("overview");
 const timePreset = ref<TimePreset>("7d");
 const timeRange = ref<[string, string]>(presetRange("7d"));
 const options = ref<QualityMetricOptionsView>({ datasources: [], models: [] });
+const modelOptions = ref<RunMetricFilterOption[]>([]);
+const modelOptionsLoading = ref(false);
 const assigneeOptions = ref<AssigneeOption[]>([]);
 const dashboard = ref<QualityMetricDashboardView>(emptyDashboard());
 const assets = ref<QualityAssetRiskView[]>([]);
@@ -304,6 +309,9 @@ const assetScoreTrendOption = computed<EChartsOption>(() => buildScoreTrendOptio
 
 const filterSectionActions = {
   changeTimePreset,
+  changeDatasource: changeDatasourceFilter,
+  changeModelDropdownVisible,
+  searchModels: searchModelOptions,
   reloadAll: searchCurrentTab,
   resetFilters,
 };
@@ -367,6 +375,49 @@ async function loadOptions() {
   } finally {
     loading.options = false;
   }
+}
+
+function preserveSelectedModelOption(items: RunMetricFilterOption[]) {
+  if (filters.modelId == null) {
+    return items;
+  }
+  const selected = modelOptions.value.find((item) => String(item.id) === String(filters.modelId));
+  if (!selected || items.some((item) => String(item.id) === String(filters.modelId))) {
+    return items;
+  }
+  return [selected, ...items];
+}
+
+async function loadModelOptions(keyword = "") {
+  modelOptionsLoading.value = true;
+  try {
+    const page = await studioApi.qualityMetrics.modelOptions({
+      datasourceId: filters.datasourceId,
+      keyword,
+      pageNo: 1,
+      pageSize: 50,
+    }, LOCAL_LOADING_REQUEST);
+    modelOptions.value = preserveSelectedModelOption(page.items ?? []);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "加载模型选项失败");
+  } finally {
+    modelOptionsLoading.value = false;
+  }
+}
+
+function searchModelOptions(keyword: string) {
+  void loadModelOptions(keyword);
+}
+
+function changeModelDropdownVisible(visible: boolean) {
+  if (visible && modelOptions.value.length === 0) {
+    void loadModelOptions("");
+  }
+}
+
+function changeDatasourceFilter() {
+  filters.modelId = undefined;
+  modelOptions.value = [];
 }
 
 async function loadAssignees() {
@@ -485,6 +536,7 @@ async function resetFilters() {
   filters.assigneeUserId = undefined;
   assetFilters.onlyProblemAssets = false;
   assetFilters.onlyLowCoverageAssets = false;
+  modelOptions.value = [];
   timePreset.value = "7d";
   timeRange.value = presetRange("7d");
   resetAssetPagination();
@@ -564,7 +616,11 @@ async function openIssueDrawer(issue: QualityIssueView) {
   issueDrawerVisible.value = true;
   loading.issueDetail = true;
   try {
-    issueDetail.value = await studioApi.qualityMetrics.getIssue(issue.id);
+    const [detail] = await Promise.all([
+      studioApi.qualityMetrics.getIssue(issue.id),
+      ensureAssigneesLoaded(),
+    ]);
+    issueDetail.value = detail;
     syncIssueDrafts();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载问题详情失败");
@@ -845,6 +901,8 @@ onMounted(async () => {
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
+    modelOptions.value = [];
+    assigneeOptions.value = [];
     await loadOptions();
     await loadCurrentTab();
   }

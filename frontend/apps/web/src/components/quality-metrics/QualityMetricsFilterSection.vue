@@ -23,14 +23,24 @@
       </el-form-item>
 
       <el-form-item>
-        <el-select v-model="filters.datasourceId" clearable filterable placeholder="全部数据源">
+        <el-select v-model="filters.datasourceId" clearable filterable placeholder="全部数据源" @change="filterActions.changeDatasource">
           <el-option v-for="item in options.datasources" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
         </el-select>
       </el-form-item>
 
       <el-form-item>
-        <el-select v-model="filters.modelId" clearable filterable placeholder="全部模型">
-          <el-option v-for="item in options.models" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
+        <el-select
+          v-model="filters.modelId"
+          clearable
+          filterable
+          remote
+          reserve-keyword
+          :remote-method="filterActions.searchModels"
+          :loading="modelOptionsLoading"
+          placeholder="全部模型"
+          @visible-change="filterActions.changeModelDropdownVisible"
+        >
+          <el-option v-for="item in modelOptions" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
         </el-select>
       </el-form-item>
 
@@ -115,6 +125,9 @@ interface QualityFilters {
 
 interface FilterActions {
   changeTimePreset: (value: string | number | boolean) => void;
+  changeDatasource: () => void;
+  changeModelDropdownVisible: (visible: boolean) => void;
+  searchModels: (keyword: string) => void;
   reloadAll: () => void | Promise<void>;
   resetFilters: () => void | Promise<void>;
 }
@@ -124,6 +137,8 @@ const props = defineProps<{
   isLoading: boolean;
   filters: QualityFilters;
   options: QualityMetricOptionsView;
+  modelOptions: QualityMetricOptionsView["models"];
+  modelOptionsLoading: boolean;
   timePreset: TimePreset;
   timeRange: [string, string];
   dimensionOptions: Array<LabelOption>;

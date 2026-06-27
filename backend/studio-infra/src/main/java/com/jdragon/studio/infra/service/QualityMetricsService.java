@@ -67,23 +67,15 @@ public class QualityMetricsService {
 
     public QualityMetricOptionsView options() {
         QualityMetricOptionsView view = new QualityMetricOptionsView();
-        for (DataSourceListView datasource : dataSourceService.listSummaries()) {
-            RunMetricFilterOptionView option = new RunMetricFilterOptionView();
-            option.setId(datasource.getId());
-            option.setName(datasource.getName());
-            option.setLabel(datasource.getName() + " / " + datasource.getTypeCode());
-            option.setTypeCode(datasource.getTypeCode());
-            view.getDatasources().add(option);
-        }
-        for (DataModelListView model : listModelSummaries()) {
-            RunMetricFilterOptionView option = new RunMetricFilterOptionView();
-            option.setId(model.getId());
-            option.setName(model.getName());
-            option.setLabel(model.getName() + " / " + model.getPhysicalLocator());
-            option.setTypeCode(null);
-            view.getModels().add(option);
-        }
+        view.getDatasources().addAll(dataSourceService.listMetricFilterOptions());
         return view;
+    }
+
+    public PageView<RunMetricFilterOptionView> modelOptions(Long datasourceId,
+                                                            String keyword,
+                                                            Integer pageNo,
+                                                            Integer pageSize) {
+        return dataModelService.listMetricFilterOptionPage(datasourceId, keyword, pageNo, pageSize);
     }
 
     public QualityMetricDashboardView queryDashboard(QualityMetricDashboardQueryRequest request) {
@@ -175,7 +167,7 @@ public class QualityMetricsService {
         }
         context.startTime = startTime == null ? LocalDateTime.now().minusDays(7) : startTime;
         context.endTime = endTime == null ? LocalDateTime.now() : endTime;
-        for (DataSourceListView datasource : dataSourceService.listSummaries()) {
+        for (DataSourceListView datasource : dataSourceService.listBasicSummaries()) {
             if (datasource.getId() != null) {
                 context.datasourceById.put(datasource.getId(), datasource);
             }

@@ -140,6 +140,7 @@ import type {
   Result,
   RunMetricDashboardQueryRequest,
   RunMetricDashboardResponse,
+  RunMetricFilterOption,
   RunMetricOptionsView,
   RunListQuery,
   RunRecordPageQuery,
@@ -1288,6 +1289,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     qualityMetrics: {
       options(config?: StudioRequestConfig) {
         return request<QualityMetricOptionsView>({ ...config, url: "/quality-metrics/options", method: "GET" });
+      },
+      modelOptions(params?: { datasourceId?: EntityId; keyword?: string; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+        return requestPage<RunMetricFilterOption>(
+          { ...config, url: "/quality-metrics/model-options", method: "GET", params },
+          params,
+        );
       },
       queryDashboard(payload?: QualityMetricDashboardQueryRequest, config?: StudioRequestConfig) {
         return request<QualityMetricDashboardView>({ ...config, url: "/quality-metrics/dashboard/query", method: "POST", data: payload });

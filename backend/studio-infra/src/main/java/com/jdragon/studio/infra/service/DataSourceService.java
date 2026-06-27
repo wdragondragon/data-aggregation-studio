@@ -15,6 +15,7 @@ import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
@@ -108,6 +109,17 @@ public class DataSourceService {
         return toSummaryViews(entities);
     }
 
+    public List<DataSourceListView> listBasicSummaries() {
+        List<DatasourceEntity> entities = datasourceMapper.selectList(selectOptionColumns(buildAccessibleQuery())
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        List<DataSourceListView> result = new ArrayList<DataSourceListView>();
+        for (DatasourceEntity entity : entities) {
+            result.add(toBasicListView(entity));
+        }
+        return result;
+    }
+
     public PageView<DataSourceListView> listSummaryPage(Integer pageNo, Integer pageSize) {
         int current = normalizePageNo(pageNo);
         int size = normalizePageSize(pageSize);
@@ -137,6 +149,22 @@ public class DataSourceService {
         List<DataSourceOptionView> result = new ArrayList<DataSourceOptionView>();
         for (DatasourceEntity entity : entities) {
             result.add(toOptionView(entity));
+        }
+        return result;
+    }
+
+    public List<RunMetricFilterOptionView> listMetricFilterOptions() {
+        List<DatasourceEntity> entities = datasourceMapper.selectList(selectMetricFilterOptionColumns(buildAccessibleQuery())
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        List<RunMetricFilterOptionView> result = new ArrayList<RunMetricFilterOptionView>();
+        for (DatasourceEntity entity : entities) {
+            RunMetricFilterOptionView option = new RunMetricFilterOptionView();
+            option.setId(entity.getId());
+            option.setName(entity.getName());
+            option.setLabel(entity.getName() + " / " + entity.getTypeCode());
+            option.setTypeCode(entity.getTypeCode());
+            result.add(option);
         }
         return result;
     }
@@ -454,6 +482,12 @@ public class DataSourceService {
                 DatasourceEntity::getSchemaVersionId,
                 DatasourceEntity::getEnabled,
                 DatasourceEntity::getExecutable);
+    }
+
+    private LambdaQueryWrapper<DatasourceEntity> selectMetricFilterOptionColumns(LambdaQueryWrapper<DatasourceEntity> queryWrapper) {
+        return queryWrapper.select(DatasourceEntity::getId,
+                DatasourceEntity::getName,
+                DatasourceEntity::getTypeCode);
     }
 
     private DataSourceListView toBasicListView(DatasourceEntity entity) {

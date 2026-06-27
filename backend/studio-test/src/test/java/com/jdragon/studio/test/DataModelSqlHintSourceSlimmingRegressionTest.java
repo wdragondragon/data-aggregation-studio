@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
@@ -92,6 +93,40 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
                 .doesNotContain("datasource_id",
                         "model_kind",
                         "physical_locator",
+                        "schema_version_id",
+                        "technical_metadata",
+                        "business_metadata");
+    }
+
+    @Test
+    void metricFilterModelOptionsShouldSelectOnlyFieldsNeededByQualityFilter() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataSourceService.get(11L)).thenReturn(datasource());
+        when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        PageView<RunMetricFilterOptionView> page = service.listMetricFilterOptionPage(11L, "客户", 1, 50);
+
+        assertThat(page.getItems()).hasSize(1);
+        RunMetricFilterOptionView option = page.getItems().get(0);
+        assertThat(option.getId()).isEqualTo(21L);
+        assertThat(option.getName()).isEqualTo("客户经营画像表");
+        assertThat(option.getLabel()).isEqualTo("客户经营画像表 / lt_reg_customer_profile");
+        assertThat(page.getPageSize()).isEqualTo(50);
+
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataModelMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "name", "physical_locator")
+                .doesNotContain("tenant_id",
+                        "project_id",
+                        "deleted",
+                        "created_at",
+                        "updated_at",
+                        "datasource_id",
+                        "model_kind",
                         "schema_version_id",
                         "technical_metadata",
                         "business_metadata");

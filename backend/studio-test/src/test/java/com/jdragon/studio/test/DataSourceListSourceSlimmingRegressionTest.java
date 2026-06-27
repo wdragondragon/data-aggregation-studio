@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DatasourceConnectionHealthEntity;
 import com.jdragon.studio.infra.entity.DatasourceConnectionTestRecordEntity;
@@ -118,6 +119,34 @@ class DataSourceListSourceSlimmingRegressionTest {
     }
 
     @Test
+    void datasourceBasicSummariesShouldSkipConnectionHealthHydration() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
+        DatasourceConnectionTestRecordMapper recordMapper = mock(DatasourceConnectionTestRecordMapper.class);
+        DataSourceService service = dataSourceService(datasourceMapper, healthMapper, recordMapper);
+        when(datasourceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(datasource()));
+
+        List<DataSourceListView> summaries = service.listBasicSummaries();
+
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0).getName()).isEqualTo("长期回归-客户订单数据源");
+        assertThat(summaries.get(0).getConnectionStatus()).isNull();
+
+        ArgumentCaptor<LambdaQueryWrapper<DatasourceEntity>> datasourceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(datasourceMapper).selectList(datasourceCaptor.capture());
+        assertThat(datasourceCaptor.getValue().getSqlSelect())
+                .contains("id", "tenant_id", "project_id", "name", "type_code", "schema_version_id", "enabled", "executable")
+                .doesNotContain("connection_fingerprint",
+                        "connection_status",
+                        "last_connection_test_message",
+                        "manual_connection_test_timeout_seconds",
+                        "technical_metadata",
+                        "business_metadata");
+        verify(healthMapper, never()).selectList(any());
+        verify(recordMapper, never()).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
+    }
+
+    @Test
     void datasourceOptionsShouldSelectOnlyOptionFieldsAndSkipHealthHydration() {
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
         DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
@@ -144,6 +173,36 @@ class DataSourceListSourceSlimmingRegressionTest {
                         "last_connection_test_message",
                         "manual_connection_test_timeout_seconds",
                         "scheduled_connection_test_timeout_seconds",
+                        "technical_metadata",
+                        "business_metadata");
+        verify(healthMapper, never()).selectList(any());
+        verify(recordMapper, never()).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
+    }
+
+    @Test
+    void datasourceMetricFilterOptionsShouldSelectOnlyFilterFieldsAndSkipHealthHydration() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
+        DatasourceConnectionTestRecordMapper recordMapper = mock(DatasourceConnectionTestRecordMapper.class);
+        DataSourceService service = dataSourceService(datasourceMapper, healthMapper, recordMapper);
+        when(datasourceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(datasource()));
+
+        List<RunMetricFilterOptionView> options = service.listMetricFilterOptions();
+
+        assertThat(options).hasSize(1);
+        assertThat(options.get(0).getName()).isEqualTo("长期回归-客户订单数据源");
+        assertThat(options.get(0).getLabel()).isEqualTo("长期回归-客户订单数据源 / mysql8");
+        assertThat(options.get(0).getTypeCode()).isEqualTo("mysql8");
+
+        ArgumentCaptor<LambdaQueryWrapper<DatasourceEntity>> datasourceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(datasourceMapper).selectList(datasourceCaptor.capture());
+        assertThat(datasourceCaptor.getValue().getSqlSelect())
+                .contains("id", "name", "type_code")
+                .doesNotContain("tenant_id",
+                        "project_id",
+                        "schema_version_id",
+                        "connection_fingerprint",
+                        "connection_status",
                         "technical_metadata",
                         "business_metadata");
         verify(healthMapper, never()).selectList(any());
