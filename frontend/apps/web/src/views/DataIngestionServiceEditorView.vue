@@ -162,7 +162,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="字段">
-          <el-button plain :disabled="!form.datasourceId || !form.modelId" :loading="resolving" @click="resolveFields">解析目标字段</el-button>
+          <el-button plain :disabled="!form.datasourceId || !form.modelId || modelDetailLoading" :loading="resolving || modelDetailLoading" @click="resolveFields">解析目标字段</el-button>
         </el-form-item>
       </el-form>
       <div class="writer-options-panel">
@@ -342,6 +342,7 @@ import type {
   DataIngestionServiceView,
   DataIngestionSourcePosition,
   DataModelDefinition,
+  DataModelListView,
   DataSourceListView,
   DatasourceTypeCapabilityView,
   EntityId,
@@ -449,7 +450,9 @@ const serviceId = computed(() => route.params.serviceId as EntityId | undefined)
 const activeStep = ref(0);
 const datasources = ref<DataSourceListView[]>([]);
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
-const models = ref<DataModelDefinition[]>([]);
+const models = ref<DataModelListView[]>([]);
+const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
+const modelDetailLoading = ref(false);
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
 const runtimeSchemaLoading = ref<Record<string, boolean>>({});
 const saving = ref(false);
@@ -559,7 +562,7 @@ const soapHeaderRows = computed(() => [
 ]);
 
 const targetModel = computed(() =>
-  models.value.find((item) => String(item.id) === String(form.modelId ?? "")),
+  modelDetailCache.value[String(form.modelId ?? "")],
 );
 const datasourceTypeOptions = computed<DatasourceTypeOption[]>(() => {
   const configuredTypes = new Set(datasources.value.map((item) => item.typeCode).filter(Boolean));
@@ -803,8 +806,10 @@ async function loadService(id: EntityId) {
     if (detail.datasourceId) {
       await Promise.all([
         loadModels(detail.datasourceId),
+        detail.modelId ? loadModelDetail(detail.modelId) : Promise.resolve(),
         ensureRuntimeSchemaForDatasource("writer", detail.datasourceId),
       ]);
+      ensureSelectedModelOption();
       applyRuntimeDefaultsForWriter();
     }
     return true;
@@ -897,13 +902,65 @@ async function handleDatasourceChange(value?: EntityId) {
   applyRuntimeDefaultsForWriter();
 }
 
-function handleModelChange(value: EntityId) {
+async function handleModelChange(value?: EntityId) {
   form.modelId = value;
+  await loadModelDetail(value);
   applyRuntimeDefaultsForWriter();
 }
 
 async function loadModels(datasourceId: EntityId) {
-  models.value = await studioApi.models.listByDatasource(datasourceId, { pageNo: 1, pageSize: 5000 });
+  models.value = await studioApi.models.listSummariesByDatasource(datasourceId, { pageNo: 1, pageSize: 5000 });
+  ensureSelectedModelOption();
+}
+
+async function loadModelDetail(modelId?: EntityId) {
+  const key = String(modelId ?? "");
+  if (!key || modelDetailCache.value[key]) {
+    return;
+  }
+  modelDetailLoading.value = true;
+  try {
+    const detail = await studioApi.models.get(modelId as EntityId);
+    modelDetailCache.value = {
+      ...modelDetailCache.value,
+      [key]: detail,
+    };
+    ensureSelectedModelOption();
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, "加载目标模型详情失败"));
+  } finally {
+    modelDetailLoading.value = false;
+  }
+}
+
+function ensureSelectedModelOption() {
+  const detail = modelDetailCache.value[String(form.modelId ?? "")];
+  if (!detail || !form.datasourceId || String(detail.datasourceId) !== String(form.datasourceId)) {
+    return;
+  }
+  if (models.value.some((item) => String(item.id) === String(detail.id))) {
+    return;
+  }
+  models.value = [
+    ...models.value,
+    toModelListView(detail),
+  ];
+}
+
+function toModelListView(model: DataModelDefinition): DataModelListView {
+  return {
+    id: model.id,
+    tenantId: model.tenantId,
+    projectId: model.projectId,
+    deleted: model.deleted,
+    createdAt: model.createdAt,
+    updatedAt: model.updatedAt,
+    datasourceId: model.datasourceId,
+    name: model.name,
+    modelKind: model.modelKind,
+    physicalLocator: model.physicalLocator,
+    schemaVersionId: model.schemaVersionId,
+  };
 }
 
 async function ensureRuntimeSchemaForDatasource(role: RuntimeOptionRole, datasourceId: unknown) {
