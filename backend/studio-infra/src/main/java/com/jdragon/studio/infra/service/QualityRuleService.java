@@ -85,7 +85,7 @@ public class QualityRuleService {
             return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityRuleListView>());
         }
         Page<QualityRuleEntity> page = new Page<QualityRuleEntity>(safePageNo, safePageSize);
-        LambdaQueryWrapper<QualityRuleEntity> queryWrapper = buildAccessibleQuery(normalizedScopeType)
+        LambdaQueryWrapper<QualityRuleEntity> queryWrapper = selectRuleListColumns(buildAccessibleQuery(normalizedScopeType))
                 .and(hasText(normalizedKeyword), wrapper -> wrapper.like(QualityRuleEntity::getRuleName, normalizedKeyword)
                         .or()
                         .like(QualityRuleEntity::getRuleCode, normalizedKeyword)
@@ -389,6 +389,22 @@ public class QualityRuleService {
         view.setEditable(canManage(entity));
         view.setDeletable(canManage(entity));
         return view;
+    }
+
+    private LambdaQueryWrapper<QualityRuleEntity> selectRuleListColumns(LambdaQueryWrapper<QualityRuleEntity> queryWrapper) {
+        return queryWrapper.select(QualityRuleEntity::getId,
+                QualityRuleEntity::getTenantId,
+                QualityRuleEntity::getProjectId,
+                QualityRuleEntity::getDeleted,
+                QualityRuleEntity::getCreatedAt,
+                QualityRuleEntity::getUpdatedAt,
+                QualityRuleEntity::getCreatedBy,
+                QualityRuleEntity::getRuleName,
+                QualityRuleEntity::getRuleCode,
+                QualityRuleEntity::getScopeType,
+                QualityRuleEntity::getRuleDimension,
+                QualityRuleEntity::getGranularity,
+                QualityRuleEntity::getEnabled);
     }
 
     private List<QualityRuleInputParamView> loadInputParams(Long ruleId) {

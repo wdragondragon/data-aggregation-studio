@@ -105,7 +105,7 @@ public class QualityTaskService {
         String normalizedDimension = normalizeText(ruleDimension);
         String normalizedGranularity = normalizeText(granularity);
         Page<QualityTaskDefinitionEntity> page = new Page<QualityTaskDefinitionEntity>(safePageNo, safePageSize);
-        LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper = new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+        LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper = selectTaskListColumns(new LambdaQueryWrapper<QualityTaskDefinitionEntity>())
                 .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
                 .and(hasText(normalizedKeyword), wrapper -> wrapper.like(QualityTaskDefinitionEntity::getTaskName, normalizedKeyword)
@@ -154,7 +154,7 @@ public class QualityTaskService {
         if (currentProjectId == null) {
             return new ArrayList<QualityTaskListView>();
         }
-        List<QualityTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+        List<QualityTaskDefinitionEntity> entities = definitionMapper.selectList(selectTaskListColumns(new LambdaQueryWrapper<QualityTaskDefinitionEntity>())
                 .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
                 .eq(QualityTaskDefinitionEntity::getStatus, QualityTaskStatus.ONLINE.name())
@@ -576,6 +576,30 @@ public class QualityTaskService {
         view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
         view.setColumnName(entity.getColumnName());
         return view;
+    }
+
+    private LambdaQueryWrapper<QualityTaskDefinitionEntity> selectTaskListColumns(LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper) {
+        return queryWrapper.select(QualityTaskDefinitionEntity::getId,
+                QualityTaskDefinitionEntity::getTenantId,
+                QualityTaskDefinitionEntity::getProjectId,
+                QualityTaskDefinitionEntity::getDeleted,
+                QualityTaskDefinitionEntity::getCreatedAt,
+                QualityTaskDefinitionEntity::getUpdatedAt,
+                QualityTaskDefinitionEntity::getCreatedBy,
+                QualityTaskDefinitionEntity::getTaskName,
+                QualityTaskDefinitionEntity::getTaskCode,
+                QualityTaskDefinitionEntity::getStatus,
+                QualityTaskDefinitionEntity::getRuleId,
+                QualityTaskDefinitionEntity::getRuleNameSnapshot,
+                QualityTaskDefinitionEntity::getRuleDimension,
+                QualityTaskDefinitionEntity::getGranularity,
+                QualityTaskDefinitionEntity::getDatasourceId,
+                QualityTaskDefinitionEntity::getDatasourceNameSnapshot,
+                QualityTaskDefinitionEntity::getDatasourceTypeCode,
+                QualityTaskDefinitionEntity::getModelId,
+                QualityTaskDefinitionEntity::getModelNameSnapshot,
+                QualityTaskDefinitionEntity::getModelPhysicalLocator,
+                QualityTaskDefinitionEntity::getColumnName);
     }
 
     private List<QualityTaskParamBinding> loadParameterBindings(List<Map<String, Object>> items) {
