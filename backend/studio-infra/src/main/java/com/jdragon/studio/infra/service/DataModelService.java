@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataModelListView;
+import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -150,6 +152,18 @@ public class DataModelService {
                                                                    String sortField, String sortOrder) {
         dataSourceService.get(datasourceId);
         return summaryPageQuery(buildBaseQuery(datasourceId, null, null, sortField, sortOrder), pageNo, pageSize);
+    }
+
+    public List<DataModelSqlHintView> listSqlHintsByDatasource(Long datasourceId) {
+        dataSourceService.get(datasourceId);
+        List<DataModelEntity> entities = dataModelMapper.selectList(buildBaseQuery(datasourceId, null, null, "name", "asc")
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getDatasourceId,
+                        DataModelEntity::getName,
+                        DataModelEntity::getPhysicalLocator,
+                        DataModelEntity::getTechnicalMetadata)
+                .last("limit " + MAX_PAGE_SIZE));
+        return toSqlHintViews(entities);
     }
 
     public PageView<DataModelListView> querySummaryPage(DataModelQueryRequest request, Integer pageNo, Integer pageSize) {
@@ -647,6 +661,45 @@ public class DataModelService {
             result.add(toListView(entity));
         }
         return result;
+    }
+
+    private List<DataModelSqlHintView> toSqlHintViews(List<DataModelEntity> entities) {
+        List<DataModelSqlHintView> result = new ArrayList<DataModelSqlHintView>();
+        for (DataModelEntity entity : entities) {
+            result.add(toSqlHintView(entity));
+        }
+        return result;
+    }
+
+    private DataModelSqlHintView toSqlHintView(DataModelEntity entity) {
+        DataModelSqlHintView view = new DataModelSqlHintView();
+        view.setId(entity.getId());
+        view.setDatasourceId(entity.getDatasourceId());
+        view.setName(entity.getName());
+        view.setPhysicalLocator(entity.getPhysicalLocator());
+        view.setColumns(extractSqlHintColumns(entity.getTechnicalMetadata()));
+        return view;
+    }
+
+    private List<String> extractSqlHintColumns(Map<String, Object> technicalMetadata) {
+        Object columns = technicalMetadata == null ? null : technicalMetadata.get("columns");
+        if (!(columns instanceof List<?>)) {
+            return Collections.emptyList();
+        }
+        Set<String> result = new LinkedHashSet<String>();
+        for (Object item : (List<?>) columns) {
+            String name = "";
+            if (item instanceof Map<?, ?>) {
+                Object value = ((Map<?, ?>) item).get("name");
+                name = value == null ? "" : String.valueOf(value).trim();
+            } else if (item != null) {
+                name = String.valueOf(item).trim();
+            }
+            if (!name.isEmpty()) {
+                result.add(name);
+            }
+        }
+        return new ArrayList<String>(result);
     }
 
     private List<Long> extractModelIds(List<DataModelEntity> entities) {

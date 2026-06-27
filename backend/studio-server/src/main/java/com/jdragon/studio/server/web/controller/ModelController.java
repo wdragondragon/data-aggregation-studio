@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.DataModelIndexQueueStatusView;
 import com.jdragon.studio.dto.model.DataModelLineageEdgeDetailView;
 import com.jdragon.studio.dto.model.DataModelLineageView;
 import com.jdragon.studio.dto.model.DataModelListView;
+import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.DataModelStatisticsView;
 import com.jdragon.studio.dto.enums.LineageLevel;
@@ -92,6 +93,12 @@ public class ModelController {
                                                                         @RequestParam(value = "sortField", required = false) String sortField,
                                                                         @RequestParam(value = "sortOrder", required = false) String sortOrder) {
         return Result.success(dataModelService.listByDatasourceSummaryPage(datasourceId, pageNo, pageSize, sortField, sortOrder));
+    }
+
+    @Operation(summary = "List SQL editor model hints by datasource")
+    @GetMapping("/datasource/{datasourceId}/sql-hints")
+    public Result<List<DataModelSqlHintView>> listSqlHintsByDatasource(@PathVariable("datasourceId") Long datasourceId) {
+        return Result.success(dataModelService.listSqlHintsByDatasource(datasourceId));
     }
 
     @Operation(summary = "Get datasource model detail")

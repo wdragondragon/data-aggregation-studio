@@ -77,6 +77,7 @@
 | FIX-S46-001 | 数据服务/编辑页模型下拉 | 中 | `/data-services/new` 服务开发步骤用完整模型列表填充数据表下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段解析由后端按 `modelId` 完成 | `DataServiceEditorView.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=500` 响应约 10.8KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 45.1KB；build 后 nginx `/data-services/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S47-001 | 数据质量/编辑页模型下拉 | 中 | `/quality-tasks/new` 选择数据源后用完整模型列表填充模型下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，列级字段仅需选中模型详情 | `QualityTaskEditorView.vue`；`QualityTaskBindingSection.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=5000` 响应约 11.0KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 46.2KB；build 后 nginx `/quality-tasks/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S48-001 | 数据采集/编辑页模型下拉 | 中 | `/collection-tasks/new` 源/目标模型下拉用完整模型列表填充，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段映射和协议元数据仅需选中模型详情 | `CollectionTaskEditorView.vue`；`CollectionTaskBindingSection.vue`；`frontend/packages/i18n/src/messages/web.ts` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=5000` 响应约 11.0KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 46.2KB；build 后 nginx `/collection-tasks/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
+| FIX-S49-001 | 数据开发/SQL 编辑器提示 | 中 | `/data-development` SQL 补全用完整模型列表提取表名和列名，批量读取所有模型 `technicalMetadata/businessMetadata`；补全实际只需表名、模型名和列名 | `DataModelSqlHintView.java`；`DataModelService.java`；`ModelController.java`；`DataDevelopmentView.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts`；`DataModelSqlHintSourceSlimmingRegressionTest.java` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/sql-hints` 响应约 7.9KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 46.2KB；build 后 nginx `/data-development` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -133,3 +134,4 @@
 | S46 数据服务目标模型下拉源头瘦身 | FIX-S46-001 |
 | S47 质量任务模型下拉按需详情 | FIX-S47-001 |
 | S48 采集任务模型下拉按需详情 | FIX-S48-001 |
+| S49 数据开发 SQL 提示源头瘦身 | FIX-S49-001 |

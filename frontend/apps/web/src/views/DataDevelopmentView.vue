@@ -264,7 +264,7 @@ import type {
   DataDevelopmentDirectorySaveRequest,
   DataScriptExecutionResult,
   DataDevelopmentScript,
-  DataModelDefinition,
+  DataModelSqlHintView,
   SqlStatementExecutionResult,
   DataDevelopmentTreeNode,
   DataSourceOptionView,
@@ -830,7 +830,7 @@ async function ensureSqlHintsLoaded(datasourceId: EntityId | undefined) {
     return;
   }
   try {
-    const models = await studioApi.models.listByDatasource(datasourceId);
+    const models = await studioApi.models.listSqlHintsByDatasource(datasourceId);
     const datasource = sqlDatasources.value.find((item) => String(item.id) === cacheKey);
     sqlHintCache.value = {
       ...sqlHintCache.value,
@@ -844,7 +844,7 @@ async function ensureSqlHintsLoaded(datasourceId: EntityId | undefined) {
   }
 }
 
-function buildSqlHintSource(models: DataModelDefinition[], datasource?: DataSourceOptionView): SqlEditorHintSource {
+function buildSqlHintSource(models: DataModelSqlHintView[], datasource?: DataSourceOptionView): SqlEditorHintSource {
   const tableMap = new Map<string, { name: string; modelName?: string; columns: Set<string> }>();
   for (const model of models) {
     const tableName = String(model.physicalLocator || model.name || "").trim();
@@ -856,8 +856,11 @@ function buildSqlHintSource(models: DataModelDefinition[], datasource?: DataSour
       modelName: model.name,
       columns: new Set<string>(),
     };
-    for (const column of extractModelColumns(model)) {
-      current.columns.add(column);
+    for (const column of model.columns ?? []) {
+      const fieldName = String(column ?? "").trim();
+      if (fieldName) {
+        current.columns.add(fieldName);
+      }
     }
     tableMap.set(tableName, current);
   }
@@ -870,26 +873,6 @@ function buildSqlHintSource(models: DataModelDefinition[], datasource?: DataSour
       columns: Array.from(item.columns.values()).sort((left, right) => left.localeCompare(right)),
     })),
   };
-}
-
-function extractModelColumns(model: DataModelDefinition): string[] {
-  const columns = model.technicalMetadata?.columns;
-  if (!Array.isArray(columns)) {
-    return [];
-  }
-  const result = new Set<string>();
-  for (const column of columns) {
-    if (!column || typeof column !== "object") {
-      continue;
-    }
-    const fieldName = typeof (column as Record<string, unknown>).name === "string"
-      ? String((column as Record<string, unknown>).name).trim()
-      : "";
-    if (fieldName) {
-      result.add(fieldName);
-    }
-  }
-  return Array.from(result.values());
 }
 
 function openMoveDialog() {

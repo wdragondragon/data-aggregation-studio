@@ -24,6 +24,7 @@ import type {
   EnvironmentDependencySaveRequest,
   DataModelDefinition,
   DataModelListView,
+  DataModelSqlHintView,
   DataModelLineageEdgeDetailView,
   DataModelLineageLevel,
   DataModelLineageView,
@@ -930,6 +931,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           },
         });
         return result.items;
+      },
+      listSqlHintsByDatasource(datasourceId: EntityId, config?: StudioRequestConfig) {
+        return request<DataModelSqlHintView[]>({ ...config, url: `/models/datasource/${datasourceId}/sql-hints`, method: "GET" });
       },
       get(modelId: EntityId, config?: StudioRequestConfig) {
         return request<DataModelDefinition>({ ...config, url: `/models/${modelId}`, method: "GET" });
