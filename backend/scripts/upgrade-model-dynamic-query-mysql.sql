@@ -180,6 +180,10 @@ alter table studio_follow_subscription add unique key uk_studio_follow_subscript
 alter table studio_follow_subscription add key idx_studio_follow_subscription_lookup (target_type, target_id, enabled);
 
 alter table collection_task_definition add column if not exists created_by bigint;
+alter table collection_task_definition add column if not exists target_datasource_name_snapshot varchar(255);
+alter table collection_task_definition add column if not exists target_datasource_type_code_snapshot varchar(128);
+alter table collection_task_definition add column if not exists target_model_name_snapshot varchar(255);
+alter table collection_task_definition add column if not exists target_model_physical_locator_snapshot varchar(512);
 alter table workflow_definition add column if not exists created_by bigint;
 alter table dispatch_task add column if not exists triggered_by_user_id bigint;
 alter table run_record add column if not exists triggered_by_user_id bigint;

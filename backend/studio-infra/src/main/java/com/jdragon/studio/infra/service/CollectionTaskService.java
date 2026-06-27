@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -15,6 +16,7 @@ import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskScheduleEntity;
@@ -104,27 +106,48 @@ public class CollectionTaskService {
     }
 
     public List<CollectionTaskListView> listSummaries(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
-        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
-                .select(CollectionTaskDefinitionEntity::getId,
-                        CollectionTaskDefinitionEntity::getTenantId,
-                        CollectionTaskDefinitionEntity::getProjectId,
-                        CollectionTaskDefinitionEntity::getDeleted,
-                        CollectionTaskDefinitionEntity::getCreatedAt,
-                        CollectionTaskDefinitionEntity::getUpdatedAt,
-                        CollectionTaskDefinitionEntity::getName,
-                        CollectionTaskDefinitionEntity::getTaskType,
-                        CollectionTaskDefinitionEntity::getStatus,
-                        CollectionTaskDefinitionEntity::getSourceCount,
-                        CollectionTaskDefinitionEntity::getTargetBindingJson)
-                .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt));
+        int pageNo = 1;
+        int pageSize = 500;
         List<CollectionTaskListView> result = new ArrayList<CollectionTaskListView>();
-        for (CollectionTaskDefinitionEntity entity : entities) {
-            CollectionTaskListView view = toListView(entity);
-            if (matchesSummaryKeywords(view, nameKeyword, targetDatasourceKeyword, targetModelKeyword)) {
-                result.add(view);
-            }
-        }
+        PageView<CollectionTaskListView> page;
+        do {
+            page = listSummaryPage(pageNo, pageSize, nameKeyword, targetDatasourceKeyword, targetModelKeyword);
+            result.addAll(page.getItems());
+            pageNo++;
+        } while (result.size() < page.getTotal());
         return result;
+    }
+
+    public PageView<CollectionTaskListView> listSummaryPage(Integer pageNo,
+                                                            Integer pageSize,
+                                                            String nameKeyword,
+                                                            String targetDatasourceKeyword,
+                                                            String targetModelKeyword) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        String normalizedName = normalizeNullableText(nameKeyword);
+        String normalizedTargetDatasource = normalizeNullableText(targetDatasourceKeyword);
+        String normalizedTargetModel = normalizeNullableText(targetModelKeyword);
+        Page<CollectionTaskDefinitionEntity> page = new Page<CollectionTaskDefinitionEntity>(safePageNo, safePageSize);
+        LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper = selectListColumns(buildAccessibleQuery())
+                .like(hasText(normalizedName), CollectionTaskDefinitionEntity::getName, normalizedName)
+                .and(hasText(normalizedTargetDatasource), wrapper -> wrapper
+                        .like(CollectionTaskDefinitionEntity::getTargetDatasourceNameSnapshot, normalizedTargetDatasource)
+                        .or()
+                        .like(CollectionTaskDefinitionEntity::getTargetDatasourceTypeCodeSnapshot, normalizedTargetDatasource))
+                .and(hasText(normalizedTargetModel), wrapper -> wrapper
+                        .like(CollectionTaskDefinitionEntity::getTargetModelNameSnapshot, normalizedTargetModel)
+                        .or()
+                        .like(CollectionTaskDefinitionEntity::getTargetModelPhysicalLocatorSnapshot, normalizedTargetModel))
+                .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt)
+                .orderByDesc(CollectionTaskDefinitionEntity::getId);
+        Page<CollectionTaskDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
+        Map<Long, CollectionTaskScheduleDefinition> schedules = loadScheduleMap(entityPage.getRecords());
+        List<CollectionTaskListView> result = new ArrayList<CollectionTaskListView>();
+        for (CollectionTaskDefinitionEntity entity : entityPage.getRecords()) {
+            result.add(toListView(entity, schedules.get(entity.getId())));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), result);
     }
 
     public List<CollectionTaskDefinitionView> listMetricBindings() {
@@ -182,23 +205,13 @@ public class CollectionTaskService {
     }
 
     public List<CollectionTaskListView> listOnlineSummaries() {
-        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
-                .select(CollectionTaskDefinitionEntity::getId,
-                        CollectionTaskDefinitionEntity::getTenantId,
-                        CollectionTaskDefinitionEntity::getProjectId,
-                        CollectionTaskDefinitionEntity::getDeleted,
-                        CollectionTaskDefinitionEntity::getCreatedAt,
-                        CollectionTaskDefinitionEntity::getUpdatedAt,
-                        CollectionTaskDefinitionEntity::getName,
-                        CollectionTaskDefinitionEntity::getTaskType,
-                        CollectionTaskDefinitionEntity::getStatus,
-                        CollectionTaskDefinitionEntity::getSourceCount,
-                        CollectionTaskDefinitionEntity::getTargetBindingJson)
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(selectListColumns(buildAccessibleQuery())
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
                 .orderByAsc(CollectionTaskDefinitionEntity::getName));
+        Map<Long, CollectionTaskScheduleDefinition> schedules = loadScheduleMap(entities);
         List<CollectionTaskListView> result = new ArrayList<CollectionTaskListView>();
         for (CollectionTaskDefinitionEntity entity : entities) {
-            result.add(toListView(entity));
+            result.add(toListView(entity, schedules.get(entity.getId())));
         }
         return result;
     }
@@ -250,6 +263,7 @@ public class CollectionTaskService {
         entity.setStatus(entity.getId() != null && CollectionTaskStatus.ONLINE.name().equalsIgnoreCase(entity.getStatus())
                 ? CollectionTaskStatus.ONLINE.name()
                 : CollectionTaskStatus.DRAFT.name());
+        applyTargetSnapshots(entity, targetBinding);
         entity.setSourceBindingsJson(toListOfMaps(sourceBindings));
         entity.setTargetBindingJson(toMap(targetBinding));
         entity.setFieldMappingsJson(toListOfMaps(fieldMappings));
@@ -391,7 +405,7 @@ public class CollectionTaskService {
         return view;
     }
 
-    private CollectionTaskListView toListView(CollectionTaskDefinitionEntity entity) {
+    private CollectionTaskListView toListView(CollectionTaskDefinitionEntity entity, CollectionTaskScheduleDefinition schedule) {
         CollectionTaskListView view = new CollectionTaskListView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
@@ -403,24 +417,59 @@ public class CollectionTaskService {
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
         view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
         view.setSourceCount(entity.getSourceCount());
-        CollectionTaskTargetBinding targetBinding = convertMap(entity.getTargetBindingJson(), CollectionTaskTargetBinding.class);
-        if (targetBinding != null) {
-            view.setTargetDatasourceName(targetBinding.getDatasourceName());
-            view.setTargetDatasourceTypeCode(targetBinding.getDatasourceTypeCode());
-            view.setTargetModelName(targetBinding.getModelName());
-            view.setTargetModelPhysicalLocator(targetBinding.getModelPhysicalLocator());
-        }
-        CollectionTaskScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
-                .eq(CollectionTaskScheduleEntity::getCollectionTaskId, entity.getId())
-                .last("limit 1"));
-        if (scheduleEntity != null) {
-            CollectionTaskScheduleDefinition schedule = new CollectionTaskScheduleDefinition();
-            schedule.setCronExpression(scheduleEntity.getCronExpression());
-            schedule.setEnabled(scheduleEntity.getEnabled() != null && scheduleEntity.getEnabled() == 1);
-            schedule.setTimezone(scheduleEntity.getTimezone());
-            view.setSchedule(schedule);
-        }
+        view.setTargetDatasourceName(entity.getTargetDatasourceNameSnapshot());
+        view.setTargetDatasourceTypeCode(entity.getTargetDatasourceTypeCodeSnapshot());
+        view.setTargetModelName(entity.getTargetModelNameSnapshot());
+        view.setTargetModelPhysicalLocator(entity.getTargetModelPhysicalLocatorSnapshot());
+        view.setSchedule(schedule);
         return view;
+    }
+
+    private LambdaQueryWrapper<CollectionTaskDefinitionEntity> selectListColumns(LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper) {
+        return queryWrapper.select(CollectionTaskDefinitionEntity::getId,
+                CollectionTaskDefinitionEntity::getTenantId,
+                CollectionTaskDefinitionEntity::getProjectId,
+                CollectionTaskDefinitionEntity::getDeleted,
+                CollectionTaskDefinitionEntity::getCreatedAt,
+                CollectionTaskDefinitionEntity::getUpdatedAt,
+                CollectionTaskDefinitionEntity::getName,
+                CollectionTaskDefinitionEntity::getTaskType,
+                CollectionTaskDefinitionEntity::getStatus,
+                CollectionTaskDefinitionEntity::getSourceCount,
+                CollectionTaskDefinitionEntity::getTargetDatasourceNameSnapshot,
+                CollectionTaskDefinitionEntity::getTargetDatasourceTypeCodeSnapshot,
+                CollectionTaskDefinitionEntity::getTargetModelNameSnapshot,
+                CollectionTaskDefinitionEntity::getTargetModelPhysicalLocatorSnapshot);
+    }
+
+    private Map<Long, CollectionTaskScheduleDefinition> loadScheduleMap(List<CollectionTaskDefinitionEntity> entities) {
+        Set<Long> taskIds = new HashSet<Long>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            if (entity != null && entity.getId() != null) {
+                taskIds.add(entity.getId());
+            }
+        }
+        if (taskIds.isEmpty()) {
+            return new LinkedHashMap<Long, CollectionTaskScheduleDefinition>();
+        }
+        List<CollectionTaskScheduleEntity> schedules = scheduleMapper.selectList(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
+                .select(CollectionTaskScheduleEntity::getCollectionTaskId,
+                        CollectionTaskScheduleEntity::getCronExpression,
+                        CollectionTaskScheduleEntity::getEnabled,
+                        CollectionTaskScheduleEntity::getTimezone)
+                .in(CollectionTaskScheduleEntity::getCollectionTaskId, taskIds));
+        Map<Long, CollectionTaskScheduleDefinition> result = new LinkedHashMap<Long, CollectionTaskScheduleDefinition>();
+        for (CollectionTaskScheduleEntity entity : schedules) {
+            if (entity == null || entity.getCollectionTaskId() == null) {
+                continue;
+            }
+            CollectionTaskScheduleDefinition schedule = new CollectionTaskScheduleDefinition();
+            schedule.setCronExpression(entity.getCronExpression());
+            schedule.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
+            schedule.setTimezone(entity.getTimezone());
+            result.put(entity.getCollectionTaskId(), schedule);
+        }
+        return result;
     }
 
     private CollectionTaskDefinitionView toMetricBindingView(CollectionTaskDefinitionEntity entity) {
@@ -588,6 +637,42 @@ public class CollectionTaskService {
             return false;
         }
         return candidate.toLowerCase(Locale.ROOT).contains(keyword.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private void applyTargetSnapshots(CollectionTaskDefinitionEntity entity, CollectionTaskTargetBinding targetBinding) {
+        if (targetBinding == null) {
+            entity.setTargetDatasourceNameSnapshot(null);
+            entity.setTargetDatasourceTypeCodeSnapshot(null);
+            entity.setTargetModelNameSnapshot(null);
+            entity.setTargetModelPhysicalLocatorSnapshot(null);
+            return;
+        }
+        entity.setTargetDatasourceNameSnapshot(normalizeNullableText(targetBinding.getDatasourceName()));
+        entity.setTargetDatasourceTypeCodeSnapshot(normalizeNullableText(targetBinding.getDatasourceTypeCode()));
+        entity.setTargetModelNameSnapshot(normalizeNullableText(targetBinding.getModelName()));
+        entity.setTargetModelPhysicalLocatorSnapshot(normalizeNullableText(targetBinding.getModelPhysicalLocator()));
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private String normalizeNullableText(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        return pageNo == null || pageNo.intValue() <= 0 ? 1 : pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() <= 0) {
+            return 20;
+        }
+        return Math.min(pageSize.intValue(), 200);
     }
 
     private List<CollectionTaskSourceBinding> enrichSourceBindings(List<CollectionTaskSourceBinding> bindings) {

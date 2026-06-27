@@ -17,7 +17,7 @@
         <el-input v-model="filters.targetDatasource" :placeholder="t('web.collectionTasks.filterDatasourcePlaceholder')" clearable />
         <el-input v-model="filters.targetModel" :placeholder="t('web.collectionTasks.filterModelPlaceholder')" clearable />
         <div class="task-filter-actions">
-          <el-button type="primary" @click="loadTasks">{{ t("common.search") }}</el-button>
+          <el-button type="primary" @click="searchTasks">{{ t("common.search") }}</el-button>
           <el-button plain @click="resetFilters">{{ t("common.reset") }}</el-button>
         </div>
       </div>
@@ -26,7 +26,7 @@
     <SectionCard :title="t('web.collectionTasks.listTitle')" :description="t('web.collectionTasks.listDescription')">
       <StudioTableShell min-width="1460px">
         <el-table
-          :data="pagedTasks"
+          :data="tasks"
           border
           size="small"
           table-layout="fixed"
@@ -104,7 +104,9 @@
           background
           layout="total, sizes, prev, pager, next"
           :page-sizes="[10, 20, 50, 100]"
-          :total="tasks.length"
+          :total="taskTotal"
+          @current-change="handleTaskPageChange"
+          @size-change="handleTaskPageSizeChange"
         />
       </div>
     </SectionCard>
@@ -191,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -211,9 +213,13 @@ const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 const tasks = ref<CollectionTaskListView[]>([]);
+const taskTotal = ref(0);
 const activeTask = ref<CollectionTaskListView | null>(null);
 const taskRunRecords = ref<RunRecordListView[]>([]);
-const { pagination: taskPagination, pagedItems: pagedTasks, resetPagination: resetTaskPagination } = useClientPagination(tasks);
+const taskPagination = reactive({
+  page: 1,
+  pageSize: 10,
+});
 const { pagination: taskRunPagination, pagedItems: pagedTaskRunRecords, resetPagination: resetTaskRunPagination } = useClientPagination(taskRunRecords);
 const logsVisible = ref(false);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
@@ -226,12 +232,21 @@ const filters = ref<CollectionTaskListQuery>({
 
 async function loadTasks() {
   try {
-    tasks.value = await studioApi.collectionTasks.list({
+    const page = await studioApi.collectionTasks.listPage({
+      pageNo: taskPagination.page,
+      pageSize: taskPagination.pageSize,
       name: filters.value.name?.trim() || undefined,
       targetDatasource: filters.value.targetDatasource?.trim() || undefined,
       targetModel: filters.value.targetModel?.trim() || undefined,
     });
-    resetTaskPagination();
+    const maxPage = Math.max(1, Math.ceil(page.total / taskPagination.pageSize));
+    if (taskPagination.page > maxPage) {
+      taskPagination.page = maxPage;
+      await loadTasks();
+      return;
+    }
+    tasks.value = page.items;
+    taskTotal.value = page.total;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.loadFailed"));
   }
@@ -243,6 +258,21 @@ function resetFilters() {
     targetDatasource: "",
     targetModel: "",
   };
+  taskPagination.page = 1;
+  void loadTasks();
+}
+
+function searchTasks() {
+  taskPagination.page = 1;
+  void loadTasks();
+}
+
+function handleTaskPageChange() {
+  void loadTasks();
+}
+
+function handleTaskPageSizeChange() {
+  taskPagination.page = 1;
   void loadTasks();
 }
 

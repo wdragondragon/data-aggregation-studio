@@ -1131,6 +1131,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(params?: CollectionTaskListQuery, config?: StudioRequestConfig) {
         return request<CollectionTaskListView[]>({ ...config, url: "/collection-tasks", method: "GET", params });
       },
+      listPage(params?: CollectionTaskListQuery & { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+        return request<unknown>({ ...config, url: "/collection-tasks/page", method: "GET", params }).then((payload) =>
+          normalizePageResult<CollectionTaskListView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
       listOnline() {
         return request<CollectionTaskListView[]>({ url: "/collection-tasks/online", method: "GET" });
       },

@@ -1,10 +1,13 @@
 package com.jdragon.studio.infra.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -14,12 +17,14 @@ public class StudioSchemaUpgradeService {
     private final StudioSchemaIntrospector schemaIntrospector;
     private final StudioDatabaseDialectDetector dialectDetector;
     private final StudioDatasourceCapabilityUpgradeSupport datasourceCapabilityUpgradeSupport;
+    private final ObjectMapper objectMapper;
 
     public StudioSchemaUpgradeService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
         this.schemaIntrospector = new StudioSchemaIntrospector(jdbcTemplate);
         this.dialectDetector = new StudioDatabaseDialectDetector(jdbcTemplate);
         this.datasourceCapabilityUpgradeSupport = new StudioDatasourceCapabilityUpgradeSupport(jdbcTemplate, schemaIntrospector);
+        this.objectMapper = new ObjectMapper();
     }
 
     public void upgrade() {
@@ -49,6 +54,14 @@ public class StudioSchemaUpgradeService {
         ensureColumn("workflow_schedule", "project_id", "alter table workflow_schedule add column project_id bigint");
         ensureColumn("collection_task_definition", "project_id", "alter table collection_task_definition add column project_id bigint");
         ensureColumn("collection_task_definition", "created_by", "alter table collection_task_definition add column created_by bigint");
+        ensureColumn("collection_task_definition", "target_datasource_name_snapshot",
+                "alter table collection_task_definition add column target_datasource_name_snapshot varchar(255)");
+        ensureColumn("collection_task_definition", "target_datasource_type_code_snapshot",
+                "alter table collection_task_definition add column target_datasource_type_code_snapshot varchar(128)");
+        ensureColumn("collection_task_definition", "target_model_name_snapshot",
+                "alter table collection_task_definition add column target_model_name_snapshot varchar(255)");
+        ensureColumn("collection_task_definition", "target_model_physical_locator_snapshot",
+                "alter table collection_task_definition add column target_model_physical_locator_snapshot varchar(512)");
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id bigint");
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id bigint");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id bigint");
@@ -191,6 +204,10 @@ public class StudioSchemaUpgradeService {
                     "task_type varchar(64)," +
                     "status varchar(64)," +
                     "source_count int default 1," +
+                    "target_datasource_name_snapshot varchar(255)," +
+                    "target_datasource_type_code_snapshot varchar(128)," +
+                    "target_model_name_snapshot varchar(255)," +
+                    "target_model_physical_locator_snapshot varchar(512)," +
                     "source_bindings_json json," +
                     "target_binding_json json," +
                     "field_mappings_json json," +
@@ -655,6 +672,7 @@ public class StudioSchemaUpgradeService {
 
         backfillProjectIdsMysql();
         backfillWorkerGroupColumnsMysql();
+        backfillCollectionTaskTargetSnapshots();
     }
 
     private void upgradeSqlite() {
@@ -674,6 +692,14 @@ public class StudioSchemaUpgradeService {
         ensureColumn("workflow_schedule", "project_id", "alter table workflow_schedule add column project_id integer");
         ensureColumn("collection_task_definition", "project_id", "alter table collection_task_definition add column project_id integer");
         ensureColumn("collection_task_definition", "created_by", "alter table collection_task_definition add column created_by integer");
+        ensureColumn("collection_task_definition", "target_datasource_name_snapshot",
+                "alter table collection_task_definition add column target_datasource_name_snapshot text");
+        ensureColumn("collection_task_definition", "target_datasource_type_code_snapshot",
+                "alter table collection_task_definition add column target_datasource_type_code_snapshot text");
+        ensureColumn("collection_task_definition", "target_model_name_snapshot",
+                "alter table collection_task_definition add column target_model_name_snapshot text");
+        ensureColumn("collection_task_definition", "target_model_physical_locator_snapshot",
+                "alter table collection_task_definition add column target_model_physical_locator_snapshot text");
         ensureColumn("collection_task_schedule", "project_id", "alter table collection_task_schedule add column project_id integer");
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id integer");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id integer");
@@ -777,6 +803,10 @@ public class StudioSchemaUpgradeService {
                 "task_type text," +
                 "status text," +
                 "source_count integer default 1," +
+                "target_datasource_name_snapshot text," +
+                "target_datasource_type_code_snapshot text," +
+                "target_model_name_snapshot text," +
+                "target_model_physical_locator_snapshot text," +
                 "source_bindings_json text," +
                 "target_binding_json text," +
                 "field_mappings_json text," +
@@ -1163,6 +1193,7 @@ public class StudioSchemaUpgradeService {
 
         backfillProjectIdsSqlite();
         backfillWorkerGroupColumnsSqlite();
+        backfillCollectionTaskTargetSnapshots();
     }
 
     private void backfillProjectIdsMysql() {
@@ -1476,6 +1507,62 @@ public class StudioSchemaUpgradeService {
             value = uuid.getLeastSignificantBits() & Long.MAX_VALUE;
         }
         return value == 0L ? 1L : value;
+    }
+
+    private void backfillCollectionTaskTargetSnapshots() {
+        if (!tableExists("collection_task_definition")
+                || !columnExists("collection_task_definition", "target_binding_json")
+                || !columnExists("collection_task_definition", "target_datasource_name_snapshot")
+                || !columnExists("collection_task_definition", "target_datasource_type_code_snapshot")
+                || !columnExists("collection_task_definition", "target_model_name_snapshot")
+                || !columnExists("collection_task_definition", "target_model_physical_locator_snapshot")) {
+            return;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select id, target_binding_json from collection_task_definition " +
+                "where target_binding_json is not null and (" +
+                "target_datasource_name_snapshot is null or target_datasource_name_snapshot = '' or " +
+                "target_datasource_type_code_snapshot is null or target_datasource_type_code_snapshot = '' or " +
+                "target_model_name_snapshot is null or target_model_name_snapshot = '' or " +
+                "target_model_physical_locator_snapshot is null or target_model_physical_locator_snapshot = '')");
+        for (Map<String, Object> row : rows) {
+            Object id = row.get("id");
+            Object rawJson = row.get("target_binding_json");
+            if (id == null || rawJson == null) {
+                continue;
+            }
+            JsonNode node;
+            try {
+                node = objectMapper.readTree(String.valueOf(rawJson));
+            } catch (Exception ex) {
+                continue;
+            }
+            jdbcTemplate.update("update collection_task_definition set " +
+                            "target_datasource_name_snapshot = ?, " +
+                            "target_datasource_type_code_snapshot = ?, " +
+                            "target_model_name_snapshot = ?, " +
+                            "target_model_physical_locator_snapshot = ? " +
+                            "where id = ?",
+                    jsonText(node, "datasourceName"),
+                    jsonText(node, "datasourceTypeCode"),
+                    jsonText(node, "modelName"),
+                    jsonText(node, "modelPhysicalLocator"),
+                    id);
+        }
+    }
+
+    private String jsonText(JsonNode node, String fieldName) {
+        if (node == null || fieldName == null) {
+            return null;
+        }
+        JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        String text = value.asText(null);
+        if (text == null || text.trim().isEmpty()) {
+            return null;
+        }
+        return text.trim();
     }
 
     private void ensureColumn(String tableName, String columnName, String ddl) {

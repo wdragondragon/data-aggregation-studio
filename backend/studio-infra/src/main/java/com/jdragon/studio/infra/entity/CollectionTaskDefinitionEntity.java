@@ -20,6 +20,10 @@ public class CollectionTaskDefinitionEntity extends BaseProjectTenantEntity {
     private String taskType;
     private String status;
     private Integer sourceCount;
+    private String targetDatasourceNameSnapshot;
+    private String targetDatasourceTypeCodeSnapshot;
+    private String targetModelNameSnapshot;
+    private String targetModelPhysicalLocatorSnapshot;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private List<Map<String, Object>> sourceBindingsJson = new ArrayList<Map<String, Object>>();

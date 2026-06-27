@@ -180,6 +180,10 @@ create unique index if not exists uk_studio_follow_subscription_target on studio
 create index if not exists idx_studio_follow_subscription_lookup on studio_follow_subscription(target_type, target_id, enabled);
 
 alter table collection_task_definition add column created_by integer;
+alter table collection_task_definition add column target_datasource_name_snapshot text;
+alter table collection_task_definition add column target_datasource_type_code_snapshot text;
+alter table collection_task_definition add column target_model_name_snapshot text;
+alter table collection_task_definition add column target_model_physical_locator_snapshot text;
 alter table workflow_definition add column created_by integer;
 alter table dispatch_task add column triggered_by_user_id integer;
 alter table run_record add column triggered_by_user_id integer;

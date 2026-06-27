@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
@@ -42,6 +43,16 @@ public class CollectionTaskController {
                                                      @RequestParam(value = "targetDatasource", required = false) String targetDatasource,
                                                      @RequestParam(value = "targetModel", required = false) String targetModel) {
         return Result.success(collectionTaskService.listSummaries(name, targetDatasource, targetModel));
+    }
+
+    @Operation(summary = "Page collection tasks")
+    @GetMapping("/page")
+    public Result<PageView<CollectionTaskListView>> listPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                             @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                             @RequestParam(value = "name", required = false) String name,
+                                                             @RequestParam(value = "targetDatasource", required = false) String targetDatasource,
+                                                             @RequestParam(value = "targetModel", required = false) String targetModel) {
+        return Result.success(collectionTaskService.listSummaryPage(pageNo, pageSize, name, targetDatasource, targetModel));
     }
 
     @Operation(summary = "List online collection tasks")
