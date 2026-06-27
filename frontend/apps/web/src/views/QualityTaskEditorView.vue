@@ -95,6 +95,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
   DataModelDefinition,
+  DataModelListView,
   DataSourceOptionView,
   QualityRuleDimension,
   QualityRuleGranularity,
@@ -156,7 +157,8 @@ const triggering = ref(false);
 const rulesLoading = ref(false);
 const detailLoadError = ref("");
 const datasources = ref<DataSourceOptionView[]>([]);
-const modelCache = ref<Record<string, DataModelDefinition[]>>({});
+const modelCache = ref<Record<string, DataModelListView[]>>({});
+const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const ruleOptions = ref<QualityRuleView[]>([]);
 const selectedRuleDetail = ref<QualityRuleView | null>(null);
 const outputParams = ref<QualityRuleOutputParamView[]>([]);
@@ -226,7 +228,7 @@ const currentDatasource = computed(() =>
 const currentDatasourceModels = computed(() => resolveModelsByDatasource(form.datasourceId));
 
 const currentModel = computed(() =>
-  currentDatasourceModels.value.find((item) => String(item.id ?? "") === String(form.modelId || "")) ?? findModelById(form.modelId),
+  findModelById(form.modelId),
 );
 
 const currentColumnOptions = computed(() => resolveFieldsByModel(currentModel.value));
@@ -335,6 +337,9 @@ async function loadTask() {
     validationResult.value = null;
     if (form.datasourceId) {
       await ensureModels(form.datasourceId);
+      if (form.modelId) {
+        await ensureModelDetail(form.modelId);
+      }
     }
     await loadRuleOptions();
     if (form.ruleId) {
@@ -395,7 +400,8 @@ async function ensureModels(datasourceId: unknown) {
   if (!key || key === "undefined" || key === "null" || modelCache.value[key]) {
     return;
   }
-  modelCache.value[key] = await studioApi.models.listByDatasource(key);
+  modelCache.value[key] = await studioApi.models.listSummariesByDatasource(key);
+  ensureSelectedModelOption();
 }
 
 function resolveModelsByDatasource(datasourceId: unknown) {
@@ -407,8 +413,59 @@ function findModelById(modelId: unknown) {
   if (!id) {
     return null;
   }
-  const models = Object.values(modelCache.value).flat();
-  return models.find((item) => String(item.id ?? "") === id) ?? null;
+  return modelDetailCache.value[id] ?? null;
+}
+
+async function ensureModelDetail(modelId: unknown) {
+  const id = String(modelId ?? "");
+  if (!id || modelDetailCache.value[id]) {
+    return;
+  }
+  try {
+    const detail = await studioApi.models.get(id);
+    modelDetailCache.value = {
+      ...modelDetailCache.value,
+      [id]: detail,
+    };
+    ensureSelectedModelOption();
+  } catch (error) {
+    ElMessage.warning(resolveErrorMessage(error, "当前模型详情已不可用"));
+  }
+}
+
+function ensureSelectedModelOption() {
+  const detail = modelDetailCache.value[String(form.modelId || "")];
+  if (!detail || !form.datasourceId || String(detail.datasourceId) !== String(form.datasourceId)) {
+    return;
+  }
+  const key = String(form.datasourceId);
+  const models = modelCache.value[key] ?? [];
+  if (models.some((item) => String(item.id ?? "") === String(detail.id ?? ""))) {
+    return;
+  }
+  modelCache.value = {
+    ...modelCache.value,
+    [key]: [
+      ...models,
+      toModelListView(detail),
+    ],
+  };
+}
+
+function toModelListView(model: DataModelDefinition): DataModelListView {
+  return {
+    id: model.id,
+    tenantId: model.tenantId,
+    projectId: model.projectId,
+    deleted: model.deleted,
+    createdAt: model.createdAt,
+    updatedAt: model.updatedAt,
+    datasourceId: model.datasourceId,
+    name: model.name,
+    modelKind: model.modelKind,
+    physicalLocator: model.physicalLocator,
+    schemaVersionId: model.schemaVersionId,
+  };
 }
 
 function resolveFieldsByModel(model: DataModelDefinition | null) {
@@ -439,8 +496,9 @@ async function handleDatasourceChange(value: string) {
   await loadRuleOptions();
 }
 
-function handleModelChange(value: string) {
+async function handleModelChange(value: string) {
   form.modelId = value;
+  await ensureModelDetail(value);
   if (form.granularity === "COLUMN" && currentColumnOptions.value.length > 0 && !currentColumnOptions.value.includes(form.columnName)) {
     form.columnName = "";
   }

@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import type { DataModelDefinition, DataSourceOptionView, QualityRuleGranularity } from "@studio/api-sdk";
+import type { DataModelListView, DataSourceOptionView, QualityRuleGranularity } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 
 interface BindingForm {
@@ -57,7 +57,7 @@ interface BindingActions {
 defineProps<{
   form: BindingForm;
   datasources: DataSourceOptionView[];
-  models: DataModelDefinition[];
+  models: DataModelListView[];
   columns: string[];
   actions: BindingActions;
 }>();
