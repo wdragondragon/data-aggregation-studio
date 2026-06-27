@@ -15,7 +15,7 @@
       <template v-if="workflows.length">
         <StudioTableShell min-width="1280px">
           <el-table
-            :data="pagedWorkflows"
+            :data="workflows"
             border
             size="small"
             table-layout="fixed"
@@ -81,7 +81,9 @@
             background
             layout="total, sizes, prev, pager, next"
             :page-sizes="[10, 20, 50, 100]"
-            :total="workflows.length"
+            :total="workflowTotal"
+            @current-change="handleWorkflowPageChange"
+            @size-change="handleWorkflowPageSizeChange"
           />
         </div>
       </template>
@@ -94,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -103,7 +105,7 @@ import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
 import { useAuthStore } from "@/stores/auth";
-import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
@@ -111,15 +113,37 @@ const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 const workflows = ref<WorkflowListView[]>([]);
-const { pagination: workflowPagination, pagedItems: pagedWorkflows, resetPagination: resetWorkflowPagination } = useClientPagination(workflows);
+const workflowTotal = ref(0);
+const workflowPagination = reactive({ page: 1, pageSize: 20 });
 
 async function loadWorkflows() {
   try {
-    workflows.value = await studioApi.workflows.list();
-    resetWorkflowPagination();
+    const page = await studioApi.workflows.listPage({
+      pageNo: workflowPagination.page,
+      pageSize: workflowPagination.pageSize,
+    });
+    const maxPage = page.total > 0 ? Math.ceil(page.total / workflowPagination.pageSize) : 1;
+    if (workflowPagination.page > maxPage) {
+      workflowPagination.page = maxPage;
+      await loadWorkflows();
+      return;
+    }
+    workflows.value = page.items;
+    workflowTotal.value = page.total;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
   }
+}
+
+async function handleWorkflowPageChange(page: number) {
+  workflowPagination.page = page;
+  await loadWorkflows();
+}
+
+async function handleWorkflowPageSizeChange(pageSize: number) {
+  workflowPagination.pageSize = pageSize;
+  workflowPagination.page = 1;
+  await loadWorkflows();
 }
 
 function editWorkflow(workflow: WorkflowListView) {
@@ -231,6 +255,7 @@ onMounted(loadWorkflows);
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   if (authStore.isAuthenticated) {
+    workflowPagination.page = 1;
     loadWorkflows();
   }
 });

@@ -1,12 +1,14 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.EdgeCondition;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
@@ -42,6 +44,10 @@ import java.util.Set;
 
 @Service
 public class WorkflowService {
+
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 500;
 
     private final WorkflowDefinitionMapper definitionMapper;
     private final WorkflowVersionMapper versionMapper;
@@ -84,21 +90,28 @@ public class WorkflowService {
     }
 
     public List<WorkflowListView> listSummaries() {
-        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
-                .select(WorkflowDefinitionEntity::getId,
-                        WorkflowDefinitionEntity::getTenantId,
-                        WorkflowDefinitionEntity::getProjectId,
-                        WorkflowDefinitionEntity::getDeleted,
-                        WorkflowDefinitionEntity::getCreatedAt,
-                        WorkflowDefinitionEntity::getUpdatedAt,
-                        WorkflowDefinitionEntity::getCode,
-                        WorkflowDefinitionEntity::getName,
-                        WorkflowDefinitionEntity::getCurrentVersionId,
-                        WorkflowDefinitionEntity::getPublished)
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(selectSummaryColumns(buildAccessibleQuery())
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
+        return toListViews(definitions);
+    }
+
+    public PageView<WorkflowListView> listSummaryPage(Integer pageNo, Integer pageSize) {
+        int current = normalizePageNo(pageNo);
+        int size = normalizePageSize(pageSize);
+        Page<WorkflowDefinitionEntity> page = new Page<WorkflowDefinitionEntity>(current, size);
+        LambdaQueryWrapper<WorkflowDefinitionEntity> queryWrapper = selectSummaryColumns(buildAccessibleQuery())
+                .orderByAsc(WorkflowDefinitionEntity::getCode);
+        Page<WorkflowDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
+        return PageView.of(current, size, entityPage.getTotal(), toListViews(entityPage.getRecords()));
+    }
+
+    private List<WorkflowListView> toListViews(List<WorkflowDefinitionEntity> definitions) {
+        Map<Long, WorkflowScheduleDefinition> schedules = scheduleMap(definitions);
         List<WorkflowListView> result = new ArrayList<WorkflowListView>();
         for (WorkflowDefinitionEntity definition : definitions) {
-            result.add(toListView(definition));
+            WorkflowListView view = toBasicListView(definition);
+            view.setSchedule(schedules.get(definition.getId()));
+            result.add(view);
         }
         return result;
     }
@@ -139,28 +152,11 @@ public class WorkflowService {
 
     public List<WorkflowListView> listRecentSummaries(int limit) {
         int safeLimit = limit <= 0 ? 5 : Math.min(limit, 20);
-        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
-                .select(WorkflowDefinitionEntity::getId,
-                        WorkflowDefinitionEntity::getTenantId,
-                        WorkflowDefinitionEntity::getProjectId,
-                        WorkflowDefinitionEntity::getDeleted,
-                        WorkflowDefinitionEntity::getCreatedAt,
-                        WorkflowDefinitionEntity::getUpdatedAt,
-                        WorkflowDefinitionEntity::getCode,
-                        WorkflowDefinitionEntity::getName,
-                        WorkflowDefinitionEntity::getCurrentVersionId,
-                        WorkflowDefinitionEntity::getPublished)
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(selectSummaryColumns(buildAccessibleQuery())
                 .orderByDesc(WorkflowDefinitionEntity::getUpdatedAt)
                 .orderByDesc(WorkflowDefinitionEntity::getCreatedAt)
                 .last("limit " + safeLimit));
-        Map<Long, WorkflowScheduleDefinition> schedules = scheduleMap(definitions);
-        List<WorkflowListView> result = new ArrayList<WorkflowListView>();
-        for (WorkflowDefinitionEntity definition : definitions) {
-            WorkflowListView view = toBasicListView(definition);
-            view.setSchedule(schedules.get(definition.getId()));
-            result.add(view);
-        }
-        return result;
+        return toListViews(definitions);
     }
 
     public List<WorkflowDefinitionView> listOwnedByCurrentProject() {
@@ -178,25 +174,11 @@ public class WorkflowService {
 
     public List<WorkflowListView> listOwnedSummariesByCurrentProject() {
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
-        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
-                .select(WorkflowDefinitionEntity::getId,
-                        WorkflowDefinitionEntity::getTenantId,
-                        WorkflowDefinitionEntity::getProjectId,
-                        WorkflowDefinitionEntity::getDeleted,
-                        WorkflowDefinitionEntity::getCreatedAt,
-                        WorkflowDefinitionEntity::getUpdatedAt,
-                        WorkflowDefinitionEntity::getCode,
-                        WorkflowDefinitionEntity::getName,
-                        WorkflowDefinitionEntity::getCurrentVersionId,
-                        WorkflowDefinitionEntity::getPublished)
+        List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(selectSummaryColumns(new LambdaQueryWrapper<WorkflowDefinitionEntity>())
                 .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .eq(WorkflowDefinitionEntity::getProjectId, currentProjectId)
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
-        List<WorkflowListView> result = new ArrayList<WorkflowListView>();
-        for (WorkflowDefinitionEntity definition : definitions) {
-            result.add(toListView(definition));
-        }
-        return result;
+        return toListViews(definitions);
     }
 
     public WorkflowDefinitionView get(Long definitionId) {
@@ -272,15 +254,17 @@ public class WorkflowService {
         return view;
     }
 
-    private WorkflowListView toListView(WorkflowDefinitionEntity definition) {
-        WorkflowListView view = toBasicListView(definition);
-        WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
-                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definition.getId())
-                .last("limit 1"));
-        if (scheduleEntity != null) {
-            view.setSchedule(toScheduleDefinition(scheduleEntity));
-        }
-        return view;
+    private LambdaQueryWrapper<WorkflowDefinitionEntity> selectSummaryColumns(LambdaQueryWrapper<WorkflowDefinitionEntity> queryWrapper) {
+        return queryWrapper.select(WorkflowDefinitionEntity::getId,
+                WorkflowDefinitionEntity::getTenantId,
+                WorkflowDefinitionEntity::getProjectId,
+                WorkflowDefinitionEntity::getDeleted,
+                WorkflowDefinitionEntity::getCreatedAt,
+                WorkflowDefinitionEntity::getUpdatedAt,
+                WorkflowDefinitionEntity::getCode,
+                WorkflowDefinitionEntity::getName,
+                WorkflowDefinitionEntity::getCurrentVersionId,
+                WorkflowDefinitionEntity::getPublished);
     }
 
     private WorkflowListView toBasicListView(WorkflowDefinitionEntity definition) {
@@ -313,6 +297,10 @@ public class WorkflowService {
             return result;
         }
         List<WorkflowScheduleEntity> schedules = scheduleMapper.selectList(new LambdaQueryWrapper<WorkflowScheduleEntity>()
+                .select(WorkflowScheduleEntity::getWorkflowDefinitionId,
+                        WorkflowScheduleEntity::getCronExpression,
+                        WorkflowScheduleEntity::getEnabled,
+                        WorkflowScheduleEntity::getTimezone)
                 .in(WorkflowScheduleEntity::getWorkflowDefinitionId, ids));
         for (WorkflowScheduleEntity schedule : schedules) {
             if (schedule.getWorkflowDefinitionId() != null && !result.containsKey(schedule.getWorkflowDefinitionId())) {
@@ -328,6 +316,17 @@ public class WorkflowService {
         schedule.setEnabled(scheduleEntity.getEnabled() != null && scheduleEntity.getEnabled() == 1);
         schedule.setTimezone(scheduleEntity.getTimezone());
         return schedule;
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        return pageNo == null || pageNo < 1 ? DEFAULT_PAGE_NO : pageNo;
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
     @Transactional

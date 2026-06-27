@@ -1111,6 +1111,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(config?: StudioRequestConfig) {
         return request<WorkflowListView[]>({ ...config, url: "/workflows", method: "GET" });
       },
+      listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+        return requestPage<WorkflowListView>({ ...config, url: "/workflows/page", method: "GET", params }, params);
+      },
       get(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}`, method: "GET" });
       },

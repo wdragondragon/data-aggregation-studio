@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowListView;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,6 +38,13 @@ public class WorkflowController {
     @GetMapping
     public Result<List<WorkflowListView>> list() {
         return Result.success(workflowService.listSummaries());
+    }
+
+    @Operation(summary = "List workflows by page")
+    @GetMapping("/page")
+    public Result<PageView<WorkflowListView>> listPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                       @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(workflowService.listSummaryPage(pageNo, pageSize));
     }
 
     @Operation(summary = "Get workflow detail")
