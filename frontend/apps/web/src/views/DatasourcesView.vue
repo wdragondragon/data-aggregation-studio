@@ -13,7 +13,7 @@
 
     <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
       <StudioTableShell min-width="1460px">
-        <el-table :data="pagedDatasources" border>
+        <el-table :data="datasources" border>
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(datasourcePagination, $index) }}
@@ -75,7 +75,9 @@
           background
           layout="total, sizes, prev, pager, next"
           :page-sizes="[10, 20, 50, 100]"
-          :total="datasources.length"
+          :total="datasourceTotal"
+          @current-change="handleDatasourcePageChange"
+          @size-change="handleDatasourcePageSizeChange"
         />
       </div>
     </SectionCard>
@@ -316,7 +318,7 @@ import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
-import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import {
   ensureBusinessMetaModelEntries,
   getBusinessMetaModelRows,
@@ -348,7 +350,8 @@ const { t } = useI18n();
 const authStore = useAuthStore();
 
 const datasources = ref<DataSourceListView[]>([]);
-const { pagination: datasourcePagination, pagedItems: pagedDatasources, resetPagination: resetDatasourcePagination } = useClientPagination(datasources);
+const datasourceTotal = ref(0);
+const datasourcePagination = reactive({ page: 1, pageSize: 20 });
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const capabilityMatrix = reactive<CapabilityMatrix>({
@@ -885,18 +888,40 @@ async function ensureDatasourceSchemaDetails(typeCode?: string) {
 
 function removeDatasourceRow(item: DataSourceListView) {
   datasources.value = datasources.value.filter((datasource) => !sameEntityId(datasource.id, item.id));
-  resetDatasourcePagination();
+  datasourceTotal.value = Math.max(0, datasourceTotal.value - 1);
+  if (datasources.value.length === 0 && datasourceTotal.value > 0 && datasourcePagination.page > 1) {
+    datasourcePagination.page -= 1;
+    void loadDatasources();
+  }
+}
+
+async function loadDatasources() {
+  const page = await studioApi.datasources.listPage({
+    pageNo: datasourcePagination.page,
+    pageSize: datasourcePagination.pageSize,
+  });
+  const maxPage = page.total > 0 ? Math.ceil(page.total / datasourcePagination.pageSize) : 1;
+  if (datasourcePagination.page > maxPage) {
+    datasourcePagination.page = maxPage;
+    await loadDatasources();
+    return;
+  }
+  datasources.value = page.items;
+  datasourceTotal.value = page.total;
 }
 
 async function loadPage() {
   try {
     const [datasourceData, schemaData, capabilityData] = await Promise.all([
-      studioApi.datasources.list(),
+      studioApi.datasources.listPage({
+        pageNo: datasourcePagination.page,
+        pageSize: datasourcePagination.pageSize,
+      }),
       studioApi.metaSchemas.list({ includeFields: false }),
       studioApi.catalog.capabilities(),
     ]);
-    datasources.value = datasourceData;
-    resetDatasourcePagination();
+    datasources.value = datasourceData.items;
+    datasourceTotal.value = datasourceData.total;
     schemas.value = schemaData.map(toSchemaSummary);
     schemaDetails.value = {};
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
@@ -907,6 +932,25 @@ async function loadPage() {
       await ensureDatasourceSchemaDetails(form.typeCode);
       applyBusinessMetadataDefaults();
     }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+  }
+}
+
+async function handleDatasourcePageChange(page: number) {
+  datasourcePagination.page = page;
+  try {
+    await loadDatasources();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+  }
+}
+
+async function handleDatasourcePageSizeChange(pageSize: number) {
+  datasourcePagination.pageSize = pageSize;
+  datasourcePagination.page = 1;
+  try {
+    await loadDatasources();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
   }
@@ -938,7 +982,7 @@ function upsertDatasourceRow(saved: DataSourceDefinition) {
     return;
   }
   datasources.value = [...datasources.value, next].sort((left, right) => left.name.localeCompare(right.name));
-  resetDatasourcePagination();
+  datasourceTotal.value += 1;
 }
 
 function toDataSourceListView(source: DataSourceDefinition): DataSourceListView {
@@ -1114,6 +1158,7 @@ onMounted(loadPage);
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   if (authStore.isAuthenticated) {
+    datasourcePagination.page = 1;
     loadPage();
   }
 });

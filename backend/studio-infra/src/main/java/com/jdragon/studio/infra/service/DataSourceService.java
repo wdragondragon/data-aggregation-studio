@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -13,9 +14,9 @@ import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
-import com.jdragon.studio.dto.model.dto.DatasourceConnectionTrendPointView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -40,6 +41,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class DataSourceService {
     private static final int MAX_CONNECTION_TEST_MESSAGE_LENGTH = 1000;
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 500;
 
     private final DatasourceMapper datasourceMapper;
     private final DataModelMapper dataModelMapper;
@@ -98,36 +102,31 @@ public class DataSourceService {
     }
 
     public List<DataSourceListView> listSummaries() {
-        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
-                .select(DatasourceEntity::getId,
-                        DatasourceEntity::getTenantId,
-                        DatasourceEntity::getProjectId,
-                        DatasourceEntity::getDeleted,
-                        DatasourceEntity::getCreatedAt,
-                        DatasourceEntity::getUpdatedAt,
-                        DatasourceEntity::getName,
-                        DatasourceEntity::getTypeCode,
-                        DatasourceEntity::getSchemaVersionId,
-                        DatasourceEntity::getEnabled,
-                        DatasourceEntity::getExecutable,
-                        DatasourceEntity::getConnectionFingerprint,
-                        DatasourceEntity::getConnectionStatus,
-                        DatasourceEntity::getLastConnectionTestAt,
-                        DatasourceEntity::getLastConnectionTestMessage,
-                        DatasourceEntity::getLastConnectionTestDurationMs,
-                        DatasourceEntity::getManualConnectionTestTimeoutSeconds,
-                        DatasourceEntity::getScheduledConnectionTestTimeoutSeconds)
+        List<DatasourceEntity> entities = datasourceMapper.selectList(selectSummaryColumns(buildAccessibleQuery())
                 .orderByAsc(DatasourceEntity::getProjectId)
                 .orderByAsc(DatasourceEntity::getName));
-        List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
-        for (DatasourceEntity entity : entities) {
-            definitions.add(toDefinition(entity, true));
-        }
-        datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        return toSummaryViews(entities);
+    }
+
+    public PageView<DataSourceListView> listSummaryPage(Integer pageNo, Integer pageSize) {
+        int current = normalizePageNo(pageNo);
+        int size = normalizePageSize(pageSize);
+        Page<DatasourceEntity> page = new Page<DatasourceEntity>(current, size);
+        Page<DatasourceEntity> entityPage = datasourceMapper.selectPage(page, selectSummaryColumns(buildAccessibleQuery())
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        return PageView.of(current, size, entityPage.getTotal(), toSummaryViews(entityPage.getRecords()));
+    }
+
+    private List<DataSourceListView> toSummaryViews(List<DatasourceEntity> entities) {
         List<DataSourceListView> result = new ArrayList<DataSourceListView>();
-        for (DataSourceDefinition definition : definitions) {
-            result.add(toListView(definition));
+        if (entities == null || entities.isEmpty()) {
+            return result;
         }
+        for (DatasourceEntity entity : entities) {
+            result.add(toListView(entity));
+        }
+        datasourceConnectionHealthService.hydrateListViews(result);
         return result;
     }
 
@@ -397,31 +396,50 @@ public class DataSourceService {
         return definition;
     }
 
-    private DataSourceListView toListView(DataSourceDefinition definition) {
+    private DataSourceListView toListView(DatasourceEntity entity) {
         DataSourceListView view = new DataSourceListView();
-        view.setId(definition.getId());
-        view.setTenantId(definition.getTenantId());
-        view.setProjectId(definition.getProjectId());
-        view.setDeleted(definition.getDeleted());
-        view.setCreatedAt(definition.getCreatedAt());
-        view.setUpdatedAt(definition.getUpdatedAt());
-        view.setName(definition.getName());
-        view.setTypeCode(definition.getTypeCode());
-        view.setSchemaVersionId(definition.getSchemaVersionId());
-        view.setEnabled(definition.getEnabled());
-        view.setExecutable(definition.getExecutable());
-        view.setConnectionFingerprint(definition.getConnectionFingerprint());
-        view.setConnectionStatus(definition.getConnectionStatus());
-        view.setLastConnectionTestAt(definition.getLastConnectionTestAt());
-        view.setLastConnectionTestMessage(definition.getLastConnectionTestMessage());
-        view.setLastConnectionTestDurationMs(definition.getLastConnectionTestDurationMs());
-        view.setConnectionTesting(definition.getConnectionTesting());
-        view.setConnectionStale(definition.getConnectionStale());
-        view.setNextConnectionProbeAt(definition.getNextConnectionProbeAt());
-        view.setManualConnectionTestTimeoutSeconds(definition.getManualConnectionTestTimeoutSeconds());
-        view.setScheduledConnectionTestTimeoutSeconds(definition.getScheduledConnectionTestTimeoutSeconds());
-        view.setRecentConnectionTests(toTrendPoints(definition.getRecentConnectionTests()));
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setTypeCode(entity.getTypeCode());
+        view.setSchemaVersionId(entity.getSchemaVersionId());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        view.setExecutable(entity.getExecutable() != null && entity.getExecutable().intValue() == 1);
+        view.setConnectionFingerprint(entity.getConnectionFingerprint());
+        view.setConnectionStatus(parseConnectionStatus(entity.getConnectionStatus()));
+        view.setLastConnectionTestAt(entity.getLastConnectionTestAt());
+        view.setLastConnectionTestMessage(entity.getLastConnectionTestMessage());
+        view.setLastConnectionTestDurationMs(entity.getLastConnectionTestDurationMs());
+        view.setConnectionTesting(false);
+        view.setConnectionStale(false);
+        view.setManualConnectionTestTimeoutSeconds(entity.getManualConnectionTestTimeoutSeconds());
+        view.setScheduledConnectionTestTimeoutSeconds(entity.getScheduledConnectionTestTimeoutSeconds());
         return view;
+    }
+
+    private LambdaQueryWrapper<DatasourceEntity> selectSummaryColumns(LambdaQueryWrapper<DatasourceEntity> queryWrapper) {
+        return queryWrapper.select(DatasourceEntity::getId,
+                DatasourceEntity::getTenantId,
+                DatasourceEntity::getProjectId,
+                DatasourceEntity::getDeleted,
+                DatasourceEntity::getCreatedAt,
+                DatasourceEntity::getUpdatedAt,
+                DatasourceEntity::getName,
+                DatasourceEntity::getTypeCode,
+                DatasourceEntity::getSchemaVersionId,
+                DatasourceEntity::getEnabled,
+                DatasourceEntity::getExecutable,
+                DatasourceEntity::getConnectionFingerprint,
+                DatasourceEntity::getConnectionStatus,
+                DatasourceEntity::getLastConnectionTestAt,
+                DatasourceEntity::getLastConnectionTestMessage,
+                DatasourceEntity::getLastConnectionTestDurationMs,
+                DatasourceEntity::getManualConnectionTestTimeoutSeconds,
+                DatasourceEntity::getScheduledConnectionTestTimeoutSeconds);
     }
 
     private DataSourceListView toBasicListView(DatasourceEntity entity) {
@@ -454,21 +472,6 @@ public class DataSourceService {
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         view.setExecutable(entity.getExecutable() != null && entity.getExecutable().intValue() == 1);
         return view;
-    }
-
-    private List<DatasourceConnectionTrendPointView> toTrendPoints(List<DatasourceConnectionTestRecordView> records) {
-        List<DatasourceConnectionTrendPointView> points = new ArrayList<DatasourceConnectionTrendPointView>();
-        if (records == null) {
-            return points;
-        }
-        for (DatasourceConnectionTestRecordView record : records) {
-            DatasourceConnectionTrendPointView point = new DatasourceConnectionTrendPointView();
-            point.setStatus(record.getStatus());
-            point.setTestedAt(record.getTestedAt());
-            point.setEndedAt(record.getEndedAt());
-            points.add(point);
-        }
-        return points;
     }
 
     private DataSourceDefinition buildDefinitionForTest(DataSourceSaveRequest request) {
@@ -741,6 +744,17 @@ public class DataSourceService {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        return pageNo == null || pageNo.intValue() < 1 ? DEFAULT_PAGE_NO : pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
     }
 
     private Long resolveSchemaVersionId(DataSourceSaveRequest request, MetadataSchemaDefinition schema) {

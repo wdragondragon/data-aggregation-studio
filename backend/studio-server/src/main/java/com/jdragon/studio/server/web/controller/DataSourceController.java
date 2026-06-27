@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
@@ -37,6 +38,13 @@ public class DataSourceController {
     @GetMapping
     public Result<List<DataSourceListView>> list() {
         return Result.success(dataSourceService.listSummaries());
+    }
+
+    @Operation(summary = "List datasources by page")
+    @GetMapping("/page")
+    public Result<PageView<DataSourceListView>> listPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                         @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataSourceService.listSummaryPage(pageNo, pageSize));
     }
 
     @Operation(summary = "Get datasource detail")

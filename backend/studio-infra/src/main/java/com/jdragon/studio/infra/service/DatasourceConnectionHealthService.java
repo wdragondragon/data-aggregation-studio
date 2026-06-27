@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
+import com.jdragon.studio.dto.model.dto.DatasourceConnectionTrendPointView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DatasourceConnectionHealthEntity;
 import com.jdragon.studio.infra.entity.DatasourceConnectionTestRecordEntity;
@@ -175,6 +177,66 @@ public class DatasourceConnectionHealthService {
             }
             List<DatasourceConnectionTestRecordView> records = recordsByKey.get(key);
             definition.setRecentConnectionTests(records == null ? new ArrayList<DatasourceConnectionTestRecordView>() : records);
+        }
+    }
+
+    public void hydrateListViews(List<DataSourceListView> views) {
+        if (views == null || views.isEmpty()) {
+            return;
+        }
+        Map<String, Set<String>> fingerprintsByTenant = new LinkedHashMap<String, Set<String>>();
+        for (DataSourceListView view : views) {
+            if (view == null || !hasText(view.getTenantId()) || !hasText(view.getConnectionFingerprint())) {
+                continue;
+            }
+            Set<String> fingerprints = fingerprintsByTenant.get(view.getTenantId());
+            if (fingerprints == null) {
+                fingerprints = new LinkedHashSet<String>();
+                fingerprintsByTenant.put(view.getTenantId(), fingerprints);
+            }
+            fingerprints.add(view.getConnectionFingerprint());
+        }
+        if (fingerprintsByTenant.isEmpty()) {
+            return;
+        }
+        Map<String, DatasourceConnectionHealthEntity> healthByKey = new LinkedHashMap<String, DatasourceConnectionHealthEntity>();
+        Map<String, List<DatasourceConnectionTrendPointView>> recordsByKey = new LinkedHashMap<String, List<DatasourceConnectionTrendPointView>>();
+        int recentLimit = recentLimit();
+        for (Map.Entry<String, Set<String>> entry : fingerprintsByTenant.entrySet()) {
+            List<DatasourceConnectionHealthEntity> healthItems = healthMapper.selectList(new LambdaQueryWrapper<DatasourceConnectionHealthEntity>()
+                    .select(DatasourceConnectionHealthEntity::getTenantId,
+                            DatasourceConnectionHealthEntity::getConnectionFingerprint,
+                            DatasourceConnectionHealthEntity::getConnectionStatus,
+                            DatasourceConnectionHealthEntity::getLastConnectionTestAt,
+                            DatasourceConnectionHealthEntity::getLastConnectionTestMessage,
+                            DatasourceConnectionHealthEntity::getLastConnectionTestDurationMs,
+                            DatasourceConnectionHealthEntity::getProbeState,
+                            DatasourceConnectionHealthEntity::getProbeLeaseUntil,
+                            DatasourceConnectionHealthEntity::getNextProbeAt)
+                    .eq(DatasourceConnectionHealthEntity::getTenantId, entry.getKey())
+                    .in(DatasourceConnectionHealthEntity::getConnectionFingerprint, entry.getValue()));
+            for (DatasourceConnectionHealthEntity health : healthItems) {
+                healthByKey.put(healthKey(health.getTenantId(), health.getConnectionFingerprint()), health);
+            }
+            List<DatasourceConnectionTestRecordEntity> recordItems = recordMapper.selectRecentTrendByFingerprints(entry.getKey(), entry.getValue(), recentLimit);
+            for (DatasourceConnectionTestRecordEntity record : recordItems) {
+                String key = healthKey(record.getTenantId(), record.getConnectionFingerprint());
+                List<DatasourceConnectionTrendPointView> records = recordsByKey.get(key);
+                if (records == null) {
+                    records = new ArrayList<DatasourceConnectionTrendPointView>();
+                    recordsByKey.put(key, records);
+                }
+                records.add(toTrendPointView(record));
+            }
+        }
+        for (DataSourceListView view : views) {
+            String key = healthKey(view.getTenantId(), view.getConnectionFingerprint());
+            DatasourceConnectionHealthEntity health = healthByKey.get(key);
+            if (health != null) {
+                applyHealth(view, health);
+            }
+            List<DatasourceConnectionTrendPointView> records = recordsByKey.get(key);
+            view.setRecentConnectionTests(records == null ? new ArrayList<DatasourceConnectionTrendPointView>() : records);
         }
     }
 
@@ -690,6 +752,16 @@ public class DatasourceConnectionHealthService {
         definition.setNextConnectionProbeAt(health.getNextProbeAt());
     }
 
+    private void applyHealth(DataSourceListView view, DatasourceConnectionHealthEntity health) {
+        view.setConnectionStatus(parseStatus(health.getConnectionStatus()));
+        view.setLastConnectionTestAt(health.getLastConnectionTestAt());
+        view.setLastConnectionTestMessage(safeMessage(health.getLastConnectionTestMessage()));
+        view.setLastConnectionTestDurationMs(health.getLastConnectionTestDurationMs());
+        view.setConnectionTesting(isRunning(health, LocalDateTime.now()));
+        view.setConnectionStale(isStale(health));
+        view.setNextConnectionProbeAt(health.getNextProbeAt());
+    }
+
     private boolean isRunning(DatasourceConnectionHealthEntity health, LocalDateTime now) {
         return health != null
                 && PROBE_STATE_RUNNING.equalsIgnoreCase(health.getProbeState())
@@ -716,6 +788,14 @@ public class DatasourceConnectionHealthService {
         view.setMessage(safeMessage(record.getMessage()));
         view.setDatasourceId(record.getDatasourceId());
         view.setDatasourceName(record.getDatasourceName());
+        return view;
+    }
+
+    private DatasourceConnectionTrendPointView toTrendPointView(DatasourceConnectionTestRecordEntity record) {
+        DatasourceConnectionTrendPointView view = new DatasourceConnectionTrendPointView();
+        view.setStatus(parseStatus(record.getConnectionStatus()));
+        view.setTestedAt(record.getEndedAt());
+        view.setEndedAt(record.getEndedAt());
         return view;
     }
 
