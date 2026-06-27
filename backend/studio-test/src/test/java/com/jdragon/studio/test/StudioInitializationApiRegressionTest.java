@@ -93,6 +93,24 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
         assertThat(extractFieldKeys(mysqlSource)).contains("host", "port", "database", "userName", "password");
         assertThat(extractFieldKeys(mysqlTable)).contains("physicalName", "tableType", "columnCount", "columns");
         assertThat(extractFieldKeys(mysqlField)).contains("name", "type", "size", "scale", "nullable", "primaryKey", "autoIncrement");
+
+        MvcResult lightResult = mockMvc.perform(get("/api/v1/meta-schemas")
+                        .param("includeFields", "false")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        JsonNode lightMysqlTable = findSchema(readBody(lightResult).path("data"), "technical:mysql8:table");
+        assertThat(extractFieldKeys(lightMysqlTable)).isEmpty();
+
+        MvcResult detailResult = mockMvc.perform(get("/api/v1/meta-schemas/{schemaId}", mysqlTable.path("id").asLong())
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andReturn();
+        assertThat(extractFieldKeys(readBody(detailResult).path("data"))).contains("physicalName", "tableType", "columnCount", "columns");
     }
 
     @Test

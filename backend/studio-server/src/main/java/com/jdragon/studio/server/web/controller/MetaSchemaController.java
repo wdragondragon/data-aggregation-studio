@@ -46,6 +46,12 @@ public class MetaSchemaController {
         return Result.success(metadataSchemaService.listSchemas(includeFields));
     }
 
+    @Operation(summary = "Get metadata schema detail")
+    @GetMapping("/{schemaId}")
+    public Result<MetadataSchemaDefinition> get(@PathVariable("schemaId") Long schemaId) {
+        return Result.success(metadataSchemaService.getSchema(schemaId));
+    }
+
     @Operation(summary = "Save metadata schema draft")
     @PostMapping("/draft")
     public Result<MetadataSchemaDefinition> saveDraft(@Valid @RequestBody MetadataSchemaSaveRequest request) {

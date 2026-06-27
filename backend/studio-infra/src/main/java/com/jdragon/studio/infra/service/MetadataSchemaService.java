@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -66,6 +67,24 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         List<MetaSchemaEntity> schemas = schemaMapper.selectList(new LambdaQueryWrapper<MetaSchemaEntity>()
                 .orderByAsc(MetaSchemaEntity::getSchemaCode));
         return toDefinitions(schemas, includeFields);
+    }
+
+    public MetadataSchemaDefinition getSchema(Long schemaId) {
+        MetaSchemaEntity schema = schemaMapper.selectById(schemaId);
+        if (schema == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Schema not found: " + schemaId);
+        }
+        return toDefinition(schema);
+    }
+
+    public List<MetadataSchemaDefinition> listSchemasWithFieldsByIds(Collection<Long> schemaIds) {
+        if (schemaIds == null || schemaIds.isEmpty()) {
+            return new ArrayList<MetadataSchemaDefinition>();
+        }
+        List<MetaSchemaEntity> schemas = schemaMapper.selectList(new LambdaQueryWrapper<MetaSchemaEntity>()
+                .in(MetaSchemaEntity::getId, schemaIds)
+                .orderByAsc(MetaSchemaEntity::getSchemaCode));
+        return toDefinitions(schemas, true);
     }
 
     @Override

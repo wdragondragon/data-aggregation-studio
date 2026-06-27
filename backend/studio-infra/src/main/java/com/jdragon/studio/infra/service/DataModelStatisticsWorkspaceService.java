@@ -70,14 +70,26 @@ public class DataModelStatisticsWorkspaceService {
     public DataModelStatisticsOptionsView options(DataModelStatisticsOptionsRequest request) {
         MetadataScope targetScope = resolveOptionsTargetScope(request);
         String datasourceType = resolveDatasourceType(request);
-        Set<String> availableMetaModelCodes = resolveAvailableModelMetaModelCodes(datasourceType);
+        List<MetadataSchemaDefinition> schemaSummaries = metadataSchemaService.listSchemas(false);
+        Set<String> availableMetaModelCodes = resolveAvailableModelMetaModelCodes(datasourceType, schemaSummaries);
 
         DataModelStatisticsOptionsView view = new DataModelStatisticsOptionsView();
         view.setDatasourceType(datasourceType);
 
+        Set<Long> candidateSchemaIds = new LinkedHashSet<Long>();
+        for (MetadataSchemaDefinition schema : schemaSummaries) {
+            if (schema == null || schema.getId() == null) {
+                continue;
+            }
+            if (isQuerySchemaRelevant(schema, targetScope, datasourceType, availableMetaModelCodes)
+                    || isTargetSchemaRelevant(schema, targetScope, datasourceType, availableMetaModelCodes)) {
+                candidateSchemaIds.add(schema.getId());
+            }
+        }
+
         List<DataModelStatisticsSchemaOptionView> querySchemas = new ArrayList<DataModelStatisticsSchemaOptionView>();
         List<DataModelStatisticsSchemaOptionView> targetSchemas = new ArrayList<DataModelStatisticsSchemaOptionView>();
-        for (MetadataSchemaDefinition schema : metadataSchemaService.listSchemas()) {
+        for (MetadataSchemaDefinition schema : metadataSchemaService.listSchemasWithFieldsByIds(candidateSchemaIds)) {
             List<DataModelStatisticsFieldOptionView> queryFields = buildQueryFields(schema);
             if (!queryFields.isEmpty() && isQuerySchemaRelevant(schema, targetScope, datasourceType, availableMetaModelCodes)) {
                 querySchemas.add(toSchemaOption(schema, queryFields));
@@ -398,9 +410,9 @@ public class DataModelStatisticsWorkspaceService {
         return normalize(datasourceType).equals(normalize(metadataSchemaService.getSchemaDatasourceType(schema)));
     }
 
-    private Set<String> resolveAvailableModelMetaModelCodes(String datasourceType) {
+    private Set<String> resolveAvailableModelMetaModelCodes(String datasourceType, List<MetadataSchemaDefinition> schemas) {
         Set<String> result = new LinkedHashSet<String>();
-        for (MetadataSchemaDefinition schema : metadataSchemaService.listSchemas()) {
+        for (MetadataSchemaDefinition schema : schemas == null ? Collections.<MetadataSchemaDefinition>emptyList() : schemas) {
             if (schema == null || !"model".equalsIgnoreCase(schema.getObjectType())) {
                 continue;
             }

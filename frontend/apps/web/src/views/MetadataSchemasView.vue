@@ -138,7 +138,7 @@
             :title="t('web.metadata.previewTitle')"
             :description="t('web.metadata.previewDescription')"
           >
-            <MetaFormRenderer :fields="selectedNode.schema.fields" :model-value="previewModel" @update:model-value="previewModel = $event" />
+            <MetaFormRenderer :fields="selectedSchemaDetail?.fields ?? []" :model-value="previewModel" @update:model-value="previewModel = $event" />
           </SectionCard>
         </template>
       </SectionCard>
@@ -239,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { DatasourceTypeCapabilityView, MetadataFieldDefinition, MetadataSchemaDefinition } from "@studio/api-sdk";
@@ -302,6 +302,7 @@ const { t } = useI18n();
 const authStore = useAuthStore();
 
 const schemas = ref<MetadataSchemaDefinition[]>([]);
+const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
 const selectedNode = ref<MetaModelTreeNode>();
 const drawerOpen = ref(false);
@@ -486,6 +487,14 @@ const detailStatusTone = computed(() => {
   return selectedNode.value.required ? "warning" : "primary";
 });
 
+const selectedSchemaDetail = computed(() => {
+  const schema = selectedNode.value?.schema;
+  if (!schema?.id) {
+    return undefined;
+  }
+  return schemaDetails.value[String(schema.id)] ?? schema;
+});
+
 function formatDisplayMode(value?: MetaModelDisplayMode) {
   if (value === "SINGLE") {
     return t("web.metadata.displaySingle");
@@ -656,9 +665,10 @@ function canCreateFromNode(node: MetaModelTreeNode) {
     || (node.kind === "leaf" && !node.schema);
 }
 
-function handleNodeClick(node: MetaModelTreeNode) {
+async function handleNodeClick(node: MetaModelTreeNode) {
   selectedNode.value = node;
   previewModel.value = {};
+  await ensureSchemaDetail(node.schema);
 }
 
 function resetForm() {
@@ -738,8 +748,9 @@ function openCreateFromNode(node: MetaModelTreeNode) {
   drawerOpen.value = true;
 }
 
-function editSchema(schema: MetadataSchemaDefinition) {
-  const copied = cloneDeep(schema);
+async function editSchema(schema: MetadataSchemaDefinition) {
+  const detail = await ensureSchemaDetail(schema);
+  const copied = cloneDeep(detail ?? schema);
   const parsed = parseMetaModelSchema(copied);
   form.schemaId = copied.id;
   form.schemaName = copied.schemaName;
@@ -800,17 +811,129 @@ async function loadPage() {
   try {
     await pageAction.run(async () => {
       const [schemaData, datasourceTypeData] = await Promise.all([
-        studioApi.metaSchemas.list(),
+        studioApi.metaSchemas.list({ includeFields: false }),
         studioApi.catalog.datasourceTypes(),
       ]);
-      schemas.value = schemaData;
+      schemas.value = schemaData.map(toSchemaSummary);
+      schemaDetails.value = {};
       datasourceTypes.value = datasourceTypeData;
+      await nextTick();
       const matchedNode = selectedNode.value ? findNodeById(treeData.value, selectedNode.value.id) : undefined;
       selectedNode.value = matchedNode ?? treeData.value[0];
+      await ensureSchemaDetail(selectedNode.value?.schema);
     }, { errorMessage: t("web.metadata.loadFailed") });
   } catch {
     // useAsyncAction has already shown the message; keep page loading resilient.
   }
+}
+
+function toSchemaSummary(schema: MetadataSchemaDefinition) {
+  return {
+    ...schema,
+    fields: [],
+  };
+}
+
+function compareSchema(left: MetadataSchemaDefinition, right: MetadataSchemaDefinition) {
+  return (left.schemaCode || "").localeCompare(right.schemaCode || "");
+}
+
+function cacheSchemaDetail(schema?: MetadataSchemaDefinition) {
+  if (!schema?.id) {
+    return;
+  }
+  schemaDetails.value = {
+    ...schemaDetails.value,
+    [String(schema.id)]: schema,
+  };
+}
+
+async function ensureSchemaDetail(schema?: MetadataSchemaDefinition) {
+  if (!schema?.id) {
+    return undefined;
+  }
+  const key = String(schema.id);
+  const cached = schemaDetails.value[key];
+  if (cached) {
+    return cached;
+  }
+  try {
+    const detail = await studioApi.metaSchemas.get(schema.id);
+    cacheSchemaDetail(detail);
+    return detail;
+  } catch (error) {
+    const message = error instanceof Error && error.message ? error.message : String(error);
+    ElMessage.error(`${t("web.metadata.loadFailed")}: ${message}`);
+    return undefined;
+  }
+}
+
+function upsertSchema(schema: MetadataSchemaDefinition) {
+  if (!schema.id) {
+    return;
+  }
+  cacheSchemaDetail(schema);
+  const summary = toSchemaSummary(schema);
+  const index = schemas.value.findIndex((item) => sameEntityId(item.id, schema.id));
+  if (index >= 0) {
+    schemas.value = schemas.value.map((item, itemIndex) => (itemIndex === index ? summary : item)).sort(compareSchema);
+    return;
+  }
+  schemas.value = [...schemas.value, summary].sort(compareSchema);
+}
+
+function upsertSchemas(items: MetadataSchemaDefinition[]) {
+  if (!items.length) {
+    return;
+  }
+  const nextSchemas = [...schemas.value];
+  for (const item of items) {
+    if (!item.id) {
+      continue;
+    }
+    cacheSchemaDetail(item);
+    const summary = toSchemaSummary(item);
+    const index = nextSchemas.findIndex((schema) => sameEntityId(schema.id, item.id));
+    if (index >= 0) {
+      nextSchemas[index] = summary;
+    } else {
+      nextSchemas.push(summary);
+    }
+  }
+  schemas.value = nextSchemas.sort(compareSchema);
+}
+
+function removeSchema(schemaId: string | number) {
+  schemas.value = schemas.value.filter((schema) => !sameEntityId(schema.id, schemaId));
+  const nextDetails = { ...schemaDetails.value };
+  delete nextDetails[String(schemaId)];
+  schemaDetails.value = nextDetails;
+}
+
+async function selectSchemaById(schemaId?: string | number) {
+  if (schemaId == null) {
+    return;
+  }
+  await nextTick();
+  const matchedNode = findNodeById(treeData.value, `schema:${schemaId}`);
+  if (matchedNode) {
+    selectedNode.value = matchedNode;
+    await ensureSchemaDetail(matchedNode.schema);
+  }
+}
+
+async function selectCurrentNodeAfterPatch() {
+  await nextTick();
+  const matchedNode = selectedNode.value ? findNodeById(treeData.value, selectedNode.value.id) : undefined;
+  selectedNode.value = matchedNode ?? treeData.value[0];
+  await ensureSchemaDetail(selectedNode.value?.schema);
+}
+
+async function selectFallbackNode() {
+  await nextTick();
+  const matchedNode = selectedNode.value ? findNodeById(treeData.value, selectedNode.value.id) : undefined;
+  selectedNode.value = matchedNode ?? treeData.value[0];
+  await ensureSchemaDetail(selectedNode.value?.schema);
 }
 
 async function saveDraft() {
@@ -836,7 +959,7 @@ async function saveDraft() {
         role: form.domain === "RUNTIME" ? form.runtimeRole : undefined,
         pluginType: form.domain === "RUNTIME" ? normalizeRuntimePlugin(form.pluginType) : undefined,
       };
-      await studioApi.metaSchemas.saveDraft({
+      const saved = await studioApi.metaSchemas.saveDraft({
         schemaId: form.schemaId,
         schemaCode: derivedSchemaCode.value,
         schemaName: form.schemaName,
@@ -845,8 +968,9 @@ async function saveDraft() {
         description: encodeMetaModelDescription(config, form.plainDescription),
         fields: cloneDeep(form.fields),
       });
+      upsertSchema(saved);
       drawerOpen.value = false;
-      await loadPage();
+      await selectSchemaById(saved.id);
     }, {
       successMessage: t("web.metadata.saveSuccess"),
       errorMessage: t("web.metadata.saveFailed"),
@@ -866,8 +990,9 @@ async function publishSchema(schema: MetadataSchemaDefinition) {
   try {
     await schemaAction.run(async () => {
       await ElMessageBox.confirm(t("web.metadata.publishConfirmMessage", { schemaCode: schema.schemaCode }), t("common.confirm"));
-      await studioApi.metaSchemas.publish(schema.id!);
-      await loadPage();
+      const published = await studioApi.metaSchemas.publish(schema.id!);
+      upsertSchema(published);
+      await selectSchemaById(published.id);
     }, {
       successMessage: t("web.metadata.publishSuccess"),
       errorMessage: t("web.metadata.publishFailed"),
@@ -897,7 +1022,8 @@ async function deleteSchema(schema: MetadataSchemaDefinition) {
         drawerOpen.value = false;
         resetForm();
       }
-      await loadPage();
+      removeSchema(schema.id!);
+      await selectFallbackNode();
     }, {
       successMessage: t("web.metadata.deleteSuccess"),
       errorMessage: t("web.metadata.deleteFailed"),
@@ -917,8 +1043,9 @@ async function syncTechnical(datasourceType?: string) {
   }
   try {
     await schemaAction.run(async () => {
-      await studioApi.metaSchemas.syncTechnical(datasourceType);
-      await loadPage();
+      const synced = await studioApi.metaSchemas.syncTechnical(datasourceType);
+      upsertSchemas(synced);
+      await selectCurrentNodeAfterPatch();
     }, {
       successMessage: t("web.metadata.syncTechnicalSuccess"),
       errorMessage: t("web.metadata.syncTechnicalFailed"),
@@ -934,8 +1061,9 @@ async function syncAllTechnical() {
   }
   try {
     await schemaAction.run(async () => {
-      await studioApi.metaSchemas.syncAllTechnical();
-      await loadPage();
+      const synced = await studioApi.metaSchemas.syncAllTechnical();
+      upsertSchemas(synced);
+      await selectCurrentNodeAfterPatch();
     }, {
       successMessage: t("web.metadata.syncTechnicalSuccess"),
       errorMessage: t("web.metadata.syncTechnicalFailed"),
