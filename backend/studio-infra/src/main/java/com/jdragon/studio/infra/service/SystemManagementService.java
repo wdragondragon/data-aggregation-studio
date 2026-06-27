@@ -419,6 +419,16 @@ public class SystemManagementService {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime recentThreshold = now.minusHours(WORKER_RECENT_INSTANCE_HOURS);
         List<WorkerLeaseEntity> workerLeases = workerLeaseMapper.selectList(new LambdaQueryWrapper<WorkerLeaseEntity>()
+                .select(WorkerLeaseEntity::getWorkerGroupCode,
+                        WorkerLeaseEntity::getWorkerCode,
+                        WorkerLeaseEntity::getWorkerKind,
+                        WorkerLeaseEntity::getInstanceId,
+                        WorkerLeaseEntity::getHostName,
+                        WorkerLeaseEntity::getPodName,
+                        WorkerLeaseEntity::getNodeName,
+                        WorkerLeaseEntity::getStatus,
+                        WorkerLeaseEntity::getLastHeartbeatAt,
+                        WorkerLeaseEntity::getLeaseExpiresAt)
                 .eq(WorkerLeaseEntity::getTenantId, project.getTenantId())
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt)
                 .orderByAsc(WorkerLeaseEntity::getWorkerGroupCode)

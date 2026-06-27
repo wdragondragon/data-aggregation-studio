@@ -61,6 +61,7 @@
 | FIX-S31-001 | 数据资产/数据源中心 | 中 | `/datasources` 首屏默认拉取所有元模型字段，实际只需 schema 摘要；编辑和类型切换才需要字段详情 | `MetaSchemaController.java`；`DatasourcesView.vue`；`frontend/packages/api-sdk/src/client.ts` | `GET /meta-schemas?includeFields=false` 字段数为 0；`GET /meta-schemas/details?schemaIds=...` 返回字段；`/datasources` 浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | `36d73a9` |
 | FIX-S31-002 | 数据资产/模型中心 | 中 | `/models` 首屏默认拉取所有元模型字段，模型列表和筛选只需摘要；模型创建/编辑再按数据源类型拉取相关详情 | `MetaSchemaController.java`；`ModelsView.vue`；`frontend/packages/api-sdk/src/client.ts` | `GET /meta-schemas?includeFields=false` 字段数为 0；`GET /meta-schemas/details?schemaIds=...` 返回字段；`/models` 浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | `36d73a9` |
 | FIX-S32-001 | 工作台/Dashboard | 中 | `/dashboard` 首屏用 7 个通用列表/能力接口拼概览，读取范围远超展示需要；运行队列名称解析还触发完整采集任务视图读取 | `StudioDashboardView.java`；`StudioDashboardService.java`；`DashboardController.java`；`DashboardView.vue`；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts` | `GET /dashboard/overview` 返回约 7.5KB 且无详情大字段；旧 7 请求约 35.1KB；build 后 nginx `/dashboard` 浏览器烟测无 warn/error；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
+| FIX-S33-001 | 系统管理/Worker 下发与写后刷新 | 中 | Worker 下发表格源查询读取 `worker_lease.capabilitiesJson` 后丢弃；系统管理多类保存/删除后重拉当前 tab，资源共享还重拉项目和资源选项 | `SystemManagementService.java`；`SystemView.vue` | `/system/project-workers` 默认项目和长期项目响应不含 `capabilitiesJson`；`/system?tab=workers` 浏览器烟测无 warn/error；`SystemView.vue` 保存/删除封装无 `loadCurrentTab()`；`mvn -pl studio-server -am test -DskipTests`；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -101,3 +102,4 @@
 | S30 数据资产二级页面取数瘦身 | FIX-S30-001、FIX-S30-002 |
 | S31 模型数据源页面元模型按需加载 | FIX-S31-001、FIX-S31-002 |
 | S32 工作台概览首屏聚合接口 | FIX-S32-001 |
+| S33 系统管理 Worker 与写后刷新收敛 | FIX-S33-001 |

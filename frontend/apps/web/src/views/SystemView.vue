@@ -916,6 +916,227 @@ function resourceLabel(share: ResourceShare) {
   return option?.label ?? `${resourceType || "RESOURCE"} #${share.resourceId ?? "-"}`;
 }
 
+function compareText(left?: string | null, right?: string | null) {
+  return String(left || "").localeCompare(String(right || ""));
+}
+
+function compareCreatedDesc(left?: string | null, right?: string | null) {
+  return String(right || "").localeCompare(String(left || ""));
+}
+
+function rowIndex<T extends { id?: EntityId }>(items: T[], id?: EntityId | null) {
+  if (id == null) {
+    return -1;
+  }
+  return items.findIndex((item) => sameEntityId(item.id, id));
+}
+
+function upsertRow<T extends { id?: EntityId }>(items: T[], row: T, sort?: (left: T, right: T) => number) {
+  const index = rowIndex(items, row.id);
+  if (index >= 0) {
+    items.splice(index, 1, row);
+  } else {
+    items.push(row);
+  }
+  if (sort) {
+    items.sort(sort);
+  }
+}
+
+function removeRow<T extends { id?: EntityId }>(items: T[], id?: EntityId | null) {
+  const index = rowIndex(items, id);
+  if (index >= 0) {
+    items.splice(index, 1);
+  }
+}
+
+function userById(userId?: EntityId | null) {
+  if (userId == null) {
+    return undefined;
+  }
+  return users.value.find((item) => sameEntityId(item.id, userId));
+}
+
+function usernameById(userId?: EntityId | null) {
+  if (userId == null) {
+    return undefined;
+  }
+  if (sameEntityId(userId, authStore.userId)) {
+    return authStore.username ?? undefined;
+  }
+  return userById(userId)?.username;
+}
+
+function projectNameById(projectId?: EntityId | null) {
+  if (sameEntityId(projectId, authStore.currentProjectId)) {
+    return authStore.currentProjectName ?? resolveProjectLabel(projectId);
+  }
+  return resolveProjectLabel(projectId);
+}
+
+async function refreshProfileIf(condition: boolean) {
+  if (condition) {
+    await authStore.refreshProfile();
+  }
+}
+
+async function refreshProfileForUser(userId?: EntityId | null) {
+  await refreshProfileIf(sameEntityId(userId, authStore.userId));
+}
+
+function toTenantRow(saved: SystemTenant): SystemTenant {
+  return {
+    ...saved,
+    enabled: toBooleanFlag(saved.enabled),
+  };
+}
+
+function toProjectRow(saved: SystemProject): SystemProject {
+  return {
+    ...saved,
+    enabled: toBooleanFlag(saved.enabled),
+    defaultProject: toBooleanFlag(saved.defaultProject),
+  };
+}
+
+function toTenantMemberRow(saved: SystemTenantMember, fallback?: Partial<SystemTenantMember>): SystemTenantMember {
+  const userId = saved.userId ?? fallback?.userId;
+  const user = userById(userId);
+  return {
+    ...fallback,
+    ...saved,
+    userId: userId as EntityId,
+    username: saved.username ?? fallback?.username ?? user?.username,
+    displayName: saved.displayName ?? fallback?.displayName ?? user?.displayName,
+  };
+}
+
+function toProjectMemberRow(saved: SystemProjectMember, fallback?: Partial<SystemProjectMember>): SystemProjectMember {
+  const userId = saved.userId ?? fallback?.userId;
+  const projectId = saved.projectId ?? fallback?.projectId ?? authStore.currentProjectId ?? undefined;
+  const user = userById(userId);
+  return {
+    ...fallback,
+    ...saved,
+    userId: userId as EntityId,
+    projectId,
+    username: saved.username ?? fallback?.username ?? user?.username,
+    displayName: saved.displayName ?? fallback?.displayName ?? user?.displayName,
+    projectName: saved.projectName ?? fallback?.projectName ?? projectNameById(projectId),
+  };
+}
+
+function toProjectRequestRow(saved: SystemProjectMemberRequest, fallback?: Partial<SystemProjectMemberRequest>): SystemProjectMemberRequest {
+  const userId = saved.userId ?? fallback?.userId;
+  const projectId = saved.projectId ?? fallback?.projectId ?? authStore.currentProjectId ?? undefined;
+  const inviterUserId = saved.inviterUserId ?? fallback?.inviterUserId;
+  const reviewerUserId = saved.reviewerUserId ?? fallback?.reviewerUserId;
+  const user = userById(userId);
+  return {
+    ...fallback,
+    ...saved,
+    userId: userId as EntityId,
+    projectId,
+    username: saved.username ?? fallback?.username ?? user?.username,
+    displayName: saved.displayName ?? fallback?.displayName ?? user?.displayName,
+    projectName: saved.projectName ?? fallback?.projectName ?? projectNameById(projectId),
+    inviterUserId,
+    inviterUsername: saved.inviterUsername ?? fallback?.inviterUsername ?? usernameById(inviterUserId),
+    reviewerUserId,
+    reviewerUsername: saved.reviewerUsername ?? fallback?.reviewerUsername ?? usernameById(reviewerUserId),
+  };
+}
+
+function patchTenantRow(saved: SystemTenant) {
+  upsertRow(tenants.value, toTenantRow(saved), (left, right) => compareText(left.tenantName, right.tenantName));
+}
+
+function patchProjectRow(saved: SystemProject) {
+  const row = toProjectRow(saved);
+  if (toBooleanFlag(row.defaultProject)) {
+    projects.value.forEach((item) => {
+      if (!sameEntityId(item.id, row.id)) {
+        item.defaultProject = false;
+      }
+    });
+  }
+  upsertRow(projects.value, row, (left, right) => {
+    const defaultRank = Number(toBooleanFlag(right.defaultProject)) - Number(toBooleanFlag(left.defaultProject));
+    return defaultRank || compareText(left.projectName, right.projectName);
+  });
+}
+
+function patchTenantMemberRow(saved: SystemTenantMember, fallback?: Partial<SystemTenantMember>) {
+  upsertRow(tenantMembers.value, toTenantMemberRow(saved, fallback), (left, right) => compareText(left.createdAt, right.createdAt));
+}
+
+function patchProjectMemberRow(saved: SystemProjectMember, fallback?: Partial<SystemProjectMember>) {
+  upsertRow(projectMembers.value, toProjectMemberRow(saved, fallback), (left, right) => compareText(left.createdAt, right.createdAt));
+}
+
+function patchProjectRequestRow(saved: SystemProjectMemberRequest, fallback?: Partial<SystemProjectMemberRequest>) {
+  upsertRow(projectMemberRequests.value, toProjectRequestRow(saved, fallback), (left, right) => compareCreatedDesc(left.createdAt, right.createdAt));
+}
+
+function patchRegistrationRequestRow(saved: UserRegistrationRequestView) {
+  upsertRow(registrationRequests.value, saved, (left, right) => compareCreatedDesc(left.createdAt, right.createdAt));
+}
+
+function patchProjectWorkerRow(saved: SystemProjectWorker) {
+  const workerGroupCode = saved.workerGroupCode || saved.workerCode;
+  if (!workerGroupCode) {
+    return;
+  }
+  const existing = projectWorkers.value.find((item) => workerRowKey(item) === workerGroupCode);
+  const row: SystemProjectWorker = {
+    ...existing,
+    ...saved,
+    projectId: saved.projectId ?? authStore.currentProjectId ?? existing?.projectId,
+    workerGroupCode,
+    workerCode: saved.workerCode || existing?.workerCode || workerGroupCode,
+    workerInstanceId: existing?.workerInstanceId,
+    workerKind: existing?.workerKind,
+    hostName: existing?.hostName,
+    podName: existing?.podName,
+    nodeName: existing?.nodeName,
+    onlineInstanceCount: existing?.onlineInstanceCount ?? 0,
+    recentInstanceCount: existing?.recentInstanceCount ?? 0,
+    status: existing?.status ?? "NO_INSTANCE",
+    displayStatus: existing?.displayStatus ?? existing?.status ?? "NO_INSTANCE",
+    lastHeartbeatAt: existing?.lastHeartbeatAt,
+    latestHeartbeatAt: existing?.latestHeartbeatAt,
+    boundToProject: true,
+    enabled: toBooleanFlag(saved.enabled),
+    instances: existing?.instances ?? [],
+  };
+  const index = projectWorkers.value.findIndex((item) => workerRowKey(item) === workerGroupCode);
+  if (index >= 0) {
+    projectWorkers.value.splice(index, 1, row);
+  } else {
+    projectWorkers.value.push(row);
+  }
+}
+
+function unbindProjectWorkerRow(row: SystemProjectWorker) {
+  const key = workerRowKey(row);
+  const index = projectWorkers.value.findIndex((item) => workerRowKey(item) === key);
+  if (index < 0) {
+    return;
+  }
+  if (workerInstances(row).length > 0) {
+    projectWorkers.value.splice(index, 1, {
+      ...row,
+      id: undefined,
+      boundToProject: false,
+      enabled: false,
+      createdAt: undefined,
+      updatedAt: undefined,
+    });
+    return;
+  }
+  projectWorkers.value.splice(index, 1);
+}
+
 function openTenantDialog(row?: SystemTenant) {
   resetForm(tenantForm as Record<string, unknown>, { enabled: true });
   Object.assign(tenantForm, row ?? {});
@@ -962,6 +1183,11 @@ function openRequestDialog(row?: SystemProjectMemberRequest) {
 
 function normalizeRequestValue(value?: string | null) {
   return value?.trim().toUpperCase() ?? "";
+}
+
+function isApprovedStatus(value?: string | null) {
+  const status = normalizeRequestValue(value);
+  return status === "APPROVED" || status === "ACCEPTED";
 }
 
 function canReviewProjectRequest(row: SystemProjectMemberRequest) {
@@ -1054,7 +1280,10 @@ async function saveTenant() {
     ...tenantForm,
     enabled: toIntegerFlag(tenantForm.enabled),
   });
-  await wrapSave(() => studioApi.system.tenants.save(payload), tenantDialogOpen, "租户保存成功");
+  await wrapSave(() => studioApi.system.tenants.save(payload), tenantDialogOpen, "租户保存成功", {
+    onSaved: patchTenantRow,
+    refreshProfile: true,
+  });
 }
 
 async function saveUser() {
@@ -1079,12 +1308,20 @@ async function saveProject() {
     enabled: toIntegerFlag(projectForm.enabled),
     defaultProject: toIntegerFlag(projectForm.defaultProject),
   });
-  await wrapSave(() => studioApi.system.projects.save(payload), projectDialogOpen, "项目保存成功");
+  await wrapSave(() => studioApi.system.projects.save(payload), projectDialogOpen, "项目保存成功", {
+    onSaved: patchProjectRow,
+    refreshProfile: true,
+  });
 }
 
 async function saveTenantMember() {
   const payload = normalizeDeletedFlag<Partial<SystemTenantMember>>({ ...tenantMemberForm });
-  await wrapSave(() => studioApi.system.tenantMembers.save(payload), tenantMemberDialogOpen, "租户成员保存成功");
+  await wrapSave(() => studioApi.system.tenantMembers.save(payload), tenantMemberDialogOpen, "租户成员保存成功", {
+    onSaved: async (saved) => {
+      patchTenantMemberRow(saved, payload);
+      await refreshProfileForUser(saved.userId ?? payload.userId);
+    },
+  });
 }
 
 async function saveProjectMember() {
@@ -1092,7 +1329,12 @@ async function saveProjectMember() {
     ...projectMemberForm,
     projectId: requireCurrentProjectId(),
   });
-  await wrapSave(() => studioApi.system.projectMembers.save(payload), projectMemberDialogOpen, "项目成员保存成功");
+  await wrapSave(() => studioApi.system.projectMembers.save(payload), projectMemberDialogOpen, "项目成员保存成功", {
+    onSaved: async (saved) => {
+      patchProjectMemberRow(saved, payload);
+      await refreshProfileForUser(saved.userId ?? payload.userId);
+    },
+  });
 }
 
 async function saveProjectRequest() {
@@ -1100,7 +1342,14 @@ async function saveProjectRequest() {
     ...requestForm,
     projectId: requireCurrentProjectId(),
   });
-  await wrapSave(() => studioApi.system.projectMemberRequests.save(payload), requestDialogOpen, "申请 / 邀请保存成功");
+  await wrapSave(() => studioApi.system.projectMemberRequests.save(payload), requestDialogOpen, "申请 / 邀请保存成功", {
+    onSaved: async (saved) => {
+      patchProjectRequestRow(saved, payload);
+      if (isApprovedStatus(saved.status ?? payload.status)) {
+        await refreshProfileForUser(saved.userId ?? payload.userId);
+      }
+    },
+  });
 }
 
 async function approveProjectRequest(row: SystemProjectMemberRequest) {
@@ -1124,9 +1373,10 @@ async function approveProjectRequest(row: SystemProjectMemberRequest) {
     status: "APPROVED",
     reviewComment: result.value?.trim() || undefined,
   });
-  await studioApi.system.projectMemberRequests.save(payload);
+  const saved = await studioApi.system.projectMemberRequests.save(payload);
+  patchProjectRequestRow(saved, payload);
+  await refreshProfileForUser(saved.userId ?? payload.userId);
   ElMessage.success("项目加入申请已通过");
-  await loadCurrentTab();
 }
 
 async function rejectProjectRequest(row: SystemProjectMemberRequest) {
@@ -1152,9 +1402,9 @@ async function rejectProjectRequest(row: SystemProjectMemberRequest) {
     status: "REJECTED",
     reviewComment: result.value.trim(),
   });
-  await studioApi.system.projectMemberRequests.save(payload);
+  const saved = await studioApi.system.projectMemberRequests.save(payload);
+  patchProjectRequestRow(saved, payload);
   ElMessage.success("项目加入申请已拒绝");
-  await loadCurrentTab();
 }
 
 async function saveProjectWorker() {
@@ -1166,7 +1416,9 @@ async function saveProjectWorker() {
     workerCode: workerGroupCode,
     enabled: toIntegerFlag(workerForm.enabled),
   });
-  await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 组绑定已保存");
+  await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 组绑定已保存", {
+    onSaved: patchProjectWorkerRow,
+  });
 }
 
 async function saveResourceShare() {
@@ -1179,11 +1431,18 @@ async function saveResourceShare() {
   });
   shareFilters.resourceType = normalizedResourceType;
   resourceSharePagination.page = 1;
-  await wrapSave(() => studioApi.system.resourceShares.save(payload), shareDialogOpen, "资源共享已保存");
+  await wrapSave(() => studioApi.system.resourceShares.save(payload), shareDialogOpen, "资源共享已保存", {
+    onSaved: async () => {
+      await loadResourceSharesData();
+    },
+  });
 }
 
 async function deleteTenant(row: SystemTenant) {
-  await confirmDelete(`确认删除租户 ${row.tenantName} 吗？`, () => studioApi.system.tenants.delete(row.id!));
+  await confirmDelete(`确认删除租户 ${row.tenantName} 吗？`, () => studioApi.system.tenants.delete(row.id!), {
+    onDeleted: () => removeRow(tenants.value, row.id),
+    refreshProfile: true,
+  });
 }
 
 async function deleteUser(row: StudioUserListView) {
@@ -1200,27 +1459,51 @@ async function deleteUser(row: StudioUserListView) {
 }
 
 async function deleteProject(row: SystemProject) {
-  await confirmDelete(`确认删除项目 ${row.projectName} 吗？`, () => studioApi.system.projects.delete(row.id!));
+  await confirmDelete(`确认删除项目 ${row.projectName} 吗？`, () => studioApi.system.projects.delete(row.id!), {
+    onDeleted: () => removeRow(projects.value, row.id),
+    refreshProfile: true,
+  });
 }
 
 async function deleteTenantMember(row: SystemTenantMember) {
-  await confirmDelete(`确认移除租户成员 ${row.username} 吗？`, () => studioApi.system.tenantMembers.delete(row.id!));
+  await confirmDelete(`确认移除租户成员 ${row.username} 吗？`, () => studioApi.system.tenantMembers.delete(row.id!), {
+    onDeleted: async () => {
+      removeRow(tenantMembers.value, row.id);
+      await refreshProfileForUser(row.userId);
+    },
+  });
 }
 
 async function deleteProjectMember(row: SystemProjectMember) {
-  await confirmDelete(`确认移除项目成员 ${row.username} 吗？`, () => studioApi.system.projectMembers.delete(row.id!));
+  await confirmDelete(`确认移除项目成员 ${row.username} 吗？`, () => studioApi.system.projectMembers.delete(row.id!), {
+    onDeleted: async () => {
+      removeRow(projectMembers.value, row.id);
+      await refreshProfileForUser(row.userId);
+    },
+  });
 }
 
 async function deleteProjectRequest(row: SystemProjectMemberRequest) {
-  await confirmDelete(`确认删除记录 ${row.username} 吗？`, () => studioApi.system.projectMemberRequests.delete(row.id!));
+  await confirmDelete(`确认删除记录 ${row.username} 吗？`, () => studioApi.system.projectMemberRequests.delete(row.id!), {
+    onDeleted: () => removeRow(projectMemberRequests.value, row.id),
+  });
 }
 
 async function deleteProjectWorker(row: SystemProjectWorker) {
-  await confirmDelete(`确认解绑 Worker 组 ${row.workerGroupCode || row.workerCode} 吗？`, () => studioApi.system.projectWorkers.delete(row.id!));
+  await confirmDelete(`确认解绑 Worker 组 ${row.workerGroupCode || row.workerCode} 吗？`, () => studioApi.system.projectWorkers.delete(row.id!), {
+    onDeleted: () => unbindProjectWorkerRow(row),
+  });
 }
 
 async function deleteResourceShare(row: ResourceShare) {
-  await confirmDelete(`确认取消共享 ${resourceLabel(row)} 吗？`, () => studioApi.system.resourceShares.delete(row.id!));
+  await confirmDelete(`确认取消共享 ${resourceLabel(row)} 吗？`, () => studioApi.system.resourceShares.delete(row.id!), {
+    onDeleted: async () => {
+      if (resourceShares.value.length <= 1 && resourceSharePagination.page > 1) {
+        resourceSharePagination.page -= 1;
+      }
+      await loadResourceSharesData();
+    },
+  });
 }
 
 async function approveRegistration(row: UserRegistrationRequestView) {
@@ -1230,11 +1513,11 @@ async function approveRegistration(row: UserRegistrationRequestView) {
       cancelButtonText: t("common.cancel"),
       inputPlaceholder: "审批通过后会自动创建账号",
     });
-    await studioApi.system.userRegistrationRequests.approve(row.id!, {
+    const saved = await studioApi.system.userRegistrationRequests.approve(row.id!, {
       reviewComment: result.value?.trim() || undefined,
     });
+    patchRegistrationRequestRow(saved);
     ElMessage.success("注册登记已通过");
-    await loadCurrentTab();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "审批失败");
@@ -1255,11 +1538,11 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
         return true;
       },
     });
-    await studioApi.system.userRegistrationRequests.reject(row.id!, {
+    const saved = await studioApi.system.userRegistrationRequests.reject(row.id!, {
       reviewComment: result.value.trim(),
     });
+    patchRegistrationRequestRow(saved);
     ElMessage.success("注册登记已拒绝");
-    await loadCurrentTab();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "审批失败");
@@ -1268,28 +1551,48 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
 }
 
 async function deleteRegistration(row: UserRegistrationRequestView) {
-  await confirmDelete(`确认删除注册登记 ${row.username} 吗？`, () => studioApi.system.userRegistrationRequests.delete(row.id!));
+  await confirmDelete(`确认删除注册登记 ${row.username} 吗？`, () => studioApi.system.userRegistrationRequests.delete(row.id!), {
+    onDeleted: () => removeRow(registrationRequests.value, row.id),
+  });
 }
 
-async function wrapSave(action: () => Promise<unknown>, dialogFlag: { value: boolean }, successMessage: string) {
+async function wrapSave<T>(
+  action: () => Promise<T>,
+  dialogFlag: { value: boolean },
+  successMessage: string,
+  options: {
+    onSaved?: (saved: T) => void | Promise<void>;
+    refreshProfile?: boolean | ((saved: T) => boolean);
+  } = {},
+) {
   try {
-    await action();
+    const saved = await action();
     dialogFlag.value = false;
-    await authStore.refreshProfile();
+    const shouldRefreshProfile = typeof options.refreshProfile === "function"
+      ? options.refreshProfile(saved)
+      : Boolean(options.refreshProfile);
+    await refreshProfileIf(shouldRefreshProfile);
+    await options.onSaved?.(saved);
     ElMessage.success(successMessage);
-    await loadCurrentTab();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存失败");
   }
 }
 
-async function confirmDelete(message: string, action: () => Promise<unknown>) {
+async function confirmDelete(
+  message: string,
+  action: () => Promise<unknown>,
+  options: {
+    onDeleted?: () => void | Promise<void>;
+    refreshProfile?: boolean;
+  } = {},
+) {
   try {
     await ElMessageBox.confirm(message, t("common.confirm"), { type: "warning" });
     await action();
-    await authStore.refreshProfile();
+    await refreshProfileIf(Boolean(options.refreshProfile));
+    await options.onDeleted?.();
     ElMessage.success("删除成功");
-    await loadCurrentTab();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除失败");
