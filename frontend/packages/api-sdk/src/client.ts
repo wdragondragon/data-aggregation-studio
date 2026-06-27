@@ -25,6 +25,7 @@ import type {
   EnvironmentDependencySaveRequest,
   DataModelDefinition,
   DataModelListView,
+  DataModelOptionView,
   DataModelSqlHintView,
   DataModelLineageEdgeDetailView,
   DataModelLineageLevel,
@@ -831,6 +832,15 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       }, config?: StudioRequestConfig) {
         return request<unknown>({ ...config, url: "/models/summaries", method: "GET", params }).then((payload) =>
           normalizePageResult<DataModelListView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      listOptions(params?: {
+        keyword?: string;
+        pageNo?: number;
+        pageSize?: number;
+      }, config?: StudioRequestConfig) {
+        return request<unknown>({ ...config, url: "/models/options", method: "GET", params }).then((payload) =>
+          normalizePageResult<DataModelOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
       async list(params?: {

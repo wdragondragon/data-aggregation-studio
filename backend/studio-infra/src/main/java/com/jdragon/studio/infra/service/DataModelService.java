@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataModelListView;
+import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
@@ -146,6 +147,14 @@ public class DataModelService {
     public PageView<DataModelListView> listSummaryPage(String datasourceType, Integer pageNo, Integer pageSize,
                                                        String sortField, String sortOrder) {
         return summaryPageQuery(buildBaseQuery(null, datasourceType, null, sortField, sortOrder), pageNo, pageSize);
+    }
+
+    public PageView<DataModelOptionView> listOptions(String keyword, Integer pageNo, Integer pageSize) {
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(null, null, null, "name", "asc");
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            queryWrapper.like(DataModelEntity::getName, keyword.trim());
+        }
+        return optionPageQuery(queryWrapper, pageNo, pageSize);
     }
 
     public PageView<DataModelListView> listByDatasourceSummaryPage(Long datasourceId, Integer pageNo, Integer pageSize,
@@ -491,6 +500,28 @@ public class DataModelService {
         return PageView.of(resolvedPageNo, resolvedPageSize, total, toListViews(entities));
     }
 
+    private PageView<DataModelOptionView> optionPageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper,
+                                                          Integer pageNo,
+                                                          Integer pageSize) {
+        int resolvedPageNo = normalizePageNo(pageNo);
+        int resolvedPageSize = normalizePageSize(pageSize);
+        long total = safeCount(queryWrapper);
+        if (total <= 0L) {
+            return PageView.of(resolvedPageNo, resolvedPageSize, 0L, Collections.<DataModelOptionView>emptyList());
+        }
+        long offset = (long) (resolvedPageNo - 1) * resolvedPageSize;
+        List<DataModelEntity> entities = dataModelMapper.selectList(cloneQuery(queryWrapper)
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getTenantId,
+                        DataModelEntity::getProjectId,
+                        DataModelEntity::getDeleted,
+                        DataModelEntity::getCreatedAt,
+                        DataModelEntity::getUpdatedAt,
+                        DataModelEntity::getName)
+                .last("limit " + resolvedPageSize + " offset " + offset));
+        return PageView.of(resolvedPageNo, resolvedPageSize, total, toOptionViews(entities));
+    }
+
     private long safeCount(LambdaQueryWrapper<DataModelEntity> queryWrapper) {
         Long total = dataModelMapper.selectCount(cloneQuery(queryWrapper));
         return total == null ? 0L : total.longValue();
@@ -661,6 +692,26 @@ public class DataModelService {
             result.add(toListView(entity));
         }
         return result;
+    }
+
+    private List<DataModelOptionView> toOptionViews(List<DataModelEntity> entities) {
+        List<DataModelOptionView> result = new ArrayList<DataModelOptionView>();
+        for (DataModelEntity entity : entities) {
+            result.add(toOptionView(entity));
+        }
+        return result;
+    }
+
+    private DataModelOptionView toOptionView(DataModelEntity entity) {
+        DataModelOptionView view = new DataModelOptionView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        return view;
     }
 
     private List<DataModelSqlHintView> toSqlHintViews(List<DataModelEntity> entities) {

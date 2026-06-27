@@ -3,8 +3,10 @@ package com.jdragon.studio.test;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
@@ -65,6 +67,34 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         assertThat(captor.getValue().getSqlSelect())
                 .contains("id", "datasource_id", "name", "physical_locator", "technical_metadata")
                 .doesNotContain("business_metadata", "schema_version_id", "created_at", "updated_at");
+    }
+
+    @Test
+    void modelOptionsShouldSelectOnlyFieldsNeededByLineageManualRelationPicker() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        PageView<DataModelOptionView> page = service.listOptions("客户", 1, 50);
+
+        assertThat(page.getItems()).hasSize(1);
+        DataModelOptionView option = page.getItems().get(0);
+        assertThat(option.getId()).isEqualTo(21L);
+        assertThat(option.getName()).isEqualTo("客户经营画像表");
+        assertThat(page.getPageSize()).isEqualTo(50);
+
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataModelMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "tenant_id", "project_id", "deleted", "created_at", "updated_at", "name")
+                .doesNotContain("datasource_id",
+                        "model_kind",
+                        "physical_locator",
+                        "schema_version_id",
+                        "technical_metadata",
+                        "business_metadata");
     }
 
     private DataModelService dataModelService(DataModelMapper dataModelMapper,

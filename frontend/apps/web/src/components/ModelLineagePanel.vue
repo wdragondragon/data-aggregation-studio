@@ -105,8 +105,11 @@
           <el-select
             v-model="manualForm.sourceModelId"
             filterable
+            remote
+            remote-show-suffix
             class="lineage-form__control"
             :loading="loadingModelOptions"
+            :remote-method="searchManualModelOptions"
             :placeholder="t('web.models.lineageManualSourceModelPlaceholder')"
           >
             <el-option v-for="item in manualModelOptions" :key="String(item.id)" :label="item.name" :value="item.id" />
@@ -117,8 +120,11 @@
           <el-select
             v-model="manualForm.targetModelId"
             filterable
+            remote
+            remote-show-suffix
             class="lineage-form__control"
             :loading="loadingModelOptions"
+            :remote-method="searchManualModelOptions"
             :placeholder="t('web.models.lineageManualTargetModelPlaceholder')"
           >
             <el-option v-for="item in manualModelOptions" :key="`target-${String(item.id)}`" :label="item.name" :value="item.id" />
@@ -165,7 +171,7 @@ import { computed, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import type { DataModelDefinition, DataModelLineageContributorView, DataModelLineageEdgeDetailView, DataModelLineageLevel, DataModelLineageView, DataModelListView, DataModelManualLineageSaveRequest, EntityId } from "@studio/api-sdk";
+import type { DataModelDefinition, DataModelLineageContributorView, DataModelLineageEdgeDetailView, DataModelLineageLevel, DataModelLineageView, DataModelManualLineageSaveRequest, DataModelOptionView, EntityId } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import ModelLineageGraph from "@/components/ModelLineageGraph.vue";
 import ModelLineageEdgeDrawer from "@/components/model-lineage/ModelLineageEdgeDrawer.vue";
@@ -178,6 +184,7 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const router = useRouter();
+const MODEL_OPTION_PAGE_SIZE = 50;
 
 const activeLevel = ref<DataModelLineageLevel>("DATABASE");
 const loading = ref(false);
@@ -185,9 +192,10 @@ const edgeLoading = ref(false);
 const edgeDrawerOpen = ref(false);
 const edgeDetail = ref<DataModelLineageEdgeDetailView>();
 const currentModel = ref<DataModelDefinition>();
-const availableModels = ref<DataModelListView[]>([]);
+const availableModels = ref<DataModelOptionView[]>([]);
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const loadingModelOptions = ref(false);
+const modelOptionSearchSeq = ref(0);
 const manualDialogOpen = ref(false);
 const manualSaving = ref(false);
 
@@ -237,8 +245,8 @@ const legendItems = computed(() => [
 ]);
 const manualDialogTitle = computed(() => (manualForm.relationId != null ? t("web.models.lineageEditRelation") : t("web.models.lineageCreateRelation")));
 const manualModelOptions = computed(() => {
-  const items = new Map<string, DataModelListView | DataModelDefinition>();
-  for (const item of normalizeModelListPayload(availableModels.value)) {
+  const items = new Map<string, DataModelOptionView | DataModelDefinition>();
+  for (const item of availableModels.value) {
     const id = normalizeId(item.id);
     items.set(id, modelDetailCache.value[id] ?? item);
   }
@@ -360,7 +368,7 @@ function parseObjectRows(value: unknown) {
     .map((item) => ({ ...(item as Record<string, unknown>) }));
 }
 
-function pickFieldRows(model?: DataModelListView | DataModelDefinition) {
+function pickFieldRows(model?: DataModelOptionView | DataModelDefinition) {
   const metadata = "technicalMetadata" in (model ?? {}) ? (model as DataModelDefinition).technicalMetadata ?? {} : {};
   const preferredKeys = ["columns", "fields", "items"];
   const entries = Object.entries(metadata);
@@ -391,7 +399,7 @@ function resolveFieldLabel(row: Record<string, unknown>) {
   return firstNonBlank(row.fieldName, row.name, row.columnName, row.physicalName, row.fieldKey, row.code);
 }
 
-function extractFieldOptions(model?: DataModelListView | DataModelDefinition) {
+function extractFieldOptions(model?: DataModelOptionView | DataModelDefinition) {
   const items = new Map<string, { value: string; label: string }>();
   for (const row of pickFieldRows(model)) {
     const value = String(resolveFieldKey(row) || "").trim();
@@ -546,29 +554,40 @@ function jumpToPath(path: string) {
   void router.push(path);
 }
 
-async function ensureModelOptionsLoaded() {
-  if (loadingModelOptions.value || availableModels.value.length > 0) {
-    return;
-  }
+async function searchManualModelOptions(keyword: string) {
+  await loadModelOptions(keyword);
+}
+
+async function loadModelOptions(keyword: string) {
+  const requestSeq = modelOptionSearchSeq.value + 1;
+  modelOptionSearchSeq.value = requestSeq;
   loadingModelOptions.value = true;
   try {
-    const payload = await studioApi.models.listSummaryPage({ pageNo: 1, pageSize: 5000 });
-    availableModels.value = normalizeModelListPayload(payload);
+    const page = await studioApi.models.listOptions({
+      keyword: keyword.trim() || undefined,
+      pageNo: 1,
+      pageSize: MODEL_OPTION_PAGE_SIZE,
+    }, { studioSkipGlobalLoading: true });
+    if (modelOptionSearchSeq.value === requestSeq) {
+      availableModels.value = normalizeModelOptionPayload(page);
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.lineageModelOptionsLoadFailed"));
   } finally {
-    loadingModelOptions.value = false;
+    if (modelOptionSearchSeq.value === requestSeq) {
+      loadingModelOptions.value = false;
+    }
   }
 }
 
-function normalizeModelListPayload(payload: unknown): DataModelListView[] {
+function normalizeModelOptionPayload(payload: unknown): DataModelOptionView[] {
   if (Array.isArray(payload)) {
-    return payload.filter((item): item is DataModelListView => item != null && typeof item === "object");
+    return payload.filter((item): item is DataModelOptionView => item != null && typeof item === "object");
   }
   if (payload && typeof payload === "object") {
     const items = (payload as { items?: unknown }).items;
     if (Array.isArray(items)) {
-      return items.filter((item): item is DataModelListView => item != null && typeof item === "object");
+      return items.filter((item): item is DataModelOptionView => item != null && typeof item === "object");
     }
   }
   return [];
@@ -595,7 +614,7 @@ async function openCreateManualRelation() {
   manualForm.sourceFieldKey = undefined;
   manualForm.targetFieldKey = undefined;
   manualDialogOpen.value = true;
-  void ensureModelOptionsLoaded();
+  void loadModelOptions("");
 }
 
 async function openEditManualRelation(contributor: DataModelLineageContributorView) {
@@ -606,7 +625,9 @@ async function openEditManualRelation(contributor: DataModelLineageContributorVi
   manualForm.sourceFieldKey = contributor.sourceField;
   manualForm.targetFieldKey = contributor.targetField;
   manualDialogOpen.value = true;
-  void ensureModelOptionsLoaded();
+  void loadModelOptions("");
+  void ensureManualModelDetail(manualForm.sourceModelId);
+  void ensureManualModelDetail(manualForm.targetModelId);
 }
 
 async function submitManualRelation() {
