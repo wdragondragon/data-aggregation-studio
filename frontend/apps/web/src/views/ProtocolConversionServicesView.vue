@@ -275,6 +275,29 @@ async function openSubscriptions(row: ProtocolConversionServiceListView) {
   subscriptions.value = await studioApi.protocolConversions.listSubscriptions(row.id as EntityId);
 }
 
+function upsertSubscriptionRow(next: ProtocolConversionSubscriptionView) {
+  const list = [...subscriptions.value];
+  const index = list.findIndex((item) => String(item.id) === String(next.id));
+  if (index >= 0) {
+    list.splice(index, 1, { ...list[index], ...next });
+  } else {
+    list.unshift(next);
+  }
+  subscriptions.value = list.sort(compareSubscriptionRows);
+}
+
+function compareSubscriptionRows(left: ProtocolConversionSubscriptionView, right: ProtocolConversionSubscriptionView) {
+  if (left.enabled !== right.enabled) {
+    return left.enabled ? -1 : 1;
+  }
+  return subscriptionTime(right) - subscriptionTime(left);
+}
+
+function subscriptionTime(row: ProtocolConversionSubscriptionView) {
+  const time = Date.parse(row.createdAt || row.updatedAt || "");
+  return Number.isNaN(time) ? 0 : time;
+}
+
 async function createSubscription() {
   if (!selectedService.value || !subscriptionName.value.trim()) {
     ElMessage.warning("请输入订阅名称");
@@ -285,7 +308,7 @@ async function createSubscription() {
     const created = await studioApi.protocolConversions.createSubscription(selectedService.value.id as EntityId, subscriptionName.value.trim());
     newToken.value = created.token || "";
     subscriptionName.value = "";
-    subscriptions.value = await studioApi.protocolConversions.listSubscriptions(selectedService.value.id as EntityId);
+    upsertSubscriptionRow(created);
   } finally {
     creatingSubscription.value = false;
   }
@@ -298,23 +321,23 @@ async function rotateSubscription(subscriptionId?: EntityId) {
   await ElMessageBox.confirm("重新生成后旧 Token 会立即失效，是否继续？", "重新生成 Token", { type: "warning" });
   const rotated = await studioApi.protocolConversions.rotateSubscription(selectedService.value.id as EntityId, subscriptionId);
   newToken.value = rotated.token || "";
-  subscriptions.value = await studioApi.protocolConversions.listSubscriptions(selectedService.value.id as EntityId);
+  upsertSubscriptionRow(rotated);
 }
 
 async function disableSubscription(subscriptionId?: EntityId) {
   if (!selectedService.value || !subscriptionId) {
     return;
   }
-  await studioApi.protocolConversions.disableSubscription(selectedService.value.id as EntityId, subscriptionId);
-  subscriptions.value = await studioApi.protocolConversions.listSubscriptions(selectedService.value.id as EntityId);
+  const updated = await studioApi.protocolConversions.disableSubscription(selectedService.value.id as EntityId, subscriptionId);
+  upsertSubscriptionRow(updated);
 }
 
 async function enableSubscription(subscriptionId?: EntityId) {
   if (!selectedService.value || !subscriptionId) {
     return;
   }
-  await studioApi.protocolConversions.enableSubscription(selectedService.value.id as EntityId, subscriptionId);
-  subscriptions.value = await studioApi.protocolConversions.listSubscriptions(selectedService.value.id as EntityId);
+  const updated = await studioApi.protocolConversions.enableSubscription(selectedService.value.id as EntityId, subscriptionId);
+  upsertSubscriptionRow(updated);
 }
 
 function copyNewToken() {

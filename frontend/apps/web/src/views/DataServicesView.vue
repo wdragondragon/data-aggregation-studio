@@ -316,6 +316,29 @@ async function loadSubscriptions() {
   subscriptions.value = await studioApi.dataServices.listSubscriptions(selectedService.value.id);
 }
 
+function upsertSubscriptionRow(next: DataServiceSubscriptionView) {
+  const list = [...subscriptions.value];
+  const index = list.findIndex((item) => String(item.id) === String(next.id));
+  if (index >= 0) {
+    list.splice(index, 1, { ...list[index], ...next });
+  } else {
+    list.unshift(next);
+  }
+  subscriptions.value = list.sort(compareSubscriptionRows);
+}
+
+function compareSubscriptionRows(left: DataServiceSubscriptionView, right: DataServiceSubscriptionView) {
+  if (left.enabled !== right.enabled) {
+    return left.enabled ? -1 : 1;
+  }
+  return subscriptionTime(right) - subscriptionTime(left);
+}
+
+function subscriptionTime(row: DataServiceSubscriptionView) {
+  const time = Date.parse(row.createdAt || row.updatedAt || "");
+  return Number.isNaN(time) ? 0 : time;
+}
+
 async function createSubscription() {
   if (!selectedService.value?.id || !subscriptionName.value.trim()) {
     ElMessage.warning("请填写订阅名称");
@@ -329,7 +352,7 @@ async function createSubscription() {
     if (!newToken.value) {
       ElMessage.warning("订阅已创建，但接口未返回明文 Token；请联系管理员检查服务端返回。");
     }
-    await loadSubscriptions();
+    upsertSubscriptionRow(created);
     ElMessage.success("订阅 Token 已创建或刷新");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "创建订阅 Token 失败");
@@ -353,7 +376,7 @@ async function rotateSubscription(subscriptionId?: EntityId) {
     if (!newToken.value) {
       ElMessage.warning("Token 已重新生成，但接口未返回明文 Token；请联系管理员检查服务端返回。");
     }
-    await loadSubscriptions();
+    upsertSubscriptionRow(rotated);
     ElMessage.success("订阅 Token 已重新生成，请立即复制保存");
   } catch (error) {
     if (error === "cancel" || error === "close") {
@@ -368,9 +391,9 @@ async function disableSubscription(subscriptionId?: EntityId) {
     return;
   }
   try {
-    await studioApi.dataServices.disableSubscription(selectedService.value.id, subscriptionId);
+    const updated = await studioApi.dataServices.disableSubscription(selectedService.value.id, subscriptionId);
+    upsertSubscriptionRow(updated);
     ElMessage.success("订阅 Token 已停用");
-    await loadSubscriptions();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "停用订阅 Token 失败");
   }
@@ -381,9 +404,9 @@ async function enableSubscription(subscriptionId?: EntityId) {
     return;
   }
   try {
-    await studioApi.dataServices.enableSubscription(selectedService.value.id, subscriptionId);
+    const updated = await studioApi.dataServices.enableSubscription(selectedService.value.id, subscriptionId);
+    upsertSubscriptionRow(updated);
     ElMessage.success("订阅 Token 已启用");
-    await loadSubscriptions();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "启用订阅 Token 失败");
   }

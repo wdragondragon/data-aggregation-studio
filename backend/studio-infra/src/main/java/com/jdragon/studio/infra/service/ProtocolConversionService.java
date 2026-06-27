@@ -1156,8 +1156,22 @@ public class ProtocolConversionService {
     }
 
     public List<ProtocolConversionSubscriptionView> listSubscriptions(Long serviceId) {
-        requireAccessibleEntity(serviceId);
+        requireAccessibleServiceReference(serviceId);
         List<ProtocolConversionSubscriptionEntity> entities = subscriptionMapper.selectList(new LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>()
+                .select(ProtocolConversionSubscriptionEntity::getId,
+                        ProtocolConversionSubscriptionEntity::getTenantId,
+                        ProtocolConversionSubscriptionEntity::getProjectId,
+                        ProtocolConversionSubscriptionEntity::getDeleted,
+                        ProtocolConversionSubscriptionEntity::getCreatedAt,
+                        ProtocolConversionSubscriptionEntity::getUpdatedAt,
+                        ProtocolConversionSubscriptionEntity::getServiceId,
+                        ProtocolConversionSubscriptionEntity::getSubscriptionName,
+                        ProtocolConversionSubscriptionEntity::getTokenMasked,
+                        ProtocolConversionSubscriptionEntity::getEnabled,
+                        ProtocolConversionSubscriptionEntity::getCreatedBy,
+                        ProtocolConversionSubscriptionEntity::getLastUsedAt,
+                        ProtocolConversionSubscriptionEntity::getRotatedAt,
+                        ProtocolConversionSubscriptionEntity::getRotatedBy)
                 .eq(ProtocolConversionSubscriptionEntity::getServiceId, serviceId)
                 .orderByDesc(ProtocolConversionSubscriptionEntity::getEnabled)
                 .orderByDesc(ProtocolConversionSubscriptionEntity::getCreatedAt)
@@ -1171,12 +1185,13 @@ public class ProtocolConversionService {
 
     @Transactional
     public ProtocolConversionSubscriptionView createSubscription(Long serviceId, DataServiceSubscriptionCreateRequest request) {
-        ProtocolConversionServiceEntity service = requireWritableEntity(serviceId);
+        ProtocolConversionServiceEntity service = requireWritableServiceReference(serviceId);
         if (request == null || !hasText(request.getSubscriptionName())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name is required");
         }
         String subscriptionName = request.getSubscriptionName().trim();
         ProtocolConversionSubscriptionEntity activeDuplicate = subscriptionMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>()
+                .select(ProtocolConversionSubscriptionEntity::getId)
                 .eq(ProtocolConversionSubscriptionEntity::getServiceId, serviceId)
                 .eq(ProtocolConversionSubscriptionEntity::getSubscriptionName, subscriptionName)
                 .eq(ProtocolConversionSubscriptionEntity::getEnabled, 1)
@@ -1228,6 +1243,7 @@ public class ProtocolConversionService {
     public ProtocolConversionSubscriptionView enableSubscription(Long serviceId, Long subscriptionId) {
         ProtocolConversionSubscriptionEntity entity = requireSubscription(serviceId, subscriptionId);
         ProtocolConversionSubscriptionEntity activeDuplicate = subscriptionMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>()
+                .select(ProtocolConversionSubscriptionEntity::getId)
                 .eq(ProtocolConversionSubscriptionEntity::getServiceId, serviceId)
                 .eq(ProtocolConversionSubscriptionEntity::getSubscriptionName, entity.getSubscriptionName())
                 .eq(ProtocolConversionSubscriptionEntity::getEnabled, 1)
@@ -1423,8 +1439,29 @@ public class ProtocolConversionService {
         return entity;
     }
 
+    private ProtocolConversionServiceEntity requireAccessibleServiceReference(Long id) {
+        ProtocolConversionServiceEntity entity = serviceMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionServiceEntity>()
+                .select(ProtocolConversionServiceEntity::getId,
+                        ProtocolConversionServiceEntity::getTenantId,
+                        ProtocolConversionServiceEntity::getProjectId)
+                .eq(ProtocolConversionServiceEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null || !securityService.currentTenantId().equals(entity.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Protocol conversion service not found: " + id);
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE,
+                entity.getProjectId(), entity.getId(), "Protocol conversion service not found: " + id);
+        return entity;
+    }
+
     private ProtocolConversionServiceEntity requireWritableEntity(Long id) {
         ProtocolConversionServiceEntity entity = requireAccessibleEntity(id);
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private ProtocolConversionServiceEntity requireWritableServiceReference(Long id) {
+        ProtocolConversionServiceEntity entity = requireAccessibleServiceReference(id);
         projectResourceAccessService.assertWritable(entity.getProjectId());
         return entity;
     }
@@ -1441,8 +1478,24 @@ public class ProtocolConversionService {
     }
 
     private ProtocolConversionSubscriptionEntity requireSubscription(Long serviceId, Long subscriptionId) {
-        requireWritableEntity(serviceId);
-        ProtocolConversionSubscriptionEntity entity = subscriptionMapper.selectById(subscriptionId);
+        requireWritableServiceReference(serviceId);
+        ProtocolConversionSubscriptionEntity entity = subscriptionMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>()
+                .select(ProtocolConversionSubscriptionEntity::getId,
+                        ProtocolConversionSubscriptionEntity::getTenantId,
+                        ProtocolConversionSubscriptionEntity::getProjectId,
+                        ProtocolConversionSubscriptionEntity::getDeleted,
+                        ProtocolConversionSubscriptionEntity::getCreatedAt,
+                        ProtocolConversionSubscriptionEntity::getUpdatedAt,
+                        ProtocolConversionSubscriptionEntity::getServiceId,
+                        ProtocolConversionSubscriptionEntity::getSubscriptionName,
+                        ProtocolConversionSubscriptionEntity::getTokenMasked,
+                        ProtocolConversionSubscriptionEntity::getEnabled,
+                        ProtocolConversionSubscriptionEntity::getCreatedBy,
+                        ProtocolConversionSubscriptionEntity::getLastUsedAt,
+                        ProtocolConversionSubscriptionEntity::getRotatedAt,
+                        ProtocolConversionSubscriptionEntity::getRotatedBy)
+                .eq(ProtocolConversionSubscriptionEntity::getId, subscriptionId)
+                .last("limit 1"));
         if (entity == null || entity.getServiceId() == null || entity.getServiceId().longValue() != serviceId.longValue()) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Subscription not found: " + subscriptionId);
         }

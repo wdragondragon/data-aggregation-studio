@@ -437,8 +437,22 @@ public class DataIngestionService {
     }
 
     public List<DataIngestionSubscriptionView> listSubscriptions(Long serviceId) {
-        requireAccessibleEntity(serviceId);
+        requireAccessibleServiceReference(serviceId);
         List<DataIngestionSubscriptionEntity> entities = subscriptionMapper.selectList(new LambdaQueryWrapper<DataIngestionSubscriptionEntity>()
+                .select(DataIngestionSubscriptionEntity::getId,
+                        DataIngestionSubscriptionEntity::getTenantId,
+                        DataIngestionSubscriptionEntity::getProjectId,
+                        DataIngestionSubscriptionEntity::getDeleted,
+                        DataIngestionSubscriptionEntity::getCreatedAt,
+                        DataIngestionSubscriptionEntity::getUpdatedAt,
+                        DataIngestionSubscriptionEntity::getServiceId,
+                        DataIngestionSubscriptionEntity::getSubscriptionName,
+                        DataIngestionSubscriptionEntity::getTokenMasked,
+                        DataIngestionSubscriptionEntity::getEnabled,
+                        DataIngestionSubscriptionEntity::getCreatedBy,
+                        DataIngestionSubscriptionEntity::getLastUsedAt,
+                        DataIngestionSubscriptionEntity::getRotatedAt,
+                        DataIngestionSubscriptionEntity::getRotatedBy)
                 .eq(DataIngestionSubscriptionEntity::getServiceId, serviceId)
                 .orderByDesc(DataIngestionSubscriptionEntity::getEnabled)
                 .orderByDesc(DataIngestionSubscriptionEntity::getCreatedAt)
@@ -452,12 +466,13 @@ public class DataIngestionService {
 
     @Transactional
     public DataIngestionSubscriptionView createSubscription(Long serviceId, DataServiceSubscriptionCreateRequest request) {
-        DataIngestionServiceEntity service = requireWritableEntity(serviceId);
+        DataIngestionServiceEntity service = requireWritableServiceReference(serviceId);
         if (request == null || !hasText(request.getSubscriptionName())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name is required");
         }
         String subscriptionName = request.getSubscriptionName().trim();
         DataIngestionSubscriptionEntity activeDuplicate = subscriptionMapper.selectOne(new LambdaQueryWrapper<DataIngestionSubscriptionEntity>()
+                .select(DataIngestionSubscriptionEntity::getId)
                 .eq(DataIngestionSubscriptionEntity::getServiceId, serviceId)
                 .eq(DataIngestionSubscriptionEntity::getSubscriptionName, subscriptionName)
                 .eq(DataIngestionSubscriptionEntity::getEnabled, 1)
@@ -509,6 +524,7 @@ public class DataIngestionService {
     public DataIngestionSubscriptionView enableSubscription(Long serviceId, Long subscriptionId) {
         DataIngestionSubscriptionEntity entity = requireSubscription(serviceId, subscriptionId);
         DataIngestionSubscriptionEntity activeDuplicate = subscriptionMapper.selectOne(new LambdaQueryWrapper<DataIngestionSubscriptionEntity>()
+                .select(DataIngestionSubscriptionEntity::getId)
                 .eq(DataIngestionSubscriptionEntity::getServiceId, serviceId)
                 .eq(DataIngestionSubscriptionEntity::getSubscriptionName, entity.getSubscriptionName())
                 .eq(DataIngestionSubscriptionEntity::getEnabled, 1)
@@ -748,8 +764,32 @@ public class DataIngestionService {
         return entity;
     }
 
+    private DataIngestionServiceEntity requireAccessibleServiceReference(Long id) {
+        DataIngestionServiceEntity entity = serviceMapper.selectOne(new LambdaQueryWrapper<DataIngestionServiceEntity>()
+                .select(DataIngestionServiceEntity::getId,
+                        DataIngestionServiceEntity::getTenantId,
+                        DataIngestionServiceEntity::getProjectId)
+                .eq(DataIngestionServiceEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service not found: " + id);
+        }
+        if (!securityService.currentTenantId().equals(entity.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service not found: " + id);
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE,
+                entity.getProjectId(), entity.getId(), "Data ingestion service not found: " + id);
+        return entity;
+    }
+
     private DataIngestionServiceEntity requireWritableEntity(Long id) {
         DataIngestionServiceEntity entity = requireAccessibleEntity(id);
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private DataIngestionServiceEntity requireWritableServiceReference(Long id) {
+        DataIngestionServiceEntity entity = requireAccessibleServiceReference(id);
         projectResourceAccessService.assertWritable(entity.getProjectId());
         return entity;
     }
@@ -785,8 +825,24 @@ public class DataIngestionService {
     }
 
     private DataIngestionSubscriptionEntity requireSubscription(Long serviceId, Long subscriptionId) {
-        requireWritableEntity(serviceId);
-        DataIngestionSubscriptionEntity entity = subscriptionMapper.selectById(subscriptionId);
+        requireWritableServiceReference(serviceId);
+        DataIngestionSubscriptionEntity entity = subscriptionMapper.selectOne(new LambdaQueryWrapper<DataIngestionSubscriptionEntity>()
+                .select(DataIngestionSubscriptionEntity::getId,
+                        DataIngestionSubscriptionEntity::getTenantId,
+                        DataIngestionSubscriptionEntity::getProjectId,
+                        DataIngestionSubscriptionEntity::getDeleted,
+                        DataIngestionSubscriptionEntity::getCreatedAt,
+                        DataIngestionSubscriptionEntity::getUpdatedAt,
+                        DataIngestionSubscriptionEntity::getServiceId,
+                        DataIngestionSubscriptionEntity::getSubscriptionName,
+                        DataIngestionSubscriptionEntity::getTokenMasked,
+                        DataIngestionSubscriptionEntity::getEnabled,
+                        DataIngestionSubscriptionEntity::getCreatedBy,
+                        DataIngestionSubscriptionEntity::getLastUsedAt,
+                        DataIngestionSubscriptionEntity::getRotatedAt,
+                        DataIngestionSubscriptionEntity::getRotatedBy)
+                .eq(DataIngestionSubscriptionEntity::getId, subscriptionId)
+                .last("limit 1"));
         if (entity == null || entity.getServiceId() == null || entity.getServiceId().longValue() != serviceId.longValue()) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Subscription not found: " + subscriptionId);
         }

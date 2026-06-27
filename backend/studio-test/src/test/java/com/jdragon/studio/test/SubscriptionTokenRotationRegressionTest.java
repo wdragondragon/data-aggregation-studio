@@ -2,6 +2,7 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -44,9 +45,9 @@ import com.jdragon.studio.infra.service.ProtocolConversionService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.StudioTransformerSupport;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
-import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.lang.reflect.Method;
@@ -54,6 +55,7 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -72,9 +74,12 @@ class SubscriptionTokenRotationRegressionTest {
 
     @BeforeAll
     static void initMybatisPlusTableInfo() {
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DataServiceSubscriptionEntity.class);
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DataIngestionSubscriptionEntity.class);
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), ProtocolConversionSubscriptionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), DataServiceSubscriptionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), DataIngestionSubscriptionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), ProtocolConversionSubscriptionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), DataServiceDefinitionEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), DataIngestionServiceEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), ProtocolConversionServiceEntity.class);
     }
 
     @Test
@@ -87,8 +92,8 @@ class SubscriptionTokenRotationRegressionTest {
 
         DataServiceDefinitionEntity definition = dataServiceDefinition();
         DataServiceSubscriptionEntity subscription = dataServiceSubscription("old-hash", null);
-        when(definitionMapper.selectById(10L)).thenReturn(definition);
-        when(subscriptionMapper.selectById(20L)).thenReturn(subscription);
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(definition);
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(subscription);
         when(subscriptionMapper.updateById(any(DataServiceSubscriptionEntity.class))).thenReturn(1);
         when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(subscription));
 
@@ -115,7 +120,7 @@ class SubscriptionTokenRotationRegressionTest {
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         DataServiceService service = dataService(definitionMapper, subscriptionMapper, securityService, accessService);
         DataServiceDefinitionEntity definition = dataServiceDefinition();
-        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(definition);
         doThrow(new StudioException(StudioErrorCode.FORBIDDEN, "Resource belongs to another project"))
                 .when(accessService).assertWritable(100L);
 
@@ -133,8 +138,8 @@ class SubscriptionTokenRotationRegressionTest {
 
         DataIngestionServiceEntity definition = dataIngestionDefinition();
         DataIngestionSubscriptionEntity subscription = dataIngestionSubscription("old-hash", null);
-        when(serviceMapper.selectById(30L)).thenReturn(definition);
-        when(subscriptionMapper.selectById(40L)).thenReturn(subscription);
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(definition);
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(subscription);
         when(subscriptionMapper.updateById(any(DataIngestionSubscriptionEntity.class))).thenReturn(1);
         when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(subscription));
 
@@ -161,7 +166,7 @@ class SubscriptionTokenRotationRegressionTest {
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         DataIngestionService service = dataIngestionService(serviceMapper, subscriptionMapper, securityService, accessService);
 
-        when(serviceMapper.selectById(30L)).thenReturn(dataIngestionDefinition());
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(dataIngestionDefinition());
         when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(Collections.singletonList(dataIngestionSubscription("legacy-hash", null)));
 
@@ -169,6 +174,69 @@ class SubscriptionTokenRotationRegressionTest {
 
         assertNull(listed.getToken());
         assertEquals("历史 Token 不可查看，请重新生成", listed.getTokenMasked());
+    }
+
+    @Test
+    void dataServiceSubscriptionListShouldSelectMaskedTokenOnlyAndLightServiceReference() {
+        DataServiceDefinitionMapper definitionMapper = mock(DataServiceDefinitionMapper.class);
+        DataServiceSubscriptionMapper subscriptionMapper = mock(DataServiceSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 900L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        DataServiceService service = dataService(definitionMapper, subscriptionMapper, securityService, accessService);
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(dataServiceDefinition());
+        when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+
+        service.listSubscriptions(10L);
+
+        ArgumentCaptor<LambdaQueryWrapper<DataServiceDefinitionEntity>> serviceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        ArgumentCaptor<LambdaQueryWrapper<DataServiceSubscriptionEntity>> subscriptionCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper).selectOne(serviceCaptor.capture());
+        verify(subscriptionMapper).selectList(subscriptionCaptor.capture());
+        assertLightServiceReferenceSelect(serviceCaptor.getValue().getSqlSelect());
+        assertMaskedOnlySubscriptionSelect(subscriptionCaptor.getValue().getSqlSelect());
+        assertFalse(serviceCaptor.getValue().getSqlSelect().contains("custom_sql"));
+    }
+
+    @Test
+    void dataIngestionSubscriptionListShouldSelectMaskedTokenOnlyAndLightServiceReference() {
+        DataIngestionServiceMapper serviceMapper = mock(DataIngestionServiceMapper.class);
+        DataIngestionSubscriptionMapper subscriptionMapper = mock(DataIngestionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 901L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        DataIngestionService service = dataIngestionService(serviceMapper, subscriptionMapper, securityService, accessService);
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(dataIngestionDefinition());
+        when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+
+        service.listSubscriptions(30L);
+
+        ArgumentCaptor<LambdaQueryWrapper<DataIngestionServiceEntity>> serviceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        ArgumentCaptor<LambdaQueryWrapper<DataIngestionSubscriptionEntity>> subscriptionCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(serviceMapper).selectOne(serviceCaptor.capture());
+        verify(subscriptionMapper).selectList(subscriptionCaptor.capture());
+        assertLightServiceReferenceSelect(serviceCaptor.getValue().getSqlSelect());
+        assertMaskedOnlySubscriptionSelect(subscriptionCaptor.getValue().getSqlSelect());
+        assertFalse(serviceCaptor.getValue().getSqlSelect().contains("field_mappings_json"));
+    }
+
+    @Test
+    void protocolConversionSubscriptionListShouldSelectMaskedTokenOnlyAndLightServiceReference() {
+        ProtocolConversionServiceMapper serviceMapper = mock(ProtocolConversionServiceMapper.class);
+        ProtocolConversionSubscriptionMapper subscriptionMapper = mock(ProtocolConversionSubscriptionMapper.class);
+        StudioSecurityService securityService = security("default", 902L);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        ProtocolConversionService service = protocolConversionService(serviceMapper, subscriptionMapper, securityService, accessService);
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(protocolConversionDefinition());
+        when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+
+        service.listSubscriptions(50L);
+
+        ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionServiceEntity>> serviceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionSubscriptionEntity>> subscriptionCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(serviceMapper).selectOne(serviceCaptor.capture());
+        verify(subscriptionMapper).selectList(subscriptionCaptor.capture());
+        assertLightServiceReferenceSelect(serviceCaptor.getValue().getSqlSelect());
+        assertMaskedOnlySubscriptionSelect(subscriptionCaptor.getValue().getSqlSelect());
+        assertFalse(serviceCaptor.getValue().getSqlSelect().contains("target_body_template"));
     }
 
     @Test
@@ -182,9 +250,8 @@ class SubscriptionTokenRotationRegressionTest {
         ProtocolConversionServiceEntity definition = protocolConversionDefinition();
         ProtocolConversionSubscriptionEntity disabledSubscription = protocolConversionSubscription(60L, 0);
         ProtocolConversionSubscriptionEntity activeDuplicate = protocolConversionSubscription(61L, 1);
-        when(serviceMapper.selectById(50L)).thenReturn(definition);
-        when(subscriptionMapper.selectById(60L)).thenReturn(disabledSubscription);
-        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(activeDuplicate);
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(definition);
+        when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(disabledSubscription).thenReturn(activeDuplicate);
 
         StudioException ex = assertThrows(StudioException.class, () -> service.enableSubscription(50L, 60L));
 
@@ -201,7 +268,7 @@ class SubscriptionTokenRotationRegressionTest {
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         DataIngestionService service = dataIngestionService(serviceMapper, subscriptionMapper, securityService, accessService);
 
-        when(serviceMapper.selectById(30L)).thenReturn(dataIngestionDefinition());
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(dataIngestionDefinition());
         when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         when(subscriptionMapper.insert(any(DataIngestionSubscriptionEntity.class))).thenThrow(new DuplicateKeyException("duplicate active subscription"));
 
@@ -219,7 +286,7 @@ class SubscriptionTokenRotationRegressionTest {
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         ProtocolConversionService service = protocolConversionService(serviceMapper, subscriptionMapper, securityService, accessService);
 
-        when(serviceMapper.selectById(50L)).thenReturn(protocolConversionDefinition());
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(protocolConversionDefinition());
         when(subscriptionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         when(subscriptionMapper.insert(any(ProtocolConversionSubscriptionEntity.class))).thenThrow(new DuplicateKeyException("duplicate active subscription"));
 
@@ -242,7 +309,7 @@ class SubscriptionTokenRotationRegressionTest {
         DataServiceSubscriptionEntity disabledNewerSubscription = dataServiceSubscription("old-disabled-hash", "old-disabled-mask");
         disabledNewerSubscription.setId(22L);
         disabledNewerSubscription.setEnabled(0);
-        when(definitionMapper.selectById(10L)).thenReturn(dataServiceDefinition());
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(dataServiceDefinition());
         when(subscriptionMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(Collections.emptyList())
                 .thenReturn(Arrays.asList(disabledNewerSubscription, activeSubscription));
@@ -317,6 +384,21 @@ class SubscriptionTokenRotationRegressionTest {
         Method method = service.getClass().getDeclaredMethod("validateSubscriptionToken", Long.class, String.class);
         method.setAccessible(true);
         return method.invoke(service, serviceId, token);
+    }
+
+    private void assertLightServiceReferenceSelect(String sqlSelect) {
+        assertTrue(sqlSelect.contains("id"));
+        assertTrue(sqlSelect.contains("tenant_id"));
+        assertTrue(sqlSelect.contains("project_id"));
+        assertFalse(sqlSelect.contains("service_key"));
+        assertFalse(sqlSelect.contains("webservice_config_json"));
+    }
+
+    private void assertMaskedOnlySubscriptionSelect(String sqlSelect) {
+        assertTrue(sqlSelect.contains("subscription_name"));
+        assertTrue(sqlSelect.contains("token_masked"));
+        assertTrue(sqlSelect.contains("enabled"));
+        assertFalse(sqlSelect.contains("token_hash"));
     }
 
     private DataServiceService dataService(DataServiceDefinitionMapper definitionMapper,

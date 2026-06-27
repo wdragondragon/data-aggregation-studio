@@ -476,8 +476,22 @@ public class DataServiceService {
     }
 
     public List<DataServiceSubscriptionView> listSubscriptions(Long serviceId) {
-        DataServiceDefinitionEntity service = requireAccessibleEntity(serviceId);
+        DataServiceDefinitionEntity service = requireAccessibleServiceReference(serviceId);
         List<DataServiceSubscriptionEntity> entities = subscriptionMapper.selectList(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
+                .select(DataServiceSubscriptionEntity::getId,
+                        DataServiceSubscriptionEntity::getTenantId,
+                        DataServiceSubscriptionEntity::getProjectId,
+                        DataServiceSubscriptionEntity::getDeleted,
+                        DataServiceSubscriptionEntity::getCreatedAt,
+                        DataServiceSubscriptionEntity::getUpdatedAt,
+                        DataServiceSubscriptionEntity::getServiceId,
+                        DataServiceSubscriptionEntity::getSubscriptionName,
+                        DataServiceSubscriptionEntity::getTokenMasked,
+                        DataServiceSubscriptionEntity::getEnabled,
+                        DataServiceSubscriptionEntity::getCreatedBy,
+                        DataServiceSubscriptionEntity::getLastUsedAt,
+                        DataServiceSubscriptionEntity::getRotatedAt,
+                        DataServiceSubscriptionEntity::getRotatedBy)
                 .eq(DataServiceSubscriptionEntity::getServiceId, service.getId())
                 .orderByDesc(DataServiceSubscriptionEntity::getCreatedAt)
                 .orderByDesc(DataServiceSubscriptionEntity::getId));
@@ -490,7 +504,7 @@ public class DataServiceService {
 
     @Transactional
     public DataServiceSubscriptionView createSubscription(Long serviceId, DataServiceSubscriptionCreateRequest request) {
-        DataServiceDefinitionEntity service = requireWritableEntity(serviceId);
+        DataServiceDefinitionEntity service = requireWritableServiceReference(serviceId);
         if (request == null || !dataServiceInvocationSupport.hasText(request.getSubscriptionName())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Subscription name is required");
         }
@@ -547,6 +561,7 @@ public class DataServiceService {
     public DataServiceSubscriptionView enableSubscription(Long serviceId, Long subscriptionId) {
         DataServiceSubscriptionEntity entity = requireSubscription(serviceId, subscriptionId);
         DataServiceSubscriptionEntity activeDuplicate = subscriptionMapper.selectOne(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
+                .select(DataServiceSubscriptionEntity::getId)
                 .eq(DataServiceSubscriptionEntity::getServiceId, serviceId)
                 .eq(DataServiceSubscriptionEntity::getSubscriptionName, entity.getSubscriptionName())
                 .eq(DataServiceSubscriptionEntity::getEnabled, 1)
@@ -566,6 +581,20 @@ public class DataServiceService {
 
     private List<DataServiceSubscriptionEntity> findSubscriptionsByName(Long serviceId, String subscriptionName) {
         return subscriptionMapper.selectList(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
+                .select(DataServiceSubscriptionEntity::getId,
+                        DataServiceSubscriptionEntity::getTenantId,
+                        DataServiceSubscriptionEntity::getProjectId,
+                        DataServiceSubscriptionEntity::getDeleted,
+                        DataServiceSubscriptionEntity::getCreatedAt,
+                        DataServiceSubscriptionEntity::getUpdatedAt,
+                        DataServiceSubscriptionEntity::getServiceId,
+                        DataServiceSubscriptionEntity::getSubscriptionName,
+                        DataServiceSubscriptionEntity::getTokenMasked,
+                        DataServiceSubscriptionEntity::getEnabled,
+                        DataServiceSubscriptionEntity::getCreatedBy,
+                        DataServiceSubscriptionEntity::getLastUsedAt,
+                        DataServiceSubscriptionEntity::getRotatedAt,
+                        DataServiceSubscriptionEntity::getRotatedBy)
                 .eq(DataServiceSubscriptionEntity::getServiceId, serviceId)
                 .eq(DataServiceSubscriptionEntity::getSubscriptionName, subscriptionName)
                 .orderByDesc(DataServiceSubscriptionEntity::getId));
@@ -956,8 +985,32 @@ public class DataServiceService {
         return entity;
     }
 
+    private DataServiceDefinitionEntity requireAccessibleServiceReference(Long id) {
+        DataServiceDefinitionEntity entity = definitionMapper.selectOne(new LambdaQueryWrapper<DataServiceDefinitionEntity>()
+                .select(DataServiceDefinitionEntity::getId,
+                        DataServiceDefinitionEntity::getTenantId,
+                        DataServiceDefinitionEntity::getProjectId)
+                .eq(DataServiceDefinitionEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service not found: " + id);
+        }
+        if (!securityService.currentTenantId().equals(entity.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service not found: " + id);
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_SERVICE,
+                entity.getProjectId(), entity.getId(), "Data service not found: " + id);
+        return entity;
+    }
+
     private DataServiceDefinitionEntity requireWritableEntity(Long id) {
         DataServiceDefinitionEntity entity = requireAccessibleEntity(id);
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private DataServiceDefinitionEntity requireWritableServiceReference(Long id) {
+        DataServiceDefinitionEntity entity = requireAccessibleServiceReference(id);
         projectResourceAccessService.assertWritable(entity.getProjectId());
         return entity;
     }
@@ -1005,8 +1058,24 @@ public class DataServiceService {
     }
 
     private DataServiceSubscriptionEntity requireSubscription(Long serviceId, Long subscriptionId) {
-        requireWritableEntity(serviceId);
-        DataServiceSubscriptionEntity entity = subscriptionMapper.selectById(subscriptionId);
+        requireWritableServiceReference(serviceId);
+        DataServiceSubscriptionEntity entity = subscriptionMapper.selectOne(new LambdaQueryWrapper<DataServiceSubscriptionEntity>()
+                .select(DataServiceSubscriptionEntity::getId,
+                        DataServiceSubscriptionEntity::getTenantId,
+                        DataServiceSubscriptionEntity::getProjectId,
+                        DataServiceSubscriptionEntity::getDeleted,
+                        DataServiceSubscriptionEntity::getCreatedAt,
+                        DataServiceSubscriptionEntity::getUpdatedAt,
+                        DataServiceSubscriptionEntity::getServiceId,
+                        DataServiceSubscriptionEntity::getSubscriptionName,
+                        DataServiceSubscriptionEntity::getTokenMasked,
+                        DataServiceSubscriptionEntity::getEnabled,
+                        DataServiceSubscriptionEntity::getCreatedBy,
+                        DataServiceSubscriptionEntity::getLastUsedAt,
+                        DataServiceSubscriptionEntity::getRotatedAt,
+                        DataServiceSubscriptionEntity::getRotatedBy)
+                .eq(DataServiceSubscriptionEntity::getId, subscriptionId)
+                .last("limit 1"));
         if (entity == null || entity.getServiceId() == null || entity.getServiceId().longValue() != serviceId.longValue()) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Subscription not found: " + subscriptionId);
         }

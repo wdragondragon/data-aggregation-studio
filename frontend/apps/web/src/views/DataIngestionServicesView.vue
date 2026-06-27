@@ -282,6 +282,29 @@ async function openSubscriptions(row: DataIngestionServiceListView) {
   subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(row.id as EntityId);
 }
 
+function upsertSubscriptionRow(next: DataIngestionSubscriptionView) {
+  const list = [...subscriptions.value];
+  const index = list.findIndex((item) => String(item.id) === String(next.id));
+  if (index >= 0) {
+    list.splice(index, 1, { ...list[index], ...next });
+  } else {
+    list.unshift(next);
+  }
+  subscriptions.value = list.sort(compareSubscriptionRows);
+}
+
+function compareSubscriptionRows(left: DataIngestionSubscriptionView, right: DataIngestionSubscriptionView) {
+  if (left.enabled !== right.enabled) {
+    return left.enabled ? -1 : 1;
+  }
+  return subscriptionTime(right) - subscriptionTime(left);
+}
+
+function subscriptionTime(row: DataIngestionSubscriptionView) {
+  const time = Date.parse(row.createdAt || row.updatedAt || "");
+  return Number.isNaN(time) ? 0 : time;
+}
+
 async function createSubscription() {
   if (!selectedService.value || !subscriptionName.value.trim()) {
     ElMessage.warning("请输入订阅名称");
@@ -292,7 +315,7 @@ async function createSubscription() {
     const created = await studioApi.dataIngestionServices.createSubscription(selectedService.value.id as EntityId, subscriptionName.value.trim());
     newToken.value = created.token || "";
     subscriptionName.value = "";
-    subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(selectedService.value.id as EntityId);
+    upsertSubscriptionRow(created);
   } finally {
     creatingSubscription.value = false;
   }
@@ -313,7 +336,7 @@ async function rotateSubscription(subscriptionId?: EntityId) {
     if (!newToken.value) {
       ElMessage.warning("Token 已重新生成，但接口未返回明文 Token；请联系管理员检查服务端返回。");
     }
-    subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(selectedService.value.id as EntityId);
+    upsertSubscriptionRow(rotated);
     ElMessage.success("订阅 Token 已重新生成，请立即复制保存");
   } catch (error) {
     if (error === "cancel" || error === "close") {
@@ -327,16 +350,16 @@ async function disableSubscription(subscriptionId?: EntityId) {
   if (!selectedService.value || !subscriptionId) {
     return;
   }
-  await studioApi.dataIngestionServices.disableSubscription(selectedService.value.id as EntityId, subscriptionId);
-  subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(selectedService.value.id as EntityId);
+  const updated = await studioApi.dataIngestionServices.disableSubscription(selectedService.value.id as EntityId, subscriptionId);
+  upsertSubscriptionRow(updated);
 }
 
 async function enableSubscription(subscriptionId?: EntityId) {
   if (!selectedService.value || !subscriptionId) {
     return;
   }
-  await studioApi.dataIngestionServices.enableSubscription(selectedService.value.id as EntityId, subscriptionId);
-  subscriptions.value = await studioApi.dataIngestionServices.listSubscriptions(selectedService.value.id as EntityId);
+  const updated = await studioApi.dataIngestionServices.enableSubscription(selectedService.value.id as EntityId, subscriptionId);
+  upsertSubscriptionRow(updated);
 }
 
 async function copyNewToken() {
