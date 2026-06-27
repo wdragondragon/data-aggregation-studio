@@ -70,6 +70,7 @@
 | FIX-S39-001 | 数据质量/规则任务列表 | 中 | 质量规则和质量任务列表响应虽已轻量，但源头仍整行读取规则 SQL、支持数据源、任务 SQL 预览、参数绑定和规则快照，违反“源头轻量”约定 | `QualityRuleService.java`；`QualityTaskService.java`；`QualityListSourceSlimmingRegressionTest.java` | `QualityListSourceSlimmingRegressionTest`；长期项目 nginx `/quality-rules`、`/quality-tasks`、`/quality-tasks/online` 响应无详情字段；build 后 nginx `/quality-rules`、`/quality-tasks`、`/workflows/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-27 | 本次提交 |
 | FIX-S40-001 | 数据采集/采集任务列表 | 中 | `/collection-tasks` 响应虽已轻量，但源头仍读取采集详情 JSON；主表前端分页会拉取全部任务，调度信息逐行查询存在 N+1 风险 | `CollectionTaskService.java`；`CollectionTaskDefinitionEntity.java`；`CollectionTaskController.java`；`StudioSchemaUpgradeService.java`；`schema-mysql.sql`；`schema-sqlite.sql`；`CollectionTasksView.vue`；`frontend/packages/api-sdk/src/client.ts`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；`CollectionTaskAssemblerServiceRegressionTest`；`RunListSourceSlimmingRegressionTest`；`MetricsSourceSlimmingRegressionTest`；`npm run build:web`；后续复核长期项目 nginx `/collection-tasks/page`、`/collection-tasks/online`、`/collection-tasks` | module-regression | 2026-06-27 | `d33de9c` |
 | FIX-S41-001 | 工作流/主列表 | 中 | `/workflows` 主列表前端分页会拉取全部工作流；摘要组装 schedule 逐行查询，批量路径也读取 `last_triggered_at` 等列表不需要字段 | `WorkflowService.java`；`WorkflowController.java`；`WorkflowsView.vue`；`frontend/packages/api-sdk/src/client.ts`；`WorkflowListSourceSlimmingRegressionTest.java` | `WorkflowListSourceSlimmingRegressionTest`；`WorkflowRunSourceSlimmingRegressionTest`；`WorkflowRunPaginationRegressionTest`；长期项目 nginx `/workflows/page`、`/workflows`、`/schedules` 响应无详情字段；build 后 nginx `/workflows` 浏览器 smoke 无 warn/error | module-regression | 2026-06-27 | 本次提交 |
+| FIX-S42-001 | 数据资产/数据源中心 | 中 | `/datasources` 主列表前端分页会拉取全部数据源；后端摘要列表源头先组装完整数据源定义，健康趋势还读取完整连接测试历史行 | `DataSourceService.java`；`DataSourceController.java`；`DatasourceConnectionHealthService.java`；`DatasourceConnectionTestRecordMapper.java`；`DatasourcesView.vue`；`frontend/packages/api-sdk/src/client.ts`；`DataSourceListSourceSlimmingRegressionTest.java` | `DataSourceListSourceSlimmingRegressionTest`；`DataSourceServiceRegressionTest`；`DataSourceApiRegressionTest`；`npm run build:web`；长期项目 nginx `/datasources/page`、`/datasources` 响应无详情元数据；build 后 nginx `/datasources` 浏览器 smoke 无 warn/error | module-regression | 2026-06-27 | `db7e139` |
 
 ## 历史缺陷参考
 
@@ -119,3 +120,4 @@
 | S39 质量规则/任务列表源头瘦身 | FIX-S39-001 |
 | S40 采集任务列表源头瘦身 | FIX-S40-001 |
 | S41 工作流主列表分页与调度源头瘦身 | FIX-S41-001 |
+| S42 数据源主列表分页与健康趋势源头瘦身 | FIX-S42-001 |
