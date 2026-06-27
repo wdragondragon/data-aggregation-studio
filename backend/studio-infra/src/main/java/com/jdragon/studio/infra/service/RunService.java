@@ -1,8 +1,10 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.RunRecordPageView;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.dto.model.QueuedTaskListView;
 import com.jdragon.studio.dto.model.RunListView;
@@ -21,10 +23,15 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
 public class RunService {
+
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 500;
 
     private final DispatchTaskMapper dispatchTaskMapper;
     private final RunRecordMapper runRecordMapper;
@@ -48,6 +55,50 @@ public class RunService {
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.securityService = securityService;
         this.runMetricSummaryMapper = runMetricSummaryMapper;
+    }
+
+    public RunRecordPageView listRunRecords(Long collectionTaskId,
+                                            Long qualityTaskId,
+                                            Long workflowDefinitionId,
+                                            Boolean collectionTaskOnly,
+                                            Boolean qualityTaskOnly,
+                                            String status,
+                                            LocalDateTime startTime,
+                                            LocalDateTime endTime,
+                                            Integer pageNo,
+                                            Integer pageSize) {
+        int current = normalizePageNo(pageNo);
+        int size = normalizePageSize(pageSize);
+        String normalizedStatus = normalizeStatus(status);
+        Page<RunRecordEntity> page = new Page<RunRecordEntity>(current, size);
+        Page<RunRecordEntity> entityPage = runRecordMapper.selectPage(page, runRecordListQuery(
+                collectionTaskId,
+                qualityTaskId,
+                workflowDefinitionId,
+                collectionTaskOnly,
+                qualityTaskOnly,
+                normalizedStatus,
+                startTime,
+                endTime)
+                .orderByDesc(RunRecordEntity::getCreatedAt)
+                .orderByDesc(RunRecordEntity::getId));
+        Map<Long, String> collectionTaskNames = collectionTaskNames();
+        Map<Long, String> qualityTaskNames = qualityTaskNames();
+        Map<Long, String> workflowNames = workflowNames();
+        List<RunRecordListView> items = new ArrayList<RunRecordListView>();
+        for (RunRecordEntity entity : entityPage.getRecords()) {
+            items.add(toRunRecordListView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
+        }
+
+        RunRecordPageView view = new RunRecordPageView();
+        view.setPageNo(current);
+        view.setPageSize(size);
+        view.setTotal(entityPage.getTotal());
+        view.setItems(items);
+        view.setFailedCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, normalizedStatus, startTime, endTime, "FAILED"));
+        view.setRunningCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, normalizedStatus, startTime, endTime, "RUNNING"));
+        view.setSuccessCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, normalizedStatus, startTime, endTime, "SUCCESS"));
+        return view;
     }
 
     public RunListView list(Long collectionTaskId,
@@ -186,6 +237,125 @@ public class RunService {
         view.setPageSizeBytes(0);
         view.setContent(buildFallbackContent(entity));
         return view;
+    }
+
+    private long countRunRecords(Long collectionTaskId,
+                                 Long qualityTaskId,
+                                 Long workflowDefinitionId,
+                                 Boolean collectionTaskOnly,
+                                 Boolean qualityTaskOnly,
+                                 String status,
+                                 LocalDateTime startTime,
+                                 LocalDateTime endTime,
+                                 String statusGroup) {
+        LambdaQueryWrapper<RunRecordEntity> query = runRecordBaseQuery(
+                collectionTaskId,
+                qualityTaskId,
+                workflowDefinitionId,
+                collectionTaskOnly,
+                qualityTaskOnly,
+                status,
+                startTime,
+                endTime);
+        if ("FAILED".equals(statusGroup)) {
+            query.like(RunRecordEntity::getStatus, "FAIL");
+        } else if ("RUNNING".equals(statusGroup)) {
+            query.like(RunRecordEntity::getStatus, "RUN");
+        } else if ("SUCCESS".equals(statusGroup)) {
+            query.eq(RunRecordEntity::getStatus, "SUCCESS");
+        }
+        Long count = runRecordMapper.selectCount(query);
+        return count == null ? 0L : count.longValue();
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> runRecordListQuery(Long collectionTaskId,
+                                                                   Long qualityTaskId,
+                                                                   Long workflowDefinitionId,
+                                                                   Boolean collectionTaskOnly,
+                                                                   Boolean qualityTaskOnly,
+                                                                   String status,
+                                                                   LocalDateTime startTime,
+                                                                   LocalDateTime endTime) {
+        return runRecordBaseQuery(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, status, startTime, endTime)
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getDeleted,
+                        RunRecordEntity::getCreatedAt,
+                        RunRecordEntity::getUpdatedAt,
+                        RunRecordEntity::getExecutionType,
+                        RunRecordEntity::getWorkflowRunId,
+                        RunRecordEntity::getWorkflowDefinitionId,
+                        RunRecordEntity::getWorkflowVersionId,
+                        RunRecordEntity::getCollectionTaskId,
+                        RunRecordEntity::getQualityTaskId,
+                        RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getWorkerGroupCode,
+                        RunRecordEntity::getWorkerCode,
+                        RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getWorkerPodName,
+                        RunRecordEntity::getWorkerNodeName,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getMessage,
+                        RunRecordEntity::getStartedAt,
+                        RunRecordEntity::getEndedAt,
+                        RunRecordEntity::getCollectedRecords,
+                        RunRecordEntity::getReadSucceedRecords,
+                        RunRecordEntity::getReadFailedRecords,
+                        RunRecordEntity::getWriteSucceedRecords,
+                        RunRecordEntity::getWriteFailedRecords,
+                        RunRecordEntity::getFailedRecords,
+                        RunRecordEntity::getSuccessRecords,
+                        RunRecordEntity::getTransformerTotalRecords,
+                        RunRecordEntity::getTransformerSuccessRecords,
+                        RunRecordEntity::getTransformerFailedRecords,
+                        RunRecordEntity::getTransformerFilterRecords);
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> runRecordBaseQuery(Long collectionTaskId,
+                                                                   Long qualityTaskId,
+                                                                   Long workflowDefinitionId,
+                                                                   Boolean collectionTaskOnly,
+                                                                   Boolean qualityTaskOnly,
+                                                                   String status,
+                                                                   LocalDateTime startTime,
+                                                                   LocalDateTime endTime) {
+        return new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
+                .eq(collectionTaskId != null, RunRecordEntity::getCollectionTaskId, collectionTaskId)
+                .eq(qualityTaskId != null, RunRecordEntity::getQualityTaskId, qualityTaskId)
+                .eq(workflowDefinitionId != null, RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .isNotNull(Boolean.TRUE.equals(collectionTaskOnly), RunRecordEntity::getCollectionTaskId)
+                .isNotNull(Boolean.TRUE.equals(qualityTaskOnly), RunRecordEntity::getQualityTaskId)
+                .eq(hasText(status), RunRecordEntity::getStatus, status)
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
+                .ge(startTime != null, RunRecordEntity::getCreatedAt, startTime)
+                .le(endTime != null, RunRecordEntity::getCreatedAt, endTime);
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        if (pageNo == null || pageNo.intValue() < 1) {
+            return DEFAULT_PAGE_NO;
+        }
+        return pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
+    }
+
+    private String normalizeStatus(String status) {
+        if (!hasText(status)) {
+            return null;
+        }
+        return status.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private Map<Long, String> collectionTaskNames() {

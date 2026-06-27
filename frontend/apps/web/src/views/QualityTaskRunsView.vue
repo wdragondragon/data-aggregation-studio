@@ -144,6 +144,8 @@
           layout="total, sizes, prev, pager, next"
           :page-sizes="[10, 20, 50, 100]"
           :total="taskRunTotal"
+          @current-change="handleCurrentPageChange"
+          @size-change="handlePageSizeChange"
         />
       </div>
     </SectionCard>
@@ -163,7 +165,8 @@ import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
-import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
+import { getPaginatedRowNumber } from "@/composables/useClientPagination";
+import { usePageQuery } from "@/composables/usePageQuery";
 import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, resolveProjectName, toneFromStatus } from "@/utils/studio";
 
@@ -173,7 +176,11 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const qualityTasks = ref<QualityTaskListView[]>([]);
-const allRunRecords = ref<RunRecordListView[]>([]);
+const pagedRunRecords = ref<RunRecordListView[]>([]);
+const taskRunTotal = ref(0);
+const failedCount = ref(0);
+const runningCount = ref(0);
+const successCount = ref(0);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
 
@@ -197,36 +204,7 @@ const taskMap = computed(() => {
   return map;
 });
 
-const filteredRunRecords = computed(() => {
-  const normalizedStatus = String(filters.value.status || "").trim().toUpperCase();
-  const items = allRunRecords.value.filter((item) => {
-    if (item.qualityTaskId == null) {
-      return false;
-    }
-    if (!normalizedStatus) {
-      return true;
-    }
-    return String(item.status || "").trim().toUpperCase() === normalizedStatus;
-  });
-  return [...items].sort((left, right) => {
-    const leftTime = left.startedAt || left.createdAt || "";
-    const rightTime = right.startedAt || right.createdAt || "";
-    return rightTime.localeCompare(leftTime);
-  });
-});
-
-const { pagination, pagedItems: pagedRunRecords, resetPagination } = useClientPagination(filteredRunRecords);
-
-const taskRunTotal = computed(() => filteredRunRecords.value.length);
-const failedCount = computed(() =>
-  filteredRunRecords.value.filter((item) => String(item.status ?? "").toUpperCase().includes("FAIL")).length,
-);
-const runningCount = computed(() =>
-  filteredRunRecords.value.filter((item) => String(item.status ?? "").toUpperCase().includes("RUN")).length,
-);
-const successCount = computed(() =>
-  filteredRunRecords.value.filter((item) => String(item.status ?? "").toUpperCase() === STUDIO_RUN_STATUS.SUCCESS).length,
-);
+const { pagination, resetPage, setPage, setPageSize, ensureValidPage } = usePageQuery(10);
 
 function syncFiltersFromRoute() {
   const qualityTaskId = route.query.qualityTaskId;
@@ -250,13 +228,23 @@ async function loadQualityTasks() {
 
 async function loadTaskRuns() {
   try {
-    const response = await studioApi.runs.list({
+    const response = await studioApi.runs.listPage({
       qualityTaskId: filters.value.qualityTaskId || undefined,
+      qualityTaskOnly: true,
+      status: filters.value.status || undefined,
       startTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[0] : undefined,
       endTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[1] : undefined,
+      pageNo: pagination.page,
+      pageSize: pagination.pageSize,
     });
-    allRunRecords.value = response.runRecords.filter((item) => item.qualityTaskId != null);
-    resetPagination();
+    pagedRunRecords.value = response.items;
+    taskRunTotal.value = Number(response.total ?? 0);
+    failedCount.value = Number(response.failedCount ?? 0);
+    runningCount.value = Number(response.runningCount ?? 0);
+    successCount.value = Number(response.successCount ?? 0);
+    if (ensureValidPage(taskRunTotal.value)) {
+      return void loadTaskRuns();
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量任务运行记录失败");
   }
@@ -274,7 +262,7 @@ function applyFilters() {
     query.startTime = filters.value.timeRange[0];
     query.endTime = filters.value.timeRange[1];
   }
-  pagination.page = 1;
+  resetPage();
   void navigateOrReload(query);
 }
 
@@ -282,7 +270,7 @@ function resetFilters() {
   filters.value.qualityTaskId = "";
   filters.value.status = "";
   filters.value.timeRange = [];
-  pagination.page = 1;
+  resetPage();
   activeRunRecordId.value = undefined;
   void navigateOrReload({});
 }
@@ -295,6 +283,16 @@ async function navigateOrReload(query: Record<string, string>) {
     return;
   }
   await router.push(target);
+}
+
+function handleCurrentPageChange(page: number) {
+  setPage(page);
+  void loadTaskRuns();
+}
+
+function handlePageSizeChange(pageSize: number) {
+  setPageSize(pageSize);
+  void loadTaskRuns();
 }
 
 function openQualityTask(taskId: string | number) {
@@ -378,14 +376,14 @@ watch(
   () => route.fullPath,
   () => {
     syncFiltersFromRoute();
-    pagination.page = 1;
+    resetPage();
     void loadTaskRuns();
   },
 );
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
-    pagination.page = 1;
+    resetPage();
     await Promise.all([loadQualityTasks(), loadTaskRuns()]);
   }
 });

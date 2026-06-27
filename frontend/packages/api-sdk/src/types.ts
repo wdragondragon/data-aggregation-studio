@@ -2488,6 +2488,25 @@ export interface RunListQuery {
   includeRunRecords?: boolean;
 }
 
+export interface RunRecordPageQuery {
+  collectionTaskId?: EntityId;
+  qualityTaskId?: EntityId;
+  workflowDefinitionId?: EntityId;
+  collectionTaskOnly?: boolean;
+  qualityTaskOnly?: boolean;
+  status?: string;
+  startTime?: string;
+  endTime?: string;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface RunRecordPageResponse extends PageResult<RunRecordListView> {
+  failedCount?: number | string | null;
+  runningCount?: number | string | null;
+  successCount?: number | string | null;
+}
+
 export type OpsCenterHealthStatus = "HEALTHY" | "WARNING" | "CRITICAL";
 
 export interface OpsCenterQueryRequest {

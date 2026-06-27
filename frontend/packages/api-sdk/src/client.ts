@@ -138,6 +138,8 @@ import type {
   RunMetricDashboardResponse,
   RunMetricOptionsView,
   RunListQuery,
+  RunRecordPageQuery,
+  RunRecordPageResponse,
   RoleEntity,
   RunListResponse,
   RunLogQuery,
@@ -1421,6 +1423,13 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(params?: RunListQuery) {
         return request<RunListResponse>({
           url: "/runs",
+          method: "GET",
+          params,
+        });
+      },
+      listPage(params?: RunRecordPageQuery) {
+        return request<RunRecordPageResponse>({
+          url: "/runs/page",
           method: "GET",
           params,
         });
