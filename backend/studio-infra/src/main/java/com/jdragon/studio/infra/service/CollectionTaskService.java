@@ -149,6 +149,21 @@ public class CollectionTaskService {
         return result;
     }
 
+    public Map<Long, String> listAccessibleNames() {
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getName)
+                .orderByAsc(CollectionTaskDefinitionEntity::getName)
+                .orderByAsc(CollectionTaskDefinitionEntity::getId));
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            if (entity.getId() != null) {
+                result.put(entity.getId(), entity.getName());
+            }
+        }
+        return result;
+    }
+
     public Long countOnlineSummaries() {
         Long count = definitionMapper.selectCount(buildAccessibleQuery()
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name()));

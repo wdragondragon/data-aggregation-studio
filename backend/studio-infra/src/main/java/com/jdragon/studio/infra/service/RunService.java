@@ -3,13 +3,11 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
-import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.dto.model.QueuedTaskListView;
 import com.jdragon.studio.dto.model.RunListView;
 import com.jdragon.studio.dto.model.RunRecordListView;
 import com.jdragon.studio.dto.model.RunRecordView;
-import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
@@ -65,6 +63,24 @@ public class RunService {
         String currentTenantId = securityService.currentTenantId();
         Long currentProjectId = securityService.currentProjectId();
         List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .select(DispatchTaskEntity::getId,
+                        DispatchTaskEntity::getTenantId,
+                        DispatchTaskEntity::getProjectId,
+                        DispatchTaskEntity::getDeleted,
+                        DispatchTaskEntity::getCreatedAt,
+                        DispatchTaskEntity::getUpdatedAt,
+                        DispatchTaskEntity::getExecutionType,
+                        DispatchTaskEntity::getWorkflowRunId,
+                        DispatchTaskEntity::getWorkflowDefinitionId,
+                        DispatchTaskEntity::getWorkflowVersionId,
+                        DispatchTaskEntity::getCollectionTaskId,
+                        DispatchTaskEntity::getQualityTaskId,
+                        DispatchTaskEntity::getNodeCode,
+                        DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getWorkerGroupCode,
+                        DispatchTaskEntity::getLeaseOwner,
+                        DispatchTaskEntity::getAttempts,
+                        DispatchTaskEntity::getMaxRetries)
                 .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                 .eq(collectionTaskId != null, DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
                 .eq(qualityTaskId != null, DispatchTaskEntity::getQualityTaskId, qualityTaskId)
@@ -81,6 +97,39 @@ public class RunService {
             return view;
         }
         List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getDeleted,
+                        RunRecordEntity::getCreatedAt,
+                        RunRecordEntity::getUpdatedAt,
+                        RunRecordEntity::getExecutionType,
+                        RunRecordEntity::getWorkflowRunId,
+                        RunRecordEntity::getWorkflowDefinitionId,
+                        RunRecordEntity::getWorkflowVersionId,
+                        RunRecordEntity::getCollectionTaskId,
+                        RunRecordEntity::getQualityTaskId,
+                        RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getWorkerGroupCode,
+                        RunRecordEntity::getWorkerCode,
+                        RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getWorkerPodName,
+                        RunRecordEntity::getWorkerNodeName,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getMessage,
+                        RunRecordEntity::getStartedAt,
+                        RunRecordEntity::getEndedAt,
+                        RunRecordEntity::getCollectedRecords,
+                        RunRecordEntity::getReadSucceedRecords,
+                        RunRecordEntity::getReadFailedRecords,
+                        RunRecordEntity::getWriteSucceedRecords,
+                        RunRecordEntity::getWriteFailedRecords,
+                        RunRecordEntity::getFailedRecords,
+                        RunRecordEntity::getSuccessRecords,
+                        RunRecordEntity::getTransformerTotalRecords,
+                        RunRecordEntity::getTransformerSuccessRecords,
+                        RunRecordEntity::getTransformerFailedRecords,
+                        RunRecordEntity::getTransformerFilterRecords)
                 .eq(RunRecordEntity::getTenantId, currentTenantId)
                 .eq(collectionTaskId != null, RunRecordEntity::getCollectionTaskId, collectionTaskId)
                 .eq(qualityTaskId != null, RunRecordEntity::getQualityTaskId, qualityTaskId)
@@ -140,30 +189,20 @@ public class RunService {
     }
 
     private Map<Long, String> collectionTaskNames() {
-        Map<Long, String> result = new LinkedHashMap<Long, String>();
-        List<CollectionTaskDefinitionView> tasks = collectionTaskService.list(null, null, null);
-        for (CollectionTaskDefinitionView task : tasks) {
-            if (task.getId() != null) {
-                result.put(task.getId(), task.getName());
-            }
-        }
-        return result;
+        return collectionTaskService.listAccessibleNames();
     }
 
     private Map<Long, String> qualityTaskNames() {
-        Map<Long, String> result = new LinkedHashMap<Long, String>();
-        for (QualityTaskListView task : qualityTaskService.list(null, null, null, null)) {
-            if (task.getId() != null) {
-                result.put(task.getId(), task.getTaskName());
-            }
-        }
-        return result;
+        return qualityTaskService.listAccessibleNames();
     }
 
     private Map<Long, String> workflowNames() {
         Map<Long, String> result = new LinkedHashMap<Long, String>();
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getName)
                 .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(securityService.currentProjectId() != null, WorkflowDefinitionEntity::getProjectId, securityService.currentProjectId())
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
         for (WorkflowDefinitionEntity definition : definitions) {
             if (definition.getId() != null) {
@@ -232,7 +271,7 @@ public class RunService {
         view.setMessage(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(entity.getMessage()));
         view.setStartedAt(entity.getStartedAt());
         view.setEndedAt(entity.getEndedAt());
-        view.setDurationMs(resolveDurationMs(entity));
+        view.setDurationMs(resolveListDurationMs(entity));
         view.setMetricSummary(runMetricSummaryMapper.fromEntity(entity));
         return view;
     }
@@ -277,6 +316,14 @@ public class RunService {
         view.setPayloadJson(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getPayloadJson()));
         view.setResultJson(RunRecordMessageSanitizer.sanitizePayloadOrEmpty(entity.getResultJson()));
         return view;
+    }
+
+    private Long resolveListDurationMs(RunRecordEntity entity) {
+        if (entity.getStartedAt() == null || entity.getEndedAt() == null) {
+            return null;
+        }
+        long duration = Duration.between(entity.getStartedAt(), entity.getEndedAt()).toMillis();
+        return duration < 0L ? null : Long.valueOf(duration);
     }
 
     private Long resolveDurationMs(RunRecordEntity entity) {

@@ -167,6 +167,27 @@ public class QualityTaskService {
         return result;
     }
 
+    public Map<Long, String> listAccessibleNames() {
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (currentProjectId == null) {
+            return result;
+        }
+        List<QualityTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+                .select(QualityTaskDefinitionEntity::getId,
+                        QualityTaskDefinitionEntity::getTaskName)
+                .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
+                .orderByAsc(QualityTaskDefinitionEntity::getTaskName)
+                .orderByAsc(QualityTaskDefinitionEntity::getId));
+        for (QualityTaskDefinitionEntity entity : entities) {
+            if (entity.getId() != null) {
+                result.put(entity.getId(), entity.getTaskName());
+            }
+        }
+        return result;
+    }
+
     public QualityTaskDefinitionView get(Long id) {
         QualityTaskDefinitionEntity entity = findAccessibleEntity(id);
         if (entity == null) {
