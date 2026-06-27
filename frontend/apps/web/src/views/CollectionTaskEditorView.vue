@@ -95,6 +95,7 @@ import type {
   CollectionTaskSaveRequest,
   CollectionTaskSourceBinding,
   DataModelDefinition,
+  DataModelListView,
   DataSourceListView,
   FieldMappingDefinition,
   FieldMappingRuleView,
@@ -157,7 +158,8 @@ const taskId = computed(() => route.params.taskId as string | undefined);
 const activeStep = ref(1);
 const datasources = ref<DataSourceListView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
-const modelCache = ref<Record<string, DataModelDefinition[]>>({});
+const modelCache = ref<Record<string, DataModelListView[]>>({});
+const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
 const runtimeSchemaLoading = ref<Record<string, boolean>>({});
 const runtimeSchemaRequests = new Map<string, Promise<void>>();
@@ -350,6 +352,10 @@ async function loadTask() {
     applyTask(task);
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
     await ensureModels(form.targetBinding.datasourceId);
+    await Promise.all([
+      ...form.sourceBindings.map((item) => ensureModelDetail(item.modelId, item.datasourceId)),
+      ensureModelDetail(form.targetBinding.modelId, form.targetBinding.datasourceId),
+    ]);
     await ensureRuntimeSchemas();
     await resolveCustomSqlFieldsForActiveStep();
     syncHttpSoapWriterRequestBodyFromMappings();
@@ -401,7 +407,7 @@ async function ensureModels(datasourceId: unknown) {
   if (!key || key === "undefined" || key === "null" || modelCache.value[key]) {
     return;
   }
-  modelCache.value[key] = await studioApi.models.listByDatasource(key);
+  modelCache.value[key] = await studioApi.models.listSummariesByDatasource(key, { pageNo: 1, pageSize: 5000 });
 }
 
 function resolveModelsByDatasource(datasourceId: unknown) {
@@ -412,11 +418,58 @@ function resolveModelById(modelId: unknown) {
   if (!modelId) {
     return undefined;
   }
-  const allModels: DataModelDefinition[] = [];
-  Object.values(modelCache.value).forEach((items) => {
-    allModels.push(...items);
-  });
-  return allModels.find((item) => String(item.id) === String(modelId));
+  return modelDetailCache.value[String(modelId)] ?? undefined;
+}
+
+async function ensureModelDetail(modelId: unknown, datasourceId?: unknown) {
+  const id = String(modelId ?? "");
+  if (!id || id === "undefined" || id === "null" || modelDetailCache.value[id]) {
+    return;
+  }
+  try {
+    const detail = await studioApi.models.get(id);
+    modelDetailCache.value = {
+      ...modelDetailCache.value,
+      [id]: detail,
+    };
+    ensureSelectedModelOption(datasourceId ?? detail.datasourceId, detail);
+  } catch (error) {
+    ElMessage.warning(resolveErrorMessage(error, t("web.collectionTasks.modelUnavailable")));
+  }
+}
+
+function ensureSelectedModelOption(datasourceId: unknown, detail: DataModelDefinition) {
+  const key = String(datasourceId ?? detail.datasourceId ?? "");
+  if (!key || key === "undefined" || key === "null" || String(detail.datasourceId) !== key) {
+    return;
+  }
+  const models = modelCache.value[key] ?? [];
+  if (models.some((item) => String(item.id ?? "") === String(detail.id ?? ""))) {
+    return;
+  }
+  modelCache.value = {
+    ...modelCache.value,
+    [key]: [
+      ...models,
+      toModelListView(detail),
+    ],
+  };
+}
+
+function toModelListView(model: DataModelDefinition): DataModelListView {
+  return {
+    id: model.id,
+    tenantId: model.tenantId,
+    projectId: model.projectId,
+    deleted: model.deleted,
+    createdAt: model.createdAt,
+    updatedAt: model.updatedAt,
+    datasourceId: model.datasourceId,
+    name: model.name,
+    modelKind: model.modelKind,
+    physicalLocator: model.physicalLocator,
+    schemaVersionId: model.schemaVersionId,
+  };
 }
 
 function resolveFieldsByModelId(modelId: unknown) {
@@ -847,6 +900,7 @@ async function handleSourceDatasourceChange(row: CollectionTaskSourceBinding, va
 async function handleSourceModelChange(row: CollectionTaskSourceBinding, value: string) {
   row.modelId = value;
   row.readerOptions = {};
+  await ensureModelDetail(value, row.datasourceId);
   await ensureRuntimeSchemaForDatasource("reader", row.datasourceId, value);
   applyRuntimeDefaultsForSource(row);
 }
@@ -1156,6 +1210,7 @@ function enhanceWriterAdvancedField(field: MetadataFieldDefinition): MetadataFie
 async function handleTargetModelChange(value: string) {
   form.targetBinding.modelId = value;
   form.targetBinding.writerOptions = {};
+  await ensureModelDetail(value, form.targetBinding.datasourceId);
   await ensureRuntimeSchemaForDatasource("writer", form.targetBinding.datasourceId, value);
   applyRuntimeDefaultsForTarget();
   if (!form.fieldMappings.length) {

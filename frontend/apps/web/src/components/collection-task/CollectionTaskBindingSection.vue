@@ -272,7 +272,7 @@ import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskSourceBinding,
   CollectionTaskTargetBinding,
-  DataModelDefinition,
+  DataModelListView,
   DataSourceListView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
@@ -294,8 +294,8 @@ interface CollectionTaskBindingActions {
   appendSourceBinding: () => void;
   removeSourceBinding: (index: number) => void;
   handleSourceDatasourceChange: (row: CollectionTaskSourceBinding, value: string) => void | Promise<void>;
-  handleSourceModelChange: (row: CollectionTaskSourceBinding, value: string) => void;
-  resolveModelsByDatasource: (datasourceId: unknown) => DataModelDefinition[];
+  handleSourceModelChange: (row: CollectionTaskSourceBinding, value: string) => void | Promise<void>;
+  resolveModelsByDatasource: (datasourceId: unknown) => DataModelListView[];
   runtimeSchemaTitle: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
   runtimeSchemaFor: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => PluginRuntimeOptionSchemaView | undefined;
   runtimeStatusType: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
@@ -316,7 +316,7 @@ interface CollectionTaskBindingActions {
   readerSoapFieldNames: (source: CollectionTaskSourceBinding) => string[];
   updateSourceReaderOptions: (source: CollectionTaskSourceBinding, value: Record<string, unknown>) => void;
   handleTargetDatasourceChange: (value: string) => void | Promise<void>;
-  handleTargetModelChange: (value: string) => void;
+  handleTargetModelChange: (value: string) => void | Promise<void>;
   isHttpWriterTarget: () => boolean;
   isHttpSoapWriterTarget: () => boolean;
   writerDynamicFunctionFields: () => string[];

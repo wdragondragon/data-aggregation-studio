@@ -76,6 +76,7 @@
 | FIX-S45-001 | 数据接入/编辑页模型下拉 | 中 | `/data-ingestion-services/new` 选择数据源后用完整模型列表填充目标模型下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段映射只需选中模型详情 | `DataIngestionServiceEditorView.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries` 响应约 7.0KB 且无 `technicalMetadata/businessMetadata`；选中模型后 `/models/{id}` 详情保留字段元数据；build 后 nginx `/data-ingestion-services/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S46-001 | 数据服务/编辑页模型下拉 | 中 | `/data-services/new` 服务开发步骤用完整模型列表填充数据表下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段解析由后端按 `modelId` 完成 | `DataServiceEditorView.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=500` 响应约 10.8KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 45.1KB；build 后 nginx `/data-services/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S47-001 | 数据质量/编辑页模型下拉 | 中 | `/quality-tasks/new` 选择数据源后用完整模型列表填充模型下拉，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，列级字段仅需选中模型详情 | `QualityTaskEditorView.vue`；`QualityTaskBindingSection.vue` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=5000` 响应约 11.0KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 46.2KB；build 后 nginx `/quality-tasks/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
+| FIX-S48-001 | 数据采集/编辑页模型下拉 | 中 | `/collection-tasks/new` 源/目标模型下拉用完整模型列表填充，批量读取所有模型 `technicalMetadata/businessMetadata`；下拉实际只需摘要，字段映射和协议元数据仅需选中模型详情 | `CollectionTaskEditorView.vue`；`CollectionTaskBindingSection.vue`；`frontend/packages/i18n/src/messages/web.ts` | `npm run build:web`；长期项目 nginx `/models/datasource/2068077811652583425/summaries?pageSize=5000` 响应约 11.0KB 且无 `technicalMetadata/businessMetadata`；旧完整列表约 46.2KB；build 后 nginx `/collection-tasks/new` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -131,3 +132,4 @@
 | S45 数据接入目标模型下拉按需详情 | FIX-S45-001 |
 | S46 数据服务目标模型下拉源头瘦身 | FIX-S46-001 |
 | S47 质量任务模型下拉按需详情 | FIX-S47-001 |
+| S48 采集任务模型下拉按需详情 | FIX-S48-001 |
