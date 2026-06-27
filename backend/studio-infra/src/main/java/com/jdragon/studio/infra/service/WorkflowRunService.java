@@ -12,9 +12,11 @@ import com.jdragon.studio.dto.model.WorkflowRunSummaryView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
+import com.jdragon.studio.infra.entity.WorkflowNodeEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.mapper.WorkflowNodeMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,7 +30,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.HashMap;
 
 @Service
 public class WorkflowRunService {
@@ -36,6 +37,7 @@ public class WorkflowRunService {
     private final RunRecordMapper runRecordMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
+    private final WorkflowNodeMapper workflowNodeMapper;
     private final WorkflowService workflowService;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final StudioSecurityService securityService;
@@ -45,6 +47,7 @@ public class WorkflowRunService {
     public WorkflowRunService(RunRecordMapper runRecordMapper,
                               DispatchTaskMapper dispatchTaskMapper,
                               WorkflowDefinitionMapper workflowDefinitionMapper,
+                              WorkflowNodeMapper workflowNodeMapper,
                               WorkflowService workflowService,
                               NamedParameterJdbcTemplate namedParameterJdbcTemplate,
                               StudioSecurityService securityService,
@@ -52,6 +55,7 @@ public class WorkflowRunService {
         this.runRecordMapper = runRecordMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
+        this.workflowNodeMapper = workflowNodeMapper;
         this.workflowService = workflowService;
         this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
         this.securityService = securityService;
@@ -88,21 +92,13 @@ public class WorkflowRunService {
         }
 
         String currentTenantId = securityService.currentTenantId();
-        List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, currentTenantId)
-                .in(RunRecordEntity::getWorkflowRunId, workflowRunIds)
-                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
-                .orderByDesc(RunRecordEntity::getCreatedAt));
-        List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
-                .in(DispatchTaskEntity::getWorkflowRunId, workflowRunIds)
-                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
-                .orderByDesc(DispatchTaskEntity::getCreatedAt));
+        List<RunRecordEntity> records = runRecordMapper.selectList(summaryRunRecordQuery(currentTenantId, workflowRunIds));
+        List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(summaryDispatchTaskQuery(currentTenantId, workflowRunIds));
 
         Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
         Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
         Map<Long, String> workflowNames = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
-        Map<Long, WorkflowDefinitionView> workflowCache = new HashMap<Long, WorkflowDefinitionView>();
+        Map<Long, List<WorkflowNodeMetadata>> workflowNodes = workflowNodes(resolveWorkflowVersionIds(records, tasks));
 
         List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
         for (Long workflowRunId : workflowRunIds) {
@@ -110,7 +106,7 @@ public class WorkflowRunService {
                     recordsByRun.get(workflowRunId),
                     tasksByRun.get(workflowRunId),
                     workflowNames,
-                    workflowCache));
+                    workflowNodes));
         }
         return PageView.of(safePageNo, safePageSize, total, items);
     }
@@ -129,33 +125,26 @@ public class WorkflowRunService {
         int offset = (pageNo - 1) * pageSize;
         long matched = 0L;
         List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
-        Map<Long, WorkflowDefinitionView> workflowCache = new HashMap<Long, WorkflowDefinitionView>();
         Map<Long, String> workflowNamesCache = new LinkedHashMap<Long, String>();
+        Map<Long, List<WorkflowNodeMetadata>> workflowNodesCache = new LinkedHashMap<Long, List<WorkflowNodeMetadata>>();
 
         for (int index = 0; index < workflowRunIds.size(); index += 200) {
             List<Long> batchIds = workflowRunIds.subList(index, Math.min(index + 200, workflowRunIds.size()));
             String currentTenantId = securityService.currentTenantId();
-            List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
-                    .eq(RunRecordEntity::getTenantId, currentTenantId)
-                    .in(RunRecordEntity::getWorkflowRunId, batchIds)
-                    .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
-                    .orderByDesc(RunRecordEntity::getCreatedAt));
-            List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
-                    .eq(DispatchTaskEntity::getTenantId, currentTenantId)
-                    .in(DispatchTaskEntity::getWorkflowRunId, batchIds)
-                    .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
-                    .orderByDesc(DispatchTaskEntity::getCreatedAt));
+            List<RunRecordEntity> records = runRecordMapper.selectList(summaryRunRecordQuery(currentTenantId, batchIds));
+            List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(summaryDispatchTaskQuery(currentTenantId, batchIds));
 
             Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
             Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
             workflowNamesCache.putAll(workflowNames(resolveWorkflowDefinitionIds(records, tasks)));
+            workflowNodesCache.putAll(workflowNodes(resolveWorkflowVersionIds(records, tasks)));
 
             for (Long workflowRunId : batchIds) {
                 WorkflowRunSummaryView summary = buildSummary(workflowRunId,
                         recordsByRun.get(workflowRunId),
                         tasksByRun.get(workflowRunId),
                         workflowNamesCache,
-                        workflowCache);
+                        workflowNodesCache);
                 if (!summaryStatus.equalsIgnoreCase(String.valueOf(summary.getStatus()))) {
                     continue;
                 }
@@ -185,9 +174,9 @@ public class WorkflowRunService {
         }
 
         Map<Long, String> workflowNames = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
-        Map<Long, WorkflowDefinitionView> workflowCache = new HashMap<Long, WorkflowDefinitionView>();
+        Map<Long, List<WorkflowNodeMetadata>> workflowNodes = workflowNodes(resolveWorkflowVersionIds(records, tasks));
         WorkflowRunDetailView detail = new WorkflowRunDetailView();
-        WorkflowRunSummaryView summary = buildSummary(workflowRunId, records, tasks, workflowNames, workflowCache);
+        WorkflowRunSummaryView summary = buildSummary(workflowRunId, records, tasks, workflowNames, workflowNodes);
         copySummary(summary, detail);
 
         Long workflowDefinitionId = summary.getWorkflowDefinitionId();
@@ -199,14 +188,17 @@ public class WorkflowRunService {
         Set<String> consumedNodeCodes = new LinkedHashSet<String>();
         List<WorkflowNodeRunView> nodeRuns = new ArrayList<WorkflowNodeRunView>();
 
-        if (workflow != null) {
-            for (WorkflowNodeDefinition node : workflow.getNodes()) {
-                WorkflowNodeRunView nodeRun = buildNodeRunView(summary, node.getNodeCode(), node.getNodeName(),
-                        node.getNodeType() == null ? null : node.getNodeType().name(),
-                        latestRecordByNode.get(node.getNodeCode()),
-                        latestTaskByNode.get(node.getNodeCode()));
+        List<WorkflowNodeMetadata> nodeMetadata = workflowNodes.get(summary.getWorkflowVersionId());
+        if (nodeMetadata == null || nodeMetadata.isEmpty()) {
+            nodeMetadata = workflow == null ? new ArrayList<WorkflowNodeMetadata>() : toNodeMetadata(workflow.getNodes());
+        }
+        for (WorkflowNodeMetadata node : nodeMetadata) {
+            if (node.nodeCode != null) {
+                WorkflowNodeRunView nodeRun = buildNodeRunView(summary, node.nodeCode, node.nodeName, node.nodeType,
+                        latestRecordByNode.get(node.nodeCode),
+                        latestTaskByNode.get(node.nodeCode));
                 nodeRuns.add(nodeRun);
-                consumedNodeCodes.add(node.getNodeCode());
+                consumedNodeCodes.add(node.nodeCode);
             }
         }
 
@@ -262,6 +254,8 @@ public class WorkflowRunService {
             return result;
         }
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getName)
                 .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .in(WorkflowDefinitionEntity::getId, workflowDefinitionIds)
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
@@ -269,6 +263,57 @@ public class WorkflowRunService {
             if (definition.getId() != null) {
                 result.put(definition.getId(), definition.getName());
             }
+        }
+        return result;
+    }
+
+    private Map<Long, List<WorkflowNodeMetadata>> workflowNodes(Set<Long> workflowVersionIds) {
+        Map<Long, List<WorkflowNodeMetadata>> result = new LinkedHashMap<Long, List<WorkflowNodeMetadata>>();
+        if (workflowVersionIds == null || workflowVersionIds.isEmpty()) {
+            return result;
+        }
+        List<WorkflowNodeEntity> nodes = workflowNodeMapper.selectList(new LambdaQueryWrapper<WorkflowNodeEntity>()
+                .select(WorkflowNodeEntity::getWorkflowVersionId,
+                        WorkflowNodeEntity::getNodeCode,
+                        WorkflowNodeEntity::getNodeName,
+                        WorkflowNodeEntity::getNodeType)
+                .in(WorkflowNodeEntity::getWorkflowVersionId, workflowVersionIds)
+                .orderByAsc(WorkflowNodeEntity::getId));
+        for (WorkflowNodeEntity node : nodes) {
+            if (node.getWorkflowVersionId() == null) {
+                continue;
+            }
+            result.computeIfAbsent(node.getWorkflowVersionId(), key -> new ArrayList<WorkflowNodeMetadata>())
+                    .add(new WorkflowNodeMetadata(node.getNodeCode(), node.getNodeName(), node.getNodeType()));
+        }
+        return result;
+    }
+
+    private Set<Long> resolveWorkflowVersionIds(List<RunRecordEntity> records, List<DispatchTaskEntity> tasks) {
+        Set<Long> workflowVersionIds = new LinkedHashSet<Long>();
+        for (RunRecordEntity record : records) {
+            if (record.getWorkflowVersionId() != null) {
+                workflowVersionIds.add(record.getWorkflowVersionId());
+            }
+        }
+        for (DispatchTaskEntity task : tasks) {
+            if (task.getWorkflowVersionId() != null) {
+                workflowVersionIds.add(task.getWorkflowVersionId());
+            }
+        }
+        return workflowVersionIds;
+    }
+
+    private List<WorkflowNodeMetadata> toNodeMetadata(List<WorkflowNodeDefinition> nodes) {
+        List<WorkflowNodeMetadata> result = new ArrayList<WorkflowNodeMetadata>();
+        if (nodes == null) {
+            return result;
+        }
+        for (WorkflowNodeDefinition node : nodes) {
+            result.add(new WorkflowNodeMetadata(
+                    node.getNodeCode(),
+                    node.getNodeName(),
+                    node.getNodeType() == null ? null : node.getNodeType().name()));
         }
         return result;
     }
@@ -335,25 +380,28 @@ public class WorkflowRunService {
                                                 List<RunRecordEntity> records,
                                                 List<DispatchTaskEntity> tasks,
                                                 Map<Long, String> workflowNames,
-                                                Map<Long, WorkflowDefinitionView> workflowCache) {
+                                                Map<Long, List<WorkflowNodeMetadata>> workflowNodes) {
         List<RunRecordEntity> safeRecords = records == null ? new ArrayList<RunRecordEntity>() : records;
         List<DispatchTaskEntity> safeTasks = tasks == null ? new ArrayList<DispatchTaskEntity>() : tasks;
 
         Long workflowDefinitionId = firstNonNullWorkflowDefinitionId(safeRecords, safeTasks);
-        WorkflowDefinitionView workflow = resolveWorkflowDefinition(workflowDefinitionId, workflowCache);
+        Long workflowVersionId = firstNonNullWorkflowVersionId(safeRecords, safeTasks);
+        List<WorkflowNodeMetadata> nodeMetadata = workflowNodes.get(workflowVersionId);
         Map<String, RunRecordEntity> latestRecordByNode = latestRecordByNode(safeRecords);
         Map<String, DispatchTaskEntity> latestTaskByNode = latestTaskByNode(safeTasks);
         List<WorkflowNodeRunView> nodeRuns = new ArrayList<WorkflowNodeRunView>();
         Set<String> consumedNodeCodes = new LinkedHashSet<String>();
 
-        if (workflow != null) {
-            for (WorkflowNodeDefinition node : workflow.getNodes()) {
+        if (nodeMetadata != null) {
+            for (WorkflowNodeMetadata node : nodeMetadata) {
+                if (node.nodeCode == null) {
+                    continue;
+                }
                 nodeRuns.add(buildNodeRunView(workflowRunId, workflowDefinitionId, workflowNames.get(workflowDefinitionId),
-                        node.getNodeCode(), node.getNodeName(),
-                        node.getNodeType() == null ? null : node.getNodeType().name(),
-                        latestRecordByNode.get(node.getNodeCode()),
-                        latestTaskByNode.get(node.getNodeCode())));
-                consumedNodeCodes.add(node.getNodeCode());
+                        node.nodeCode, node.nodeName, node.nodeType,
+                        latestRecordByNode.get(node.nodeCode),
+                        latestTaskByNode.get(node.nodeCode)));
+                consumedNodeCodes.add(node.nodeCode);
             }
         }
 
@@ -373,11 +421,11 @@ public class WorkflowRunService {
         }
 
         WorkflowRunSummaryView summary = new WorkflowRunSummaryView();
-        summary.setTenantId(firstNonNullTenantId(safeRecords, safeTasks, workflow));
-        summary.setProjectId(firstNonNullProjectId(safeRecords, safeTasks, workflow));
+        summary.setTenantId(firstNonNullTenantId(safeRecords, safeTasks));
+        summary.setProjectId(firstNonNullProjectId(safeRecords, safeTasks));
         summary.setWorkflowRunId(workflowRunId);
         summary.setWorkflowDefinitionId(workflowDefinitionId);
-        summary.setWorkflowVersionId(firstNonNullWorkflowVersionId(safeRecords, safeTasks));
+        summary.setWorkflowVersionId(workflowVersionId);
         summary.setWorkflowName(workflowNames.get(workflowDefinitionId));
         summary.setTotalNodes(nodeRuns.size());
         summary.setSuccessNodes(countByStatus(nodeRuns, "SUCCESS"));
@@ -394,8 +442,7 @@ public class WorkflowRunService {
     }
 
     private String firstNonNullTenantId(List<RunRecordEntity> records,
-                                        List<DispatchTaskEntity> tasks,
-                                        WorkflowDefinitionView workflow) {
+                                        List<DispatchTaskEntity> tasks) {
         for (RunRecordEntity record : records) {
             if (record != null && record.getTenantId() != null) {
                 return record.getTenantId();
@@ -406,12 +453,11 @@ public class WorkflowRunService {
                 return task.getTenantId();
             }
         }
-        return workflow == null ? null : workflow.getTenantId();
+        return null;
     }
 
     private Long firstNonNullProjectId(List<RunRecordEntity> records,
-                                       List<DispatchTaskEntity> tasks,
-                                       WorkflowDefinitionView workflow) {
+                                       List<DispatchTaskEntity> tasks) {
         for (RunRecordEntity record : records) {
             if (record != null && record.getProjectId() != null) {
                 return record.getProjectId();
@@ -422,20 +468,50 @@ public class WorkflowRunService {
                 return task.getProjectId();
             }
         }
-        return workflow == null ? null : workflow.getProjectId();
+        return null;
     }
 
-    private WorkflowDefinitionView resolveWorkflowDefinition(Long workflowDefinitionId,
-                                                             Map<Long, WorkflowDefinitionView> workflowCache) {
-        if (workflowDefinitionId == null) {
-            return null;
-        }
-        if (workflowCache.containsKey(workflowDefinitionId)) {
-            return workflowCache.get(workflowDefinitionId);
-        }
-        WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
-        workflowCache.put(workflowDefinitionId, workflow);
-        return workflow;
+    private LambdaQueryWrapper<RunRecordEntity> summaryRunRecordQuery(String currentTenantId, List<Long> workflowRunIds) {
+        return new LambdaQueryWrapper<RunRecordEntity>()
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getCreatedAt,
+                        RunRecordEntity::getWorkflowRunId,
+                        RunRecordEntity::getWorkflowDefinitionId,
+                        RunRecordEntity::getWorkflowVersionId,
+                        RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getWorkerGroupCode,
+                        RunRecordEntity::getWorkerCode,
+                        RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getMessage,
+                        RunRecordEntity::getStartedAt,
+                        RunRecordEntity::getEndedAt)
+                .eq(RunRecordEntity::getTenantId, currentTenantId)
+                .in(RunRecordEntity::getWorkflowRunId, workflowRunIds)
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
+                .orderByDesc(RunRecordEntity::getCreatedAt);
+    }
+
+    private LambdaQueryWrapper<DispatchTaskEntity> summaryDispatchTaskQuery(String currentTenantId, List<Long> workflowRunIds) {
+        return new LambdaQueryWrapper<DispatchTaskEntity>()
+                .select(DispatchTaskEntity::getId,
+                        DispatchTaskEntity::getTenantId,
+                        DispatchTaskEntity::getProjectId,
+                        DispatchTaskEntity::getCreatedAt,
+                        DispatchTaskEntity::getWorkflowRunId,
+                        DispatchTaskEntity::getWorkflowDefinitionId,
+                        DispatchTaskEntity::getWorkflowVersionId,
+                        DispatchTaskEntity::getNodeCode,
+                        DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getWorkerGroupCode,
+                        DispatchTaskEntity::getLeaseOwner,
+                        DispatchTaskEntity::getWorkerInstanceId)
+                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
+                .in(DispatchTaskEntity::getWorkflowRunId, workflowRunIds)
+                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
+                .orderByDesc(DispatchTaskEntity::getCreatedAt);
     }
 
     private long countWorkflowRuns(Long workflowDefinitionId,
@@ -793,5 +869,17 @@ public class WorkflowRunService {
         }
         Object nodeType = task.getPayloadJson().get("nodeType");
         return nodeType == null ? null : String.valueOf(nodeType);
+    }
+
+    private static class WorkflowNodeMetadata {
+        private final String nodeCode;
+        private final String nodeName;
+        private final String nodeType;
+
+        private WorkflowNodeMetadata(String nodeCode, String nodeName, String nodeType) {
+            this.nodeCode = nodeCode;
+            this.nodeName = nodeName;
+            this.nodeType = nodeType;
+        }
     }
 }

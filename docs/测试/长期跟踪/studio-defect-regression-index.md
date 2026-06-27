@@ -65,6 +65,7 @@
 | FIX-S34-001 | 运行与质量指标 | 中 | 运行指标、质量指标和质量问题列表存在源头字段过取；质量问题单行处置后重拉当前 tab | `CollectionTaskService.java`；`RunMetricsService.java`；`RunRecordEntity.java`；`RunMetricSummaryMapper.java`；`RunMetricBackfillService.java`；`QualityMetricsService.java`；`QualityIssueService.java`；`QualityMetricsView.vue`；schema/upgrade 脚本 | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；`mvn -pl studio-server -am test -DskipTests`；`records/20260627-S34运行与质量指标源头瘦身执行记录.md` | module-regression | 2026-06-27 | `5a71563` |
 | FIX-S35-001 | 开放服务/订阅 Token | 中 | 数据服务、数据接入、协议转换订阅弹窗列表源头读取 `tokenHash` 和完整服务配置；订阅创建/轮换/启停后重拉整个订阅列表 | `DataServiceService.java`；`DataIngestionService.java`；`ProtocolConversionService.java`；`DataServicesView.vue`；`DataIngestionServicesView.vue`；`ProtocolConversionServicesView.vue`；`SubscriptionTokenRotationRegressionTest.java` | `SubscriptionTokenRotationRegressionTest`；长期项目 nginx API 遍历 80 条订阅响应无 `tokenHash/serviceKey/webserviceConfig`；三页 build 后浏览器 smoke 无 warn/error；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
 | FIX-S36-001 | 数据开发/SQL 数据源选项 | 中 | 数据开发、数据服务、质量规则/任务编辑页的 SQL 数据源下拉使用完整数据源定义接口，读取并返回连接元数据、业务元数据和连接历史；数据开发目录/脚本结构写后重拉整页初始化数据 | `DataSourceService.java`；`DataDevelopmentService.java`；`DataDevelopmentController.java`；`DataSourceOptionView.java`；`DataDevelopmentView.vue`；`DataServiceEditorView.vue`；`QualityRuleEditorView.vue`；`QualityTaskEditorView.vue`；`QualityTaskBindingSection.vue`；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts`；`DataDevelopmentApiRegressionTest.java` | `DataDevelopmentApiRegressionTest`；长期项目 `/data-development/datasource-options` 响应无 `technicalMetadata/businessMetadata/recentConnectionTests/connectionFingerprint`；build 后 nginx `/data-development` 浏览器 smoke 无 warn/error；`npm run build:web` | module-regression | 2026-06-27 | 本次提交 |
+| FIX-S37-001 | 工作流/运行列表 | 中 | `/workflow-runs` 列表响应虽已轻量，但源头查询仍整行读取 `run_record.payloadJson/resultJson/log*`、`dispatch_task.payloadJson`，并调用完整工作流详情读取节点配置和字段映射后再组装摘要，违反“源头轻量”约定 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java` | `WorkflowRunSourceSlimmingRegressionTest`；`WorkflowRunPaginationRegressionTest`；长期项目 nginx `/workflow-runs` 普通/状态筛选响应无 `payloadJson/resultJson/logObjectKey/logFilePath/nodeRuns/workflow`；build 后 nginx `/runs` 和 `/runs/{id}` 浏览器 smoke 无 warn/error | module-regression | 2026-06-27 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -109,3 +110,4 @@
 | S34 运行与质量指标源头瘦身 | FIX-S34-001 |
 | S35 开放服务订阅列表与写后刷新收敛 | FIX-S35-001 |
 | S36 数据开发 SQL 数据源选项与写后刷新收敛 | FIX-S36-001 |
+| S37 工作流运行列表源头瘦身 | FIX-S37-001 |
