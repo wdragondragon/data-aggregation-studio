@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityAssetDetailView;
 import com.jdragon.studio.dto.model.QualityAssetRiskView;
 import com.jdragon.studio.dto.model.QualityIssueDetailView;
@@ -77,6 +78,12 @@ public class QualityMetricsController {
     @PostMapping("/issues/query")
     public Result<List<QualityIssueView>> queryIssues(@RequestBody(required = false) QualityIssueQueryRequest request) {
         return Result.success(qualityIssueService.query(request));
+    }
+
+    @Operation(summary = "Query quality issues page")
+    @PostMapping("/issues/page")
+    public Result<PageView<QualityIssueView>> queryIssuesPage(@RequestBody(required = false) QualityIssueQueryRequest request) {
+        return Result.success(qualityIssueService.queryPage(request));
     }
 
     @Operation(summary = "Get quality issue detail")

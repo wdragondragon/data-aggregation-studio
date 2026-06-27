@@ -1973,6 +1973,8 @@ export interface QualityIssueQueryRequest {
   assigneeUserId?: EntityId;
   startTime?: string;
   endTime?: string;
+  pageNo?: number;
+  pageSize?: number;
 }
 
 export interface QualityIssueAssignRequest {

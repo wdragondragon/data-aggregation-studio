@@ -1271,6 +1271,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       queryIssues(payload?: QualityIssueQueryRequest, config?: StudioRequestConfig) {
         return request<QualityIssueView[]>({ ...config, url: "/quality-metrics/issues/query", method: "POST", data: payload });
       },
+      queryIssuesPage(payload?: QualityIssueQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<QualityIssueView>(
+          { ...config, url: "/quality-metrics/issues/page", method: "POST", data: payload },
+          payload,
+        );
+      },
       getIssue(id: EntityId) {
         return request<QualityIssueDetailView>({ url: `/quality-metrics/issues/${id}`, method: "GET" });
       },

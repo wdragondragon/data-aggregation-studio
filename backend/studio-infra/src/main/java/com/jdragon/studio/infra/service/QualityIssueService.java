@@ -1,11 +1,13 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.QualityIssueSeverity;
 import com.jdragon.studio.dto.enums.QualityIssueStatus;
 import com.jdragon.studio.dto.enums.QualityRuleGranularity;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityIssueDetailView;
 import com.jdragon.studio.dto.model.QualityIssueTimelineEvent;
 import com.jdragon.studio.dto.model.QualityIssueView;
@@ -33,8 +35,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,6 +45,14 @@ import java.util.Set;
 @Service
 public class QualityIssueService {
 
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 200;
+    private static final String ISSUE_LIST_ORDER_BY = "order by "
+            + "case when status in ('OPEN','ACKNOWLEDGED','INVESTIGATING','MITIGATED') then 0 else 1 end asc, "
+            + "case severity when 'CRITICAL' then 4 when 'HIGH' then 3 when 'MEDIUM' then 2 when 'LOW' then 1 else 0 end desc, "
+            + "case when status in ('OPEN','ACKNOWLEDGED','INVESTIGATING','MITIGATED') and sla_due_at is not null and sla_due_at < CURRENT_TIMESTAMP then 1 else 0 end desc, "
+            + "last_seen_at desc, id desc";
     private static final Set<QualityIssueStatus> ACTIVE_STATUSES = new LinkedHashSet<QualityIssueStatus>(Arrays.asList(
             QualityIssueStatus.OPEN,
             QualityIssueStatus.ACKNOWLEDGED,
@@ -59,7 +67,6 @@ public class QualityIssueService {
     private final StudioUserMapper userMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
-    private final QualityIssueSeveritySupport severitySupport = new QualityIssueSeveritySupport();
 
     public QualityIssueService(QualityIssueMapper issueMapper,
                                QualityIssueCommentMapper commentMapper,
@@ -105,15 +112,49 @@ public class QualityIssueService {
     }
 
     public List<QualityIssueView> query(QualityIssueQueryRequest request) {
+        int pageNo = 1;
+        int pageSize = MAX_PAGE_SIZE;
+        List<QualityIssueView> result = new ArrayList<QualityIssueView>();
+        PageView<QualityIssueView> page;
+        do {
+            page = queryPage(request, pageNo, pageSize);
+            result.addAll(page.getItems());
+            pageNo++;
+        } while (result.size() < page.getTotal());
+        return result;
+    }
+
+    public PageView<QualityIssueView> queryPage(QualityIssueQueryRequest request) {
+        return queryPage(request,
+                request == null ? null : request.getPageNo(),
+                request == null ? null : request.getPageSize());
+    }
+
+    public PageView<QualityIssueView> queryPage(QualityIssueQueryRequest request, Integer pageNo, Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
         Long currentProjectId = projectResourceAccessService.currentProjectId();
         if (currentProjectId == null) {
-            return new ArrayList<QualityIssueView>();
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityIssueView>());
         }
         List<Long> taskIds = resolveMatchedTaskIds(request);
         if (usesTaskFilters(request) && taskIds.isEmpty()) {
-            return new ArrayList<QualityIssueView>();
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityIssueView>());
         }
-        LambdaQueryWrapper<QualityIssueEntity> wrapper = new LambdaQueryWrapper<QualityIssueEntity>()
+        LambdaQueryWrapper<QualityIssueEntity> wrapper = buildIssueListQuery(request, currentProjectId, taskIds)
+                .last(ISSUE_LIST_ORDER_BY);
+        Page<QualityIssueEntity> entityPage = issueMapper.selectPage(new Page<QualityIssueEntity>(safePageNo, safePageSize), wrapper);
+        List<QualityIssueView> items = new ArrayList<QualityIssueView>();
+        for (QualityIssueEntity entity : entityPage.getRecords()) {
+            items.add(toView(entity));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
+    }
+
+    private LambdaQueryWrapper<QualityIssueEntity> buildIssueListQuery(QualityIssueQueryRequest request,
+                                                                      Long currentProjectId,
+                                                                      List<Long> taskIds) {
+        return selectIssueListColumns(new LambdaQueryWrapper<QualityIssueEntity>())
                 .eq(QualityIssueEntity::getTenantId, securityService.currentTenantId())
                 .eq(QualityIssueEntity::getProjectId, currentProjectId)
                 .eq(request != null && request.getDatasourceId() != null, QualityIssueEntity::getDatasourceId, request == null ? null : request.getDatasourceId())
@@ -125,64 +166,44 @@ public class QualityIssueService {
                 .eq(request != null && request.getAssigneeUserId() != null, QualityIssueEntity::getAssigneeUserId, request == null ? null : request.getAssigneeUserId())
                 .ge(request != null && request.getStartTime() != null, QualityIssueEntity::getLastSeenAt, request == null ? null : request.getStartTime())
                 .le(request != null && request.getEndTime() != null, QualityIssueEntity::getLastSeenAt, request == null ? null : request.getEndTime())
-                .in(taskIds != null && !taskIds.isEmpty(), QualityIssueEntity::getQualityTaskId, taskIds)
-                .select(QualityIssueEntity::getId,
-                        QualityIssueEntity::getIssueCode,
-                        QualityIssueEntity::getIssueType,
-                        QualityIssueEntity::getQualityTaskId,
-                        QualityIssueEntity::getQualityTaskNameSnapshot,
-                        QualityIssueEntity::getRuleId,
-                        QualityIssueEntity::getRuleNameSnapshot,
-                        QualityIssueEntity::getRuleDimension,
-                        QualityIssueEntity::getDatasourceId,
-                        QualityIssueEntity::getDatasourceNameSnapshot,
-                        QualityIssueEntity::getDatasourceTypeCode,
-                        QualityIssueEntity::getModelId,
-                        QualityIssueEntity::getModelNameSnapshot,
-                        QualityIssueEntity::getModelPhysicalLocator,
-                        QualityIssueEntity::getColumnName,
-                        QualityIssueEntity::getOutputField,
-                        QualityIssueEntity::getGranularity,
-                        QualityIssueEntity::getTitle,
-                        QualityIssueEntity::getLatestMessage,
-                        QualityIssueEntity::getSeverity,
-                        QualityIssueEntity::getSystemSeverity,
-                        QualityIssueEntity::getManualSeverity,
-                        QualityIssueEntity::getStatus,
-                        QualityIssueEntity::getAssigneeUserId,
-                        QualityIssueEntity::getAssigneeNameSnapshot,
-                        QualityIssueEntity::getFirstSeenAt,
-                        QualityIssueEntity::getLastSeenAt,
-                        QualityIssueEntity::getLastRecoveryAt,
-                        QualityIssueEntity::getSlaDueAt,
-                        QualityIssueEntity::getOccurrenceCount,
-                        QualityIssueEntity::getConsecutiveFailureCount,
-                        QualityIssueEntity::getReopenCount,
-                        QualityIssueEntity::getLastRunRecordId,
-                        QualityIssueEntity::getLastRunStatus);
-        List<QualityIssueView> items = new ArrayList<QualityIssueView>();
-        for (QualityIssueEntity entity : issueMapper.selectList(wrapper)) {
-            items.add(toView(entity));
-        }
-        Collections.sort(items, new Comparator<QualityIssueView>() {
-            @Override
-            public int compare(QualityIssueView left, QualityIssueView right) {
-                int activeCompare = Boolean.compare(Boolean.TRUE.equals(right.getActive()), Boolean.TRUE.equals(left.getActive()));
-                if (activeCompare != 0) {
-                    return activeCompare;
-                }
-                int severityCompare = Integer.compare(severitySupport.severityRank(right.getSeverity()), severitySupport.severityRank(left.getSeverity()));
-                if (severityCompare != 0) {
-                    return severityCompare;
-                }
-                int overdueCompare = Boolean.compare(Boolean.TRUE.equals(right.getOverdue()), Boolean.TRUE.equals(left.getOverdue()));
-                if (overdueCompare != 0) {
-                    return overdueCompare;
-                }
-                return compareTimeDesc(left.getLastSeenAt(), right.getLastSeenAt());
-            }
-        });
-        return items;
+                .in(taskIds != null && !taskIds.isEmpty(), QualityIssueEntity::getQualityTaskId, taskIds);
+    }
+
+    private LambdaQueryWrapper<QualityIssueEntity> selectIssueListColumns(LambdaQueryWrapper<QualityIssueEntity> wrapper) {
+        return wrapper.select(QualityIssueEntity::getId,
+                QualityIssueEntity::getIssueCode,
+                QualityIssueEntity::getIssueType,
+                QualityIssueEntity::getQualityTaskId,
+                QualityIssueEntity::getQualityTaskNameSnapshot,
+                QualityIssueEntity::getRuleId,
+                QualityIssueEntity::getRuleNameSnapshot,
+                QualityIssueEntity::getRuleDimension,
+                QualityIssueEntity::getDatasourceId,
+                QualityIssueEntity::getDatasourceNameSnapshot,
+                QualityIssueEntity::getDatasourceTypeCode,
+                QualityIssueEntity::getModelId,
+                QualityIssueEntity::getModelNameSnapshot,
+                QualityIssueEntity::getModelPhysicalLocator,
+                QualityIssueEntity::getColumnName,
+                QualityIssueEntity::getOutputField,
+                QualityIssueEntity::getGranularity,
+                QualityIssueEntity::getTitle,
+                QualityIssueEntity::getLatestMessage,
+                QualityIssueEntity::getSeverity,
+                QualityIssueEntity::getSystemSeverity,
+                QualityIssueEntity::getManualSeverity,
+                QualityIssueEntity::getStatus,
+                QualityIssueEntity::getAssigneeUserId,
+                QualityIssueEntity::getAssigneeNameSnapshot,
+                QualityIssueEntity::getFirstSeenAt,
+                QualityIssueEntity::getLastSeenAt,
+                QualityIssueEntity::getLastRecoveryAt,
+                QualityIssueEntity::getSlaDueAt,
+                QualityIssueEntity::getOccurrenceCount,
+                QualityIssueEntity::getConsecutiveFailureCount,
+                QualityIssueEntity::getReopenCount,
+                QualityIssueEntity::getLastRunRecordId,
+                QualityIssueEntity::getLastRunStatus);
     }
 
     public QualityIssueDetailView get(Long id) {
@@ -824,6 +845,20 @@ public class QualityIssueService {
         return hasText(value) ? value.trim() : null;
     }
 
+    private int normalizePageNo(Integer pageNo) {
+        if (pageNo == null || pageNo.intValue() < 1) {
+            return DEFAULT_PAGE_NO;
+        }
+        return pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
+    }
+
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
     }
@@ -838,19 +873,6 @@ public class QualityIssueService {
 
     private int safeInt(Integer value) {
         return value == null ? 0 : value.intValue();
-    }
-
-    private int compareTimeDesc(LocalDateTime left, LocalDateTime right) {
-        if (left == null && right == null) {
-            return 0;
-        }
-        if (left == null) {
-            return 1;
-        }
-        if (right == null) {
-            return -1;
-        }
-        return right.compareTo(left);
     }
 
     private String asText(Object value) {

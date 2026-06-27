@@ -60,8 +60,10 @@
           <QualityMetricsIssuesTab
             :paged-issues="pagedIssues"
             :issue-pagination="issuePagination"
-            :issue-total="issues.length"
+            :issue-total="issueTotal"
             :issue-actions="issueTabActions"
+            @page-change="handleIssuePageChange"
+            @page-size-change="handleIssuePageSizeChange"
           />
         </div>
       </el-tab-pane>
@@ -230,6 +232,7 @@ const assigneeOptions = ref<AssigneeOption[]>([]);
 const dashboard = ref<QualityMetricDashboardView>(emptyDashboard());
 const assets = ref<QualityAssetRiskView[]>([]);
 const issues = ref<QualityIssueView[]>([]);
+const issueTotal = ref(0);
 const assetDetail = ref<QualityAssetDetailView | null>(null);
 const issueDetail = ref<QualityIssueDetailView | null>(null);
 const assetDrawerVisible = ref(false);
@@ -270,7 +273,11 @@ const loading = reactive({
 });
 
 const { pagination: assetPagination, pagedItems: pagedAssets, resetPagination: resetAssetPagination } = useClientPagination(computed(() => assets.value), 10);
-const { pagination: issuePagination, pagedItems: pagedIssues, resetPagination: resetIssuePagination } = useClientPagination(computed(() => issues.value), 10);
+const issuePagination = reactive({
+  page: 1,
+  pageSize: 10,
+});
+const pagedIssues = computed(() => issues.value);
 
 const activeTabLoading = computed(() => {
   switch (activeTab.value) {
@@ -297,7 +304,7 @@ const assetScoreTrendOption = computed<EChartsOption>(() => buildScoreTrendOptio
 
 const filterSectionActions = {
   changeTimePreset,
-  reloadAll: loadCurrentTab,
+  reloadAll: searchCurrentTab,
   resetFilters,
 };
 
@@ -419,13 +426,22 @@ async function loadAssets() {
 async function loadIssues() {
   loading.issues = true;
   try {
-    issues.value = await studioApi.qualityMetrics.queryIssues({
+    const page = await studioApi.qualityMetrics.queryIssuesPage({
       ...baseQuery(),
       severity: filters.severity,
       status: filters.issueStatus,
       assigneeUserId: filters.assigneeUserId,
+      pageNo: issuePagination.page,
+      pageSize: issuePagination.pageSize,
     }, LOCAL_LOADING_REQUEST);
-    resetIssuePagination();
+    const maxPage = Math.max(1, Math.ceil(page.total / issuePagination.pageSize));
+    if (issuePagination.page > maxPage) {
+      issuePagination.page = maxPage;
+      await loadIssues();
+      return;
+    }
+    issues.value = page.items;
+    issueTotal.value = page.total;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量问题失败");
   } finally {
@@ -448,6 +464,16 @@ async function loadCurrentTab() {
   }
 }
 
+async function searchCurrentTab() {
+  if (activeTab.value === "assets") {
+    resetAssetPagination();
+  }
+  if (activeTab.value === "issues") {
+    issuePagination.page = 1;
+  }
+  await loadCurrentTab();
+}
+
 async function resetFilters() {
   filters.datasourceId = undefined;
   filters.modelId = undefined;
@@ -461,7 +487,18 @@ async function resetFilters() {
   assetFilters.onlyLowCoverageAssets = false;
   timePreset.value = "7d";
   timeRange.value = presetRange("7d");
+  resetAssetPagination();
+  issuePagination.page = 1;
   await loadCurrentTab();
+}
+
+function handleIssuePageChange() {
+  void loadIssues();
+}
+
+function handleIssuePageSizeChange() {
+  issuePagination.page = 1;
+  void loadIssues();
 }
 
 function baseQuery(): QualityMetricDashboardQueryRequest {
@@ -637,6 +674,7 @@ function patchIssueListItem(detail?: QualityIssueDetailView | null) {
   }
   if (!matchesCurrentIssueFilters(detail)) {
     issues.value.splice(index, 1);
+    issueTotal.value = Math.max(0, issueTotal.value - 1);
     return;
   }
   issues.value.splice(index, 1, { ...issues.value[index], ...detail });

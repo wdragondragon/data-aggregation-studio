@@ -3,6 +3,7 @@ package com.jdragon.studio.test;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.enums.QualityRuleDimension;
@@ -127,7 +128,7 @@ class MetricsSourceSlimmingRegressionTest {
     }
 
     @Test
-    void qualityIssueListShouldNotSelectDetailEvidenceJson() {
+    void qualityIssuePageShouldUseSourcePaginationAndNotSelectDetailEvidenceJson() {
         QualityIssueMapper issueMapper = mock(QualityIssueMapper.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
@@ -140,16 +141,21 @@ class MetricsSourceSlimmingRegressionTest {
                 accessService);
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
-        when(issueMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+        Page<QualityIssueEntity> emptyPage = new Page<QualityIssueEntity>(1, 10);
+        emptyPage.setRecords(Collections.emptyList());
+        emptyPage.setTotal(0L);
+        when(issueMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(emptyPage);
 
-        service.query(new QualityIssueQueryRequest());
+        service.queryPage(new QualityIssueQueryRequest(), 1, 10);
 
         ArgumentCaptor<LambdaQueryWrapper<QualityIssueEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
-        verify(issueMapper).selectList(captor.capture());
+        verify(issueMapper).selectPage(any(Page.class), captor.capture());
+        verify(issueMapper, never()).selectList(any(LambdaQueryWrapper.class));
         String sqlSelect = captor.getValue().getSqlSelect();
         assertTrue(sqlSelect.contains("issue_code"));
         assertTrue(sqlSelect.contains("latest_message"));
         assertFalse(sqlSelect.contains("current_evidence_json"));
+        assertTrue(captor.getValue().getSqlSegment().contains("order by"));
     }
 
     private RunMetricDashboardQueryRequest runMetricRequest() {

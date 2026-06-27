@@ -16,4 +16,6 @@ public class QualityIssueQueryRequest {
     private Long assigneeUserId;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
+    private Integer pageNo;
+    private Integer pageSize;
 }

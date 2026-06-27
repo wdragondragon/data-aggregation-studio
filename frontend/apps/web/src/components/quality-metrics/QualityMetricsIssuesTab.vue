@@ -73,6 +73,8 @@
         layout="total, sizes, prev, pager, next"
         :page-sizes="[10, 20, 50, 100]"
         :total="issueTotal"
+        @current-change="emit('page-change')"
+        @size-change="emit('page-size-change')"
       />
     </div>
   </SectionCard>
@@ -111,6 +113,11 @@ defineProps<{
   issuePagination: PaginationState;
   issueTotal: number;
   issueActions: IssueActions;
+}>();
+
+const emit = defineEmits<{
+  "page-change": [];
+  "page-size-change": [];
 }>();
 </script>
 
