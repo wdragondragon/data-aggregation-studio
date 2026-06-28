@@ -43,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import type { QualityRuleView } from "@studio/api-sdk";
+import type { QualityRuleOptionView, QualityRuleView } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 
 interface RuleSelectionForm {
@@ -59,7 +59,7 @@ interface RuleSelectionActions {
 
 defineProps<{
   form: RuleSelectionForm;
-  ruleOptions: QualityRuleView[];
+  ruleOptions: QualityRuleOptionView[];
   selectedRule: QualityRuleView | null;
   rulesLoading: boolean;
   actions: RuleSelectionActions;

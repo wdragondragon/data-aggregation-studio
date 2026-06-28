@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleParseResultView;
 import com.jdragon.studio.dto.model.QualityRuleListView;
+import com.jdragon.studio.dto.model.QualityRuleOptionView;
 import com.jdragon.studio.dto.model.QualityRuleValidationResultView;
 import com.jdragon.studio.dto.model.QualityRuleView;
 import com.jdragon.studio.dto.model.request.QualityRuleBatchDeleteRequest;
@@ -54,6 +55,15 @@ public class QualityRuleController {
                                                  @RequestParam(value = "datasourceType", required = false) String datasourceType,
                                                  @RequestParam(value = "enabledOnly", required = false, defaultValue = "true") Boolean enabledOnly) {
         return Result.success(qualityRuleService.options(ruleDimension, granularity, datasourceType, enabledOnly));
+    }
+
+    @Operation(summary = "List lightweight selectable quality rules")
+    @GetMapping("/option-summaries")
+    public Result<List<QualityRuleOptionView>> optionSummaries(@RequestParam(value = "ruleDimension", required = false) String ruleDimension,
+                                                               @RequestParam(value = "granularity", required = false) String granularity,
+                                                               @RequestParam(value = "datasourceType", required = false) String datasourceType,
+                                                               @RequestParam(value = "enabledOnly", required = false, defaultValue = "true") Boolean enabledOnly) {
+        return Result.success(qualityRuleService.optionSummaries(ruleDimension, granularity, datasourceType, enabledOnly));
     }
 
     @Operation(summary = "Get quality rule detail")

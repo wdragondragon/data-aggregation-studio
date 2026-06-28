@@ -99,6 +99,7 @@ import type {
   DataSourceOptionView,
   QualityRuleDimension,
   QualityRuleGranularity,
+  QualityRuleOptionView,
   QualityRuleOutputParamView,
   QualityRuleOutputType,
   QualityRuleParamType,
@@ -159,7 +160,8 @@ const detailLoadError = ref("");
 const datasources = ref<DataSourceOptionView[]>([]);
 const modelCache = ref<Record<string, DataModelListView[]>>({});
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
-const ruleOptions = ref<QualityRuleView[]>([]);
+const ruleOptions = ref<QualityRuleOptionView[]>([]);
+const ruleDetailCache = ref<Record<string, QualityRuleView>>({});
 const selectedRuleDetail = ref<QualityRuleView | null>(null);
 const outputParams = ref<QualityRuleOutputParamView[]>([]);
 const taskStatus = ref<"DRAFT" | "ONLINE">("DRAFT");
@@ -365,7 +367,7 @@ async function loadDatasources() {
 async function loadRuleOptions() {
   rulesLoading.value = true;
   try {
-    ruleOptions.value = await studioApi.qualityRules.options({
+    ruleOptions.value = await studioApi.qualityRules.optionSummaries({
       ruleDimension: form.ruleDimension,
       granularity: form.granularity,
       datasourceType: currentDatasource.value?.typeCode,
@@ -378,21 +380,55 @@ async function loadRuleOptions() {
   }
 }
 
-async function ensureSelectedRuleLoaded(ruleId: string | number) {
-  const matched = ruleOptions.value.find((item) => String(item.id ?? "") === String(ruleId));
-  if (matched) {
-    selectedRuleDetail.value = matched;
-    return;
+async function ensureSelectedRuleLoaded(ruleId: string | number): Promise<QualityRuleView | null> {
+  const id = String(ruleId ?? "");
+  if (!id) {
+    selectedRuleDetail.value = null;
+    return null;
+  }
+  const cached = ruleDetailCache.value[id];
+  if (cached) {
+    selectedRuleDetail.value = cached;
+    ensureSelectedRuleOption(cached);
+    return cached;
   }
   try {
     const detail = await studioApi.qualityRules.get(ruleId);
+    ruleDetailCache.value = {
+      ...ruleDetailCache.value,
+      [id]: detail,
+    };
     selectedRuleDetail.value = detail;
-    if (!ruleOptions.value.some((item) => String(item.id ?? "") === String(detail.id ?? ""))) {
-      ruleOptions.value = [...ruleOptions.value, detail];
-    }
+    ensureSelectedRuleOption(detail);
+    return detail;
   } catch (error) {
     ElMessage.warning(error instanceof Error ? error.message : "当前质量规则已不可用");
+    return null;
   }
+}
+
+function ensureSelectedRuleOption(rule: QualityRuleView) {
+  if (!ruleOptions.value.some((item) => String(item.id ?? "") === String(rule.id ?? ""))) {
+    ruleOptions.value = [...ruleOptions.value, toQualityRuleOption(rule)];
+  }
+}
+
+function toQualityRuleOption(rule: QualityRuleView): QualityRuleOptionView {
+  return {
+    id: rule.id,
+    tenantId: rule.tenantId,
+    projectId: rule.projectId,
+    deleted: rule.deleted,
+    createdAt: rule.createdAt,
+    updatedAt: rule.updatedAt,
+    ruleName: rule.ruleName,
+    ruleCode: rule.ruleCode,
+    scopeType: rule.scopeType,
+    ruleDimension: rule.ruleDimension,
+    supportedDatasourceTypes: rule.supportedDatasourceTypes ?? [],
+    granularity: rule.granularity,
+    enabled: rule.enabled,
+  };
 }
 
 async function ensureModels(datasourceId: unknown) {
@@ -705,10 +741,15 @@ async function handleRuleDimensionChange() {
   await loadRuleOptions();
 }
 
-function handleRuleChange(value: string) {
+async function handleRuleChange(value: string) {
+  if (!value) {
+    clearRuleSelection();
+    return;
+  }
   form.ruleId = value;
-  selectedRuleDetail.value = ruleOptions.value.find((item) => String(item.id ?? "") === String(value)) ?? null;
-  outputParams.value = (selectedRuleDetail.value?.outputParams ?? []).map((item) => ({ ...item }));
+  selectedRuleDetail.value = null;
+  const rule = await ensureSelectedRuleLoaded(value);
+  outputParams.value = (rule?.outputParams ?? []).map((item) => ({ ...item }));
   syncParameterBindings(form.parameterBindings);
   syncAlertConfigs(form.alertConfigs);
   previewWarnings.value = [];
@@ -905,6 +946,7 @@ async function previewSql() {
     ElMessage.error(detailLoadError.value);
     return;
   }
+  await ensureCurrentRuleReady();
   const payload = buildSavePayload();
   if (!payload) {
     return;
@@ -927,6 +969,7 @@ async function validateTask() {
     ElMessage.error(detailLoadError.value);
     return;
   }
+  await ensureCurrentRuleReady();
   const payload = buildSavePayload();
   if (!payload) {
     return;
@@ -962,6 +1005,7 @@ async function saveTask() {
 }
 
 async function saveTaskInternal() {
+  await ensureCurrentRuleReady();
   const payload = buildSavePayload();
   if (!payload) {
     return null;
@@ -978,6 +1022,15 @@ async function saveTaskInternal() {
     return null;
   } finally {
     saving.value = false;
+  }
+}
+
+async function ensureCurrentRuleReady() {
+  if (form.ruleId && (!selectedRuleDetail.value || String(selectedRuleDetail.value.id ?? "") !== String(form.ruleId))) {
+    const rule = await ensureSelectedRuleLoaded(form.ruleId);
+    outputParams.value = (rule?.outputParams ?? []).map((item) => ({ ...item }));
+    syncParameterBindings(form.parameterBindings);
+    syncAlertConfigs(form.alertConfigs);
   }
 }
 

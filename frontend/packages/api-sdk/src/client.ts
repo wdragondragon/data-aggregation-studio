@@ -113,6 +113,7 @@ import type {
   ProtocolConversionSubscriptionView,
   ProtocolConversionTraceView,
   QualityRuleListView,
+  QualityRuleOptionView,
   QualityRuleParseRequest,
   QualityRuleParseResult,
   QualityRuleSaveRequest,
@@ -508,6 +509,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         enabledOnly?: boolean;
       }) {
         return request<QualityRuleView[]>({ url: "/quality-rules/options", method: "GET", params });
+      },
+      optionSummaries(params?: {
+        ruleDimension?: string;
+        granularity?: string;
+        datasourceType?: string;
+        enabledOnly?: boolean;
+      }) {
+        return request<QualityRuleOptionView[]>({ url: "/quality-rules/option-summaries", method: "GET", params });
       },
     },
     metaSchemas: {

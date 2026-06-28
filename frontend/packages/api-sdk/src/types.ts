@@ -1688,6 +1688,16 @@ export interface QualityRuleView extends BaseRecord {
   outputParams: QualityRuleOutputParamView[];
 }
 
+export interface QualityRuleOptionView extends BaseRecord {
+  ruleName: string;
+  ruleCode: string;
+  scopeType?: QualityRuleScopeType;
+  ruleDimension?: QualityRuleDimension;
+  supportedDatasourceTypes: string[];
+  granularity?: QualityRuleGranularity;
+  enabled?: boolean;
+}
+
 export interface QualityRuleListView extends BaseRecord {
   ruleName: string;
   ruleCode: string;

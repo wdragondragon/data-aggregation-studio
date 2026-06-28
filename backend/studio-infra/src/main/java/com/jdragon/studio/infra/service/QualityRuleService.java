@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.enums.QualityRuleScopeType;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleInputParamView;
 import com.jdragon.studio.dto.model.QualityRuleListView;
+import com.jdragon.studio.dto.model.QualityRuleOptionView;
 import com.jdragon.studio.dto.model.QualityRuleOutputParamView;
 import com.jdragon.studio.dto.model.QualityRuleParseResultView;
 import com.jdragon.studio.dto.model.QualityRuleValidationResultView;
@@ -241,6 +242,33 @@ public class QualityRuleService {
         return result;
     }
 
+    public List<QualityRuleOptionView> optionSummaries(String ruleDimension,
+                                                       String granularity,
+                                                       String datasourceType,
+                                                       Boolean enabledOnly) {
+        String normalizedDimension = normalizeText(ruleDimension);
+        String normalizedGranularity = normalizeText(granularity);
+        String normalizedDatasourceType = normalizeNullableText(datasourceType);
+        List<QualityRuleEntity> entities = qualityRuleMapper.selectList(selectRuleOptionColumns(buildAccessibleQuery(null))
+                .eq(hasText(normalizedDimension), QualityRuleEntity::getRuleDimension,
+                        normalizedDimension == null ? null : normalizedDimension.toUpperCase(Locale.ROOT))
+                .eq(hasText(normalizedGranularity), QualityRuleEntity::getGranularity,
+                        normalizedGranularity == null ? null : normalizedGranularity.toUpperCase(Locale.ROOT))
+                .eq(Boolean.TRUE.equals(enabledOnly), QualityRuleEntity::getEnabled, Integer.valueOf(1))
+                .orderByAsc(QualityRuleEntity::getScopeType)
+                .orderByAsc(QualityRuleEntity::getRuleName)
+                .orderByAsc(QualityRuleEntity::getId));
+        List<QualityRuleOptionView> result = new ArrayList<QualityRuleOptionView>();
+        for (QualityRuleEntity entity : entities) {
+            if (hasText(normalizedDatasourceType)
+                    && !matchesDatasourceType(entity.getSupportedDatasourceTypesJson(), normalizedDatasourceType)) {
+                continue;
+            }
+            result.add(toOptionView(entity));
+        }
+        return result;
+    }
+
     private QualityRuleView updateEnabled(Long id, boolean enabled) {
         QualityRuleEntity entity = requireWritableEntity(id);
         entity.setEnabled(enabled ? Integer.valueOf(1) : Integer.valueOf(0));
@@ -391,6 +419,26 @@ public class QualityRuleService {
         return view;
     }
 
+    private QualityRuleOptionView toOptionView(QualityRuleEntity entity) {
+        QualityRuleOptionView view = new QualityRuleOptionView();
+        view.setId(entity.getId());
+        view.setTenantId(entity.getTenantId());
+        view.setProjectId(entity.getProjectId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuleName(entity.getRuleName());
+        view.setRuleCode(entity.getRuleCode());
+        view.setScopeType(entity.getScopeType() == null ? null : QualityRuleScopeType.valueOf(entity.getScopeType()));
+        view.setRuleDimension(entity.getRuleDimension() == null ? null : com.jdragon.studio.dto.enums.QualityRuleDimension.valueOf(entity.getRuleDimension()));
+        view.setSupportedDatasourceTypes(entity.getSupportedDatasourceTypesJson() == null
+                ? new ArrayList<String>()
+                : new ArrayList<String>(entity.getSupportedDatasourceTypesJson()));
+        view.setGranularity(entity.getGranularity() == null ? null : QualityRuleGranularity.valueOf(entity.getGranularity()));
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
+        return view;
+    }
+
     private LambdaQueryWrapper<QualityRuleEntity> selectRuleListColumns(LambdaQueryWrapper<QualityRuleEntity> queryWrapper) {
         return queryWrapper.select(QualityRuleEntity::getId,
                 QualityRuleEntity::getTenantId,
@@ -403,6 +451,20 @@ public class QualityRuleService {
                 QualityRuleEntity::getRuleCode,
                 QualityRuleEntity::getScopeType,
                 QualityRuleEntity::getRuleDimension,
+                QualityRuleEntity::getGranularity,
+                QualityRuleEntity::getEnabled);
+    }
+
+    private LambdaQueryWrapper<QualityRuleEntity> selectRuleOptionColumns(LambdaQueryWrapper<QualityRuleEntity> queryWrapper) {
+        return queryWrapper.select(QualityRuleEntity::getId,
+                QualityRuleEntity::getTenantId,
+                QualityRuleEntity::getProjectId,
+                QualityRuleEntity::getDeleted,
+                QualityRuleEntity::getRuleName,
+                QualityRuleEntity::getRuleCode,
+                QualityRuleEntity::getScopeType,
+                QualityRuleEntity::getRuleDimension,
+                QualityRuleEntity::getSupportedDatasourceTypesJson,
                 QualityRuleEntity::getGranularity,
                 QualityRuleEntity::getEnabled);
     }
