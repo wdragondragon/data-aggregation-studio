@@ -765,7 +765,6 @@ async function handleDatasourceChange() {
 }
 
 async function refreshModels() {
-  await loadPage();
   await loadIndexQueueStatus();
   await handleDatasourceChange();
 }
@@ -898,7 +897,6 @@ async function loadModelDetail() {
 }
 
 async function refreshDetail() {
-  await loadPage();
   await loadModelDetail();
 }
 
@@ -946,7 +944,6 @@ async function saveModel() {
     } else {
       modelPagination.page = 1;
       await handleDatasourceChange();
-      await selectModel(saved);
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.saveFailed"));
@@ -1121,7 +1118,7 @@ watch(
       return;
     }
   },
-  { immediate: true },
+  { immediate: false },
 );
 
 watch(
