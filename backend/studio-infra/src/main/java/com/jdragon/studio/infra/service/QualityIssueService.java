@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.enums.QualityIssueSeverity;
 import com.jdragon.studio.dto.enums.QualityIssueStatus;
 import com.jdragon.studio.dto.enums.QualityRuleGranularity;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.QualityIssueAssigneeOptionView;
 import com.jdragon.studio.dto.model.QualityIssueDetailView;
 import com.jdragon.studio.dto.model.QualityIssueTimelineEvent;
 import com.jdragon.studio.dto.model.QualityIssueView;
@@ -19,11 +20,13 @@ import com.jdragon.studio.dto.model.request.QualityIssueCommentRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueSeverityRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueStatusRequest;
+import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.QualityIssueCommentEntity;
 import com.jdragon.studio.infra.entity.QualityIssueEntity;
 import com.jdragon.studio.infra.entity.QualityIssueEventEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
+import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.QualityIssueCommentMapper;
 import com.jdragon.studio.infra.mapper.QualityIssueEventMapper;
 import com.jdragon.studio.infra.mapper.QualityIssueMapper;
@@ -64,6 +67,7 @@ public class QualityIssueService {
     private final QualityIssueCommentMapper commentMapper;
     private final QualityIssueEventMapper eventMapper;
     private final QualityTaskService qualityTaskService;
+    private final ProjectMemberMapper projectMemberMapper;
     private final StudioUserMapper userMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
@@ -72,6 +76,7 @@ public class QualityIssueService {
                                QualityIssueCommentMapper commentMapper,
                                QualityIssueEventMapper eventMapper,
                                QualityTaskService qualityTaskService,
+                               ProjectMemberMapper projectMemberMapper,
                                StudioUserMapper userMapper,
                                StudioSecurityService securityService,
                                ProjectResourceAccessService projectResourceAccessService) {
@@ -79,6 +84,7 @@ public class QualityIssueService {
         this.commentMapper = commentMapper;
         this.eventMapper = eventMapper;
         this.qualityTaskService = qualityTaskService;
+        this.projectMemberMapper = projectMemberMapper;
         this.userMapper = userMapper;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
@@ -149,6 +155,38 @@ public class QualityIssueService {
             items.add(toView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
+    }
+
+    public List<QualityIssueAssigneeOptionView> listAssigneeOptions() {
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return new ArrayList<QualityIssueAssigneeOptionView>();
+        }
+        List<ProjectMemberEntity> members = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMemberEntity>()
+                .select(ProjectMemberEntity::getUserId)
+                .eq(ProjectMemberEntity::getTenantId, securityService.currentTenantId())
+                .eq(ProjectMemberEntity::getProjectId, currentProjectId)
+                .orderByAsc(ProjectMemberEntity::getCreatedAt)
+                .orderByAsc(ProjectMemberEntity::getId));
+        Set<Long> userIds = new LinkedHashSet<Long>();
+        for (ProjectMemberEntity member : members) {
+            if (member != null && member.getUserId() != null) {
+                userIds.add(member.getUserId());
+            }
+        }
+        if (userIds.isEmpty()) {
+            return new ArrayList<QualityIssueAssigneeOptionView>();
+        }
+        Map<Long, StudioUserEntity> userMap = loadAssigneeUserMap(userIds);
+        List<QualityIssueAssigneeOptionView> result = new ArrayList<QualityIssueAssigneeOptionView>();
+        for (Long userId : userIds) {
+            StudioUserEntity user = userMap.get(userId);
+            if (user == null) {
+                continue;
+            }
+            result.add(toAssigneeOptionView(user));
+        }
+        return result;
     }
 
     private LambdaQueryWrapper<QualityIssueEntity> buildIssueListQuery(QualityIssueQueryRequest request,
@@ -764,11 +802,52 @@ public class QualityIssueService {
         if (userId == null) {
             return null;
         }
-        StudioUserEntity entity = userMapper.selectById(userId);
+        StudioUserEntity entity = userMapper.selectOne(new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName)
+                .eq(StudioUserEntity::getTenantId, securityService.currentTenantId())
+                .eq(StudioUserEntity::getId, userId)
+                .last("limit 1"));
         if (entity == null) {
             return null;
         }
         return hasText(entity.getDisplayName()) ? entity.getDisplayName().trim() : entity.getUsername();
+    }
+
+    private Map<Long, StudioUserEntity> loadAssigneeUserMap(Set<Long> userIds) {
+        Map<Long, StudioUserEntity> result = new LinkedHashMap<Long, StudioUserEntity>();
+        for (StudioUserEntity user : userMapper.selectList(new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName)
+                .eq(StudioUserEntity::getTenantId, securityService.currentTenantId())
+                .in(StudioUserEntity::getId, userIds))) {
+            result.put(user.getId(), user);
+        }
+        return result;
+    }
+
+    private QualityIssueAssigneeOptionView toAssigneeOptionView(StudioUserEntity user) {
+        QualityIssueAssigneeOptionView view = new QualityIssueAssigneeOptionView();
+        view.setUserId(user.getId());
+        view.setUsername(user.getUsername());
+        view.setDisplayName(user.getDisplayName());
+        view.setLabel(resolveAssigneeLabel(user));
+        return view;
+    }
+
+    private String resolveAssigneeLabel(StudioUserEntity user) {
+        if (user == null) {
+            return null;
+        }
+        if (hasText(user.getDisplayName())) {
+            return user.getDisplayName().trim();
+        }
+        if (hasText(user.getUsername())) {
+            return user.getUsername().trim();
+        }
+        return user.getId() == null ? null : String.valueOf(user.getId());
     }
 
     private List<Map<String, Object>> extractAlertDetails(Map<String, Object> payload) {

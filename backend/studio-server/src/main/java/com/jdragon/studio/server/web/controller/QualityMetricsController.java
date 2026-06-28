@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityAssetDetailView;
 import com.jdragon.studio.dto.model.QualityAssetRiskView;
+import com.jdragon.studio.dto.model.QualityIssueAssigneeOptionView;
 import com.jdragon.studio.dto.model.QualityIssueDetailView;
 import com.jdragon.studio.dto.model.QualityIssueView;
 import com.jdragon.studio.dto.model.QualityMetricDashboardView;
@@ -60,6 +61,12 @@ public class QualityMetricsController {
                                                                     @RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                                     @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         return Result.success(qualityMetricsService.modelOptions(datasourceId, keyword, pageNo, pageSize));
+    }
+
+    @Operation(summary = "List quality issue assignee options")
+    @GetMapping("/assignee-options")
+    public Result<List<QualityIssueAssigneeOptionView>> assigneeOptions() {
+        return Result.success(qualityIssueService.listAssigneeOptions());
     }
 
     @Operation(summary = "Query quality metric dashboard")

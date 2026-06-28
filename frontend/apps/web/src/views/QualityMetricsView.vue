@@ -169,6 +169,7 @@ import type {
   EntityId,
   QualityAssetDetailView,
   QualityAssetRiskView,
+  QualityIssueAssigneeOptionView,
   QualityIssueDetailView,
   QualityIssueSeverity,
   QualityIssueStatus,
@@ -177,7 +178,6 @@ import type {
   QualityMetricDashboardView,
   QualityMetricOptionsView,
   RunMetricFilterOption,
-  SystemProjectMember,
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill } from "@studio/ui";
 import QualityMetricsAssetDrawer from "@/components/quality-metrics/QualityMetricsAssetDrawer.vue";
@@ -422,19 +422,8 @@ function changeDatasourceFilter() {
 
 async function loadAssignees() {
   try {
-    const members = await studioApi.system.projectMembers.list(authStore.currentProjectId ?? undefined, LOCAL_LOADING_REQUEST);
-    assigneeOptions.value = normalizeMemberOptions(members);
-    if (assigneeOptions.value.length > 0) {
-      return;
-    }
-  } catch {
-    // Project member API may be hidden for non-admin users; user list below keeps the drawer usable.
-  }
-  try {
-    const users = await studioApi.users.list(LOCAL_LOADING_REQUEST);
-    assigneeOptions.value = users
-      .filter((item) => item.id != null)
-      .map((item) => ({ value: item.id as EntityId, label: item.displayName || item.username || String(item.id) }));
+    const options = await studioApi.qualityMetrics.assigneeOptions(LOCAL_LOADING_REQUEST);
+    assigneeOptions.value = normalizeAssigneeOptions(options);
   } catch {
     assigneeOptions.value = [];
   }
@@ -880,15 +869,18 @@ function buildCoverageMatrixOption(rows: Array<Record<string, unknown>>): EChart
   };
 }
 
-function normalizeMemberOptions(members: SystemProjectMember[]) {
+function normalizeAssigneeOptions(options: QualityIssueAssigneeOptionView[]) {
   const map = new Map<string, AssigneeOption>();
-  for (const member of members) {
-    if (member.userId == null) {
+  for (const option of options) {
+    if (option.userId == null) {
       continue;
     }
-    const key = String(member.userId);
+    const key = String(option.userId);
     if (!map.has(key)) {
-      map.set(key, { value: member.userId, label: member.displayName || member.username || String(member.userId) });
+      map.set(key, {
+        value: option.userId,
+        label: option.label || option.displayName || option.username || String(option.userId),
+      });
     }
   }
   return [...map.values()];

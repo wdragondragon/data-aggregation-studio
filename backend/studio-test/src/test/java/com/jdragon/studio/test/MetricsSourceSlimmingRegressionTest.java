@@ -15,12 +15,16 @@ import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
 import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.QualityIssueAssigneeOptionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.request.QualityIssueQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityMetricDashboardQueryRequest;
 import com.jdragon.studio.dto.model.request.RunMetricDashboardQueryRequest;
+import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.QualityIssueEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.StudioUserEntity;
+import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.QualityIssueCommentMapper;
 import com.jdragon.studio.infra.mapper.QualityIssueEventMapper;
 import com.jdragon.studio.infra.mapper.QualityIssueMapper;
@@ -44,6 +48,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,6 +67,12 @@ class MetricsSourceSlimmingRegressionTest {
         }
         if (TableInfoHelper.getTableInfo(QualityIssueEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), QualityIssueEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(ProjectMemberEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), ProjectMemberEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(StudioUserEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), StudioUserEntity.class);
         }
     }
 
@@ -103,7 +114,7 @@ class MetricsSourceSlimmingRegressionTest {
                 qualityIssueService, runRecordMapper, snapshotMapper, securityService, accessService);
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
-        when(dataSourceService.listSummaries()).thenReturn(Collections.singletonList(datasource()));
+        when(dataSourceService.listBasicSummaries()).thenReturn(Collections.singletonList(datasource()));
         when(dataModelService.listSummaryPage(null, 1, 5000, null, null))
                 .thenReturn(PageView.of(1, 5000, 1L, Collections.singletonList(model())));
         when(qualityTaskService.list(null, null, null, null)).thenReturn(Collections.singletonList(qualityTask()));
@@ -113,7 +124,7 @@ class MetricsSourceSlimmingRegressionTest {
 
         service.queryDashboard(new QualityMetricDashboardQueryRequest());
 
-        verify(dataSourceService).listSummaries();
+        verify(dataSourceService).listBasicSummaries();
         verify(dataSourceService, never()).list();
         verify(dataModelService).listSummaryPage(null, 1, 5000, null, null);
         verify(dataModelService, never()).list();
@@ -136,6 +147,7 @@ class MetricsSourceSlimmingRegressionTest {
                 mock(QualityIssueCommentMapper.class),
                 mock(QualityIssueEventMapper.class),
                 mock(QualityTaskService.class),
+                mock(ProjectMemberMapper.class),
                 mock(StudioUserMapper.class),
                 securityService,
                 accessService);
@@ -156,6 +168,54 @@ class MetricsSourceSlimmingRegressionTest {
         assertTrue(sqlSelect.contains("latest_message"));
         assertFalse(sqlSelect.contains("current_evidence_json"));
         assertTrue(captor.getValue().getSqlSegment().contains("order by"));
+    }
+
+    @Test
+    void qualityIssueAssigneeOptionsShouldSelectOnlyProjectMemberUserAndUserLabels() {
+        QualityIssueMapper issueMapper = mock(QualityIssueMapper.class);
+        ProjectMemberMapper projectMemberMapper = mock(ProjectMemberMapper.class);
+        StudioUserMapper userMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        QualityIssueService service = new QualityIssueService(issueMapper,
+                mock(QualityIssueCommentMapper.class),
+                mock(QualityIssueEventMapper.class),
+                mock(QualityTaskService.class),
+                projectMemberMapper,
+                userMapper,
+                securityService,
+                accessService);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(accessService.currentProjectId()).thenReturn(100L);
+        when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(projectMember()));
+        when(userMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(user()));
+
+        List<QualityIssueAssigneeOptionView> options = service.listAssigneeOptions();
+
+        assertFalse(options.isEmpty());
+        assertTrue("客户质量负责人".equals(options.get(0).getLabel()));
+        ArgumentCaptor<LambdaQueryWrapper<ProjectMemberEntity>> memberCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(projectMemberMapper).selectList(memberCaptor.capture());
+        String memberSqlSelect = memberCaptor.getValue().getSqlSelect();
+        assertTrue(memberSqlSelect.contains("user_id"));
+        assertFalse(memberSqlSelect.contains("role_code"));
+        assertFalse(memberSqlSelect.contains("status"));
+        assertFalse(memberSqlSelect.contains("created_at"));
+        assertFalse(memberSqlSelect.contains("updated_at"));
+
+        ArgumentCaptor<LambdaQueryWrapper<StudioUserEntity>> userCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(userMapper).selectList(userCaptor.capture());
+        String userSqlSelect = userCaptor.getValue().getSqlSelect();
+        assertTrue(userSqlSelect.contains("id"));
+        assertTrue(userSqlSelect.contains("username"));
+        assertTrue(userSqlSelect.contains("display_name"));
+        assertFalse(userSqlSelect.contains("password_hash"));
+        assertFalse(userSqlSelect.contains("enabled"));
+        assertFalse(userSqlSelect.contains("created_at"));
+        assertFalse(userSqlSelect.contains("updated_at"));
+        verify(issueMapper, never()).selectList(any(LambdaQueryWrapper.class));
     }
 
     private RunMetricDashboardQueryRequest runMetricRequest() {
@@ -223,5 +283,26 @@ class MetricsSourceSlimmingRegressionTest {
         view.setRuleDimension(QualityRuleDimension.COMPLETENESS);
         view.setGranularity(QualityRuleGranularity.COLUMN);
         return view;
+    }
+
+    private ProjectMemberEntity projectMember() {
+        ProjectMemberEntity entity = new ProjectMemberEntity();
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        entity.setUserId(200L);
+        entity.setRoleCode("PROJECT_MEMBER");
+        entity.setStatus("ACTIVE");
+        return entity;
+    }
+
+    private StudioUserEntity user() {
+        StudioUserEntity entity = new StudioUserEntity();
+        entity.setId(200L);
+        entity.setTenantId("default");
+        entity.setUsername("quality_owner");
+        entity.setDisplayName("客户质量负责人");
+        entity.setEnabled(1);
+        entity.setPasswordHash("$2a$secret");
+        return entity;
     }
 }

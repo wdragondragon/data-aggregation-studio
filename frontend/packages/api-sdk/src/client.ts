@@ -130,6 +130,7 @@ import type {
   QualityAssetRiskView,
   QualityAssetDetailView,
   QualityAssetQueryRequest,
+  QualityIssueAssigneeOptionView,
   QualityIssueView,
   QualityIssueDetailView,
   QualityIssueQueryRequest,
@@ -1332,6 +1333,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           { ...config, url: "/quality-metrics/model-options", method: "GET", params },
           params,
         );
+      },
+      assigneeOptions(config?: StudioRequestConfig) {
+        return request<QualityIssueAssigneeOptionView[]>({ ...config, url: "/quality-metrics/assignee-options", method: "GET" });
       },
       queryDashboard(payload?: QualityMetricDashboardQueryRequest, config?: StudioRequestConfig) {
         return request<QualityMetricDashboardView>({ ...config, url: "/quality-metrics/dashboard/query", method: "POST", data: payload });

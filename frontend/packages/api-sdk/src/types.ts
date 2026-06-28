@@ -1908,6 +1908,13 @@ export interface QualityMetricOptionsView {
   models: RunMetricFilterOption[];
 }
 
+export interface QualityIssueAssigneeOptionView {
+  userId?: EntityId;
+  username?: string;
+  displayName?: string;
+  label?: string;
+}
+
 export interface QualityScoreTrendPoint {
   dateLabel?: string;
   executionHealthScore?: number;
