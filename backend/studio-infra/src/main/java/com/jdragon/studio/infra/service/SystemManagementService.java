@@ -138,22 +138,24 @@ public class SystemManagementService {
     }
 
     public List<SystemTenantView> listTenants() {
-        List<TenantEntity> tenants;
-        if (hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN)) {
-            tenants = tenantMapper.selectList(new LambdaQueryWrapper<TenantEntity>()
-                    .orderByAsc(TenantEntity::getTenantName));
-        } else if (hasText(securityService.currentTenantId())) {
-            tenants = tenantMapper.selectList(new LambdaQueryWrapper<TenantEntity>()
-                    .eq(TenantEntity::getTenantId, securityService.currentTenantId())
-                    .orderByAsc(TenantEntity::getTenantName));
-        } else {
-            tenants = Collections.emptyList();
-        }
+        List<TenantEntity> tenants = tenantMapper.selectList(tenantListQuery());
         List<SystemTenantView> result = new ArrayList<SystemTenantView>();
         for (TenantEntity tenant : tenants) {
             result.add(toTenantView(tenant));
         }
         return result;
+    }
+
+    public PageView<SystemTenantView> listTenantsPage(Integer pageNo, Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        Page<TenantEntity> page = new Page<TenantEntity>(safePageNo, safePageSize);
+        Page<TenantEntity> entityPage = tenantMapper.selectPage(page, tenantListQuery());
+        List<SystemTenantView> items = new ArrayList<SystemTenantView>();
+        for (TenantEntity tenant : entityPage.getRecords()) {
+            items.add(toTenantView(tenant));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     @Transactional
@@ -192,19 +194,24 @@ public class SystemManagementService {
 
     public List<SystemProjectView> listProjects() {
         String tenantId = requireCurrentTenantId();
-        LambdaQueryWrapper<ProjectEntity> queryWrapper = new LambdaQueryWrapper<ProjectEntity>()
-                .eq(ProjectEntity::getTenantId, tenantId)
-                .orderByDesc(ProjectEntity::getDefaultProject)
-                .orderByAsc(ProjectEntity::getProjectName);
-        if (!hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN)
-                && securityService.currentProjectId() != null) {
-            queryWrapper.eq(ProjectEntity::getId, securityService.currentProjectId());
-        }
         List<SystemProjectView> result = new ArrayList<SystemProjectView>();
-        for (ProjectEntity project : projectMapper.selectList(queryWrapper)) {
+        for (ProjectEntity project : projectMapper.selectList(projectListQuery(tenantId))) {
             result.add(toProjectView(project));
         }
         return result;
+    }
+
+    public PageView<SystemProjectView> listProjectsPage(Integer pageNo, Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        String tenantId = requireCurrentTenantId();
+        Page<ProjectEntity> page = new Page<ProjectEntity>(safePageNo, safePageSize);
+        Page<ProjectEntity> entityPage = projectMapper.selectPage(page, projectListQuery(tenantId));
+        List<SystemProjectView> items = new ArrayList<SystemProjectView>();
+        for (ProjectEntity project : entityPage.getRecords()) {
+            items.add(toProjectView(project));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     @Transactional
@@ -260,15 +267,29 @@ public class SystemManagementService {
     public List<SystemTenantMemberView> listTenantMembers() {
         requireAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN);
         String tenantId = requireCurrentTenantId();
-        List<TenantMemberEntity> members = tenantMemberMapper.selectList(new LambdaQueryWrapper<TenantMemberEntity>()
-                .eq(TenantMemberEntity::getTenantId, tenantId)
-                .orderByAsc(TenantMemberEntity::getCreatedAt));
+        List<TenantMemberEntity> members = tenantMemberMapper.selectList(tenantMemberListQuery(tenantId));
         Map<Long, StudioUserEntity> userMap = loadUserMap(extractTenantUserIds(members));
         List<SystemTenantMemberView> result = new ArrayList<SystemTenantMemberView>();
         for (TenantMemberEntity member : members) {
             result.add(toTenantMemberView(member, userMap.get(member.getUserId())));
         }
         return result;
+    }
+
+    public PageView<SystemTenantMemberView> listTenantMembersPage(Integer pageNo, Integer pageSize) {
+        requireAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN);
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        String tenantId = requireCurrentTenantId();
+        Page<TenantMemberEntity> page = new Page<TenantMemberEntity>(safePageNo, safePageSize);
+        Page<TenantMemberEntity> entityPage = tenantMemberMapper.selectPage(page, tenantMemberListQuery(tenantId));
+        List<TenantMemberEntity> members = entityPage.getRecords();
+        Map<Long, StudioUserEntity> userMap = loadUserMap(extractTenantUserIds(members));
+        List<SystemTenantMemberView> items = new ArrayList<SystemTenantMemberView>();
+        for (TenantMemberEntity member : members) {
+            items.add(toTenantMemberView(member, userMap.get(member.getUserId())));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     @Transactional
@@ -303,15 +324,28 @@ public class SystemManagementService {
 
     public List<SystemProjectMemberView> listProjectMembers(Long projectId) {
         ProjectEntity project = requireManageableProject(projectId);
-        List<ProjectMemberEntity> members = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMemberEntity>()
-                .eq(ProjectMemberEntity::getProjectId, project.getId())
-                .orderByAsc(ProjectMemberEntity::getCreatedAt));
+        List<ProjectMemberEntity> members = projectMemberMapper.selectList(projectMemberListQuery(project));
         Map<Long, StudioUserEntity> userMap = loadUserMap(extractProjectUserIds(members));
         List<SystemProjectMemberView> result = new ArrayList<SystemProjectMemberView>();
         for (ProjectMemberEntity member : members) {
             result.add(toProjectMemberView(member, project, userMap.get(member.getUserId())));
         }
         return result;
+    }
+
+    public PageView<SystemProjectMemberView> listProjectMembersPage(Long projectId, Integer pageNo, Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        ProjectEntity project = requireManageableProject(projectId);
+        Page<ProjectMemberEntity> page = new Page<ProjectMemberEntity>(safePageNo, safePageSize);
+        Page<ProjectMemberEntity> entityPage = projectMemberMapper.selectPage(page, projectMemberListQuery(project));
+        List<ProjectMemberEntity> members = entityPage.getRecords();
+        Map<Long, StudioUserEntity> userMap = loadUserMap(extractProjectUserIds(members));
+        List<SystemProjectMemberView> items = new ArrayList<SystemProjectMemberView>();
+        for (ProjectMemberEntity member : members) {
+            items.add(toProjectMemberView(member, project, userMap.get(member.getUserId())));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     @Transactional
@@ -347,9 +381,7 @@ public class SystemManagementService {
 
     public List<SystemProjectMemberRequestView> listProjectMemberRequests(Long projectId) {
         ProjectEntity project = requireManageableProject(projectId);
-        List<ProjectMemberRequestEntity> requests = projectMemberRequestMapper.selectList(new LambdaQueryWrapper<ProjectMemberRequestEntity>()
-                .eq(ProjectMemberRequestEntity::getProjectId, project.getId())
-                .orderByDesc(ProjectMemberRequestEntity::getCreatedAt));
+        List<ProjectMemberRequestEntity> requests = projectMemberRequestMapper.selectList(projectMemberRequestListQuery(project));
         Set<Long> userIds = new LinkedHashSet<Long>();
         for (ProjectMemberRequestEntity request : requests) {
             addIfNotNull(userIds, request.getUserId());
@@ -473,6 +505,32 @@ public class SystemManagementService {
                     instances));
         }
         return result;
+    }
+
+    public PageView<SystemProjectMemberRequestView> listProjectMemberRequestsPage(Long projectId, Integer pageNo, Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        ProjectEntity project = requireManageableProject(projectId);
+        Page<ProjectMemberRequestEntity> page = new Page<ProjectMemberRequestEntity>(safePageNo, safePageSize);
+        Page<ProjectMemberRequestEntity> entityPage = projectMemberRequestMapper.selectPage(page, projectMemberRequestListQuery(project));
+        List<ProjectMemberRequestEntity> requests = entityPage.getRecords();
+        Set<Long> userIds = new LinkedHashSet<Long>();
+        for (ProjectMemberRequestEntity request : requests) {
+            addIfNotNull(userIds, request.getUserId());
+            addIfNotNull(userIds, request.getInviterUserId());
+            addIfNotNull(userIds, request.getReviewerUserId());
+        }
+        Map<Long, StudioUserEntity> userMap = loadUserMap(userIds);
+        List<SystemProjectMemberRequestView> items = new ArrayList<SystemProjectMemberRequestView>();
+        for (ProjectMemberRequestEntity request : requests) {
+            items.add(toProjectMemberRequestView(
+                    request,
+                    project,
+                    userMap.get(request.getUserId()),
+                    userMap.get(request.getInviterUserId()),
+                    userMap.get(request.getReviewerUserId())));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     @Transactional
@@ -606,6 +664,55 @@ public class SystemManagementService {
     public ProjectEntity requireTenantManagedProject(Long projectId) {
         requireAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN);
         return requireProject(projectId != null ? projectId : securityService.currentProjectId(), requireCurrentTenantId());
+    }
+
+    private LambdaQueryWrapper<TenantEntity> tenantListQuery() {
+        LambdaQueryWrapper<TenantEntity> queryWrapper = new LambdaQueryWrapper<TenantEntity>()
+                .orderByAsc(TenantEntity::getTenantName)
+                .orderByAsc(TenantEntity::getId);
+        if (hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN)) {
+            return queryWrapper;
+        }
+        if (hasText(securityService.currentTenantId())) {
+            queryWrapper.eq(TenantEntity::getTenantId, securityService.currentTenantId());
+        } else {
+            queryWrapper.eq(TenantEntity::getTenantId, "");
+        }
+        return queryWrapper;
+    }
+
+    private LambdaQueryWrapper<ProjectEntity> projectListQuery(String tenantId) {
+        LambdaQueryWrapper<ProjectEntity> queryWrapper = new LambdaQueryWrapper<ProjectEntity>()
+                .eq(ProjectEntity::getTenantId, tenantId)
+                .orderByDesc(ProjectEntity::getDefaultProject)
+                .orderByAsc(ProjectEntity::getProjectName)
+                .orderByAsc(ProjectEntity::getId);
+        if (!hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN)
+                && securityService.currentProjectId() != null) {
+            queryWrapper.eq(ProjectEntity::getId, securityService.currentProjectId());
+        }
+        return queryWrapper;
+    }
+
+    private LambdaQueryWrapper<TenantMemberEntity> tenantMemberListQuery(String tenantId) {
+        return new LambdaQueryWrapper<TenantMemberEntity>()
+                .eq(TenantMemberEntity::getTenantId, tenantId)
+                .orderByAsc(TenantMemberEntity::getCreatedAt)
+                .orderByAsc(TenantMemberEntity::getId);
+    }
+
+    private LambdaQueryWrapper<ProjectMemberEntity> projectMemberListQuery(ProjectEntity project) {
+        return new LambdaQueryWrapper<ProjectMemberEntity>()
+                .eq(ProjectMemberEntity::getProjectId, project.getId())
+                .orderByAsc(ProjectMemberEntity::getCreatedAt)
+                .orderByAsc(ProjectMemberEntity::getId);
+    }
+
+    private LambdaQueryWrapper<ProjectMemberRequestEntity> projectMemberRequestListQuery(ProjectEntity project) {
+        return new LambdaQueryWrapper<ProjectMemberRequestEntity>()
+                .eq(ProjectMemberRequestEntity::getProjectId, project.getId())
+                .orderByDesc(ProjectMemberRequestEntity::getCreatedAt)
+                .orderByDesc(ProjectMemberRequestEntity::getId);
     }
 
     private Map<Long, StudioUserEntity> loadUserMap(Set<Long> userIds) {

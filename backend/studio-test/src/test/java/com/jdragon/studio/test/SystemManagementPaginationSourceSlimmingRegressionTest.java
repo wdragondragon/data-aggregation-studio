@@ -1,0 +1,218 @@
+package com.jdragon.studio.test;
+
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.StudioUserListView;
+import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
+import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
+import com.jdragon.studio.infra.entity.ProjectEntity;
+import com.jdragon.studio.infra.entity.ProjectMemberEntity;
+import com.jdragon.studio.infra.entity.StudioUserEntity;
+import com.jdragon.studio.infra.entity.UserRegistrationRequestEntity;
+import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
+import com.jdragon.studio.infra.mapper.DataModelMapper;
+import com.jdragon.studio.infra.mapper.DataServiceDefinitionMapper;
+import com.jdragon.studio.infra.mapper.DatasourceMapper;
+import com.jdragon.studio.infra.mapper.ProjectMapper;
+import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
+import com.jdragon.studio.infra.mapper.ProjectMemberRequestMapper;
+import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
+import com.jdragon.studio.infra.mapper.ResourceShareMapper;
+import com.jdragon.studio.infra.mapper.StudioExternalUserBindingMapper;
+import com.jdragon.studio.infra.mapper.StudioUserMapper;
+import com.jdragon.studio.infra.mapper.TenantMapper;
+import com.jdragon.studio.infra.mapper.TenantMemberMapper;
+import com.jdragon.studio.infra.mapper.UserRegistrationRequestMapper;
+import com.jdragon.studio.infra.mapper.UserRoleMapper;
+import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
+import com.jdragon.studio.infra.service.NotificationService;
+import com.jdragon.studio.infra.service.StudioSecurityService;
+import com.jdragon.studio.infra.service.SystemManagementService;
+import com.jdragon.studio.infra.service.UserManagementService;
+import com.jdragon.studio.infra.service.UserRegistrationRequestService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Locale;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class SystemManagementPaginationSourceSlimmingRegressionTest {
+
+    @BeforeAll
+    static void initTableInfo() {
+        initTableInfo(StudioUserEntity.class);
+        initTableInfo(UserRegistrationRequestEntity.class);
+        initTableInfo(ProjectMemberEntity.class);
+    }
+
+    @Test
+    void usersPageShouldUseDatabasePaginationInsteadOfFullList() {
+        StudioUserMapper userMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        when(securityService.hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN)).thenReturn(true);
+        when(userMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<StudioUserEntity> page = invocation.getArgument(0);
+            page.setTotal(3L);
+            page.setRecords(Arrays.asList(user(10L, "lt_s64_客户运营", "客户运营"), user(11L, "lt_s64_订单分析", "订单分析")));
+            return page;
+        });
+        UserManagementService service = new UserManagementService(
+                userMapper,
+                mock(UserRoleMapper.class),
+                mock(PasswordEncoder.class),
+                securityService,
+                mock(StudioExternalUserBindingMapper.class));
+
+        PageView<StudioUserListView> page = service.listPage(2, 2);
+
+        assertThat(page.getPageNo()).isEqualTo(2);
+        assertThat(page.getPageSize()).isEqualTo(2);
+        assertThat(page.getTotal()).isEqualTo(3L);
+        assertThat(page.getItems()).extracting(StudioUserListView::getUsername)
+                .containsExactly("lt_s64_客户运营", "lt_s64_订单分析");
+        verify(userMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(userMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void registrationRequestsPageShouldExcludePasswordHashAtSqlSource() {
+        UserRegistrationRequestMapper requestMapper = mock(UserRegistrationRequestMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        when(securityService.hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN)).thenReturn(true);
+        when(requestMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            LambdaQueryWrapper<UserRegistrationRequestEntity> query = invocation.getArgument(1);
+            assertThat(String.valueOf(query.getSqlSelect()).toLowerCase(Locale.ROOT)).doesNotContain("password");
+            Page<UserRegistrationRequestEntity> page = invocation.getArgument(0);
+            page.setTotal(12L);
+            page.setRecords(Collections.singletonList(registrationRequest(30L, "lt_s64_供应链注册")));
+            return page;
+        });
+        UserRegistrationRequestService service = new UserRegistrationRequestService(
+                requestMapper,
+                mock(StudioUserMapper.class),
+                mock(PasswordEncoder.class),
+                securityService,
+                mock(NotificationService.class));
+
+        PageView<UserRegistrationRequestView> page = service.listPage(1, 1);
+
+        assertThat(page.getTotal()).isEqualTo(12L);
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().get(0).getUsername()).isEqualTo("lt_s64_供应链注册");
+        verify(requestMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(requestMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void projectMembersPageShouldHydrateUsersForCurrentPageOnly() {
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        ProjectMemberMapper projectMemberMapper = mock(ProjectMemberMapper.class);
+        StudioUserMapper userMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectEntity project = new ProjectEntity();
+        project.setId(100L);
+        project.setTenantId("default");
+        project.setProjectName("长期回归测试项目");
+        when(projectMapper.selectById(100L)).thenReturn(project);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
+        when(projectMemberMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<ProjectMemberEntity> page = invocation.getArgument(0);
+            page.setTotal(6L);
+            page.setRecords(Arrays.asList(projectMember(201L, 301L), projectMember(202L, 302L)));
+            return page;
+        });
+        when(userMapper.selectByIds(any())).thenReturn(Arrays.asList(
+                user(301L, "lt_s64_模型管理员", "模型管理员"),
+                user(302L, "lt_s64_质量分析师", "质量分析师")));
+        SystemManagementService service = systemService(projectMapper, projectMemberMapper, userMapper, securityService);
+
+        PageView<SystemProjectMemberView> page = service.listProjectMembersPage(100L, 1, 2);
+
+        assertThat(page.getTotal()).isEqualTo(6L);
+        assertThat(page.getItems()).extracting(SystemProjectMemberView::getUsername)
+                .containsExactly("lt_s64_模型管理员", "lt_s64_质量分析师");
+        verify(projectMemberMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(projectMemberMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    private SystemManagementService systemService(ProjectMapper projectMapper,
+                                                  ProjectMemberMapper projectMemberMapper,
+                                                  StudioUserMapper userMapper,
+                                                  StudioSecurityService securityService) {
+        return new SystemManagementService(
+                mock(TenantMapper.class),
+                projectMapper,
+                mock(TenantMemberMapper.class),
+                projectMemberMapper,
+                mock(ProjectMemberRequestMapper.class),
+                mock(ProjectWorkerBindingMapper.class),
+                mock(ResourceShareMapper.class),
+                userMapper,
+                mock(WorkerLeaseMapper.class),
+                mock(DatasourceMapper.class),
+                mock(DataModelMapper.class),
+                mock(CollectionTaskDefinitionMapper.class),
+                mock(WorkflowDefinitionMapper.class),
+                mock(DataDevelopmentScriptMapper.class),
+                mock(DataServiceDefinitionMapper.class),
+                mock(DataIngestionServiceMapper.class),
+                mock(ProtocolConversionServiceMapper.class),
+                securityService,
+                mock(NotificationService.class));
+    }
+
+    private StudioUserEntity user(Long id, String username, String displayName) {
+        StudioUserEntity user = new StudioUserEntity();
+        user.setId(id);
+        user.setTenantId("default");
+        user.setUsername(username);
+        user.setDisplayName(displayName);
+        user.setEnabled(1);
+        return user;
+    }
+
+    private UserRegistrationRequestEntity registrationRequest(Long id, String username) {
+        UserRegistrationRequestEntity request = new UserRegistrationRequestEntity();
+        request.setId(id);
+        request.setUsername(username);
+        request.setDisplayName("供应链注册用户");
+        request.setStatus(StudioConstants.REGISTRATION_REQUEST_PENDING);
+        return request;
+    }
+
+    private ProjectMemberEntity projectMember(Long id, Long userId) {
+        ProjectMemberEntity member = new ProjectMemberEntity();
+        member.setId(id);
+        member.setTenantId("default");
+        member.setProjectId(100L);
+        member.setUserId(userId);
+        member.setRoleCode(StudioConstants.ROLE_PROJECT_MEMBER);
+        member.setStatus(StudioConstants.MEMBER_STATUS_ACTIVE);
+        return member;
+    }
+
+    private static void initTableInfo(Class<?> entityClass) {
+        if (TableInfoHelper.getTableInfo(entityClass) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityClass);
+        }
+    }
+}

@@ -53,6 +53,13 @@ public class SystemManagementController {
         return Result.success(systemManagementService.listTenants());
     }
 
+    @Operation(summary = "List accessible tenants by page")
+    @GetMapping("/tenants/page")
+    public Result<PageView<SystemTenantView>> listTenantsPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                              @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(systemManagementService.listTenantsPage(pageNo, pageSize));
+    }
+
     @Operation(summary = "Create or update tenant")
     @PostMapping("/tenants")
     public Result<TenantEntity> saveTenant(@RequestBody TenantEntity entity) {
@@ -70,6 +77,13 @@ public class SystemManagementController {
     @GetMapping("/projects")
     public Result<List<SystemProjectView>> listProjects() {
         return Result.success(systemManagementService.listProjects());
+    }
+
+    @Operation(summary = "List accessible projects in current tenant by page")
+    @GetMapping("/projects/page")
+    public Result<PageView<SystemProjectView>> listProjectsPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(systemManagementService.listProjectsPage(pageNo, pageSize));
     }
 
     @Operation(summary = "Create or update project")
@@ -91,6 +105,13 @@ public class SystemManagementController {
         return Result.success(systemManagementService.listTenantMembers());
     }
 
+    @Operation(summary = "List tenant members by page")
+    @GetMapping("/tenant-members/page")
+    public Result<PageView<SystemTenantMemberView>> listTenantMembersPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                          @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(systemManagementService.listTenantMembersPage(pageNo, pageSize));
+    }
+
     @Operation(summary = "Create or update tenant member")
     @PostMapping("/tenant-members")
     public Result<TenantMemberEntity> saveTenantMember(@RequestBody TenantMemberEntity entity) {
@@ -110,6 +131,14 @@ public class SystemManagementController {
         return Result.success(systemManagementService.listProjectMembers(projectId));
     }
 
+    @Operation(summary = "List project members by page")
+    @GetMapping("/project-members/page")
+    public Result<PageView<SystemProjectMemberView>> listProjectMembersPage(@RequestParam(value = "projectId", required = false) Long projectId,
+                                                                            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(systemManagementService.listProjectMembersPage(projectId, pageNo, pageSize));
+    }
+
     @Operation(summary = "Create or update project member")
     @PostMapping("/project-members")
     public Result<ProjectMemberEntity> saveProjectMember(@RequestBody ProjectMemberEntity entity) {
@@ -127,6 +156,14 @@ public class SystemManagementController {
     @GetMapping("/project-member-requests")
     public Result<List<SystemProjectMemberRequestView>> listProjectMemberRequests(@RequestParam(value = "projectId", required = false) Long projectId) {
         return Result.success(systemManagementService.listProjectMemberRequests(projectId));
+    }
+
+    @Operation(summary = "List project membership requests by page")
+    @GetMapping("/project-member-requests/page")
+    public Result<PageView<SystemProjectMemberRequestView>> listProjectMemberRequestsPage(@RequestParam(value = "projectId", required = false) Long projectId,
+                                                                                          @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                                          @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(systemManagementService.listProjectMemberRequestsPage(projectId, pageNo, pageSize));
     }
 
     @Operation(summary = "Create or update project membership request")
@@ -201,6 +238,13 @@ public class SystemManagementController {
     @GetMapping("/user-registration-requests")
     public Result<List<UserRegistrationRequestView>> listUserRegistrationRequests() {
         return Result.success(userRegistrationRequestService.list());
+    }
+
+    @Operation(summary = "List user registration requests by page")
+    @GetMapping("/user-registration-requests/page")
+    public Result<PageView<UserRegistrationRequestView>> listUserRegistrationRequestsPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                                          @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(userRegistrationRequestService.listPage(pageNo, pageSize));
     }
 
     @Operation(summary = "Approve user registration request")

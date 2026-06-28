@@ -92,6 +92,7 @@
 | FIX-S61-001 | 数据质量/问题中心负责人 | 中 | `/quality-metrics` 问题中心负责人筛选和处置抽屉只需负责人选项，却调用系统管理项目成员表格接口，失败后还尝试全局用户列表 | `QualityIssueAssigneeOptionView.java`；`QualityIssueService.java`；`QualityMetricsController.java`；`QualityMetricsView.vue`；`frontend/packages/api-sdk/src/types.ts`；`frontend/packages/api-sdk/src/client.ts`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；长期项目 nginx `/quality-metrics/assignee-options` 仅返回 `displayName/label/userId/username`；build 后 nginx `/quality-metrics` 问题中心负责人筛选可见且 console warn/error 为 0 | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S62-001 | 运维中心/表格分页 | 中 | `/ops-center` 队列、运行事件、服务异常、接入异常和日志异常表格只展示小页数据，但后端先 `selectList` 拉取时间窗口全量数据后内存筛选、排序和分页 | `OpsCenterService.java`；`OpsCenterServiceRegressionTest.java` | `OpsCenterServiceRegressionTest`；`npm run build:web`；长期项目 nginx `/ops-center/*/query` 5 个表格接口 `pageSize=8`；build 后 nginx `/ops-center` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S63-001 | 开放服务监控/API统计表格 | 中 | `/data-service-metrics` 和 `/data-ingestion-metrics` 的 API 统计表格接口先全量读取时间窗口访问日志，再在 Java 内存聚合、排序和分页；访问日志分页接口还额外查询无关 counter 桶 | `DataServiceAccessLogMapper.java`；`DataIngestionAccessLogMapper.java`；`DataServiceMetricsService.java`；`DataIngestionMetricsService.java`；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest.java` | `OpenServiceMetricsApiStatsSourceSlimmingRegressionTest`；长期项目 nginx `/data-service-metrics/api-stats/query`、`/data-ingestion-metrics/api-stats/query`；build 后 nginx `/data-service-metrics`、`/data-ingestion-metrics` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
+| FIX-S64-001 | 系统管理/表格分页 | 中 | `/system` 用户、注册登记、租户、项目、租户成员、项目成员、申请/邀请表格使用全量列表接口；注册登记列表源查询还读取 `passwordHash` | `UserManagementService.java`；`UserRegistrationRequestService.java`；`SystemManagementService.java`；`UserController.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/client.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；下一轮补验 nginx `/system` 七个表格分页和新增 `/page` 接口 | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -163,3 +164,4 @@
 | S61 质量问题负责人选项源头瘦身 | FIX-S61-001 |
 | S62 运维中心表格分页源头瘦身 | FIX-S62-001 |
 | S63 开放服务 API 统计表格源头聚合分页 | FIX-S63-001 |
+| S64 系统管理表格分页源头瘦身 | FIX-S64-001 |

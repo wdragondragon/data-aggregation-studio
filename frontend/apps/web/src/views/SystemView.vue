@@ -37,6 +37,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.users.page"
+              v-model:page-size="systemPagination.users.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.users.total"
+              @current-change="reloadPaginatedTab('users')"
+              @size-change="handlePaginatedPageSizeChange('users')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane v-if="isSuperAdmin" label="注册登记" name="registrationRequests">
@@ -62,6 +74,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.registrationRequests.page"
+              v-model:page-size="systemPagination.registrationRequests.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.registrationRequests.total"
+              @current-change="reloadPaginatedTab('registrationRequests')"
+              @size-change="handlePaginatedPageSizeChange('registrationRequests')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="租户" name="tenants">
@@ -85,6 +109,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.tenants.page"
+              v-model:page-size="systemPagination.tenants.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.tenants.total"
+              @current-change="reloadPaginatedTab('tenants')"
+              @size-change="handlePaginatedPageSizeChange('tenants')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="项目" name="projects">
@@ -113,6 +149,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.projects.page"
+              v-model:page-size="systemPagination.projects.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.projects.total"
+              @current-change="reloadPaginatedTab('projects')"
+              @size-change="handlePaginatedPageSizeChange('projects')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="租户成员" name="tenantMembers">
@@ -132,6 +180,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.tenantMembers.page"
+              v-model:page-size="systemPagination.tenantMembers.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.tenantMembers.total"
+              @current-change="reloadPaginatedTab('tenantMembers')"
+              @size-change="handlePaginatedPageSizeChange('tenantMembers')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="项目成员" name="projectMembers">
@@ -152,6 +212,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.projectMembers.page"
+              v-model:page-size="systemPagination.projectMembers.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.projectMembers.total"
+              @current-change="reloadPaginatedTab('projectMembers')"
+              @size-change="handlePaginatedPageSizeChange('projectMembers')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="申请 / 邀请" name="requests">
@@ -174,6 +246,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.requests.page"
+              v-model:page-size="systemPagination.requests.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.requests.total"
+              @current-change="reloadPaginatedTab('requests')"
+              @size-change="handlePaginatedPageSizeChange('requests')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="Worker 下发" name="workers">
@@ -367,7 +451,7 @@
       <el-form label-position="top">
         <el-form-item label="用户">
           <el-select v-model="tenantMemberForm.userId" filterable style="width: 100%">
-            <el-option v-for="user in users" :key="user.id" :label="userLabel(user)" :value="user.id" />
+            <el-option v-for="user in userOptions" :key="user.id" :label="userLabel(user)" :value="user.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="角色">
@@ -394,7 +478,7 @@
       <el-form label-position="top">
         <el-form-item label="用户">
           <el-select v-model="projectMemberForm.userId" filterable style="width: 100%">
-            <el-option v-for="user in users" :key="user.id" :label="userLabel(user)" :value="user.id" />
+            <el-option v-for="user in userOptions" :key="user.id" :label="userLabel(user)" :value="user.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="角色">
@@ -420,7 +504,7 @@
       <el-form label-position="top">
         <el-form-item label="用户">
           <el-select v-model="requestForm.userId" filterable style="width: 100%">
-            <el-option v-for="user in users" :key="user.id" :label="userLabel(user)" :value="user.id" />
+            <el-option v-for="user in userOptions" :key="user.id" :label="userLabel(user)" :value="user.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="类型">
@@ -565,6 +649,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 const DEFAULT_SHARE_RESOURCE_TYPE = resourceTypeOptions[0].value;
+const SYSTEM_PAGE_SIZES = [10, 20, 50, 100];
 const activeTab = ref<SystemTabName>("tenants");
 const systemMounted = ref(false);
 const isSuperAdmin = computed(() => authStore.systemRoleCodes.map((item) => item.toUpperCase()).includes("SUPER_ADMIN"));
@@ -582,6 +667,8 @@ const tabLoading = reactive<Record<SystemTabName, boolean>>({
 const tenants = ref<SystemTenant[]>([]);
 const projects = ref<SystemProject[]>([]);
 const users = ref<StudioUserListView[]>([]);
+const projectOptions = ref<SystemProject[]>([]);
+const userOptions = ref<StudioUserListView[]>([]);
 const registrationRequests = ref<UserRegistrationRequestView[]>([]);
 const tenantMembers = ref<SystemTenantMember[]>([]);
 const projectMembers = ref<SystemProjectMember[]>([]);
@@ -593,6 +680,25 @@ const shareResourceLoading = ref(false);
 const loadedShareResourceTypes = reactive<Record<string, boolean>>({});
 const shareFilters = reactive<{ resourceType: string }>({
   resourceType: DEFAULT_SHARE_RESOURCE_TYPE,
+});
+type PaginatedSystemTabName = "users" | "registrationRequests" | "tenants" | "projects" | "tenantMembers" | "projectMembers" | "requests";
+
+function createPagination() {
+  return {
+    page: 1,
+    pageSize: 10,
+    total: 0,
+  };
+}
+
+const systemPagination = reactive<Record<PaginatedSystemTabName, ReturnType<typeof createPagination>>>({
+  users: createPagination(),
+  registrationRequests: createPagination(),
+  tenants: createPagination(),
+  projects: createPagination(),
+  tenantMembers: createPagination(),
+  projectMembers: createPagination(),
+  requests: createPagination(),
 });
 const resourceSharePagination = reactive({
   page: 1,
@@ -633,7 +739,7 @@ const workerGroupOptions = computed(() =>
 );
 const workerDialogTitle = computed(() => (workerForm.id ? "编辑 Worker 组下发" : "下发 Worker 组"));
 const shareTargetProjects = computed(() =>
-  projects.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
+  projectOptions.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
 );
 const shareableResources = computed(() => shareOptionList(normalizeResourceType(shareForm.resourceType)));
 const currentTabLoading = computed(() => tabLoading[activeTab.value]);
@@ -710,45 +816,102 @@ async function loadTab(tab: SystemTabName) {
 
 async function loadUsers() {
   await withTabLoading("users", async () => {
-    users.value = isSuperAdmin.value ? await studioApi.users.list(LOCAL_LOADING_REQUEST) : [];
+    if (!isSuperAdmin.value) {
+      users.value = [];
+      systemPagination.users.total = 0;
+      return;
+    }
+    const page = await studioApi.users.listPage({
+      pageNo: systemPagination.users.page,
+      pageSize: systemPagination.users.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    users.value = page.items || [];
+    systemPagination.users.total = page.total || 0;
   }, "加载用户失败");
 }
 
 async function loadRegistrationRequests() {
   await withTabLoading("registrationRequests", async () => {
-    registrationRequests.value = isSuperAdmin.value ? await studioApi.system.userRegistrationRequests.list(LOCAL_LOADING_REQUEST) : [];
+    if (!isSuperAdmin.value) {
+      registrationRequests.value = [];
+      systemPagination.registrationRequests.total = 0;
+      return;
+    }
+    const page = await studioApi.system.userRegistrationRequests.listPage({
+      pageNo: systemPagination.registrationRequests.page,
+      pageSize: systemPagination.registrationRequests.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    registrationRequests.value = page.items || [];
+    systemPagination.registrationRequests.total = page.total || 0;
   }, "加载注册登记失败");
 }
 
 async function loadTenants() {
   await withTabLoading("tenants", async () => {
-    tenants.value = await studioApi.system.tenants.list(LOCAL_LOADING_REQUEST);
+    const page = await studioApi.system.tenants.listPage({
+      pageNo: systemPagination.tenants.page,
+      pageSize: systemPagination.tenants.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    tenants.value = page.items || [];
+    systemPagination.tenants.total = page.total || 0;
   }, "加载租户失败");
 }
 
 async function loadProjects() {
   await withTabLoading("projects", async () => {
-    projects.value = await studioApi.system.projects.list(LOCAL_LOADING_REQUEST);
+    const page = await studioApi.system.projects.listPage({
+      pageNo: systemPagination.projects.page,
+      pageSize: systemPagination.projects.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    projects.value = page.items || [];
+    systemPagination.projects.total = page.total || 0;
   }, "加载项目失败");
 }
 
 async function loadTenantMembers() {
   await withTabLoading("tenantMembers", async () => {
-    tenantMembers.value = await studioApi.system.tenantMembers.list(LOCAL_LOADING_REQUEST);
+    const page = await studioApi.system.tenantMembers.listPage({
+      pageNo: systemPagination.tenantMembers.page,
+      pageSize: systemPagination.tenantMembers.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    tenantMembers.value = page.items || [];
+    systemPagination.tenantMembers.total = page.total || 0;
   }, "加载租户成员失败");
 }
 
 async function loadProjectMembers() {
   await withTabLoading("projectMembers", async () => {
     const currentProjectId = authStore.currentProjectId ?? undefined;
-    projectMembers.value = currentProjectId == null ? [] : await studioApi.system.projectMembers.list(currentProjectId, LOCAL_LOADING_REQUEST);
+    if (currentProjectId == null) {
+      projectMembers.value = [];
+      systemPagination.projectMembers.total = 0;
+      return;
+    }
+    const page = await studioApi.system.projectMembers.listPage({
+      projectId: currentProjectId,
+      pageNo: systemPagination.projectMembers.page,
+      pageSize: systemPagination.projectMembers.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    projectMembers.value = page.items || [];
+    systemPagination.projectMembers.total = page.total || 0;
   }, "加载项目成员失败");
 }
 
 async function loadProjectMemberRequests() {
   await withTabLoading("requests", async () => {
     const currentProjectId = authStore.currentProjectId ?? undefined;
-    projectMemberRequests.value = currentProjectId == null ? [] : await studioApi.system.projectMemberRequests.list(currentProjectId, LOCAL_LOADING_REQUEST);
+    if (currentProjectId == null) {
+      projectMemberRequests.value = [];
+      systemPagination.requests.total = 0;
+      return;
+    }
+    const page = await studioApi.system.projectMemberRequests.listPage({
+      projectId: currentProjectId,
+      pageNo: systemPagination.requests.page,
+      pageSize: systemPagination.requests.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    projectMemberRequests.value = page.items || [];
+    systemPagination.requests.total = page.total || 0;
   }, "加载申请 / 邀请失败");
 }
 
@@ -766,7 +929,7 @@ async function loadResourceSharesTab() {
 }
 
 async function loadProjectsData() {
-  projects.value = await studioApi.system.projects.list(LOCAL_LOADING_REQUEST);
+  projectOptions.value = await studioApi.system.projects.list(LOCAL_LOADING_REQUEST);
 }
 
 async function loadResourceSharesData() {
@@ -809,13 +972,19 @@ async function loadShareResourceOptions(resourceType = shareFilters.resourceType
 }
 
 function loadUsersForDialog() {
-  if (users.value.length === 0) {
-    void loadUsers();
+  if (userOptions.value.length === 0) {
+    void studioApi.users.list(LOCAL_LOADING_REQUEST)
+      .then((items) => {
+        userOptions.value = items;
+      })
+      .catch((error) => {
+        ElMessage.error(error instanceof Error ? error.message : "加载用户失败");
+      });
   }
 }
 
 function loadProjectsForDialog() {
-  if (projects.value.length === 0) {
+  if (projectOptions.value.length === 0) {
     void loadProjectsData().catch((error) => {
       ElMessage.error(error instanceof Error ? error.message : "加载项目失败");
     });
@@ -838,6 +1007,49 @@ function reloadResourceShares() {
   void withTabLoading("shares", async () => {
     await Promise.all([loadResourceSharesData(), loadShareResourceOptions(shareFilters.resourceType)]);
   }, "加载资源共享失败");
+}
+
+function reloadPaginatedTab(tab: PaginatedSystemTabName) {
+  switch (tab) {
+    case "users":
+      void loadUsers();
+      break;
+    case "registrationRequests":
+      void loadRegistrationRequests();
+      break;
+    case "tenants":
+      void loadTenants();
+      break;
+    case "projects":
+      void loadProjects();
+      break;
+    case "tenantMembers":
+      void loadTenantMembers();
+      break;
+    case "projectMembers":
+      void loadProjectMembers();
+      break;
+    case "requests":
+      void loadProjectMemberRequests();
+      break;
+  }
+}
+
+function handlePaginatedPageSizeChange(tab: PaginatedSystemTabName) {
+  systemPagination[tab].page = 1;
+  reloadPaginatedTab(tab);
+}
+
+function stepBackPaginatedPageAfterDelete(tab: PaginatedSystemTabName, currentItemCount: number) {
+  if (currentItemCount <= 1 && systemPagination[tab].page > 1) {
+    systemPagination[tab].page -= 1;
+  }
+}
+
+function resetPaginatedSystemPages() {
+  (Object.keys(systemPagination) as PaginatedSystemTabName[]).forEach((tab) => {
+    systemPagination[tab].page = 1;
+  });
 }
 
 function handleResourceShareTypeFilterChange() {
@@ -873,28 +1085,8 @@ function userLabel(user: StudioUserListView) {
   return user.displayName ? `${user.displayName} (${user.username})` : user.username;
 }
 
-function patchUserRow(saved: StudioUser) {
-  const row: StudioUserListView = {
-    id: saved.id,
-    tenantId: saved.tenantId,
-    deleted: saved.deleted,
-    createdAt: saved.createdAt,
-    updatedAt: saved.updatedAt,
-    username: saved.username,
-    displayName: saved.displayName,
-    enabled: saved.enabled,
-  };
-  const index = users.value.findIndex((item) => sameEntityId(item.id, row.id));
-  if (index >= 0) {
-    users.value.splice(index, 1, row);
-  } else {
-    users.value.push(row);
-  }
-  users.value.sort((left, right) => String(left.username || "").localeCompare(String(right.username || "")));
-}
-
 function resolveProjectLabel(projectId?: EntityId | null) {
-  return resolveProjectName(projects.value, projectId);
+  return resolveProjectName(projectOptions.value.length ? projectOptions.value : projects.value, projectId);
 }
 
 function shareOptionList(resourceType: string) {
@@ -916,64 +1108,6 @@ function resourceLabel(share: ResourceShare) {
   return option?.label ?? `${resourceType || "RESOURCE"} #${share.resourceId ?? "-"}`;
 }
 
-function compareText(left?: string | null, right?: string | null) {
-  return String(left || "").localeCompare(String(right || ""));
-}
-
-function compareCreatedDesc(left?: string | null, right?: string | null) {
-  return String(right || "").localeCompare(String(left || ""));
-}
-
-function rowIndex<T extends { id?: EntityId }>(items: T[], id?: EntityId | null) {
-  if (id == null) {
-    return -1;
-  }
-  return items.findIndex((item) => sameEntityId(item.id, id));
-}
-
-function upsertRow<T extends { id?: EntityId }>(items: T[], row: T, sort?: (left: T, right: T) => number) {
-  const index = rowIndex(items, row.id);
-  if (index >= 0) {
-    items.splice(index, 1, row);
-  } else {
-    items.push(row);
-  }
-  if (sort) {
-    items.sort(sort);
-  }
-}
-
-function removeRow<T extends { id?: EntityId }>(items: T[], id?: EntityId | null) {
-  const index = rowIndex(items, id);
-  if (index >= 0) {
-    items.splice(index, 1);
-  }
-}
-
-function userById(userId?: EntityId | null) {
-  if (userId == null) {
-    return undefined;
-  }
-  return users.value.find((item) => sameEntityId(item.id, userId));
-}
-
-function usernameById(userId?: EntityId | null) {
-  if (userId == null) {
-    return undefined;
-  }
-  if (sameEntityId(userId, authStore.userId)) {
-    return authStore.username ?? undefined;
-  }
-  return userById(userId)?.username;
-}
-
-function projectNameById(projectId?: EntityId | null) {
-  if (sameEntityId(projectId, authStore.currentProjectId)) {
-    return authStore.currentProjectName ?? resolveProjectLabel(projectId);
-  }
-  return resolveProjectLabel(projectId);
-}
-
 async function refreshProfileIf(condition: boolean) {
   if (condition) {
     await authStore.refreshProfile();
@@ -982,104 +1116,6 @@ async function refreshProfileIf(condition: boolean) {
 
 async function refreshProfileForUser(userId?: EntityId | null) {
   await refreshProfileIf(sameEntityId(userId, authStore.userId));
-}
-
-function toTenantRow(saved: SystemTenant): SystemTenant {
-  return {
-    ...saved,
-    enabled: toBooleanFlag(saved.enabled),
-  };
-}
-
-function toProjectRow(saved: SystemProject): SystemProject {
-  return {
-    ...saved,
-    enabled: toBooleanFlag(saved.enabled),
-    defaultProject: toBooleanFlag(saved.defaultProject),
-  };
-}
-
-function toTenantMemberRow(saved: SystemTenantMember, fallback?: Partial<SystemTenantMember>): SystemTenantMember {
-  const userId = saved.userId ?? fallback?.userId;
-  const user = userById(userId);
-  return {
-    ...fallback,
-    ...saved,
-    userId: userId as EntityId,
-    username: saved.username ?? fallback?.username ?? user?.username,
-    displayName: saved.displayName ?? fallback?.displayName ?? user?.displayName,
-  };
-}
-
-function toProjectMemberRow(saved: SystemProjectMember, fallback?: Partial<SystemProjectMember>): SystemProjectMember {
-  const userId = saved.userId ?? fallback?.userId;
-  const projectId = saved.projectId ?? fallback?.projectId ?? authStore.currentProjectId ?? undefined;
-  const user = userById(userId);
-  return {
-    ...fallback,
-    ...saved,
-    userId: userId as EntityId,
-    projectId,
-    username: saved.username ?? fallback?.username ?? user?.username,
-    displayName: saved.displayName ?? fallback?.displayName ?? user?.displayName,
-    projectName: saved.projectName ?? fallback?.projectName ?? projectNameById(projectId),
-  };
-}
-
-function toProjectRequestRow(saved: SystemProjectMemberRequest, fallback?: Partial<SystemProjectMemberRequest>): SystemProjectMemberRequest {
-  const userId = saved.userId ?? fallback?.userId;
-  const projectId = saved.projectId ?? fallback?.projectId ?? authStore.currentProjectId ?? undefined;
-  const inviterUserId = saved.inviterUserId ?? fallback?.inviterUserId;
-  const reviewerUserId = saved.reviewerUserId ?? fallback?.reviewerUserId;
-  const user = userById(userId);
-  return {
-    ...fallback,
-    ...saved,
-    userId: userId as EntityId,
-    projectId,
-    username: saved.username ?? fallback?.username ?? user?.username,
-    displayName: saved.displayName ?? fallback?.displayName ?? user?.displayName,
-    projectName: saved.projectName ?? fallback?.projectName ?? projectNameById(projectId),
-    inviterUserId,
-    inviterUsername: saved.inviterUsername ?? fallback?.inviterUsername ?? usernameById(inviterUserId),
-    reviewerUserId,
-    reviewerUsername: saved.reviewerUsername ?? fallback?.reviewerUsername ?? usernameById(reviewerUserId),
-  };
-}
-
-function patchTenantRow(saved: SystemTenant) {
-  upsertRow(tenants.value, toTenantRow(saved), (left, right) => compareText(left.tenantName, right.tenantName));
-}
-
-function patchProjectRow(saved: SystemProject) {
-  const row = toProjectRow(saved);
-  if (toBooleanFlag(row.defaultProject)) {
-    projects.value.forEach((item) => {
-      if (!sameEntityId(item.id, row.id)) {
-        item.defaultProject = false;
-      }
-    });
-  }
-  upsertRow(projects.value, row, (left, right) => {
-    const defaultRank = Number(toBooleanFlag(right.defaultProject)) - Number(toBooleanFlag(left.defaultProject));
-    return defaultRank || compareText(left.projectName, right.projectName);
-  });
-}
-
-function patchTenantMemberRow(saved: SystemTenantMember, fallback?: Partial<SystemTenantMember>) {
-  upsertRow(tenantMembers.value, toTenantMemberRow(saved, fallback), (left, right) => compareText(left.createdAt, right.createdAt));
-}
-
-function patchProjectMemberRow(saved: SystemProjectMember, fallback?: Partial<SystemProjectMember>) {
-  upsertRow(projectMembers.value, toProjectMemberRow(saved, fallback), (left, right) => compareText(left.createdAt, right.createdAt));
-}
-
-function patchProjectRequestRow(saved: SystemProjectMemberRequest, fallback?: Partial<SystemProjectMemberRequest>) {
-  upsertRow(projectMemberRequests.value, toProjectRequestRow(saved, fallback), (left, right) => compareCreatedDesc(left.createdAt, right.createdAt));
-}
-
-function patchRegistrationRequestRow(saved: UserRegistrationRequestView) {
-  upsertRow(registrationRequests.value, saved, (left, right) => compareCreatedDesc(left.createdAt, right.createdAt));
 }
 
 function patchProjectWorkerRow(saved: SystemProjectWorker) {
@@ -1281,7 +1317,9 @@ async function saveTenant() {
     enabled: toIntegerFlag(tenantForm.enabled),
   });
   await wrapSave(() => studioApi.system.tenants.save(payload), tenantDialogOpen, "租户保存成功", {
-    onSaved: patchTenantRow,
+    onSaved: async () => {
+      await loadTenants();
+    },
     refreshProfile: true,
   });
 }
@@ -1293,8 +1331,9 @@ async function saveUser() {
     passwordHash: userForm.passwordHash?.trim() ? userForm.passwordHash.trim() : undefined,
   };
   try {
-    const saved = await studioApi.users.save(payload);
-    patchUserRow(saved);
+    await studioApi.users.save(payload);
+    userOptions.value = [];
+    await loadUsers();
     userDialogOpen.value = false;
     ElMessage.success("用户保存成功");
   } catch (error) {
@@ -1309,7 +1348,10 @@ async function saveProject() {
     defaultProject: toIntegerFlag(projectForm.defaultProject),
   });
   await wrapSave(() => studioApi.system.projects.save(payload), projectDialogOpen, "项目保存成功", {
-    onSaved: patchProjectRow,
+    onSaved: async () => {
+      projectOptions.value = [];
+      await loadProjects();
+    },
     refreshProfile: true,
   });
 }
@@ -1318,7 +1360,7 @@ async function saveTenantMember() {
   const payload = normalizeDeletedFlag<Partial<SystemTenantMember>>({ ...tenantMemberForm });
   await wrapSave(() => studioApi.system.tenantMembers.save(payload), tenantMemberDialogOpen, "租户成员保存成功", {
     onSaved: async (saved) => {
-      patchTenantMemberRow(saved, payload);
+      await loadTenantMembers();
       await refreshProfileForUser(saved.userId ?? payload.userId);
     },
   });
@@ -1331,7 +1373,7 @@ async function saveProjectMember() {
   });
   await wrapSave(() => studioApi.system.projectMembers.save(payload), projectMemberDialogOpen, "项目成员保存成功", {
     onSaved: async (saved) => {
-      patchProjectMemberRow(saved, payload);
+      await loadProjectMembers();
       await refreshProfileForUser(saved.userId ?? payload.userId);
     },
   });
@@ -1344,7 +1386,7 @@ async function saveProjectRequest() {
   });
   await wrapSave(() => studioApi.system.projectMemberRequests.save(payload), requestDialogOpen, "申请 / 邀请保存成功", {
     onSaved: async (saved) => {
-      patchProjectRequestRow(saved, payload);
+      await loadProjectMemberRequests();
       if (isApprovedStatus(saved.status ?? payload.status)) {
         await refreshProfileForUser(saved.userId ?? payload.userId);
       }
@@ -1374,7 +1416,7 @@ async function approveProjectRequest(row: SystemProjectMemberRequest) {
     reviewComment: result.value?.trim() || undefined,
   });
   const saved = await studioApi.system.projectMemberRequests.save(payload);
-  patchProjectRequestRow(saved, payload);
+  await loadProjectMemberRequests();
   await refreshProfileForUser(saved.userId ?? payload.userId);
   ElMessage.success("项目加入申请已通过");
 }
@@ -1402,8 +1444,8 @@ async function rejectProjectRequest(row: SystemProjectMemberRequest) {
     status: "REJECTED",
     reviewComment: result.value.trim(),
   });
-  const saved = await studioApi.system.projectMemberRequests.save(payload);
-  patchProjectRequestRow(saved, payload);
+  await studioApi.system.projectMemberRequests.save(payload);
+  await loadProjectMemberRequests();
   ElMessage.success("项目加入申请已拒绝");
 }
 
@@ -1440,7 +1482,10 @@ async function saveResourceShare() {
 
 async function deleteTenant(row: SystemTenant) {
   await confirmDelete(`确认删除租户 ${row.tenantName} 吗？`, () => studioApi.system.tenants.delete(row.id!), {
-    onDeleted: () => removeRow(tenants.value, row.id),
+    onDeleted: async () => {
+      stepBackPaginatedPageAfterDelete("tenants", tenants.value.length);
+      await loadTenants();
+    },
     refreshProfile: true,
   });
 }
@@ -1449,7 +1494,9 @@ async function deleteUser(row: StudioUserListView) {
   try {
     await ElMessageBox.confirm(`确认删除用户 ${row.username} 吗？`, t("common.confirm"), { type: "warning" });
     await studioApi.users.delete(row.id!);
-    users.value = users.value.filter((item) => !sameEntityId(item.id, row.id));
+    userOptions.value = userOptions.value.filter((item) => !sameEntityId(item.id, row.id));
+    stepBackPaginatedPageAfterDelete("users", users.value.length);
+    await loadUsers();
     ElMessage.success("删除成功");
   } catch (error) {
     if (error !== "cancel") {
@@ -1460,7 +1507,11 @@ async function deleteUser(row: StudioUserListView) {
 
 async function deleteProject(row: SystemProject) {
   await confirmDelete(`确认删除项目 ${row.projectName} 吗？`, () => studioApi.system.projects.delete(row.id!), {
-    onDeleted: () => removeRow(projects.value, row.id),
+    onDeleted: async () => {
+      projectOptions.value = projectOptions.value.filter((item) => !sameEntityId(item.id, row.id));
+      stepBackPaginatedPageAfterDelete("projects", projects.value.length);
+      await loadProjects();
+    },
     refreshProfile: true,
   });
 }
@@ -1468,7 +1519,8 @@ async function deleteProject(row: SystemProject) {
 async function deleteTenantMember(row: SystemTenantMember) {
   await confirmDelete(`确认移除租户成员 ${row.username} 吗？`, () => studioApi.system.tenantMembers.delete(row.id!), {
     onDeleted: async () => {
-      removeRow(tenantMembers.value, row.id);
+      stepBackPaginatedPageAfterDelete("tenantMembers", tenantMembers.value.length);
+      await loadTenantMembers();
       await refreshProfileForUser(row.userId);
     },
   });
@@ -1477,7 +1529,8 @@ async function deleteTenantMember(row: SystemTenantMember) {
 async function deleteProjectMember(row: SystemProjectMember) {
   await confirmDelete(`确认移除项目成员 ${row.username} 吗？`, () => studioApi.system.projectMembers.delete(row.id!), {
     onDeleted: async () => {
-      removeRow(projectMembers.value, row.id);
+      stepBackPaginatedPageAfterDelete("projectMembers", projectMembers.value.length);
+      await loadProjectMembers();
       await refreshProfileForUser(row.userId);
     },
   });
@@ -1485,7 +1538,10 @@ async function deleteProjectMember(row: SystemProjectMember) {
 
 async function deleteProjectRequest(row: SystemProjectMemberRequest) {
   await confirmDelete(`确认删除记录 ${row.username} 吗？`, () => studioApi.system.projectMemberRequests.delete(row.id!), {
-    onDeleted: () => removeRow(projectMemberRequests.value, row.id),
+    onDeleted: async () => {
+      stepBackPaginatedPageAfterDelete("requests", projectMemberRequests.value.length);
+      await loadProjectMemberRequests();
+    },
   });
 }
 
@@ -1513,10 +1569,11 @@ async function approveRegistration(row: UserRegistrationRequestView) {
       cancelButtonText: t("common.cancel"),
       inputPlaceholder: "审批通过后会自动创建账号",
     });
-    const saved = await studioApi.system.userRegistrationRequests.approve(row.id!, {
+    await studioApi.system.userRegistrationRequests.approve(row.id!, {
       reviewComment: result.value?.trim() || undefined,
     });
-    patchRegistrationRequestRow(saved);
+    await loadRegistrationRequests();
+    userOptions.value = [];
     ElMessage.success("注册登记已通过");
   } catch (error) {
     if (error !== "cancel") {
@@ -1538,10 +1595,10 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
         return true;
       },
     });
-    const saved = await studioApi.system.userRegistrationRequests.reject(row.id!, {
+    await studioApi.system.userRegistrationRequests.reject(row.id!, {
       reviewComment: result.value.trim(),
     });
-    patchRegistrationRequestRow(saved);
+    await loadRegistrationRequests();
     ElMessage.success("注册登记已拒绝");
   } catch (error) {
     if (error !== "cancel") {
@@ -1552,7 +1609,10 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
 
 async function deleteRegistration(row: UserRegistrationRequestView) {
   await confirmDelete(`确认删除注册登记 ${row.username} 吗？`, () => studioApi.system.userRegistrationRequests.delete(row.id!), {
-    onDeleted: () => removeRow(registrationRequests.value, row.id),
+    onDeleted: async () => {
+      stepBackPaginatedPageAfterDelete("registrationRequests", registrationRequests.value.length);
+      await loadRegistrationRequests();
+    },
   });
 }
 
@@ -1627,6 +1687,7 @@ const systemActionHandlers: SystemActionHandlers = {
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   resetShareResourceCache();
+  resetPaginatedSystemPages();
   resourceSharePagination.page = 1;
   if (authStore.isAuthenticated) {
     loadCurrentTab();

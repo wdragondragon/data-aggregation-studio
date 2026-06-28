@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.service.UserManagementService;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -31,6 +33,13 @@ public class UserController {
     @GetMapping
     public Result<List<StudioUserListView>> list() {
         return Result.success(userManagementService.list());
+    }
+
+    @Operation(summary = "List users by page")
+    @GetMapping("/page")
+    public Result<PageView<StudioUserListView>> listPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                         @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(userManagementService.listPage(pageNo, pageSize));
     }
 
     @Operation(summary = "Create or update user")

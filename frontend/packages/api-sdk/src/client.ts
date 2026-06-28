@@ -1632,6 +1632,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(config?: StudioRequestConfig) {
         return request<StudioUserListView[]>({ ...config, url: "/users", method: "GET" });
       },
+      listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+        return requestPage<StudioUserListView>({ ...config, url: "/users/page", method: "GET", params }, params);
+      },
       save(payload: Partial<StudioUser>) {
         return request<StudioUser>({ url: "/users", method: "POST", data: payload });
       },
@@ -1666,6 +1669,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         list(config?: StudioRequestConfig) {
           return request<SystemTenant[]>({ ...config, url: "/system/tenants", method: "GET" });
         },
+        listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<SystemTenant>({ ...config, url: "/system/tenants/page", method: "GET", params }, params);
+        },
         save(payload: Partial<SystemTenant>) {
           return request<SystemTenant>({ url: "/system/tenants", method: "POST", data: payload });
         },
@@ -1677,6 +1683,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         list(config?: StudioRequestConfig) {
           return request<SystemProject[]>({ ...config, url: "/system/projects", method: "GET" });
         },
+        listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<SystemProject>({ ...config, url: "/system/projects/page", method: "GET", params }, params);
+        },
         save(payload: Partial<SystemProject>) {
           return request<SystemProject>({ url: "/system/projects", method: "POST", data: payload });
         },
@@ -1687,6 +1696,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       tenantMembers: {
         list(config?: StudioRequestConfig) {
           return request<SystemTenantMember[]>({ ...config, url: "/system/tenant-members", method: "GET" });
+        },
+        listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<SystemTenantMember>({ ...config, url: "/system/tenant-members/page", method: "GET", params }, params);
         },
         save(payload: Partial<SystemTenantMember>) {
           return request<SystemTenantMember>({ url: "/system/tenant-members", method: "POST", data: payload });
@@ -1704,6 +1716,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             params: projectId == null ? undefined : { projectId },
           });
         },
+        listPage(params?: { projectId?: EntityId; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<SystemProjectMember>({ ...config, url: "/system/project-members/page", method: "GET", params }, params);
+        },
         save(payload: Partial<SystemProjectMember>) {
           return request<SystemProjectMember>({ url: "/system/project-members", method: "POST", data: payload });
         },
@@ -1719,6 +1734,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             method: "GET",
             params: projectId == null ? undefined : { projectId },
           });
+        },
+        listPage(params?: { projectId?: EntityId; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<SystemProjectMemberRequest>({ ...config, url: "/system/project-member-requests/page", method: "GET", params }, params);
         },
         save(payload: Partial<SystemProjectMemberRequest>) {
           return request<SystemProjectMemberRequest>({ url: "/system/project-member-requests", method: "POST", data: payload });
@@ -1763,6 +1781,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       userRegistrationRequests: {
         list(config?: StudioRequestConfig) {
           return request<UserRegistrationRequestView[]>({ ...config, url: "/system/user-registration-requests", method: "GET" });
+        },
+        listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<UserRegistrationRequestView>({ ...config, url: "/system/user-registration-requests/page", method: "GET", params }, params);
         },
         approve(id: EntityId, payload?: UserRegistrationRequestReviewRequest) {
           return request<UserRegistrationRequestView>({

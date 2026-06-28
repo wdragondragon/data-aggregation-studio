@@ -1,9 +1,11 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.infra.entity.StudioExternalUserBindingEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
@@ -20,6 +22,10 @@ import java.util.List;
 
 @Service
 public class UserManagementService {
+
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 10;
+    private static final int MAX_PAGE_SIZE = 200;
 
     private final StudioUserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
@@ -41,21 +47,25 @@ public class UserManagementService {
 
     public List<StudioUserListView> list() {
         requireSuperAdmin();
-        List<StudioUserEntity> users = userMapper.selectList(new LambdaQueryWrapper<StudioUserEntity>()
-                .select(StudioUserEntity::getId,
-                        StudioUserEntity::getTenantId,
-                        StudioUserEntity::getDeleted,
-                        StudioUserEntity::getCreatedAt,
-                        StudioUserEntity::getUpdatedAt,
-                        StudioUserEntity::getUsername,
-                        StudioUserEntity::getDisplayName,
-                        StudioUserEntity::getEnabled)
-                .orderByAsc(StudioUserEntity::getUsername));
+        List<StudioUserEntity> users = userMapper.selectList(userListQuery());
         List<StudioUserListView> result = new ArrayList<StudioUserListView>();
         for (StudioUserEntity user : users) {
             result.add(toListView(user));
         }
         return result;
+    }
+
+    public PageView<StudioUserListView> listPage(Integer pageNo, Integer pageSize) {
+        requireSuperAdmin();
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        Page<StudioUserEntity> page = new Page<StudioUserEntity>(safePageNo, safePageSize);
+        Page<StudioUserEntity> entityPage = userMapper.selectPage(page, userListQuery());
+        List<StudioUserListView> items = new ArrayList<StudioUserListView>();
+        for (StudioUserEntity user : entityPage.getRecords()) {
+            items.add(toListView(user));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     @Transactional
@@ -180,6 +190,31 @@ public class UserManagementService {
         view.setDisplayName(entity.getDisplayName());
         view.setEnabled(entity.getEnabled());
         return view;
+    }
+
+    private LambdaQueryWrapper<StudioUserEntity> userListQuery() {
+        return new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getTenantId,
+                        StudioUserEntity::getDeleted,
+                        StudioUserEntity::getCreatedAt,
+                        StudioUserEntity::getUpdatedAt,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName,
+                        StudioUserEntity::getEnabled)
+                .orderByAsc(StudioUserEntity::getUsername)
+                .orderByAsc(StudioUserEntity::getId);
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        return pageNo == null || pageNo.intValue() < 1 ? DEFAULT_PAGE_NO : pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
     }
 
     private void requireSuperAdmin() {
