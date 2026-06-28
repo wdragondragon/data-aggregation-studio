@@ -185,9 +185,9 @@ const props = defineProps<{
 const { t } = useI18n();
 const router = useRouter();
 const MODEL_OPTION_PAGE_SIZE = 50;
+const LINEAGE_LEVELS: DataModelLineageLevel[] = ["DATABASE", "TABLE", "FIELD"];
 
 const activeLevel = ref<DataModelLineageLevel>("DATABASE");
-const loading = ref(false);
 const edgeLoading = ref(false);
 const edgeDrawerOpen = ref(false);
 const edgeDetail = ref<DataModelLineageEdgeDetailView>();
@@ -203,6 +203,21 @@ const lineageCache = reactive<Record<DataModelLineageLevel, DataModelLineageView
   DATABASE: emptyLineageView(),
   TABLE: emptyLineageView(),
   FIELD: emptyLineageView(),
+});
+const lineageLoaded = reactive<Record<DataModelLineageLevel, boolean>>({
+  DATABASE: false,
+  TABLE: false,
+  FIELD: false,
+});
+const lineageLoading = reactive<Record<DataModelLineageLevel, boolean>>({
+  DATABASE: false,
+  TABLE: false,
+  FIELD: false,
+});
+const lineageRequestSeq = reactive<Record<DataModelLineageLevel, number>>({
+  DATABASE: 0,
+  TABLE: 0,
+  FIELD: 0,
 });
 
 const manualForm = reactive<{
@@ -220,6 +235,7 @@ const manualForm = reactive<{
   targetFieldKey: undefined,
 });
 
+const loading = computed(() => lineageLoading[activeLevel.value]);
 const currentLineage = computed(() => lineageCache[activeLevel.value] ?? emptyLineageView());
 const graphRenderKey = computed(() => `${activeLevel.value}:${currentLineage.value.nodes.length}:${currentLineage.value.edges.length}`);
 const levelOptions = computed(() => [
@@ -282,17 +298,19 @@ watch(
     edgeDrawerOpen.value = false;
     edgeDetail.value = undefined;
     manualDialogOpen.value = false;
+    resetLineageCache();
     void loadCurrentModel();
-    void loadLineageBundle();
+    void loadLineageLevel(activeLevel.value, true);
   },
   { immediate: true },
 );
 
 watch(
   () => activeLevel.value,
-  () => {
+  (level) => {
     edgeDrawerOpen.value = false;
     edgeDetail.value = undefined;
+    void loadLineageLevel(level);
   },
 );
 
@@ -441,27 +459,45 @@ async function loadCurrentModel() {
   }
 }
 
-async function loadLineageBundle() {
+function resetLineageCache() {
+  for (const level of LINEAGE_LEVELS) {
+    lineageCache[level] = emptyLineageView();
+    lineageLoaded[level] = false;
+    lineageLoading[level] = false;
+    lineageRequestSeq[level] += 1;
+  }
+}
+
+function invalidateLineageCache() {
+  for (const level of LINEAGE_LEVELS) {
+    lineageLoaded[level] = false;
+  }
+}
+
+async function loadLineageLevel(level: DataModelLineageLevel, force = false) {
   if (!props.modelId) {
-    lineageCache.DATABASE = emptyLineageView();
-    lineageCache.TABLE = emptyLineageView();
-    lineageCache.FIELD = emptyLineageView();
+    resetLineageCache();
     return;
   }
-  loading.value = true;
+  if (!force && lineageLoaded[level]) {
+    return;
+  }
+  const modelId = props.modelId;
+  const requestSeq = lineageRequestSeq[level] + 1;
+  lineageRequestSeq[level] = requestSeq;
+  lineageLoading[level] = true;
   try {
-    const [databaseLineage, tableLineage, fieldLineage] = await Promise.all([
-      studioApi.models.lineage(props.modelId, "DATABASE"),
-      studioApi.models.lineage(props.modelId, "TABLE"),
-      studioApi.models.lineage(props.modelId, "FIELD"),
-    ]);
-    lineageCache.DATABASE = sanitizeLineage(databaseLineage);
-    lineageCache.TABLE = sanitizeLineage(tableLineage);
-    lineageCache.FIELD = sanitizeLineage(fieldLineage);
+    const lineage = await studioApi.models.lineage(modelId, level);
+    if (lineageRequestSeq[level] === requestSeq && normalizeId(props.modelId) === normalizeId(modelId)) {
+      lineageCache[level] = sanitizeLineage(lineage);
+      lineageLoaded[level] = true;
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.lineageLoadFailed"));
   } finally {
-    loading.value = false;
+    if (lineageRequestSeq[level] === requestSeq) {
+      lineageLoading[level] = false;
+    }
   }
 }
 
@@ -483,6 +519,10 @@ function sanitizeLineage(value?: DataModelLineageView) {
 }
 
 function switchLevel(level: DataModelLineageLevel) {
+  if (activeLevel.value === level) {
+    void loadLineageLevel(level);
+    return;
+  }
   activeLevel.value = level;
 }
 
@@ -669,7 +709,8 @@ async function submitManualRelation() {
     edgeDrawerOpen.value = false;
     edgeDetail.value = undefined;
     ElMessage.success(t("web.models.lineageManualSaveSuccess"));
-    await loadLineageBundle();
+    invalidateLineageCache();
+    await loadLineageLevel(activeLevel.value, true);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.models.lineageManualSaveFailed"));
   } finally {
@@ -691,7 +732,8 @@ async function deleteManualRelation(contributor: DataModelLineageContributorView
     edgeDrawerOpen.value = false;
     edgeDetail.value = undefined;
     ElMessage.success(t("web.models.lineageManualDeleteSuccess"));
-    await loadLineageBundle();
+    invalidateLineageCache();
+    await loadLineageLevel(activeLevel.value, true);
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.models.lineageManualDeleteFailed"));

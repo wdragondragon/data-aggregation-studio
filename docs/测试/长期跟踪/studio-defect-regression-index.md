@@ -98,6 +98,8 @@
 | FIX-S67-001 | 系统管理/资源共享表格 | 中 | `/system?tab=shares` 资源共享表格分页后仍为资源名和项目名预加载全量项目列表与当前类型全量资源候选，属于表面分页、内里全量水合 | `ResourceShareView.java`；`SystemManagementService.java`；`SystemResourceShareSupport.java`；`SystemManagementViewAssembler.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/types.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；nginx `/system/resource-shares/page` 返回当前页 `resourceLabel/sourceProjectName/targetProjectName`；build 后 nginx `/system?tab=shares` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S68-001 | 工作流运行/状态筛选分页 | 中 | `/workflow-runs?status=...` 先读取时间窗口内全部工作流运行 ID，再批量读取运行记录和调度任务，在 Java 内存派生状态后过滤分页；运行记录增长后状态筛选仍按全量候选增长 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java` | `WorkflowRunSourceSlimmingRegressionTest`、`WorkflowRunPaginationRegressionTest`；`npm run build:web`；nginx `/workflow-runs?status=SUCCESS/FAILED` API 复核；build 后 nginx `/runs?status=SUCCESS/FAILED` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S69-001 | 编辑页/数据源模型下拉 | 中 | 采集任务、数据接入、数据服务、质量任务编辑页的模型下拉只需选项字段，却在切换数据源时调用模型摘要接口预取 500/5000 条；详情字段已经按模型 id 单独获取 | `DataModelDatasourceOptionView.java`；`DataModelService.java`；`ModelController.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java`；`CollectionTaskEditorView.vue`；`DataIngestionServiceEditorView.vue`；`DataServiceEditorView.vue`；`QualityTaskEditorView.vue`；相关绑定组件；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；nginx `/models/datasource/{id}/options?pageSize=5000` 收敛为 100 且无元数据字段；build 后 nginx 4 个编辑页模型下拉 spot check | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S70-001 | 数据资产/模型血缘 | 中 | `/models/{id}/lineage` 和边详情可见性过滤只需要模型/数据源 ID，焦点节点只需摘要字段，却读取完整模型和数据源实体，包含元数据大字段 | `DataModelLineageService.java`；`DataModelLineageGraphAssembler.java`；`DataModelLineageSourceSlimmingRegressionTest.java` | `DataModelLineageRegressionTest`；`DataModelLineageSourceSlimmingRegressionTest`；IDEA Server health；血缘接口源查询字段断言 | module-regression | 2026-06-29 | `ce1bb3b` |
+| FIX-S71-001 | 数据资产/模型血缘 | 中 | 模型详情血缘 Tab 默认只展示当前层级，却一次并发加载库级、表级、字段级三套血缘；手工血缘写后也刷新全部层级 | `ModelLineagePanel.vue` | `npm run build:web`；构建产物无 `loadLineageBundle`；build-nginx `/models/2068089464502837249` 血缘库级/表级/字段级切换，console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -175,3 +177,5 @@
 | S67 系统管理资源共享表格标签水合源头瘦身 | FIX-S67-001 |
 | S68 工作流运行状态筛选分页源头瘦身 | FIX-S68-001 |
 | S69 模型下拉大页预取源头瘦身 | FIX-S69-001 |
+| S70 模型血缘可见性过滤源头瘦身 | FIX-S70-001 |
+| S71 模型血缘层级懒加载与写后刷新收敛 | FIX-S71-001 |
