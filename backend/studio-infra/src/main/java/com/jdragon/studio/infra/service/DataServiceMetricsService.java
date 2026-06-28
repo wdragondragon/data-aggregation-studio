@@ -163,12 +163,27 @@ public class DataServiceMetricsService {
     }
 
     public PageView<DataServiceApiMetricView> queryApiStats(DataServiceMetricQueryRequest request) {
-        MetricContext context = loadContext(request);
-        List<DataServiceApiMetricView> metrics = buildApiMetrics(context.logs, context.serviceMap);
-        metrics.sort(Comparator.comparing(DataServiceApiMetricView::getAccessCount, Comparator.nullsFirst(Long::compareTo))
-                .thenComparing(DataServiceApiMetricView::getLastAccessAt, Comparator.nullsFirst(LocalDateTime::compareTo))
-                .reversed());
-        return metricViewSupport.pageList(metrics, context.pageNo, context.pageSize);
+        DataServiceMetricQueryRequest safeRequest = request == null ? new DataServiceMetricQueryRequest() : request;
+        MetricContext context = loadContext(safeRequest, true);
+        if (context.serviceIds.isEmpty()) {
+            return PageView.of(context.pageNo, context.pageSize, 0L, new ArrayList<DataServiceApiMetricView>());
+        }
+        Integer successFilter = safeRequest.getSuccess() == null ? null : (Boolean.TRUE.equals(safeRequest.getSuccess()) ? Integer.valueOf(1) : Integer.valueOf(0));
+        Integer cacheHitFilter = safeRequest.getCacheHit() == null ? null : (Boolean.TRUE.equals(safeRequest.getCacheHit()) ? Integer.valueOf(1) : Integer.valueOf(0));
+        Long subscriptionId = isNoTokenSubscriptionFilter(safeRequest.getSubscriptionId()) ? null : safeRequest.getSubscriptionId();
+        boolean noTokenSubscription = isNoTokenSubscriptionFilter(safeRequest.getSubscriptionId());
+        String logFocus = normalizedLogFocus(safeRequest.getLogFocus());
+        Long minDurationMs = normalizeMinDurationMs(safeRequest.getMinDurationMs());
+        long total = accessLogMapper.countApiStats(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime);
+        List<DataServiceApiMetricView> metrics = total <= 0L
+                ? new ArrayList<DataServiceApiMetricView>()
+                : accessLogMapper.selectApiStatsPage(context.tenantId, context.projectId, context.serviceIds,
+                        subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
+                        context.startTime, context.endTime, context.pageSize, offset(context));
+        hydrateApiMetrics(metrics, context.serviceMap);
+        return PageView.of(context.pageNo, context.pageSize, total, metrics);
     }
 
     public PageView<DataServiceAccessLogListView> queryAccessLogs(DataServiceMetricQueryRequest request) {
@@ -218,7 +233,7 @@ public class DataServiceMetricsService {
         for (DataServiceDefinitionEntity service : services) {
             context.serviceIds.add(service.getId());
         }
-        if (!context.serviceIds.isEmpty()) {
+        if (!skipLogList && !context.serviceIds.isEmpty()) {
             Integer successFilter = safeRequest.getSuccess() == null ? null : (Boolean.TRUE.equals(safeRequest.getSuccess()) ? Integer.valueOf(1) : Integer.valueOf(0));
             Integer cacheHitFilter = safeRequest.getCacheHit() == null ? null : (Boolean.TRUE.equals(safeRequest.getCacheHit()) ? Integer.valueOf(1) : Integer.valueOf(0));
             Long counterSubscriptionId = counterSubscriptionId(safeRequest.getSubscriptionId());
@@ -475,6 +490,23 @@ public class DataServiceMetricsService {
                 .thenComparing(DataServiceApiMetricView::getFailureCount, Comparator.nullsFirst(Long::compareTo))
                 .reversed());
         return result;
+    }
+
+    private void hydrateApiMetrics(List<DataServiceApiMetricView> metrics,
+                                   Map<Long, DataServiceDefinitionEntity> serviceMap) {
+        if (metrics == null) {
+            return;
+        }
+        for (DataServiceApiMetricView metric : metrics) {
+            DataServiceDefinitionEntity service = serviceMap.get(metric.getServiceId());
+            if (service != null) {
+                metric.setServiceName(service.getServiceName());
+                metric.setServiceCode(service.getServiceCode());
+                metric.setStatus(service.getStatus());
+            }
+            metric.setSuccessRate(metricViewSupport.rate(safeLong(metric.getSuccessCount()), safeLong(metric.getAccessCount())));
+            metric.setCacheHitRate(metricViewSupport.rate(safeLong(metric.getCacheHitCount()), safeLong(metric.getCacheEnabledCount())));
+        }
     }
 
     private DataServiceApiMetricView buildApiMetric(List<DataServiceAccessLogEntity> logs) {
@@ -750,6 +782,21 @@ public class DataServiceMetricsService {
             return DEFAULT_PAGE_SIZE;
         }
         return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
+    }
+
+    private int offset(MetricContext context) {
+        return Math.max(0, (context.pageNo - 1) * context.pageSize);
+    }
+
+    private Long normalizeMinDurationMs(Long minDurationMs) {
+        return minDurationMs == null || minDurationMs.longValue() < 0L ? Long.valueOf(1000L) : minDurationMs;
+    }
+
+    private String normalizedLogFocus(String value) {
+        if (!isFocusedLogQuery(value)) {
+            return null;
+        }
+        return value.toUpperCase(Locale.ROOT);
     }
 
     private boolean isNoTokenSubscriptionFilter(Long subscriptionId) {
