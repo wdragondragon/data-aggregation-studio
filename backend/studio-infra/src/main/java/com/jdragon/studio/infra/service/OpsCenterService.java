@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.OpsCenterHealthStatus;
@@ -153,26 +154,33 @@ public class OpsCenterService {
 
     public PageView<OpsCenterQueueItemView> queryQueue(OpsCenterQueryRequest request) {
         Scope scope = scope(request);
-        List<DispatchTaskEntity> entities = queueTasks(scope, request);
-        entities.sort(Comparator.comparing(DispatchTaskEntity::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
-        PageSlice<DispatchTaskEntity> slice = slice(request, entities);
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
+        Page<DispatchTaskEntity> page = dispatchTaskMapper.selectPage(new Page<DispatchTaskEntity>(pageNo, pageSize),
+                queueTaskQuery(scope, request)
+                        .orderByAsc(DispatchTaskEntity::getCreatedAt)
+                        .orderByAsc(DispatchTaskEntity::getId));
         TargetNameResolver targetNameResolver = new TargetNameResolver(scope);
         List<OpsCenterQueueItemView> views = new ArrayList<OpsCenterQueueItemView>();
-        for (DispatchTaskEntity entity : slice.items) {
+        for (DispatchTaskEntity entity : page.getRecords()) {
             views.add(toQueueItem(entity, scope.now, targetNameResolver));
         }
-        return PageView.of(slice.pageNo, slice.pageSize, entities.size(), views);
+        return PageView.of(pageNo, pageSize, page.getTotal(), views);
     }
 
     public PageView<OpsCenterRunIncidentView> queryRuns(OpsCenterQueryRequest request) {
         Scope scope = scope(request);
-        List<RunRecordEntity> entities = runRecords(scope, request, true);
-        entities.sort(Comparator.comparing(RunRecordEntity::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
+        Page<RunRecordEntity> page = runRecordMapper.selectPage(new Page<RunRecordEntity>(pageNo, pageSize),
+                runRecordQuery(scope, request, true)
+                        .orderByDesc(RunRecordEntity::getCreatedAt)
+                        .orderByDesc(RunRecordEntity::getId));
         List<OpsCenterRunIncidentView> views = new ArrayList<OpsCenterRunIncidentView>();
-        for (RunRecordEntity entity : entities) {
+        for (RunRecordEntity entity : page.getRecords()) {
             views.add(toRunIncident(entity, scope.now));
         }
-        return page(request, views);
+        return PageView.of(pageNo, pageSize, page.getTotal(), views);
     }
 
     public PageView<OpsCenterWorkerGroupView> queryWorkers(OpsCenterQueryRequest request) {
@@ -190,41 +198,68 @@ public class OpsCenterService {
 
     public PageView<OpsCenterServiceEventView> queryServiceEvents(OpsCenterQueryRequest request) {
         Scope scope = scope(request);
-        List<DataServiceAccessLogEntity> logs = serviceLogs(scope, request);
-        List<OpsCenterServiceEventView> views = new ArrayList<OpsCenterServiceEventView>();
-        for (DataServiceAccessLogEntity log : logs) {
-            if (!isSuccess(log.getSuccess()) || safeLong(log.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS) {
-                views.add(toServiceEvent(log));
-            }
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
+        if (isRunScopedFilter(request)) {
+            return PageView.of(pageNo, pageSize, 0L, new ArrayList<OpsCenterServiceEventView>());
         }
-        views.sort(Comparator.comparing(OpsCenterServiceEventView::getOccurredAt, Comparator.nullsLast(Comparator.reverseOrder())));
-        return page(request, views);
+        Page<DataServiceAccessLogEntity> page = dataServiceAccessLogMapper.selectPage(
+                new Page<DataServiceAccessLogEntity>(pageNo, pageSize),
+                serviceLogQuery(scope, request)
+                        .and(wrapper -> wrapper.ne(DataServiceAccessLogEntity::getSuccess, 1)
+                                .or()
+                                .isNull(DataServiceAccessLogEntity::getSuccess)
+                                .or()
+                                .ge(DataServiceAccessLogEntity::getDurationMs, SLOW_CALL_THRESHOLD_MS))
+                        .orderByDesc(DataServiceAccessLogEntity::getOccurredAt)
+                        .orderByDesc(DataServiceAccessLogEntity::getId));
+        List<OpsCenterServiceEventView> views = new ArrayList<OpsCenterServiceEventView>();
+        for (DataServiceAccessLogEntity log : page.getRecords()) {
+            views.add(toServiceEvent(log));
+        }
+        return PageView.of(pageNo, pageSize, page.getTotal(), views);
     }
 
     public PageView<OpsCenterServiceEventView> queryIngestionEvents(OpsCenterQueryRequest request) {
         Scope scope = scope(request);
-        List<DataIngestionAccessLogEntity> logs = ingestionLogs(scope, request);
-        List<OpsCenterServiceEventView> views = new ArrayList<OpsCenterServiceEventView>();
-        for (DataIngestionAccessLogEntity log : logs) {
-            if (!isSuccess(log.getSuccess()) || safeLong(log.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS || safeLong(log.getFailedCount()) > 0L) {
-                views.add(toIngestionEvent(log));
-            }
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
+        if (isRunScopedFilter(request)) {
+            return PageView.of(pageNo, pageSize, 0L, new ArrayList<OpsCenterServiceEventView>());
         }
-        views.sort(Comparator.comparing(OpsCenterServiceEventView::getOccurredAt, Comparator.nullsLast(Comparator.reverseOrder())));
-        return page(request, views);
+        Page<DataIngestionAccessLogEntity> page = dataIngestionAccessLogMapper.selectPage(
+                new Page<DataIngestionAccessLogEntity>(pageNo, pageSize),
+                ingestionLogQuery(scope, request)
+                        .and(wrapper -> wrapper.ne(DataIngestionAccessLogEntity::getSuccess, 1)
+                                .or()
+                                .isNull(DataIngestionAccessLogEntity::getSuccess)
+                                .or()
+                                .ge(DataIngestionAccessLogEntity::getDurationMs, SLOW_CALL_THRESHOLD_MS)
+                                .or()
+                                .gt(DataIngestionAccessLogEntity::getFailedCount, 0L))
+                        .orderByDesc(DataIngestionAccessLogEntity::getOccurredAt)
+                        .orderByDesc(DataIngestionAccessLogEntity::getId));
+        List<OpsCenterServiceEventView> views = new ArrayList<OpsCenterServiceEventView>();
+        for (DataIngestionAccessLogEntity log : page.getRecords()) {
+            views.add(toIngestionEvent(log));
+        }
+        return PageView.of(pageNo, pageSize, page.getTotal(), views);
     }
 
     public PageView<OpsCenterLogEventView> queryLogEvents(OpsCenterQueryRequest request) {
         Scope scope = scope(request);
-        List<RunRecordEntity> entities = runRecords(scope, request, false);
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
+        Page<RunRecordEntity> page = runRecordMapper.selectPage(new Page<RunRecordEntity>(pageNo, pageSize),
+                runRecordQuery(scope, request, false)
+                        .and(wrapper -> logAbnormalSqlCondition(wrapper))
+                        .orderByDesc(RunRecordEntity::getCreatedAt)
+                        .orderByDesc(RunRecordEntity::getId));
         List<OpsCenterLogEventView> views = new ArrayList<OpsCenterLogEventView>();
-        for (RunRecordEntity entity : entities) {
-            if (isLogAbnormal(entity)) {
-                views.add(toLogEvent(entity));
-            }
+        for (RunRecordEntity entity : page.getRecords()) {
+            views.add(toLogEvent(entity));
         }
-        views.sort(Comparator.comparing(OpsCenterLogEventView::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
-        return page(request, views);
+        return PageView.of(pageNo, pageSize, page.getTotal(), views);
     }
 
     private void evaluateHealth(OpsCenterOverviewView view, Long longestQueueWaitMs) {
@@ -289,10 +324,15 @@ public class OpsCenterService {
     }
 
     private List<DispatchTaskEntity> queueTasks(Scope scope, OpsCenterQueryRequest request) {
+        return dispatchTaskMapper.selectList(queueTaskQuery(scope, request)
+                .orderByAsc(DispatchTaskEntity::getCreatedAt));
+    }
+
+    private LambdaQueryWrapper<DispatchTaskEntity> queueTaskQuery(Scope scope, OpsCenterQueryRequest request) {
         String executionType = request == null ? null : request.getExecutionType();
         String status = request == null ? null : request.getStatus();
         String workerGroupCode = request == null ? null : request.getWorkerGroupCode();
-        LambdaQueryWrapper<DispatchTaskEntity> query = new LambdaQueryWrapper<DispatchTaskEntity>()
+        return new LambdaQueryWrapper<DispatchTaskEntity>()
                 .select(DispatchTaskEntity::getId,
                         DispatchTaskEntity::getTenantId,
                         DispatchTaskEntity::getProjectId,
@@ -320,16 +360,19 @@ public class OpsCenterService {
                 .in(DispatchTaskEntity::getStatus, Arrays.asList("QUEUED", "RUNNING"))
                 .eq(hasText(executionType), DispatchTaskEntity::getExecutionType, upper(executionType))
                 .eq(hasText(status), DispatchTaskEntity::getStatus, upper(status))
-                .eq(hasText(workerGroupCode), DispatchTaskEntity::getWorkerGroupCode, trim(workerGroupCode))
-                .orderByAsc(DispatchTaskEntity::getCreatedAt);
-        return dispatchTaskMapper.selectList(query);
+                .eq(hasText(workerGroupCode), DispatchTaskEntity::getWorkerGroupCode, trim(workerGroupCode));
     }
 
     private List<RunRecordEntity> runRecords(Scope scope, OpsCenterQueryRequest request, boolean incidentsOnly) {
+        return runRecordMapper.selectList(runRecordQuery(scope, request, incidentsOnly)
+                .orderByDesc(RunRecordEntity::getCreatedAt));
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> runRecordQuery(Scope scope, OpsCenterQueryRequest request, boolean incidentsOnly) {
         String executionType = request == null ? null : request.getExecutionType();
         String status = request == null ? null : request.getStatus();
         String workerGroupCode = request == null ? null : request.getWorkerGroupCode();
-        List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
+        LambdaQueryWrapper<RunRecordEntity> query = new LambdaQueryWrapper<RunRecordEntity>()
                 .select(RunRecordEntity::getId,
                         RunRecordEntity::getTenantId,
                         RunRecordEntity::getProjectId,
@@ -361,25 +404,27 @@ public class OpsCenterService {
                 .le(RunRecordEntity::getCreatedAt, scope.endTime)
                 .eq(hasText(executionType), RunRecordEntity::getExecutionType, upper(executionType))
                 .eq(hasText(status), RunRecordEntity::getStatus, upper(status))
-                .eq(hasText(workerGroupCode), RunRecordEntity::getWorkerGroupCode, trim(workerGroupCode))
-                .orderByDesc(RunRecordEntity::getCreatedAt));
-        if (!incidentsOnly || hasText(request == null ? null : request.getStatus())) {
-            return records;
+                .eq(hasText(workerGroupCode), RunRecordEntity::getWorkerGroupCode, trim(workerGroupCode));
+        if (incidentsOnly && !hasText(status)) {
+            query.and(wrapper -> wrapper.in(RunRecordEntity::getStatus, Arrays.asList("FAILED", "ERROR", "RUNNING", "QUEUED"))
+                    .or()
+                    .and(inner -> logAbnormalSqlCondition(inner))
+                    .or()
+                    .and(inner -> slowRunSqlCondition(inner, scope.now)));
         }
-        List<RunRecordEntity> result = new ArrayList<RunRecordEntity>();
-        for (RunRecordEntity record : records) {
-            if (isFailedStatus(record.getStatus()) || isRunningStatus(record.getStatus()) || isSlowRun(record, scope.now) || isLogAbnormal(record)) {
-                result.add(record);
-            }
-        }
-        return result;
+        return query;
     }
 
     private List<DataServiceAccessLogEntity> serviceLogs(Scope scope, OpsCenterQueryRequest request) {
         if (isRunScopedFilter(request)) {
             return Collections.emptyList();
         }
-        List<DataServiceAccessLogEntity> logs = dataServiceAccessLogMapper.selectList(new LambdaQueryWrapper<DataServiceAccessLogEntity>()
+        return dataServiceAccessLogMapper.selectList(serviceLogQuery(scope, request)
+                .orderByDesc(DataServiceAccessLogEntity::getOccurredAt));
+    }
+
+    private LambdaQueryWrapper<DataServiceAccessLogEntity> serviceLogQuery(Scope scope, OpsCenterQueryRequest request) {
+        LambdaQueryWrapper<DataServiceAccessLogEntity> query = new LambdaQueryWrapper<DataServiceAccessLogEntity>()
                 .select(DataServiceAccessLogEntity::getId,
                         DataServiceAccessLogEntity::getTenantId,
                         DataServiceAccessLogEntity::getProjectId,
@@ -400,26 +445,21 @@ public class OpsCenterService {
                 .eq(DataServiceAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataServiceAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataServiceAccessLogEntity::getOccurredAt, scope.startTime)
-                .le(DataServiceAccessLogEntity::getOccurredAt, scope.endTime)
-                .orderByDesc(DataServiceAccessLogEntity::getOccurredAt));
-        String status = request == null ? null : request.getStatus();
-        if (!hasText(status)) {
-            return logs;
-        }
-        List<DataServiceAccessLogEntity> result = new ArrayList<DataServiceAccessLogEntity>();
-        for (DataServiceAccessLogEntity log : logs) {
-            if (matchesAccessLogStatus(log.getSuccess(), status)) {
-                result.add(log);
-            }
-        }
-        return result;
+                .le(DataServiceAccessLogEntity::getOccurredAt, scope.endTime);
+        applyServiceAccessLogStatusFilter(query, request == null ? null : request.getStatus());
+        return query;
     }
 
     private List<DataIngestionAccessLogEntity> ingestionLogs(Scope scope, OpsCenterQueryRequest request) {
         if (isRunScopedFilter(request)) {
             return Collections.emptyList();
         }
-        List<DataIngestionAccessLogEntity> logs = dataIngestionAccessLogMapper.selectList(new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
+        return dataIngestionAccessLogMapper.selectList(ingestionLogQuery(scope, request)
+                .orderByDesc(DataIngestionAccessLogEntity::getOccurredAt));
+    }
+
+    private LambdaQueryWrapper<DataIngestionAccessLogEntity> ingestionLogQuery(Scope scope, OpsCenterQueryRequest request) {
+        LambdaQueryWrapper<DataIngestionAccessLogEntity> query = new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
                 .select(DataIngestionAccessLogEntity::getId,
                         DataIngestionAccessLogEntity::getTenantId,
                         DataIngestionAccessLogEntity::getProjectId,
@@ -442,19 +482,66 @@ public class OpsCenterService {
                 .eq(DataIngestionAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataIngestionAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataIngestionAccessLogEntity::getOccurredAt, scope.startTime)
-                .le(DataIngestionAccessLogEntity::getOccurredAt, scope.endTime)
-                .orderByDesc(DataIngestionAccessLogEntity::getOccurredAt));
-        String status = request == null ? null : request.getStatus();
-        if (!hasText(status)) {
-            return logs;
+                .le(DataIngestionAccessLogEntity::getOccurredAt, scope.endTime);
+        applyIngestionAccessLogStatusFilter(query, request == null ? null : request.getStatus());
+        return query;
+    }
+
+    private void applyServiceAccessLogStatusFilter(LambdaQueryWrapper<DataServiceAccessLogEntity> query, String status) {
+        String normalized = upper(status);
+        if (!hasText(normalized)) {
+            return;
         }
-        List<DataIngestionAccessLogEntity> result = new ArrayList<DataIngestionAccessLogEntity>();
-        for (DataIngestionAccessLogEntity log : logs) {
-            if (matchesAccessLogStatus(log.getSuccess(), status)) {
-                result.add(log);
-            }
+        if ("SUCCESS".equals(normalized)) {
+            query.eq(DataServiceAccessLogEntity::getSuccess, 1);
+            return;
         }
-        return result;
+        if ("FAILED".equals(normalized) || "ERROR".equals(normalized)) {
+            query.and(wrapper -> wrapper.ne(DataServiceAccessLogEntity::getSuccess, 1)
+                    .or()
+                    .isNull(DataServiceAccessLogEntity::getSuccess));
+            return;
+        }
+        query.eq(DataServiceAccessLogEntity::getId, Long.valueOf(-1L));
+    }
+
+    private void applyIngestionAccessLogStatusFilter(LambdaQueryWrapper<DataIngestionAccessLogEntity> query, String status) {
+        String normalized = upper(status);
+        if (!hasText(normalized)) {
+            return;
+        }
+        if ("SUCCESS".equals(normalized)) {
+            query.eq(DataIngestionAccessLogEntity::getSuccess, 1);
+            return;
+        }
+        if ("FAILED".equals(normalized) || "ERROR".equals(normalized)) {
+            query.and(wrapper -> wrapper.ne(DataIngestionAccessLogEntity::getSuccess, 1)
+                    .or()
+                    .isNull(DataIngestionAccessLogEntity::getSuccess));
+            return;
+        }
+        query.eq(DataIngestionAccessLogEntity::getId, Long.valueOf(-1L));
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> logAbnormalSqlCondition(LambdaQueryWrapper<RunRecordEntity> wrapper) {
+        return wrapper.and(inner -> inner.isNotNull(RunRecordEntity::getLogErrorSummary)
+                        .ne(RunRecordEntity::getLogErrorSummary, ""))
+                .or()
+                .and(inner -> inner.isNotNull(RunRecordEntity::getLogStatus)
+                        .ne(RunRecordEntity::getLogStatus, "")
+                        .notIn(RunRecordEntity::getLogStatus, Arrays.asList("AVAILABLE", "WRITING")));
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> slowRunSqlCondition(LambdaQueryWrapper<RunRecordEntity> wrapper, LocalDateTime now) {
+        LocalDateTime thresholdStartTime = now.minus(Duration.ofMillis(SLOW_RUN_THRESHOLD_MS));
+        return wrapper.isNotNull(RunRecordEntity::getStartedAt)
+                .and(inner -> inner
+                        .and(running -> running.isNull(RunRecordEntity::getEndedAt)
+                                .le(RunRecordEntity::getStartedAt, thresholdStartTime))
+                        .or()
+                        .and(completed -> completed.isNotNull(RunRecordEntity::getEndedAt)
+                                .apply("timestampdiff(microsecond, started_at, ended_at) >= {0}",
+                                        Long.valueOf(SLOW_RUN_THRESHOLD_MS * 1000L))));
     }
 
     private List<OpsCenterWorkerGroupView> workerGroups(Scope scope) {
@@ -718,11 +805,19 @@ public class OpsCenterService {
 
     private <T> PageSlice<T> slice(OpsCenterQueryRequest request, List<T> values) {
         List<T> safeValues = values == null ? Collections.<T>emptyList() : values;
-        int pageNo = request == null || request.getPageNo() == null || request.getPageNo().intValue() <= 0 ? 1 : request.getPageNo().intValue();
-        int pageSize = request == null || request.getPageSize() == null || request.getPageSize().intValue() <= 0 ? 20 : Math.min(request.getPageSize().intValue(), 200);
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
         int fromIndex = Math.min((pageNo - 1) * pageSize, safeValues.size());
         int toIndex = Math.min(fromIndex + pageSize, safeValues.size());
         return new PageSlice<T>(pageNo, pageSize, safeValues.size(), new ArrayList<T>(safeValues.subList(fromIndex, toIndex)));
+    }
+
+    private int normalizePageNo(OpsCenterQueryRequest request) {
+        return request == null || request.getPageNo() == null || request.getPageNo().intValue() <= 0 ? 1 : request.getPageNo().intValue();
+    }
+
+    private int normalizePageSize(OpsCenterQueryRequest request) {
+        return request == null || request.getPageSize() == null || request.getPageSize().intValue() <= 0 ? 20 : Math.min(request.getPageSize().intValue(), 200);
     }
 
     private boolean isLogAbnormal(RunRecordEntity entity) {
@@ -837,20 +932,6 @@ public class OpsCenterService {
 
     private boolean isRunScopedFilter(OpsCenterQueryRequest request) {
         return request != null && (hasText(request.getExecutionType()) || hasText(request.getWorkerGroupCode()));
-    }
-
-    private boolean matchesAccessLogStatus(Integer success, String status) {
-        String normalizedStatus = upper(status);
-        if (!hasText(normalizedStatus)) {
-            return true;
-        }
-        if ("SUCCESS".equals(normalizedStatus)) {
-            return isSuccess(success);
-        }
-        if ("FAILED".equals(normalizedStatus) || "ERROR".equals(normalizedStatus)) {
-            return !isSuccess(success);
-        }
-        return false;
     }
 
     private boolean hasText(String value) {

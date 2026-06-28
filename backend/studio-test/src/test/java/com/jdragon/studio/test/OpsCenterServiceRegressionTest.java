@@ -3,6 +3,7 @@ package com.jdragon.studio.test;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.OpsCenterHealthStatus;
@@ -34,6 +35,7 @@ import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.service.OpsCenterService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.mockito.ArgumentCaptor;
@@ -47,10 +49,24 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class OpsCenterServiceRegressionTest {
+
+    @BeforeAll
+    static void initMyBatisLambdaCaches() {
+        initTableInfo(DispatchTaskEntity.class);
+        initTableInfo(RunRecordEntity.class);
+        initTableInfo(DataServiceAccessLogEntity.class);
+        initTableInfo(DataIngestionAccessLogEntity.class);
+        initTableInfo(ProjectWorkerBindingEntity.class);
+        initTableInfo(WorkerLeaseEntity.class);
+        initTableInfo(WorkflowDefinitionEntity.class);
+        initTableInfo(CollectionTaskDefinitionEntity.class);
+        initTableInfo(QualityTaskDefinitionEntity.class);
+    }
 
     @Test
     void shouldBeHealthyWhenOnlyWorkerIsOnline() {
@@ -157,6 +173,32 @@ class OpsCenterServiceRegressionTest {
     }
 
     @Test
+    void shouldUseDatabasePaginationForOpsCenterTableSections() {
+        Fixture fixture = new Fixture();
+        fixture.withDispatchTask(queueTask("QUEUED", LocalDateTime.now().minusMinutes(1L)));
+        RunRecordEntity runRecord = runRecord("FAILED", LocalDateTime.now().minusMinutes(2L), LocalDateTime.now().minusMinutes(1L));
+        runRecord.setLogStatus("UPLOAD_FAILED");
+        runRecord.setLogErrorSummary("object storage unavailable");
+        fixture.withRunRecord(runRecord);
+        fixture.withServiceLog(serviceLog(0, 500, 200L));
+        fixture.withIngestionLog(ingestionLog(1, 200, 300L, 1L));
+        OpsCenterQueryRequest request = new OpsCenterQueryRequest();
+        request.setPageNo(1);
+        request.setPageSize(8);
+
+        fixture.service.queryQueue(request);
+        fixture.service.queryRuns(request);
+        fixture.service.queryServiceEvents(request);
+        fixture.service.queryIngestionEvents(request);
+        fixture.service.queryLogEvents(request);
+
+        verify(fixture.dispatchTaskMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(fixture.runRecordMapper, times(2)).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(fixture.dataServiceAccessLogMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(fixture.dataIngestionAccessLogMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+    }
+
+    @Test
     void shouldBeWarningWhenRunOrServiceOrIngestionFailureExists() {
         Fixture fixture = new Fixture();
         fixture.withOnlineWorker("default-pool");
@@ -257,7 +299,7 @@ class OpsCenterServiceRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(fixture.runRecordMapper).selectList(captor.capture());
 
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), RunRecordEntity.class);
+        initTableInfo(RunRecordEntity.class);
         String sqlSegment = captor.getValue().getSqlSegment();
         assertTrue(sqlSegment.contains("tenant_id"));
         assertTrue(sqlSegment.contains("project_id"));
@@ -348,6 +390,12 @@ class OpsCenterServiceRegressionTest {
         entity.setUpdatedAt(createdAt);
     }
 
+    private static void initTableInfo(Class<?> entityType) {
+        if (TableInfoHelper.getTableInfo(entityType) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityType);
+        }
+    }
+
     private static final class Fixture {
         private final DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         private final RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
@@ -381,6 +429,14 @@ class OpsCenterServiceRegressionTest {
             when(projectWorkerBindingMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
             when(dataServiceAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
             when(dataIngestionAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+            when(dispatchTaskMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
+            when(runRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
+            when(dataServiceAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
+            when(dataIngestionAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
         }
 
         private void withOnlineWorker(String groupCode) {
@@ -403,18 +459,40 @@ class OpsCenterServiceRegressionTest {
 
         private void withDispatchTask(DispatchTaskEntity task) {
             when(dispatchTaskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(task));
+            when(dispatchTaskMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> singleItemPage(invocation.getArgument(0), task));
         }
 
         private void withRunRecord(RunRecordEntity record) {
             when(runRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(record));
+            when(runRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> singleItemPage(invocation.getArgument(0), record));
         }
 
         private void withServiceLog(DataServiceAccessLogEntity log) {
             when(dataServiceAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(log));
+            when(dataServiceAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> singleItemPage(invocation.getArgument(0), log));
         }
 
         private void withIngestionLog(DataIngestionAccessLogEntity log) {
             when(dataIngestionAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(log));
+            when(dataIngestionAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> singleItemPage(invocation.getArgument(0), log));
+        }
+
+        private static <T> Page<T> emptyPage(Page<T> requestPage) {
+            Page<T> page = new Page<T>(requestPage.getCurrent(), requestPage.getSize());
+            page.setRecords(Collections.emptyList());
+            page.setTotal(0L);
+            return page;
+        }
+
+        private static <T> Page<T> singleItemPage(Page<T> requestPage, T item) {
+            Page<T> page = new Page<T>(requestPage.getCurrent(), requestPage.getSize());
+            page.setRecords(Collections.singletonList(item));
+            page.setTotal(1L);
+            return page;
         }
     }
 }
