@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.dto.enums.LineageLevel;
 import com.jdragon.studio.dto.model.DataModelLineageContributorView;
 import com.jdragon.studio.dto.model.DataModelLineageEdgeDetailView;
@@ -47,7 +48,7 @@ final class DataModelLineageGraphAssembler {
                                      List<DataModelLineageRelationEntity> relations,
                                      LineageLevel level) {
         LineageQueryContext context = new LineageQueryContext();
-        DatasourceEntity focusDatasource = focusModel.getDatasourceId() == null ? null : datasourceMapper.selectById(focusModel.getDatasourceId());
+        DatasourceEntity focusDatasource = loadFocusDatasource(focusModel.getDatasourceId());
         String focusNodeId = resolveFocusNodeId(level, focusModel, focusDatasource);
         Set<String> reachableNodeIds = traverseReachableNodeIds(relations, focusNodeId, level);
         reachableNodeIds.add(focusNodeId);
@@ -109,6 +110,19 @@ final class DataModelLineageGraphAssembler {
         context.focusNodeId = focusNodeId;
         context.nodes.addAll(nodes.values());
         return context;
+    }
+
+    private DatasourceEntity loadFocusDatasource(Long datasourceId) {
+        if (datasourceId == null) {
+            return null;
+        }
+        return datasourceMapper.selectOne(new LambdaQueryWrapper<DatasourceEntity>()
+                .select(DatasourceEntity::getId,
+                        DatasourceEntity::getName,
+                        DatasourceEntity::getTypeCode,
+                        DatasourceEntity::getTechnicalMetadata)
+                .eq(DatasourceEntity::getId, datasourceId)
+                .last("limit 1"));
     }
 
     DataModelLineageEdgeDetailView buildEdgeDetail(String edgeId,

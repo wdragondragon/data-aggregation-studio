@@ -221,7 +221,7 @@ public class DataModelLineageService {
     }
 
     public DataModelLineageView getModelLineage(Long modelId, LineageLevel level) {
-        DataModelEntity focusModel = requireReadableModel(modelId);
+        DataModelEntity focusModel = requireReadableLineageModel(modelId);
         List<DataModelLineageRelationEntity> relations = filterVisibleRelations(loadAccessibleRelations(level));
         enrichLatestRunStatus(relations);
         DataModelLineageGraphAssembler.LineageQueryContext context = graphAssembler.buildContext(focusModel, relations, level);
@@ -235,12 +235,12 @@ public class DataModelLineageService {
     }
 
     public DataModelLineageEdgeDetailView getEdgeDetail(Long modelId, LineageLevel level, String edgeId) {
-        DataModelEntity focusModel = requireReadableModel(modelId);
+        DataModelEntity focusModel = requireReadableLineageModel(modelId);
         DataModelLineageGraphAssembler.EdgeKey edgeKey = graphAssembler.decodeEdgeKey(edgeId);
         if (edgeKey == null || !Objects.equals(edgeKey.level, level.name())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Lineage edge not found: " + edgeId);
         }
-        DatasourceEntity focusDatasource = focusModel.getDatasourceId() == null ? null : datasourceMapper.selectById(focusModel.getDatasourceId());
+        DatasourceEntity focusDatasource = loadLineageFocusDatasource(focusModel.getDatasourceId());
         String focusNodeId = graphAssembler.resolveFocusNodeId(level, focusModel, focusDatasource);
         List<DataModelLineageRelationEntity> relations = filterVisibleRelations(loadAccessibleRelations(level));
         enrichLatestRunStatus(relations);
@@ -510,6 +510,45 @@ public class DataModelLineageService {
         return entity;
     }
 
+    private DataModelEntity requireReadableLineageModel(Long modelId) {
+        if (modelId == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model id is required");
+        }
+        DataModelEntity entity = dataModelMapper.selectOne(new LambdaQueryWrapper<DataModelEntity>()
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getTenantId,
+                        DataModelEntity::getProjectId,
+                        DataModelEntity::getDeleted,
+                        DataModelEntity::getDatasourceId,
+                        DataModelEntity::getName,
+                        DataModelEntity::getPhysicalLocator)
+                .eq(DataModelEntity::getTenantId, securityService.currentTenantId())
+                .eq(DataModelEntity::getId, modelId)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Model not found: " + modelId);
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_MODEL,
+                entity.getProjectId(), entity.getId(), "Model not found: " + modelId);
+        return entity;
+    }
+
+    private DatasourceEntity loadLineageFocusDatasource(Long datasourceId) {
+        if (datasourceId == null) {
+            return null;
+        }
+        return datasourceMapper.selectOne(new LambdaQueryWrapper<DatasourceEntity>()
+                .select(DatasourceEntity::getId,
+                        DatasourceEntity::getTenantId,
+                        DatasourceEntity::getProjectId,
+                        DatasourceEntity::getName,
+                        DatasourceEntity::getTypeCode,
+                        DatasourceEntity::getTechnicalMetadata)
+                .eq(DatasourceEntity::getTenantId, securityService.currentTenantId())
+                .eq(DatasourceEntity::getId, datasourceId)
+                .last("limit 1"));
+    }
+
     private DataModelEntity requireWritableModel(Long modelId) {
         DataModelEntity entity = requireReadableModel(modelId);
         projectResourceAccessService.assertWritable(entity.getProjectId());
@@ -685,6 +724,7 @@ public class DataModelLineageService {
         Set<Long> ids = new LinkedHashSet<Long>();
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         List<DataModelEntity> models = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
+                .select(DataModelEntity::getId)
                 .eq(DataModelEntity::getTenantId, securityService.currentTenantId())
                 .eq(DataModelEntity::getProjectId, currentProjectId));
         for (DataModelEntity model : models) {
@@ -698,6 +738,7 @@ public class DataModelLineageService {
         Set<Long> ids = new LinkedHashSet<Long>();
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         List<DatasourceEntity> datasources = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
+                .select(DatasourceEntity::getId)
                 .eq(DatasourceEntity::getTenantId, securityService.currentTenantId())
                 .eq(DatasourceEntity::getProjectId, currentProjectId));
         for (DatasourceEntity datasource : datasources) {
