@@ -660,6 +660,31 @@ create table if not exists collection_task_definition (
     key idx_collection_task_definition_project (project_id)
 );
 
+create table if not exists collection_task_metric_binding (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    collection_task_id bigint not null,
+    task_name_snapshot varchar(255),
+    task_type varchar(64),
+    task_status varchar(64),
+    source_count int default 1,
+    binding_role varchar(32) not null,
+    source_alias varchar(255),
+    datasource_id bigint,
+    datasource_name varchar(255),
+    datasource_type_code varchar(128),
+    model_id bigint,
+    model_name varchar(255),
+    model_physical_locator varchar(512),
+    key idx_collection_metric_project_task (project_id, collection_task_id),
+    key idx_collection_metric_role_ds (binding_role, datasource_id),
+    key idx_collection_metric_role_model (binding_role, model_id)
+);
+
 create table if not exists collection_task_schedule (
     id bigint primary key,
     tenant_id varchar(64) default 'default',

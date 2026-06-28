@@ -638,6 +638,31 @@ create table if not exists collection_task_definition (
 create unique index if not exists uk_collection_task_definition_project_name on collection_task_definition(project_id, name);
 create index if not exists idx_collection_task_definition_project on collection_task_definition(project_id);
 
+create table if not exists collection_task_metric_binding (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer not null,
+    task_name_snapshot text,
+    task_type text,
+    task_status text,
+    source_count integer default 1,
+    binding_role text not null,
+    source_alias text,
+    datasource_id integer,
+    datasource_name text,
+    datasource_type_code text,
+    model_id integer,
+    model_name text,
+    model_physical_locator text
+);
+create index if not exists idx_collection_metric_project_task on collection_task_metric_binding(project_id, collection_task_id);
+create index if not exists idx_collection_metric_role_ds on collection_task_metric_binding(binding_role, datasource_id);
+create index if not exists idx_collection_metric_role_model on collection_task_metric_binding(binding_role, model_id);
+
 create table if not exists collection_task_schedule (
     id integer primary key,
     tenant_id text default 'default',

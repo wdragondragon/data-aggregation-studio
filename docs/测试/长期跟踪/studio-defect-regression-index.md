@@ -102,6 +102,7 @@
 | FIX-S71-001 | 数据资产/模型血缘 | 中 | 模型详情血缘 Tab 默认只展示当前层级，却一次并发加载库级、表级、字段级三套血缘；手工血缘写后也刷新全部层级 | `ModelLineagePanel.vue` | `npm run build:web`；构建产物无 `loadLineageBundle`；build-nginx `/models/2068089464502837249` 血缘库级/表级/字段级切换，console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S72-001 | 数据开发/脚本环境 | 中 | `/script-environments` 默认只展示依赖包 Tab，却首屏同时请求依赖包和运行环境两个表格；顶部刷新也跨 Tab 刷新不可见表格 | `ScriptEnvironmentsView.vue` | `npm run build:web`；build-nginx `/script-environments` 首屏依赖包、切换运行环境、刷新当前 Tab，console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S73-001 | 数据资产/模型中心 | 中 | 模型列表页保存模型后刷新表格外还请求样例预览；列表和详情刷新重跑数据源/元模型初始化；直达同步任务 Tab 可能重复加载任务表格 | `ModelsView.vue` | `npm run build:web`；源码无 `selectModel(saved)`；`refreshModels/refreshDetail` 不调用 `loadPage()`；build-nginx `/models`、`/models?tab=sync-tasks` smoke | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S74-001 | 运行指标/采集任务绑定 | 中 | `/run-metrics/options` 和 `/run-metrics/query` 只需采集任务源/目标绑定摘要，却从 `collection_task_definition` 读取 `source_bindings_json/target_binding_json` 后再组装轻视图 | `CollectionTaskMetricBindingEntity.java`；`CollectionTaskMetricBindingMapper.java`；`CollectionTaskService.java`；`StudioSchemaUpgradeService.java`；`StudioInitializationService.java`；`schema-mysql.sql`；`schema-sqlite.sql`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；`MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/run-metrics` 页面 smoke | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -183,3 +184,4 @@
 | S71 模型血缘层级懒加载与写后刷新收敛 | FIX-S71-001 |
 | S72 脚本环境 Tab 按需加载与刷新收敛 | FIX-S72-001 |
 | S73 模型列表写后预览过取与刷新收敛 | FIX-S73-001 |
+| S74 运行指标采集任务绑定源头瘦身 | FIX-S74-001 |

@@ -214,6 +214,7 @@ public class StudioSchemaUpgradeService {
                     "execution_options_json json" +
                     ")");
         }
+        ensureCollectionTaskMetricBindingTableMysql();
 
         if (!tableExists("collection_task_schedule")) {
             jdbcTemplate.execute("create table collection_task_schedule (" +
@@ -673,6 +674,7 @@ public class StudioSchemaUpgradeService {
         backfillProjectIdsMysql();
         backfillWorkerGroupColumnsMysql();
         backfillCollectionTaskTargetSnapshots();
+        backfillCollectionTaskMetricBindings();
     }
 
     private void upgradeSqlite() {
@@ -814,6 +816,7 @@ public class StudioSchemaUpgradeService {
                 ")");
         jdbcTemplate.execute("create unique index if not exists uk_collection_task_definition_project_name on collection_task_definition(project_id, name)");
         jdbcTemplate.execute("create index if not exists idx_collection_task_definition_project on collection_task_definition(project_id)");
+        ensureCollectionTaskMetricBindingTableSqlite();
         jdbcTemplate.execute("create table if not exists collection_task_schedule (" +
                 "id integer primary key," +
                 "tenant_id text default 'default'," +
@@ -1194,6 +1197,7 @@ public class StudioSchemaUpgradeService {
         backfillProjectIdsSqlite();
         backfillWorkerGroupColumnsSqlite();
         backfillCollectionTaskTargetSnapshots();
+        backfillCollectionTaskMetricBindings();
     }
 
     private void backfillProjectIdsMysql() {
@@ -1501,6 +1505,182 @@ public class StudioSchemaUpgradeService {
 
     private long generatedMetaFieldDefinitionId(Long versionId, String fieldKey) {
         UUID uuid = UUID.nameUUIDFromBytes(("meta_field_definition|odps|" + versionId + "|" + fieldKey)
+                .getBytes(StandardCharsets.UTF_8));
+        long value = uuid.getMostSignificantBits() & Long.MAX_VALUE;
+        if (value == 0L) {
+            value = uuid.getLeastSignificantBits() & Long.MAX_VALUE;
+        }
+        return value == 0L ? 1L : value;
+    }
+
+    private void ensureCollectionTaskMetricBindingTableMysql() {
+        if (!tableExists("collection_task_metric_binding")) {
+            jdbcTemplate.execute("create table collection_task_metric_binding (" +
+                    "id bigint primary key," +
+                    "tenant_id varchar(64) default 'default'," +
+                    "project_id bigint," +
+                    "deleted int default 0," +
+                    "created_at datetime default current_timestamp," +
+                    "updated_at datetime default current_timestamp," +
+                    "collection_task_id bigint not null," +
+                    "task_name_snapshot varchar(255)," +
+                    "task_type varchar(64)," +
+                    "task_status varchar(64)," +
+                    "source_count int default 1," +
+                    "binding_role varchar(32) not null," +
+                    "source_alias varchar(255)," +
+                    "datasource_id bigint," +
+                    "datasource_name varchar(255)," +
+                    "datasource_type_code varchar(128)," +
+                    "model_id bigint," +
+                    "model_name varchar(255)," +
+                    "model_physical_locator varchar(512)" +
+                    ")");
+        }
+        ensureIndex("collection_task_metric_binding", "idx_collection_metric_project_task",
+                "alter table collection_task_metric_binding add key idx_collection_metric_project_task (project_id, collection_task_id)");
+        ensureIndex("collection_task_metric_binding", "idx_collection_metric_role_ds",
+                "alter table collection_task_metric_binding add key idx_collection_metric_role_ds (binding_role, datasource_id)");
+        ensureIndex("collection_task_metric_binding", "idx_collection_metric_role_model",
+                "alter table collection_task_metric_binding add key idx_collection_metric_role_model (binding_role, model_id)");
+    }
+
+    private void ensureCollectionTaskMetricBindingTableSqlite() {
+        jdbcTemplate.execute("create table if not exists collection_task_metric_binding (" +
+                "id integer primary key," +
+                "tenant_id text default 'default'," +
+                "project_id integer," +
+                "deleted integer default 0," +
+                "created_at text," +
+                "updated_at text," +
+                "collection_task_id integer not null," +
+                "task_name_snapshot text," +
+                "task_type text," +
+                "task_status text," +
+                "source_count integer default 1," +
+                "binding_role text not null," +
+                "source_alias text," +
+                "datasource_id integer," +
+                "datasource_name text," +
+                "datasource_type_code text," +
+                "model_id integer," +
+                "model_name text," +
+                "model_physical_locator text" +
+                ")");
+        jdbcTemplate.execute("create index if not exists idx_collection_metric_project_task on collection_task_metric_binding(project_id, collection_task_id)");
+        jdbcTemplate.execute("create index if not exists idx_collection_metric_role_ds on collection_task_metric_binding(binding_role, datasource_id)");
+        jdbcTemplate.execute("create index if not exists idx_collection_metric_role_model on collection_task_metric_binding(binding_role, model_id)");
+    }
+
+    private void backfillCollectionTaskMetricBindings() {
+        if (!tableExists("collection_task_definition")
+                || !tableExists("collection_task_metric_binding")
+                || !columnExists("collection_task_definition", "source_bindings_json")
+                || !columnExists("collection_task_definition", "target_binding_json")) {
+            return;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select " +
+                "id, tenant_id, project_id, name, task_type, status, source_count, source_bindings_json, target_binding_json " +
+                "from collection_task_definition d " +
+                "where (d.deleted = 0 or d.deleted is null) " +
+                "and not exists (select 1 from collection_task_metric_binding b where b.collection_task_id = d.id)");
+        for (Map<String, Object> row : rows) {
+            Long taskId = objectLong(row.get("id"));
+            if (taskId == null) {
+                continue;
+            }
+            JsonNode sourceNode = readJsonNode(row.get("source_bindings_json"));
+            if (sourceNode != null && sourceNode.isArray()) {
+                int sourceIndex = 0;
+                for (JsonNode sourceBinding : sourceNode) {
+                    insertCollectionTaskMetricBinding(row, "SOURCE", sourceIndex, sourceBinding);
+                    sourceIndex++;
+                }
+            }
+            JsonNode targetNode = readJsonNode(row.get("target_binding_json"));
+            if (targetNode != null && targetNode.isObject()) {
+                insertCollectionTaskMetricBinding(row, "TARGET", 0, targetNode);
+            }
+        }
+    }
+
+    private void insertCollectionTaskMetricBinding(Map<String, Object> row, String role, int sequence, JsonNode bindingNode) {
+        Long taskId = objectLong(row.get("id"));
+        if (taskId == null || bindingNode == null || bindingNode.isNull()) {
+            return;
+        }
+        jdbcTemplate.update("insert into collection_task_metric_binding (" +
+                        "id, tenant_id, project_id, deleted, created_at, updated_at, collection_task_id, " +
+                        "task_name_snapshot, task_type, task_status, source_count, binding_role, source_alias, " +
+                        "datasource_id, datasource_name, datasource_type_code, model_id, model_name, model_physical_locator" +
+                        ") values (?, ?, ?, 0, current_timestamp, current_timestamp, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                generatedCollectionTaskMetricBindingId(taskId, role, sequence),
+                row.get("tenant_id") == null ? "default" : row.get("tenant_id"),
+                row.get("project_id"),
+                taskId,
+                row.get("name"),
+                row.get("task_type"),
+                row.get("status"),
+                row.get("source_count"),
+                role,
+                "SOURCE".equals(role) ? jsonText(bindingNode, "sourceAlias") : null,
+                jsonLong(bindingNode, "datasourceId"),
+                jsonText(bindingNode, "datasourceName"),
+                jsonText(bindingNode, "datasourceTypeCode"),
+                jsonLong(bindingNode, "modelId"),
+                jsonText(bindingNode, "modelName"),
+                jsonText(bindingNode, "modelPhysicalLocator"));
+    }
+
+    private JsonNode readJsonNode(Object rawJson) {
+        if (rawJson == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(String.valueOf(rawJson));
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private Long objectLong(Object value) {
+        if (value instanceof Number) {
+            return Long.valueOf(((Number) value).longValue());
+        }
+        if (value != null) {
+            try {
+                return Long.valueOf(String.valueOf(value).trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private Long jsonLong(JsonNode node, String fieldName) {
+        if (node == null || fieldName == null) {
+            return null;
+        }
+        JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isNumber()) {
+            return Long.valueOf(value.asLong());
+        }
+        String text = value.asText(null);
+        if (text == null || text.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(text.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private long generatedCollectionTaskMetricBindingId(Long taskId, String role, int sequence) {
+        UUID uuid = UUID.nameUUIDFromBytes(("collection_task_metric_binding|" + taskId + "|" + role + "|" + sequence)
                 .getBytes(StandardCharsets.UTF_8));
         long value = uuid.getMostSignificantBits() & Long.MAX_VALUE;
         if (value == 0L) {

@@ -9,11 +9,14 @@ import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskOptionView;
+import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
 import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.CollectionTaskMetricBindingEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskScheduleEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.CollectionTaskMetricBindingMapper;
 import com.jdragon.studio.infra.mapper.CollectionTaskScheduleMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
@@ -31,7 +34,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -45,6 +50,7 @@ class CollectionTaskListSourceSlimmingRegressionTest {
     @BeforeAll
     static void initTableInfo() {
         initTableInfo(CollectionTaskDefinitionEntity.class);
+        initTableInfo(CollectionTaskMetricBindingEntity.class);
         initTableInfo(CollectionTaskScheduleEntity.class);
     }
 
@@ -154,6 +160,34 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
     }
 
+    @Test
+    void runMetricBindingsShouldSelectMetricBindingSnapshotsInsteadOfTaskDefinitionJson() {
+        CollectionTaskDefinitionMapper definitionMapper = mock(CollectionTaskDefinitionMapper.class);
+        CollectionTaskMetricBindingMapper metricBindingMapper = mock(CollectionTaskMetricBindingMapper.class);
+        CollectionTaskScheduleMapper scheduleMapper = mock(CollectionTaskScheduleMapper.class);
+        CollectionTaskService service = collectionTaskService(definitionMapper, metricBindingMapper, scheduleMapper);
+        when(metricBindingMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Arrays.asList(sourceMetricBindingEntity(), targetMetricBindingEntity()));
+
+        List<com.jdragon.studio.dto.model.CollectionTaskDefinitionView> bindings = service.listMetricBindings();
+
+        assertThat(bindings).hasSize(1);
+        assertThat(bindings.get(0).getName()).isEqualTo("长期回归-客户订单增量采集任务");
+        assertThat(bindings.get(0).getSourceBindings())
+                .extracting(CollectionTaskSourceBinding::getModelPhysicalLocator)
+                .containsExactly("lt_reg_customer_order_detail");
+        assertThat(bindings.get(0).getTargetBinding().getModelPhysicalLocator())
+                .isEqualTo("lt_reg_customer_order_summary");
+
+        ArgumentCaptor<LambdaQueryWrapper<CollectionTaskMetricBindingEntity>> metricCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(metricBindingMapper).selectList(metricCaptor.capture());
+        assertThat(metricCaptor.getValue().getSqlSelect())
+                .contains("collection_task_id", "binding_role", "datasource_name", "model_physical_locator")
+                .doesNotContain("source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
+        verify(definitionMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
     private static void initTableInfo(Class<?> entityClass) {
         if (TableInfoHelper.getTableInfo(entityClass) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityClass);
@@ -162,6 +196,12 @@ class CollectionTaskListSourceSlimmingRegressionTest {
 
     private CollectionTaskService collectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
                                                         CollectionTaskScheduleMapper scheduleMapper) {
+        return collectionTaskService(definitionMapper, mock(CollectionTaskMetricBindingMapper.class), scheduleMapper);
+    }
+
+    private CollectionTaskService collectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
+                                                        CollectionTaskMetricBindingMapper metricBindingMapper,
+                                                        CollectionTaskScheduleMapper scheduleMapper) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         when(securityService.currentTenantId()).thenReturn("default");
@@ -169,6 +209,7 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
         return new CollectionTaskService(
                 definitionMapper,
+                metricBindingMapper,
                 scheduleMapper,
                 mock(DispatchTaskMapper.class),
                 mock(RunRecordMapper.class),
@@ -214,6 +255,46 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         entity.setCronExpression("0 0/30 * * * ?");
         entity.setEnabled(1);
         entity.setTimezone("Asia/Shanghai");
+        return entity;
+    }
+
+    private CollectionTaskMetricBindingEntity sourceMetricBindingEntity() {
+        CollectionTaskMetricBindingEntity entity = metricBindingBaseEntity("SOURCE");
+        entity.setSourceAlias("客户订单明细源");
+        entity.setDatasourceId(21L);
+        entity.setDatasourceName("长期回归-客户业务库");
+        entity.setDatasourceTypeCode("mysql8");
+        entity.setModelId(22L);
+        entity.setModelName("客户订单明细模型");
+        entity.setModelPhysicalLocator("lt_reg_customer_order_detail");
+        return entity;
+    }
+
+    private CollectionTaskMetricBindingEntity targetMetricBindingEntity() {
+        CollectionTaskMetricBindingEntity entity = metricBindingBaseEntity("TARGET");
+        entity.setDatasourceId(31L);
+        entity.setDatasourceName("长期回归-客户经营画像数据源");
+        entity.setDatasourceTypeCode("mysql8");
+        entity.setModelId(32L);
+        entity.setModelName("客户订单汇总模型");
+        entity.setModelPhysicalLocator("lt_reg_customer_order_summary");
+        return entity;
+    }
+
+    private CollectionTaskMetricBindingEntity metricBindingBaseEntity(String role) {
+        CollectionTaskMetricBindingEntity entity = new CollectionTaskMetricBindingEntity();
+        entity.setId("SOURCE".equals(role) ? 101L : 102L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        entity.setDeleted(0);
+        entity.setCreatedAt(LocalDateTime.of(2026, 6, 29, 10, 0, 0));
+        entity.setUpdatedAt(LocalDateTime.of(2026, 6, 29, 10, 1, 0));
+        entity.setCollectionTaskId(11L);
+        entity.setTaskNameSnapshot("长期回归-客户订单增量采集任务");
+        entity.setTaskType(CollectionTaskType.SINGLE_TABLE.name());
+        entity.setTaskStatus(CollectionTaskStatus.ONLINE.name());
+        entity.setSourceCount(1);
+        entity.setBindingRole(role);
         return entity;
     }
 }

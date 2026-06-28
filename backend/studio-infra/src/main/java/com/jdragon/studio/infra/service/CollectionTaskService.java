@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
@@ -21,10 +22,12 @@ import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.CollectionTaskMetricBindingEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskScheduleEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.CollectionTaskMetricBindingMapper;
 import com.jdragon.studio.infra.mapper.CollectionTaskScheduleMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
@@ -52,8 +55,11 @@ public class CollectionTaskService {
             "rootPath", "fileName", "fileType", "encoding", "delimiter", "efile",
             "efile.entity", "efile.type", "efile.dataTime", "efile.tableName", "efile.tableCode", "efile.planDate"
     };
+    private static final String METRIC_BINDING_ROLE_SOURCE = "SOURCE";
+    private static final String METRIC_BINDING_ROLE_TARGET = "TARGET";
 
     private final CollectionTaskDefinitionMapper definitionMapper;
+    private final CollectionTaskMetricBindingMapper metricBindingMapper;
     private final CollectionTaskScheduleMapper scheduleMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
     private final RunRecordMapper runRecordMapper;
@@ -68,6 +74,7 @@ public class CollectionTaskService {
     private final CollectionTaskIncrementalCursorSupport incrementalCursorSupport;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
+                                 CollectionTaskMetricBindingMapper metricBindingMapper,
                                  CollectionTaskScheduleMapper scheduleMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
                                  RunRecordMapper runRecordMapper,
@@ -80,6 +87,7 @@ public class CollectionTaskService {
                                  DataModelLineageService dataModelLineageService,
                                  DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
         this.definitionMapper = definitionMapper;
+        this.metricBindingMapper = metricBindingMapper;
         this.scheduleMapper = scheduleMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
@@ -153,25 +161,45 @@ public class CollectionTaskService {
     }
 
     public List<CollectionTaskDefinitionView> listMetricBindings() {
-        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
-                .select(CollectionTaskDefinitionEntity::getId,
-                        CollectionTaskDefinitionEntity::getTenantId,
-                        CollectionTaskDefinitionEntity::getProjectId,
-                        CollectionTaskDefinitionEntity::getDeleted,
-                        CollectionTaskDefinitionEntity::getCreatedAt,
-                        CollectionTaskDefinitionEntity::getUpdatedAt,
-                        CollectionTaskDefinitionEntity::getName,
-                        CollectionTaskDefinitionEntity::getTaskType,
-                        CollectionTaskDefinitionEntity::getStatus,
-                        CollectionTaskDefinitionEntity::getSourceCount,
-                        CollectionTaskDefinitionEntity::getSourceBindingsJson,
-                        CollectionTaskDefinitionEntity::getTargetBindingJson)
-                .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt));
-        List<CollectionTaskDefinitionView> result = new ArrayList<CollectionTaskDefinitionView>();
-        for (CollectionTaskDefinitionEntity entity : entities) {
-            result.add(toMetricBindingView(entity));
+        List<CollectionTaskMetricBindingEntity> entities = metricBindingMapper.selectList(buildAccessibleMetricBindingQuery()
+                .select(CollectionTaskMetricBindingEntity::getId,
+                        CollectionTaskMetricBindingEntity::getTenantId,
+                        CollectionTaskMetricBindingEntity::getProjectId,
+                        CollectionTaskMetricBindingEntity::getDeleted,
+                        CollectionTaskMetricBindingEntity::getCreatedAt,
+                        CollectionTaskMetricBindingEntity::getUpdatedAt,
+                        CollectionTaskMetricBindingEntity::getCollectionTaskId,
+                        CollectionTaskMetricBindingEntity::getTaskNameSnapshot,
+                        CollectionTaskMetricBindingEntity::getTaskType,
+                        CollectionTaskMetricBindingEntity::getTaskStatus,
+                        CollectionTaskMetricBindingEntity::getSourceCount,
+                        CollectionTaskMetricBindingEntity::getBindingRole,
+                        CollectionTaskMetricBindingEntity::getSourceAlias,
+                        CollectionTaskMetricBindingEntity::getDatasourceId,
+                        CollectionTaskMetricBindingEntity::getDatasourceName,
+                        CollectionTaskMetricBindingEntity::getDatasourceTypeCode,
+                        CollectionTaskMetricBindingEntity::getModelId,
+                        CollectionTaskMetricBindingEntity::getModelName,
+                        CollectionTaskMetricBindingEntity::getModelPhysicalLocator)
+                .orderByDesc(CollectionTaskMetricBindingEntity::getUpdatedAt)
+                .orderByAsc(CollectionTaskMetricBindingEntity::getId));
+        Map<Long, CollectionTaskDefinitionView> grouped = new LinkedHashMap<Long, CollectionTaskDefinitionView>();
+        for (CollectionTaskMetricBindingEntity entity : entities) {
+            if (entity == null || entity.getCollectionTaskId() == null) {
+                continue;
+            }
+            CollectionTaskDefinitionView view = grouped.get(entity.getCollectionTaskId());
+            if (view == null) {
+                view = toMetricTaskView(entity);
+                grouped.put(entity.getCollectionTaskId(), view);
+            }
+            if (METRIC_BINDING_ROLE_SOURCE.equalsIgnoreCase(entity.getBindingRole())) {
+                view.getSourceBindings().add(toMetricSourceBinding(entity));
+            } else if (METRIC_BINDING_ROLE_TARGET.equalsIgnoreCase(entity.getBindingRole())) {
+                view.setTargetBinding(toMetricTargetBinding(entity));
+            }
         }
-        return result;
+        return new ArrayList<CollectionTaskDefinitionView>(grouped.values());
     }
 
     public Map<Long, String> listAccessibleNames() {
@@ -328,6 +356,7 @@ public class CollectionTaskService {
         } else {
             definitionMapper.updateById(entity);
         }
+        rebuildMetricBindings(entity, sourceBindings, targetBinding);
         saveSchedule(entity.getId(), entity.getProjectId(), request.getSchedule());
         dataModelLineageService.scheduleTaskRebuildAfterCommit(entity.getId());
         return get(entity.getId());
@@ -338,6 +367,9 @@ public class CollectionTaskService {
         CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
         entity.setStatus(CollectionTaskStatus.ONLINE.name());
         definitionMapper.updateById(entity);
+        metricBindingMapper.update(null, new LambdaUpdateWrapper<CollectionTaskMetricBindingEntity>()
+                .set(CollectionTaskMetricBindingEntity::getTaskStatus, CollectionTaskStatus.ONLINE.name())
+                .eq(CollectionTaskMetricBindingEntity::getCollectionTaskId, id));
         return get(id);
     }
 
@@ -372,6 +404,8 @@ public class CollectionTaskService {
                 .eq(DispatchTaskEntity::getCollectionTaskId, id));
         runRecordMapper.delete(new LambdaQueryWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getCollectionTaskId, id));
+        metricBindingMapper.delete(new LambdaQueryWrapper<CollectionTaskMetricBindingEntity>()
+                .eq(CollectionTaskMetricBindingEntity::getCollectionTaskId, id));
         definitionMapper.deleteById(id);
         dataModelLineageService.scheduleTaskDeleteAfterCommit(id);
     }
@@ -543,23 +577,43 @@ public class CollectionTaskService {
         return result;
     }
 
-    private CollectionTaskDefinitionView toMetricBindingView(CollectionTaskDefinitionEntity entity) {
+    private CollectionTaskDefinitionView toMetricTaskView(CollectionTaskMetricBindingEntity entity) {
         CollectionTaskDefinitionView view = new CollectionTaskDefinitionView();
-        view.setId(entity.getId());
+        view.setId(entity.getCollectionTaskId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
-        view.setName(entity.getName());
+        view.setName(entity.getTaskNameSnapshot());
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
-        view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
+        view.setStatus(entity.getTaskStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getTaskStatus()));
         view.setSourceCount(entity.getSourceCount());
-        List<CollectionTaskSourceBinding> sourceBindings = convertList(entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class);
-        sanitizeSourceReaderOptionsForView(sourceBindings);
-        view.setSourceBindings(sourceBindings);
-        view.setTargetBinding(convertMap(entity.getTargetBindingJson(), CollectionTaskTargetBinding.class));
+        view.setSourceBindings(new ArrayList<CollectionTaskSourceBinding>());
         return view;
+    }
+
+    private CollectionTaskSourceBinding toMetricSourceBinding(CollectionTaskMetricBindingEntity entity) {
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setSourceAlias(entity.getSourceAlias());
+        sourceBinding.setDatasourceId(entity.getDatasourceId());
+        sourceBinding.setDatasourceName(entity.getDatasourceName());
+        sourceBinding.setDatasourceTypeCode(entity.getDatasourceTypeCode());
+        sourceBinding.setModelId(entity.getModelId());
+        sourceBinding.setModelName(entity.getModelName());
+        sourceBinding.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        return sourceBinding;
+    }
+
+    private CollectionTaskTargetBinding toMetricTargetBinding(CollectionTaskMetricBindingEntity entity) {
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(entity.getDatasourceId());
+        targetBinding.setDatasourceName(entity.getDatasourceName());
+        targetBinding.setDatasourceTypeCode(entity.getDatasourceTypeCode());
+        targetBinding.setModelId(entity.getModelId());
+        targetBinding.setModelName(entity.getModelName());
+        targetBinding.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        return targetBinding;
     }
 
     private LambdaQueryWrapper<CollectionTaskDefinitionEntity> buildAccessibleQuery() {
@@ -577,6 +631,24 @@ public class CollectionTaskService {
         queryWrapper.and(wrapper -> wrapper.eq(CollectionTaskDefinitionEntity::getProjectId, currentProjectId)
                 .or()
                 .in(CollectionTaskDefinitionEntity::getId, sharedIds));
+        return queryWrapper;
+    }
+
+    private LambdaQueryWrapper<CollectionTaskMetricBindingEntity> buildAccessibleMetricBindingQuery() {
+        LambdaQueryWrapper<CollectionTaskMetricBindingEntity> queryWrapper = new LambdaQueryWrapper<CollectionTaskMetricBindingEntity>()
+                .eq(CollectionTaskMetricBindingEntity::getTenantId, securityService.currentTenantId());
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return queryWrapper;
+        }
+        List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK);
+        if (sharedIds.isEmpty()) {
+            queryWrapper.eq(CollectionTaskMetricBindingEntity::getProjectId, currentProjectId);
+            return queryWrapper;
+        }
+        queryWrapper.and(wrapper -> wrapper.eq(CollectionTaskMetricBindingEntity::getProjectId, currentProjectId)
+                .or()
+                .in(CollectionTaskMetricBindingEntity::getCollectionTaskId, sharedIds));
         return queryWrapper;
     }
 
@@ -722,6 +794,59 @@ public class CollectionTaskService {
         entity.setTargetDatasourceTypeCodeSnapshot(normalizeNullableText(targetBinding.getDatasourceTypeCode()));
         entity.setTargetModelNameSnapshot(normalizeNullableText(targetBinding.getModelName()));
         entity.setTargetModelPhysicalLocatorSnapshot(normalizeNullableText(targetBinding.getModelPhysicalLocator()));
+    }
+
+    private void rebuildMetricBindings(CollectionTaskDefinitionEntity taskEntity,
+                                       List<CollectionTaskSourceBinding> sourceBindings,
+                                       CollectionTaskTargetBinding targetBinding) {
+        if (taskEntity == null || taskEntity.getId() == null) {
+            return;
+        }
+        metricBindingMapper.delete(new LambdaQueryWrapper<CollectionTaskMetricBindingEntity>()
+                .eq(CollectionTaskMetricBindingEntity::getCollectionTaskId, taskEntity.getId()));
+        if (sourceBindings != null) {
+            for (CollectionTaskSourceBinding sourceBinding : sourceBindings) {
+                if (sourceBinding != null) {
+                    metricBindingMapper.insert(toMetricBindingEntity(taskEntity, METRIC_BINDING_ROLE_SOURCE, sourceBinding, null));
+                }
+            }
+        }
+        if (targetBinding != null) {
+            metricBindingMapper.insert(toMetricBindingEntity(taskEntity, METRIC_BINDING_ROLE_TARGET, null, targetBinding));
+        }
+    }
+
+    private CollectionTaskMetricBindingEntity toMetricBindingEntity(CollectionTaskDefinitionEntity taskEntity,
+                                                                    String bindingRole,
+                                                                    CollectionTaskSourceBinding sourceBinding,
+                                                                    CollectionTaskTargetBinding targetBinding) {
+        CollectionTaskMetricBindingEntity entity = new CollectionTaskMetricBindingEntity();
+        entity.setTenantId(taskEntity.getTenantId());
+        entity.setProjectId(taskEntity.getProjectId());
+        entity.setCollectionTaskId(taskEntity.getId());
+        entity.setTaskNameSnapshot(taskEntity.getName());
+        entity.setTaskType(taskEntity.getTaskType());
+        entity.setTaskStatus(taskEntity.getStatus());
+        entity.setSourceCount(taskEntity.getSourceCount());
+        entity.setBindingRole(bindingRole);
+        if (METRIC_BINDING_ROLE_SOURCE.equals(bindingRole) && sourceBinding != null) {
+            entity.setSourceAlias(sourceBinding.getSourceAlias());
+            entity.setDatasourceId(sourceBinding.getDatasourceId());
+            entity.setDatasourceName(sourceBinding.getDatasourceName());
+            entity.setDatasourceTypeCode(sourceBinding.getDatasourceTypeCode());
+            entity.setModelId(sourceBinding.getModelId());
+            entity.setModelName(sourceBinding.getModelName());
+            entity.setModelPhysicalLocator(sourceBinding.getModelPhysicalLocator());
+        }
+        if (METRIC_BINDING_ROLE_TARGET.equals(bindingRole) && targetBinding != null) {
+            entity.setDatasourceId(targetBinding.getDatasourceId());
+            entity.setDatasourceName(targetBinding.getDatasourceName());
+            entity.setDatasourceTypeCode(targetBinding.getDatasourceTypeCode());
+            entity.setModelId(targetBinding.getModelId());
+            entity.setModelName(targetBinding.getModelName());
+            entity.setModelPhysicalLocator(targetBinding.getModelPhysicalLocator());
+        }
+        return entity;
     }
 
     private boolean hasText(String value) {

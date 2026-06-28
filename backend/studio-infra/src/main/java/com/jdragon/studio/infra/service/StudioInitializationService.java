@@ -39,6 +39,7 @@ public class StudioInitializationService {
             "quality_task_schedule",
             "quality_task_definition",
             "collection_task_schedule",
+            "collection_task_metric_binding",
             "collection_task_definition",
             "model_sync_task_item",
             "model_sync_task",
