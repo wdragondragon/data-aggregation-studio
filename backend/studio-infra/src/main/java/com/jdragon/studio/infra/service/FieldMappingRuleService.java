@@ -9,6 +9,7 @@ import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.FieldMappingRuleListView;
+import com.jdragon.studio.dto.model.FieldMappingRuleOptionView;
 import com.jdragon.studio.dto.model.FieldMappingRuleParamView;
 import com.jdragon.studio.dto.model.FieldMappingRuleView;
 import com.jdragon.studio.dto.model.PageView;
@@ -186,6 +187,27 @@ public class FieldMappingRuleService {
         return result;
     }
 
+    public List<FieldMappingRuleOptionView> optionSummaries(String mappingType) {
+        String normalizedType = normalizeText(mappingType);
+        List<FieldMappingRuleEntity> entities = fieldMappingRuleMapper.selectList(new LambdaQueryWrapper<FieldMappingRuleEntity>()
+                .select(FieldMappingRuleEntity::getId,
+                        FieldMappingRuleEntity::getDeleted,
+                        FieldMappingRuleEntity::getMappingName,
+                        FieldMappingRuleEntity::getMappingType,
+                        FieldMappingRuleEntity::getMappingCode,
+                        FieldMappingRuleEntity::getEnabled)
+                .eq(FieldMappingRuleEntity::getEnabled, Integer.valueOf(1))
+                .eq(hasText(normalizedType), FieldMappingRuleEntity::getMappingType, normalizedType)
+                .orderByAsc(FieldMappingRuleEntity::getMappingType)
+                .orderByAsc(FieldMappingRuleEntity::getMappingName)
+                .orderByAsc(FieldMappingRuleEntity::getId));
+        List<FieldMappingRuleOptionView> result = new ArrayList<FieldMappingRuleOptionView>();
+        for (FieldMappingRuleEntity entity : entities) {
+            result.add(toOptionView(entity));
+        }
+        return result;
+    }
+
     private FieldMappingRuleView toView(FieldMappingRuleEntity entity, String createdByName, boolean includeParams) {
         FieldMappingRuleView view = new FieldMappingRuleView();
         view.setId(entity.getId());
@@ -216,6 +238,17 @@ public class FieldMappingRuleService {
         view.setMappingCode(entity.getMappingCode());
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         view.setCreatedByName(createdByName);
+        return view;
+    }
+
+    private FieldMappingRuleOptionView toOptionView(FieldMappingRuleEntity entity) {
+        FieldMappingRuleOptionView view = new FieldMappingRuleOptionView();
+        view.setId(entity.getId());
+        view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
+        view.setMappingName(entity.getMappingName());
+        view.setMappingType(entity.getMappingType());
+        view.setMappingCode(entity.getMappingCode());
+        view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         return view;
     }
 

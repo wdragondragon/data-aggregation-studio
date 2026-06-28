@@ -87,9 +87,9 @@
                 </el-form-item>
               </div>
 
-              <div v-if="resolveDraftRule(draft)?.params?.length" class="transformer-draft__params">
+              <div v-if="draftRuleParams(draft).length" class="transformer-draft__params">
                 <div
-                  v-for="param in sortedParams(resolveDraftRule(draft)?.params)"
+                  v-for="param in draftRuleParams(draft)"
                   :key="`${draft.key}_${param.paramName}`"
                   class="transformer-draft__param"
                 >
@@ -196,6 +196,10 @@
                 </div>
               </div>
 
+              <div v-else-if="isDraftRuleLoading(draft)" class="mapping-editor__empty">
+                {{ t("common.loading") }}
+              </div>
+
               <div v-else-if="resolveDraftRule(draft)" class="mapping-editor__empty">
                 {{ t("fieldMapping.noRuleParameters") }}
               </div>
@@ -218,7 +222,13 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { EntityId, FieldMappingRuleParamView, FieldMappingRuleView, TransformerBinding } from "@studio/api-sdk";
+import type {
+  EntityId,
+  FieldMappingRuleOptionView,
+  FieldMappingRuleParamView,
+  FieldMappingRuleView,
+  TransformerBinding,
+} from "@studio/api-sdk";
 import { cloneDeep, prettyJson, sameEntityId } from "@/utils/studio";
 
 interface ParameterOption {
@@ -237,11 +247,14 @@ interface TransformerRuleDraft {
   originalBinding?: TransformerBinding;
 }
 
+type FieldMappingRuleCandidate = FieldMappingRuleOptionView | FieldMappingRuleView;
+
 const props = withDefaults(
   defineProps<{
     visible: boolean;
     modelValue?: TransformerBinding[];
-    ruleOptions?: FieldMappingRuleView[];
+    ruleOptions?: FieldMappingRuleCandidate[];
+    loadRuleDetail?: (id: EntityId) => Promise<FieldMappingRuleView>;
     allowedTransformerCodes?: string[];
     title?: string;
     description?: string;
@@ -262,6 +275,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const transformerDrafts = ref<TransformerRuleDraft[]>([]);
+const ruleDetailCache = ref<Record<string, FieldMappingRuleView>>({});
+const ruleDetailLoading = ref<Record<string, boolean>>({});
 
 const dialogVisible = computed({
   get() {
@@ -298,6 +313,7 @@ watch(
       if (!transformerDrafts.value.length) {
         appendTransformer();
       }
+      void hydrateDraftRuleDetails();
     }
   },
 );
@@ -335,6 +351,7 @@ function buildDraftFromBinding(binding: TransformerBinding): TransformerRuleDraf
     mappingRuleId: matchedRule.id,
     paramValues: extractParamValues(matchedRule, binding.parameters ?? {}),
     expanded: false,
+    originalBinding: cloneDeep(binding),
   };
 }
 
@@ -342,15 +359,22 @@ function resolveRuleForBinding(binding?: TransformerBinding | null) {
   if (!binding) {
     return undefined;
   }
+  const detail = Object.values(ruleDetailCache.value).find((rule) =>
+    sameEntityId(rule.id, binding.mappingRuleId)
+      || (binding.mappingCode && rule.mappingCode === binding.mappingCode)
+      || (binding.transformerCode && rule.mappingCode === binding.transformerCode));
+  if (detail) {
+    return detail;
+  }
   return effectiveRuleOptions.value.find((rule) =>
     sameEntityId(rule.id, binding.mappingRuleId)
       || (binding.mappingCode && rule.mappingCode === binding.mappingCode)
       || (binding.transformerCode && rule.mappingCode === binding.transformerCode));
 }
 
-function extractParamValues(rule: FieldMappingRuleView, parameters: Record<string, unknown>) {
+function extractParamValues(rule: FieldMappingRuleCandidate, parameters: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
-  const orderedParams = sortedParams(rule.params);
+  const orderedParams = sortedParams(ruleParams(rule));
   const paras = Array.isArray(parameters.paras) ? parameters.paras as unknown[] : [];
   orderedParams.forEach((param, index) => {
     if (Object.prototype.hasOwnProperty.call(parameters, param.paramName)) {
@@ -370,6 +394,10 @@ function resolveDraftRule(draft: TransformerRuleDraft) {
   if (draft.mappingRuleId == null) {
     return undefined;
   }
+  const cached = ruleDetailCache.value[String(draft.mappingRuleId)];
+  if (cached) {
+    return cached;
+  }
   return effectiveRuleOptions.value.find((rule) => sameEntityId(rule.id, draft.mappingRuleId));
 }
 
@@ -385,14 +413,14 @@ function handleDraftTypeChange(draft: TransformerRuleDraft) {
   draft.paramValues = {};
 }
 
-function handleDraftRuleChange(draft: TransformerRuleDraft, value?: string | number) {
+async function handleDraftRuleChange(draft: TransformerRuleDraft, value?: string | number) {
   if (value == null || value === "") {
     draft.mappingRuleId = undefined;
     draft.paramValues = {};
     return;
   }
   draft.mappingRuleId = String(value);
-  const rule = resolveDraftRule(draft);
+  const rule = await ensureDraftRuleDetail(draft) ?? resolveDraftRule(draft);
   draft.paramValues = initializeDraftParamValues(rule);
 }
 
@@ -402,6 +430,21 @@ function toggleTransformer(draft: TransformerRuleDraft) {
 
 function sortedParams(params?: FieldMappingRuleParamView[]) {
   return [...(params ?? [])].sort((left, right) => (left.paramOrder ?? 0) - (right.paramOrder ?? 0));
+}
+
+function ruleParams(rule?: FieldMappingRuleCandidate): FieldMappingRuleParamView[] {
+  if (!rule || !("params" in rule) || !Array.isArray(rule.params)) {
+    return [];
+  }
+  return rule.params;
+}
+
+function draftRuleParams(draft: TransformerRuleDraft) {
+  return sortedParams(ruleParams(resolveDraftRule(draft)));
+}
+
+function isDraftRuleLoading(draft: TransformerRuleDraft) {
+  return draft.mappingRuleId != null && Boolean(ruleDetailLoading.value[String(draft.mappingRuleId)]);
 }
 
 function resolveParameterOptions(param: FieldMappingRuleParamView): ParameterOption[] {
@@ -437,12 +480,12 @@ function defaultDraftParameterValue(param: FieldMappingRuleParamView) {
   return undefined;
 }
 
-function initializeDraftParamValues(rule?: FieldMappingRuleView) {
+function initializeDraftParamValues(rule?: FieldMappingRuleCandidate) {
   const result: Record<string, unknown> = {};
   if (!rule) {
     return result;
   }
-  for (const param of sortedParams(rule.params)) {
+  for (const param of sortedParams(ruleParams(rule))) {
     const defaultValue = defaultDraftParameterValue(param);
     if (defaultValue !== undefined) {
       result[param.paramName] = defaultValue;
@@ -489,7 +532,57 @@ function transformerDraftSummary(draft: TransformerRuleDraft) {
   return `${t("fieldMapping.mappingType")}: ${mappingType} · ${t("fieldMapping.mappingMethod")}: ${mappingMethod}`;
 }
 
-function saveTransformers() {
+async function hydrateDraftRuleDetails() {
+  for (const draft of transformerDrafts.value) {
+    const detail = await ensureDraftRuleDetail(draft);
+    if (!detail || !draft.originalBinding) {
+      continue;
+    }
+    draft.mappingType = detail.mappingType;
+    draft.mappingRuleId = detail.id;
+    draft.paramValues = extractParamValues(detail, draft.originalBinding.parameters ?? {});
+    draft.missing = false;
+    draft.missingReason = undefined;
+  }
+}
+
+async function ensureDraftRuleDetail(draft: TransformerRuleDraft) {
+  if (draft.mappingRuleId == null) {
+    return undefined;
+  }
+  return ensureRuleDetail(draft.mappingRuleId);
+}
+
+async function ensureRuleDetail(ruleId: EntityId) {
+  const key = String(ruleId);
+  if (ruleDetailCache.value[key]) {
+    return ruleDetailCache.value[key];
+  }
+  const inlineRule = effectiveRuleOptions.value.find((rule) => sameEntityId(rule.id, ruleId));
+  if (inlineRule && "params" in inlineRule && Array.isArray(inlineRule.params)) {
+    const detail = inlineRule as FieldMappingRuleView;
+    ruleDetailCache.value = { ...ruleDetailCache.value, [key]: detail };
+    return detail;
+  }
+  if (!props.loadRuleDetail || ruleDetailLoading.value[key]) {
+    return undefined;
+  }
+  ruleDetailLoading.value = { ...ruleDetailLoading.value, [key]: true };
+  try {
+    const detail = await props.loadRuleDetail(ruleId);
+    ruleDetailCache.value = { ...ruleDetailCache.value, [key]: detail };
+    return detail;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.fieldMappingRules.loadDetailFailed"));
+    return undefined;
+  } finally {
+    const next = { ...ruleDetailLoading.value };
+    delete next[key];
+    ruleDetailLoading.value = next;
+  }
+}
+
+async function saveTransformers() {
   const transformers: TransformerBinding[] = [];
   for (const draft of transformerDrafts.value) {
     if (draft.missing) {
@@ -505,7 +598,7 @@ function saveTransformers() {
       ElMessage.error(t("fieldMapping.mappingRuleIncomplete"));
       return;
     }
-    const rule = resolveDraftRule(draft);
+    const rule = await ensureDraftRuleDetail(draft) ?? resolveDraftRule(draft);
     if (!rule) {
       ElMessage.error(t("fieldMapping.mappingRuleMissing"));
       return;
@@ -516,8 +609,8 @@ function saveTransformers() {
   dialogVisible.value = false;
 }
 
-function buildTransformerBinding(rule: FieldMappingRuleView, paramValues: Record<string, unknown>): TransformerBinding {
-  const orderedParams = sortedParams(rule.params);
+function buildTransformerBinding(rule: FieldMappingRuleCandidate, paramValues: Record<string, unknown>): TransformerBinding {
+  const orderedParams = sortedParams(ruleParams(rule));
   const parameters: Record<string, unknown> = {};
   parameters.paras = orderedParams.map((param) => normalizeParameterValue(paramValues[param.paramName]));
   for (const param of orderedParams) {

@@ -371,6 +371,7 @@
       v-model:visible="responseTransformerDialogVisible"
       :model-value="editingResponseTransformers"
       :rule-options="onlineSafeFieldMappingRules"
+      :load-rule-detail="loadFieldMappingRuleDetail"
       title="返回字段转换规则"
       description="配置后会在数据服务查询结果返回前对该字段执行转换；REST 与 SOAP 返回共用此规则。"
       @save="saveResponseTransformers"
@@ -396,6 +397,7 @@ import type {
   DataServiceValueType,
   DataSourceOptionView,
   EntityId,
+  FieldMappingRuleOptionView,
   FieldMappingRuleView,
   TransformerBinding,
   WebServiceConfig,
@@ -504,7 +506,7 @@ const form = reactive<DataServiceSaveRequest & {
 const datasources = ref<DataSourceOptionView[]>([]);
 const models = ref<DataModelListView[]>([]);
 const fieldOptions = ref<DataServiceFieldView[]>([]);
-const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
+const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
 const saving = ref(false);
 const publishing = ref(false);
 const resolvingFields = ref(false);
@@ -789,7 +791,7 @@ function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): We
 async function loadInitialData() {
   const [sqlDatasources, rules] = await Promise.all([
     studioApi.dataDevelopment.listSqlDatasourceOptions(),
-    studioApi.fieldMappingRules.options(),
+    studioApi.fieldMappingRules.optionSummaries(),
   ]);
   datasources.value = sqlDatasources;
   fieldMappingRules.value = rules;
@@ -807,6 +809,10 @@ async function loadInitialData() {
     activeStep.value = wizardSteps.length - 1;
     syncDebugTemplate({ notify: false });
   }
+}
+
+function loadFieldMappingRuleDetail(id: EntityId) {
+  return studioApi.fieldMappingRules.get(id);
 }
 
 async function loadService(id: EntityId) {

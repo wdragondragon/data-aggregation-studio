@@ -55,6 +55,7 @@
         :source-field-options-by-alias="sourceFieldOptionsByAlias"
         :target-field-options="targetFieldOptions"
         :field-mapping-rules="fieldMappingRules"
+        :load-field-mapping-rule-detail="loadFieldMappingRuleDetail"
         :writer-soap-body-preview-fields="writerSoapBodyPreviewFields"
         :writer-options="form.targetBinding.writerOptions ?? {}"
         :mapping-actions="mappingSectionActions"
@@ -97,7 +98,9 @@ import type {
   DataModelDefinition,
   DataModelListView,
   DataSourceOptionView,
+  EntityId,
   FieldMappingDefinition,
+  FieldMappingRuleOptionView,
   FieldMappingRuleView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
@@ -157,7 +160,7 @@ const router = useRouter();
 const taskId = computed(() => route.params.taskId as string | undefined);
 const activeStep = ref(1);
 const datasources = ref<DataSourceOptionView[]>([]);
-const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
+const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
 const modelCache = ref<Record<string, DataModelListView[]>>({});
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
@@ -327,7 +330,7 @@ async function loadReferenceData() {
   try {
     const [datasourceData, fieldMappingRuleData] = await Promise.all([
       studioApi.datasources.options(),
-      studioApi.fieldMappingRules.options(),
+      studioApi.fieldMappingRules.optionSummaries(),
     ]);
     datasources.value = datasourceData;
     fieldMappingRules.value = fieldMappingRuleData;
@@ -368,6 +371,10 @@ async function loadTask() {
 
 async function retryLoadTask() {
   await loadTask();
+}
+
+function loadFieldMappingRuleDetail(id: EntityId) {
+  return studioApi.fieldMappingRules.get(id);
 }
 
 function applyTask(task: CollectionTaskDefinitionView) {

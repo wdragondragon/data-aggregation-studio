@@ -61,6 +61,7 @@
       :source-field-options-by-alias="sourceFieldOptionsByAlias"
       :target-fields="targetFieldOptions"
       :rule-options="fieldMappingRules"
+      :load-rule-detail="loadFieldMappingRuleDetail"
       :show-source-alias="isFusionTask"
       :show-expression="isFusionTask"
       @update:model-value="mappingActions.updateFieldMappings"
@@ -92,7 +93,9 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type {
+  EntityId,
   FieldMappingDefinition,
+  FieldMappingRuleOptionView,
   FieldMappingRuleView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
@@ -134,7 +137,8 @@ const props = defineProps<{
   sourceAliasOptions: string[];
   sourceFieldOptionsByAlias: Record<string, string[]>;
   targetFieldOptions: string[];
-  fieldMappingRules: FieldMappingRuleView[];
+  fieldMappingRules: FieldMappingRuleOptionView[];
+  loadFieldMappingRuleDetail: (id: EntityId) => Promise<FieldMappingRuleView>;
   writerSoapBodyPreviewFields: MetadataFieldDefinition[];
   writerOptions: Record<string, unknown>;
   mappingActions: CollectionTaskMappingActions;

@@ -63,6 +63,21 @@ class FieldMappingRuleApiRegressionTest extends StudioApiRegressionTestSupport {
         assertThat(options)
                 .noneMatch(item -> "date_format".equals(item.path("mappingCode").asText()));
 
+        MvcResult optionSummariesResult = mockMvc.perform(get("/api/v1/field-mapping-rules/option-summaries")
+                        .header("Authorization", authorization))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode optionSummaries = readBody(optionSummariesResult).path("data");
+        assertThat(optionSummaries.isArray()).isTrue();
+        assertThat(optionSummaries)
+                .anyMatch(item -> "phone_normalize".equals(item.path("mappingCode").asText())
+                        && !item.has("params")
+                        && !item.has("description")
+                        && !item.has("createdBy"));
+        assertThat(optionSummaries)
+                .noneMatch(item -> "date_format".equals(item.path("mappingCode").asText()));
+
         mockMvc.perform(delete("/api/v1/field-mapping-rules/{id}", ruleId)
                         .header("Authorization", authorization))
                 .andExpect(status().isOk());

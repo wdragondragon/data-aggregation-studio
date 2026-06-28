@@ -508,6 +508,7 @@
       v-model:visible="rawTransformerDialogVisible"
       :model-value="form.rawTransformers"
       :rule-options="onlineSafeFieldMappingRules"
+      :load-rule-detail="loadFieldMappingRuleDetail"
       title="整报文转换器"
       description="按顺序对入口原始报文执行转换，参数由字段映射规则定义生成，不需要手写 JSON。"
       @save="saveRawTransformers"
@@ -523,6 +524,7 @@ import { ElMessage } from "element-plus";
 import type {
   DataSourceOptionView,
   EntityId,
+  FieldMappingRuleOptionView,
   FieldMappingRuleView,
   MetadataFieldDefinition,
   ProtocolConversionFieldMapping,
@@ -562,7 +564,7 @@ const debugResultText = ref("");
 const debugError = ref("");
 const debugTrace = ref<ProtocolConversionTraceView | null>(null);
 const debugSummary = ref<ProtocolConversionDebugSummary | null>(null);
-const fieldMappingRules = ref<FieldMappingRuleView[]>([]);
+const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
 const rawDebugResultText = ref("");
 const rawDebugResultVisible = ref(false);
 const rawTransformerDialogVisible = ref(false);
@@ -816,7 +818,7 @@ watch(
 onMounted(async () => {
   const [datasourceItems, rules] = await Promise.all([
     studioApi.datasources.options(),
-    studioApi.fieldMappingRules.options(),
+    studioApi.fieldMappingRules.optionSummaries(),
   ]);
   datasources.value = datasourceItems;
   fieldMappingRules.value = rules;
@@ -830,6 +832,10 @@ onMounted(async () => {
   }
   activeStep.value = route.query.debug === "1" ? 3 : 0;
 });
+
+function loadFieldMappingRuleDetail(id: EntityId) {
+  return studioApi.fieldMappingRules.get(id);
+}
 
 async function loadService(id: EntityId) {
   try {

@@ -74,6 +74,7 @@ import type {
   ExportProjectBundle,
   FieldMappingRuleSaveRequest,
   FieldMappingRuleListView,
+  FieldMappingRuleOptionView,
   FieldMappingRuleView,
   FollowRequest,
   FollowStatusView,
@@ -453,6 +454,13 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       options(mappingType?: string) {
         return request<FieldMappingRuleView[]>({
           url: "/field-mapping-rules/options",
+          method: "GET",
+          params: mappingType ? { mappingType } : undefined,
+        });
+      },
+      optionSummaries(mappingType?: string) {
+        return request<FieldMappingRuleOptionView[]>({
+          url: "/field-mapping-rules/option-summaries",
           method: "GET",
           params: mappingType ? { mappingType } : undefined,
         });

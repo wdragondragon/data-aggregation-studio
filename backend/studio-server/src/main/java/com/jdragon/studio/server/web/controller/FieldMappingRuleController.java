@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.FieldMappingRuleListView;
+import com.jdragon.studio.dto.model.FieldMappingRuleOptionView;
 import com.jdragon.studio.dto.model.FieldMappingRuleView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.FieldMappingRuleSaveRequest;
@@ -45,6 +46,12 @@ public class FieldMappingRuleController {
     @GetMapping("/options")
     public Result<List<FieldMappingRuleView>> options(@RequestParam(value = "mappingType", required = false) String mappingType) {
         return Result.success(fieldMappingRuleService.options(mappingType));
+    }
+
+    @Operation(summary = "List lightweight enabled field mapping rule options")
+    @GetMapping("/option-summaries")
+    public Result<List<FieldMappingRuleOptionView>> optionSummaries(@RequestParam(value = "mappingType", required = false) String mappingType) {
+        return Result.success(fieldMappingRuleService.optionSummaries(mappingType));
     }
 
     @Operation(summary = "Get field mapping rule detail")

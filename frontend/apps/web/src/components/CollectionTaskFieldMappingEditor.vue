@@ -80,6 +80,7 @@
       v-model:visible="transformerDialogVisible"
       :model-value="editingRowTransformers"
       :rule-options="ruleOptions"
+      :load-rule-detail="loadRuleDetail"
       @save="saveRowTransformers"
     />
   </div>
@@ -88,7 +89,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { FieldMappingDefinition, FieldMappingRuleView, TransformerBinding } from "@studio/api-sdk";
+import type {
+  EntityId,
+  FieldMappingDefinition,
+  FieldMappingRuleOptionView,
+  FieldMappingRuleView,
+  TransformerBinding,
+} from "@studio/api-sdk";
 import { StudioTableShell } from "@studio/ui";
 import TransformerBindingEditor from "@/components/TransformerBindingEditor.vue";
 
@@ -99,7 +106,8 @@ const props = withDefaults(
     targetFields?: string[];
     sourceAliases?: string[];
     sourceFieldOptionsByAlias?: Record<string, string[]>;
-    ruleOptions?: FieldMappingRuleView[];
+    ruleOptions?: FieldMappingRuleOptionView[];
+    loadRuleDetail?: (id: EntityId) => Promise<FieldMappingRuleView>;
     showSourceAlias?: boolean;
     showExpression?: boolean;
   }>(),

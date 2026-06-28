@@ -1508,6 +1508,13 @@ export interface FieldMappingRuleView extends BaseRecord {
   params: FieldMappingRuleParamView[];
 }
 
+export interface FieldMappingRuleOptionView extends BaseRecord {
+  mappingName: string;
+  mappingType: string;
+  mappingCode: string;
+  enabled?: boolean;
+}
+
 export interface FieldMappingRuleListView extends BaseRecord {
   mappingName: string;
   mappingType: string;
