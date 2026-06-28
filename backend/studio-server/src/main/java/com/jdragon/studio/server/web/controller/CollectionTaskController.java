@@ -5,6 +5,7 @@ import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
+import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.infra.service.CollectionTaskService;
@@ -66,6 +67,14 @@ public class CollectionTaskController {
     @GetMapping("/online")
     public Result<List<CollectionTaskListView>> listOnline() {
         return Result.success(collectionTaskService.listOnlineSummaries());
+    }
+
+    @Operation(summary = "Page online collection task options for workflow binding")
+    @GetMapping("/workflow-options")
+    public Result<PageView<CollectionTaskWorkflowOptionView>> listWorkflowOptions(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                                  @RequestParam(value = "keyword", required = false) String keyword) {
+        return Result.success(collectionTaskService.listWorkflowOptions(pageNo, pageSize, keyword));
     }
 
     @Operation(summary = "Get collection task detail")

@@ -9,6 +9,7 @@ import type {
   CollectionTaskOptionView,
   CollectionTaskSaveRequest,
   CollectionTaskScheduleDefinition,
+  CollectionTaskWorkflowOptionView,
   ConnectionTestResult,
   DataDevelopmentDirectory,
   DataDevelopmentDirectorySaveRequest,
@@ -1192,6 +1193,15 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       listOnline() {
         return request<CollectionTaskListView[]>({ url: "/collection-tasks/online", method: "GET" });
+      },
+      workflowOptions(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+      }) {
+        return request<unknown>({ url: "/collection-tasks/workflow-options", method: "GET", params }).then((payload) =>
+          normalizePageResult<CollectionTaskWorkflowOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
       },
       get(id: EntityId) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}`, method: "GET" });

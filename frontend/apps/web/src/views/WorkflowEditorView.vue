@@ -85,9 +85,9 @@
       :quality-tasks-loading="qualityTasksLoading"
       :script-tree-loading="scriptTreeLoading"
       :script-preview-loading="scriptPreviewLoading"
-      :paged-collection-tasks="pagedCollectionTasks"
-      :filtered-collection-tasks="filteredCollectionTasks"
+      :online-collection-tasks="onlineCollectionTasks"
       :collection-task-pagination="collectionTaskPagination"
+      :collection-task-total="collectionTaskTotal"
       :online-quality-tasks="onlineQualityTasks"
       :quality-task-pagination="qualityTaskPagination"
       :quality-task-total="qualityTaskTotal"
@@ -105,7 +105,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
-  CollectionTaskListView,
+  CollectionTaskWorkflowOptionView,
   DataDevelopmentScript,
   DataDevelopmentScriptListView,
   DataDevelopmentTreeNode,
@@ -128,10 +128,8 @@ import {
   formatQualityDimension,
   formatQualityGranularity,
   getDialogRowIndex,
-  matchesKeyword,
   normalizeHttpParamRows,
   normalizeMaxRows,
-  paginateItems,
   parseDataScriptArguments,
   parseHttpBody,
   type DialogPagination,
@@ -160,13 +158,14 @@ const router = useRouter();
 
 const workflowId = computed(() => route.params.workflowId as string | undefined);
 const datasources = ref<DataSourceOptionView[]>([]);
-const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
+const onlineCollectionTasks = ref<CollectionTaskWorkflowOptionView[]>([]);
 const onlineQualityTasks = ref<QualityTaskWorkflowOptionView[]>([]);
 const scripts = ref<DataDevelopmentScriptListView[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
 const detailLoadError = ref("");
 const collectionTasksLoading = ref(false);
+const collectionTaskReloadPending = ref(false);
 const qualityTasksLoading = ref(false);
 const qualityTaskReloadPending = ref(false);
 const scriptsLoading = ref(false);
@@ -187,6 +186,7 @@ const scriptTreeLoaded = ref(false);
 const scriptPreviewLoading = ref(false);
 const previewScript = ref<DataDevelopmentScript | null>(null);
 const collectionTaskPagination = reactive<DialogPagination>({ page: 1, pageSize: 8 });
+const collectionTaskTotal = ref(0);
 const qualityTaskPagination = reactive<DialogPagination>({ page: 1, pageSize: 8 });
 const qualityTaskTotal = ref(0);
 const dataScriptArgumentsText = ref("{}");
@@ -205,12 +205,6 @@ const form = reactive<WorkflowEditor>({
 
 const datasourceOptions = computed(() => datasources.value.map((item) => item.name));
 const selectedNode = computed(() => form.nodes.find((node) => node.nodeCode === selectedNodeCode.value));
-const filteredCollectionTasks = computed(() =>
-  onlineCollectionTasks.value.filter((task) =>
-    matchesKeyword(collectionTaskKeyword.value, [task.name, task.taskType, task.status, task.id]),
-  ),
-);
-const pagedCollectionTasks = computed(() => paginateItems(filteredCollectionTasks.value, collectionTaskPagination));
 const filteredScriptTreeData = computed(() => filterScriptTree(scriptTreeData.value, scriptKeyword.value));
 const previewScriptContent = computed({
   get: () => previewScript.value?.content ?? "",
@@ -230,7 +224,7 @@ const selectedCollectionTaskId = computed(() => {
   return String(selectedNode.value.config.collectionTaskId);
 });
 const selectedBoundTask = computed(() =>
-  onlineCollectionTasks.value.find((item) => String(item.id) === selectedCollectionTaskId.value),
+  onlineCollectionTasks.value.find((item) => String(item.id) === selectedCollectionTaskId.value) ?? buildSelectedCollectionTaskFallback(),
 );
 const selectedQualityTaskId = computed(() => {
   if (!selectedNode.value?.config?.qualityTaskId) {
@@ -307,6 +301,22 @@ const selectedNodeFields = computed<MetadataFieldDefinition[]>(() => {
     { fieldKey: "compareFields", fieldName: "Compare Fields", scope: "TECHNICAL", componentType: "TEXTAREA", valueType: "STRING" },
   ];
 });
+
+function buildSelectedCollectionTaskFallback(): CollectionTaskWorkflowOptionView | undefined {
+  const config = selectedNode.value?.config;
+  if (!config?.collectionTaskId) {
+    return undefined;
+  }
+  const taskName = readSelectedNodeConfigText("collectionTaskName") ?? String(config.collectionTaskId);
+  const sourceCountText = readSelectedNodeConfigText("collectionTaskSourceCount");
+  const sourceCount = sourceCountText == null ? undefined : Number(sourceCountText);
+  return {
+    id: config.collectionTaskId as CollectionTaskWorkflowOptionView["id"],
+    name: taskName,
+    taskType: readSelectedNodeConfigText("collectionTaskType") as CollectionTaskWorkflowOptionView["taskType"],
+    sourceCount: Number.isFinite(sourceCount) ? sourceCount : undefined,
+  };
+}
 
 function buildSelectedQualityTaskFallback(): QualityTaskWorkflowOptionView | undefined {
   const config = selectedNode.value?.config;
@@ -396,14 +406,41 @@ async function ensureCollectionTasksLoaded(force = false) {
   if ((collectionTasksLoaded.value && !force) || collectionTasksLoading.value) {
     return;
   }
+  await loadCollectionTasks();
+}
+
+async function loadCollectionTasks() {
+  if (collectionTasksLoading.value) {
+    collectionTaskReloadPending.value = true;
+    return;
+  }
   collectionTasksLoading.value = true;
   try {
-    onlineCollectionTasks.value = await studioApi.collectionTasks.listOnline();
+    let page = await studioApi.collectionTasks.workflowOptions({
+      pageNo: collectionTaskPagination.page,
+      pageSize: collectionTaskPagination.pageSize,
+      keyword: collectionTaskKeyword.value.trim() || undefined,
+    });
+    const maxPage = Math.max(1, Math.ceil(page.total / collectionTaskPagination.pageSize));
+    if (collectionTaskPagination.page > maxPage) {
+      collectionTaskPagination.page = maxPage;
+      page = await studioApi.collectionTasks.workflowOptions({
+        pageNo: collectionTaskPagination.page,
+        pageSize: collectionTaskPagination.pageSize,
+        keyword: collectionTaskKeyword.value.trim() || undefined,
+      });
+    }
+    onlineCollectionTasks.value = page.items;
+    collectionTaskTotal.value = page.total;
     collectionTasksLoaded.value = true;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
   } finally {
     collectionTasksLoading.value = false;
+    if (collectionTaskReloadPending.value) {
+      collectionTaskReloadPending.value = false;
+      await loadCollectionTasks();
+    }
   }
 }
 
@@ -468,12 +505,26 @@ async function openCollectionTaskDialog() {
   collectionTaskDialogVisible.value = true;
   pendingCollectionTaskId.value = selectedCollectionTaskId.value;
   collectionTaskPagination.page = 1;
-  await ensureCollectionTasksLoaded();
+  await loadCollectionTasks();
 }
 
 function confirmCollectionTaskSelection() {
   bindCollectionTask(pendingCollectionTaskId.value);
   collectionTaskDialogVisible.value = false;
+}
+
+function handleCollectionTaskKeywordInput() {
+  collectionTaskPagination.page = 1;
+  void loadCollectionTasks();
+}
+
+function handleCollectionTaskPageChange() {
+  void loadCollectionTasks();
+}
+
+function handleCollectionTaskPageSizeChange() {
+  collectionTaskPagination.page = 1;
+  void loadCollectionTasks();
 }
 
 async function openQualityTaskDialog() {
@@ -658,16 +709,18 @@ function bindCollectionTask(value?: string) {
   if (!selectedNode.value || !task) {
     return;
   }
+  const taskName = task.name ?? String(task.id ?? value);
   form.nodes = form.nodes.map((node) =>
     node.nodeCode === selectedNodeCode.value
       ? {
           ...node,
-          nodeName: task.name,
+          nodeName: taskName,
           config: {
             ...(node.config ?? {}),
             collectionTaskId: task.id,
-            collectionTaskName: task.name,
+            collectionTaskName: taskName,
             collectionTaskType: task.taskType,
+            collectionTaskSourceCount: task.sourceCount,
           },
         }
       : node,
@@ -973,6 +1026,10 @@ const selectedNodePanelActions = {
 
 const resourceDialogActions = {
   ensureCollectionTasksLoaded,
+  loadCollectionTasks,
+  handleCollectionTaskKeywordInput,
+  handleCollectionTaskPageChange,
+  handleCollectionTaskPageSizeChange,
   getDialogRowIndex,
   confirmCollectionTaskSelection,
   handleQualityTaskKeywordInput,

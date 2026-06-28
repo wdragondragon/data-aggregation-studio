@@ -227,7 +227,7 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type {
-  CollectionTaskListView,
+  CollectionTaskWorkflowOptionView,
   DataDevelopmentScriptListView,
   MetadataFieldDefinition,
   QualityTaskWorkflowOptionView,
@@ -270,7 +270,7 @@ interface WorkflowSelectedNodeActions {
 
 const props = defineProps<{
   selectedNode?: WorkflowNodeDefinition;
-  selectedBoundTask?: CollectionTaskListView;
+  selectedBoundTask?: CollectionTaskWorkflowOptionView;
   selectedBoundQualityTask?: QualityTaskWorkflowOptionView;
   selectedBoundScript?: DataDevelopmentScriptListView;
   collectionTasksLoading: boolean;

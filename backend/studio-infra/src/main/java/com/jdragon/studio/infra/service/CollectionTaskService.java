@@ -14,6 +14,7 @@ import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
 import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
+import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
@@ -235,6 +236,37 @@ public class CollectionTaskService {
         return result;
     }
 
+    public PageView<CollectionTaskWorkflowOptionView> listWorkflowOptions(Integer pageNo,
+                                                                          Integer pageSize,
+                                                                          String keyword) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        if (projectResourceAccessService.currentProjectId() == null) {
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<CollectionTaskWorkflowOptionView>());
+        }
+        String normalizedKeyword = normalizeNullableText(keyword);
+        Long keywordId = parseLongOrNull(normalizedKeyword);
+        Page<CollectionTaskDefinitionEntity> page = new Page<CollectionTaskDefinitionEntity>(safePageNo, safePageSize);
+        LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper = selectWorkflowOptionColumns(buildAccessibleQuery())
+                .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
+                .and(hasText(normalizedKeyword), wrapper -> {
+                    wrapper.like(CollectionTaskDefinitionEntity::getName, normalizedKeyword)
+                            .or()
+                            .like(CollectionTaskDefinitionEntity::getTaskType, normalizedKeyword);
+                    if (keywordId != null) {
+                        wrapper.or().eq(CollectionTaskDefinitionEntity::getId, keywordId);
+                    }
+                })
+                .orderByDesc(CollectionTaskDefinitionEntity::getUpdatedAt)
+                .orderByDesc(CollectionTaskDefinitionEntity::getId);
+        Page<CollectionTaskDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
+        List<CollectionTaskWorkflowOptionView> result = new ArrayList<CollectionTaskWorkflowOptionView>();
+        for (CollectionTaskDefinitionEntity entity : entityPage.getRecords()) {
+            result.add(toWorkflowOptionView(entity));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), result);
+    }
+
     public CollectionTaskDefinitionView get(Long id) {
         CollectionTaskDefinitionEntity entity = findAccessibleEntity(id);
         if (entity == null) {
@@ -444,6 +476,17 @@ public class CollectionTaskService {
         return view;
     }
 
+    private CollectionTaskWorkflowOptionView toWorkflowOptionView(CollectionTaskDefinitionEntity entity) {
+        CollectionTaskWorkflowOptionView view = new CollectionTaskWorkflowOptionView();
+        view.setId(entity.getId());
+        view.setProjectId(entity.getProjectId());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setName(entity.getName());
+        view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
+        view.setSourceCount(entity.getSourceCount());
+        return view;
+    }
+
     private LambdaQueryWrapper<CollectionTaskDefinitionEntity> selectListColumns(LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper) {
         return queryWrapper.select(CollectionTaskDefinitionEntity::getId,
                 CollectionTaskDefinitionEntity::getTenantId,
@@ -459,6 +502,15 @@ public class CollectionTaskService {
                 CollectionTaskDefinitionEntity::getTargetDatasourceTypeCodeSnapshot,
                 CollectionTaskDefinitionEntity::getTargetModelNameSnapshot,
                 CollectionTaskDefinitionEntity::getTargetModelPhysicalLocatorSnapshot);
+    }
+
+    private LambdaQueryWrapper<CollectionTaskDefinitionEntity> selectWorkflowOptionColumns(LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper) {
+        return queryWrapper.select(CollectionTaskDefinitionEntity::getId,
+                CollectionTaskDefinitionEntity::getProjectId,
+                CollectionTaskDefinitionEntity::getUpdatedAt,
+                CollectionTaskDefinitionEntity::getName,
+                CollectionTaskDefinitionEntity::getTaskType,
+                CollectionTaskDefinitionEntity::getSourceCount);
     }
 
     private Map<Long, CollectionTaskScheduleDefinition> loadScheduleMap(List<CollectionTaskDefinitionEntity> entities) {
@@ -692,6 +744,17 @@ public class CollectionTaskService {
             return 20;
         }
         return Math.min(pageSize.intValue(), 200);
+    }
+
+    private Long parseLongOrNull(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private List<CollectionTaskSourceBinding> enrichSourceBindings(List<CollectionTaskSourceBinding> bindings) {

@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskOptionView;
+import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskScheduleEntity;
@@ -116,6 +117,38 @@ class CollectionTaskListSourceSlimmingRegressionTest {
                 .contains("id", "project_id", "name")
                 .doesNotContain("task_type", "status", "source_count",
                         "target_datasource_name_snapshot", "target_model_name_snapshot",
+                        "source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
+        verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void collectionTaskWorkflowOptionsShouldSelectOnlyWorkflowBindingColumns() {
+        CollectionTaskDefinitionMapper definitionMapper = mock(CollectionTaskDefinitionMapper.class);
+        CollectionTaskScheduleMapper scheduleMapper = mock(CollectionTaskScheduleMapper.class);
+        CollectionTaskService service = collectionTaskService(definitionMapper, scheduleMapper);
+        when(definitionMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<CollectionTaskDefinitionEntity> page = invocation.getArgument(0);
+            page.setTotal(1L);
+            page.setRecords(Collections.singletonList(taskEntity()));
+            return page;
+        });
+
+        PageView<CollectionTaskWorkflowOptionView> page = service.listWorkflowOptions(1, 8, "客户");
+
+        assertThat(page.getItems()).hasSize(1);
+        CollectionTaskWorkflowOptionView item = page.getItems().get(0);
+        assertThat(item.getName()).isEqualTo("长期回归-客户订单增量采集任务");
+        assertThat(item.getTaskType()).isEqualTo(CollectionTaskType.SINGLE_TABLE);
+        assertThat(item.getSourceCount()).isEqualTo(1);
+
+        ArgumentCaptor<LambdaQueryWrapper<CollectionTaskDefinitionEntity>> taskCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper).selectPage(any(Page.class), taskCaptor.capture());
+        assertThat(taskCaptor.getValue().getSqlSelect())
+                .contains("id", "project_id", "updated_at", "name", "task_type", "source_count")
+                .doesNotContain("tenant_id", "deleted", "created_at", "status",
+                        "target_datasource_name_snapshot", "target_datasource_type_code_snapshot",
+                        "target_model_name_snapshot", "target_model_physical_locator_snapshot",
                         "source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
         verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));

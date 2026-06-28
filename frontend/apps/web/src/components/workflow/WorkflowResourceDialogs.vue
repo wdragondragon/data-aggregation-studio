@@ -11,15 +11,15 @@
         v-model="collectionKeywordModel"
         clearable
         :placeholder="t('web.workflows.searchCollectionTaskPlaceholder')"
-        @input="collectionTaskPagination.page = 1"
+        @input="actions.handleCollectionTaskKeywordInput"
       />
-      <el-button plain :loading="collectionTasksLoading" @click="actions.ensureCollectionTasksLoaded(true)">
+      <el-button plain :loading="collectionTasksLoading" @click="actions.loadCollectionTasks">
         {{ t("common.refresh") }}
       </el-button>
     </div>
     <el-table
       v-loading="collectionTasksLoading"
-      :data="pagedCollectionTasks"
+      :data="onlineCollectionTasks"
       border
       size="small"
       table-layout="fixed"
@@ -64,9 +64,11 @@
       <el-pagination
         v-model:current-page="collectionTaskPagination.page"
         v-model:page-size="collectionTaskPagination.pageSize"
-        :total="filteredCollectionTasks.length"
+        :total="collectionTaskTotal"
         :page-sizes="[8, 10, 20, 50]"
         layout="total, sizes, prev, pager, next"
+        @current-change="actions.handleCollectionTaskPageChange"
+        @size-change="actions.handleCollectionTaskPageSizeChange"
       />
     </div>
     <template #footer>
@@ -236,7 +238,7 @@ import { useI18n } from "vue-i18n";
 import type {
   DataDevelopmentScript,
   DataDevelopmentTreeNode,
-  CollectionTaskListView,
+  CollectionTaskWorkflowOptionView,
   QualityTaskWorkflowOptionView,
 } from "@studio/api-sdk";
 import ScriptEditorPanel from "@web/components/data-development/ScriptEditorPanel.vue";
@@ -249,6 +251,10 @@ interface DialogPagination {
 
 interface WorkflowResourceDialogActions {
   ensureCollectionTasksLoaded: (force?: boolean) => void | Promise<void>;
+  loadCollectionTasks: () => void | Promise<void>;
+  handleCollectionTaskKeywordInput: () => void;
+  handleCollectionTaskPageChange: (page: number) => void;
+  handleCollectionTaskPageSizeChange: (pageSize: number) => void;
   getDialogRowIndex: (pagination: DialogPagination, index: number) => number;
   confirmCollectionTaskSelection: () => void;
   handleQualityTaskKeywordInput: () => void;
@@ -279,9 +285,9 @@ const props = defineProps<{
   qualityTasksLoading: boolean;
   scriptTreeLoading: boolean;
   scriptPreviewLoading: boolean;
-  pagedCollectionTasks: CollectionTaskListView[];
-  filteredCollectionTasks: CollectionTaskListView[];
+  onlineCollectionTasks: CollectionTaskWorkflowOptionView[];
   collectionTaskPagination: DialogPagination;
+  collectionTaskTotal: number;
   onlineQualityTasks: QualityTaskWorkflowOptionView[];
   qualityTaskPagination: DialogPagination;
   qualityTaskTotal: number;

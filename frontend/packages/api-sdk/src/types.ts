@@ -1622,6 +1622,15 @@ export interface CollectionTaskListView extends BaseRecord {
   schedule?: CollectionTaskScheduleDefinition;
 }
 
+export interface CollectionTaskWorkflowOptionView {
+  id?: EntityId;
+  projectId?: EntityId;
+  updatedAt?: string;
+  name?: string;
+  taskType?: CollectionTaskType | string;
+  sourceCount?: number;
+}
+
 export interface CollectionTaskOptionView {
   id?: EntityId;
   projectId?: EntityId;
