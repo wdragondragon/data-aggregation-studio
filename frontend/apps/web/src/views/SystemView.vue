@@ -343,6 +343,18 @@
             </el-table-column>
           </el-table>
           </StudioTableShell>
+          <div class="table-pagination">
+            <el-pagination
+              v-model:current-page="systemPagination.workers.page"
+              v-model:page-size="systemPagination.workers.pageSize"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="SYSTEM_PAGE_SIZES"
+              :total="systemPagination.workers.total"
+              @current-change="reloadPaginatedTab('workers')"
+              @size-change="handlePaginatedPageSizeChange('workers')"
+            />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="资源共享" name="shares">
@@ -675,6 +687,8 @@ const tenantMembers = ref<SystemTenantMember[]>([]);
 const projectMembers = ref<SystemProjectMember[]>([]);
 const projectMemberRequests = ref<SystemProjectMemberRequest[]>([]);
 const projectWorkers = ref<SystemProjectWorker[]>([]);
+const projectWorkerOptions = ref<SystemProjectWorker[]>([]);
+const projectWorkerOptionsLoaded = ref(false);
 const resourceShares = ref<ResourceShare[]>([]);
 const shareResourceOptions = reactive<Record<string, ShareResourceOption[]>>({});
 const shareResourceLoading = ref(false);
@@ -682,7 +696,7 @@ const loadedShareResourceTypes = reactive<Record<string, boolean>>({});
 const shareFilters = reactive<{ resourceType: string }>({
   resourceType: DEFAULT_SHARE_RESOURCE_TYPE,
 });
-type PaginatedSystemTabName = "users" | "registrationRequests" | "tenants" | "projects" | "tenantMembers" | "projectMembers" | "requests";
+type PaginatedSystemTabName = "users" | "registrationRequests" | "tenants" | "projects" | "tenantMembers" | "projectMembers" | "requests" | "workers";
 
 function createPagination() {
   return {
@@ -700,6 +714,7 @@ const systemPagination = reactive<Record<PaginatedSystemTabName, ReturnType<type
   tenantMembers: createPagination(),
   projectMembers: createPagination(),
   requests: createPagination(),
+  workers: createPagination(),
 });
 const resourceSharePagination = reactive({
   page: 1,
@@ -726,7 +741,7 @@ const workerForm = reactive<Partial<SystemProjectWorker>>({ enabled: true });
 const shareForm = reactive<Partial<ResourceShare>>({ enabled: true });
 
 const workerGroupOptions = computed(() =>
-  projectWorkers.value
+  (projectWorkerOptions.value.length > 0 ? projectWorkerOptions.value : projectWorkers.value)
     .map((item) => {
       const value = item.workerGroupCode || item.workerCode;
       return value
@@ -933,7 +948,18 @@ async function loadProjectMemberRequests() {
 async function loadProjectWorkers() {
   await withTabLoading("workers", async () => {
     const currentProjectId = authStore.currentProjectId ?? undefined;
-    projectWorkers.value = currentProjectId == null ? [] : await studioApi.system.projectWorkers.list(currentProjectId, LOCAL_LOADING_REQUEST);
+    if (currentProjectId == null) {
+      projectWorkers.value = [];
+      systemPagination.workers.total = 0;
+      return;
+    }
+    const page = await studioApi.system.projectWorkers.listPage({
+      projectId: currentProjectId,
+      pageNo: systemPagination.workers.page,
+      pageSize: systemPagination.workers.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    projectWorkers.value = page.items || [];
+    systemPagination.workers.total = page.total || 0;
   }, "加载 Worker 下发失败");
 }
 
@@ -1007,9 +1033,18 @@ function loadProjectsForDialog() {
 }
 
 function loadWorkerGroupsForDialog() {
-  if (projectWorkers.value.length === 0) {
-    void loadProjectWorkers();
+  const currentProjectId = authStore.currentProjectId ?? undefined;
+  if (currentProjectId == null || projectWorkerOptionsLoaded.value) {
+    return;
   }
+  void studioApi.system.projectWorkers.list(currentProjectId, LOCAL_LOADING_REQUEST)
+    .then((items) => {
+      projectWorkerOptions.value = items;
+      projectWorkerOptionsLoaded.value = true;
+    })
+    .catch((error) => {
+      ElMessage.error(error instanceof Error ? error.message : "加载 Worker 组失败");
+    });
 }
 
 function loadShareResourcesForDialog() {
@@ -1046,6 +1081,9 @@ function reloadPaginatedTab(tab: PaginatedSystemTabName) {
       break;
     case "requests":
       void loadProjectMemberRequests();
+      break;
+    case "workers":
+      void loadProjectWorkers();
       break;
   }
 }
@@ -1131,61 +1169,6 @@ async function refreshProfileIf(condition: boolean) {
 
 async function refreshProfileForUser(userId?: EntityId | null) {
   await refreshProfileIf(sameEntityId(userId, authStore.userId));
-}
-
-function patchProjectWorkerRow(saved: SystemProjectWorker) {
-  const workerGroupCode = saved.workerGroupCode || saved.workerCode;
-  if (!workerGroupCode) {
-    return;
-  }
-  const existing = projectWorkers.value.find((item) => workerRowKey(item) === workerGroupCode);
-  const row: SystemProjectWorker = {
-    ...existing,
-    ...saved,
-    projectId: saved.projectId ?? authStore.currentProjectId ?? existing?.projectId,
-    workerGroupCode,
-    workerCode: saved.workerCode || existing?.workerCode || workerGroupCode,
-    workerInstanceId: existing?.workerInstanceId,
-    workerKind: existing?.workerKind,
-    hostName: existing?.hostName,
-    podName: existing?.podName,
-    nodeName: existing?.nodeName,
-    onlineInstanceCount: existing?.onlineInstanceCount ?? 0,
-    recentInstanceCount: existing?.recentInstanceCount ?? 0,
-    status: existing?.status ?? "NO_INSTANCE",
-    displayStatus: existing?.displayStatus ?? existing?.status ?? "NO_INSTANCE",
-    lastHeartbeatAt: existing?.lastHeartbeatAt,
-    latestHeartbeatAt: existing?.latestHeartbeatAt,
-    boundToProject: true,
-    enabled: toBooleanFlag(saved.enabled),
-    instances: existing?.instances ?? [],
-  };
-  const index = projectWorkers.value.findIndex((item) => workerRowKey(item) === workerGroupCode);
-  if (index >= 0) {
-    projectWorkers.value.splice(index, 1, row);
-  } else {
-    projectWorkers.value.push(row);
-  }
-}
-
-function unbindProjectWorkerRow(row: SystemProjectWorker) {
-  const key = workerRowKey(row);
-  const index = projectWorkers.value.findIndex((item) => workerRowKey(item) === key);
-  if (index < 0) {
-    return;
-  }
-  if (workerInstances(row).length > 0) {
-    projectWorkers.value.splice(index, 1, {
-      ...row,
-      id: undefined,
-      boundToProject: false,
-      enabled: false,
-      createdAt: undefined,
-      updatedAt: undefined,
-    });
-    return;
-  }
-  projectWorkers.value.splice(index, 1);
 }
 
 function openTenantDialog(row?: SystemTenant) {
@@ -1474,7 +1457,10 @@ async function saveProjectWorker() {
     enabled: toIntegerFlag(workerForm.enabled),
   });
   await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 组绑定已保存", {
-    onSaved: patchProjectWorkerRow,
+    onSaved: async () => {
+      projectWorkerOptionsLoaded.value = false;
+      await loadProjectWorkers();
+    },
   });
 }
 
@@ -1562,7 +1548,11 @@ async function deleteProjectRequest(row: SystemProjectMemberRequest) {
 
 async function deleteProjectWorker(row: SystemProjectWorker) {
   await confirmDelete(`确认解绑 Worker 组 ${row.workerGroupCode || row.workerCode} 吗？`, () => studioApi.system.projectWorkers.delete(row.id!), {
-    onDeleted: () => unbindProjectWorkerRow(row),
+    onDeleted: async () => {
+      projectWorkerOptionsLoaded.value = false;
+      stepBackPaginatedPageAfterDelete("workers", projectWorkers.value.length);
+      await loadProjectWorkers();
+    },
   });
 }
 
@@ -1702,6 +1692,8 @@ const systemActionHandlers: SystemActionHandlers = {
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   resetShareResourceCache();
+  projectWorkerOptions.value = [];
+  projectWorkerOptionsLoaded.value = false;
   resetPaginatedSystemPages();
   resourceSharePagination.page = 1;
   if (authStore.isAuthenticated) {

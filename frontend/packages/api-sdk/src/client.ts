@@ -1754,6 +1754,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             params: projectId == null ? undefined : { projectId },
           });
         },
+        listPage(params?: { projectId?: EntityId; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<SystemProjectWorker>({ ...config, url: "/system/project-workers/page", method: "GET", params }, params);
+        },
         save(payload: Partial<SystemProjectWorker>) {
           return request<SystemProjectWorker>({ url: "/system/project-workers", method: "POST", data: payload });
         },

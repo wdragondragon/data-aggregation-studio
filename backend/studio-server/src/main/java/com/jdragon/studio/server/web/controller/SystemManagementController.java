@@ -185,6 +185,14 @@ public class SystemManagementController {
         return Result.success(systemManagementService.listProjectWorkers(projectId));
     }
 
+    @Operation(summary = "Page current project worker bindings")
+    @GetMapping("/project-workers/page")
+    public Result<PageView<SystemProjectWorkerView>> listProjectWorkersPage(@RequestParam(value = "projectId", required = false) Long projectId,
+                                                                            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(systemManagementService.listProjectWorkersPage(projectId, pageNo, pageSize));
+    }
+
     @Operation(summary = "Create or update project worker binding")
     @PostMapping("/project-workers")
     public Result<ProjectWorkerBindingEntity> saveProjectWorkerBinding(@RequestBody ProjectWorkerBindingEntity entity) {

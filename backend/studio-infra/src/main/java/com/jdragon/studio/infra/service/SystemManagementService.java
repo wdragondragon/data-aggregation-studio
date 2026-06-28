@@ -507,6 +507,30 @@ public class SystemManagementService {
         return result;
     }
 
+    public PageView<SystemProjectWorkerView> listProjectWorkersPage(Long projectId, Integer pageNo, Integer pageSize) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        ProjectEntity project = requireTenantManagedProject(projectId);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime recentThreshold = now.minusHours(WORKER_RECENT_INSTANCE_HOURS);
+        long total = workerLeaseMapper.countVisibleWorkerGroups(project.getTenantId(), project.getId(), recentThreshold, now);
+        if (total <= 0L) {
+            return PageView.of(safePageNo, safePageSize, 0L, Collections.<SystemProjectWorkerView>emptyList());
+        }
+        int offset = (safePageNo - 1) * safePageSize;
+        List<String> workerGroupCodes = workerLeaseMapper.selectVisibleWorkerGroupPage(
+                project.getTenantId(), project.getId(), recentThreshold, now, safePageSize, offset);
+        if (workerGroupCodes.isEmpty()) {
+            return PageView.of(safePageNo, safePageSize, total, Collections.<SystemProjectWorkerView>emptyList());
+        }
+        List<WorkerLeaseEntity> workerLeases = workerLeaseMapper.selectVisibleLeasesForGroups(
+                project.getTenantId(), recentThreshold, now, workerGroupCodes);
+        List<ProjectWorkerBindingEntity> bindings = projectWorkerBindingMapper.selectForWorkerGroups(
+                project.getTenantId(), project.getId(), workerGroupCodes);
+        return PageView.of(safePageNo, safePageSize, total,
+                assembleProjectWorkerViews(project, workerGroupCodes, workerLeases, bindings, now));
+    }
+
     public PageView<SystemProjectMemberRequestView> listProjectMemberRequestsPage(Long projectId, Integer pageNo, Integer pageSize) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
@@ -531,6 +555,41 @@ public class SystemManagementService {
                     userMap.get(request.getReviewerUserId())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
+    }
+
+    private List<SystemProjectWorkerView> assembleProjectWorkerViews(ProjectEntity project,
+                                                                     List<String> workerGroupCodes,
+                                                                     List<WorkerLeaseEntity> workerLeases,
+                                                                     List<ProjectWorkerBindingEntity> bindings,
+                                                                     LocalDateTime now) {
+        Map<String, List<WorkerLeaseEntity>> leaseMap = new LinkedHashMap<String, List<WorkerLeaseEntity>>();
+        for (WorkerLeaseEntity lease : workerLeases) {
+            String workerGroupCode = resolveWorkerGroupCode(lease);
+            if (hasText(workerGroupCode)) {
+                leaseMap.computeIfAbsent(workerGroupCode, key -> new ArrayList<WorkerLeaseEntity>()).add(lease);
+            }
+        }
+        Map<String, ProjectWorkerBindingEntity> bindingMap = new LinkedHashMap<String, ProjectWorkerBindingEntity>();
+        for (ProjectWorkerBindingEntity binding : bindings) {
+            String workerGroupCode = resolveWorkerGroupCode(binding);
+            if (hasText(workerGroupCode)) {
+                bindingMap.put(workerGroupCode, binding);
+            }
+        }
+        List<SystemProjectWorkerView> result = new ArrayList<SystemProjectWorkerView>();
+        for (String workerGroupCode : workerGroupCodes) {
+            List<WorkerLeaseEntity> leases = leaseMap.get(workerGroupCode);
+            WorkerLeaseEntity latestLease = chooseDisplayLease(leases, now);
+            List<SystemWorkerInstanceView> instances = toWorkerInstances(leases, now);
+            result.add(toProjectWorkerView(project.getId(), project.getTenantId(), latestLease,
+                    bindingMap.get(workerGroupCode),
+                    countOnlineInstances(leases, now),
+                    instances.size(),
+                    latestHeartbeatAt(leases),
+                    displayWorkerGroupStatus(instances),
+                    instances));
+        }
+        return result;
     }
 
     @Transactional

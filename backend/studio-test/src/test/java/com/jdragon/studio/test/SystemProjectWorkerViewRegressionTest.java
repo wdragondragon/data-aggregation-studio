@@ -1,8 +1,11 @@
 package com.jdragon.studio.test;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemWorkerInstanceView;
 import com.jdragon.studio.infra.entity.ProjectEntity;
@@ -28,6 +31,8 @@ import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.service.NotificationService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.SystemManagementService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -42,12 +47,19 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SystemProjectWorkerViewRegressionTest {
+
+    @BeforeAll
+    static void initTableInfo() {
+        initTableInfo(WorkerLeaseEntity.class);
+        initTableInfo(ProjectWorkerBindingEntity.class);
+    }
 
     @Test
     void shouldGroupWorkerInstancesAndKeepOnlyRecentLeases() {
@@ -203,6 +215,44 @@ class SystemProjectWorkerViewRegressionTest {
     }
 
     @Test
+    void workerPageShouldPageWorkerGroupsBeforeLoadingLeasesAndBindings() {
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        ProjectWorkerBindingMapper bindingMapper = mock(ProjectWorkerBindingMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        SystemManagementService service = service(projectMapper, bindingMapper, workerLeaseMapper, securityService);
+
+        ProjectEntity project = new ProjectEntity();
+        project.setId(100L);
+        project.setTenantId("default");
+        when(projectMapper.selectById(100L)).thenReturn(project);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
+        when(workerLeaseMapper.countVisibleWorkerGroups(eq("default"), eq(100L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(4L);
+        when(workerLeaseMapper.selectVisibleWorkerGroupPage(eq("default"), eq(100L), any(LocalDateTime.class), any(LocalDateTime.class), eq(2), eq(2)))
+                .thenReturn(Arrays.asList("group-b", "group-c"));
+        LocalDateTime now = LocalDateTime.now();
+        when(workerLeaseMapper.selectVisibleLeasesForGroups(eq("default"), any(LocalDateTime.class), any(LocalDateTime.class), eq(Arrays.asList("group-b", "group-c"))))
+                .thenReturn(Collections.singletonList(lease("group-b", "pod-c", "instance-c", "ONLINE", now.minusMinutes(1), now.plusMinutes(1))));
+        when(bindingMapper.selectForWorkerGroups(eq("default"), eq(100L), eq(Arrays.asList("group-b", "group-c"))))
+                .thenReturn(Collections.singletonList(binding(2L, "group-c", 1)));
+
+        PageView<SystemProjectWorkerView> page = service.listProjectWorkersPage(100L, 2, 2);
+
+        assertEquals(2, page.getPageNo());
+        assertEquals(2, page.getPageSize());
+        assertEquals(4L, page.getTotal());
+        assertEquals(2, page.getItems().size());
+        assertEquals("group-b", page.getItems().get(0).getWorkerGroupCode());
+        assertEquals("group-c", page.getItems().get(1).getWorkerGroupCode());
+        assertFalse(Boolean.TRUE.equals(page.getItems().get(0).getBoundToProject()));
+        assertTrue(Boolean.TRUE.equals(page.getItems().get(1).getBoundToProject()));
+        verify(workerLeaseMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(bindingMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
     void shouldReviveDeletedWorkerBindingWhenRebindingSameGroup() {
         ProjectMapper projectMapper = mock(ProjectMapper.class);
         ProjectWorkerBindingMapper bindingMapper = mock(ProjectWorkerBindingMapper.class);
@@ -266,5 +316,11 @@ class SystemProjectWorkerViewRegressionTest {
             }
         }
         throw new AssertionError(workerInstanceId);
+    }
+
+    private static void initTableInfo(Class<?> entityType) {
+        if (TableInfoHelper.getTableInfo(entityType) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityType);
+        }
     }
 }
