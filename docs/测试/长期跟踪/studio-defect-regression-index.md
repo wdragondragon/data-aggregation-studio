@@ -100,6 +100,7 @@
 | FIX-S69-001 | 编辑页/数据源模型下拉 | 中 | 采集任务、数据接入、数据服务、质量任务编辑页的模型下拉只需选项字段，却在切换数据源时调用模型摘要接口预取 500/5000 条；详情字段已经按模型 id 单独获取 | `DataModelDatasourceOptionView.java`；`DataModelService.java`；`ModelController.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java`；`CollectionTaskEditorView.vue`；`DataIngestionServiceEditorView.vue`；`DataServiceEditorView.vue`；`QualityTaskEditorView.vue`；相关绑定组件；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；nginx `/models/datasource/{id}/options?pageSize=5000` 收敛为 100 且无元数据字段；build 后 nginx 4 个编辑页模型下拉 spot check | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S70-001 | 数据资产/模型血缘 | 中 | `/models/{id}/lineage` 和边详情可见性过滤只需要模型/数据源 ID，焦点节点只需摘要字段，却读取完整模型和数据源实体，包含元数据大字段 | `DataModelLineageService.java`；`DataModelLineageGraphAssembler.java`；`DataModelLineageSourceSlimmingRegressionTest.java` | `DataModelLineageRegressionTest`；`DataModelLineageSourceSlimmingRegressionTest`；IDEA Server health；血缘接口源查询字段断言 | module-regression | 2026-06-29 | `ce1bb3b` |
 | FIX-S71-001 | 数据资产/模型血缘 | 中 | 模型详情血缘 Tab 默认只展示当前层级，却一次并发加载库级、表级、字段级三套血缘；手工血缘写后也刷新全部层级 | `ModelLineagePanel.vue` | `npm run build:web`；构建产物无 `loadLineageBundle`；build-nginx `/models/2068089464502837249` 血缘库级/表级/字段级切换，console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S72-001 | 数据开发/脚本环境 | 中 | `/script-environments` 默认只展示依赖包 Tab，却首屏同时请求依赖包和运行环境两个表格；顶部刷新也跨 Tab 刷新不可见表格 | `ScriptEnvironmentsView.vue` | `npm run build:web`；build-nginx `/script-environments` 首屏依赖包、切换运行环境、刷新当前 Tab，console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -179,3 +180,4 @@
 | S69 模型下拉大页预取源头瘦身 | FIX-S69-001 |
 | S70 模型血缘可见性过滤源头瘦身 | FIX-S70-001 |
 | S71 模型血缘层级懒加载与写后刷新收敛 | FIX-S71-001 |
+| S72 脚本环境 Tab 按需加载与刷新收敛 | FIX-S72-001 |

@@ -257,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { UploadFile, UploadFiles, UploadUserFile } from "element-plus";
 import type {
@@ -305,6 +305,10 @@ const environmentPage = reactive({
   total: 0,
   items: [] as ScriptEnvironmentListView[],
 });
+const loadedTabs = reactive<Record<"dependencies" | "environments", boolean>>({
+  dependencies: false,
+  environments: false,
+});
 
 const dependencyForm = reactive({
   id: undefined as EntityId | undefined,
@@ -327,14 +331,23 @@ const environmentForm = reactive({
 });
 
 async function refreshAll() {
-  const tasks = [
-    loadDependencies(),
-    loadEnvironments(),
-  ];
-  if (dependencyOptionsLoaded.value) {
-    tasks.push(loadDependencyOptions());
+  await loadActiveTab({ force: true });
+}
+
+async function loadActiveTab(options: { force?: boolean } = {}) {
+  if (activeTab.value === "dependencies") {
+    if (options.force || !loadedTabs.dependencies) {
+      const tasks = [loadDependencies()];
+      if (dependencyOptionsLoaded.value) {
+        tasks.push(loadDependencyOptions());
+      }
+      await Promise.all(tasks);
+    }
+    return;
   }
-  await Promise.all(tasks);
+  if (options.force || !loadedTabs.environments) {
+    await loadEnvironments();
+  }
 }
 
 async function loadDependencies() {
@@ -349,6 +362,7 @@ async function loadDependencies() {
     dependencyPage.pageSize = Number(result.pageSize ?? dependencyPage.pageSize);
     dependencyPage.total = Number(result.total ?? 0);
     dependencyPage.items = result.items;
+    loadedTabs.dependencies = true;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载依赖包失败");
   }
@@ -366,6 +380,7 @@ async function loadEnvironments() {
     environmentPage.pageSize = Number(result.pageSize ?? environmentPage.pageSize);
     environmentPage.total = Number(result.total ?? 0);
     environmentPage.items = result.items;
+    loadedTabs.environments = true;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载运行环境失败");
   }
@@ -896,7 +911,13 @@ function formatScriptType(scriptType?: string) {
   return scriptType || "Java";
 }
 
-onMounted(refreshAll);
+watch(activeTab, () => {
+  void loadActiveTab();
+});
+
+onMounted(() => {
+  void loadActiveTab();
+});
 </script>
 
 <style scoped>
