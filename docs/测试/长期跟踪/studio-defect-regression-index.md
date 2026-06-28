@@ -94,6 +94,7 @@
 | FIX-S63-001 | 开放服务监控/API统计表格 | 中 | `/data-service-metrics` 和 `/data-ingestion-metrics` 的 API 统计表格接口先全量读取时间窗口访问日志，再在 Java 内存聚合、排序和分页；访问日志分页接口还额外查询无关 counter 桶 | `DataServiceAccessLogMapper.java`；`DataIngestionAccessLogMapper.java`；`DataServiceMetricsService.java`；`DataIngestionMetricsService.java`；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest.java` | `OpenServiceMetricsApiStatsSourceSlimmingRegressionTest`；长期项目 nginx `/data-service-metrics/api-stats/query`、`/data-ingestion-metrics/api-stats/query`；build 后 nginx `/data-service-metrics`、`/data-ingestion-metrics` 浏览器 smoke 无 warn/error | module-regression | 2026-06-28 | 本次提交 |
 | FIX-S64-001 | 系统管理/表格分页 | 中 | `/system` 用户、注册登记、租户、项目、租户成员、项目成员、申请/邀请表格使用全量列表接口；注册登记列表源查询还读取 `passwordHash` | `UserManagementService.java`；`UserRegistrationRequestService.java`；`SystemManagementService.java`；`UserController.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/client.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；nginx 7 个系统管理 `/page` 接口；nginx `/system?tab=users`、`/system?tab=tenants` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S65-001 | 系统管理/直达页初始化 | 中 | `/system?tab=...` 直达表格 tab 时首轮加载可能发生在认证、角色或上下文恢复前，页面显示 `共 0 条`，需手动刷新才恢复 | `SystemView.vue` | `npm run build:web`；nginx `/system?tab=users` 显示 `共 17 条`；nginx `/system?tab=tenants` 显示 `共 2 条`；7 个系统管理分页接口 API 探针 | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S66-001 | 系统管理/Worker 表格 | 中 | `/system?tab=workers` Worker 表格调用旧全量接口，后端读取全部可见 Worker lease 和项目绑定后按组聚合；表格实际只需当前页 Worker 组 | `WorkerLeaseMapper.java`；`ProjectWorkerBindingMapper.java`；`SystemManagementService.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/client.ts`；`SystemProjectWorkerViewRegressionTest.java` | `SystemProjectWorkerViewRegressionTest`；`npm run build:web`；`/system/project-workers/page` 表格分页接口；旧全量接口仅作为绑定弹窗候选项懒加载 | module-regression | 2026-06-29 | `cf54651` |
 
 ## 历史缺陷参考
 
@@ -167,3 +168,4 @@
 | S63 开放服务 API 统计表格源头聚合分页 | FIX-S63-001 |
 | S64 系统管理表格分页源头瘦身 | FIX-S64-001 |
 | S65 系统管理直达 Tab 认证恢复补加载 | FIX-S65-001 |
+| S66 系统管理 Worker 表格分页源头瘦身 | FIX-S66-001 |
