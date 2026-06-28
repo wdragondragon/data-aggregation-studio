@@ -91,24 +91,7 @@ public class WorkflowRunService {
             return PageView.of(safePageNo, safePageSize, total, new ArrayList<WorkflowRunSummaryView>());
         }
 
-        String currentTenantId = securityService.currentTenantId();
-        List<RunRecordEntity> records = runRecordMapper.selectList(summaryRunRecordQuery(currentTenantId, workflowRunIds));
-        List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(summaryDispatchTaskQuery(currentTenantId, workflowRunIds));
-
-        Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
-        Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
-        Map<Long, String> workflowNames = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
-        Map<Long, List<WorkflowNodeMetadata>> workflowNodes = workflowNodes(resolveWorkflowVersionIds(records, tasks));
-
-        List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
-        for (Long workflowRunId : workflowRunIds) {
-            items.add(buildSummary(workflowRunId,
-                    recordsByRun.get(workflowRunId),
-                    tasksByRun.get(workflowRunId),
-                    workflowNames,
-                    workflowNodes));
-        }
-        return PageView.of(safePageNo, safePageSize, total, items);
+        return PageView.of(safePageNo, safePageSize, total, buildSummaryItems(workflowRunIds));
     }
 
     private PageView<WorkflowRunSummaryView> listBySummaryStatus(Long workflowDefinitionId,
@@ -117,44 +100,41 @@ public class WorkflowRunService {
                                                                  LocalDateTime endTime,
                                                                  int pageNo,
                                                                  int pageSize) {
-        List<Long> workflowRunIds = queryAllWorkflowRunIds(workflowDefinitionId, startTime, endTime);
-        if (workflowRunIds.isEmpty()) {
+        long total = countWorkflowRunsBySummaryStatus(workflowDefinitionId, startTime, endTime, summaryStatus);
+        if (total <= 0L) {
             return PageView.of(pageNo, pageSize, 0L, new ArrayList<WorkflowRunSummaryView>());
         }
 
-        int offset = (pageNo - 1) * pageSize;
-        long matched = 0L;
-        List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
-        Map<Long, String> workflowNamesCache = new LinkedHashMap<Long, String>();
-        Map<Long, List<WorkflowNodeMetadata>> workflowNodesCache = new LinkedHashMap<Long, List<WorkflowNodeMetadata>>();
-
-        for (int index = 0; index < workflowRunIds.size(); index += 200) {
-            List<Long> batchIds = workflowRunIds.subList(index, Math.min(index + 200, workflowRunIds.size()));
-            String currentTenantId = securityService.currentTenantId();
-            List<RunRecordEntity> records = runRecordMapper.selectList(summaryRunRecordQuery(currentTenantId, batchIds));
-            List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(summaryDispatchTaskQuery(currentTenantId, batchIds));
-
-            Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
-            Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
-            workflowNamesCache.putAll(workflowNames(resolveWorkflowDefinitionIds(records, tasks)));
-            workflowNodesCache.putAll(workflowNodes(resolveWorkflowVersionIds(records, tasks)));
-
-            for (Long workflowRunId : batchIds) {
-                WorkflowRunSummaryView summary = buildSummary(workflowRunId,
-                        recordsByRun.get(workflowRunId),
-                        tasksByRun.get(workflowRunId),
-                        workflowNamesCache,
-                        workflowNodesCache);
-                if (!summaryStatus.equalsIgnoreCase(String.valueOf(summary.getStatus()))) {
-                    continue;
-                }
-                if (matched >= offset && items.size() < pageSize) {
-                    items.add(summary);
-                }
-                matched++;
-            }
+        List<Long> workflowRunIds = queryWorkflowRunIdsBySummaryStatus(workflowDefinitionId, startTime, endTime,
+                summaryStatus, pageNo, pageSize);
+        if (workflowRunIds.isEmpty()) {
+            return PageView.of(pageNo, pageSize, total, new ArrayList<WorkflowRunSummaryView>());
         }
-        return PageView.of(pageNo, pageSize, matched, items);
+        return PageView.of(pageNo, pageSize, total, buildSummaryItems(workflowRunIds));
+    }
+
+    private List<WorkflowRunSummaryView> buildSummaryItems(List<Long> workflowRunIds) {
+        if (workflowRunIds == null || workflowRunIds.isEmpty()) {
+            return new ArrayList<WorkflowRunSummaryView>();
+        }
+        String currentTenantId = securityService.currentTenantId();
+        List<RunRecordEntity> records = runRecordMapper.selectList(summaryRunRecordQuery(currentTenantId, workflowRunIds));
+        List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(summaryDispatchTaskQuery(currentTenantId, workflowRunIds));
+
+        Map<Long, List<RunRecordEntity>> recordsByRun = groupRunRecords(records, null, null);
+        Map<Long, List<DispatchTaskEntity>> tasksByRun = groupDispatchTasks(tasks, null, null);
+        Map<Long, String> workflowNamesCache = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
+        Map<Long, List<WorkflowNodeMetadata>> workflowNodesCache = workflowNodes(resolveWorkflowVersionIds(records, tasks));
+
+        List<WorkflowRunSummaryView> items = new ArrayList<WorkflowRunSummaryView>();
+        for (Long workflowRunId : workflowRunIds) {
+            items.add(buildSummary(workflowRunId,
+                    recordsByRun.get(workflowRunId),
+                    tasksByRun.get(workflowRunId),
+                    workflowNamesCache,
+                    workflowNodesCache));
+        }
+        return items;
     }
 
     public WorkflowRunDetailView get(Long workflowRunId) {
@@ -541,14 +521,32 @@ public class WorkflowRunService {
         return namedParameterJdbcTemplate.queryForList(idSql, params, Long.class);
     }
 
-    private List<Long> queryAllWorkflowRunIds(Long workflowDefinitionId,
-                                              LocalDateTime startTime,
-                                              LocalDateTime endTime) {
+    private long countWorkflowRunsBySummaryStatus(Long workflowDefinitionId,
+                                                  LocalDateTime startTime,
+                                                  LocalDateTime endTime,
+                                                  String summaryStatus) {
         MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
-        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime);
-        String idSql = "select workflow_run_id from (" +
-                workflowRunEventsSql +
-                ") workflow_events group by workflow_run_id order by max(occurred_at) desc, workflow_run_id desc";
+        params.addValue("summaryStatus", summaryStatus);
+        String countSql = buildWorkflowRunStatusCte(workflowDefinitionId, startTime, endTime) +
+                " select count(*) from summarized_runs where summary_status = :summaryStatus";
+        Long total = namedParameterJdbcTemplate.queryForObject(countSql, params, Long.class);
+        return total == null ? 0L : total.longValue();
+    }
+
+    private List<Long> queryWorkflowRunIdsBySummaryStatus(Long workflowDefinitionId,
+                                                          LocalDateTime startTime,
+                                                          LocalDateTime endTime,
+                                                          String summaryStatus,
+                                                          int pageNo,
+                                                          int pageSize) {
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        params.addValue("summaryStatus", summaryStatus);
+        params.addValue("limit", Integer.valueOf(pageSize));
+        params.addValue("offset", Integer.valueOf((pageNo - 1) * pageSize));
+        String idSql = buildWorkflowRunStatusCte(workflowDefinitionId, startTime, endTime) +
+                " select workflow_run_id from summarized_runs " +
+                "where summary_status = :summaryStatus " +
+                "order by latest_at desc, workflow_run_id desc limit :limit offset :offset";
         return namedParameterJdbcTemplate.queryForList(idSql, params, Long.class);
     }
 
@@ -586,6 +584,54 @@ public class WorkflowRunService {
         sql.append("select workflow_run_id, workflow_definition_id, created_at as occurred_at ");
         sql.append("from dispatch_task where workflow_run_id is not null");
         appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
+                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "created_at");
+        return sql.toString();
+    }
+
+    private String buildWorkflowRunStatusCte(Long workflowDefinitionId,
+                                             LocalDateTime startTime,
+                                             LocalDateTime endTime) {
+        StringBuilder sql = new StringBuilder();
+        sql.append("with candidate_runs as (");
+        sql.append("select workflow_run_id, max(occurred_at) as latest_at from (");
+        sql.append(buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime));
+        sql.append(") workflow_events group by workflow_run_id");
+        sql.append("), status_events as (");
+        sql.append(buildWorkflowRunStatusEventsSql(workflowDefinitionId));
+        sql.append("), ranked_node_status as (");
+        sql.append("select e.workflow_run_id, e.node_code, e.node_status, ");
+        sql.append("row_number() over (partition by e.workflow_run_id, e.node_code ");
+        sql.append("order by e.source_priority asc, e.occurred_at desc, e.event_id desc) as rn ");
+        sql.append("from status_events e join candidate_runs c on c.workflow_run_id = e.workflow_run_id");
+        sql.append("), summarized_runs as (");
+        sql.append("select c.workflow_run_id, c.latest_at, ");
+        sql.append("case ");
+        sql.append("when sum(case when r.rn = 1 and r.node_status = 'FAILED' then 1 else 0 end) > 0 then 'FAILED' ");
+        sql.append("when sum(case when r.rn = 1 and r.node_status = 'RUNNING' then 1 else 0 end) > 0 then 'RUNNING' ");
+        sql.append("when sum(case when r.rn = 1 and r.node_status = 'QUEUED' then 1 else 0 end) > 0 then 'QUEUED' ");
+        sql.append("when sum(case when r.rn = 1 and r.node_status = 'SUCCESS' then 1 else 0 end) > 0 then 'SUCCESS' ");
+        sql.append("else 'NOT_RUN' end as summary_status ");
+        sql.append("from candidate_runs c ");
+        sql.append("left join ranked_node_status r on r.workflow_run_id = c.workflow_run_id and r.rn = 1 ");
+        sql.append("group by c.workflow_run_id, c.latest_at");
+        sql.append(")");
+        return sql.toString();
+    }
+
+    private String buildWorkflowRunStatusEventsSql(Long workflowDefinitionId) {
+        String tenantId = securityService.currentTenantId();
+        Long projectId = securityService.currentProjectId();
+        StringBuilder sql = new StringBuilder();
+        sql.append("select id as event_id, workflow_run_id, node_code, coalesce(upper(status), 'NOT_RUN') as node_status, ");
+        sql.append("coalesce(started_at, created_at) as occurred_at, 1 as source_priority ");
+        sql.append("from run_record where workflow_run_id is not null and node_code is not null");
+        appendWorkflowRunFilters(sql, workflowDefinitionId, null, null,
+                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "coalesce(started_at, created_at)");
+        sql.append(" union all ");
+        sql.append("select id as event_id, workflow_run_id, node_code, coalesce(upper(status), 'NOT_RUN') as node_status, ");
+        sql.append("created_at as occurred_at, 2 as source_priority ");
+        sql.append("from dispatch_task where workflow_run_id is not null and node_code is not null");
+        appendWorkflowRunFilters(sql, workflowDefinitionId, null, null,
                 tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "created_at");
         return sql.toString();
     }

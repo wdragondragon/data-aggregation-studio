@@ -112,6 +112,56 @@ class WorkflowRunSourceSlimmingRegressionTest {
                 .doesNotContain("config_json", "field_mappings_json");
     }
 
+    @Test
+    void workflowRunStatusFilterShouldPageWorkflowRunIdsInSql() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowNodeMapper workflowNodeMapper = mock(WorkflowNodeMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkflowRunService service = new WorkflowRunService(
+                runRecordMapper,
+                dispatchTaskMapper,
+                workflowDefinitionMapper,
+                workflowNodeMapper,
+                workflowService,
+                jdbcTemplate,
+                securityService,
+                mock(StaleExecutionRecoveryService.class));
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentProjectId()).thenReturn(100L);
+        when(jdbcTemplate.queryForObject(anyString(), any(MapSqlParameterSource.class), eq(Long.class))).thenReturn(1L);
+        when(jdbcTemplate.queryForList(anyString(), any(MapSqlParameterSource.class), eq(Long.class)))
+                .thenReturn(Collections.singletonList(9001L));
+        when(runRecordMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(runRecord()));
+        when(dispatchTaskMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.<DispatchTaskEntity>emptyList());
+        when(workflowDefinitionMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowDefinition()));
+        when(workflowNodeMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowNode()));
+
+        PageView<WorkflowRunSummaryView> page = service.list(null, "SUCCESS", null, null, 1, 20);
+
+        assertThat(page.getTotal()).isEqualTo(1L);
+        assertThat(page.getItems()).hasSize(1);
+        ArgumentCaptor<String> idSqlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<MapSqlParameterSource> idParamsCaptor = ArgumentCaptor.forClass(MapSqlParameterSource.class);
+        verify(jdbcTemplate).queryForList(idSqlCaptor.capture(), idParamsCaptor.capture(), eq(Long.class));
+        String idSql = idSqlCaptor.getValue().toLowerCase();
+        assertThat(idSql)
+                .contains("summarized_runs",
+                        "summary_status = :summarystatus",
+                        "limit :limit offset :offset")
+                .doesNotContain("group by workflow_run_id order by max(occurred_at) desc, workflow_run_id desc");
+        assertThat(idParamsCaptor.getValue().getValue("summaryStatus")).isEqualTo("SUCCESS");
+        assertThat(idParamsCaptor.getValue().getValue("limit")).isEqualTo(20);
+        assertThat(idParamsCaptor.getValue().getValue("offset")).isEqualTo(0);
+    }
+
     private static void initTableInfo(Class<?> entityClass) {
         if (TableInfoHelper.getTableInfo(entityClass) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityClass);
