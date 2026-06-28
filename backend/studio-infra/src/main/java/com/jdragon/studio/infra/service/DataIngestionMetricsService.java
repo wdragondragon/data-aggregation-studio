@@ -21,6 +21,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionSubscriptionMapper;
 import com.jdragon.studio.infra.model.DataIngestionAccessCounterSummary;
+import com.jdragon.studio.infra.model.OpenServiceDashboardBucketSummary;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -44,6 +45,8 @@ public class DataIngestionMetricsService {
     private static final DateTimeFormatter REQUEST_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter DAY_LABEL_FORMATTER = DateTimeFormatter.ofPattern("MM-dd");
     private static final DateTimeFormatter HOUR_LABEL_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+    private static final DateTimeFormatter DAY_BUCKET_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter HOUR_BUCKET_KEY_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH");
 
     private final DataIngestionAccessLogMapper accessLogMapper;
     private final DataIngestionAccessCounterMapper accessCounterMapper;
@@ -132,33 +135,67 @@ public class DataIngestionMetricsService {
     }
 
     public DataIngestionMetricDashboardView queryDashboard(DataIngestionMetricQueryRequest request) {
-        MetricContext context = loadContext(request);
+        DataIngestionMetricQueryRequest safeRequest = request == null ? new DataIngestionMetricQueryRequest() : request;
+        MetricContext context = loadContext(safeRequest, true);
         DataIngestionMetricDashboardView view = new DataIngestionMetricDashboardView();
-        boolean useCounters = shouldUseCounterSummary(context);
-        RunMetricTrendView accessTrend = buildAccessTrend(context, useCounters);
-        RunMetricTrendView receivedTrend = buildRowTrend(context, useCounters, "received", "接收行数");
-        RunMetricTrendView writtenTrend = buildRowTrend(context, useCounters, "written", "写入成功行数");
-        view.setSummary(buildSummary(context.logs, useCounters ? context.counterSummary : null));
+        if (context.serviceIds.isEmpty()) {
+            Map<String, OpenServiceDashboardBucketSummary> emptyBucketMap = new LinkedHashMap<String, OpenServiceDashboardBucketSummary>();
+            RunMetricTrendView accessTrend = buildAccessTrend(context, emptyBucketMap);
+            RunMetricTrendView receivedTrend = buildRowTrend(context, emptyBucketMap, "received", "接收行数");
+            RunMetricTrendView writtenTrend = buildRowTrend(context, emptyBucketMap, "written", "写入成功行数");
+            view.setSummary(toSummary(null));
+            view.setAccessTrend(accessTrend);
+            view.setCumulativeAccessTrend(buildCumulativeTrend(accessTrend));
+            view.setReceivedTrend(receivedTrend);
+            view.setCumulativeReceivedTrend(buildCumulativeTrend(receivedTrend));
+            view.setWrittenTrend(writtenTrend);
+            view.setCumulativeWrittenTrend(buildCumulativeTrend(writtenTrend));
+            view.setResponseTimeTrend(buildResponseTimeTrend(context, emptyBucketMap));
+            view.setSuccessRateTrend(buildSuccessRateTrend(context, emptyBucketMap));
+            return view;
+        }
+        Integer successFilter = safeRequest.getSuccess() == null ? null : (Boolean.TRUE.equals(safeRequest.getSuccess()) ? Integer.valueOf(1) : Integer.valueOf(0));
+        Long subscriptionId = isNoTokenSubscriptionFilter(safeRequest.getSubscriptionId()) ? null : safeRequest.getSubscriptionId();
+        boolean noTokenSubscription = isNoTokenSubscriptionFilter(safeRequest.getSubscriptionId());
+        String logFocus = normalizedLogFocus(safeRequest.getLogFocus());
+        Long minDurationMs = normalizeMinDurationMs(safeRequest.getMinDurationMs());
+        DataIngestionApiMetricView summary = accessLogMapper.selectDashboardSummary(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime, context.hourGranularity);
+        List<OpenServiceDashboardBucketSummary> bucketSummaries = accessLogMapper.selectDashboardBuckets(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime, context.hourGranularity);
+        Map<String, OpenServiceDashboardBucketSummary> bucketMap = bucketSummaryMap(bucketSummaries);
+        RunMetricTrendView accessTrend = buildAccessTrend(context, bucketMap);
+        RunMetricTrendView receivedTrend = buildRowTrend(context, bucketMap, "received", "接收行数");
+        RunMetricTrendView writtenTrend = buildRowTrend(context, bucketMap, "written", "写入成功行数");
+        view.setSummary(toSummary(summary));
         view.setAccessTrend(accessTrend);
         view.setCumulativeAccessTrend(buildCumulativeTrend(accessTrend));
         view.setReceivedTrend(receivedTrend);
         view.setCumulativeReceivedTrend(buildCumulativeTrend(receivedTrend));
         view.setWrittenTrend(writtenTrend);
         view.setCumulativeWrittenTrend(buildCumulativeTrend(writtenTrend));
-        view.setResponseTimeTrend(buildResponseTimeTrend(context));
-        view.setSuccessRateTrend(buildSuccessRateTrend(context, useCounters));
-        view.setErrorDistribution(buildErrorDistribution(context.logs));
-        List<DataIngestionApiMetricView> serviceMetrics = buildServiceMetrics(context.logs, context.serviceMap);
-        serviceMetrics.sort(Comparator.comparing(DataIngestionApiMetricView::getP95ResponseTimeMs, Comparator.nullsFirst(Long::compareTo))
-                .thenComparing(DataIngestionApiMetricView::getMaxResponseTimeMs, Comparator.nullsFirst(Long::compareTo))
-                .reversed());
-        view.setTopSlowServices(metricViewSupport.limit(serviceMetrics, context.topN));
-        List<DataIngestionApiMetricView> failedMetrics = new ArrayList<DataIngestionApiMetricView>(serviceMetrics);
-        failedMetrics.sort(Comparator.comparing(DataIngestionApiMetricView::getFailureCount, Comparator.nullsFirst(Long::compareTo))
-                .thenComparing(DataIngestionApiMetricView::getSuccessRate, Comparator.nullsLast(Double::compareTo))
-                .reversed());
-        view.setTopFailedServices(metricViewSupport.limit(failedMetrics, context.topN));
-        view.setSubscriptionRank(metricViewSupport.limit(buildSubscriptionMetrics(context.logs), context.topN));
+        view.setResponseTimeTrend(buildResponseTimeTrend(context, bucketMap));
+        view.setSuccessRateTrend(buildSuccessRateTrend(context, bucketMap));
+        view.setErrorDistribution(normalizeErrorDistribution(accessLogMapper.selectDashboardErrorDistribution(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime, context.hourGranularity, context.topN)));
+        List<DataIngestionApiMetricView> topSlowServices = accessLogMapper.selectDashboardApiStats(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime, context.hourGranularity, "SLOW", context.topN);
+        hydrateApiMetrics(topSlowServices, context.serviceMap);
+        view.setTopSlowServices(topSlowServices);
+        List<DataIngestionApiMetricView> topFailedServices = accessLogMapper.selectDashboardApiStats(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime, context.hourGranularity, "FAILED", context.topN);
+        hydrateApiMetrics(topFailedServices, context.serviceMap);
+        view.setTopFailedServices(topFailedServices);
+        List<DataIngestionApiMetricView> subscriptionRank = accessLogMapper.selectDashboardSubscriptionRank(context.tenantId, context.projectId, context.serviceIds,
+                subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
+                context.startTime, context.endTime, context.hourGranularity, context.topN);
+        hydrateApiMetrics(subscriptionRank, context.serviceMap);
+        view.setSubscriptionRank(subscriptionRank);
         return view;
     }
 
@@ -332,6 +369,146 @@ public class DataIngestionMetricsService {
                         DataIngestionAccessLogEntity::getReceivedCount,
                         DataIngestionAccessLogEntity::getSuccessCount,
                         DataIngestionAccessLogEntity::getFailedCount);
+    }
+
+    private DataIngestionMetricSummaryView toSummary(DataIngestionApiMetricView metric) {
+        DataIngestionMetricSummaryView summary = new DataIngestionMetricSummaryView();
+        long total = metric == null ? 0L : safeLong(metric.getAccessCount());
+        long success = metric == null ? 0L : safeLong(metric.getSuccessCount());
+        summary.setAccessCount(Long.valueOf(total));
+        summary.setSuccessCount(Long.valueOf(success));
+        summary.setFailureCount(Long.valueOf(metric == null ? 0L : safeLong(metric.getFailureCount())));
+        summary.setSuccessRate(metricViewSupport.rate(success, total));
+        summary.setReceivedCount(Long.valueOf(metric == null ? 0L : safeLong(metric.getReceivedCount())));
+        summary.setWrittenCount(Long.valueOf(metric == null ? 0L : safeLong(metric.getWrittenCount())));
+        summary.setFailedCount(Long.valueOf(metric == null ? 0L : safeLong(metric.getFailedCount())));
+        summary.setMinResponseTimeMs(Long.valueOf(metric == null ? 0L : safeLong(metric.getMinResponseTimeMs())));
+        summary.setMaxResponseTimeMs(Long.valueOf(metric == null ? 0L : safeLong(metric.getMaxResponseTimeMs())));
+        summary.setAvgResponseTimeMs(Long.valueOf(metric == null ? 0L : safeLong(metric.getAvgResponseTimeMs())));
+        summary.setP95ResponseTimeMs(Long.valueOf(metric == null ? 0L : safeLong(metric.getP95ResponseTimeMs())));
+        summary.setP99ResponseTimeMs(Long.valueOf(metric == null ? 0L : safeLong(metric.getP99ResponseTimeMs())));
+        summary.setLastAccessAt(metric == null ? null : metric.getLastAccessAt());
+        summary.setCounterBacked(Boolean.FALSE);
+        return summary;
+    }
+
+    private Map<String, OpenServiceDashboardBucketSummary> bucketSummaryMap(List<OpenServiceDashboardBucketSummary> summaries) {
+        Map<String, OpenServiceDashboardBucketSummary> result = new LinkedHashMap<String, OpenServiceDashboardBucketSummary>();
+        if (summaries == null) {
+            return result;
+        }
+        for (OpenServiceDashboardBucketSummary summary : summaries) {
+            if (summary != null && hasText(summary.getBucketKey())) {
+                result.put(summary.getBucketKey(), summary);
+            }
+        }
+        return result;
+    }
+
+    private RunMetricTrendView buildAccessTrend(MetricContext context,
+                                                Map<String, OpenServiceDashboardBucketSummary> bucketMap) {
+        RunMetricTrendView trend = new RunMetricTrendView();
+        RunMetricTrendSeriesView totalSeries = series("total", "调用量");
+        RunMetricTrendSeriesView successSeries = series("success", "成功调用");
+        RunMetricTrendSeriesView failureSeries = series("failure", "失败调用");
+        for (Bucket bucket : buildBuckets(context)) {
+            OpenServiceDashboardBucketSummary summary = bucketMap.get(bucketKey(bucket, context.hourGranularity));
+            trend.getXAxis().add(bucket.label);
+            totalSeries.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getAccessCount())));
+            successSeries.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getSuccessCount())));
+            failureSeries.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getFailureCount())));
+        }
+        trend.getSeries().add(totalSeries);
+        trend.getSeries().add(successSeries);
+        trend.getSeries().add(failureSeries);
+        return trend;
+    }
+
+    private RunMetricTrendView buildRowTrend(MetricContext context,
+                                             Map<String, OpenServiceDashboardBucketSummary> bucketMap,
+                                             String key,
+                                             String label) {
+        RunMetricTrendView trend = new RunMetricTrendView();
+        RunMetricTrendSeriesView rowSeries = series(key, label);
+        for (Bucket bucket : buildBuckets(context)) {
+            OpenServiceDashboardBucketSummary summary = bucketMap.get(bucketKey(bucket, context.hourGranularity));
+            trend.getXAxis().add(bucket.label);
+            long rowCount = summary == null ? 0L : "written".equals(key) ? safeLong(summary.getWrittenCount()) : safeLong(summary.getReceivedCount());
+            rowSeries.getData().add(Long.valueOf(rowCount));
+        }
+        trend.getSeries().add(rowSeries);
+        return trend;
+    }
+
+    private RunMetricTrendView buildResponseTimeTrend(MetricContext context,
+                                                      Map<String, OpenServiceDashboardBucketSummary> bucketMap) {
+        RunMetricTrendView trend = new RunMetricTrendView();
+        RunMetricTrendSeriesView avgSeries = series("avg", "平均耗时");
+        RunMetricTrendSeriesView maxSeries = series("max", "最大耗时");
+        RunMetricTrendSeriesView p95Series = series("p95", "P95");
+        RunMetricTrendSeriesView p99Series = series("p99", "P99");
+        for (Bucket bucket : buildBuckets(context)) {
+            OpenServiceDashboardBucketSummary summary = bucketMap.get(bucketKey(bucket, context.hourGranularity));
+            trend.getXAxis().add(bucket.label);
+            avgSeries.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getAvgResponseTimeMs())));
+            maxSeries.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getMaxResponseTimeMs())));
+            p95Series.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getP95ResponseTimeMs())));
+            p99Series.getData().add(Long.valueOf(summary == null ? 0L : safeLong(summary.getP99ResponseTimeMs())));
+        }
+        trend.getSeries().add(avgSeries);
+        trend.getSeries().add(maxSeries);
+        trend.getSeries().add(p95Series);
+        trend.getSeries().add(p99Series);
+        return trend;
+    }
+
+    private RunMetricTrendView buildSuccessRateTrend(MetricContext context,
+                                                     Map<String, OpenServiceDashboardBucketSummary> bucketMap) {
+        RunMetricTrendView trend = new RunMetricTrendView();
+        RunMetricTrendSeriesView rateSeries = series("successRate", "成功率");
+        for (Bucket bucket : buildBuckets(context)) {
+            OpenServiceDashboardBucketSummary summary = bucketMap.get(bucketKey(bucket, context.hourGranularity));
+            long total = summary == null ? 0L : safeLong(summary.getAccessCount());
+            long success = summary == null ? 0L : safeLong(summary.getSuccessCount());
+            trend.getXAxis().add(bucket.label);
+            rateSeries.getData().add(Long.valueOf(Math.round(metricViewSupport.rate(success, total))));
+        }
+        trend.getSeries().add(rateSeries);
+        return trend;
+    }
+
+    private List<DataServiceMetricDistributionView> normalizeErrorDistribution(List<DataServiceMetricDistributionView> items) {
+        List<DataServiceMetricDistributionView> result = new ArrayList<DataServiceMetricDistributionView>();
+        if (items == null) {
+            return result;
+        }
+        for (DataServiceMetricDistributionView item : items) {
+            if (item == null) {
+                continue;
+            }
+            String key = item.getKey();
+            String normalizedKey = isNumeric(key) ? "HTTP_" + key : hasText(key) ? key : "UNKNOWN";
+            item.setKey(normalizedKey);
+            item.setLabel(hasText(item.getLabel()) && !isNumeric(item.getLabel()) ? item.getLabel() : normalizedKey);
+            result.add(item);
+        }
+        return result;
+    }
+
+    private String bucketKey(Bucket bucket, boolean hourGranularity) {
+        return bucket.start.format(hourGranularity ? HOUR_BUCKET_KEY_FORMATTER : DAY_BUCKET_KEY_FORMATTER);
+    }
+
+    private boolean isNumeric(String value) {
+        if (!hasText(value)) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private DataIngestionMetricSummaryView buildSummary(List<DataIngestionAccessLogEntity> logs,

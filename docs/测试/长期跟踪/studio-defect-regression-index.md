@@ -103,6 +103,7 @@
 | FIX-S72-001 | 数据开发/脚本环境 | 中 | `/script-environments` 默认只展示依赖包 Tab，却首屏同时请求依赖包和运行环境两个表格；顶部刷新也跨 Tab 刷新不可见表格 | `ScriptEnvironmentsView.vue` | `npm run build:web`；build-nginx `/script-environments` 首屏依赖包、切换运行环境、刷新当前 Tab，console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S73-001 | 数据资产/模型中心 | 中 | 模型列表页保存模型后刷新表格外还请求样例预览；列表和详情刷新重跑数据源/元模型初始化；直达同步任务 Tab 可能重复加载任务表格 | `ModelsView.vue` | `npm run build:web`；源码无 `selectModel(saved)`；`refreshModels/refreshDetail` 不调用 `loadPage()`；build-nginx `/models`、`/models?tab=sync-tasks` smoke | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S74-001 | 运行指标/采集任务绑定 | 中 | `/run-metrics/options` 和 `/run-metrics/query` 只需采集任务源/目标绑定摘要，却从 `collection_task_definition` 读取 `source_bindings_json/target_binding_json` 后再组装轻视图 | `CollectionTaskMetricBindingEntity.java`；`CollectionTaskMetricBindingMapper.java`；`CollectionTaskService.java`；`StudioSchemaUpgradeService.java`；`StudioInitializationService.java`；`schema-mysql.sql`；`schema-sqlite.sql`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；`MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/run-metrics` 页面 smoke | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S75-001 | 开放服务/监控 Dashboard | 中 | `/data-service-metrics` 和 `/data-ingestion-metrics` dashboard 只需聚合指标，却读取时间窗口内全部访问日志后在 Java 内存聚合、排序和截断 TopN | `OpenServiceMetricSqlProvider.java`；`OpenServiceDashboardBucketSummary.java`；`DataServiceAccessLogMapper.java`；`DataIngestionAccessLogMapper.java`；`DataServiceMetricsService.java`；`DataIngestionMetricsService.java`；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest.java` | `OpenServiceMetricsApiStatsSourceSlimmingRegressionTest`；真实 API `/data-service-metrics/dashboard/query`、`/data-ingestion-metrics/dashboard/query`；`npm run build:web`；build-nginx 两个监控页刷新 smoke | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -185,3 +186,4 @@
 | S72 脚本环境 Tab 按需加载与刷新收敛 | FIX-S72-001 |
 | S73 模型列表写后预览过取与刷新收敛 | FIX-S73-001 |
 | S74 运行指标采集任务绑定源头瘦身 | FIX-S74-001 |
+| S75 开放服务监控 Dashboard 源头聚合 | FIX-S75-001 |

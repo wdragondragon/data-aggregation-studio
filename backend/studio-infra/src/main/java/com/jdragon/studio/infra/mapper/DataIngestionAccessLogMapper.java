@@ -2,16 +2,88 @@ package com.jdragon.studio.infra.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.jdragon.studio.dto.model.DataIngestionApiMetricView;
+import com.jdragon.studio.dto.model.DataServiceMetricDistributionView;
 import com.jdragon.studio.infra.entity.DataIngestionAccessLogEntity;
+import com.jdragon.studio.infra.model.OpenServiceDashboardBucketSummary;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectProvider;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
 public interface DataIngestionAccessLogMapper extends BaseMapper<DataIngestionAccessLogEntity> {
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataIngestionDashboardSummary")
+    DataIngestionApiMetricView selectDashboardSummary(@Param("tenantId") String tenantId,
+                                                      @Param("projectId") Long projectId,
+                                                      @Param("serviceIds") List<Long> serviceIds,
+                                                      @Param("subscriptionId") Long subscriptionId,
+                                                      @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                      @Param("success") Integer success,
+                                                      @Param("logFocus") String logFocus,
+                                                      @Param("minDurationMs") Long minDurationMs,
+                                                      @Param("startTime") LocalDateTime startTime,
+                                                      @Param("endTime") LocalDateTime endTime,
+                                                      @Param("hourGranularity") boolean hourGranularity);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataIngestionDashboardBuckets")
+    List<OpenServiceDashboardBucketSummary> selectDashboardBuckets(@Param("tenantId") String tenantId,
+                                                                   @Param("projectId") Long projectId,
+                                                                   @Param("serviceIds") List<Long> serviceIds,
+                                                                   @Param("subscriptionId") Long subscriptionId,
+                                                                   @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                                   @Param("success") Integer success,
+                                                                   @Param("logFocus") String logFocus,
+                                                                   @Param("minDurationMs") Long minDurationMs,
+                                                                   @Param("startTime") LocalDateTime startTime,
+                                                                   @Param("endTime") LocalDateTime endTime,
+                                                                   @Param("hourGranularity") boolean hourGranularity);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataIngestionDashboardErrorDistribution")
+    List<DataServiceMetricDistributionView> selectDashboardErrorDistribution(@Param("tenantId") String tenantId,
+                                                                             @Param("projectId") Long projectId,
+                                                                             @Param("serviceIds") List<Long> serviceIds,
+                                                                             @Param("subscriptionId") Long subscriptionId,
+                                                                             @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                                             @Param("success") Integer success,
+                                                                             @Param("logFocus") String logFocus,
+                                                                             @Param("minDurationMs") Long minDurationMs,
+                                                                             @Param("startTime") LocalDateTime startTime,
+                                                                             @Param("endTime") LocalDateTime endTime,
+                                                                             @Param("hourGranularity") boolean hourGranularity,
+                                                                             @Param("limit") int limit);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataIngestionDashboardApiStats")
+    List<DataIngestionApiMetricView> selectDashboardApiStats(@Param("tenantId") String tenantId,
+                                                             @Param("projectId") Long projectId,
+                                                             @Param("serviceIds") List<Long> serviceIds,
+                                                             @Param("subscriptionId") Long subscriptionId,
+                                                             @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                             @Param("success") Integer success,
+                                                             @Param("logFocus") String logFocus,
+                                                             @Param("minDurationMs") Long minDurationMs,
+                                                             @Param("startTime") LocalDateTime startTime,
+                                                             @Param("endTime") LocalDateTime endTime,
+                                                             @Param("hourGranularity") boolean hourGranularity,
+                                                             @Param("orderMode") String orderMode,
+                                                             @Param("limit") int limit);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataIngestionDashboardSubscriptionRank")
+    List<DataIngestionApiMetricView> selectDashboardSubscriptionRank(@Param("tenantId") String tenantId,
+                                                                     @Param("projectId") Long projectId,
+                                                                     @Param("serviceIds") List<Long> serviceIds,
+                                                                     @Param("subscriptionId") Long subscriptionId,
+                                                                     @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                                     @Param("success") Integer success,
+                                                                     @Param("logFocus") String logFocus,
+                                                                     @Param("minDurationMs") Long minDurationMs,
+                                                                     @Param("startTime") LocalDateTime startTime,
+                                                                     @Param("endTime") LocalDateTime endTime,
+                                                                     @Param("hourGranularity") boolean hourGranularity,
+                                                                     @Param("limit") int limit);
 
     @Select({"<script>",
             "select count(1)",

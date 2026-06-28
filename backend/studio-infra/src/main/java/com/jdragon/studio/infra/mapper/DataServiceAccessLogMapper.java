@@ -2,11 +2,14 @@ package com.jdragon.studio.infra.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.jdragon.studio.dto.model.DataServiceApiMetricView;
+import com.jdragon.studio.dto.model.DataServiceMetricDistributionView;
 import com.jdragon.studio.infra.entity.DataServiceAccessLogEntity;
+import com.jdragon.studio.infra.model.OpenServiceDashboardBucketSummary;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectProvider;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -16,6 +19,80 @@ public interface DataServiceAccessLogMapper extends BaseMapper<DataServiceAccess
 
     @Delete("delete from data_service_access_log where occurred_at < #{before}")
     int purgeBefore(@Param("before") LocalDateTime before);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataServiceDashboardSummary")
+    DataServiceApiMetricView selectDashboardSummary(@Param("tenantId") String tenantId,
+                                                    @Param("projectId") Long projectId,
+                                                    @Param("serviceIds") List<Long> serviceIds,
+                                                    @Param("subscriptionId") Long subscriptionId,
+                                                    @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                    @Param("success") Integer success,
+                                                    @Param("cacheHit") Integer cacheHit,
+                                                    @Param("logFocus") String logFocus,
+                                                    @Param("minDurationMs") Long minDurationMs,
+                                                    @Param("startTime") LocalDateTime startTime,
+                                                    @Param("endTime") LocalDateTime endTime,
+                                                    @Param("hourGranularity") boolean hourGranularity);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataServiceDashboardBuckets")
+    List<OpenServiceDashboardBucketSummary> selectDashboardBuckets(@Param("tenantId") String tenantId,
+                                                                   @Param("projectId") Long projectId,
+                                                                   @Param("serviceIds") List<Long> serviceIds,
+                                                                   @Param("subscriptionId") Long subscriptionId,
+                                                                   @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                                   @Param("success") Integer success,
+                                                                   @Param("cacheHit") Integer cacheHit,
+                                                                   @Param("logFocus") String logFocus,
+                                                                   @Param("minDurationMs") Long minDurationMs,
+                                                                   @Param("startTime") LocalDateTime startTime,
+                                                                   @Param("endTime") LocalDateTime endTime,
+                                                                   @Param("hourGranularity") boolean hourGranularity);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataServiceDashboardErrorDistribution")
+    List<DataServiceMetricDistributionView> selectDashboardErrorDistribution(@Param("tenantId") String tenantId,
+                                                                             @Param("projectId") Long projectId,
+                                                                             @Param("serviceIds") List<Long> serviceIds,
+                                                                             @Param("subscriptionId") Long subscriptionId,
+                                                                             @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                                             @Param("success") Integer success,
+                                                                             @Param("cacheHit") Integer cacheHit,
+                                                                             @Param("logFocus") String logFocus,
+                                                                             @Param("minDurationMs") Long minDurationMs,
+                                                                             @Param("startTime") LocalDateTime startTime,
+                                                                             @Param("endTime") LocalDateTime endTime,
+                                                                             @Param("hourGranularity") boolean hourGranularity,
+                                                                             @Param("limit") int limit);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataServiceDashboardApiStats")
+    List<DataServiceApiMetricView> selectDashboardApiStats(@Param("tenantId") String tenantId,
+                                                           @Param("projectId") Long projectId,
+                                                           @Param("serviceIds") List<Long> serviceIds,
+                                                           @Param("subscriptionId") Long subscriptionId,
+                                                           @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                           @Param("success") Integer success,
+                                                           @Param("cacheHit") Integer cacheHit,
+                                                           @Param("logFocus") String logFocus,
+                                                           @Param("minDurationMs") Long minDurationMs,
+                                                           @Param("startTime") LocalDateTime startTime,
+                                                           @Param("endTime") LocalDateTime endTime,
+                                                           @Param("hourGranularity") boolean hourGranularity,
+                                                           @Param("orderMode") String orderMode,
+                                                           @Param("limit") int limit);
+
+    @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataServiceDashboardSubscriptionRank")
+    List<DataServiceApiMetricView> selectDashboardSubscriptionRank(@Param("tenantId") String tenantId,
+                                                                   @Param("projectId") Long projectId,
+                                                                   @Param("serviceIds") List<Long> serviceIds,
+                                                                   @Param("subscriptionId") Long subscriptionId,
+                                                                   @Param("noTokenSubscription") boolean noTokenSubscription,
+                                                                   @Param("success") Integer success,
+                                                                   @Param("cacheHit") Integer cacheHit,
+                                                                   @Param("logFocus") String logFocus,
+                                                                   @Param("minDurationMs") Long minDurationMs,
+                                                                   @Param("startTime") LocalDateTime startTime,
+                                                                   @Param("endTime") LocalDateTime endTime,
+                                                                   @Param("hourGranularity") boolean hourGranularity,
+                                                                   @Param("limit") int limit);
 
     @Select({"<script>",
             "select count(1)",
