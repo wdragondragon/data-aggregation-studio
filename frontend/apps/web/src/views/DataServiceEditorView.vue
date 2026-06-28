@@ -86,8 +86,11 @@
           <el-select
             :model-value="form.modelId == null ? '' : String(form.modelId)"
             filterable
+            remote
             clearable
             placeholder="选择模型"
+            :remote-method="searchModels"
+            @visible-change="handleModelDropdownVisible"
             @update:model-value="handleModelChange"
           >
             <el-option
@@ -385,7 +388,8 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
-  DataModelListView,
+  DataModelDefinition,
+  DataModelDatasourceOptionView,
   DataServiceDefinitionView,
   DataServiceFieldView,
   DataServiceParamPosition,
@@ -504,7 +508,8 @@ const form = reactive<DataServiceSaveRequest & {
 });
 
 const datasources = ref<DataSourceOptionView[]>([]);
-const models = ref<DataModelListView[]>([]);
+const MODEL_OPTION_PAGE_SIZE = 100;
+const models = ref<DataModelDatasourceOptionView[]>([]);
 const fieldOptions = ref<DataServiceFieldView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
 const saving = ref(false);
@@ -869,9 +874,50 @@ function applyDetail(detail: DataServiceDefinitionView) {
   syncDebugTemplate({ notify: false });
 }
 
-async function loadModels(datasourceId: EntityId) {
-  const page = await studioApi.models.listSummaryByDatasourcePage(datasourceId, { pageNo: 1, pageSize: 500 });
+async function loadModels(datasourceId: EntityId, keyword = "") {
+  const page = await studioApi.models.listDatasourceOptions(datasourceId, {
+    keyword: keyword.trim() || undefined,
+    pageNo: 1,
+    pageSize: MODEL_OPTION_PAGE_SIZE,
+  });
   models.value = page.items;
+  await ensureSelectedModelOption();
+}
+
+async function searchModels(keyword: string) {
+  if (!form.datasourceId) {
+    models.value = [];
+    return;
+  }
+  await loadModels(form.datasourceId, keyword);
+}
+
+function handleModelDropdownVisible(visible: boolean) {
+  if (visible && form.datasourceId) {
+    void loadModels(form.datasourceId);
+  }
+}
+
+async function ensureSelectedModelOption() {
+  if (!form.modelId || models.value.some((model) => String(model.id ?? "") === String(form.modelId))) {
+    return;
+  }
+  try {
+    const detail = await studioApi.models.get(form.modelId);
+    models.value = [toDatasourceModelOption(detail), ...models.value];
+  } catch {
+    // Field parsing will surface the detail lookup error if the user proceeds.
+  }
+}
+
+function toDatasourceModelOption(model: DataModelDefinition): DataModelDatasourceOptionView {
+  return {
+    id: model.id,
+    datasourceId: model.datasourceId,
+    name: model.name,
+    modelKind: model.modelKind,
+    physicalLocator: model.physicalLocator,
+  };
 }
 
 async function handleDatasourceChange(value: string) {

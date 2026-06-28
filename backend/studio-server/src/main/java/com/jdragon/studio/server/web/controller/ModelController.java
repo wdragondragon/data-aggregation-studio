@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataModelDatasourceOptionView;
 import com.jdragon.studio.dto.model.DataModelIndexQueueStatusView;
 import com.jdragon.studio.dto.model.DataModelLineageEdgeDetailView;
 import com.jdragon.studio.dto.model.DataModelLineageView;
@@ -102,6 +103,15 @@ public class ModelController {
                                                                         @RequestParam(value = "sortField", required = false) String sortField,
                                                                         @RequestParam(value = "sortOrder", required = false) String sortOrder) {
         return Result.success(dataModelService.listByDatasourceSummaryPage(datasourceId, pageNo, pageSize, sortField, sortOrder));
+    }
+
+    @Operation(summary = "List model options by datasource")
+    @GetMapping("/datasource/{datasourceId}/options")
+    public Result<PageView<DataModelDatasourceOptionView>> listDatasourceOptions(@PathVariable("datasourceId") Long datasourceId,
+                                                                                @RequestParam(value = "keyword", required = false) String keyword,
+                                                                                @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                                @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataModelService.listDatasourceOptions(datasourceId, keyword, pageNo, pageSize));
     }
 
     @Operation(summary = "List SQL editor model hints by datasource")

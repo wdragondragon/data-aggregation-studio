@@ -16,8 +16,11 @@
         <el-select
           :model-value="String(form.modelId || '')"
           filterable
+          remote
           clearable
           placeholder="请选择目标模型"
+          :remote-method="actions.handleModelSearch"
+          @visible-change="actions.handleModelDropdownVisible"
           @update:model-value="actions.handleModelChange"
         >
           <el-option
@@ -38,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import type { DataModelListView, DataSourceOptionView, QualityRuleGranularity } from "@studio/api-sdk";
+import type { DataModelDatasourceOptionView, DataSourceOptionView, QualityRuleGranularity } from "@studio/api-sdk";
 import { SectionCard } from "@studio/ui";
 
 interface BindingForm {
@@ -51,13 +54,15 @@ interface BindingForm {
 interface BindingActions {
   handleDatasourceChange: (value: string) => void | Promise<void>;
   handleModelChange: (value: string) => void | Promise<void>;
+  handleModelSearch: (keyword: string) => void | Promise<void>;
+  handleModelDropdownVisible: (visible: boolean) => void;
   handleColumnChange: () => void;
 }
 
 defineProps<{
   form: BindingForm;
   datasources: DataSourceOptionView[];
-  models: DataModelListView[];
+  models: DataModelDatasourceOptionView[];
   columns: string[];
   actions: BindingActions;
 }>();

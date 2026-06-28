@@ -49,13 +49,16 @@
             <el-select
               :model-value="String(row.modelId ?? '')"
               filterable
+              remote
               :placeholder="t('web.collectionTasks.modelPlaceholder')"
+              :remote-method="sourceModelRemoteMethod(row)"
+              @visible-change="sourceModelVisibleChange(row)"
               @update:model-value="bindingActions.handleSourceModelChange(row, $event)"
             >
               <el-option
                 v-for="model in bindingActions.resolveModelsByDatasource(row.datasourceId)"
                 :key="model.id"
-                :label="model.name"
+                :label="`${model.name}${model.physicalLocator ? ` / ${model.physicalLocator}` : ''}`"
                 :value="String(model.id)"
               />
             </el-select>
@@ -196,13 +199,16 @@
           <el-select
             :model-value="String(form.targetBinding.modelId ?? '')"
             filterable
+            remote
             :placeholder="t('web.collectionTasks.modelPlaceholder')"
+            :remote-method="targetModelRemoteMethod"
+            @visible-change="targetModelVisibleChange"
             @update:model-value="bindingActions.handleTargetModelChange"
           >
             <el-option
               v-for="model in bindingActions.resolveModelsByDatasource(form.targetBinding.datasourceId)"
               :key="model.id"
-              :label="model.name"
+              :label="`${model.name}${model.physicalLocator ? ` / ${model.physicalLocator}` : ''}`"
               :value="String(model.id)"
             />
           </el-select>
@@ -272,7 +278,7 @@ import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskSourceBinding,
   CollectionTaskTargetBinding,
-  DataModelListView,
+  DataModelDatasourceOptionView,
   DataSourceOptionView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
@@ -295,7 +301,9 @@ interface CollectionTaskBindingActions {
   removeSourceBinding: (index: number) => void;
   handleSourceDatasourceChange: (row: CollectionTaskSourceBinding, value: string) => void | Promise<void>;
   handleSourceModelChange: (row: CollectionTaskSourceBinding, value: string) => void | Promise<void>;
-  resolveModelsByDatasource: (datasourceId: unknown) => DataModelListView[];
+  resolveModelsByDatasource: (datasourceId: unknown) => DataModelDatasourceOptionView[];
+  searchModelsByDatasource: (datasourceId: unknown, keyword: string) => void | Promise<void>;
+  handleModelDropdownVisible: (datasourceId: unknown, visible: boolean) => void;
   runtimeSchemaTitle: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
   runtimeSchemaFor: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => PluginRuntimeOptionSchemaView | undefined;
   runtimeStatusType: (role: RuntimeOptionRole, datasourceId: unknown, modelId?: unknown) => string;
@@ -343,6 +351,22 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+function sourceModelRemoteMethod(row: CollectionTaskSourceBinding) {
+  return (keyword: string) => props.bindingActions.searchModelsByDatasource(row.datasourceId, keyword);
+}
+
+function sourceModelVisibleChange(row: CollectionTaskSourceBinding) {
+  return (visible: boolean) => props.bindingActions.handleModelDropdownVisible(row.datasourceId, visible);
+}
+
+function targetModelRemoteMethod(keyword: string) {
+  return props.bindingActions.searchModelsByDatasource(props.form.targetBinding.datasourceId, keyword);
+}
+
+function targetModelVisibleChange(visible: boolean) {
+  props.bindingActions.handleModelDropdownVisible(props.form.targetBinding.datasourceId, visible);
+}
 
 const collectionModeModel = computed({
   get() {

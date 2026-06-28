@@ -8,6 +8,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataModelDatasourceOptionView;
 import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
@@ -46,6 +47,7 @@ public class DataModelService {
     private static final int DEFAULT_PAGE_NO = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 5000;
+    private static final int MAX_OPTION_PAGE_SIZE = 100;
 
     private final DataModelMapper dataModelMapper;
     private final DataSourceService dataSourceService;
@@ -179,6 +181,21 @@ public class DataModelService {
                                                                    String sortField, String sortOrder) {
         dataSourceService.get(datasourceId);
         return summaryPageQuery(buildBaseQuery(datasourceId, null, null, sortField, sortOrder), pageNo, pageSize);
+    }
+
+    public PageView<DataModelDatasourceOptionView> listDatasourceOptions(Long datasourceId,
+                                                                         String keyword,
+                                                                         Integer pageNo,
+                                                                         Integer pageSize) {
+        dataSourceService.get(datasourceId);
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(datasourceId, null, null, "name", "asc");
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            String normalizedKeyword = keyword.trim();
+            queryWrapper.and(query -> query.like(DataModelEntity::getName, normalizedKeyword)
+                    .or()
+                    .like(DataModelEntity::getPhysicalLocator, normalizedKeyword));
+        }
+        return datasourceOptionPageQuery(queryWrapper, pageNo, pageSize);
     }
 
     public List<DataModelSqlHintView> listSqlHintsByDatasource(Long datasourceId) {
@@ -540,6 +557,26 @@ public class DataModelService {
         return PageView.of(resolvedPageNo, resolvedPageSize, total, toOptionViews(entities));
     }
 
+    private PageView<DataModelDatasourceOptionView> datasourceOptionPageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper,
+                                                                              Integer pageNo,
+                                                                              Integer pageSize) {
+        int resolvedPageNo = normalizePageNo(pageNo);
+        int resolvedPageSize = Math.min(normalizePageSize(pageSize), MAX_OPTION_PAGE_SIZE);
+        long total = safeCount(queryWrapper);
+        if (total <= 0L) {
+            return PageView.of(resolvedPageNo, resolvedPageSize, 0L, Collections.<DataModelDatasourceOptionView>emptyList());
+        }
+        long offset = (long) (resolvedPageNo - 1) * resolvedPageSize;
+        List<DataModelEntity> entities = dataModelMapper.selectList(cloneQuery(queryWrapper)
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getDatasourceId,
+                        DataModelEntity::getName,
+                        DataModelEntity::getModelKind,
+                        DataModelEntity::getPhysicalLocator)
+                .last("limit " + resolvedPageSize + " offset " + offset));
+        return PageView.of(resolvedPageNo, resolvedPageSize, total, toDatasourceOptionViews(entities));
+    }
+
     private PageView<RunMetricFilterOptionView> metricFilterOptionPageQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper,
                                                                             Integer pageNo,
                                                                             Integer pageSize) {
@@ -738,6 +775,14 @@ public class DataModelService {
         return result;
     }
 
+    private List<DataModelDatasourceOptionView> toDatasourceOptionViews(List<DataModelEntity> entities) {
+        List<DataModelDatasourceOptionView> result = new ArrayList<DataModelDatasourceOptionView>();
+        for (DataModelEntity entity : entities) {
+            result.add(toDatasourceOptionView(entity));
+        }
+        return result;
+    }
+
     private List<RunMetricFilterOptionView> toMetricFilterOptionViews(List<DataModelEntity> entities) {
         List<RunMetricFilterOptionView> result = new ArrayList<RunMetricFilterOptionView>();
         for (DataModelEntity entity : entities) {
@@ -766,6 +811,18 @@ public class DataModelService {
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
         view.setName(entity.getName());
+        return view;
+    }
+
+    private DataModelDatasourceOptionView toDatasourceOptionView(DataModelEntity entity) {
+        DataModelDatasourceOptionView view = new DataModelDatasourceOptionView();
+        view.setId(entity.getId());
+        view.setDatasourceId(entity.getDatasourceId());
+        view.setName(entity.getName());
+        view.setPhysicalLocator(entity.getPhysicalLocator());
+        if (entity.getModelKind() != null) {
+            view.setModelKind(ModelKind.valueOf(entity.getModelKind()));
+        }
         return view;
     }
 

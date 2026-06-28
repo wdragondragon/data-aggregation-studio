@@ -97,6 +97,7 @@
 | FIX-S66-001 | 系统管理/Worker 表格 | 中 | `/system?tab=workers` Worker 表格调用旧全量接口，后端读取全部可见 Worker lease 和项目绑定后按组聚合；表格实际只需当前页 Worker 组 | `WorkerLeaseMapper.java`；`ProjectWorkerBindingMapper.java`；`SystemManagementService.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/client.ts`；`SystemProjectWorkerViewRegressionTest.java` | `SystemProjectWorkerViewRegressionTest`；`npm run build:web`；`/system/project-workers/page` 表格分页接口；旧全量接口仅作为绑定弹窗候选项懒加载 | module-regression | 2026-06-29 | `cf54651` |
 | FIX-S67-001 | 系统管理/资源共享表格 | 中 | `/system?tab=shares` 资源共享表格分页后仍为资源名和项目名预加载全量项目列表与当前类型全量资源候选，属于表面分页、内里全量水合 | `ResourceShareView.java`；`SystemManagementService.java`；`SystemResourceShareSupport.java`；`SystemManagementViewAssembler.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/types.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；nginx `/system/resource-shares/page` 返回当前页 `resourceLabel/sourceProjectName/targetProjectName`；build 后 nginx `/system?tab=shares` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S68-001 | 工作流运行/状态筛选分页 | 中 | `/workflow-runs?status=...` 先读取时间窗口内全部工作流运行 ID，再批量读取运行记录和调度任务，在 Java 内存派生状态后过滤分页；运行记录增长后状态筛选仍按全量候选增长 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java` | `WorkflowRunSourceSlimmingRegressionTest`、`WorkflowRunPaginationRegressionTest`；`npm run build:web`；nginx `/workflow-runs?status=SUCCESS/FAILED` API 复核；build 后 nginx `/runs?status=SUCCESS/FAILED` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S69-001 | 编辑页/数据源模型下拉 | 中 | 采集任务、数据接入、数据服务、质量任务编辑页的模型下拉只需选项字段，却在切换数据源时调用模型摘要接口预取 500/5000 条；详情字段已经按模型 id 单独获取 | `DataModelDatasourceOptionView.java`；`DataModelService.java`；`ModelController.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java`；`CollectionTaskEditorView.vue`；`DataIngestionServiceEditorView.vue`；`DataServiceEditorView.vue`；`QualityTaskEditorView.vue`；相关绑定组件；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；nginx `/models/datasource/{id}/options?pageSize=5000` 收敛为 100 且无元数据字段；build 后 nginx 4 个编辑页模型下拉 spot check | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -173,3 +174,4 @@
 | S66 系统管理 Worker 表格分页源头瘦身 | FIX-S66-001 |
 | S67 系统管理资源共享表格标签水合源头瘦身 | FIX-S67-001 |
 | S68 工作流运行状态筛选分页源头瘦身 | FIX-S68-001 |
+| S69 模型下拉大页预取源头瘦身 | FIX-S69-001 |

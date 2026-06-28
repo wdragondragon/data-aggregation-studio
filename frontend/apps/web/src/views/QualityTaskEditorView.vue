@@ -95,7 +95,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
   DataModelDefinition,
-  DataModelListView,
+  DataModelDatasourceOptionView,
   DataSourceOptionView,
   QualityRuleDimension,
   QualityRuleGranularity,
@@ -158,7 +158,8 @@ const triggering = ref(false);
 const rulesLoading = ref(false);
 const detailLoadError = ref("");
 const datasources = ref<DataSourceOptionView[]>([]);
-const modelCache = ref<Record<string, DataModelListView[]>>({});
+const MODEL_OPTION_PAGE_SIZE = 100;
+const modelCache = ref<Record<string, DataModelDatasourceOptionView[]>>({});
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const ruleOptions = ref<QualityRuleOptionView[]>([]);
 const ruleDetailCache = ref<Record<string, QualityRuleView>>({});
@@ -245,6 +246,8 @@ const basicInfoActions = {
 const bindingActions = {
   handleDatasourceChange,
   handleModelChange,
+  handleModelSearch,
+  handleModelDropdownVisible,
   handleColumnChange,
 };
 const ruleSelectionActions = {
@@ -431,17 +434,32 @@ function toQualityRuleOption(rule: QualityRuleView): QualityRuleOptionView {
   };
 }
 
-async function ensureModels(datasourceId: unknown) {
+async function ensureModels(datasourceId: unknown, keyword = "") {
   const key = String(datasourceId ?? "");
-  if (!key || key === "undefined" || key === "null" || modelCache.value[key]) {
+  if (!key || key === "undefined" || key === "null") {
     return;
   }
-  modelCache.value[key] = await studioApi.models.listSummariesByDatasource(key);
+  const page = await studioApi.models.listDatasourceOptions(key, {
+    keyword: keyword.trim() || undefined,
+    pageNo: 1,
+    pageSize: MODEL_OPTION_PAGE_SIZE,
+  });
+  modelCache.value[key] = page.items;
   ensureSelectedModelOption();
 }
 
 function resolveModelsByDatasource(datasourceId: unknown) {
   return modelCache.value[String(datasourceId ?? "")] ?? [];
+}
+
+async function handleModelSearch(keyword: string) {
+  await ensureModels(form.datasourceId, keyword);
+}
+
+function handleModelDropdownVisible(visible: boolean) {
+  if (visible) {
+    void ensureModels(form.datasourceId);
+  }
 }
 
 function findModelById(modelId: unknown) {
@@ -488,19 +506,13 @@ function ensureSelectedModelOption() {
   };
 }
 
-function toModelListView(model: DataModelDefinition): DataModelListView {
+function toModelListView(model: DataModelDefinition): DataModelDatasourceOptionView {
   return {
     id: model.id,
-    tenantId: model.tenantId,
-    projectId: model.projectId,
-    deleted: model.deleted,
-    createdAt: model.createdAt,
-    updatedAt: model.updatedAt,
     datasourceId: model.datasourceId,
     name: model.name,
     modelKind: model.modelKind,
     physicalLocator: model.physicalLocator,
-    schemaVersionId: model.schemaVersionId,
   };
 }
 

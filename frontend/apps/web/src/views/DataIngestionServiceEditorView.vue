@@ -157,7 +157,17 @@
           </el-select>
         </el-form-item>
         <el-form-item label="模型" required>
-          <el-select v-model="form.modelId" filterable clearable :disabled="!form.datasourceId" placeholder="选择目标模型" @change="handleModelChange">
+          <el-select
+            v-model="form.modelId"
+            filterable
+            remote
+            clearable
+            :disabled="!form.datasourceId"
+            placeholder="选择目标模型"
+            :remote-method="searchModels"
+            @visible-change="handleModelDropdownVisible"
+            @change="handleModelChange"
+          >
             <el-option v-for="item in models" :key="item.id" :label="`${item.name} / ${item.physicalLocator}`" :value="item.id" />
           </el-select>
         </el-form-item>
@@ -342,7 +352,7 @@ import type {
   DataIngestionServiceView,
   DataIngestionSourcePosition,
   DataModelDefinition,
-  DataModelListView,
+  DataModelDatasourceOptionView,
   DataSourceOptionView,
   DatasourceTypeCapabilityView,
   EntityId,
@@ -450,7 +460,8 @@ const serviceId = computed(() => route.params.serviceId as EntityId | undefined)
 const activeStep = ref(0);
 const datasources = ref<DataSourceOptionView[]>([]);
 const datasourceTypes = ref<DatasourceTypeCapabilityView[]>([]);
-const models = ref<DataModelListView[]>([]);
+const MODEL_OPTION_PAGE_SIZE = 100;
+const models = ref<DataModelDatasourceOptionView[]>([]);
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const modelDetailLoading = ref(false);
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
@@ -908,9 +919,28 @@ async function handleModelChange(value?: EntityId) {
   applyRuntimeDefaultsForWriter();
 }
 
-async function loadModels(datasourceId: EntityId) {
-  models.value = await studioApi.models.listSummariesByDatasource(datasourceId, { pageNo: 1, pageSize: 5000 });
+async function loadModels(datasourceId: EntityId, keyword = "") {
+  const page = await studioApi.models.listDatasourceOptions(datasourceId, {
+    keyword: keyword.trim() || undefined,
+    pageNo: 1,
+    pageSize: MODEL_OPTION_PAGE_SIZE,
+  });
+  models.value = page.items;
   ensureSelectedModelOption();
+}
+
+async function searchModels(keyword: string) {
+  if (!form.datasourceId) {
+    models.value = [];
+    return;
+  }
+  await loadModels(form.datasourceId, keyword);
+}
+
+function handleModelDropdownVisible(visible: boolean) {
+  if (visible && form.datasourceId) {
+    void loadModels(form.datasourceId);
+  }
 }
 
 async function loadModelDetail(modelId?: EntityId) {
@@ -947,19 +977,13 @@ function ensureSelectedModelOption() {
   ];
 }
 
-function toModelListView(model: DataModelDefinition): DataModelListView {
+function toModelListView(model: DataModelDefinition): DataModelDatasourceOptionView {
   return {
     id: model.id,
-    tenantId: model.tenantId,
-    projectId: model.projectId,
-    deleted: model.deleted,
-    createdAt: model.createdAt,
-    updatedAt: model.updatedAt,
     datasourceId: model.datasourceId,
     name: model.name,
     modelKind: model.modelKind,
     physicalLocator: model.physicalLocator,
-    schemaVersionId: model.schemaVersionId,
   };
 }
 

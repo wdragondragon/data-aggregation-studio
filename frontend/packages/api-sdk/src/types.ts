@@ -387,6 +387,14 @@ export interface DataModelListView extends BaseRecord {
   schemaVersionId?: EntityId;
 }
 
+export interface DataModelDatasourceOptionView {
+  id?: EntityId;
+  datasourceId?: EntityId;
+  name: string;
+  modelKind?: ModelKind;
+  physicalLocator?: string;
+}
+
 export interface DataModelOptionView extends BaseRecord {
   name: string;
 }

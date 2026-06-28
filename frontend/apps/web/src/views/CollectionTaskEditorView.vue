@@ -96,7 +96,7 @@ import type {
   CollectionTaskSaveRequest,
   CollectionTaskSourceBinding,
   DataModelDefinition,
-  DataModelListView,
+  DataModelDatasourceOptionView,
   DataSourceOptionView,
   EntityId,
   FieldMappingDefinition,
@@ -161,7 +161,8 @@ const taskId = computed(() => route.params.taskId as string | undefined);
 const activeStep = ref(1);
 const datasources = ref<DataSourceOptionView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
-const modelCache = ref<Record<string, DataModelListView[]>>({});
+const MODEL_OPTION_PAGE_SIZE = 100;
+const modelCache = ref<Record<string, DataModelDatasourceOptionView[]>>({});
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
 const runtimeSchemaLoading = ref<Record<string, boolean>>({});
@@ -281,6 +282,8 @@ const bindingSectionActions = {
   handleSourceDatasourceChange,
   handleSourceModelChange,
   resolveModelsByDatasource,
+  searchModelsByDatasource,
+  handleModelDropdownVisible,
   runtimeSchemaTitle,
   runtimeSchemaFor,
   runtimeStatusType,
@@ -409,16 +412,33 @@ function removeSourceBinding(index: number) {
   form.sourceBindings.splice(index, 1);
 }
 
-async function ensureModels(datasourceId: unknown) {
+async function ensureModels(datasourceId: unknown, keyword = "", force = false) {
   const key = String(datasourceId ?? "");
-  if (!key || key === "undefined" || key === "null" || modelCache.value[key]) {
+  const normalizedKeyword = keyword.trim();
+  if (!key || key === "undefined" || key === "null" || (!normalizedKeyword && !force && modelCache.value[key])) {
     return;
   }
-  modelCache.value[key] = await studioApi.models.listSummariesByDatasource(key, { pageNo: 1, pageSize: 5000 });
+  const page = await studioApi.models.listDatasourceOptions(key, {
+    keyword: normalizedKeyword || undefined,
+    pageNo: 1,
+    pageSize: MODEL_OPTION_PAGE_SIZE,
+  });
+  modelCache.value[key] = page.items;
+  ensureSelectedModelOptionsForDatasource(key);
 }
 
 function resolveModelsByDatasource(datasourceId: unknown) {
   return modelCache.value[String(datasourceId ?? "")] ?? [];
+}
+
+async function searchModelsByDatasource(datasourceId: unknown, keyword: string) {
+  await ensureModels(datasourceId, keyword, true);
+}
+
+function handleModelDropdownVisible(datasourceId: unknown, visible: boolean) {
+  if (visible) {
+    void ensureModels(datasourceId, "", true);
+  }
 }
 
 function resolveModelById(modelId: unknown) {
@@ -463,19 +483,20 @@ function ensureSelectedModelOption(datasourceId: unknown, detail: DataModelDefin
   };
 }
 
-function toModelListView(model: DataModelDefinition): DataModelListView {
+function ensureSelectedModelOptionsForDatasource(datasourceId: unknown) {
+  const key = String(datasourceId ?? "");
+  Object.values(modelDetailCache.value)
+    .filter((detail) => String(detail.datasourceId ?? "") === key)
+    .forEach((detail) => ensureSelectedModelOption(key, detail));
+}
+
+function toModelListView(model: DataModelDefinition): DataModelDatasourceOptionView {
   return {
     id: model.id,
-    tenantId: model.tenantId,
-    projectId: model.projectId,
-    deleted: model.deleted,
-    createdAt: model.createdAt,
-    updatedAt: model.updatedAt,
     datasourceId: model.datasourceId,
     name: model.name,
     modelKind: model.modelKind,
     physicalLocator: model.physicalLocator,
-    schemaVersionId: model.schemaVersionId,
   };
 }
 

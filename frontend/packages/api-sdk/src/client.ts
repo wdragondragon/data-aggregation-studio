@@ -25,6 +25,7 @@ import type {
   EnvironmentDependencyOption,
   EnvironmentDependencySaveRequest,
   DataModelDefinition,
+  DataModelDatasourceOptionView,
   DataModelListView,
   DataModelOptionView,
   DataModelSqlHintView,
@@ -932,6 +933,19 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           params,
         }).then((payload) =>
           normalizePageResult<DataModelListView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      listDatasourceOptions(datasourceId: EntityId, params?: {
+        keyword?: string;
+        pageNo?: number;
+        pageSize?: number;
+      }) {
+        return request<unknown>({
+          url: `/models/datasource/${datasourceId}/options`,
+          method: "GET",
+          params,
+        }).then((payload) =>
+          normalizePageResult<DataModelDatasourceOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
       async listByDatasource(datasourceId: EntityId, params?: {
