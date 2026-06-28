@@ -2,6 +2,7 @@ package com.jdragon.studio.server.web.controller;
 
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
@@ -215,10 +216,10 @@ public class SystemManagementController {
 
     @Operation(summary = "List resource shares by page")
     @GetMapping("/resource-shares/page")
-    public Result<PageView<ResourceShareEntity>> listResourceSharesPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
-                                                                        @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                                        @RequestParam(value = "resourceType", required = false) String resourceType,
-                                                                        @RequestParam(value = "projectId", required = false) Long projectId) {
+    public Result<PageView<ResourceShareView>> listResourceSharesPage(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                      @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                      @RequestParam(value = "resourceType", required = false) String resourceType,
+                                                                      @RequestParam(value = "projectId", required = false) Long projectId) {
         return Result.success(systemManagementService.listResourceSharesPage(resourceType, projectId, pageNo, pageSize));
     }
 

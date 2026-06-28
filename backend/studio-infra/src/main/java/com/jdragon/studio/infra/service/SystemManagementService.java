@@ -6,6 +6,7 @@ import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
@@ -60,6 +61,7 @@ import java.util.Set;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectMemberRequestView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectMemberView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toResourceShareView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectWorkerView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toTenantMemberView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toTenantView;
@@ -637,16 +639,17 @@ public class SystemManagementService {
         return resourceShareMapper.selectList(resourceShareQuery(project, resourceType));
     }
 
-    public PageView<ResourceShareEntity> listResourceSharesPage(String resourceType,
-                                                                Long projectId,
-                                                                Integer pageNo,
-                                                                Integer pageSize) {
+    public PageView<ResourceShareView> listResourceSharesPage(String resourceType,
+                                                              Long projectId,
+                                                              Integer pageNo,
+                                                              Integer pageSize) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         ProjectEntity project = requireManageableProject(projectId);
         Page<ResourceShareEntity> page = new Page<ResourceShareEntity>(safePageNo, safePageSize);
         Page<ResourceShareEntity> entityPage = resourceShareMapper.selectPage(page, resourceShareQuery(project, resourceType));
-        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), entityPage.getRecords());
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(),
+                toResourceShareViews(project, entityPage.getRecords()));
     }
 
     public List<ShareResourceOptionView> listShareResourceOptions(String resourceType, Long projectId) {
@@ -1103,6 +1106,69 @@ public class SystemManagementService {
         return queryWrapper
                 .orderByDesc(ResourceShareEntity::getCreatedAt)
                 .orderByDesc(ResourceShareEntity::getId);
+    }
+
+    private List<ResourceShareView> toResourceShareViews(ProjectEntity sourceProject, List<ResourceShareEntity> shares) {
+        List<ResourceShareView> result = new ArrayList<ResourceShareView>();
+        if (shares == null || shares.isEmpty()) {
+            return result;
+        }
+        Map<Long, ProjectEntity> projectMap = loadProjectsForShares(shares);
+        Map<String, ShareResourceOptionView> resourceMap = resourceShareSupport.listShareResourceOptionsByIds(
+                sourceProject.getTenantId(), sourceProject.getId(), resourceIdsByType(shares));
+        for (ResourceShareEntity share : shares) {
+            result.add(toResourceShareView(share,
+                    projectMap.get(share.getSourceProjectId()),
+                    projectMap.get(share.getTargetProjectId()),
+                    resourceMap.get(resourceKey(share.getResourceType(), share.getResourceId()))));
+        }
+        return result;
+    }
+
+    private Map<Long, ProjectEntity> loadProjectsForShares(List<ResourceShareEntity> shares) {
+        Set<Long> projectIds = new LinkedHashSet<Long>();
+        for (ResourceShareEntity share : shares) {
+            if (share.getSourceProjectId() != null) {
+                projectIds.add(share.getSourceProjectId());
+            }
+            if (share.getTargetProjectId() != null) {
+                projectIds.add(share.getTargetProjectId());
+            }
+        }
+        Map<Long, ProjectEntity> result = new LinkedHashMap<Long, ProjectEntity>();
+        if (projectIds.isEmpty()) {
+            return result;
+        }
+        List<ProjectEntity> projects = projectMapper.selectByIds(projectIds);
+        for (ProjectEntity project : projects) {
+            result.put(project.getId(), project);
+        }
+        return result;
+    }
+
+    private Map<String, Set<Long>> resourceIdsByType(List<ResourceShareEntity> shares) {
+        Map<String, Set<Long>> result = new LinkedHashMap<String, Set<Long>>();
+        for (ResourceShareEntity share : shares) {
+            String resourceType = normalizeResourceType(share.getResourceType());
+            if (!hasText(resourceType) || share.getResourceId() == null) {
+                continue;
+            }
+            Set<Long> ids = result.get(resourceType);
+            if (ids == null) {
+                ids = new LinkedHashSet<Long>();
+                result.put(resourceType, ids);
+            }
+            ids.add(share.getResourceId());
+        }
+        return result;
+    }
+
+    private String resourceKey(String resourceType, Long resourceId) {
+        return normalizeResourceType(resourceType) + ":" + resourceId;
+    }
+
+    private String normalizeResourceType(String resourceType) {
+        return hasText(resourceType) ? resourceType.trim().toUpperCase() : "";
     }
 
     private int normalizePageNo(Integer pageNo) {

@@ -3,6 +3,8 @@ package com.jdragon.studio.infra.service;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
+import com.jdragon.studio.dto.model.system.ResourceShareView;
+import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
@@ -11,6 +13,7 @@ import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberRequestEntity;
 import com.jdragon.studio.infra.entity.ProjectWorkerBindingEntity;
+import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.TenantEntity;
 import com.jdragon.studio.infra.entity.TenantMemberEntity;
@@ -148,6 +151,32 @@ final class SystemManagementViewAssembler {
         view.setBoundToProject(binding != null);
         view.setEnabled(binding != null && binding.getEnabled() != null && binding.getEnabled() == 1);
         view.setInstances(instances == null ? Collections.<SystemWorkerInstanceView>emptyList() : instances);
+        return view;
+    }
+
+    static ResourceShareView toResourceShareView(ResourceShareEntity share,
+                                                 ProjectEntity sourceProject,
+                                                 ProjectEntity targetProject,
+                                                 ShareResourceOptionView resource) {
+        ResourceShareView view = new ResourceShareView();
+        view.setId(share.getId());
+        view.setTenantId(share.getTenantId());
+        view.setProjectId(share.getSourceProjectId());
+        view.setDeleted(share.getDeleted() != null && share.getDeleted() == 1);
+        view.setCreatedAt(share.getCreatedAt());
+        view.setUpdatedAt(share.getUpdatedAt());
+        view.setSourceProjectId(share.getSourceProjectId());
+        view.setSourceProjectName(sourceProject == null ? null : sourceProject.getProjectName());
+        view.setTargetProjectId(share.getTargetProjectId());
+        view.setTargetProjectName(targetProject == null ? null : targetProject.getProjectName());
+        view.setResourceType(share.getResourceType());
+        view.setResourceId(share.getResourceId());
+        view.setResourceLabel(resource == null ? null : resource.getLabel());
+        view.setResourceName(resource == null ? null : resource.getName());
+        view.setResourceCode(resource == null ? null : resource.getCode());
+        view.setResourceStatus(resource == null ? null : resource.getStatus());
+        view.setSharedByUserId(share.getSharedByUserId());
+        view.setEnabled(share.getEnabled() != null && share.getEnabled() == 1);
         return view;
     }
 

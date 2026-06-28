@@ -382,13 +382,13 @@
               <template #default="{ row }">
                 <div class="stack-cell">
                   <span>{{ resourceLabel(row) }}</span>
-                  <span class="cell-subtle">来源项目：{{ resolveProjectLabel(row.sourceProjectId) }}</span>
+                  <span class="cell-subtle">来源项目：{{ resourceProjectLabel(row.sourceProjectId, row.sourceProjectName) }}</span>
                 </div>
               </template>
             </el-table-column>
             <el-table-column label="共享到项目" min-width="180">
               <template #default="{ row }">
-                {{ resolveProjectLabel(row.targetProjectId) }}
+                {{ resourceProjectLabel(row.targetProjectId, row.targetProjectName) }}
               </template>
             </el-table-column>
             <el-table-column label="启用" width="100" align="center">
@@ -965,7 +965,7 @@ async function loadProjectWorkers() {
 
 async function loadResourceSharesTab() {
   await withTabLoading("shares", async () => {
-    await Promise.all([loadProjectsData(), loadResourceSharesData(), loadShareResourceOptions(shareFilters.resourceType)]);
+    await loadResourceSharesData();
   }, "加载资源共享失败");
 }
 
@@ -1055,7 +1055,7 @@ function loadShareResourcesForDialog() {
 
 function reloadResourceShares() {
   void withTabLoading("shares", async () => {
-    await Promise.all([loadResourceSharesData(), loadShareResourceOptions(shareFilters.resourceType)]);
+    await loadResourceSharesData();
   }, "加载资源共享失败");
 }
 
@@ -1142,6 +1142,10 @@ function resolveProjectLabel(projectId?: EntityId | null) {
   return resolveProjectName(projectOptions.value.length ? projectOptions.value : projects.value, projectId);
 }
 
+function resourceProjectLabel(projectId?: EntityId | null, projectName?: string | null) {
+  return projectName || resolveProjectLabel(projectId);
+}
+
 function shareOptionList(resourceType: string) {
   const currentProjectId = authStore.currentProjectId;
   return (shareResourceOptions[resourceType] ?? [])
@@ -1156,6 +1160,9 @@ function resourceTypeLabel(resourceType?: string | null) {
 }
 
 function resourceLabel(share: ResourceShare) {
+  if (share.resourceLabel) {
+    return share.resourceLabel;
+  }
   const resourceType = normalizeResourceType(share.resourceType);
   const option = shareOptionList(resourceType).find((item) => sameEntityId(item.id, share.resourceId));
   return option?.label ?? `${resourceType || "RESOURCE"} #${share.resourceId ?? "-"}`;

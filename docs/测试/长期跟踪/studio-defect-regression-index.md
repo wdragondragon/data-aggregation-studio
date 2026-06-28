@@ -95,6 +95,7 @@
 | FIX-S64-001 | 系统管理/表格分页 | 中 | `/system` 用户、注册登记、租户、项目、租户成员、项目成员、申请/邀请表格使用全量列表接口；注册登记列表源查询还读取 `passwordHash` | `UserManagementService.java`；`UserRegistrationRequestService.java`；`SystemManagementService.java`；`UserController.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/client.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；nginx 7 个系统管理 `/page` 接口；nginx `/system?tab=users`、`/system?tab=tenants` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S65-001 | 系统管理/直达页初始化 | 中 | `/system?tab=...` 直达表格 tab 时首轮加载可能发生在认证、角色或上下文恢复前，页面显示 `共 0 条`，需手动刷新才恢复 | `SystemView.vue` | `npm run build:web`；nginx `/system?tab=users` 显示 `共 17 条`；nginx `/system?tab=tenants` 显示 `共 2 条`；7 个系统管理分页接口 API 探针 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S66-001 | 系统管理/Worker 表格 | 中 | `/system?tab=workers` Worker 表格调用旧全量接口，后端读取全部可见 Worker lease 和项目绑定后按组聚合；表格实际只需当前页 Worker 组 | `WorkerLeaseMapper.java`；`ProjectWorkerBindingMapper.java`；`SystemManagementService.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/client.ts`；`SystemProjectWorkerViewRegressionTest.java` | `SystemProjectWorkerViewRegressionTest`；`npm run build:web`；`/system/project-workers/page` 表格分页接口；旧全量接口仅作为绑定弹窗候选项懒加载 | module-regression | 2026-06-29 | `cf54651` |
+| FIX-S67-001 | 系统管理/资源共享表格 | 中 | `/system?tab=shares` 资源共享表格分页后仍为资源名和项目名预加载全量项目列表与当前类型全量资源候选，属于表面分页、内里全量水合 | `ResourceShareView.java`；`SystemManagementService.java`；`SystemResourceShareSupport.java`；`SystemManagementViewAssembler.java`；`SystemManagementController.java`；`SystemView.vue`；`frontend/packages/api-sdk/src/types.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；nginx `/system/resource-shares/page` 返回当前页 `resourceLabel/sourceProjectName/targetProjectName`；build 后 nginx `/system?tab=shares` 页面 spot check | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -169,3 +170,4 @@
 | S64 系统管理表格分页源头瘦身 | FIX-S64-001 |
 | S65 系统管理直达 Tab 认证恢复补加载 | FIX-S65-001 |
 | S66 系统管理 Worker 表格分页源头瘦身 | FIX-S66-001 |
+| S67 系统管理资源共享表格标签水合源头瘦身 | FIX-S67-001 |

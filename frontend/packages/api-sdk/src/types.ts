@@ -2951,9 +2951,15 @@ export interface SystemWorkerInstance {
 
 export interface ResourceShare extends BaseRecord {
   sourceProjectId?: EntityId;
+  sourceProjectName?: string;
   targetProjectId?: EntityId;
+  targetProjectName?: string;
   resourceType?: string;
   resourceId?: EntityId;
+  resourceLabel?: string;
+  resourceName?: string;
+  resourceCode?: string;
+  resourceStatus?: string;
   sharedByUserId?: EntityId;
   enabled?: boolean | number;
 }

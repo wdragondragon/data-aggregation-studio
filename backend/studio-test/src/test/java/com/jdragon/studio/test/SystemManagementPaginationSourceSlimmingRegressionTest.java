@@ -7,10 +7,13 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
+import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
+import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
+import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.UserRegistrationRequestEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
@@ -41,6 +44,7 @@ import com.jdragon.studio.infra.service.UserRegistrationRequestService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Arrays;
@@ -61,6 +65,8 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         initTableInfo(StudioUserEntity.class);
         initTableInfo(UserRegistrationRequestEntity.class);
         initTableInfo(ProjectMemberEntity.class);
+        initTableInfo(ResourceShareEntity.class);
+        initTableInfo(DataModelEntity.class);
     }
 
     @Test
@@ -154,6 +160,62 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         verify(projectMemberMapper, never()).selectList(any(LambdaQueryWrapper.class));
     }
 
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void resourceSharesPageShouldHydrateLabelsForCurrentPageOnly() {
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        ResourceShareMapper resourceShareMapper = mock(ResourceShareMapper.class);
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectEntity sourceProject = project(100L, "长期回归测试项目");
+        ProjectEntity targetProject = project(200L, "财务共享验证项目");
+        when(projectMapper.selectById(100L)).thenReturn(sourceProject);
+        when(projectMapper.selectByIds(any())).thenReturn(Arrays.asList(sourceProject, targetProject));
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
+        when(resourceShareMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<ResourceShareEntity> page = invocation.getArgument(0);
+            page.setTotal(8L);
+            page.setRecords(Collections.singletonList(resourceShare(900L, 100L, 200L, StudioConstants.RESOURCE_TYPE_DATA_MODEL, 501L)));
+            return page;
+        });
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model(501L, "客户订单宽表", "dw_customer_order")));
+        SystemManagementService service = new SystemManagementService(
+                mock(TenantMapper.class),
+                projectMapper,
+                mock(TenantMemberMapper.class),
+                mock(ProjectMemberMapper.class),
+                mock(ProjectMemberRequestMapper.class),
+                mock(ProjectWorkerBindingMapper.class),
+                resourceShareMapper,
+                mock(StudioUserMapper.class),
+                mock(WorkerLeaseMapper.class),
+                mock(DatasourceMapper.class),
+                dataModelMapper,
+                mock(CollectionTaskDefinitionMapper.class),
+                mock(WorkflowDefinitionMapper.class),
+                mock(DataDevelopmentScriptMapper.class),
+                mock(DataServiceDefinitionMapper.class),
+                mock(DataIngestionServiceMapper.class),
+                mock(ProtocolConversionServiceMapper.class),
+                securityService,
+                mock(NotificationService.class));
+
+        PageView<ResourceShareView> page = service.listResourceSharesPage(StudioConstants.RESOURCE_TYPE_DATA_MODEL, 100L, 1, 1);
+
+        assertThat(page.getTotal()).isEqualTo(8L);
+        assertThat(page.getItems()).hasSize(1);
+        ResourceShareView item = page.getItems().get(0);
+        assertThat(item.getResourceLabel()).isEqualTo("客户订单宽表 / dw_customer_order");
+        assertThat(item.getSourceProjectName()).isEqualTo("长期回归测试项目");
+        assertThat(item.getTargetProjectName()).isEqualTo("财务共享验证项目");
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> modelQueryCaptor = ArgumentCaptor.forClass((Class) LambdaQueryWrapper.class);
+        verify(dataModelMapper).selectList(modelQueryCaptor.capture());
+        assertThat(modelQueryCaptor.getValue().getSqlSegment().toUpperCase(Locale.ROOT)).contains("IN");
+        verify(resourceShareMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(resourceShareMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
     private SystemManagementService systemService(ProjectMapper projectMapper,
                                                   ProjectMemberMapper projectMemberMapper,
                                                   StudioUserMapper userMapper,
@@ -208,6 +270,36 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         member.setRoleCode(StudioConstants.ROLE_PROJECT_MEMBER);
         member.setStatus(StudioConstants.MEMBER_STATUS_ACTIVE);
         return member;
+    }
+
+    private ProjectEntity project(Long id, String name) {
+        ProjectEntity project = new ProjectEntity();
+        project.setId(id);
+        project.setTenantId("default");
+        project.setProjectName(name);
+        return project;
+    }
+
+    private ResourceShareEntity resourceShare(Long id, Long sourceProjectId, Long targetProjectId, String resourceType, Long resourceId) {
+        ResourceShareEntity share = new ResourceShareEntity();
+        share.setId(id);
+        share.setTenantId("default");
+        share.setSourceProjectId(sourceProjectId);
+        share.setTargetProjectId(targetProjectId);
+        share.setResourceType(resourceType);
+        share.setResourceId(resourceId);
+        share.setEnabled(1);
+        return share;
+    }
+
+    private DataModelEntity model(Long id, String name, String physicalLocator) {
+        DataModelEntity model = new DataModelEntity();
+        model.setId(id);
+        model.setTenantId("default");
+        model.setProjectId(100L);
+        model.setName(name);
+        model.setPhysicalLocator(physicalLocator);
+        return model;
     }
 
     private static void initTableInfo(Class<?> entityClass) {

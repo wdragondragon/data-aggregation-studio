@@ -25,7 +25,11 @@ import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 final class SystemResourceShareSupport {
 
@@ -279,6 +283,164 @@ final class SystemResourceShareSupport {
         throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
     }
 
+    Map<String, ShareResourceOptionView> listShareResourceOptionsByIds(String tenantId,
+                                                                       Long sourceProjectId,
+                                                                       Map<String, Set<Long>> resourceIdsByType) {
+        Map<String, ShareResourceOptionView> result = new LinkedHashMap<String, ShareResourceOptionView>();
+        if (resourceIdsByType == null || resourceIdsByType.isEmpty()) {
+            return result;
+        }
+        Set<Long> datasourceIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_DATASOURCE);
+        if (!datasourceIds.isEmpty()) {
+            List<DatasourceEntity> entities = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
+                    .select(DatasourceEntity::getId,
+                            DatasourceEntity::getTenantId,
+                            DatasourceEntity::getProjectId,
+                            DatasourceEntity::getDeleted,
+                            DatasourceEntity::getName,
+                            DatasourceEntity::getTypeCode,
+                            DatasourceEntity::getEnabled)
+                    .eq(DatasourceEntity::getTenantId, tenantId)
+                    .eq(DatasourceEntity::getProjectId, sourceProjectId)
+                    .in(DatasourceEntity::getId, datasourceIds));
+            for (DatasourceEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_DATASOURCE, entity.getName(), entity.getTypeCode(), statusText(entity.getEnabled()),
+                        entity.getName() + " (" + entity.getTypeCode() + ")"));
+            }
+        }
+        Set<Long> modelIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_DATA_MODEL);
+        if (!modelIds.isEmpty()) {
+            List<DataModelEntity> entities = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
+                    .select(DataModelEntity::getId,
+                            DataModelEntity::getTenantId,
+                            DataModelEntity::getProjectId,
+                            DataModelEntity::getDeleted,
+                            DataModelEntity::getName,
+                            DataModelEntity::getPhysicalLocator)
+                    .eq(DataModelEntity::getTenantId, tenantId)
+                    .eq(DataModelEntity::getProjectId, sourceProjectId)
+                    .in(DataModelEntity::getId, modelIds));
+            for (DataModelEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_DATA_MODEL, entity.getName(), entity.getPhysicalLocator(), null,
+                        entity.getName() + " / " + nullSafe(entity.getPhysicalLocator())));
+            }
+        }
+        Set<Long> collectionTaskIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_COLLECTION_TASK);
+        if (!collectionTaskIds.isEmpty()) {
+            List<CollectionTaskDefinitionEntity> entities = collectionTaskDefinitionMapper.selectList(new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+                    .select(CollectionTaskDefinitionEntity::getId,
+                            CollectionTaskDefinitionEntity::getTenantId,
+                            CollectionTaskDefinitionEntity::getProjectId,
+                            CollectionTaskDefinitionEntity::getDeleted,
+                            CollectionTaskDefinitionEntity::getName,
+                            CollectionTaskDefinitionEntity::getStatus)
+                    .eq(CollectionTaskDefinitionEntity::getTenantId, tenantId)
+                    .eq(CollectionTaskDefinitionEntity::getProjectId, sourceProjectId)
+                    .in(CollectionTaskDefinitionEntity::getId, collectionTaskIds));
+            for (CollectionTaskDefinitionEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, entity.getName(), null, entity.getStatus(), entity.getName()));
+            }
+        }
+        Set<Long> workflowIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_WORKFLOW);
+        if (!workflowIds.isEmpty()) {
+            List<WorkflowDefinitionEntity> entities = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                    .select(WorkflowDefinitionEntity::getId,
+                            WorkflowDefinitionEntity::getTenantId,
+                            WorkflowDefinitionEntity::getProjectId,
+                            WorkflowDefinitionEntity::getDeleted,
+                            WorkflowDefinitionEntity::getName,
+                            WorkflowDefinitionEntity::getCode,
+                            WorkflowDefinitionEntity::getPublished)
+                    .eq(WorkflowDefinitionEntity::getTenantId, tenantId)
+                    .eq(WorkflowDefinitionEntity::getProjectId, sourceProjectId)
+                    .in(WorkflowDefinitionEntity::getId, workflowIds));
+            for (WorkflowDefinitionEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_WORKFLOW, entity.getName(), entity.getCode(), statusText(entity.getPublished()),
+                        entity.getName() + " (" + entity.getCode() + ")"));
+            }
+        }
+        Set<Long> scriptIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT);
+        if (!scriptIds.isEmpty()) {
+            List<DataDevelopmentScriptEntity> entities = dataDevelopmentScriptMapper.selectList(new LambdaQueryWrapper<DataDevelopmentScriptEntity>()
+                    .select(DataDevelopmentScriptEntity::getId,
+                            DataDevelopmentScriptEntity::getTenantId,
+                            DataDevelopmentScriptEntity::getProjectId,
+                            DataDevelopmentScriptEntity::getDeleted,
+                            DataDevelopmentScriptEntity::getFileName,
+                            DataDevelopmentScriptEntity::getScriptType)
+                    .eq(DataDevelopmentScriptEntity::getTenantId, tenantId)
+                    .eq(DataDevelopmentScriptEntity::getProjectId, sourceProjectId)
+                    .in(DataDevelopmentScriptEntity::getId, scriptIds));
+            for (DataDevelopmentScriptEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, entity.getFileName(), entity.getScriptType(), null,
+                        entity.getFileName() + " (" + entity.getScriptType() + ")"));
+            }
+        }
+        Set<Long> dataServiceIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_DATA_SERVICE);
+        if (!dataServiceIds.isEmpty()) {
+            List<DataServiceDefinitionEntity> entities = dataServiceDefinitionMapper.selectList(new LambdaQueryWrapper<DataServiceDefinitionEntity>()
+                    .select(DataServiceDefinitionEntity::getId,
+                            DataServiceDefinitionEntity::getTenantId,
+                            DataServiceDefinitionEntity::getProjectId,
+                            DataServiceDefinitionEntity::getDeleted,
+                            DataServiceDefinitionEntity::getServiceName,
+                            DataServiceDefinitionEntity::getServiceCode,
+                            DataServiceDefinitionEntity::getStatus)
+                    .eq(DataServiceDefinitionEntity::getTenantId, tenantId)
+                    .eq(DataServiceDefinitionEntity::getProjectId, sourceProjectId)
+                    .in(DataServiceDefinitionEntity::getId, dataServiceIds));
+            for (DataServiceDefinitionEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_DATA_SERVICE, entity.getServiceName(), entity.getServiceCode(), entity.getStatus(),
+                        entity.getServiceName() + " (" + entity.getServiceCode() + ")"));
+            }
+        }
+        Set<Long> dataIngestionServiceIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
+        if (!dataIngestionServiceIds.isEmpty()) {
+            List<DataIngestionServiceEntity> entities = dataIngestionServiceMapper.selectList(new LambdaQueryWrapper<DataIngestionServiceEntity>()
+                    .select(DataIngestionServiceEntity::getId,
+                            DataIngestionServiceEntity::getTenantId,
+                            DataIngestionServiceEntity::getProjectId,
+                            DataIngestionServiceEntity::getDeleted,
+                            DataIngestionServiceEntity::getServiceName,
+                            DataIngestionServiceEntity::getServiceCode,
+                            DataIngestionServiceEntity::getStatus)
+                    .eq(DataIngestionServiceEntity::getTenantId, tenantId)
+                    .eq(DataIngestionServiceEntity::getProjectId, sourceProjectId)
+                    .in(DataIngestionServiceEntity::getId, dataIngestionServiceIds));
+            for (DataIngestionServiceEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE, entity.getServiceName(), entity.getServiceCode(), entity.getStatus(),
+                        entity.getServiceName() + " (" + entity.getServiceCode() + ")"));
+            }
+        }
+        Set<Long> protocolConversionServiceIds = idsFor(resourceIdsByType, StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE);
+        if (!protocolConversionServiceIds.isEmpty()) {
+            List<ProtocolConversionServiceEntity> entities = protocolConversionServiceMapper.selectList(new LambdaQueryWrapper<ProtocolConversionServiceEntity>()
+                    .select(ProtocolConversionServiceEntity::getId,
+                            ProtocolConversionServiceEntity::getTenantId,
+                            ProtocolConversionServiceEntity::getProjectId,
+                            ProtocolConversionServiceEntity::getDeleted,
+                            ProtocolConversionServiceEntity::getServiceName,
+                            ProtocolConversionServiceEntity::getServiceCode,
+                            ProtocolConversionServiceEntity::getStatus)
+                    .eq(ProtocolConversionServiceEntity::getTenantId, tenantId)
+                    .eq(ProtocolConversionServiceEntity::getProjectId, sourceProjectId)
+                    .in(ProtocolConversionServiceEntity::getId, protocolConversionServiceIds));
+            for (ProtocolConversionServiceEntity entity : entities) {
+                putOption(result, option(entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(),
+                        StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, entity.getServiceName(), entity.getServiceCode(), entity.getStatus(),
+                        entity.getServiceName() + " (" + entity.getServiceCode() + ")"));
+            }
+        }
+        return result;
+    }
+
     void notifyResourceShare(ResourceShareEntity share, ProjectEntity targetProject) {
         if (share == null || targetProject == null) {
             return;
@@ -381,6 +543,26 @@ final class SystemResourceShareSupport {
             return "/protocol-conversions";
         }
         return "/dashboard";
+    }
+
+    private Set<Long> idsFor(Map<String, Set<Long>> resourceIdsByType, String resourceType) {
+        Set<Long> ids = resourceIdsByType.get(normalizeResourceType(resourceType));
+        return ids == null ? Collections.<Long>emptySet() : ids;
+    }
+
+    private void putOption(Map<String, ShareResourceOptionView> target, ShareResourceOptionView option) {
+        if (option == null || option.getId() == null || !hasText(option.getResourceType())) {
+            return;
+        }
+        target.put(resourceKey(option.getResourceType(), option.getId()), option);
+    }
+
+    private String resourceKey(String resourceType, Long resourceId) {
+        return normalizeResourceType(resourceType) + ":" + resourceId;
+    }
+
+    private String normalizeResourceType(String resourceType) {
+        return hasText(resourceType) ? resourceType.trim().toUpperCase() : "";
     }
 
     private ShareResourceOptionView option(Long id,
