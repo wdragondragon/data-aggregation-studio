@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.QualityTaskOptionView;
 import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
+import com.jdragon.studio.dto.model.QualityTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.request.QualityTaskSaveRequest;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.QualityTaskService;
@@ -60,6 +61,14 @@ public class QualityTaskController {
     @GetMapping("/options")
     public Result<List<QualityTaskOptionView>> listOptions() {
         return Result.success(qualityTaskService.listOptions());
+    }
+
+    @Operation(summary = "List online quality task options for workflow binding")
+    @GetMapping("/workflow-options")
+    public Result<PageView<QualityTaskWorkflowOptionView>> listWorkflowOptions(@RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                                               @RequestParam(value = "pageSize", required = false) Integer pageSize,
+                                                                               @RequestParam(value = "keyword", required = false) String keyword) {
+        return Result.success(qualityTaskService.listWorkflowOptions(pageNo, pageSize, keyword));
     }
 
     @Operation(summary = "Get quality task detail")

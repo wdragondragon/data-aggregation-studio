@@ -237,7 +237,7 @@ import type {
   DataDevelopmentScript,
   DataDevelopmentTreeNode,
   CollectionTaskListView,
-  QualityTaskListView,
+  QualityTaskWorkflowOptionView,
 } from "@studio/api-sdk";
 import ScriptEditorPanel from "@web/components/data-development/ScriptEditorPanel.vue";
 import { formatCollectionTaskType, formatScriptType } from "@/utils/studio";
@@ -282,7 +282,7 @@ const props = defineProps<{
   pagedCollectionTasks: CollectionTaskListView[];
   filteredCollectionTasks: CollectionTaskListView[];
   collectionTaskPagination: DialogPagination;
-  onlineQualityTasks: QualityTaskListView[];
+  onlineQualityTasks: QualityTaskWorkflowOptionView[];
   qualityTaskPagination: DialogPagination;
   qualityTaskTotal: number;
   filteredScriptTreeData: DataDevelopmentTreeNode[];

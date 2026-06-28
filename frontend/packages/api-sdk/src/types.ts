@@ -1836,6 +1836,23 @@ export interface QualityTaskOptionView {
   granularity?: QualityRuleGranularity | string;
 }
 
+export interface QualityTaskWorkflowOptionView {
+  id?: EntityId;
+  projectId?: EntityId;
+  updatedAt?: string;
+  taskName: string;
+  taskCode: string;
+  ruleId?: EntityId;
+  ruleName?: string;
+  ruleDimension?: QualityRuleDimension | string;
+  granularity?: QualityRuleGranularity | string;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  columnName?: string;
+}
+
 export interface QualityTaskSaveRequest {
   id?: EntityId;
   taskName: string;

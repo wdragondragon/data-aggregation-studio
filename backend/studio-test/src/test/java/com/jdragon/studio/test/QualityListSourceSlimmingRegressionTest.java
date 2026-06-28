@@ -13,6 +13,7 @@ import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleListView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.QualityTaskOptionView;
+import com.jdragon.studio.dto.model.QualityTaskWorkflowOptionView;
 import com.jdragon.studio.infra.entity.QualityRuleEntity;
 import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
@@ -143,6 +144,34 @@ class QualityListSourceSlimmingRegressionTest {
                 .doesNotContain("task_code", "status", "datasource_id", "datasource_name_snapshot",
                         "model_id", "model_name_snapshot", "model_physical_locator", "column_name",
                         "where_clause", "resolved_sql_preview", "parameter_bindings_json", "rule_snapshot_json");
+    }
+
+    @Test
+    void qualityTaskWorkflowOptionsShouldSelectOnlyWorkflowBindingColumns() {
+        QualityTaskDefinitionMapper taskMapper = mock(QualityTaskDefinitionMapper.class);
+        QualityTaskService service = qualityTaskService(taskMapper);
+        when(taskMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<QualityTaskDefinitionEntity> page = invocation.getArgument(0);
+            page.setTotal(1L);
+            page.setRecords(Collections.singletonList(taskEntity()));
+            return page;
+        });
+
+        PageView<QualityTaskWorkflowOptionView> page = service.listWorkflowOptions(1, 8, "客户");
+
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().get(0).getTaskName()).isEqualTo("客户手机号完整性巡检任务");
+        assertThat(page.getItems().get(0).getTaskCode()).isEqualTo("customer_phone_quality_check");
+        assertThat(page.getItems().get(0).getDatasourceName()).isEqualTo("客户主数据源");
+        ArgumentCaptor<LambdaQueryWrapper<QualityTaskDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(taskMapper).selectPage(any(Page.class), captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "project_id", "updated_at", "task_name", "task_code", "rule_id",
+                        "rule_name_snapshot", "rule_dimension", "granularity", "datasource_id",
+                        "datasource_name_snapshot", "model_id", "model_name_snapshot", "column_name")
+                .doesNotContain("tenant_id", "deleted", "created_at", "created_by", "status",
+                        "datasource_type_code", "model_physical_locator", "where_clause",
+                        "resolved_sql_preview", "parameter_bindings_json", "rule_snapshot_json");
     }
 
     private static void initTableInfo(Class<?> entityClass) {

@@ -139,6 +139,7 @@ import type {
   QualityTaskPreviewView,
   QualityTaskSaveRequest,
   QualityTaskValidationView,
+  QualityTaskWorkflowOptionView,
   Result,
   RunMetricDashboardQueryRequest,
   RunMetricDashboardResponse,
@@ -1277,6 +1278,15 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       options() {
         return request<QualityTaskOptionView[]>({ url: "/quality-tasks/options", method: "GET" });
+      },
+      workflowOptions(params?: {
+        pageNo?: number;
+        pageSize?: number;
+        keyword?: string;
+      }) {
+        return request<unknown>({ url: "/quality-tasks/workflow-options", method: "GET", params }).then((payload) =>
+          normalizePageResult<QualityTaskWorkflowOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
       },
       get(id: EntityId) {
         return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}`, method: "GET" });

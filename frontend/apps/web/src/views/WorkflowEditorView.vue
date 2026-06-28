@@ -111,7 +111,7 @@ import type {
   DataDevelopmentTreeNode,
   DataSourceOptionView,
   MetadataFieldDefinition,
-  QualityTaskListView,
+  QualityTaskWorkflowOptionView,
   WorkflowDefinitionView,
   WorkflowNodeDefinition,
   WorkflowSaveRequest,
@@ -161,7 +161,7 @@ const router = useRouter();
 const workflowId = computed(() => route.params.workflowId as string | undefined);
 const datasources = ref<DataSourceOptionView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskListView[]>([]);
-const onlineQualityTasks = ref<QualityTaskListView[]>([]);
+const onlineQualityTasks = ref<QualityTaskWorkflowOptionView[]>([]);
 const scripts = ref<DataDevelopmentScriptListView[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
@@ -308,7 +308,7 @@ const selectedNodeFields = computed<MetadataFieldDefinition[]>(() => {
   ];
 });
 
-function buildSelectedQualityTaskFallback(): QualityTaskListView | undefined {
+function buildSelectedQualityTaskFallback(): QualityTaskWorkflowOptionView | undefined {
   const config = selectedNode.value?.config;
   if (!config?.qualityTaskId) {
     return undefined;
@@ -317,17 +317,16 @@ function buildSelectedQualityTaskFallback(): QualityTaskListView | undefined {
     ?? readSelectedNodeConfigText("qualityTaskCode")
     ?? String(config.qualityTaskId);
   return {
-    id: config.qualityTaskId as QualityTaskListView["id"],
+    id: config.qualityTaskId as QualityTaskWorkflowOptionView["id"],
     taskName,
     taskCode: readSelectedNodeConfigText("qualityTaskCode") ?? taskName,
-    status: "ONLINE",
-    ruleId: config.ruleId as QualityTaskListView["ruleId"],
+    ruleId: config.ruleId as QualityTaskWorkflowOptionView["ruleId"],
     ruleName: readSelectedNodeConfigText("ruleName"),
-    ruleDimension: config.ruleDimension as QualityTaskListView["ruleDimension"],
-    granularity: config.granularity as QualityTaskListView["granularity"],
-    datasourceId: config.datasourceId as QualityTaskListView["datasourceId"],
+    ruleDimension: config.ruleDimension as QualityTaskWorkflowOptionView["ruleDimension"],
+    granularity: config.granularity as QualityTaskWorkflowOptionView["granularity"],
+    datasourceId: config.datasourceId as QualityTaskWorkflowOptionView["datasourceId"],
     datasourceName: readSelectedNodeConfigText("datasourceName"),
-    modelId: config.modelId as QualityTaskListView["modelId"],
+    modelId: config.modelId as QualityTaskWorkflowOptionView["modelId"],
     modelName: readSelectedNodeConfigText("modelName"),
     columnName: readSelectedNodeConfigText("columnName"),
   };
@@ -422,20 +421,18 @@ async function loadQualityTasks() {
   }
   qualityTasksLoading.value = true;
   try {
-    let page = await studioApi.qualityTasks.listPage({
+    let page = await studioApi.qualityTasks.workflowOptions({
       pageNo: qualityTaskPagination.page,
       pageSize: qualityTaskPagination.pageSize,
       keyword: qualityTaskKeyword.value.trim() || undefined,
-      status: "ONLINE",
     });
     const maxPage = Math.max(1, Math.ceil(page.total / qualityTaskPagination.pageSize));
     if (qualityTaskPagination.page > maxPage) {
       qualityTaskPagination.page = maxPage;
-      page = await studioApi.qualityTasks.listPage({
+      page = await studioApi.qualityTasks.workflowOptions({
         pageNo: qualityTaskPagination.page,
         pageSize: qualityTaskPagination.pageSize,
         keyword: qualityTaskKeyword.value.trim() || undefined,
-        status: "ONLINE",
       });
     }
     onlineQualityTasks.value = page.items;

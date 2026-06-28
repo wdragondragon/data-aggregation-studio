@@ -23,6 +23,7 @@ import com.jdragon.studio.dto.model.QualityTaskOptionView;
 import com.jdragon.studio.dto.model.QualityTaskParamBinding;
 import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
+import com.jdragon.studio.dto.model.QualityTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.request.QualityTaskSaveRequest;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.QualityTaskAlertEntity;
@@ -166,6 +167,42 @@ public class QualityTaskService {
             result.add(toListView(entity));
         }
         return result;
+    }
+
+    public PageView<QualityTaskWorkflowOptionView> listWorkflowOptions(Integer pageNo,
+                                                                       Integer pageSize,
+                                                                       String keyword) {
+        int safePageNo = normalizePageNo(pageNo);
+        int safePageSize = normalizePageSize(pageSize);
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        if (currentProjectId == null) {
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityTaskWorkflowOptionView>());
+        }
+        String normalizedKeyword = normalizeText(keyword);
+        Page<QualityTaskDefinitionEntity> page = new Page<QualityTaskDefinitionEntity>(safePageNo, safePageSize);
+        LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper = selectWorkflowOptionColumns(new LambdaQueryWrapper<QualityTaskDefinitionEntity>())
+                .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
+                .eq(QualityTaskDefinitionEntity::getStatus, QualityTaskStatus.ONLINE.name())
+                .and(hasText(normalizedKeyword), wrapper -> wrapper.like(QualityTaskDefinitionEntity::getTaskName, normalizedKeyword)
+                        .or()
+                        .like(QualityTaskDefinitionEntity::getTaskCode, normalizedKeyword)
+                        .or()
+                        .like(QualityTaskDefinitionEntity::getRuleNameSnapshot, normalizedKeyword)
+                        .or()
+                        .like(QualityTaskDefinitionEntity::getDatasourceNameSnapshot, normalizedKeyword)
+                        .or()
+                        .like(QualityTaskDefinitionEntity::getModelNameSnapshot, normalizedKeyword)
+                        .or()
+                        .like(QualityTaskDefinitionEntity::getColumnName, normalizedKeyword))
+                .orderByDesc(QualityTaskDefinitionEntity::getUpdatedAt)
+                .orderByDesc(QualityTaskDefinitionEntity::getId);
+        Page<QualityTaskDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
+        List<QualityTaskWorkflowOptionView> result = new ArrayList<QualityTaskWorkflowOptionView>();
+        for (QualityTaskDefinitionEntity entity : entityPage.getRecords()) {
+            result.add(toWorkflowOptionView(entity));
+        }
+        return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), result);
     }
 
     public List<QualityTaskOptionView> listOptions() {
@@ -613,6 +650,25 @@ public class QualityTaskService {
         return view;
     }
 
+    private QualityTaskWorkflowOptionView toWorkflowOptionView(QualityTaskDefinitionEntity entity) {
+        QualityTaskWorkflowOptionView view = new QualityTaskWorkflowOptionView();
+        view.setId(entity.getId());
+        view.setProjectId(entity.getProjectId());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setTaskName(entity.getTaskName());
+        view.setTaskCode(entity.getTaskCode());
+        view.setRuleId(entity.getRuleId());
+        view.setRuleName(entity.getRuleNameSnapshot());
+        view.setRuleDimension(entity.getRuleDimension());
+        view.setGranularity(entity.getGranularity());
+        view.setDatasourceId(entity.getDatasourceId());
+        view.setDatasourceName(entity.getDatasourceNameSnapshot());
+        view.setModelId(entity.getModelId());
+        view.setModelName(entity.getModelNameSnapshot());
+        view.setColumnName(entity.getColumnName());
+        return view;
+    }
+
     private LambdaQueryWrapper<QualityTaskDefinitionEntity> selectTaskListColumns(LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper) {
         return queryWrapper.select(QualityTaskDefinitionEntity::getId,
                 QualityTaskDefinitionEntity::getTenantId,
@@ -634,6 +690,23 @@ public class QualityTaskService {
                 QualityTaskDefinitionEntity::getModelId,
                 QualityTaskDefinitionEntity::getModelNameSnapshot,
                 QualityTaskDefinitionEntity::getModelPhysicalLocator,
+                QualityTaskDefinitionEntity::getColumnName);
+    }
+
+    private LambdaQueryWrapper<QualityTaskDefinitionEntity> selectWorkflowOptionColumns(LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper) {
+        return queryWrapper.select(QualityTaskDefinitionEntity::getId,
+                QualityTaskDefinitionEntity::getProjectId,
+                QualityTaskDefinitionEntity::getUpdatedAt,
+                QualityTaskDefinitionEntity::getTaskName,
+                QualityTaskDefinitionEntity::getTaskCode,
+                QualityTaskDefinitionEntity::getRuleId,
+                QualityTaskDefinitionEntity::getRuleNameSnapshot,
+                QualityTaskDefinitionEntity::getRuleDimension,
+                QualityTaskDefinitionEntity::getGranularity,
+                QualityTaskDefinitionEntity::getDatasourceId,
+                QualityTaskDefinitionEntity::getDatasourceNameSnapshot,
+                QualityTaskDefinitionEntity::getModelId,
+                QualityTaskDefinitionEntity::getModelNameSnapshot,
                 QualityTaskDefinitionEntity::getColumnName);
     }
 
