@@ -595,7 +595,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -652,6 +652,7 @@ const DEFAULT_SHARE_RESOURCE_TYPE = resourceTypeOptions[0].value;
 const SYSTEM_PAGE_SIZES = [10, 20, 50, 100];
 const activeTab = ref<SystemTabName>("tenants");
 const systemMounted = ref(false);
+const pendingCurrentTabReload = ref(false);
 const isSuperAdmin = computed(() => authStore.systemRoleCodes.map((item) => item.toUpperCase()).includes("SUPER_ADMIN"));
 const tabLoading = reactive<Record<SystemTabName, boolean>>({
   users: false,
@@ -778,6 +779,20 @@ async function withTabLoading(tab: SystemTabName, action: () => Promise<void>, e
 
 async function loadCurrentTab() {
   await loadTab(activeTab.value);
+}
+
+function requestCurrentTabReload() {
+  if (pendingCurrentTabReload.value) {
+    return;
+  }
+  pendingCurrentTabReload.value = true;
+  nextTick(() => {
+    pendingCurrentTabReload.value = false;
+    if (!systemMounted.value || !authStore.isAuthenticated) {
+      return;
+    }
+    loadCurrentTab();
+  });
 }
 
 async function loadTab(tab: SystemTabName) {
@@ -1690,7 +1705,16 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
   resetPaginatedSystemPages();
   resourceSharePagination.page = 1;
   if (authStore.isAuthenticated) {
-    loadCurrentTab();
+    requestCurrentTabReload();
+  }
+});
+
+watch([() => authStore.isAuthenticated, isSuperAdmin], ([authenticated, superAdmin], [previousAuthenticated, previousSuperAdmin]) => {
+  if (!authenticated) {
+    return;
+  }
+  if (!previousAuthenticated || (!previousSuperAdmin && superAdmin)) {
+    requestCurrentTabReload();
   }
 });
 
@@ -1701,7 +1725,7 @@ watch(() => route.query.tab, (value) => {
 watch(activeTab, (value) => {
   if (route.query.tab === value) {
     if (systemMounted.value && authStore.isAuthenticated) {
-      loadCurrentTab();
+      requestCurrentTabReload();
     }
     return;
   }
@@ -1712,15 +1736,13 @@ watch(activeTab, (value) => {
     },
   });
   if (systemMounted.value && authStore.isAuthenticated) {
-    loadCurrentTab();
+    requestCurrentTabReload();
   }
 });
 
 onMounted(() => {
   systemMounted.value = true;
-  if (authStore.isAuthenticated) {
-    loadCurrentTab();
-  }
+  requestCurrentTabReload();
 });
 </script>
 
