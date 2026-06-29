@@ -176,3 +176,6 @@
 - 2026-06-29 已完成 S86 运行日志抽屉概要与日志指针源头瘦身：确认并修复 `RunLogDrawer` 打开时调用全量 `/runs/{id}`、运行日志分页/下载先读取整条运行记录的问题，`FIX-S86-001` 已进入缺陷回归索引。
 - S86 本轮未新增长期数据，复用采集运行 `2068957692399820801` / `长期回归-订单支付融合采集任务`；已用 IDEA `StudioServerApplication` 重启 Server 加载本轮代码，build-nginx `/collection-task-runs` 首行日志抽屉打开成功，console warn/error 为 0。
 - S86 回归入口：`RunListSourceSlimmingRegressionTest`、`RunServiceRegressionTest`、`RunLogProxySourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/collection-task-runs` 日志抽屉、build-nginx API `/runs/{id}/summary` 和 `/runs/{id}/log`。后续涉及 `RunLogDrawer`、`RunService`、`RunLogProxyService`、运行记录详情/概要、运行日志分页/下载时，至少复跑这些入口。
+- 2026-06-29 已完成 S87 数据开发脚本执行轮询与日志预览源头瘦身：确认并修复保存 Java/Python 脚本执行等待轮询读取调度任务/运行记录整实体，以及执行结果区隐式下载完整日志的问题，`FIX-S87-001` 已进入缺陷回归索引。
+- S87 本轮未清理长期数据，复用 `长期回归-客户经营Java脚本.java` 执行成功；已用 IDEA `StudioServerApplication` 重启 Server，新进程 `33400` 监听 `18080`，build-nginx `/data-development` 执行结果区显示执行状态、耗时、执行日志和结果 JSON，console warn/error 为 0。
+- S87 回归入口：`DataDevelopmentWorkerExecutionServiceTest`、`npm run build:web`、build-nginx `/data-development` 打开长期 Java 脚本并执行、构建产物确认数据开发 chunk 使用 `runs.getLog(...pageSizeBytes...)` 且无 `/log/download`。后续涉及 `DataDevelopmentWorkerExecutionService`、`DataDevelopmentView.vue`、脚本执行等待、执行结果日志预览或运行日志下载入口时，至少复跑这些入口。

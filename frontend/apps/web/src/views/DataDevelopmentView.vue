@@ -284,6 +284,7 @@ import { resolveScriptEditorEntry } from "../components/data-development/scriptE
 const { t } = useI18n();
 const authStore = useAuthStore();
 const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
+const EXECUTION_LOG_PREVIEW_SIZE_BYTES = 64 * 1024;
 
 const treeData = ref<DataDevelopmentTreeNode[]>([]);
 const directories = ref<DataDevelopmentDirectory[]>([]);
@@ -852,7 +853,10 @@ async function loadExecutionRunLog(result: DataScriptExecutionResult) {
     return;
   }
   try {
-    const log = await studioApi.runs.downloadLog(result.runRecordId);
+    const log = await studioApi.runs.getLog(result.runRecordId, {
+      pageNo: 1,
+      pageSizeBytes: EXECUTION_LOG_PREVIEW_SIZE_BYTES,
+    });
     executionLogContent.value = log.content || result.logs || "";
   } catch (error) {
     executionLogContent.value = result.logs || "";

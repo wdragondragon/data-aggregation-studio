@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
@@ -95,17 +96,65 @@ public class DataDevelopmentWorkerExecutionService {
         DispatchTaskEntity latestTask = submittedTask;
         RunRecordEntity latestRunRecord = null;
         while (System.currentTimeMillis() <= deadline) {
-            latestTask = dispatchTaskMapper.selectById(submittedTask.getId());
+            latestTask = selectTaskStatus(submittedTask.getId());
             if (latestTask == null) {
                 throw new StudioException(StudioErrorCode.NOT_FOUND, "Dispatch task not found: " + submittedTask.getId());
             }
-            latestRunRecord = latestTask.getRunRecordId() == null ? null : runRecordMapper.selectById(latestTask.getRunRecordId());
             if (isTerminalStatus(latestTask.getStatus())) {
+                latestTask = selectTaskResult(submittedTask.getId());
+                if (latestTask == null) {
+                    throw new StudioException(StudioErrorCode.NOT_FOUND, "Dispatch task not found: " + submittedTask.getId());
+                }
+                boolean needsRunResult = latestTask.getPayloadJson() == null
+                        || latestTask.getPayloadJson().isEmpty();
+                latestRunRecord = latestTask.getRunRecordId() == null
+                        ? null
+                        : selectRunRecordSummary(latestTask.getRunRecordId(), needsRunResult);
                 return toResult(latestTask, latestRunRecord, scriptType);
             }
+            latestRunRecord = latestTask.getRunRecordId() == null
+                    ? null
+                    : selectRunRecordSummary(latestTask.getRunRecordId(), false);
             sleepQuietly();
         }
         return timeoutResult(latestTask, latestRunRecord, scriptType);
+    }
+
+    private DispatchTaskEntity selectTaskStatus(Long taskId) {
+        return dispatchTaskMapper.selectOne(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getId, taskId)
+                .select(DispatchTaskEntity::getId,
+                        DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getRunRecordId));
+    }
+
+    private DispatchTaskEntity selectTaskResult(Long taskId) {
+        return dispatchTaskMapper.selectOne(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getId, taskId)
+                .select(DispatchTaskEntity::getId,
+                        DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getRunRecordId,
+                        DispatchTaskEntity::getPayloadJson));
+    }
+
+    private RunRecordEntity selectRunRecordSummary(Long runRecordId, boolean includeResultJson) {
+        LambdaQueryWrapper<RunRecordEntity> wrapper = new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, runRecordId);
+        if (includeResultJson) {
+            wrapper.select(RunRecordEntity::getId,
+                    RunRecordEntity::getLogStatus,
+                    RunRecordEntity::getMessage,
+                    RunRecordEntity::getStartedAt,
+                    RunRecordEntity::getEndedAt,
+                    RunRecordEntity::getResultJson);
+        } else {
+            wrapper.select(RunRecordEntity::getId,
+                    RunRecordEntity::getLogStatus,
+                    RunRecordEntity::getMessage,
+                    RunRecordEntity::getStartedAt,
+                    RunRecordEntity::getEndedAt);
+        }
+        return runRecordMapper.selectOne(wrapper);
     }
 
     private DataScriptExecutionResultView toResult(DispatchTaskEntity task,
