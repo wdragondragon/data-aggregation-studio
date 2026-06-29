@@ -1,6 +1,5 @@
 package com.jdragon.studio.infra.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
@@ -14,8 +13,9 @@ import com.jdragon.studio.dto.model.RunMetricTopNItemView;
 import com.jdragon.studio.dto.model.RunMetricTrendSeriesView;
 import com.jdragon.studio.dto.model.RunMetricTrendView;
 import com.jdragon.studio.dto.model.request.RunMetricDashboardQueryRequest;
-import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
+import com.jdragon.studio.infra.model.RunMetricBucketAggregate;
+import com.jdragon.studio.infra.model.RunMetricTaskAggregate;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
@@ -135,33 +135,19 @@ public class RunMetricsService {
             return view;
         }
 
-        List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
-                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
-                .in(RunRecordEntity::getCollectionTaskId, taskIds)
-                .in(RunRecordEntity::getStatus, Arrays.asList("SUCCESS", "FAILED"))
-                .isNotNull(RunRecordEntity::getEndedAt)
-                .ge(RunRecordEntity::getEndedAt, timeWindow.getStart())
-                .le(RunRecordEntity::getEndedAt, timeWindow.getEnd())
-                .select(RunRecordEntity::getId,
-                        RunRecordEntity::getTenantId,
-                        RunRecordEntity::getProjectId,
-                        RunRecordEntity::getCollectionTaskId,
-                        RunRecordEntity::getStatus,
-                        RunRecordEntity::getEndedAt,
-                        RunRecordEntity::getCollectedRecords,
-                        RunRecordEntity::getReadSucceedRecords,
-                        RunRecordEntity::getReadFailedRecords,
-                        RunRecordEntity::getWriteSucceedRecords,
-                        RunRecordEntity::getWriteFailedRecords,
-                        RunRecordEntity::getFailedRecords,
-                        RunRecordEntity::getSuccessRecords,
-                        RunRecordEntity::getTransformerTotalRecords,
-                        RunRecordEntity::getTransformerSuccessRecords,
-                        RunRecordEntity::getTransformerFailedRecords,
-                        RunRecordEntity::getTransformerFilterRecords)
-                .orderByAsc(RunRecordEntity::getEndedAt)
-                .orderByAsc(RunRecordEntity::getId));
+        List<Long> taskIdList = new ArrayList<Long>(taskIds);
+        List<RunMetricBucketAggregate> bucketAggregates = runRecordMapper.selectRunMetricDashboardBuckets(
+                securityService.currentTenantId(),
+                securityService.currentProjectId(),
+                taskIdList,
+                timeWindow.getStart(),
+                timeWindow.getEnd());
+        List<RunMetricTaskAggregate> taskAggregates = runRecordMapper.selectRunMetricDashboardTaskAggregates(
+                securityService.currentTenantId(),
+                securityService.currentProjectId(),
+                taskIdList,
+                timeWindow.getStart(),
+                timeWindow.getEnd());
 
         List<Bucket> buckets = buildBuckets(timeWindow, granularity);
         Map<String, List<Long>> trendValues = initializeTrendValues(buckets.size());
@@ -170,19 +156,26 @@ public class RunMetricsService {
         Map<Long, RunMetricTopNItemView> sourceModelTopN = new LinkedHashMap<Long, RunMetricTopNItemView>();
         Map<Long, RunMetricTopNItemView> targetModelTopN = new LinkedHashMap<Long, RunMetricTopNItemView>();
 
-        long legacyCount = 0L;
-        for (RunRecordEntity record : records) {
-            if (!runMetricSummaryMapper.hasPreciseMetrics(record)) {
-                legacyCount++;
-                continue;
-            }
-            int bucketIndex = resolveBucketIndex(record.getEndedAt(), buckets);
+        for (RunMetricBucketAggregate aggregate : emptyBucketAggregates(bucketAggregates)) {
+            int bucketIndex = resolveBucketIndex(parseBucketDate(aggregate.getBucketKey()), buckets);
             if (bucketIndex < 0) {
                 continue;
             }
-            RunMetricSummaryView summary = runMetricSummaryMapper.fromEntity(record);
-            mergeTrendValues(trendValues, bucketIndex, summary);
-            mergeTopN(sourceDatasourceTopN, sourceModelTopN, targetDatasourceTopN, targetModelTopN, taskById.get(record.getCollectionTaskId()), summary);
+            mergeTrendValues(trendValues, bucketIndex, toSummary(aggregate));
+        }
+
+        long legacyCount = 0L;
+        for (RunMetricTaskAggregate aggregate : emptyTaskAggregates(taskAggregates)) {
+            legacyCount += safeValue(aggregate.getLegacyRunCount());
+            if (safeValue(aggregate.getPreciseRunCount()) <= 0L) {
+                continue;
+            }
+            mergeTopN(sourceDatasourceTopN,
+                    sourceModelTopN,
+                    targetDatasourceTopN,
+                    targetModelTopN,
+                    taskById.get(aggregate.getCollectionTaskId()),
+                    toSummary(aggregate));
         }
 
         view.setTrend(toTrendView(buckets, trendValues));
@@ -257,6 +250,31 @@ public class RunMetricsService {
         values.set(bucketIndex, Long.valueOf(values.get(bucketIndex).longValue() + safeValue(value)));
     }
 
+    private RunMetricSummaryView toSummary(RunMetricBucketAggregate aggregate) {
+        RunMetricSummaryView summary = new RunMetricSummaryView();
+        if (aggregate == null) {
+            return summary;
+        }
+        summary.setCollectedRecords(aggregate.getCollectedRecords());
+        summary.setSuccessRecords(aggregate.getSuccessRecords());
+        summary.setFailedRecords(aggregate.getFailedRecords());
+        summary.setTransformerTotalRecords(aggregate.getTransformerTotalRecords());
+        summary.setTransformerSuccessRecords(aggregate.getTransformerSuccessRecords());
+        summary.setTransformerFailedRecords(aggregate.getTransformerFailedRecords());
+        summary.setTransformerFilterRecords(aggregate.getTransformerFilterRecords());
+        return summary;
+    }
+
+    private RunMetricSummaryView toSummary(RunMetricTaskAggregate aggregate) {
+        RunMetricSummaryView summary = new RunMetricSummaryView();
+        if (aggregate == null) {
+            return summary;
+        }
+        summary.setReadSucceedRecords(aggregate.getReadSucceedRecords());
+        summary.setSuccessRecords(aggregate.getSuccessRecords());
+        return summary;
+    }
+
     private RunMetricTrendView toTrendView(List<Bucket> buckets, Map<String, List<Long>> trendValues) {
         RunMetricTrendView trend = new RunMetricTrendView();
         List<String> xAxis = new ArrayList<String>();
@@ -303,17 +321,28 @@ public class RunMetricsService {
         return buckets;
     }
 
-    private int resolveBucketIndex(LocalDateTime endedAt, List<Bucket> buckets) {
-        if (endedAt == null || buckets.isEmpty()) {
+    private int resolveBucketIndex(LocalDate date, List<Bucket> buckets) {
+        if (date == null || buckets.isEmpty()) {
             return -1;
         }
-        LocalDate bucketDate = alignDate(endedAt.toLocalDate(), guessGranularity(buckets));
+        LocalDate bucketDate = alignDate(date, guessGranularity(buckets));
         for (int index = 0; index < buckets.size(); index++) {
             if (buckets.get(index).getDate().equals(bucketDate)) {
                 return index;
             }
         }
         return -1;
+    }
+
+    private LocalDate parseBucketDate(String bucketKey) {
+        if (bucketKey == null || bucketKey.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(bucketKey.trim().substring(0, Math.min(10, bucketKey.trim().length())), DAY_FORMATTER);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private String guessGranularity(List<Bucket> buckets) {
@@ -459,6 +488,14 @@ public class RunMetricsService {
         return task == null || task.getSourceBindings() == null
                 ? Collections.<CollectionTaskSourceBinding>emptyList()
                 : task.getSourceBindings();
+    }
+
+    private List<RunMetricBucketAggregate> emptyBucketAggregates(List<RunMetricBucketAggregate> aggregates) {
+        return aggregates == null ? Collections.<RunMetricBucketAggregate>emptyList() : aggregates;
+    }
+
+    private List<RunMetricTaskAggregate> emptyTaskAggregates(List<RunMetricTaskAggregate> aggregates) {
+        return aggregates == null ? Collections.<RunMetricTaskAggregate>emptyList() : aggregates;
     }
 
     private void registerOption(Map<Long, RunMetricFilterOptionView> options,

@@ -33,6 +33,7 @@ import com.jdragon.studio.infra.mapper.QualityIssueMapper;
 import com.jdragon.studio.infra.mapper.QualityMetricSnapshotMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
+import com.jdragon.studio.infra.mapper.RunMetricSqlProvider;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
@@ -81,7 +82,7 @@ class MetricsSourceSlimmingRegressionTest {
     }
 
     @Test
-    void runMetricsDashboardShouldSelectMetricColumnsInsteadOfFullRunRecord() {
+    void runMetricsDashboardShouldUseSourceAggregatesInsteadOfFullRunRecordRows() {
         CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
@@ -89,19 +90,26 @@ class MetricsSourceSlimmingRegressionTest {
         when(securityService.currentTenantId()).thenReturn("default");
         when(securityService.currentProjectId()).thenReturn(100L);
         when(collectionTaskService.listMetricBindings()).thenReturn(Collections.singletonList(collectionTask()));
-        when(runRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+        when(runRecordMapper.selectRunMetricDashboardBuckets(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
+        when(runRecordMapper.selectRunMetricDashboardTaskAggregates(any(), any(), any(), any(), any())).thenReturn(Collections.emptyList());
 
         service.query(runMetricRequest());
 
-        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
-        verify(runRecordMapper).selectList(captor.capture());
-        String sqlSelect = captor.getValue().getSqlSelect();
-        assertTrue(sqlSelect.contains("collection_task_id"));
-        assertTrue(sqlSelect.contains("collected_records"));
-        assertTrue(sqlSelect.contains("success_records"));
-        assertFalse(sqlSelect.contains("payload_json"));
-        assertFalse(sqlSelect.contains("result_json"));
-        assertFalse(sqlSelect.contains("log_file_path"));
+        verify(runRecordMapper).selectRunMetricDashboardBuckets(any(), any(), any(), any(), any());
+        verify(runRecordMapper).selectRunMetricDashboardTaskAggregates(any(), any(), any(), any(), any());
+        verify(runRecordMapper, never()).selectList(any(LambdaQueryWrapper.class));
+
+        RunMetricSqlProvider provider = new RunMetricSqlProvider();
+        String bucketSql = provider.selectDashboardBuckets();
+        String taskSql = provider.selectDashboardTaskAggregates();
+        assertTrue(bucketSql.contains("group by substr(ended_at, 1, 10)"));
+        assertTrue(taskSql.contains("group by collection_task_id"));
+        assertFalse(bucketSql.contains("payload_json"));
+        assertFalse(bucketSql.contains("result_json"));
+        assertFalse(bucketSql.contains("log_file_path"));
+        assertFalse(taskSql.contains("payload_json"));
+        assertFalse(taskSql.contains("result_json"));
+        assertFalse(taskSql.contains("log_file_path"));
     }
 
     @Test

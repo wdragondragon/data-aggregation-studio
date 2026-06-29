@@ -109,6 +109,7 @@
 | FIX-S78-001 | 数据接入服务/列表 | 中 | `/data-ingestion-services` 表格只展示取值来源摘要，却在分页源查询中读取完整 `field_mappings_json` 后再组装 `sourcePositions`，属于响应轻量但源查询过重 | `DataIngestionServiceEntity.java`；`DataIngestionService.java`；`StudioSchemaUpgradeService.java`；`schema-mysql.sql`；`schema-sqlite.sql`；`20260629-data-ingestion-source-positions-delta.sql`；`DataIngestionServiceListSourceSlimmingRegressionTest.java`；`StudioSchemaDriftRegressionTest.java` | `DataIngestionServiceListSourceSlimmingRegressionTest`；`StudioSchemaDriftRegressionTest`；`npm run build:web`；真实 API `/data-ingestion-services` 不含 `fieldMappings` 且返回 `sourcePositions`；build-nginx `/data-ingestion-services` 长期项目列表 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S79-001 | 数据资产/模型列表 | 中 | `/models/summaries?datasourceType=...` 只需按类型查可访问数据源 ID，却调用完整数据源列表并水合连接健康、趋势和元数据字段 | `DataSourceService.java`；`DataModelService.java`；`DataSourceListSourceSlimmingRegressionTest.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java` | `DataModelSqlHintSourceSlimmingRegressionTest`；`DataSourceListSourceSlimmingRegressionTest`；`npm run build:web`；真实 API `/models/summaries?datasourceType=mysql8` 不含元数据字段；build-nginx `/models` 数据源类型筛选 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S80-001 | 数据质量/质量指标资产洞察 | 中 | `/quality-metrics` 资产风险列表只展示当前页表格，却调用 `/quality-metrics/assets/query` 拉取全量数组后在前端本地分页 | `QualityAssetQueryRequest.java`；`QualityMetricsController.java`；`QualityMetricsService.java`；`QualityMetricsView.vue`；`QualityMetricsAssetsTab.vue`；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；真实 API `/quality-metrics/assets/page` `pageSize=1` 只返回 1 条；build-nginx `/quality-metrics` 资产洞察 Tab 显示长期项目资产列表且 console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S81-001 | 运行指标/Dashboard | 中 | `/run-metrics/query` 只需趋势桶、任务级 TopN 输入和 legacy 计数，却读取时间窗口内全部成功/失败运行记录后在 Java 内存聚合 | `RunMetricSqlProvider.java`；`RunMetricBucketAggregate.java`；`RunMetricTaskAggregate.java`；`RunRecordMapper.java`；`RunMetricsService.java`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/run-metrics/query`；build-nginx `/run-metrics` 页面刷新 smoke | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -197,3 +198,4 @@
 | S78 数据接入服务取值来源摘要源头瘦身 | FIX-S78-001 |
 | S79 模型列表数据源类型筛选源头瘦身 | FIX-S79-001 |
 | S80 质量指标资产风险列表分页 | FIX-S80-001 |
+| S81 运行指标 Dashboard 运行记录源头聚合 | FIX-S81-001 |
