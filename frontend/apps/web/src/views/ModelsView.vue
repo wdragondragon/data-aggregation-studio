@@ -638,9 +638,9 @@ async function stopSyncTask(task: ModelSyncTaskView) {
     return;
   }
   try {
-    await studioApi.modelSyncTasks.stop(task.id);
+    const updated = await studioApi.modelSyncTasks.stop(task.id);
+    patchSyncTaskRow(task, updated);
     ElMessage.success("已请求停止同步任务");
-    await loadSyncTasks();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "停止同步任务失败");
   }
@@ -658,11 +658,49 @@ async function deleteSyncTask(task: ModelSyncTaskView) {
     );
     await studioApi.modelSyncTasks.delete(task.id);
     ElMessage.success("同步任务已删除");
-    await loadSyncTasks();
+    removeSyncTaskRow(task);
+    if (syncTasks.value.length === 0 && syncTaskTotal.value > 0) {
+      syncTaskPagination.page = Math.max(1, syncTaskPagination.page - 1);
+      await loadSyncTasks();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除同步任务失败");
     }
+  }
+}
+
+function patchSyncTaskRow(task: ModelSyncTaskView, patch: Partial<ModelSyncTaskView>) {
+  const target = syncTasks.value.find((item) => sameId(item.id, task.id));
+  if (!target) {
+    return;
+  }
+  const keys: (keyof ModelSyncTaskView)[] = [
+    "updatedAt",
+    "name",
+    "status",
+    "totalCount",
+    "successCount",
+    "failedCount",
+    "stoppedCount",
+    "progressPercent",
+    "stopRequested",
+    "durationMs",
+  ];
+  const next: Partial<ModelSyncTaskView> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
+    }
+  }
+  Object.assign(target, next);
+}
+
+function removeSyncTaskRow(task: ModelSyncTaskView) {
+  const beforeCount = syncTasks.value.length;
+  syncTasks.value = syncTasks.value.filter((item) => !sameId(item.id, task.id));
+  if (syncTasks.value.length !== beforeCount) {
+    syncTaskTotal.value = Math.max(0, syncTaskTotal.value - 1);
   }
 }
 

@@ -197,3 +197,6 @@
 - 2026-06-30 已完成 S93 工作流列表删除刷新收敛：确认并修复 `/workflows` 删除工作流后无条件重拉整个列表的问题，`FIX-S93-001` 已进入缺陷回归索引；工作流列表源头字段继续由 S41 既有回归保障。
 - S93 本轮未新增或清理长期数据，未执行真实删除动作；build-nginx `/workflows` 在 `长期回归测试项目` 下显示 17 行长期工作流，console warn/error 为 0。
 - S93 回归入口：`WorkflowListSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/workflows`。后续涉及 `WorkflowsView.vue`、工作流列表字段、列表删除刷新、工作流发布或工作流触发时，至少复跑这些入口。
+- 2026-06-30 已完成 S94 模型同步任务写后刷新收敛：确认并修复 `/models?tab=sync-tasks` 停止/删除模型同步任务后无条件重拉整个列表的问题，`FIX-S94-001` 已进入缺陷回归索引；模型同步任务列表源头字段继续由 S88 既有回归保障。
+- S94 本轮未新增或清理长期数据，未执行真实停止/删除动作；build-nginx `/models?tab=sync-tasks` 在 `长期回归测试项目` 下显示 4 条长期模型同步任务，console warn/error 为 0。
+- S94 回归入口：`ModelSyncTaskServiceRegressionTest`、`ModelSyncTaskApiRegressionTest`、`npm run build:web`、build-nginx `/models?tab=sync-tasks`。后续涉及 `ModelsView.vue`、模型同步任务列表字段、停止/删除刷新或模型同步任务详情明细时，至少复跑这些入口。
