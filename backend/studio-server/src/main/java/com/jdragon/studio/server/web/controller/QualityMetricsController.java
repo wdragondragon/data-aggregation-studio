@@ -81,6 +81,12 @@ public class QualityMetricsController {
         return Result.success(qualityMetricsService.queryAssets(request));
     }
 
+    @Operation(summary = "Query quality asset risk page")
+    @PostMapping("/assets/page")
+    public Result<PageView<QualityAssetRiskView>> queryAssetsPage(@RequestBody(required = false) QualityAssetQueryRequest request) {
+        return Result.success(qualityMetricsService.queryAssetsPage(request));
+    }
+
     @Operation(summary = "Get quality asset detail")
     @GetMapping("/assets/{assetId}")
     public Result<QualityAssetDetailView> getAssetDetail(@PathVariable("assetId") String assetId,

@@ -15,4 +15,6 @@ public class QualityAssetQueryRequest {
     private LocalDateTime endTime;
     private Boolean onlyProblemAssets;
     private Boolean onlyLowCoverageAssets;
+    private Integer pageNo;
+    private Integer pageSize;
 }

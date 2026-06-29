@@ -15,8 +15,10 @@ import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
 import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.QualityAssetRiskView;
 import com.jdragon.studio.dto.model.QualityIssueAssigneeOptionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
+import com.jdragon.studio.dto.model.request.QualityAssetQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityMetricDashboardQueryRequest;
 import com.jdragon.studio.dto.model.request.RunMetricDashboardQueryRequest;
@@ -47,9 +49,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -136,6 +140,51 @@ class MetricsSourceSlimmingRegressionTest {
         assertFalse(sqlSelect.contains("payload_json"));
         assertFalse(sqlSelect.contains("log_file_path"));
         assertFalse(sqlSelect.contains("log_object_key"));
+    }
+
+    @Test
+    void qualityAssetsPageShouldReturnRequestedPageAndReuseSummarySources() {
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService dataModelService = mock(DataModelService.class);
+        QualityTaskService qualityTaskService = mock(QualityTaskService.class);
+        QualityIssueService qualityIssueService = mock(QualityIssueService.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        QualityMetricSnapshotMapper snapshotMapper = mock(QualityMetricSnapshotMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        QualityMetricsService service = new QualityMetricsService(dataSourceService, dataModelService, qualityTaskService,
+                qualityIssueService, runRecordMapper, snapshotMapper, securityService, accessService);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(accessService.currentProjectId()).thenReturn(100L);
+        when(dataSourceService.listBasicSummaries()).thenReturn(Collections.singletonList(datasource()));
+        when(dataModelService.listSummaryPage(null, 1, 5000, null, null))
+                .thenReturn(PageView.of(1, 5000, 2L, Arrays.asList(model(), secondModel())));
+        when(qualityTaskService.list(null, null, null, null)).thenReturn(Arrays.asList(qualityTask(), secondQualityTask()));
+        when(runRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+        when(qualityIssueService.listProjectIssues()).thenReturn(Collections.emptyList());
+        when(qualityIssueService.listProjectIssueEvents(any(), any())).thenReturn(Collections.emptyList());
+        QualityAssetQueryRequest request = new QualityAssetQueryRequest();
+        request.setPageNo(2);
+        request.setPageSize(1);
+
+        PageView<QualityAssetRiskView> page = service.queryAssetsPage(request);
+
+        assertEquals(2L, page.getTotal());
+        assertEquals(2, page.getPageNo());
+        assertEquals(1, page.getPageSize());
+        assertEquals(1, page.getItems().size());
+        assertEquals(Long.valueOf(3L), page.getItems().get(0).getModelId());
+        verify(dataSourceService).listBasicSummaries();
+        verify(dataSourceService, never()).list();
+        verify(dataModelService).listSummaryPage(null, 1, 5000, null, null);
+        verify(dataModelService, never()).list();
+        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(runRecordMapper).selectList(captor.capture());
+        String sqlSelect = captor.getValue().getSqlSelect();
+        assertTrue(sqlSelect.contains("quality_task_id"));
+        assertTrue(sqlSelect.contains("result_json"));
+        assertFalse(sqlSelect.contains("payload_json"));
+        assertFalse(sqlSelect.contains("log_file_path"));
     }
 
     @Test
@@ -267,6 +316,15 @@ class MetricsSourceSlimmingRegressionTest {
         return view;
     }
 
+    private DataModelListView secondModel() {
+        DataModelListView view = new DataModelListView();
+        view.setId(3L);
+        view.setDatasourceId(1L);
+        view.setName("客户质量汇总");
+        view.setPhysicalLocator("customer_quality_summary");
+        return view;
+    }
+
     private QualityTaskListView qualityTask() {
         QualityTaskListView view = new QualityTaskListView();
         view.setId(20L);
@@ -282,6 +340,18 @@ class MetricsSourceSlimmingRegressionTest {
         view.setRuleName("手机号非空");
         view.setRuleDimension(QualityRuleDimension.COMPLETENESS);
         view.setGranularity(QualityRuleGranularity.COLUMN);
+        return view;
+    }
+
+    private QualityTaskListView secondQualityTask() {
+        QualityTaskListView view = qualityTask();
+        view.setId(21L);
+        view.setTaskName("客户画像唯一性检查");
+        view.setModelId(3L);
+        view.setModelName("客户质量汇总");
+        view.setModelPhysicalLocator("customer_quality_summary");
+        view.setRuleDimension(QualityRuleDimension.UNIQUENESS);
+        view.setGranularity(QualityRuleGranularity.TABLE);
         return view;
     }
 

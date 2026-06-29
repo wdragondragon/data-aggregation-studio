@@ -2055,6 +2055,8 @@ export interface QualityAssetQueryRequest {
   endTime?: string;
   onlyProblemAssets?: boolean;
   onlyLowCoverageAssets?: boolean;
+  pageNo?: number;
+  pageSize?: number;
 }
 
 export interface QualityIssueQueryRequest {

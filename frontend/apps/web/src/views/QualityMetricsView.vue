@@ -49,10 +49,12 @@
         <div v-loading="loading.assets" class="quality-tab-body">
           <QualityMetricsAssetsTab
             :asset-filters="assetFilters"
-            :paged-assets="pagedAssets"
+            :paged-assets="assets"
             :asset-pagination="assetPagination"
-            :asset-total="assets.length"
+            :asset-total="assetTotal"
             :asset-actions="assetTabActions"
+            @page-change="handleAssetPageChange"
+            @page-size-change="handleAssetPageSizeChange"
           />
         </div>
       </el-tab-pane>
@@ -214,7 +216,6 @@ import type { TimePreset } from "@/components/quality-metrics/qualityMetricsView
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
-import { useClientPagination } from "@/composables/useClientPagination";
 
 type ActiveTab = "overview" | "assets" | "issues";
 
@@ -236,6 +237,7 @@ const modelOptionsLoading = ref(false);
 const assigneeOptions = ref<AssigneeOption[]>([]);
 const dashboard = ref<QualityMetricDashboardView>(emptyDashboard());
 const assets = ref<QualityAssetRiskView[]>([]);
+const assetTotal = ref(0);
 const issues = ref<QualityIssueView[]>([]);
 const issueTotal = ref(0);
 const assetDetail = ref<QualityAssetDetailView | null>(null);
@@ -277,12 +279,19 @@ const loading = reactive({
   action: false,
 });
 
-const { pagination: assetPagination, pagedItems: pagedAssets, resetPagination: resetAssetPagination } = useClientPagination(computed(() => assets.value), 10);
+const assetPagination = reactive({
+  page: 1,
+  pageSize: 10,
+});
 const issuePagination = reactive({
   page: 1,
   pageSize: 10,
 });
 const pagedIssues = computed(() => issues.value);
+
+function resetAssetPagination() {
+  assetPagination.page = 1;
+}
 
 const activeTabLoading = computed(() => {
   switch (activeTab.value) {
@@ -328,7 +337,7 @@ const overviewTabActions = {
 };
 
 const assetTabActions = {
-  loadAssets,
+  loadAssets: reloadAssetsFromFirstPage,
   openAssetDrawer,
   assetTitle,
   scorePercent,
@@ -450,17 +459,40 @@ async function loadDashboard() {
 async function loadAssets() {
   loading.assets = true;
   try {
-    assets.value = await studioApi.qualityMetrics.queryAssets({
+    const page = await studioApi.qualityMetrics.queryAssetsPage({
       ...baseQuery(),
       onlyProblemAssets: assetFilters.onlyProblemAssets,
       onlyLowCoverageAssets: assetFilters.onlyLowCoverageAssets,
+      pageNo: assetPagination.page,
+      pageSize: assetPagination.pageSize,
     }, LOCAL_LOADING_REQUEST);
-    resetAssetPagination();
+    const maxPage = Math.max(1, Math.ceil(page.total / assetPagination.pageSize));
+    if (assetPagination.page > maxPage) {
+      assetPagination.page = maxPage;
+      await loadAssets();
+      return;
+    }
+    assets.value = page.items;
+    assetTotal.value = page.total;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "加载质量资产失败");
   } finally {
     loading.assets = false;
   }
+}
+
+function reloadAssetsFromFirstPage() {
+  resetAssetPagination();
+  void loadAssets();
+}
+
+function handleAssetPageChange() {
+  void loadAssets();
+}
+
+function handleAssetPageSizeChange() {
+  assetPagination.page = 1;
+  void loadAssets();
 }
 
 async function loadIssues() {

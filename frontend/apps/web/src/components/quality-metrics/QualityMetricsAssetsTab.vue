@@ -62,6 +62,8 @@
         layout="total, sizes, prev, pager, next"
         :page-sizes="[10, 20, 50, 100]"
         :total="assetTotal"
+        @current-change="$emit('page-change')"
+        @size-change="$emit('page-size-change')"
       />
     </div>
   </SectionCard>
@@ -99,6 +101,11 @@ defineProps<{
   assetPagination: PaginationState;
   assetTotal: number;
   assetActions: AssetActions;
+}>();
+
+defineEmits<{
+  (event: "page-change"): void;
+  (event: "page-size-change"): void;
 }>();
 </script>
 

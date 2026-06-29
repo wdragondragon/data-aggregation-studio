@@ -1373,6 +1373,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       queryAssets(payload?: QualityAssetQueryRequest, config?: StudioRequestConfig) {
         return request<QualityAssetRiskView[]>({ ...config, url: "/quality-metrics/assets/query", method: "POST", data: payload });
       },
+      queryAssetsPage(payload?: QualityAssetQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<QualityAssetRiskView>(
+          { ...config, url: "/quality-metrics/assets/page", method: "POST", data: payload },
+          payload,
+        );
+      },
       getAsset(assetId: string, params?: { startTime?: string; endTime?: string }) {
         return request<QualityAssetDetailView>({ url: `/quality-metrics/assets/${assetId}`, method: "GET", params });
       },

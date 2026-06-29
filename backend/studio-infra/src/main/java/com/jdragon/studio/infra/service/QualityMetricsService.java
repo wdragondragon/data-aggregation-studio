@@ -37,6 +37,10 @@ import java.util.Set;
 @Service
 public class QualityMetricsService {
 
+    private static final int DEFAULT_PAGE_NO = 1;
+    private static final int DEFAULT_PAGE_SIZE = 10;
+    private static final int MAX_PAGE_SIZE = 200;
+
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
     private final QualityTaskService qualityTaskService;
@@ -128,6 +132,24 @@ public class QualityMetricsService {
         return buildAssetViews(context,
                 request == null ? null : request.getOnlyProblemAssets(),
                 request == null ? null : request.getOnlyLowCoverageAssets());
+    }
+
+    public PageView<QualityAssetRiskView> queryAssetsPage(QualityAssetQueryRequest request) {
+        int safePageNo = normalizePageNo(request == null ? null : request.getPageNo());
+        int safePageSize = normalizePageSize(request == null ? null : request.getPageSize());
+        MetricsContext context = buildContext(request == null ? null : request.getDatasourceId(),
+                request == null ? null : request.getModelId(),
+                request == null ? null : request.getRuleDimension(),
+                request == null ? null : request.getGranularity(),
+                request == null ? null : request.getTaskStatus(),
+                request == null ? null : request.getStartTime(),
+                request == null ? null : request.getEndTime());
+        if (!context.available) {
+            return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<QualityAssetRiskView>());
+        }
+        return pageAssets(buildAssetViews(context,
+                request == null ? null : request.getOnlyProblemAssets(),
+                request == null ? null : request.getOnlyLowCoverageAssets()), safePageNo, safePageSize);
     }
 
     public QualityAssetDetailView getAssetDetail(String assetId, LocalDateTime startTime, LocalDateTime endTime) {
@@ -467,6 +489,16 @@ public class QualityMetricsService {
         return new ArrayList<QualityAssetRiskView>(assets.subList(0, topN));
     }
 
+    private PageView<QualityAssetRiskView> pageAssets(List<QualityAssetRiskView> assets, int pageNo, int pageSize) {
+        int total = assets == null ? 0 : assets.size();
+        int start = Math.max(0, (pageNo - 1) * pageSize);
+        int end = Math.min(total, start + pageSize);
+        List<QualityAssetRiskView> pageItems = start >= total
+                ? new ArrayList<QualityAssetRiskView>()
+                : new ArrayList<QualityAssetRiskView>(assets.subList(start, end));
+        return PageView.of(pageNo, pageSize, total, pageItems);
+    }
+
     private List<Map<String, Object>> buildNoisyTargets(MetricsContext context, int topN) {
         Map<String, Map<String, Object>> noisy = new LinkedHashMap<String, Map<String, Object>>();
         for (RunRecordEntity record : context.runRecords) {
@@ -611,6 +643,20 @@ public class QualityMetricsService {
             pageNo++;
         } while (result.size() < page.getTotal());
         return result;
+    }
+
+    private int normalizePageNo(Integer pageNo) {
+        if (pageNo == null || pageNo.intValue() < 1) {
+            return DEFAULT_PAGE_NO;
+        }
+        return pageNo.intValue();
+    }
+
+    private int normalizePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize.intValue() < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize.intValue(), MAX_PAGE_SIZE);
     }
 
     private List<QualityIssueView> sortedIssueViews(List<QualityIssueEntity> issues) {
