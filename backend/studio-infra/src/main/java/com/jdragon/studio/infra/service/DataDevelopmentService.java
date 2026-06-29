@@ -15,6 +15,7 @@ import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.JavaImportHintResponse;
 import com.jdragon.studio.dto.model.JavaMemberHintResponse;
+import com.jdragon.studio.dto.model.ScriptEnvironmentOptionView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
@@ -86,7 +87,8 @@ public class DataDevelopmentService {
         String tenantId = securityService.currentTenantId();
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         List<DataDevelopmentScriptEntity> scripts = listScriptEntities(tenantId, projectId, null);
-        return buildTree(listDirectoryEntities(tenantId, projectId), scripts, listDatasourceSummaries(scripts));
+        return buildTree(listDirectoryEntities(tenantId, projectId), scripts,
+                listDatasourceSummaries(scripts), listEnvironmentSummaries(scripts));
     }
 
     public List<DataDevelopmentDirectoryView> listDirectories() {
@@ -104,9 +106,10 @@ public class DataDevelopmentService {
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         List<DataDevelopmentScriptEntity> scripts = listScriptEntities(tenantId, projectId, scriptType);
         Map<Long, DataSourceListView> datasourceMap = listDatasourceSummaries(scripts);
+        EnvironmentSummaryBundle environmentBundle = listEnvironmentSummaries(scripts);
         List<DataDevelopmentScriptListView> result = new ArrayList<DataDevelopmentScriptListView>();
         for (DataDevelopmentScriptEntity entity : scripts) {
-            result.add(toScriptListView(entity, datasourceMap));
+            result.add(toScriptListView(entity, datasourceMap, environmentBundle));
         }
         return result;
     }
@@ -450,7 +453,8 @@ public class DataDevelopmentService {
 
     private List<DataDevelopmentTreeNode> buildTree(List<DataDevelopmentDirectoryEntity> directories,
                                                     List<DataDevelopmentScriptEntity> scripts,
-                                                    Map<Long, DataSourceListView> datasourceMap) {
+                                                    Map<Long, DataSourceListView> datasourceMap,
+                                                    EnvironmentSummaryBundle environmentBundle) {
         Map<Long, DataDevelopmentTreeNode> directoryNodes = new LinkedHashMap<Long, DataDevelopmentTreeNode>();
         List<DataDevelopmentTreeNode> roots = new ArrayList<DataDevelopmentTreeNode>();
         for (DataDevelopmentDirectoryEntity entity : directories) {
@@ -485,7 +489,7 @@ public class DataDevelopmentService {
             DataSourceListView datasource = datasourceMap.get(entity.getDatasourceId());
             node.setDatasourceName(datasource == null ? null : datasource.getName());
             if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
-                ScriptEnvironmentEntityView environment = safeResolveEnvironment(entity.getEnvironmentId());
+                ScriptEnvironmentEntityView environment = resolveEnvironment(entity.getEnvironmentId(), environmentBundle);
                 node.setEnvironmentId(environment == null ? null : environment.id);
                 node.setEnvironmentName(environment == null ? null : environment.name);
             }
@@ -648,7 +652,14 @@ public class DataDevelopmentService {
         return view;
     }
 
-    private DataDevelopmentScriptListView toScriptListView(DataDevelopmentScriptEntity entity, Map<Long, DataSourceListView> datasourceMap) {
+    private DataDevelopmentScriptListView toScriptListView(DataDevelopmentScriptEntity entity,
+                                                           Map<Long, DataSourceListView> datasourceMap) {
+        return toScriptListView(entity, datasourceMap, null);
+    }
+
+    private DataDevelopmentScriptListView toScriptListView(DataDevelopmentScriptEntity entity,
+                                                           Map<Long, DataSourceListView> datasourceMap,
+                                                           EnvironmentSummaryBundle environmentBundle) {
         DataDevelopmentScriptListView view = new DataDevelopmentScriptListView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
@@ -666,7 +677,9 @@ public class DataDevelopmentService {
             view.setDatasourceTypeCode(datasource.getTypeCode());
         }
         if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
-            ScriptEnvironmentEntityView environment = safeResolveEnvironment(entity.getEnvironmentId());
+            ScriptEnvironmentEntityView environment = environmentBundle == null
+                    ? safeResolveEnvironment(entity.getEnvironmentId())
+                    : resolveEnvironment(entity.getEnvironmentId(), environmentBundle);
             view.setEnvironmentId(environment == null ? null : environment.id);
             view.setEnvironmentName(environment == null ? null : environment.name);
         }
@@ -686,6 +699,36 @@ public class DataDevelopmentService {
         return dataSourceService.listBasicSummaryMap(datasourceIds);
     }
 
+    private EnvironmentSummaryBundle listEnvironmentSummaries(List<DataDevelopmentScriptEntity> scripts) {
+        EnvironmentSummaryBundle bundle = new EnvironmentSummaryBundle();
+        Set<Long> environmentIds = new LinkedHashSet<Long>();
+        boolean needsDefaultEnvironment = false;
+        if (scripts != null) {
+            for (DataDevelopmentScriptEntity script : scripts) {
+                if (script == null || !ScriptType.JAVA.name().equals(script.getScriptType())) {
+                    continue;
+                }
+                if (script.getEnvironmentId() == null) {
+                    needsDefaultEnvironment = true;
+                } else {
+                    environmentIds.add(script.getEnvironmentId());
+                }
+            }
+        }
+        if (needsDefaultEnvironment) {
+            bundle.defaultEnvironment = safeResolveEnvironment(null);
+        }
+        Map<Long, ScriptEnvironmentOptionView> options = scriptEnvironmentService.enabledOptionMapByIds(environmentIds);
+        for (Map.Entry<Long, ScriptEnvironmentOptionView> entry : options.entrySet()) {
+            ScriptEnvironmentOptionView option = entry.getValue();
+            if (option != null) {
+                bundle.environments.put(entry.getKey(),
+                        new ScriptEnvironmentEntityView(option.getId(), option.getEnvironmentName()));
+            }
+        }
+        return bundle;
+    }
+
     private Long resolveScriptEnvironmentId(ScriptType scriptType, Long environmentId) {
         if (scriptType != ScriptType.JAVA) {
             return null;
@@ -700,6 +743,16 @@ public class DataDevelopmentService {
         } catch (RuntimeException exception) {
             return null;
         }
+    }
+
+    private ScriptEnvironmentEntityView resolveEnvironment(Long environmentId, EnvironmentSummaryBundle environmentBundle) {
+        if (environmentBundle == null) {
+            return safeResolveEnvironment(environmentId);
+        }
+        if (environmentId == null) {
+            return environmentBundle.defaultEnvironment;
+        }
+        return environmentBundle.environments.get(environmentId);
     }
 
     private DataSourceDefinition safeResolveScriptDatasource(Long datasourceId) {
@@ -782,5 +835,10 @@ public class DataDevelopmentService {
             this.id = id;
             this.name = name;
         }
+    }
+
+    private static final class EnvironmentSummaryBundle {
+        private final Map<Long, ScriptEnvironmentEntityView> environments = new HashMap<Long, ScriptEnvironmentEntityView>();
+        private ScriptEnvironmentEntityView defaultEnvironment;
     }
 }

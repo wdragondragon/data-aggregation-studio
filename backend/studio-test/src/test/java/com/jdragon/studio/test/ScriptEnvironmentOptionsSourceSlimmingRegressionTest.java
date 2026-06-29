@@ -23,7 +23,10 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,6 +100,34 @@ class ScriptEnvironmentOptionsSourceSlimmingRegressionTest {
         assertThat(captor.getValue().getSqlSelect())
                 .contains("id", "tenant_id", "deleted", "created_at", "updated_at", "name", "version", "script_type", "enabled")
                 .doesNotContain("artifact_url", "artifact_type", "checksum", "description");
+    }
+
+    @Test
+    void scriptEnvironmentBatchOptionsShouldSelectOnlyDropdownFields() {
+        ScriptEnvironmentMapper environmentMapper = mock(ScriptEnvironmentMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ScriptEnvironmentService service = new ScriptEnvironmentService(
+                environmentMapper,
+                mock(ScriptEnvironmentDependencyRelMapper.class),
+                mock(EnvironmentDependencyMapper.class),
+                mock(EnvironmentDependencyService.class),
+                securityService,
+                mock(ObjectProvider.class));
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(environmentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(scriptEnvironment()));
+        Set<Long> environmentIds = new LinkedHashSet<Long>();
+        environmentIds.add(31L);
+
+        Map<Long, ScriptEnvironmentOptionView> options = service.enabledOptionMapByIds(environmentIds);
+
+        assertThat(options).containsKey(31L);
+        assertThat(options.get(31L).getEnvironmentName()).isEqualTo("长期回归-Java脚本运行环境");
+
+        ArgumentCaptor<LambdaQueryWrapper<ScriptEnvironmentEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(environmentMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "tenant_id", "deleted", "created_at", "updated_at", "environment_name", "environment_code", "enabled")
+                .doesNotContain("description", "use_application_parent", "environment_version");
     }
 
     private ScriptEnvironmentEntity scriptEnvironment() {

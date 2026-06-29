@@ -113,6 +113,29 @@ public class ScriptEnvironmentService {
         return result;
     }
 
+    public Map<Long, ScriptEnvironmentOptionView> enabledOptionMapByIds(Set<Long> environmentIds) {
+        Map<Long, ScriptEnvironmentOptionView> result = new HashMap<Long, ScriptEnvironmentOptionView>();
+        if (environmentIds == null || environmentIds.isEmpty()) {
+            return result;
+        }
+        List<ScriptEnvironmentEntity> entities = environmentMapper.selectList(new LambdaQueryWrapper<ScriptEnvironmentEntity>()
+                .select(ScriptEnvironmentEntity::getId,
+                        ScriptEnvironmentEntity::getTenantId,
+                        ScriptEnvironmentEntity::getDeleted,
+                        ScriptEnvironmentEntity::getCreatedAt,
+                        ScriptEnvironmentEntity::getUpdatedAt,
+                        ScriptEnvironmentEntity::getEnvironmentName,
+                        ScriptEnvironmentEntity::getEnvironmentCode,
+                        ScriptEnvironmentEntity::getEnabled)
+                .eq(ScriptEnvironmentEntity::getTenantId, securityService.currentTenantId())
+                .eq(ScriptEnvironmentEntity::getEnabled, Integer.valueOf(1))
+                .in(ScriptEnvironmentEntity::getId, environmentIds));
+        for (ScriptEnvironmentEntity entity : entities) {
+            result.put(entity.getId(), toOptionView(entity));
+        }
+        return result;
+    }
+
     public ScriptEnvironmentView get(Long id) {
         return toView(requireEntity(id), true);
     }
