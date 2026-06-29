@@ -127,30 +127,18 @@ public class DataServiceService {
         Page<DataServiceDefinitionEntity> page = new Page<DataServiceDefinitionEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<DataServiceDefinitionEntity> queryWrapper = new LambdaQueryWrapper<DataServiceDefinitionEntity>()
                 .select(DataServiceDefinitionEntity::getId,
-                        DataServiceDefinitionEntity::getTenantId,
                         DataServiceDefinitionEntity::getProjectId,
-                        DataServiceDefinitionEntity::getDeleted,
                         DataServiceDefinitionEntity::getCreatedAt,
                         DataServiceDefinitionEntity::getUpdatedAt,
-                        DataServiceDefinitionEntity::getCreatedBy,
                         DataServiceDefinitionEntity::getServiceCode,
                         DataServiceDefinitionEntity::getServiceName,
-                        DataServiceDefinitionEntity::getServiceType,
                         DataServiceDefinitionEntity::getStatus,
                         DataServiceDefinitionEntity::getSourceType,
-                        DataServiceDefinitionEntity::getDatasourceId,
                         DataServiceDefinitionEntity::getDatasourceNameSnapshot,
                         DataServiceDefinitionEntity::getDatasourceTypeCode,
-                        DataServiceDefinitionEntity::getModelId,
                         DataServiceDefinitionEntity::getModelNameSnapshot,
                         DataServiceDefinitionEntity::getModelPhysicalLocator,
-                        DataServiceDefinitionEntity::getRequestMethod,
-                        DataServiceDefinitionEntity::getResponseType,
-                        DataServiceDefinitionEntity::getEndpointPath,
-                        DataServiceDefinitionEntity::getCacheEnabled,
-                        DataServiceDefinitionEntity::getTokenRequired,
-                        DataServiceDefinitionEntity::getDefaultSubscriptionName,
-                        DataServiceDefinitionEntity::getWebserviceEnabled)
+                        DataServiceDefinitionEntity::getEndpointPath)
                 .eq(DataServiceDefinitionEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -177,7 +165,7 @@ public class DataServiceService {
         Page<DataServiceDefinitionEntity> entityPage = definitionMapper.selectPage(page, queryWrapper);
         List<DataServiceListView> items = new ArrayList<DataServiceListView>();
         for (DataServiceDefinitionEntity entity : entityPage.getRecords()) {
-            items.add(toListView(entity));
+            items.add(toTableListView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -889,6 +877,24 @@ public class DataServiceService {
         view.setResponseType(Boolean.TRUE.equals(view.getWebserviceEnabled())
                 ? DataServiceResponseType.XML
                 : dataServiceInvocationSupport.enumValue(DataServiceResponseType.class, entity.getResponseType(), DataServiceResponseType.JSON));
+        return view;
+    }
+
+    private DataServiceListView toTableListView(DataServiceDefinitionEntity entity) {
+        DataServiceListView view = new DataServiceListView();
+        view.setId(entity.getId());
+        view.setProjectId(entity.getProjectId());
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setServiceCode(entity.getServiceCode());
+        view.setServiceName(entity.getServiceName());
+        view.setStatus(dataServiceInvocationSupport.enumValue(DataServiceStatus.class, entity.getStatus(), DataServiceStatus.DRAFT));
+        view.setSourceType(dataServiceInvocationSupport.enumValue(DataServiceSourceType.class, entity.getSourceType(), DataServiceSourceType.TABLE));
+        view.setDatasourceName(entity.getDatasourceNameSnapshot());
+        view.setDatasourceTypeCode(entity.getDatasourceTypeCode());
+        view.setModelName(entity.getModelNameSnapshot());
+        view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        view.setEndpointPath(entity.getEndpointPath());
         return view;
     }
 

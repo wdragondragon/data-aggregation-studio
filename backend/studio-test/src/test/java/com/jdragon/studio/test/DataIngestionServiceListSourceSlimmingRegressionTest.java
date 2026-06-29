@@ -70,13 +70,28 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         PageView<DataIngestionServiceListView> page = service.list(1, 20, "客户", null, null);
 
         assertThat(page.getItems()).hasSize(1);
-        assertThat(page.getItems().get(0).getSourcePositions()).containsExactly("QUERY", "HEADER");
+        DataIngestionServiceListView item = page.getItems().get(0);
+        assertThat(item.getSourcePositions()).containsExactly("QUERY", "HEADER");
+        assertThat(item.getDatasourceName()).isEqualTo("长期回归-客户经营画像数据源");
+        assertThat(item.getModelName()).isEqualTo("客户画像模型");
+        assertThat(item.getRequestFormat()).isNull();
+        assertThat(item.getPayloadMode()).isNull();
+        assertThat(item.getDatasourceId()).isNull();
+        assertThat(item.getModelId()).isNull();
+        assertThat(item.getTokenRequired()).isNull();
 
         ArgumentCaptor<LambdaQueryWrapper<DataIngestionServiceEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(serviceMapper).selectPage(any(Page.class), captor.capture());
         assertThat(captor.getValue().getSqlSelect())
-                .contains("source_positions_json")
-                .doesNotContain("field_mappings_json", "writer_options_json", "webservice_config_json");
+                .contains("id", "project_id", "created_at", "updated_at",
+                        "service_code", "service_name", "status", "target_type",
+                        "datasource_name_snapshot", "model_name_snapshot",
+                        "model_physical_locator", "endpoint_path", "source_positions_json")
+                .doesNotContain("tenant_id", "deleted", "created_by",
+                        "request_format", "payload_mode", "data_node_path",
+                        "datasource_id", "datasource_type_code", "model_id",
+                        "max_batch_size", "token_required", "default_subscription_name",
+                        "webservice_enabled", "field_mappings_json", "writer_options_json", "webservice_config_json");
     }
 
     @Test
@@ -145,6 +160,10 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         entity.setServiceName("客户画像接入服务");
         entity.setStatus(DataIngestionStatus.ONLINE.name());
         entity.setTargetType(DataIngestionTargetType.DATABASE.name());
+        entity.setCreatedBy(900L);
+        entity.setRequestFormat("XML");
+        entity.setPayloadMode("ARRAY");
+        entity.setDataNodePath("payload.rows");
         entity.setDatasourceId(10L);
         entity.setDatasourceNameSnapshot("长期回归-客户经营画像数据源");
         entity.setDatasourceTypeCode("mysql8");
@@ -152,6 +171,10 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         entity.setModelNameSnapshot("客户画像模型");
         entity.setModelPhysicalLocator("lt_customer_profile");
         entity.setEndpointPath("/openapi/data-ingestion-services/customer_profile_ingest/key");
+        entity.setMaxBatchSize(500);
+        entity.setTokenRequired(0);
+        entity.setDefaultSubscriptionName("客户经营系统默认订阅");
+        entity.setWebserviceEnabled(1);
         entity.setSourcePositionsJson(Arrays.asList("QUERY", "HEADER"));
         return entity;
     }

@@ -127,30 +127,17 @@ public class DataIngestionService {
         Page<DataIngestionServiceEntity> page = new Page<DataIngestionServiceEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<DataIngestionServiceEntity> queryWrapper = new LambdaQueryWrapper<DataIngestionServiceEntity>()
                 .select(DataIngestionServiceEntity::getId,
-                        DataIngestionServiceEntity::getTenantId,
                         DataIngestionServiceEntity::getProjectId,
-                        DataIngestionServiceEntity::getDeleted,
                         DataIngestionServiceEntity::getCreatedAt,
                         DataIngestionServiceEntity::getUpdatedAt,
-                        DataIngestionServiceEntity::getCreatedBy,
                         DataIngestionServiceEntity::getServiceCode,
                         DataIngestionServiceEntity::getServiceName,
                         DataIngestionServiceEntity::getStatus,
-                        DataIngestionServiceEntity::getRequestFormat,
-                        DataIngestionServiceEntity::getPayloadMode,
-                        DataIngestionServiceEntity::getDataNodePath,
                         DataIngestionServiceEntity::getTargetType,
-                        DataIngestionServiceEntity::getDatasourceId,
                         DataIngestionServiceEntity::getDatasourceNameSnapshot,
-                        DataIngestionServiceEntity::getDatasourceTypeCode,
-                        DataIngestionServiceEntity::getModelId,
                         DataIngestionServiceEntity::getModelNameSnapshot,
                         DataIngestionServiceEntity::getModelPhysicalLocator,
                         DataIngestionServiceEntity::getEndpointPath,
-                        DataIngestionServiceEntity::getMaxBatchSize,
-                        DataIngestionServiceEntity::getTokenRequired,
-                        DataIngestionServiceEntity::getDefaultSubscriptionName,
-                        DataIngestionServiceEntity::getWebserviceEnabled,
                         DataIngestionServiceEntity::getSourcePositionsJson)
                 .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
@@ -178,7 +165,7 @@ public class DataIngestionService {
         Page<DataIngestionServiceEntity> entityPage = serviceMapper.selectPage(page, queryWrapper);
         List<DataIngestionServiceListView> items = new ArrayList<DataIngestionServiceListView>();
         for (DataIngestionServiceEntity entity : entityPage.getRecords()) {
-            items.add(toListView(entity));
+            items.add(toTableListView(entity));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -615,6 +602,24 @@ public class DataIngestionService {
         view.setRequestFormat(Boolean.TRUE.equals(view.getWebserviceEnabled())
                 ? DataIngestionRequestFormat.SOAP
                 : enumValue(DataIngestionRequestFormat.class, entity.getRequestFormat(), DataIngestionRequestFormat.JSON));
+        view.setSourcePositions(sourcePositionsForList(entity));
+        return view;
+    }
+
+    private DataIngestionServiceListView toTableListView(DataIngestionServiceEntity entity) {
+        DataIngestionServiceListView view = new DataIngestionServiceListView();
+        view.setId(entity.getId());
+        view.setProjectId(entity.getProjectId());
+        view.setCreatedAt(entity.getCreatedAt());
+        view.setUpdatedAt(entity.getUpdatedAt());
+        view.setServiceCode(entity.getServiceCode());
+        view.setServiceName(entity.getServiceName());
+        view.setStatus(enumValue(DataIngestionStatus.class, entity.getStatus(), DataIngestionStatus.DRAFT));
+        view.setTargetType(enumValue(DataIngestionTargetType.class, entity.getTargetType(), DataIngestionTargetType.DATABASE));
+        view.setDatasourceName(entity.getDatasourceNameSnapshot());
+        view.setModelName(entity.getModelNameSnapshot());
+        view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        view.setEndpointPath(entity.getEndpointPath());
         view.setSourcePositions(sourcePositionsForList(entity));
         return view;
     }

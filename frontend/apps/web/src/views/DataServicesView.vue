@@ -255,22 +255,13 @@ function patchServiceRow(row: DataServiceListView, patch: Partial<DataServiceLis
     "updatedAt",
     "serviceCode",
     "serviceName",
-    "serviceType",
     "status",
     "sourceType",
-    "datasourceId",
     "datasourceName",
     "datasourceTypeCode",
-    "modelId",
     "modelName",
     "modelPhysicalLocator",
-    "requestMethod",
-    "responseType",
     "endpointPath",
-    "cacheEnabled",
-    "tokenRequired",
-    "defaultSubscriptionName",
-    "webserviceEnabled",
   ];
   const next: Partial<DataServiceListView> = {};
   for (const key of keys) {
@@ -292,11 +283,26 @@ async function deleteService(row: DataServiceListView) {
     await ElMessageBox.confirm(`确认删除数据服务“${row.serviceName}”吗？`, "提示", { type: "warning" });
     await studioApi.dataServices.delete(row.id);
     ElMessage.success("数据服务已删除");
-    await loadServices();
+    removeServiceRow(row);
+    if (services.value.length === 0 && total.value > 0) {
+      pagination.page = Math.max(1, pagination.page - 1);
+      await loadServices();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除失败");
     }
+  }
+}
+
+function removeServiceRow(row: DataServiceListView) {
+  const beforeCount = services.value.length;
+  services.value = services.value.filter((item) => item.id !== row.id);
+  if (services.value.length !== beforeCount) {
+    total.value = Math.max(0, total.value - 1);
+  }
+  if (selectedService.value?.id === row.id) {
+    selectedService.value = null;
   }
 }
 

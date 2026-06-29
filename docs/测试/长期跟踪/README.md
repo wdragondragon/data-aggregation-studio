@@ -185,3 +185,6 @@
 - 2026-06-29 已完成 S89 协议转换列表源头瘦身与删除刷新收敛：确认并修复 `/protocol-conversions` 表格分页读取 token、默认订阅、方法、payload 等非表格字段，以及列表删除后无条件重拉整个列表的问题，`FIX-S89-001` 已进入缺陷回归索引。
 - S89 本轮未新增或清理长期数据，未执行真实删除动作；已用 IDEA `StudioServerApplication` 重启 Server，新进程 `35196` 监听 `18080`，health 为 `UP`，build-nginx `/protocol-conversions` 在 `长期回归测试项目` 下显示 3 行，console warn/error 为 0。
 - S89 回归入口：`ProtocolConversionServiceListSourceSlimmingRegressionTest`、`SubscriptionTokenRotationRegressionTest`、`npm run build:web`、build-nginx `/protocol-conversions`。后续涉及 `ProtocolConversionService`、协议转换列表字段、列表删除刷新或协议转换订阅时，至少复跑这些入口。
+- 2026-06-29 已完成 S90 数据服务与数据接入列表源头瘦身与删除刷新收敛：确认并修复 `/data-services`、`/data-ingestion-services` 表格分页读取请求、缓存、Token、订阅、模型/数据源 id 等非表格字段，以及列表删除后无条件重拉整个列表的问题，`FIX-S90-001` 已进入缺陷回归索引。
+- S90 本轮未新增或清理长期数据，未执行真实删除动作；已在后端重启后确认 health 为 `UP`，Nacos 为 `127.0.0.1:8848`，build-nginx `/data-services` 在 `长期回归测试项目` 下显示 4 行，`/data-ingestion-services` 显示 6 行，console warn/error 均为 0。
+- S90 回归入口：`DataServiceListSourceSlimmingRegressionTest`、`DataIngestionServiceListSourceSlimmingRegressionTest`、`SubscriptionTokenRotationRegressionTest`、`npm run build:web`、build-nginx `/data-services` 与 `/data-ingestion-services`。后续涉及 `DataServiceService`、`DataIngestionService`、两类开放服务列表字段、列表删除刷新或订阅时，至少复跑这些入口。

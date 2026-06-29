@@ -238,21 +238,11 @@ function patchServiceRow(row: DataIngestionServiceListView, patch: Partial<DataI
     "serviceCode",
     "serviceName",
     "status",
-    "requestFormat",
-    "payloadMode",
-    "dataNodePath",
     "targetType",
-    "datasourceId",
     "datasourceName",
-    "datasourceTypeCode",
-    "modelId",
     "modelName",
     "modelPhysicalLocator",
     "endpointPath",
-    "maxBatchSize",
-    "tokenRequired",
-    "defaultSubscriptionName",
-    "webserviceEnabled",
     "sourcePositions",
   ];
   const next: Partial<DataIngestionServiceListView> = {};
@@ -271,7 +261,22 @@ async function deleteService(row: DataIngestionServiceListView) {
   await ElMessageBox.confirm(`确认删除接入服务「${row.serviceName}」？`, "删除确认", { type: "warning" });
   await studioApi.dataIngestionServices.delete(row.id as EntityId);
   ElMessage.success("数据接入服务已删除");
-  await loadServices();
+  removeServiceRow(row);
+  if (services.value.length === 0 && total.value > 0) {
+    pagination.page = Math.max(1, pagination.page - 1);
+    await loadServices();
+  }
+}
+
+function removeServiceRow(row: DataIngestionServiceListView) {
+  const beforeCount = services.value.length;
+  services.value = services.value.filter((item) => item.id !== row.id);
+  if (services.value.length !== beforeCount) {
+    total.value = Math.max(0, total.value - 1);
+  }
+  if (selectedService.value?.id === row.id) {
+    selectedService.value = null;
+  }
 }
 
 async function openSubscriptions(row: DataIngestionServiceListView) {
