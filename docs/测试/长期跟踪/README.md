@@ -179,3 +179,6 @@
 - 2026-06-29 已完成 S87 数据开发脚本执行轮询与日志预览源头瘦身：确认并修复保存 Java/Python 脚本执行等待轮询读取调度任务/运行记录整实体，以及执行结果区隐式下载完整日志的问题，`FIX-S87-001` 已进入缺陷回归索引。
 - S87 本轮未清理长期数据，复用 `长期回归-客户经营Java脚本.java` 执行成功；已用 IDEA `StudioServerApplication` 重启 Server，新进程 `33400` 监听 `18080`，build-nginx `/data-development` 执行结果区显示执行状态、耗时、执行日志和结果 JSON，console warn/error 为 0。
 - S87 回归入口：`DataDevelopmentWorkerExecutionServiceTest`、`npm run build:web`、build-nginx `/data-development` 打开长期 Java 脚本并执行、构建产物确认数据开发 chunk 使用 `runs.getLog(...pageSizeBytes...)` 且无 `/log/download`。后续涉及 `DataDevelopmentWorkerExecutionService`、`DataDevelopmentView.vue`、脚本执行等待、执行结果日志预览或运行日志下载入口时，至少复跑这些入口。
+- 2026-06-29 已完成 S88 模型同步任务列表与明细源头瘦身：确认并修复 `/model-sync-tasks` 表格分页读取完整任务实体，以及 `/model-sync-tasks/{id}/items` 明细分页先完整读取任务再完整读取明细实体的问题，`FIX-S88-001` 已进入缺陷回归索引。
+- S88 本轮未新增或清理长期数据，复用模型同步任务 `长期回归-客户经营画像数据源 第1批` / `2068089488800440322`；已用 IDEA `StudioServerApplication` 重启 Server，新进程 `45336` 监听 `18080`，health 为 `UP`，build-nginx 模型同步任务列表和详情明细筛选均可达，console warn/error 为 0。
+- S88 回归入口：`ModelSyncTaskServiceRegressionTest`、`ModelSyncTaskApiRegressionTest`、`npm run build:web`、build-nginx `/models?tab=sync-tasks`、`/models/sync-tasks/2068089488800440322` 和详情明细关键字筛选。后续涉及 `ModelSyncTaskService`、模型同步任务列表、模型同步任务详情明细或同步任务写后刷新时，至少复跑这些入口。

@@ -140,6 +140,21 @@ public class ModelSyncTaskService {
         int safePageSize = normalizePageSize(pageSize);
         Page<ModelSyncTaskEntity> page = new Page<ModelSyncTaskEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<ModelSyncTaskEntity> queryWrapper = new LambdaQueryWrapper<ModelSyncTaskEntity>()
+                .select(ModelSyncTaskEntity::getId,
+                        ModelSyncTaskEntity::getTenantId,
+                        ModelSyncTaskEntity::getProjectId,
+                        ModelSyncTaskEntity::getDeleted,
+                        ModelSyncTaskEntity::getCreatedAt,
+                        ModelSyncTaskEntity::getUpdatedAt,
+                        ModelSyncTaskEntity::getName,
+                        ModelSyncTaskEntity::getStatus,
+                        ModelSyncTaskEntity::getTotalCount,
+                        ModelSyncTaskEntity::getSuccessCount,
+                        ModelSyncTaskEntity::getFailedCount,
+                        ModelSyncTaskEntity::getStoppedCount,
+                        ModelSyncTaskEntity::getProgressPercent,
+                        ModelSyncTaskEntity::getStopRequested,
+                        ModelSyncTaskEntity::getDurationMs)
                 .eq(ModelSyncTaskEntity::getTenantId, securityService.currentTenantId())
                 .eq(ModelSyncTaskEntity::getProjectId, projectResourceAccessService.requireCurrentProjectId())
                 .eq(datasourceId != null, ModelSyncTaskEntity::getDatasourceId, datasourceId)
@@ -164,11 +179,22 @@ public class ModelSyncTaskService {
                                                      Integer pageSize,
                                                      String keyword,
                                                      String status) {
-        ModelSyncTaskEntity task = requireTask(taskId);
+        ModelSyncTaskEntity task = requireTaskAccess(taskId);
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         Page<ModelSyncTaskItemEntity> page = new Page<ModelSyncTaskItemEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<ModelSyncTaskItemEntity> queryWrapper = new LambdaQueryWrapper<ModelSyncTaskItemEntity>()
+                .select(ModelSyncTaskItemEntity::getId,
+                        ModelSyncTaskItemEntity::getTenantId,
+                        ModelSyncTaskItemEntity::getProjectId,
+                        ModelSyncTaskItemEntity::getDeleted,
+                        ModelSyncTaskItemEntity::getTaskId,
+                        ModelSyncTaskItemEntity::getSeqNo,
+                        ModelSyncTaskItemEntity::getPhysicalLocator,
+                        ModelSyncTaskItemEntity::getModelNameSnapshot,
+                        ModelSyncTaskItemEntity::getStatus,
+                        ModelSyncTaskItemEntity::getMessage,
+                        ModelSyncTaskItemEntity::getDurationMs)
                 .eq(ModelSyncTaskItemEntity::getTenantId, task.getTenantId())
                 .eq(ModelSyncTaskItemEntity::getProjectId, task.getProjectId())
                 .eq(ModelSyncTaskItemEntity::getTaskId, taskId)
@@ -497,6 +523,24 @@ public class ModelSyncTaskService {
         }
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         if (task.getProjectId() == null || task.getProjectId().longValue() != currentProjectId.longValue()) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Model sync task not found: " + taskId);
+        }
+        return task;
+    }
+
+    private ModelSyncTaskEntity requireTaskAccess(Long taskId) {
+        if (taskId == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Task id is required");
+        }
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        ModelSyncTaskEntity task = modelSyncTaskMapper.selectOne(new LambdaQueryWrapper<ModelSyncTaskEntity>()
+                .select(ModelSyncTaskEntity::getId,
+                        ModelSyncTaskEntity::getTenantId,
+                        ModelSyncTaskEntity::getProjectId)
+                .eq(ModelSyncTaskEntity::getId, taskId)
+                .eq(ModelSyncTaskEntity::getTenantId, securityService.currentTenantId())
+                .eq(ModelSyncTaskEntity::getProjectId, currentProjectId));
+        if (task == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Model sync task not found: " + taskId);
         }
         return task;
