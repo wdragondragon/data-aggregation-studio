@@ -392,11 +392,28 @@ async function deleteTask(task: CollectionTaskListView) {
     );
     await studioApi.collectionTasks.delete(task.id);
     ElMessage.success(t("web.collectionTasks.deleteSuccess"));
-    await loadTasks();
+    removeTaskRow(task);
+    if (tasks.value.length === 0 && taskTotal.value > 0) {
+      taskPagination.page = Math.max(1, taskPagination.page - 1);
+      await loadTasks();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.deleteFailed"));
     }
+  }
+}
+
+function removeTaskRow(task: CollectionTaskListView) {
+  const beforeCount = tasks.value.length;
+  tasks.value = tasks.value.filter((item) => item.id !== task.id);
+  if (tasks.value.length !== beforeCount) {
+    taskTotal.value = Math.max(0, taskTotal.value - 1);
+  }
+  if (activeTask.value?.id === task.id) {
+    activeTask.value = null;
+    logsVisible.value = false;
+    taskRunRecords.value = [];
   }
 }
 

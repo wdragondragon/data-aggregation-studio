@@ -119,6 +119,7 @@
 | FIX-S88-001 | 数据资产/模型同步任务 | 中 | `/model-sync-tasks` 表格分页只展示任务摘要却读取完整任务实体；`/model-sync-tasks/{id}/items` 明细分页先完整读取任务做访问校验，再完整读取明细实体 | `ModelSyncTaskService.java`；`ModelSyncTaskServiceRegressionTest.java` | `ModelSyncTaskServiceRegressionTest`；`ModelSyncTaskApiRegressionTest`；`npm run build:web`；build-nginx `/models?tab=sync-tasks`；build-nginx `/models/sync-tasks/2068089488800440322` 明细筛选 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S89-001 | 协议转换/服务列表 | 中 | `/protocol-conversions` 表格只展示服务、项目、协议、目标、入口和状态，却读取 token、默认订阅、方法、payload 等非表格字段；删除后无条件重拉整个列表 | `ProtocolConversionService.java`；`ProtocolConversionServicesView.vue`；`ProtocolConversionServiceListSourceSlimmingRegressionTest.java` | `ProtocolConversionServiceListSourceSlimmingRegressionTest`；`SubscriptionTokenRotationRegressionTest`；`npm run build:web`；build-nginx `/protocol-conversions` | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S90-001 | 数据服务/数据接入服务列表 | 中 | `/data-services` 与 `/data-ingestion-services` 表格只展示服务摘要，却读取请求、缓存、Token、订阅、模型/数据源 id 等非表格字段；删除后无条件重拉整个列表 | `DataServiceService.java`；`DataIngestionService.java`；`DataServicesView.vue`；`DataIngestionServicesView.vue`；`DataServiceListSourceSlimmingRegressionTest.java`；`DataIngestionServiceListSourceSlimmingRegressionTest.java` | `DataServiceListSourceSlimmingRegressionTest`；`DataIngestionServiceListSourceSlimmingRegressionTest`；`SubscriptionTokenRotationRegressionTest`；`npm run build:web`；build-nginx `/data-services`、`/data-ingestion-services` | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S91-001 | 数据采集/采集任务列表 | 中 | `/collection-tasks` 删除采集任务后无条件重拉整个列表，刷新范围超过当前行变化 | `CollectionTasksView.vue` | `CollectionTaskListSourceSlimmingRegressionTest`；`RunListSourceSlimmingRegressionTest`；`MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/collection-tasks` | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -217,3 +218,4 @@
 | S88 模型同步任务列表与明细源头瘦身 | FIX-S88-001 |
 | S89 协议转换列表源头瘦身与删除刷新收敛 | FIX-S89-001 |
 | S90 数据服务与数据接入列表源头瘦身与删除刷新收敛 | FIX-S90-001 |
+| S91 采集任务列表删除刷新收敛 | FIX-S91-001 |
