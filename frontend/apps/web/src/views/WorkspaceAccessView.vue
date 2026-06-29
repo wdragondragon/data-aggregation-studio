@@ -162,13 +162,14 @@ async function submitRequest() {
   }
   submitLoading.value = true;
   try {
-    await studioApi.access.apply({
+    const request = await studioApi.access.apply({
       projectId: selectedProject.value.projectId,
       reason: applyReason.value.trim() || undefined,
     });
+    mergeRequest(request);
+    setProjectPendingState(request.projectId, request.requestId, request.status);
     ElMessage.success(t("web.accessCenter.applySuccess"));
     applyDialogVisible.value = false;
-    await loadOverview();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.accessCenter.applyFailed"));
   } finally {
@@ -188,9 +189,10 @@ async function cancelRequest(request: WorkspaceAccessRequestView) {
         type: "warning",
       },
     );
-    await studioApi.access.cancel(request.requestId);
+    const cancelled = await studioApi.access.cancel(request.requestId);
+    mergeRequest(cancelled);
+    setProjectPendingState(cancelled.projectId, undefined, undefined);
     ElMessage.success(t("web.accessCenter.cancelSuccess"));
-    await loadOverview();
   } catch (error) {
     if (error === "cancel") {
       return;
@@ -211,6 +213,38 @@ async function refreshPermissions() {
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.accessCenter.refreshFailed"));
   }
+}
+
+function mergeRequest(request: WorkspaceAccessRequestView) {
+  if (!request?.requestId) {
+    return;
+  }
+  const current = overview.value.requests ?? [];
+  const index = current.findIndex((item) => String(item.requestId) === String(request.requestId));
+  if (index >= 0) {
+    overview.value.requests = current.map((item, itemIndex) => (itemIndex === index ? request : item));
+    return;
+  }
+  overview.value.requests = [request, ...current];
+}
+
+function setProjectPendingState(projectId: WorkspaceAccessProjectView["projectId"], requestId?: WorkspaceAccessRequestView["requestId"], status?: WorkspaceAccessRequestView["status"]) {
+  if (!projectId) {
+    return;
+  }
+  overview.value.tenantGroups = (overview.value.tenantGroups ?? []).map((tenant) => ({
+    ...tenant,
+    projects: (tenant.projects ?? []).map((project) => {
+      if (String(project.projectId) !== String(projectId)) {
+        return project;
+      }
+      return {
+        ...project,
+        pendingRequestId: requestId,
+        pendingRequestStatus: status,
+      };
+    }),
+  }));
 }
 
 onMounted(async () => {

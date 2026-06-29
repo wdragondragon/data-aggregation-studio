@@ -112,6 +112,7 @@
 | FIX-S81-001 | 运行指标/Dashboard | 中 | `/run-metrics/query` 只需趋势桶、任务级 TopN 输入和 legacy 计数，却读取时间窗口内全部成功/失败运行记录后在 Java 内存聚合 | `RunMetricSqlProvider.java`；`RunMetricBucketAggregate.java`；`RunMetricTaskAggregate.java`；`RunRecordMapper.java`；`RunMetricsService.java`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/run-metrics/query`；build-nginx `/run-metrics` 页面刷新 smoke | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S82-001 | 数据资产/统计分析 | 中 | `/statistics` 执行分析一次页面动作会重复读取目标字段索引明细，概览和 4 个图表在 Java 内存聚合，趋势图还读取模型明细后按创建时间聚合 | `DataModelStatisticsSqlProvider.java`；`DataModelStatisticsSummaryAggregate.java`；`DataModelStatisticsBucketAggregate.java`；`DataModelStatisticsBucketRange.java`；`DataModelStatisticsTrendAggregate.java`；`DataModelAttrIndexMapper.java`；`DataModelStatisticsService.java`；`DataModelStatisticsWorkspaceService.java`；`MetadataSchemaService.java`；`DataModelStatisticsSourceSlimmingRegressionTest.java` | `DataModelStatisticsRegressionTest`；`DataModelStatisticsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/statistics` 页面执行分析 smoke | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S83-001 | 数据开发/首屏刷新 | 中 | `/data-development` 首屏只展示脚本树和空编辑器提示，却固定预取 SQL 数据源候选和 Java 运行环境候选，导致顶部刷新范围过大 | `DataDevelopmentView.vue` | `npm run build:web`；build-nginx `/data-development` 首屏、新建脚本、打开长期 Java 脚本详情 smoke | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S84-001 | 访问中心 | 中 | `/access/overview` 只展示可申请项目和个人申请表格，却读取项目成员、项目、租户、申请整实体；申请/取消后又重拉整个 overview | `WorkspaceAccessService.java`；`WorkspaceAccessView.vue`；`WorkspaceAccessSourceSlimmingRegressionTest.java` | `WorkspaceAccessSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/access-center` 无项目账号申请/取消 smoke | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -203,3 +204,4 @@
 | S81 运行指标 Dashboard 运行记录源头聚合 | FIX-S81-001 |
 | S82 统计分析源头聚合 | FIX-S82-001 |
 | S83 数据开发首屏候选项懒加载 | FIX-S83-001 |
+| S84 访问中心源头瘦身与写后刷新收敛 | FIX-S84-001 |

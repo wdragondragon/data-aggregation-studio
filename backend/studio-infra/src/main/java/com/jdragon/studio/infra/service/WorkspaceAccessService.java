@@ -56,6 +56,7 @@ public class WorkspaceAccessService {
     public WorkspaceAccessOverviewView overview() {
         Long currentUserId = requireCurrentUserId();
         List<ProjectMemberEntity> activeMemberships = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMemberEntity>()
+                .select(ProjectMemberEntity::getProjectId)
                 .eq(ProjectMemberEntity::getUserId, currentUserId)
                 .eq(ProjectMemberEntity::getStatus, StudioConstants.MEMBER_STATUS_ACTIVE));
         Set<Long> joinedProjectIds = new LinkedHashSet<Long>();
@@ -66,6 +67,15 @@ public class WorkspaceAccessService {
         }
 
         List<ProjectMemberRequestEntity> requests = projectMemberRequestMapper.selectList(new LambdaQueryWrapper<ProjectMemberRequestEntity>()
+                .select(ProjectMemberRequestEntity::getId,
+                        ProjectMemberRequestEntity::getTenantId,
+                        ProjectMemberRequestEntity::getCreatedAt,
+                        ProjectMemberRequestEntity::getUpdatedAt,
+                        ProjectMemberRequestEntity::getProjectId,
+                        ProjectMemberRequestEntity::getRequestType,
+                        ProjectMemberRequestEntity::getStatus,
+                        ProjectMemberRequestEntity::getReason,
+                        ProjectMemberRequestEntity::getReviewComment)
                 .eq(ProjectMemberRequestEntity::getUserId, currentUserId)
                 .orderByDesc(ProjectMemberRequestEntity::getCreatedAt)
                 .orderByDesc(ProjectMemberRequestEntity::getId));
@@ -83,6 +93,13 @@ public class WorkspaceAccessService {
         }
 
         List<ProjectEntity> enabledProjects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                .select(ProjectEntity::getId,
+                        ProjectEntity::getTenantId,
+                        ProjectEntity::getProjectCode,
+                        ProjectEntity::getProjectName,
+                        ProjectEntity::getDescription,
+                        ProjectEntity::getEnabled,
+                        ProjectEntity::getDefaultProject)
                 .eq(ProjectEntity::getEnabled, Integer.valueOf(1))
                 .orderByAsc(ProjectEntity::getTenantId)
                 .orderByDesc(ProjectEntity::getDefaultProject)
@@ -295,7 +312,11 @@ public class WorkspaceAccessService {
         if (projectIds == null || projectIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        List<ProjectEntity> projects = projectMapper.selectByIds(projectIds);
+        List<ProjectEntity> projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                .select(ProjectEntity::getId,
+                        ProjectEntity::getTenantId,
+                        ProjectEntity::getProjectName)
+                .in(ProjectEntity::getId, projectIds));
         Map<Long, ProjectEntity> projectMap = new LinkedHashMap<Long, ProjectEntity>();
         for (ProjectEntity project : projects) {
             projectMap.put(project.getId(), project);
@@ -314,6 +335,10 @@ public class WorkspaceAccessService {
             return Collections.emptyMap();
         }
         List<TenantEntity> tenants = tenantMapper.selectList(new LambdaQueryWrapper<TenantEntity>()
+                .select(TenantEntity::getTenantId,
+                        TenantEntity::getTenantCode,
+                        TenantEntity::getTenantName,
+                        TenantEntity::getEnabled)
                 .in(TenantEntity::getTenantId, tenantIds));
         Map<String, TenantEntity> tenantMap = new LinkedHashMap<String, TenantEntity>();
         for (TenantEntity tenant : tenants) {

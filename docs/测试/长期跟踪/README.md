@@ -167,3 +167,6 @@
 - S82 回归入口：`DataModelStatisticsRegressionTest`、`DataModelStatisticsSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/statistics` 执行分析 smoke。后续涉及 `DataModelStatisticsService`、`DataModelStatisticsWorkspaceService`、`DataModelAttrIndexMapper`、模型统计页或统计图表接口的修改，至少复跑这些入口。
 - 2026-06-29 已完成 S83 数据开发首屏候选项懒加载：确认并修复 `/data-development` 首屏未打开脚本编辑器时仍预取 SQL 数据源候选和 Java 运行环境候选的问题，`FIX-S83-001` 已进入缺陷回归索引。
 - S83 回归入口：`npm run build:web`、build-nginx `/data-development` 首屏、新建脚本、打开长期 Java 脚本详情 smoke。后续涉及 `DataDevelopmentView.vue`、数据开发脚本树、脚本编辑器候选项或顶部刷新动作的修改，至少复跑这些入口。
+- 2026-06-29 已完成 S84 访问中心源头瘦身与写后刷新收敛：确认并修复 `/access/overview` 读取项目成员、项目、租户、申请整实体，以及申请/取消后重拉整个 overview 的问题，`FIX-S84-001` 已进入缺陷回归索引。
+- S84 保留无项目账号 `lt_reg_s84_access_center_reviewer / LtRegS84!2026`，显示名 `长期回归-S84访问中心无项目验证员`，用于后续访问中心复测；本轮申请 `长期回归测试项目` 后已取消，申请流水保留。
+- S84 回归入口：`WorkspaceAccessSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/access-center` 无项目账号申请/取消 smoke。后续涉及 `WorkspaceAccessService`、`WorkspaceAccessView.vue`、项目访问申请、无项目路由或访问中心写后刷新时，至少复跑这些入口。
