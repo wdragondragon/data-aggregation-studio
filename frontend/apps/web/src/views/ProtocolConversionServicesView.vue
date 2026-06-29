@@ -234,19 +234,11 @@ function patchServiceRow(row: ProtocolConversionServiceListView, patch: Partial<
     "status",
     "endpointPath",
     "webserviceEndpointPath",
-    "tokenRequired",
-    "defaultSubscriptionName",
     "sourceProtocol",
-    "sourceMethod",
-    "sourceDataNodePath",
     "conversionMode",
-    "targetDatasourceId",
     "targetDatasourceName",
     "targetPath",
     "targetProtocol",
-    "targetMethod",
-    "payloadMode",
-    "batchSize",
   ];
   const next: Partial<ProtocolConversionServiceListView> = {};
   for (const key of keys) {
@@ -264,7 +256,22 @@ async function deleteService(row: ProtocolConversionServiceListView) {
   await ElMessageBox.confirm(`确认删除协议转换服务「${row.serviceName}」？`, "删除确认", { type: "warning" });
   await studioApi.protocolConversions.delete(row.id as EntityId);
   ElMessage.success("协议转换服务已删除");
-  await loadServices();
+  removeServiceRow(row);
+  if (services.value.length === 0 && total.value > 0) {
+    pagination.page = Math.max(1, pagination.page - 1);
+    await loadServices();
+  }
+}
+
+function removeServiceRow(row: ProtocolConversionServiceListView) {
+  const beforeCount = services.value.length;
+  services.value = services.value.filter((item) => item.id !== row.id);
+  if (services.value.length !== beforeCount) {
+    total.value = Math.max(0, total.value - 1);
+  }
+  if (selectedService.value?.id === row.id) {
+    selectedService.value = null;
+  }
 }
 
 async function openSubscriptions(row: ProtocolConversionServiceListView) {

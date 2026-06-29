@@ -182,3 +182,6 @@
 - 2026-06-29 已完成 S88 模型同步任务列表与明细源头瘦身：确认并修复 `/model-sync-tasks` 表格分页读取完整任务实体，以及 `/model-sync-tasks/{id}/items` 明细分页先完整读取任务再完整读取明细实体的问题，`FIX-S88-001` 已进入缺陷回归索引。
 - S88 本轮未新增或清理长期数据，复用模型同步任务 `长期回归-客户经营画像数据源 第1批` / `2068089488800440322`；已用 IDEA `StudioServerApplication` 重启 Server，新进程 `45336` 监听 `18080`，health 为 `UP`，build-nginx 模型同步任务列表和详情明细筛选均可达，console warn/error 为 0。
 - S88 回归入口：`ModelSyncTaskServiceRegressionTest`、`ModelSyncTaskApiRegressionTest`、`npm run build:web`、build-nginx `/models?tab=sync-tasks`、`/models/sync-tasks/2068089488800440322` 和详情明细关键字筛选。后续涉及 `ModelSyncTaskService`、模型同步任务列表、模型同步任务详情明细或同步任务写后刷新时，至少复跑这些入口。
+- 2026-06-29 已完成 S89 协议转换列表源头瘦身与删除刷新收敛：确认并修复 `/protocol-conversions` 表格分页读取 token、默认订阅、方法、payload 等非表格字段，以及列表删除后无条件重拉整个列表的问题，`FIX-S89-001` 已进入缺陷回归索引。
+- S89 本轮未新增或清理长期数据，未执行真实删除动作；已用 IDEA `StudioServerApplication` 重启 Server，新进程 `35196` 监听 `18080`，health 为 `UP`，build-nginx `/protocol-conversions` 在 `长期回归测试项目` 下显示 3 行，console warn/error 为 0。
+- S89 回归入口：`ProtocolConversionServiceListSourceSlimmingRegressionTest`、`SubscriptionTokenRotationRegressionTest`、`npm run build:web`、build-nginx `/protocol-conversions`。后续涉及 `ProtocolConversionService`、协议转换列表字段、列表删除刷新或协议转换订阅时，至少复跑这些入口。

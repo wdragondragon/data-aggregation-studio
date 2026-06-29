@@ -117,6 +117,7 @@
 | FIX-S86-001 | 运行记录/运行日志抽屉 | 中 | `/collection-task-runs`、`/quality-task-runs` 的日志抽屉只需概要和日志分页，却调用全量 `/runs/{id}`；运行日志分页/下载也先读取整条运行记录，常规对象/文件日志路径无须 `payloadJson/resultJson` | `RunController.java`；`RunService.java`；`RunLogProxyService.java`；`CollectionTaskService.java`；`QualityTaskService.java`；`RunLogDrawer.vue`；`frontend/packages/api-sdk/src/client.ts`；`RunListSourceSlimmingRegressionTest.java`；`RunLogProxySourceSlimmingRegressionTest.java` | `RunListSourceSlimmingRegressionTest`；`RunServiceRegressionTest`；`RunLogProxySourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/collection-task-runs` 首行日志抽屉；build-nginx API `/runs/{id}/summary` 不含 payload/result/log 路径字段、`/runs/{id}/log` 返回分页日志 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S87-001 | 数据开发/脚本执行 | `/data-development` 执行保存 Java/Python 脚本时，后端等待轮询每 500ms 读取 `dispatch_task` 与 `run_record` 整实体；前端执行完成后只展示日志预览却立即调用完整日志下载接口 | `DataDevelopmentWorkerExecutionService.java`；`DataDevelopmentWorkerExecutionServiceTest.java`；`DataDevelopmentView.vue` | `DataDevelopmentWorkerExecutionServiceTest`；`npm run build:web`；build-nginx `/data-development` 打开长期 Java 脚本并执行；构建产物确认使用 `runs.getLog(...pageSizeBytes...)` 且无 `/log/download` | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S88-001 | 数据资产/模型同步任务 | 中 | `/model-sync-tasks` 表格分页只展示任务摘要却读取完整任务实体；`/model-sync-tasks/{id}/items` 明细分页先完整读取任务做访问校验，再完整读取明细实体 | `ModelSyncTaskService.java`；`ModelSyncTaskServiceRegressionTest.java` | `ModelSyncTaskServiceRegressionTest`；`ModelSyncTaskApiRegressionTest`；`npm run build:web`；build-nginx `/models?tab=sync-tasks`；build-nginx `/models/sync-tasks/2068089488800440322` 明细筛选 | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S89-001 | 协议转换/服务列表 | 中 | `/protocol-conversions` 表格只展示服务、项目、协议、目标、入口和状态，却读取 token、默认订阅、方法、payload 等非表格字段；删除后无条件重拉整个列表 | `ProtocolConversionService.java`；`ProtocolConversionServicesView.vue`；`ProtocolConversionServiceListSourceSlimmingRegressionTest.java` | `ProtocolConversionServiceListSourceSlimmingRegressionTest`；`SubscriptionTokenRotationRegressionTest`；`npm run build:web`；build-nginx `/protocol-conversions` | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -213,3 +214,4 @@
 | S86 运行日志抽屉概要与日志指针源头瘦身 | FIX-S86-001 |
 | S87 数据开发脚本执行轮询与日志预览源头瘦身 | FIX-S87-001 |
 | S88 模型同步任务列表与明细源头瘦身 | FIX-S88-001 |
+| S89 协议转换列表源头瘦身与删除刷新收敛 | FIX-S89-001 |
