@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -171,10 +172,7 @@ public class OpenServiceInvocationLogService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Access log id is required");
         }
         InvocationLogPointer pointer = requirePointer(domain, accessLogId);
-        if (RunLogStorageService.STORAGE_OBJECT.equalsIgnoreCase(pointer.logStorageType)
-                && StringUtils.hasText(pointer.logObjectBucket)
-                && StringUtils.hasText(pointer.logObjectKey)
-                && ARCHIVE_AVAILABLE.equalsIgnoreCase(pointer.logArchiveStatus)) {
+        if (archivedObjectAvailable(pointer)) {
             return runLogStorageService.readObjectLog(pointer.id,
                     pointer.logObjectBucket,
                     pointer.logObjectKey,
@@ -185,6 +183,7 @@ public class OpenServiceInvocationLogService {
                     pageSizeBytes,
                     full);
         }
+        loadFallbackContent(pointer);
         return fallback(pointer, full);
     }
 
@@ -195,31 +194,70 @@ public class OpenServiceInvocationLogService {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Access log not found: " + accessLogId);
         }
         if (DOMAIN_DATA_SERVICES.equals(normalizedDomain)) {
-            DataServiceAccessLogEntity entity = dataServiceAccessLogMapper.selectById(accessLogId);
+            DataServiceAccessLogEntity entity = dataServiceAccessLogMapper.selectOne(new LambdaQueryWrapper<DataServiceAccessLogEntity>()
+                    .select(DataServiceAccessLogEntity::getId,
+                            DataServiceAccessLogEntity::getTenantId,
+                            DataServiceAccessLogEntity::getProjectId,
+                            DataServiceAccessLogEntity::getUpdatedAt,
+                            DataServiceAccessLogEntity::getRequestId,
+                            DataServiceAccessLogEntity::getLogStorageType,
+                            DataServiceAccessLogEntity::getLogObjectBucket,
+                            DataServiceAccessLogEntity::getLogObjectKey,
+                            DataServiceAccessLogEntity::getLogSizeBytes,
+                            DataServiceAccessLogEntity::getLogCharset,
+                            DataServiceAccessLogEntity::getLogArchiveStatus)
+                    .eq(DataServiceAccessLogEntity::getId, accessLogId)
+                    .last("limit 1"));
             if (entity == null || !allowed(entity.getTenantId(), entity.getProjectId(), currentProjectId)) {
                 throw new StudioException(StudioErrorCode.NOT_FOUND, "Access log not found: " + accessLogId);
             }
-            return pointer(normalizedDomain, entity.getId(), entity.getUpdatedAt(), entity.getRequestId(), entity.getSystemLog(),
+            return pointer(normalizedDomain, entity.getId(), entity.getUpdatedAt(), entity.getRequestId(), null,
                     entity.getLogStorageType(), entity.getLogObjectBucket(), entity.getLogObjectKey(), entity.getLogSizeBytes(),
-                    entity.getLogCharset(), entity.getLogArchiveStatus(), entity.getLogArchiveError());
+                    entity.getLogCharset(), entity.getLogArchiveStatus(), null);
         }
         if (DOMAIN_DATA_INGESTION_SERVICES.equals(normalizedDomain)) {
-            DataIngestionAccessLogEntity entity = dataIngestionAccessLogMapper.selectById(accessLogId);
+            DataIngestionAccessLogEntity entity = dataIngestionAccessLogMapper.selectOne(new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
+                    .select(DataIngestionAccessLogEntity::getId,
+                            DataIngestionAccessLogEntity::getTenantId,
+                            DataIngestionAccessLogEntity::getProjectId,
+                            DataIngestionAccessLogEntity::getUpdatedAt,
+                            DataIngestionAccessLogEntity::getRequestId,
+                            DataIngestionAccessLogEntity::getLogStorageType,
+                            DataIngestionAccessLogEntity::getLogObjectBucket,
+                            DataIngestionAccessLogEntity::getLogObjectKey,
+                            DataIngestionAccessLogEntity::getLogSizeBytes,
+                            DataIngestionAccessLogEntity::getLogCharset,
+                            DataIngestionAccessLogEntity::getLogArchiveStatus)
+                    .eq(DataIngestionAccessLogEntity::getId, accessLogId)
+                    .last("limit 1"));
             if (entity == null || !allowed(entity.getTenantId(), entity.getProjectId(), currentProjectId)) {
                 throw new StudioException(StudioErrorCode.NOT_FOUND, "Access log not found: " + accessLogId);
             }
-            return pointer(normalizedDomain, entity.getId(), entity.getUpdatedAt(), entity.getRequestId(), entity.getSystemLog(),
+            return pointer(normalizedDomain, entity.getId(), entity.getUpdatedAt(), entity.getRequestId(), null,
                     entity.getLogStorageType(), entity.getLogObjectBucket(), entity.getLogObjectKey(), entity.getLogSizeBytes(),
-                    entity.getLogCharset(), entity.getLogArchiveStatus(), entity.getLogArchiveError());
+                    entity.getLogCharset(), entity.getLogArchiveStatus(), null);
         }
         if (DOMAIN_PROTOCOL_CONVERSIONS.equals(normalizedDomain)) {
-            ProtocolConversionAccessLogEntity entity = protocolConversionAccessLogMapper.selectById(accessLogId);
+            ProtocolConversionAccessLogEntity entity = protocolConversionAccessLogMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionAccessLogEntity>()
+                    .select(ProtocolConversionAccessLogEntity::getId,
+                            ProtocolConversionAccessLogEntity::getTenantId,
+                            ProtocolConversionAccessLogEntity::getProjectId,
+                            ProtocolConversionAccessLogEntity::getUpdatedAt,
+                            ProtocolConversionAccessLogEntity::getRequestId,
+                            ProtocolConversionAccessLogEntity::getLogStorageType,
+                            ProtocolConversionAccessLogEntity::getLogObjectBucket,
+                            ProtocolConversionAccessLogEntity::getLogObjectKey,
+                            ProtocolConversionAccessLogEntity::getLogSizeBytes,
+                            ProtocolConversionAccessLogEntity::getLogCharset,
+                            ProtocolConversionAccessLogEntity::getLogArchiveStatus)
+                    .eq(ProtocolConversionAccessLogEntity::getId, accessLogId)
+                    .last("limit 1"));
             if (entity == null || !allowed(entity.getTenantId(), entity.getProjectId(), currentProjectId)) {
                 throw new StudioException(StudioErrorCode.NOT_FOUND, "Access log not found: " + accessLogId);
             }
-            return pointer(normalizedDomain, entity.getId(), entity.getUpdatedAt(), entity.getRequestId(), entity.getSystemLog(),
+            return pointer(normalizedDomain, entity.getId(), entity.getUpdatedAt(), entity.getRequestId(), null,
                     entity.getLogStorageType(), entity.getLogObjectBucket(), entity.getLogObjectKey(), entity.getLogSizeBytes(),
-                    entity.getLogCharset(), entity.getLogArchiveStatus(), entity.getLogArchiveError());
+                    entity.getLogCharset(), entity.getLogArchiveStatus(), null);
         }
         throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported invocation log domain: " + domain);
     }
@@ -260,6 +298,69 @@ public class OpenServiceInvocationLogService {
                 && currentProjectId != null
                 && projectId != null
                 && currentProjectId.longValue() == projectId.longValue();
+    }
+
+    private boolean archivedObjectAvailable(InvocationLogPointer pointer) {
+        return pointer != null
+                && RunLogStorageService.STORAGE_OBJECT.equalsIgnoreCase(pointer.logStorageType)
+                && StringUtils.hasText(pointer.logObjectBucket)
+                && StringUtils.hasText(pointer.logObjectKey)
+                && ARCHIVE_AVAILABLE.equalsIgnoreCase(pointer.logArchiveStatus);
+    }
+
+    private void loadFallbackContent(InvocationLogPointer pointer) {
+        if (pointer == null || pointer.id == null) {
+            return;
+        }
+        if (StringUtils.hasText(pointer.systemLog) || StringUtils.hasText(pointer.logArchiveError)) {
+            return;
+        }
+        if (DOMAIN_DATA_SERVICES.equals(pointer.domain)) {
+            DataServiceAccessLogEntity entity = dataServiceAccessLogMapper.selectOne(new LambdaQueryWrapper<DataServiceAccessLogEntity>()
+                    .select(DataServiceAccessLogEntity::getUpdatedAt,
+                            DataServiceAccessLogEntity::getSystemLog,
+                            DataServiceAccessLogEntity::getLogArchiveError)
+                    .eq(DataServiceAccessLogEntity::getId, pointer.id)
+                    .last("limit 1"));
+            if (entity != null) {
+                applyFallbackContent(pointer, entity.getUpdatedAt(), entity.getSystemLog(), entity.getLogArchiveError());
+            }
+            return;
+        }
+        if (DOMAIN_DATA_INGESTION_SERVICES.equals(pointer.domain)) {
+            DataIngestionAccessLogEntity entity = dataIngestionAccessLogMapper.selectOne(new LambdaQueryWrapper<DataIngestionAccessLogEntity>()
+                    .select(DataIngestionAccessLogEntity::getUpdatedAt,
+                            DataIngestionAccessLogEntity::getSystemLog,
+                            DataIngestionAccessLogEntity::getLogArchiveError)
+                    .eq(DataIngestionAccessLogEntity::getId, pointer.id)
+                    .last("limit 1"));
+            if (entity != null) {
+                applyFallbackContent(pointer, entity.getUpdatedAt(), entity.getSystemLog(), entity.getLogArchiveError());
+            }
+            return;
+        }
+        if (DOMAIN_PROTOCOL_CONVERSIONS.equals(pointer.domain)) {
+            ProtocolConversionAccessLogEntity entity = protocolConversionAccessLogMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionAccessLogEntity>()
+                    .select(ProtocolConversionAccessLogEntity::getUpdatedAt,
+                            ProtocolConversionAccessLogEntity::getSystemLog,
+                            ProtocolConversionAccessLogEntity::getLogArchiveError)
+                    .eq(ProtocolConversionAccessLogEntity::getId, pointer.id)
+                    .last("limit 1"));
+            if (entity != null) {
+                applyFallbackContent(pointer, entity.getUpdatedAt(), entity.getSystemLog(), entity.getLogArchiveError());
+            }
+        }
+    }
+
+    private void applyFallbackContent(InvocationLogPointer pointer,
+                                      LocalDateTime updatedAt,
+                                      String systemLog,
+                                      String logArchiveError) {
+        pointer.systemLog = systemLog;
+        pointer.logArchiveError = logArchiveError;
+        if (pointer.updatedAt == null && updatedAt != null) {
+            pointer.updatedAt = updatedAt;
+        }
     }
 
     private RunLogView fallback(InvocationLogPointer pointer, boolean full) {

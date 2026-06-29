@@ -145,7 +145,7 @@ public class ProtocolConversionMetricsService {
     }
 
     public ProtocolConversionTraceView accessLogTrace(Long accessLogId) {
-        ProtocolConversionAccessLogEntity entity = requireReadableAccessLog(accessLogId);
+        ProtocolConversionAccessLogEntity entity = requireReadableAccessLogSummary(accessLogId);
         try {
             RunLogView log = invocationLogService.downloadLog(OpenServiceInvocationLogService.DOMAIN_PROTOCOL_CONVERSIONS, accessLogId);
             ProtocolConversionTraceView parsed = parseTraceFromLog(log == null ? null : log.getContent());
@@ -249,11 +249,24 @@ public class ProtocolConversionMetricsService {
         return view;
     }
 
-    private ProtocolConversionAccessLogEntity requireReadableAccessLog(Long accessLogId) {
+    private ProtocolConversionAccessLogEntity requireReadableAccessLogSummary(Long accessLogId) {
         if (accessLogId == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Access log id is required");
         }
-        ProtocolConversionAccessLogEntity entity = accessLogMapper.selectById(accessLogId);
+        ProtocolConversionAccessLogEntity entity = accessLogMapper.selectOne(new LambdaQueryWrapper<ProtocolConversionAccessLogEntity>()
+                .select(ProtocolConversionAccessLogEntity::getId,
+                        ProtocolConversionAccessLogEntity::getTenantId,
+                        ProtocolConversionAccessLogEntity::getProjectId,
+                        ProtocolConversionAccessLogEntity::getRequestId,
+                        ProtocolConversionAccessLogEntity::getRequestMethod,
+                        ProtocolConversionAccessLogEntity::getSourceProtocolSnapshot,
+                        ProtocolConversionAccessLogEntity::getTargetProtocolSnapshot,
+                        ProtocolConversionAccessLogEntity::getSuccess,
+                        ProtocolConversionAccessLogEntity::getHttpStatus,
+                        ProtocolConversionAccessLogEntity::getTargetHttpStatus,
+                        ProtocolConversionAccessLogEntity::getErrorMessage)
+                .eq(ProtocolConversionAccessLogEntity::getId, accessLogId)
+                .last("limit 1"));
         Long projectId = projectResourceAccessService.currentProjectId();
         if (entity == null
                 || projectId == null

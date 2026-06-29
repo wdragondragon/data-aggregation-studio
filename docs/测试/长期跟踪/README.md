@@ -170,3 +170,6 @@
 - 2026-06-29 已完成 S84 访问中心源头瘦身与写后刷新收敛：确认并修复 `/access/overview` 读取项目成员、项目、租户、申请整实体，以及申请/取消后重拉整个 overview 的问题，`FIX-S84-001` 已进入缺陷回归索引。
 - S84 保留无项目账号 `lt_reg_s84_access_center_reviewer / LtRegS84!2026`，显示名 `长期回归-S84访问中心无项目验证员`，用于后续访问中心复测；本轮申请 `长期回归测试项目` 后已取消，申请流水保留。
 - S84 回归入口：`WorkspaceAccessSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/access-center` 无项目账号申请/取消 smoke。后续涉及 `WorkspaceAccessService`、`WorkspaceAccessView.vue`、项目访问申请、无项目路由或访问中心写后刷新时，至少复跑这些入口。
+- 2026-06-29 已完成 S85 开放调用日志指针与协议 Trace 源头瘦身：确认并修复三类“完整日志”抽屉按 id 读取访问日志整实体、对象归档可用时仍读取 `systemLog`，以及协议转换 Trace 前置查询读取整行的问题，`FIX-S85-001` 已进入缺陷回归索引。
+- S85 本轮未新增长期数据；浏览器复核长期项目 `/protocol-conversions/access-logs` 可达且 console warn/error 为 0，但当前筛选结果为 `共 0 条`，详情/完整日志点开实服验证需后续保留协议转换访问日志样例并重启 `StudioServerApplication` 加载本轮后端类。
+- S85 回归入口：`OpenServiceInvocationLogSourceSlimmingRegressionTest`、`ProtocolConversionTraceSourceSlimmingRegressionTest`、build-nginx `/protocol-conversions/access-logs`。后续涉及 `OpenServiceInvocationLogService`、开放调用完整日志、协议转换访问日志 Trace、对象归档或历史兜底日志的修改，至少复跑这些入口，并优先复用 S14/S15 协议转换访问日志数据做详情抽屉验证。
