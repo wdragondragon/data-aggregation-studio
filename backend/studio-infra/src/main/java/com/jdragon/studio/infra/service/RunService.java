@@ -200,6 +200,17 @@ public class RunService {
         return toRunRecordView(entity, collectionTaskNames(), qualityTaskNames(), workflowNames());
     }
 
+    public RunRecordListView getSummary(Long runRecordId) {
+        RunRecordEntity entity = runRecordMapper.selectOne(runRecordSummaryQuery(runRecordId).last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Run record not found: " + runRecordId);
+        }
+        return toRunRecordListView(entity,
+                singleNameMap(entity.getCollectionTaskId(), collectionTaskService.getAccessibleName(entity.getCollectionTaskId())),
+                singleNameMap(entity.getQualityTaskId(), qualityTaskService.getAccessibleName(entity.getQualityTaskId())),
+                singleNameMap(entity.getWorkflowDefinitionId(), workflowName(entity.getWorkflowDefinitionId())));
+    }
+
     public RunRecordEntity getEntity(Long runRecordId) {
         RunRecordEntity entity = runRecordMapper.selectById(runRecordId);
         if (entity == null) {
@@ -208,6 +219,14 @@ public class RunService {
         if (!securityService.currentTenantId().equals(entity.getTenantId())
                 || (securityService.currentProjectId() != null
                 && !securityService.currentProjectId().equals(entity.getProjectId()))) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Run record not found: " + runRecordId);
+        }
+        return entity;
+    }
+
+    public RunRecordEntity getLogPointer(Long runRecordId) {
+        RunRecordEntity entity = runRecordMapper.selectOne(runRecordLogPointerQuery(runRecordId).last("limit 1"));
+        if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Run record not found: " + runRecordId);
         }
         return entity;
@@ -276,40 +295,15 @@ public class RunService {
                                                                    String status,
                                                                    LocalDateTime startTime,
                                                                    LocalDateTime endTime) {
-        return runRecordBaseQuery(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, status, startTime, endTime)
-                .select(RunRecordEntity::getId,
-                        RunRecordEntity::getTenantId,
-                        RunRecordEntity::getProjectId,
-                        RunRecordEntity::getDeleted,
-                        RunRecordEntity::getCreatedAt,
-                        RunRecordEntity::getUpdatedAt,
-                        RunRecordEntity::getExecutionType,
-                        RunRecordEntity::getWorkflowRunId,
-                        RunRecordEntity::getWorkflowDefinitionId,
-                        RunRecordEntity::getWorkflowVersionId,
-                        RunRecordEntity::getCollectionTaskId,
-                        RunRecordEntity::getQualityTaskId,
-                        RunRecordEntity::getNodeCode,
-                        RunRecordEntity::getWorkerGroupCode,
-                        RunRecordEntity::getWorkerCode,
-                        RunRecordEntity::getWorkerInstanceId,
-                        RunRecordEntity::getWorkerPodName,
-                        RunRecordEntity::getWorkerNodeName,
-                        RunRecordEntity::getStatus,
-                        RunRecordEntity::getMessage,
-                        RunRecordEntity::getStartedAt,
-                        RunRecordEntity::getEndedAt,
-                        RunRecordEntity::getCollectedRecords,
-                        RunRecordEntity::getReadSucceedRecords,
-                        RunRecordEntity::getReadFailedRecords,
-                        RunRecordEntity::getWriteSucceedRecords,
-                        RunRecordEntity::getWriteFailedRecords,
-                        RunRecordEntity::getFailedRecords,
-                        RunRecordEntity::getSuccessRecords,
-                        RunRecordEntity::getTransformerTotalRecords,
-                        RunRecordEntity::getTransformerSuccessRecords,
-                        RunRecordEntity::getTransformerFailedRecords,
-                        RunRecordEntity::getTransformerFilterRecords);
+        return selectRunRecordSummaryColumns(runRecordBaseQuery(
+                collectionTaskId,
+                qualityTaskId,
+                workflowDefinitionId,
+                collectionTaskOnly,
+                qualityTaskOnly,
+                status,
+                startTime,
+                endTime));
     }
 
     private LambdaQueryWrapper<RunRecordEntity> runRecordBaseQuery(Long collectionTaskId,
@@ -331,6 +325,79 @@ public class RunService {
                 .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                 .ge(startTime != null, RunRecordEntity::getCreatedAt, startTime)
                 .le(endTime != null, RunRecordEntity::getCreatedAt, endTime);
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> runRecordSummaryQuery(Long runRecordId) {
+        return selectRunRecordSummaryColumns(new LambdaQueryWrapper<RunRecordEntity>())
+                .eq(RunRecordEntity::getId, runRecordId)
+                .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId());
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> runRecordLogPointerQuery(Long runRecordId) {
+        return new LambdaQueryWrapper<RunRecordEntity>()
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getDeleted,
+                        RunRecordEntity::getCreatedAt,
+                        RunRecordEntity::getUpdatedAt,
+                        RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getWorkerGroupCode,
+                        RunRecordEntity::getWorkerCode,
+                        RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getMessage,
+                        RunRecordEntity::getStartedAt,
+                        RunRecordEntity::getEndedAt,
+                        RunRecordEntity::getLogFilePath,
+                        RunRecordEntity::getLogSizeBytes,
+                        RunRecordEntity::getLogCharset,
+                        RunRecordEntity::getLogStorageType,
+                        RunRecordEntity::getLogObjectBucket,
+                        RunRecordEntity::getLogObjectKey,
+                        RunRecordEntity::getLogChunkCount,
+                        RunRecordEntity::getLogStatus,
+                        RunRecordEntity::getLogErrorSummary)
+                .eq(RunRecordEntity::getId, runRecordId)
+                .eq(RunRecordEntity::getTenantId, securityService.currentTenantId())
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId());
+    }
+
+    private LambdaQueryWrapper<RunRecordEntity> selectRunRecordSummaryColumns(LambdaQueryWrapper<RunRecordEntity> query) {
+        return query.select(RunRecordEntity::getId,
+                RunRecordEntity::getTenantId,
+                RunRecordEntity::getProjectId,
+                RunRecordEntity::getDeleted,
+                RunRecordEntity::getCreatedAt,
+                RunRecordEntity::getUpdatedAt,
+                RunRecordEntity::getExecutionType,
+                RunRecordEntity::getWorkflowRunId,
+                RunRecordEntity::getWorkflowDefinitionId,
+                RunRecordEntity::getWorkflowVersionId,
+                RunRecordEntity::getCollectionTaskId,
+                RunRecordEntity::getQualityTaskId,
+                RunRecordEntity::getNodeCode,
+                RunRecordEntity::getWorkerGroupCode,
+                RunRecordEntity::getWorkerCode,
+                RunRecordEntity::getWorkerInstanceId,
+                RunRecordEntity::getWorkerPodName,
+                RunRecordEntity::getWorkerNodeName,
+                RunRecordEntity::getStatus,
+                RunRecordEntity::getMessage,
+                RunRecordEntity::getStartedAt,
+                RunRecordEntity::getEndedAt,
+                RunRecordEntity::getCollectedRecords,
+                RunRecordEntity::getReadSucceedRecords,
+                RunRecordEntity::getReadFailedRecords,
+                RunRecordEntity::getWriteSucceedRecords,
+                RunRecordEntity::getWriteFailedRecords,
+                RunRecordEntity::getFailedRecords,
+                RunRecordEntity::getSuccessRecords,
+                RunRecordEntity::getTransformerTotalRecords,
+                RunRecordEntity::getTransformerSuccessRecords,
+                RunRecordEntity::getTransformerFailedRecords,
+                RunRecordEntity::getTransformerFilterRecords);
     }
 
     private int normalizePageNo(Integer pageNo) {
@@ -378,6 +445,28 @@ public class RunService {
             if (definition.getId() != null) {
                 result.put(definition.getId(), definition.getName());
             }
+        }
+        return result;
+    }
+
+    private String workflowName(Long workflowDefinitionId) {
+        if (workflowDefinitionId == null) {
+            return null;
+        }
+        WorkflowDefinitionEntity definition = workflowDefinitionMapper.selectOne(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getName)
+                .eq(WorkflowDefinitionEntity::getId, workflowDefinitionId)
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(securityService.currentProjectId() != null, WorkflowDefinitionEntity::getProjectId, securityService.currentProjectId())
+                .last("limit 1"));
+        return definition == null ? null : definition.getName();
+    }
+
+    private Map<Long, String> singleNameMap(Long id, String name) {
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (id != null && name != null) {
+            result.put(id, name);
         }
         return result;
     }

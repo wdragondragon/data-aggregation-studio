@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.dto.model.RunListView;
+import com.jdragon.studio.dto.model.RunRecordListView;
 import com.jdragon.studio.dto.model.RunRecordPageView;
 import com.jdragon.studio.dto.model.RunRecordView;
 import com.jdragon.studio.infra.service.RunService;
@@ -65,6 +66,12 @@ public class RunController {
     @GetMapping("/{id}")
     public Result<RunRecordView> get(@PathVariable("id") Long id) {
         return Result.success(runService.get(id));
+    }
+
+    @Operation(summary = "Get run record summary")
+    @GetMapping("/{id}/summary")
+    public Result<RunRecordListView> summary(@PathVariable("id") Long id) {
+        return Result.success(runService.getSummary(id));
     }
 
     @Operation(summary = "Get run log tail")

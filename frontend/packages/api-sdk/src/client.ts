@@ -157,6 +157,7 @@ import type {
   RunLogQuery,
   RunLogView,
   RunRecord,
+  RunRecordListView,
   SavedDataScriptExecutionRequest,
   ScriptType,
   ScriptEnvironment,
@@ -1556,6 +1557,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       get(id: EntityId) {
         return request<RunRecord>({ url: `/runs/${id}`, method: "GET" });
+      },
+      getSummary(id: EntityId) {
+        return request<RunRecordListView>({ url: `/runs/${id}/summary`, method: "GET" });
       },
       getLog(id: EntityId, params?: RunLogQuery) {
         return request<RunLogView>({ url: `/runs/${id}/log`, method: "GET", params });

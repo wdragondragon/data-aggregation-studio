@@ -173,3 +173,6 @@
 - 2026-06-29 已完成 S85 开放调用日志指针与协议 Trace 源头瘦身：确认并修复三类“完整日志”抽屉按 id 读取访问日志整实体、对象归档可用时仍读取 `systemLog`，以及协议转换 Trace 前置查询读取整行的问题，`FIX-S85-001` 已进入缺陷回归索引。
 - S85 本轮未新增长期数据；浏览器复核长期项目 `/protocol-conversions/access-logs` 可达且 console warn/error 为 0，但当前筛选结果为 `共 0 条`，详情/完整日志点开实服验证需后续保留协议转换访问日志样例并重启 `StudioServerApplication` 加载本轮后端类。
 - S85 回归入口：`OpenServiceInvocationLogSourceSlimmingRegressionTest`、`ProtocolConversionTraceSourceSlimmingRegressionTest`、build-nginx `/protocol-conversions/access-logs`。后续涉及 `OpenServiceInvocationLogService`、开放调用完整日志、协议转换访问日志 Trace、对象归档或历史兜底日志的修改，至少复跑这些入口，并优先复用 S14/S15 协议转换访问日志数据做详情抽屉验证。
+- 2026-06-29 已完成 S86 运行日志抽屉概要与日志指针源头瘦身：确认并修复 `RunLogDrawer` 打开时调用全量 `/runs/{id}`、运行日志分页/下载先读取整条运行记录的问题，`FIX-S86-001` 已进入缺陷回归索引。
+- S86 本轮未新增长期数据，复用采集运行 `2068957692399820801` / `长期回归-订单支付融合采集任务`；已用 IDEA `StudioServerApplication` 重启 Server 加载本轮代码，build-nginx `/collection-task-runs` 首行日志抽屉打开成功，console warn/error 为 0。
+- S86 回归入口：`RunListSourceSlimmingRegressionTest`、`RunServiceRegressionTest`、`RunLogProxySourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/collection-task-runs` 日志抽屉、build-nginx API `/runs/{id}/summary` 和 `/runs/{id}/log`。后续涉及 `RunLogDrawer`、`RunService`、`RunLogProxyService`、运行记录详情/概要、运行日志分页/下载时，至少复跑这些入口。

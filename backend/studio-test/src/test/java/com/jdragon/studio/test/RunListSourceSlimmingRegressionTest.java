@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.dto.model.RunListView;
 import com.jdragon.studio.dto.model.RunRecordPageView;
+import com.jdragon.studio.dto.model.RunRecordListView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
@@ -155,6 +156,84 @@ class RunListSourceSlimmingRegressionTest {
         assertThat(pageQueryCaptor.getValue().getSqlSelect())
                 .contains("collection_task_id", "quality_task_id", "workflow_definition_id", "message", "collected_records")
                 .doesNotContain("payload_json", "result_json", "log_file_path", "log_object_key", "log_object_bucket", "log_chunk_count");
+    }
+
+    @Test
+    void runRecordSummaryShouldSelectOnlyDrawerFieldsAndUseSingleNameLookups() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        QualityTaskService qualityTaskService = mock(QualityTaskService.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        RunService service = new RunService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                collectionTaskService,
+                qualityTaskService,
+                workflowDefinitionMapper,
+                securityService,
+                new RunMetricSummaryMapper());
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentProjectId()).thenReturn(100L);
+        when(runRecordMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(runRecord());
+        when(collectionTaskService.getAccessibleName(11L)).thenReturn("客户订单采集任务");
+        when(qualityTaskService.getAccessibleName(22L)).thenReturn("合同完整性质量任务");
+        when(workflowDefinitionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(workflowDefinition());
+
+        RunRecordListView summary = service.getSummary(2L);
+
+        assertThat(summary.getCollectionTaskName()).isEqualTo("客户订单采集任务");
+        assertThat(summary.getQualityTaskName()).isEqualTo("合同完整性质量任务");
+        assertThat(summary.getWorkflowName()).isEqualTo("客户订单日终工作流");
+
+        verify(collectionTaskService).getAccessibleName(11L);
+        verify(collectionTaskService, never()).listAccessibleNames();
+        verify(qualityTaskService).getAccessibleName(22L);
+        verify(qualityTaskService, never()).listAccessibleNames();
+
+        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> summaryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(runRecordMapper).selectOne(summaryCaptor.capture());
+        assertThat(summaryCaptor.getValue().getSqlSelect())
+                .contains("collection_task_id", "quality_task_id", "workflow_definition_id", "message", "collected_records")
+                .doesNotContain("payload_json", "result_json", "log_file_path", "log_object_key", "log_object_bucket", "log_chunk_count");
+
+        ArgumentCaptor<LambdaQueryWrapper<WorkflowDefinitionEntity>> workflowCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(workflowDefinitionMapper).selectOne(workflowCaptor.capture());
+        assertThat(workflowCaptor.getValue().getSqlSelect())
+                .contains("id", "name")
+                .doesNotContain("current_version_id", "published");
+    }
+
+    @Test
+    void runLogPointerShouldSelectOnlyLogRoutingFields() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        QualityTaskService qualityTaskService = mock(QualityTaskService.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        RunService service = new RunService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                collectionTaskService,
+                qualityTaskService,
+                workflowDefinitionMapper,
+                securityService,
+                new RunMetricSummaryMapper());
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentProjectId()).thenReturn(100L);
+        when(runRecordMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(runRecord());
+
+        RunRecordEntity pointer = service.getLogPointer(2L);
+
+        assertThat(pointer.getId()).isEqualTo(2L);
+
+        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> pointerCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(runRecordMapper).selectOne(pointerCaptor.capture());
+        assertThat(pointerCaptor.getValue().getSqlSelect())
+                .contains("log_file_path", "log_storage_type", "log_object_bucket", "log_object_key", "worker_code")
+                .doesNotContain("payload_json", "result_json", "collected_records", "read_succeed_records", "write_succeed_records");
     }
 
     private static void initTableInfo(Class<?> entityClass) {

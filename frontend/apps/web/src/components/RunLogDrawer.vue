@@ -100,7 +100,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { EntityId, RunLogView, RunRecord } from "@studio/api-sdk";
+import type { EntityId, RunLogView, RunRecordListView } from "@studio/api-sdk";
 import { MetricCard, SectionCard } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
@@ -119,7 +119,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const DEFAULT_LOG_PAGE_SIZE_BYTES = 64 * 1024;
-const activeRunRecord = ref<RunRecord | null>(null);
+const activeRunRecord = ref<RunRecordListView | null>(null);
 const activeRunLog = ref<RunLogView | null>(null);
 const logLoading = ref(false);
 const logPageNo = ref<number>(1);
@@ -180,7 +180,7 @@ async function load() {
     return;
   }
   try {
-    activeRunRecord.value = await studioApi.runs.get(props.runRecordId);
+    activeRunRecord.value = await studioApi.runs.getSummary(props.runRecordId);
     await loadLog();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadLogFailed"));

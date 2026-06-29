@@ -217,6 +217,18 @@ public class CollectionTaskService {
         return result;
     }
 
+    public String getAccessibleName(Long id) {
+        if (id == null) {
+            return null;
+        }
+        CollectionTaskDefinitionEntity entity = definitionMapper.selectOne(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getName)
+                .eq(CollectionTaskDefinitionEntity::getId, id)
+                .last("limit 1"));
+        return entity == null ? null : entity.getName();
+    }
+
     public List<CollectionTaskOptionView> listOptions() {
         List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
                 .select(CollectionTaskDefinitionEntity::getId,

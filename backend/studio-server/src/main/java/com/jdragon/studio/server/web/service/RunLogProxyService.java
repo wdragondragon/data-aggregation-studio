@@ -50,12 +50,12 @@ public class RunLogProxyService {
     }
 
     public RunLogView viewLog(Long runRecordId, Integer pageNo, Integer pageSizeBytes) {
-        RunRecordEntity entity = runService.getEntity(runRecordId);
+        RunRecordEntity entity = runService.getLogPointer(runRecordId);
         if (isObjectStorageLog(entity)) {
             return runLogStorageService.readObjectLog(entity, pageNo, pageSizeBytes, false);
         }
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
-            return runService.buildHistoricalFallback(entity);
+            return runService.buildHistoricalFallback(runService.getEntity(runRecordId));
         }
         int safePageSizeBytes = pageSizeBytes == null || pageSizeBytes.intValue() <= 0 ? DEFAULT_PAGE_BYTES : pageSizeBytes.intValue();
         String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
@@ -71,12 +71,12 @@ public class RunLogProxyService {
     }
 
     public RunLogView downloadLog(Long runRecordId) {
-        RunRecordEntity entity = runService.getEntity(runRecordId);
+        RunRecordEntity entity = runService.getLogPointer(runRecordId);
         if (isObjectStorageLog(entity)) {
             return runLogStorageService.readObjectLog(entity, 1, Integer.MAX_VALUE, true);
         }
         if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
-            return runService.buildHistoricalFallback(entity);
+            return runService.buildHistoricalFallback(runService.getEntity(runRecordId));
         }
         String apiBaseUrl = resolveWorkerApiBaseUrl(entity);
         String url = UriComponentsBuilder.fromUriString(apiBaseUrl)
