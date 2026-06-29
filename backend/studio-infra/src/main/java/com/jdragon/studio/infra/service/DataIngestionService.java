@@ -151,7 +151,7 @@ public class DataIngestionService {
                         DataIngestionServiceEntity::getTokenRequired,
                         DataIngestionServiceEntity::getDefaultSubscriptionName,
                         DataIngestionServiceEntity::getWebserviceEnabled,
-                        DataIngestionServiceEntity::getFieldMappingsJson)
+                        DataIngestionServiceEntity::getSourcePositionsJson)
                 .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -235,6 +235,7 @@ public class DataIngestionService {
                 Integer.valueOf(1).equals(entity.getWebserviceEnabled())));
         entity.setWriterOptionsJson(request.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : request.getWriterOptions());
         entity.setFieldMappingsJson(toMapList(mappings));
+        entity.setSourcePositionsJson(sourcePositionsFromMappings(mappings));
         if (entity.getId() == null) {
             serviceMapper.insert(entity);
         } else {
@@ -614,7 +615,7 @@ public class DataIngestionService {
         view.setRequestFormat(Boolean.TRUE.equals(view.getWebserviceEnabled())
                 ? DataIngestionRequestFormat.SOAP
                 : enumValue(DataIngestionRequestFormat.class, entity.getRequestFormat(), DataIngestionRequestFormat.JSON));
-        view.setSourcePositions(sourcePositions(entity.getFieldMappingsJson()));
+        view.setSourcePositions(sourcePositionsForList(entity));
         return view;
     }
 
@@ -1058,6 +1059,30 @@ public class DataIngestionService {
         });
     }
 
+    private List<String> sourcePositionsForList(DataIngestionServiceEntity entity) {
+        if (entity == null) {
+            return new ArrayList<String>();
+        }
+        List<String> sourcePositions = normalizeSourcePositions(entity.getSourcePositionsJson());
+        if (!sourcePositions.isEmpty()) {
+            return sourcePositions;
+        }
+        return sourcePositions(entity.getFieldMappingsJson());
+    }
+
+    private List<String> sourcePositionsFromMappings(List<DataIngestionFieldMapping> mappings) {
+        Set<String> positions = new LinkedHashSet<String>();
+        if (mappings != null) {
+            for (DataIngestionFieldMapping mapping : mappings) {
+                DataIngestionSourcePosition position = mapping == null || mapping.getSourcePosition() == null
+                        ? DataIngestionSourcePosition.BODY
+                        : mapping.getSourcePosition();
+                positions.add(position.name());
+            }
+        }
+        return new ArrayList<String>(positions);
+    }
+
     private List<String> sourcePositions(List<Map<String, Object>> mappings) {
         Set<String> positions = new LinkedHashSet<String>();
         if (mappings != null) {
@@ -1065,6 +1090,18 @@ public class DataIngestionService {
                 Object value = mapping == null ? null : mapping.get("sourcePosition");
                 String position = value == null ? null : String.valueOf(value).trim();
                 positions.add(hasText(position) ? position.toUpperCase(Locale.ROOT) : DataIngestionSourcePosition.BODY.name());
+            }
+        }
+        return new ArrayList<String>(positions);
+    }
+
+    private List<String> normalizeSourcePositions(List<String> values) {
+        Set<String> positions = new LinkedHashSet<String>();
+        if (values != null) {
+            for (String value : values) {
+                if (hasText(value)) {
+                    positions.add(value.trim().toUpperCase(Locale.ROOT));
+                }
             }
         }
         return new ArrayList<String>(positions);

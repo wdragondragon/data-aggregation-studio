@@ -107,6 +107,9 @@ class StudioSchemaDriftRegressionTest {
             "probe_run_id", "probe_mode", "connection_status", "started_at",
             "ended_at", "duration_ms", "timeout_seconds");
 
+    private static final List<String> DATA_INGESTION_SOURCE_POSITION_COLUMNS = Arrays.asList(
+            "data_ingestion_service", "source_positions_json");
+
     private static final List<String> HTTP_TABLE_FIELDS = Arrays.asList(
             "physicalName", "description", "protocolMode", "mode", "resultType",
             "soapVersion", "namespaceUri", "operationName", "soapAction",
@@ -293,6 +296,20 @@ class StudioSchemaDriftRegressionTest {
                 Arrays.asList("ensureActiveSubscriptionUniquenessMysql", "ensureActiveSubscriptionUniquenessSqlite",
                         "uk_data_service_sub_active_name", "uk_data_ingestion_sub_active_name",
                         "uk_protocol_conversion_sub_active_name"));
+    }
+
+    @Test
+    void dataIngestionSourcePositionSummaryColumnShouldStayAlignedAcrossSchemaAndUpgrade() throws Exception {
+        String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String upgradeService = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java");
+        String delta = readBackendFile("studio-server/src/main/resources/update/20260629/20260629-data-ingestion-source-positions-delta.sql");
+
+        assertFieldsPresent("MySQL data ingestion source positions summary", mysqlSchema, DATA_INGESTION_SOURCE_POSITION_COLUMNS);
+        assertFieldsPresent("SQLite data ingestion source positions summary", sqliteSchema, DATA_INGESTION_SOURCE_POSITION_COLUMNS);
+        assertFieldsPresent("Upgrade data ingestion source positions summary", upgradeService,
+                Arrays.asList("source_positions_json", "backfillDataIngestionSourcePositions"));
+        assertFieldsPresent("Delta data ingestion source positions summary", delta, DATA_INGESTION_SOURCE_POSITION_COLUMNS);
     }
 
     private void assertHttpCapability(String label, String content) {

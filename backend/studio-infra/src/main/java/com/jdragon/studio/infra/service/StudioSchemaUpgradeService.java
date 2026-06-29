@@ -6,8 +6,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -1604,6 +1608,30 @@ public class StudioSchemaUpgradeService {
         }
     }
 
+    private void backfillDataIngestionSourcePositions() {
+        if (!tableExists("data_ingestion_service")
+                || !columnExists("data_ingestion_service", "field_mappings_json")
+                || !columnExists("data_ingestion_service", "source_positions_json")) {
+            return;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select id, field_mappings_json, source_positions_json from data_ingestion_service");
+        for (Map<String, Object> row : rows) {
+            Long serviceId = objectLong(row.get("id"));
+            Object existing = row.get("source_positions_json");
+            if (serviceId == null || existing != null && !String.valueOf(existing).trim().isEmpty()) {
+                continue;
+            }
+            List<String> positions = sourcePositionsFromJson(row.get("field_mappings_json"));
+            try {
+                jdbcTemplate.update("update data_ingestion_service set source_positions_json = ? where id = ?",
+                        objectMapper.writeValueAsString(positions),
+                        serviceId);
+            } catch (Exception ignored) {
+                // Upgrade should remain best-effort; runtime save keeps the summary current afterwards.
+            }
+        }
+    }
+
     private void insertCollectionTaskMetricBinding(Map<String, Object> row, String role, int sequence, JsonNode bindingNode) {
         Long taskId = objectLong(row.get("id"));
         if (taskId == null || bindingNode == null || bindingNode.isNull()) {
@@ -1640,6 +1668,38 @@ public class StudioSchemaUpgradeService {
             return objectMapper.readTree(String.valueOf(rawJson));
         } catch (Exception ex) {
             return null;
+        }
+    }
+
+    private List<String> sourcePositionsFromJson(Object rawJson) {
+        Set<String> positions = new LinkedHashSet<String>();
+        JsonNode node = readJsonNode(rawJson);
+        if (node == null || node.isNull()) {
+            return new ArrayList<String>();
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (item == null || item.isNull()) {
+                    continue;
+                }
+                if (item.isTextual()) {
+                    addSourcePosition(positions, item.asText());
+                } else if (item.isObject()) {
+                    JsonNode sourcePosition = item.get("sourcePosition");
+                    addSourcePosition(positions, sourcePosition == null ? null : sourcePosition.asText());
+                }
+            }
+        }
+        return new ArrayList<String>(positions);
+    }
+
+    private void addSourcePosition(Set<String> positions, String value) {
+        if (positions == null) {
+            return;
+        }
+        String position = value == null || value.trim().isEmpty() ? "BODY" : value.trim().toUpperCase(Locale.ROOT);
+        if ("BODY".equals(position) || "FORM".equals(position) || "QUERY".equals(position) || "HEADER".equals(position)) {
+            positions.add(position);
         }
     }
 
@@ -2769,7 +2829,8 @@ public class StudioSchemaUpgradeService {
                     "webservice_enabled int default 0," +
                     "webservice_config_json json," +
                     "writer_options_json json," +
-                    "field_mappings_json json" +
+                    "field_mappings_json json," +
+                    "source_positions_json json" +
                     ")");
         }
         ensureColumn("data_ingestion_service", "token_required",
@@ -2780,6 +2841,9 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_service add column webservice_enabled int default 0 after default_subscription_name");
         ensureColumn("data_ingestion_service", "webservice_config_json",
                 "alter table data_ingestion_service add column webservice_config_json json after webservice_enabled");
+        ensureColumn("data_ingestion_service", "source_positions_json",
+                "alter table data_ingestion_service add column source_positions_json json after field_mappings_json");
+        backfillDataIngestionSourcePositions();
         ensureIndex("data_ingestion_service", "uk_data_ingestion_project_code",
                 "alter table data_ingestion_service add unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code)");
         ensureIndex("data_ingestion_service", "idx_data_ingestion_project_status",
@@ -2926,7 +2990,8 @@ public class StudioSchemaUpgradeService {
                 "webservice_enabled integer default 0," +
                 "webservice_config_json text," +
                 "writer_options_json text," +
-                "field_mappings_json text" +
+                "field_mappings_json text," +
+                "source_positions_json text" +
                 ")");
         ensureColumn("data_ingestion_service", "token_required",
                 "alter table data_ingestion_service add column token_required integer default 1");
@@ -2936,6 +3001,9 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_service add column webservice_enabled integer default 0");
         ensureColumn("data_ingestion_service", "webservice_config_json",
                 "alter table data_ingestion_service add column webservice_config_json text");
+        ensureColumn("data_ingestion_service", "source_positions_json",
+                "alter table data_ingestion_service add column source_positions_json text");
+        backfillDataIngestionSourcePositions();
         jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_project_code on data_ingestion_service(tenant_id, project_id, service_code)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_project_status on data_ingestion_service(project_id, status)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_code_key on data_ingestion_service(service_code, service_key)");

@@ -707,7 +707,8 @@ create table if not exists data_ingestion_service (
     webservice_enabled integer default 0,
     webservice_config_json text,
     writer_options_json text,
-    field_mappings_json text
+    field_mappings_json text,
+    source_positions_json text
 );
 
 create unique index if not exists uk_data_ingestion_project_code
