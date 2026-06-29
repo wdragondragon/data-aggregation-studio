@@ -1,6 +1,5 @@
 package com.jdragon.studio.infra.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.FieldValueType;
@@ -19,15 +18,12 @@ import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsChartRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsOptionsRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsRequest;
-import com.jdragon.studio.infra.entity.DataModelAttrIndexEntity;
-import com.jdragon.studio.infra.entity.DataModelEntity;
-import com.jdragon.studio.infra.mapper.DataModelMapper;
+import com.jdragon.studio.infra.model.DataModelStatisticsTrendAggregate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -47,24 +43,17 @@ public class DataModelStatisticsWorkspaceService {
     private static final String CHART_TOPN = "TOPN";
 
     private static final String STAT_COUNT_BY_VALUE = "COUNT_BY_VALUE";
-    private static final String STAT_COUNT_BY_BUCKET = "COUNT_BY_BUCKET";
 
     private final MetadataSchemaService metadataSchemaService;
     private final DataSourceService dataSourceService;
     private final DataModelStatisticsService dataModelStatisticsService;
-    private final DataModelMapper dataModelMapper;
-    private final StudioSecurityService securityService;
 
     public DataModelStatisticsWorkspaceService(MetadataSchemaService metadataSchemaService,
                                                DataSourceService dataSourceService,
-                                               DataModelStatisticsService dataModelStatisticsService,
-                                               DataModelMapper dataModelMapper,
-                                               StudioSecurityService securityService) {
+                                               DataModelStatisticsService dataModelStatisticsService) {
         this.metadataSchemaService = metadataSchemaService;
         this.dataSourceService = dataSourceService;
         this.dataModelStatisticsService = dataModelStatisticsService;
-        this.dataModelMapper = dataModelMapper;
-        this.securityService = securityService;
     }
 
     public DataModelStatisticsOptionsView options(DataModelStatisticsOptionsRequest request) {
@@ -136,20 +125,15 @@ public class DataModelStatisticsWorkspaceService {
         dataModelStatisticsService.requireSupportedTargetField(targetSchema, targetField, targetScope);
 
         DataModelStatisticsRequest prepared = copyStatisticsRequest(request);
-        prepared.setStatType(null);
+        prepared.setStatType(dataModelStatisticsService.isNumericField(targetField) ? null : STAT_COUNT_BY_VALUE);
         prepared.setBucketConfig(null);
         prepared.setTopN(null);
         DataModelStatisticsService.ResolvedStatisticsData resolved = dataModelStatisticsService.resolveStatisticsData(prepared);
         DataModelStatisticsView raw;
         if (dataModelStatisticsService.isNumericField(targetField)) {
-            raw = dataModelStatisticsService.buildAutomaticBucketStatistics(resolved.getTargetRows(), resolved.getTargetField());
+            raw = dataModelStatisticsService.buildAutomaticBucketStatistics(resolved);
         } else {
-            prepared.setStatType(STAT_COUNT_BY_VALUE);
-            raw = dataModelStatisticsService.buildStatistics(resolved.getTargetRows(),
-                    resolved.getTargetField(),
-                    prepared.getStatType(),
-                    null,
-                    null);
+            raw = dataModelStatisticsService.buildStatistics(resolved, null, null);
         }
         return toBarChart(raw, chartSummaryMetrics(raw));
     }
@@ -193,18 +177,13 @@ public class DataModelStatisticsWorkspaceService {
         }
 
         int days = resolveDays(request);
-        Set<Long> modelIds = new LinkedHashSet<Long>();
-        for (DataModelAttrIndexEntity row : resolved.getTargetRows()) {
-            if (row != null && row.getModelId() != null) {
-                modelIds.add(row.getModelId());
-            }
-        }
+        DataModelStatisticsView summary = dataModelStatisticsService.summarize(resolved);
 
         DataModelStatisticsChartView chart = new DataModelStatisticsChartView();
         chart.setChartType(CHART_TREND);
         Map<String, Object> summaryMetrics = new LinkedHashMap<String, Object>();
-        summaryMetrics.put("matchedModelCount", (long) modelIds.size());
-        summaryMetrics.put("matchedItemCount", (long) resolved.getTargetRows().size());
+        summaryMetrics.put("matchedModelCount", summary.getMatchedModelCount());
+        summaryMetrics.put("matchedItemCount", summary.getMatchedItemCount());
         summaryMetrics.put("days", days);
         chart.setSummaryMetrics(summaryMetrics);
 
@@ -216,24 +195,16 @@ public class DataModelStatisticsWorkspaceService {
             counters.put(cursor, 0L);
             xAxis.add(cursor.toString());
         }
-        if (!modelIds.isEmpty()) {
-            LocalDateTime startDateTime = start.atStartOfDay();
-            List<DataModelEntity> entities = dataModelMapper.selectList(new LambdaQueryWrapper<DataModelEntity>()
-                    .eq(DataModelEntity::getTenantId, securityService.currentTenantId())
-                    .in(DataModelEntity::getId, modelIds)
-                    .ge(DataModelEntity::getCreatedAt, startDateTime)
-                    .orderByAsc(DataModelEntity::getCreatedAt));
-            for (DataModelEntity entity : entities) {
-                if (entity == null || entity.getCreatedAt() == null) {
-                    continue;
-                }
-                LocalDate createdDate = entity.getCreatedAt().toLocalDate();
-                if (!counters.containsKey(createdDate)) {
-                    continue;
-                }
-                Long current = counters.get(createdDate);
-                counters.put(createdDate, current == null ? 1L : current + 1L);
+        List<DataModelStatisticsTrendAggregate> trendRows = dataModelStatisticsService.queryTrendBuckets(resolved, start.atStartOfDay());
+        for (DataModelStatisticsTrendAggregate trendRow : trendRows) {
+            if (trendRow == null || trendRow.getBucketKey() == null) {
+                continue;
             }
+            LocalDate createdDate = LocalDate.parse(trendRow.getBucketKey());
+            if (!counters.containsKey(createdDate)) {
+                continue;
+            }
+            counters.put(createdDate, trendRow.getCount() == null ? 0L : trendRow.getCount());
         }
         chart.setXAxis(xAxis);
         DataModelStatisticsChartSeriesView series = new DataModelStatisticsChartSeriesView();

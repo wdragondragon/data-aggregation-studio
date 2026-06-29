@@ -163,3 +163,5 @@
 - S24 保留修复前批次 `20260623094218` 和修复后通过批次 `20260623095618`：工作流 `长期回归-S24共享执行边界流程-20260623095618` / `2069238108755156994`，采集任务 `长期回归-S24共享执行边界采集-20260623095618` / `2069238183573151746`，共享 `2069238205219954690`、`2069238274497273857`，源表/目标表 `lt_reg_s24_src_20260623095618` / `lt_reg_s24_tgt_20260623095618`。
 - S24 自动化入口：`docs/测试/长期跟踪/scripts/studio_s24_shared_execution_acl_probe.py`。后续涉及 `DispatchService`、资源共享、工作流/采集/质量手动触发、运行记录或接收项目共享资源可见性的修改，至少复跑该脚本、`DispatchServiceOverlapRegressionTest`、`ClusterLockServiceRegressionTest` 和 S01 权限探针。
 - 2026-06-29 已完成 S81 运行指标 Dashboard 运行记录源头聚合：确认并修复 `/run-metrics/query` 按时间窗读取全部运行记录明细后在 Java 内存聚合趋势和 TopN 的问题，`FIX-S81-001` 已进入缺陷回归索引。
+- 2026-06-29 已完成 S82 统计分析源头聚合：确认并修复 `/statistics` 执行分析重复读取目标字段索引明细，并在概览、柱图、饼图、TopN 和趋势图链路中 Java 内存聚合的问题，`FIX-S82-001` 已进入缺陷回归索引。
+- S82 回归入口：`DataModelStatisticsRegressionTest`、`DataModelStatisticsSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/statistics` 执行分析 smoke。后续涉及 `DataModelStatisticsService`、`DataModelStatisticsWorkspaceService`、`DataModelAttrIndexMapper`、模型统计页或统计图表接口的修改，至少复跑这些入口。

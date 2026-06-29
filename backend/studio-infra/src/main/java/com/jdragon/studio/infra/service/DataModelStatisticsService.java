@@ -15,13 +15,19 @@ import com.jdragon.studio.dto.model.request.DataModelStatisticsBucketConfig;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsRequest;
 import com.jdragon.studio.infra.entity.DataModelAttrIndexEntity;
 import com.jdragon.studio.infra.mapper.DataModelAttrIndexMapper;
+import com.jdragon.studio.infra.model.DataModelStatisticsBucketAggregate;
+import com.jdragon.studio.infra.model.DataModelStatisticsBucketRange;
+import com.jdragon.studio.infra.model.DataModelStatisticsSummaryAggregate;
+import com.jdragon.studio.infra.model.DataModelStatisticsTrendAggregate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,9 +66,7 @@ public class DataModelStatisticsService {
 
     public DataModelStatisticsView statistics(DataModelStatisticsRequest request) {
         ResolvedStatisticsData resolved = resolveStatisticsData(request);
-        return buildStatistics(resolved.getTargetRows(),
-                resolved.getTargetField(),
-                resolved.getStatType(),
+        return buildStatistics(resolved,
                 request == null ? null : request.getTopN(),
                 request == null ? null : request.getBucketConfig());
     }
@@ -92,17 +96,62 @@ public class DataModelStatisticsService {
             }
         }
 
-        List<DataModelAttrIndexEntity> targetRows = new ArrayList<DataModelAttrIndexEntity>();
-        if (!matchedModelIds.isEmpty() && (!hasTargetSchemaGroup || !matchedUnits.isEmpty())) {
-            targetRows = loadTargetRows(targetSchema.getSchemaCode(),
-                    request.getTargetFieldKey().trim(),
-                    targetScope,
-                    matchedModelIds);
-            if (hasTargetSchemaGroup) {
-                targetRows = filterRowsByUnits(targetRows, matchedUnits);
-            }
+        return new ResolvedStatisticsData(targetSchema,
+                targetField,
+                targetScope,
+                statType,
+                matchedModelIds,
+                hasTargetSchemaGroup ? matchedUnits : null);
+    }
+
+    public DataModelStatisticsView summarize(ResolvedStatisticsData resolved) {
+        if (resolved == null) {
+            return initializeStatisticsView(emptySummary(), null);
         }
-        return new ResolvedStatisticsData(targetSchema, targetField, targetScope, statType, targetRows);
+        return initializeStatisticsView(loadSummary(resolved), resolved.getTargetField());
+    }
+
+    public DataModelStatisticsView buildAutomaticBucketStatistics(ResolvedStatisticsData resolved) {
+        DataModelStatisticsSummaryAggregate summary = loadSummary(resolved);
+        DataModelStatisticsView view = initializeStatisticsView(summary, resolved == null ? null : resolved.getTargetField());
+        NumericBucketResult bucketResult = buildAutomaticNumericBucketResult(resolved, summary);
+        view.setBuckets(bucketResult.getBuckets());
+        applyEffectiveBucketMetrics(view.getSummaryMetrics(), bucketResult.getPlan());
+        return view;
+    }
+
+    public DataModelStatisticsView buildStatistics(ResolvedStatisticsData resolved,
+                                                   Integer topN,
+                                                   DataModelStatisticsBucketConfig bucketConfig) {
+        DataModelStatisticsSummaryAggregate summary = loadSummary(resolved);
+        MetadataFieldDefinition targetField = resolved == null ? null : resolved.getTargetField();
+        DataModelStatisticsView view = initializeStatisticsView(summary, targetField);
+
+        String statType = resolved == null ? null : resolved.getStatType();
+        if (STAT_COUNT_BY_VALUE.equals(statType)) {
+            view.setBuckets(buildValueBuckets(resolved, topN));
+        } else if (STAT_COUNT_BY_BUCKET.equals(statType)) {
+            NumericBucketResult bucketResult = buildNumericBucketResult(resolved, summary, bucketConfig);
+            view.setBuckets(bucketResult.getBuckets());
+            applyEffectiveBucketMetrics(view.getSummaryMetrics(), bucketResult.getPlan());
+        } else {
+            view.setBuckets(new ArrayList<DataModelStatisticsBucketView>());
+        }
+        return view;
+    }
+
+    public List<DataModelStatisticsTrendAggregate> queryTrendBuckets(ResolvedStatisticsData resolved,
+                                                                     LocalDateTime startTime) {
+        if (!hasTargetMatches(resolved)) {
+            return new ArrayList<DataModelStatisticsTrendAggregate>();
+        }
+        return indexMapper.selectStatisticsTrendBuckets(securityService.currentTenantId(),
+                resolved.getTargetSchema().getSchemaCode(),
+                resolved.getTargetScope(),
+                resolved.getTargetField().getFieldKey(),
+                resolved.getMatchedModelIds(),
+                resolved.getMatchUnits(),
+                startTime);
     }
 
     public DataModelStatisticsView buildAutomaticBucketStatistics(List<DataModelAttrIndexEntity> rows,
@@ -138,12 +187,7 @@ public class DataModelStatisticsService {
         if (targetMetaSchemaCode == null || targetMetaSchemaCode.trim().isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "targetMetaSchemaCode is required");
         }
-        for (MetadataSchemaDefinition schema : metadataSchemaService.listSchemas()) {
-            if (targetMetaSchemaCode.trim().equalsIgnoreCase(schema.getSchemaCode())) {
-                return schema;
-            }
-        }
-        throw new StudioException(StudioErrorCode.BAD_REQUEST, "Target schema not found: " + targetMetaSchemaCode);
+        return metadataSchemaService.getSchemaByCode(targetMetaSchemaCode.trim());
     }
 
     public MetadataFieldDefinition requireTargetField(MetadataSchemaDefinition schema, String targetFieldKey) {
@@ -262,6 +306,73 @@ public class DataModelStatisticsService {
         return filtered;
     }
 
+    private DataModelStatisticsSummaryAggregate loadSummary(ResolvedStatisticsData resolved) {
+        if (!hasTargetMatches(resolved)) {
+            return emptySummary();
+        }
+        DataModelStatisticsSummaryAggregate summary = indexMapper.selectStatisticsSummary(securityService.currentTenantId(),
+                resolved.getTargetSchema().getSchemaCode(),
+                resolved.getTargetScope(),
+                resolved.getTargetField().getFieldKey(),
+                resolved.getMatchedModelIds(),
+                resolved.getMatchUnits());
+        return summary == null ? emptySummary() : summary;
+    }
+
+    private DataModelStatisticsSummaryAggregate emptySummary() {
+        DataModelStatisticsSummaryAggregate summary = new DataModelStatisticsSummaryAggregate();
+        summary.setMatchedModelCount(0L);
+        summary.setMatchedItemCount(0L);
+        summary.setDistinctCount(0L);
+        summary.setNumericCount(0L);
+        summary.setSumValue(BigDecimal.ZERO);
+        return summary;
+    }
+
+    private boolean hasTargetMatches(ResolvedStatisticsData resolved) {
+        if (resolved == null || resolved.getMatchedModelIds().isEmpty()) {
+            return false;
+        }
+        return resolved.getMatchUnits() == null || !resolved.getMatchUnits().isEmpty();
+    }
+
+    private DataModelStatisticsView initializeStatisticsView(DataModelStatisticsSummaryAggregate summary,
+                                                             MetadataFieldDefinition targetField) {
+        DataModelStatisticsSummaryAggregate safeSummary = summary == null ? emptySummary() : summary;
+        DataModelStatisticsView view = new DataModelStatisticsView();
+        Long matchedModelCount = safeSummary.getMatchedModelCount() == null ? 0L : safeSummary.getMatchedModelCount();
+        Long matchedItemCount = safeSummary.getMatchedItemCount() == null ? 0L : safeSummary.getMatchedItemCount();
+        view.setMatchedModelCount(matchedModelCount);
+        view.setMatchedItemCount(matchedItemCount);
+        view.setSummaryMetrics(buildSummaryMetrics(safeSummary, targetField));
+        return view;
+    }
+
+    private Map<String, Object> buildSummaryMetrics(DataModelStatisticsSummaryAggregate summary,
+                                                    MetadataFieldDefinition targetField) {
+        DataModelStatisticsSummaryAggregate safeSummary = summary == null ? emptySummary() : summary;
+        Map<String, Object> metrics = new LinkedHashMap<String, Object>();
+        Long matchedItemCount = safeSummary.getMatchedItemCount() == null ? 0L : safeSummary.getMatchedItemCount();
+        metrics.put("count", matchedItemCount);
+        metrics.put("distinctCount", safeSummary.getDistinctCount() == null ? 0L : safeSummary.getDistinctCount());
+        if (!isNumericField(targetField)) {
+            return metrics;
+        }
+        Long numericCount = safeSummary.getNumericCount() == null ? 0L : safeSummary.getNumericCount();
+        if (numericCount <= 0L) {
+            metrics.put("min", null);
+            metrics.put("max", null);
+            metrics.put("sum", BigDecimal.ZERO);
+            metrics.put("avg", null);
+            return metrics;
+        }
+        metrics.put("min", safeSummary.getMinValue());
+        metrics.put("max", safeSummary.getMaxValue());
+        metrics.put("sum", safeSummary.getSumValue() == null ? BigDecimal.ZERO : safeSummary.getSumValue());
+        metrics.put("avg", safeSummary.getAvgValue() == null ? null : safeSummary.getAvgValue().setScale(10, RoundingMode.HALF_UP));
+        return metrics;
+    }
+
     private DataModelStatisticsView initializeStatisticsView(List<DataModelAttrIndexEntity> rows,
                                                              MetadataFieldDefinition targetField) {
         DataModelStatisticsView view = new DataModelStatisticsView();
@@ -330,6 +441,34 @@ public class DataModelStatisticsService {
         return metrics;
     }
 
+    private List<DataModelStatisticsBucketView> buildValueBuckets(ResolvedStatisticsData resolved,
+                                                                  Integer topN) {
+        if (!hasTargetMatches(resolved)) {
+            return new ArrayList<DataModelStatisticsBucketView>();
+        }
+        Integer limit = topN == null || topN.intValue() <= 0 ? null : topN;
+        List<DataModelStatisticsBucketAggregate> rows = indexMapper.selectStatisticsValueBuckets(securityService.currentTenantId(),
+                resolved.getTargetSchema().getSchemaCode(),
+                resolved.getTargetScope(),
+                resolved.getTargetField().getFieldKey(),
+                resolved.getMatchedModelIds(),
+                resolved.getMatchUnits(),
+                limit);
+        List<DataModelStatisticsBucketView> buckets = new ArrayList<DataModelStatisticsBucketView>();
+        for (DataModelStatisticsBucketAggregate row : rows == null ? new ArrayList<DataModelStatisticsBucketAggregate>() : rows) {
+            if (row == null || row.getBucketKey() == null || row.getBucketKey().trim().isEmpty()) {
+                continue;
+            }
+            DataModelStatisticsBucketView bucket = new DataModelStatisticsBucketView();
+            bucket.setKey(row.getBucketKey());
+            bucket.setLabel(row.getBucketKey());
+            bucket.setValue(row.getBucketKey());
+            bucket.setCount(row.getCount() == null ? 0L : row.getCount());
+            buckets.add(bucket);
+        }
+        return buckets;
+    }
+
     private List<DataModelStatisticsBucketView> buildValueBuckets(List<DataModelAttrIndexEntity> rows,
                                                                   Integer topN) {
         Map<String, Long> counters = new LinkedHashMap<String, Long>();
@@ -366,6 +505,70 @@ public class DataModelStatisticsService {
             buckets.add(bucket);
         }
         return buckets;
+    }
+
+    private NumericBucketResult buildNumericBucketResult(ResolvedStatisticsData resolved,
+                                                         DataModelStatisticsSummaryAggregate summary,
+                                                         DataModelStatisticsBucketConfig bucketConfig) {
+        NumericBucketPlan bucketPlan = buildManualBucketPlan(summary, bucketConfig);
+        return bucketizeSourceRows(resolved, bucketPlan);
+    }
+
+    private NumericBucketResult buildAutomaticNumericBucketResult(ResolvedStatisticsData resolved,
+                                                                  DataModelStatisticsSummaryAggregate summary) {
+        NumericBucketPlan bucketPlan = buildAutomaticBucketPlan(summary, resolved == null ? null : resolved.getTargetField());
+        return bucketizeSourceRows(resolved, bucketPlan);
+    }
+
+    private NumericBucketResult bucketizeSourceRows(ResolvedStatisticsData resolved,
+                                                    NumericBucketPlan bucketPlan) {
+        if (bucketPlan == null) {
+            return new NumericBucketResult(new ArrayList<DataModelStatisticsBucketView>(), null);
+        }
+        List<DataModelStatisticsBucketView> buckets = initializeBuckets(bucketPlan);
+        if (!hasTargetMatches(resolved) || buckets.isEmpty()) {
+            return new NumericBucketResult(buckets, bucketPlan);
+        }
+        List<DataModelStatisticsBucketRange> ranges = toBucketRanges(buckets);
+        List<DataModelStatisticsBucketAggregate> counts = indexMapper.selectStatisticsNumericBucketCounts(securityService.currentTenantId(),
+                resolved.getTargetSchema().getSchemaCode(),
+                resolved.getTargetScope(),
+                resolved.getTargetField().getFieldKey(),
+                resolved.getMatchedModelIds(),
+                resolved.getMatchUnits(),
+                ranges);
+        Map<String, Long> countMap = new HashMap<String, Long>();
+        for (DataModelStatisticsBucketAggregate count : counts == null ? new ArrayList<DataModelStatisticsBucketAggregate>() : counts) {
+            if (count != null && count.getBucketKey() != null) {
+                countMap.put(count.getBucketKey(), count.getCount() == null ? 0L : count.getCount());
+            }
+        }
+        for (DataModelStatisticsBucketView bucket : buckets) {
+            Long count = countMap.get(bucket.getKey());
+            bucket.setCount(count == null ? 0L : count);
+        }
+        return new NumericBucketResult(buckets, bucketPlan);
+    }
+
+    private List<DataModelStatisticsBucketRange> toBucketRanges(List<DataModelStatisticsBucketView> buckets) {
+        List<DataModelStatisticsBucketRange> ranges = new ArrayList<DataModelStatisticsBucketRange>();
+        if (buckets == null) {
+            return ranges;
+        }
+        for (int index = 0; index < buckets.size(); index++) {
+            DataModelStatisticsBucketView bucket = buckets.get(index);
+            if (bucket == null) {
+                continue;
+            }
+            DataModelStatisticsBucketRange range = new DataModelStatisticsBucketRange();
+            range.setBucketIndex(index);
+            range.setBucketKey(bucket.getKey());
+            range.setLowerBound(bucket.getLowerBound());
+            range.setUpperBound(bucket.getUpperBound());
+            range.setLastBucket(index == buckets.size() - 1);
+            ranges.add(range);
+        }
+        return ranges;
     }
 
     private NumericBucketResult buildNumericBucketResult(List<DataModelAttrIndexEntity> rows,
@@ -443,6 +646,26 @@ public class DataModelStatisticsService {
         return buckets;
     }
 
+    private NumericBucketPlan buildManualBucketPlan(DataModelStatisticsSummaryAggregate summary,
+                                                    DataModelStatisticsBucketConfig bucketConfig) {
+        if (bucketConfig == null || bucketConfig.getStep() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Bucket step is required for COUNT_BY_BUCKET");
+        }
+        if (bucketConfig.getStep().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Bucket step must be greater than 0");
+        }
+        DataModelStatisticsSummaryAggregate safeSummary = summary == null ? emptySummary() : summary;
+        BigDecimal lower = bucketConfig.getLowerBound() == null ? safeSummary.getMinValue() : bucketConfig.getLowerBound();
+        BigDecimal upper = bucketConfig.getUpperBound() == null ? safeSummary.getMaxValue() : bucketConfig.getUpperBound();
+        if (lower == null || upper == null) {
+            return null;
+        }
+        if (upper.compareTo(lower) < 0) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Bucket upperBound must be greater than or equal to lowerBound");
+        }
+        return new NumericBucketPlan(lower, upper, bucketConfig.getStep(), computeBucketCount(lower, upper, bucketConfig.getStep()));
+    }
+
     private NumericBucketPlan buildManualBucketPlan(List<DataModelAttrIndexEntity> rows,
                                                     DataModelStatisticsBucketConfig bucketConfig) {
         if (bucketConfig == null || bucketConfig.getStep() == null) {
@@ -478,9 +701,24 @@ public class DataModelStatisticsService {
         return new NumericBucketPlan(lower, upper, bucketConfig.getStep(), computeBucketCount(lower, upper, bucketConfig.getStep()));
     }
 
+    private NumericBucketPlan buildAutomaticBucketPlan(DataModelStatisticsSummaryAggregate summary,
+                                                       MetadataFieldDefinition targetField) {
+        DataModelStatisticsSummaryAggregate safeSummary = summary == null ? emptySummary() : summary;
+        NumericValueStats stats = new NumericValueStats(safeSummary.getMinValue(),
+                safeSummary.getMaxValue(),
+                safeSummary.getNumericCount() == null ? 0L : safeSummary.getNumericCount(),
+                safeSummary.getDistinctCount() == null ? 0 : safeSummary.getDistinctCount().intValue());
+        return buildAutomaticBucketPlan(stats, targetField);
+    }
+
     private NumericBucketPlan buildAutomaticBucketPlan(List<DataModelAttrIndexEntity> rows,
                                                        MetadataFieldDefinition targetField) {
         NumericValueStats stats = collectNumericValueStats(rows);
+        return buildAutomaticBucketPlan(stats, targetField);
+    }
+
+    private NumericBucketPlan buildAutomaticBucketPlan(NumericValueStats stats,
+                                                       MetadataFieldDefinition targetField) {
         if (stats.count <= 0 || stats.min == null || stats.max == null) {
             return null;
         }
@@ -740,6 +978,8 @@ public class DataModelStatisticsService {
         private final String targetScope;
         private final String statType;
         private final List<DataModelAttrIndexEntity> targetRows;
+        private final List<Long> matchedModelIds;
+        private final List<DataModelMatchUnit> matchUnits;
 
         public ResolvedStatisticsData(MetadataSchemaDefinition targetSchema,
                                       MetadataFieldDefinition targetField,
@@ -751,6 +991,27 @@ public class DataModelStatisticsService {
             this.targetScope = targetScope;
             this.statType = statType;
             this.targetRows = targetRows == null ? new ArrayList<DataModelAttrIndexEntity>() : targetRows;
+            this.matchedModelIds = modelIdsFromRows(this.targetRows);
+            this.matchUnits = null;
+        }
+
+        public ResolvedStatisticsData(MetadataSchemaDefinition targetSchema,
+                                      MetadataFieldDefinition targetField,
+                                      String targetScope,
+                                      String statType,
+                                      Set<Long> matchedModelIds,
+                                      Set<DataModelMatchUnit> matchUnits) {
+            this.targetSchema = targetSchema;
+            this.targetField = targetField;
+            this.targetScope = targetScope;
+            this.statType = statType;
+            this.targetRows = new ArrayList<DataModelAttrIndexEntity>();
+            this.matchedModelIds = matchedModelIds == null
+                    ? new ArrayList<Long>()
+                    : new ArrayList<Long>(matchedModelIds);
+            this.matchUnits = matchUnits == null
+                    ? null
+                    : new ArrayList<DataModelMatchUnit>(matchUnits);
         }
 
         public MetadataSchemaDefinition getTargetSchema() {
@@ -771,6 +1032,26 @@ public class DataModelStatisticsService {
 
         public List<DataModelAttrIndexEntity> getTargetRows() {
             return targetRows;
+        }
+
+        public List<Long> getMatchedModelIds() {
+            return matchedModelIds;
+        }
+
+        public List<DataModelMatchUnit> getMatchUnits() {
+            return matchUnits;
+        }
+
+        private static List<Long> modelIdsFromRows(List<DataModelAttrIndexEntity> rows) {
+            LinkedHashSet<Long> ids = new LinkedHashSet<Long>();
+            if (rows != null) {
+                for (DataModelAttrIndexEntity row : rows) {
+                    if (row != null && row.getModelId() != null) {
+                        ids.add(row.getModelId());
+                    }
+                }
+            }
+            return new ArrayList<Long>(ids);
         }
     }
 }

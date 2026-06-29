@@ -110,6 +110,7 @@
 | FIX-S79-001 | 数据资产/模型列表 | 中 | `/models/summaries?datasourceType=...` 只需按类型查可访问数据源 ID，却调用完整数据源列表并水合连接健康、趋势和元数据字段 | `DataSourceService.java`；`DataModelService.java`；`DataSourceListSourceSlimmingRegressionTest.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java` | `DataModelSqlHintSourceSlimmingRegressionTest`；`DataSourceListSourceSlimmingRegressionTest`；`npm run build:web`；真实 API `/models/summaries?datasourceType=mysql8` 不含元数据字段；build-nginx `/models` 数据源类型筛选 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S80-001 | 数据质量/质量指标资产洞察 | 中 | `/quality-metrics` 资产风险列表只展示当前页表格，却调用 `/quality-metrics/assets/query` 拉取全量数组后在前端本地分页 | `QualityAssetQueryRequest.java`；`QualityMetricsController.java`；`QualityMetricsService.java`；`QualityMetricsView.vue`；`QualityMetricsAssetsTab.vue`；`frontend/packages/api-sdk/src/client.ts`；`frontend/packages/api-sdk/src/types.ts`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；真实 API `/quality-metrics/assets/page` `pageSize=1` 只返回 1 条；build-nginx `/quality-metrics` 资产洞察 Tab 显示长期项目资产列表且 console warn/error 为 0 | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S81-001 | 运行指标/Dashboard | 中 | `/run-metrics/query` 只需趋势桶、任务级 TopN 输入和 legacy 计数，却读取时间窗口内全部成功/失败运行记录后在 Java 内存聚合 | `RunMetricSqlProvider.java`；`RunMetricBucketAggregate.java`；`RunMetricTaskAggregate.java`；`RunRecordMapper.java`；`RunMetricsService.java`；`MetricsSourceSlimmingRegressionTest.java` | `MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/run-metrics/query`；build-nginx `/run-metrics` 页面刷新 smoke | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S82-001 | 数据资产/统计分析 | 中 | `/statistics` 执行分析一次页面动作会重复读取目标字段索引明细，概览和 4 个图表在 Java 内存聚合，趋势图还读取模型明细后按创建时间聚合 | `DataModelStatisticsSqlProvider.java`；`DataModelStatisticsSummaryAggregate.java`；`DataModelStatisticsBucketAggregate.java`；`DataModelStatisticsBucketRange.java`；`DataModelStatisticsTrendAggregate.java`；`DataModelAttrIndexMapper.java`；`DataModelStatisticsService.java`；`DataModelStatisticsWorkspaceService.java`；`MetadataSchemaService.java`；`DataModelStatisticsSourceSlimmingRegressionTest.java` | `DataModelStatisticsRegressionTest`；`DataModelStatisticsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/statistics` 页面执行分析 smoke | module-regression | 2026-06-29 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -199,3 +200,4 @@
 | S79 模型列表数据源类型筛选源头瘦身 | FIX-S79-001 |
 | S80 质量指标资产风险列表分页 | FIX-S80-001 |
 | S81 运行指标 Dashboard 运行记录源头聚合 | FIX-S81-001 |
+| S82 统计分析源头聚合 | FIX-S82-001 |

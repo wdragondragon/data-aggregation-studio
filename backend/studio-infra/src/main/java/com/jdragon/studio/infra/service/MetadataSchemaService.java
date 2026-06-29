@@ -77,6 +77,18 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         return toDefinition(schema);
     }
 
+    public MetadataSchemaDefinition getSchemaByCode(String schemaCode) {
+        if (schemaCode == null || schemaCode.trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Schema code is required");
+        }
+        MetaSchemaEntity schema = schemaMapper.selectOne(new LambdaQueryWrapper<MetaSchemaEntity>()
+                .eq(MetaSchemaEntity::getSchemaCode, schemaCode.trim()));
+        if (schema == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Target schema not found: " + schemaCode);
+        }
+        return toDefinition(schema);
+    }
+
     public List<MetadataSchemaDefinition> listSchemasWithFieldsByIds(Collection<Long> schemaIds) {
         if (schemaIds == null || schemaIds.isEmpty()) {
             return new ArrayList<MetadataSchemaDefinition>();
