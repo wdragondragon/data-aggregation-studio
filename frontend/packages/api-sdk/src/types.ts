@@ -1448,6 +1448,16 @@ export interface ModelDiscoveryResult {
   [key: string]: unknown;
 }
 
+export interface ModelDiscoveryOptionResult {
+  models: DataModelDatasourceOptionView[];
+  message?: string;
+  total?: number;
+  pageNo?: number;
+  pageSize?: number;
+  hasMore?: boolean;
+  [key: string]: unknown;
+}
+
 export interface ModelSyncTaskCreateRequest {
   datasourceId: EntityId;
   physicalLocators: string[];

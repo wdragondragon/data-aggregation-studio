@@ -4,8 +4,10 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataModelDatasourceOptionView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
+import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.core.spi.ModelDiscoveryProvider;
 import com.jdragon.studio.core.spi.SourceCapabilityProvider;
@@ -157,6 +159,77 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         return discoverModels(definition, keyword, null, null);
     }
 
+    public ModelDiscoveryOptionResult discoverModelOptions(DataSourceDefinition definition,
+                                                           String keyword,
+                                                           Integer pageNo,
+                                                           Integer pageSize) {
+        ModelDiscoveryOptionResult result = new ModelDiscoveryOptionResult();
+        if (isHttpDatasource(definition)) {
+            result.setPageNo(resolvePageNo(pageNo));
+            result.setPageSize(resolvePageSize(pageSize, 1));
+            result.setTotal(0L);
+            result.setHasMore(false);
+            result.setMessage("HTTP models are maintained manually");
+            return result;
+        }
+        try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
+            AbstractPlugin plugin = loader.loadPlugin();
+            if (plugin instanceof AbstractDataSourcePlugin) {
+                AbstractDataSourcePlugin sourcePlugin = (AbstractDataSourcePlugin) plugin;
+                BaseDataSourceDTO datasource = toBaseDataSource(definition);
+                String normalizedKeyword = keyword == null ? "" : keyword.trim();
+                List<String> tableNames = sourcePlugin.getTableNames(datasource, normalizedKeyword);
+                List<String> pagedTableNames = paginate(tableNames, result, pageNo, pageSize);
+                for (String tableName : pagedTableNames) {
+                    result.getModels().add(toDiscoveryOption(definition, tableName, ModelKind.TABLE, tableName));
+                }
+                result.setMessage("Discovered RDBMS objects");
+                return result;
+            }
+            if (plugin instanceof FileHelper) {
+                FileHelper fileHelper = (FileHelper) plugin;
+                Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
+                String rootPath = String.valueOf(metadata.getOrDefault("rootPath", "/"));
+                String regex = String.valueOf(metadata.getOrDefault("pattern", ".*"));
+                String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
+                fileHelper.connect(Configuration.from(metadata));
+                List<String> fileNames = new ArrayList<String>();
+                for (String fileName : fileHelper.listFile(rootPath, regex)) {
+                    if (normalizedKeyword.isEmpty() || fileName.toLowerCase().contains(normalizedKeyword)) {
+                        fileNames.add(fileName);
+                    }
+                }
+                List<String> pagedFileNames = paginate(fileNames, result, pageNo, pageSize);
+                for (String fileName : pagedFileNames) {
+                    result.getModels().add(toDiscoveryOption(definition, fileName, ModelKind.FILE, fileName));
+                }
+                result.setMessage("Discovered file models");
+                return result;
+            }
+            if (plugin instanceof QueueAbstract) {
+                Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
+                String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
+                String modelName = String.valueOf(metadata.getOrDefault("topic", metadata.getOrDefault("queue", definition.getName())));
+                result.setPageNo(resolvePageNo(pageNo));
+                result.setPageSize(resolvePageSize(pageSize, 1));
+                result.setTotal(0L);
+                result.setHasMore(false);
+                if (!normalizedKeyword.isEmpty() && !modelName.toLowerCase().contains(normalizedKeyword)) {
+                    result.setMessage("Queue model does not match keyword");
+                    return result;
+                }
+                result.getModels().add(toDiscoveryOption(definition, modelName, ModelKind.TOPIC, modelName));
+                result.setTotal(1L);
+                result.setMessage("Queue model synthesized from datasource metadata");
+                return result;
+            }
+            result.setMessage("No model discovery provider");
+        } catch (Exception e) {
+            result.setMessage(userFriendlyErrorMessage(e));
+        }
+        return result;
+    }
+
     @Override
     public ModelDiscoveryResult discoverModels(DataSourceDefinition definition,
                                                String keyword,
@@ -250,8 +323,47 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         return result;
     }
 
+    private DataModelDatasourceOptionView toDiscoveryOption(DataSourceDefinition definition,
+                                                            String name,
+                                                            ModelKind modelKind,
+                                                            String physicalLocator) {
+        DataModelDatasourceOptionView view = new DataModelDatasourceOptionView();
+        view.setDatasourceId(definition == null ? null : definition.getId());
+        view.setName(name);
+        view.setModelKind(modelKind);
+        view.setPhysicalLocator(physicalLocator);
+        return view;
+    }
+
     private List<String> paginate(List<String> names,
                                   ModelDiscoveryResult result,
+                                  Integer pageNo,
+                                  Integer pageSize) {
+        List<String> source = names == null ? new ArrayList<String>() : names;
+        if (pageNo == null && pageSize == null) {
+            result.setTotal(source.size());
+            result.setPageNo(1);
+            result.setPageSize(source.size());
+            result.setHasMore(false);
+            return new ArrayList<String>(source);
+        }
+        int safePageNo = resolvePageNo(pageNo);
+        int safePageSize = resolvePageSize(pageSize, source.size());
+        int total = source.size();
+        int offset = Math.max(0, (safePageNo - 1) * safePageSize);
+        int end = Math.min(total, offset + safePageSize);
+        result.setTotal(total);
+        result.setPageNo(safePageNo);
+        result.setPageSize(safePageSize);
+        result.setHasMore(end < total);
+        if (offset >= total) {
+            return new ArrayList<String>();
+        }
+        return new ArrayList<String>(source.subList(offset, end));
+    }
+
+    private List<String> paginate(List<String> names,
+                                  ModelDiscoveryOptionResult result,
                                   Integer pageNo,
                                   Integer pageSize) {
         List<String> source = names == null ? new ArrayList<String>() : names;

@@ -80,7 +80,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { DataModelDefinition, EntityId } from "@studio/api-sdk";
+import type { DataModelDatasourceOptionView, EntityId } from "@studio/api-sdk";
 import { StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 
@@ -101,7 +101,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const tableRef = ref();
-const rows = ref<DataModelDefinition[]>([]);
+const rows = ref<DataModelDatasourceOptionView[]>([]);
 const loading = ref(false);
 const keyword = ref("");
 const pageNo = ref(1);
@@ -124,7 +124,7 @@ async function loadPage() {
   }
   loading.value = true;
   try {
-    const result = await studioApi.datasources.discover(props.datasourceId, {
+    const result = await studioApi.datasources.discoverOptions(props.datasourceId, {
       keyword: keyword.value.trim() || undefined,
       pageNo: pageNo.value,
       pageSize: pageSize.value,
@@ -154,7 +154,7 @@ function updateSelection(nextValues: string[]) {
   emit("update:modelValue", Array.from(new Set(nextValues.map((item) => String(item)))));
 }
 
-function handleRowSelect(selection: DataModelDefinition[], row: DataModelDefinition) {
+function handleRowSelect(selection: DataModelDatasourceOptionView[], row: DataModelDatasourceOptionView) {
   const locator = String(row.physicalLocator);
   const next = new Set(selectedSet.value);
   const selectedOnPage = selection.some((item) => String(item.physicalLocator) === locator);
@@ -166,7 +166,7 @@ function handleRowSelect(selection: DataModelDefinition[], row: DataModelDefinit
   updateSelection(Array.from(next));
 }
 
-function handleSelectAll(selection: DataModelDefinition[]) {
+function handleSelectAll(selection: DataModelDatasourceOptionView[]) {
   const next = new Set(selectedSet.value);
   const pageLocators = rows.value.map((item) => String(item.physicalLocator));
   const selectedPageLocators = new Set(selection.map((item) => String(item.physicalLocator)));

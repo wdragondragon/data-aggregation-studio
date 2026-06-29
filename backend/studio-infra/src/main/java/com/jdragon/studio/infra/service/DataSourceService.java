@@ -18,6 +18,7 @@ import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
+import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -323,6 +324,12 @@ public class DataSourceService {
         DataSourceDefinition definition = getInternal(id);
         datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
         return capabilityProvider.discoverModels(definition, keyword, pageNo, pageSize);
+    }
+
+    public ModelDiscoveryOptionResult discoverModelOptions(Long id, String keyword, Integer pageNo, Integer pageSize) {
+        DataSourceDefinition definition = getInternal(id);
+        datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
+        return capabilityProvider.discoverModelOptions(definition, keyword, pageNo, pageSize);
     }
 
     public List<DatasourceConnectionTestRecordView> connectionHistory(Long id, Integer days, Integer limit) {

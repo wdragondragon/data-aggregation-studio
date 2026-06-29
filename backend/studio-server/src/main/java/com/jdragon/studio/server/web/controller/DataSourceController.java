@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
+import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.service.DataSourceService;
@@ -93,6 +94,15 @@ public class DataSourceController {
                                                  @RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                  @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         return Result.success(dataSourceService.discoverModels(id, keyword, pageNo, pageSize));
+    }
+
+    @Operation(summary = "Discover lightweight model options from datasource")
+    @PostMapping("/{id}/discover-options")
+    public Result<ModelDiscoveryOptionResult> discoverOptions(@PathVariable("id") Long id,
+                                                              @RequestParam(value = "keyword", required = false) String keyword,
+                                                              @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                                              @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataSourceService.discoverModelOptions(id, keyword, pageNo, pageSize));
     }
 
     @Operation(summary = "Delete datasource")

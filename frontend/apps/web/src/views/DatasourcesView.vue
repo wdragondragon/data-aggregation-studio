@@ -312,7 +312,7 @@ import type {
   EntityId,
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
-  ModelDiscoveryResult,
+  ModelDiscoveryOptionResult,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
@@ -363,7 +363,7 @@ const saving = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
 const testingDatasourceIds = ref<string[]>([]);
 const discoverDialogOpen = ref(false);
-const discoveredModels = ref<ModelDiscoveryResult["models"]>([]);
+const discoveredModels = ref<ModelDiscoveryOptionResult["models"]>([]);
 const connectionHistoryDialogOpen = ref(false);
 const connectionHistoryLoading = ref(false);
 const historyDatasource = ref<DataSourceListView | null>(null);
@@ -1105,7 +1105,7 @@ async function discoverModels(item: DataSourceListView) {
     return;
   }
   try {
-    const result = await studioApi.datasources.discover(item.id);
+    const result = await studioApi.datasources.discoverOptions(item.id);
     discoveredModels.value = result.models;
     discoverDialogOpen.value = true;
   } catch (error) {

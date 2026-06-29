@@ -87,6 +87,7 @@ import type {
   LoginResponse,
   MetadataSchemaDefinition,
   ModelSyncRequest,
+  ModelDiscoveryOptionResult,
   ModelDiscoveryResult,
   ModelSyncTaskCreateRequest,
   ModelSyncTaskItemView,
@@ -592,6 +593,21 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         const keyword = options.keyword?.trim();
         return request<ModelDiscoveryResult>({
           url: `/datasources/${id}/discover`,
+          method: "POST",
+          params: {
+            ...(keyword ? { keyword } : {}),
+            ...(options.pageNo ? { pageNo: options.pageNo } : {}),
+            ...(options.pageSize ? { pageSize: options.pageSize } : {}),
+          },
+        });
+      },
+      discoverOptions(id: EntityId, keywordOrOptions?: string | { keyword?: string; pageNo?: number; pageSize?: number }) {
+        const options = typeof keywordOrOptions === "string"
+          ? { keyword: keywordOrOptions }
+          : (keywordOrOptions ?? {});
+        const keyword = options.keyword?.trim();
+        return request<ModelDiscoveryOptionResult>({
+          url: `/datasources/${id}/discover-options`,
           method: "POST",
           params: {
             ...(keyword ? { keyword } : {}),
