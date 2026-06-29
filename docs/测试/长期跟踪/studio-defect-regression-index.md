@@ -123,6 +123,7 @@
 | FIX-S92-001 | 数据质量/规则任务列表 | 中 | `/quality-rules` 单删/批删和 `/quality-tasks` 单删后无条件重拉整个列表，刷新范围超过当前行变化 | `QualityRulesView.vue`；`QualityTasksView.vue` | `QualityListSourceSlimmingRegressionTest`；`QualityRuleOptionsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/quality-rules`、`/quality-tasks` | module-regression | 2026-06-30 | 本次提交 |
 | FIX-S93-001 | 数据开发/工作流列表 | 中 | `/workflows` 删除工作流后无条件重拉整个列表，刷新范围超过当前行变化 | `WorkflowsView.vue` | `WorkflowListSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/workflows` | module-regression | 2026-06-30 | 本次提交 |
 | FIX-S94-001 | 数据资产/模型同步任务 | 中 | `/models?tab=sync-tasks` 停止/删除模型同步任务后无条件重拉整个列表，刷新范围超过当前行变化 | `ModelsView.vue` | `ModelSyncTaskServiceRegressionTest`；`ModelSyncTaskApiRegressionTest`；`npm run build:web`；build-nginx `/models?tab=sync-tasks` | module-regression | 2026-06-30 | 本次提交 |
+| FIX-S95-001 | 系统管理/写后刷新 | 中 | `/system` 多个保存、审核、删除动作后无条件重拉对应分页列表，刷新范围超过当前行变化 | `SystemView.vue` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`SystemProjectWorkerViewRegressionTest`；`ResourceShareServiceTypeRegressionTest`；`npm run build:web`；build-nginx `/system` 租户编辑 smoke；源码复核 `patchRowById/removePaginatedSystemRow` 路径 | module-regression | 2026-06-30 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -225,3 +226,4 @@
 | S92 质量规则任务列表删除刷新收敛 | FIX-S92-001 |
 | S93 工作流列表删除刷新收敛 | FIX-S93-001 |
 | S94 模型同步任务写后刷新收敛 | FIX-S94-001 |
+| S95 系统管理写后刷新收敛 | FIX-S95-001 |

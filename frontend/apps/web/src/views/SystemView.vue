@@ -608,6 +608,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import type { Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -1093,9 +1094,86 @@ function handlePaginatedPageSizeChange(tab: PaginatedSystemTabName) {
   reloadPaginatedTab(tab);
 }
 
-function stepBackPaginatedPageAfterDelete(tab: PaginatedSystemTabName, currentItemCount: number) {
-  if (currentItemCount <= 1 && systemPagination[tab].page > 1) {
-    systemPagination[tab].page -= 1;
+type PaginationState = {
+  page: number;
+  total: number;
+};
+
+function findRowById<T extends { id?: EntityId | null }>(rowsRef: Ref<T[]>, id: EntityId | null | undefined) {
+  if (id == null) {
+    return undefined;
+  }
+  return rowsRef.value.find((item) => sameEntityId(item.id, id));
+}
+
+function patchRowById<T extends { id?: EntityId | null }>(
+  rowsRef: Ref<T[]>,
+  id: EntityId | null | undefined,
+  patch: Partial<T>,
+  keys: (keyof T)[],
+) {
+  const target = findRowById(rowsRef, id);
+  if (!target) {
+    return false;
+  }
+  const next: Partial<T> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      const value = (patch as Record<string, unknown>)[key as string];
+      if (value !== undefined) {
+        (next as Record<string, unknown>)[key as string] = value;
+      }
+    }
+  }
+  Object.assign(target, next);
+  return true;
+}
+
+function removeRowById<T extends { id?: EntityId | null }>(
+  rowsRef: Ref<T[]>,
+  pagination: PaginationState,
+  id: EntityId | null | undefined,
+) {
+  if (id == null) {
+    return false;
+  }
+  const beforeCount = rowsRef.value.length;
+  rowsRef.value = rowsRef.value.filter((item) => !sameEntityId(item.id, id));
+  if (rowsRef.value.length === beforeCount) {
+    return false;
+  }
+  pagination.total = Math.max(0, pagination.total - 1);
+  return true;
+}
+
+async function reloadWhenCurrentPageEmpty<T>(
+  rowsRef: Ref<T[]>,
+  pagination: PaginationState,
+  loadFn: () => Promise<void>,
+) {
+  if (rowsRef.value.length > 0 || pagination.total <= 0) {
+    return;
+  }
+  if (pagination.page > 1) {
+    pagination.page -= 1;
+  }
+  await loadFn();
+}
+
+async function removePaginatedSystemRow<T extends { id?: EntityId | null }>(
+  tab: PaginatedSystemTabName,
+  rowsRef: Ref<T[]>,
+  id: EntityId | null | undefined,
+  loadFn: () => Promise<void>,
+) {
+  if (removeRowById(rowsRef, systemPagination[tab], id)) {
+    await reloadWhenCurrentPageEmpty(rowsRef, systemPagination[tab], loadFn);
+  }
+}
+
+async function removeResourceShareRow(id: EntityId | null | undefined) {
+  if (removeRowById(resourceShares, resourceSharePagination, id)) {
+    await reloadWhenCurrentPageEmpty(resourceShares, resourceSharePagination, loadResourceSharesData);
   }
 }
 
@@ -1322,8 +1400,10 @@ async function saveTenant() {
     enabled: toIntegerFlag(tenantForm.enabled),
   });
   await wrapSave(() => studioApi.system.tenants.save(payload), tenantDialogOpen, "租户保存成功", {
-    onSaved: async () => {
-      await loadTenants();
+    onSaved: async (saved) => {
+      if (!patchRowById(tenants, saved.id, saved, ["tenantCode", "tenantName", "description", "enabled", "updatedAt"])) {
+        await loadTenants();
+      }
     },
     refreshProfile: true,
   });
@@ -1336,9 +1416,11 @@ async function saveUser() {
     passwordHash: userForm.passwordHash?.trim() ? userForm.passwordHash.trim() : undefined,
   };
   try {
-    await studioApi.users.save(payload);
+    const saved = await studioApi.users.save(payload);
     userOptions.value = [];
-    await loadUsers();
+    if (!patchRowById(users, saved.id, saved, ["username", "displayName", "enabled", "updatedAt"])) {
+      await loadUsers();
+    }
     userDialogOpen.value = false;
     ElMessage.success("用户保存成功");
   } catch (error) {
@@ -1353,9 +1435,13 @@ async function saveProject() {
     defaultProject: toIntegerFlag(projectForm.defaultProject),
   });
   await wrapSave(() => studioApi.system.projects.save(payload), projectDialogOpen, "项目保存成功", {
-    onSaved: async () => {
+    onSaved: async (saved) => {
       projectOptions.value = [];
-      await loadProjects();
+      const current = findRowById(projects, saved.id);
+      const defaultProjectChanged = current && current.defaultProject !== saved.defaultProject;
+      if (defaultProjectChanged || !patchRowById(projects, saved.id, saved, ["projectCode", "projectName", "description", "defaultProject", "enabled", "updatedAt"])) {
+        await loadProjects();
+      }
     },
     refreshProfile: true,
   });
@@ -1365,7 +1451,11 @@ async function saveTenantMember() {
   const payload = normalizeDeletedFlag<Partial<SystemTenantMember>>({ ...tenantMemberForm });
   await wrapSave(() => studioApi.system.tenantMembers.save(payload), tenantMemberDialogOpen, "租户成员保存成功", {
     onSaved: async (saved) => {
-      await loadTenantMembers();
+      const current = findRowById(tenantMembers, saved.id);
+      const userChanged = current && !sameEntityId(current.userId, saved.userId ?? payload.userId);
+      if (userChanged || !patchRowById(tenantMembers, saved.id, saved, ["userId", "roleCode", "status", "updatedAt"])) {
+        await loadTenantMembers();
+      }
       await refreshProfileForUser(saved.userId ?? payload.userId);
     },
   });
@@ -1378,7 +1468,11 @@ async function saveProjectMember() {
   });
   await wrapSave(() => studioApi.system.projectMembers.save(payload), projectMemberDialogOpen, "项目成员保存成功", {
     onSaved: async (saved) => {
-      await loadProjectMembers();
+      const current = findRowById(projectMembers, saved.id);
+      const userChanged = current && !sameEntityId(current.userId, saved.userId ?? payload.userId);
+      if (userChanged || !patchRowById(projectMembers, saved.id, saved, ["userId", "roleCode", "status", "updatedAt"])) {
+        await loadProjectMembers();
+      }
       await refreshProfileForUser(saved.userId ?? payload.userId);
     },
   });
@@ -1391,7 +1485,11 @@ async function saveProjectRequest() {
   });
   await wrapSave(() => studioApi.system.projectMemberRequests.save(payload), requestDialogOpen, "申请 / 邀请保存成功", {
     onSaved: async (saved) => {
-      await loadProjectMemberRequests();
+      const current = findRowById(projectMemberRequests, saved.id);
+      const userChanged = current && !sameEntityId(current.userId, saved.userId ?? payload.userId);
+      if (userChanged || !patchRowById(projectMemberRequests, saved.id, saved, ["userId", "requestType", "status", "reason", "reviewComment", "updatedAt"])) {
+        await loadProjectMemberRequests();
+      }
       if (isApprovedStatus(saved.status ?? payload.status)) {
         await refreshProfileForUser(saved.userId ?? payload.userId);
       }
@@ -1421,7 +1519,7 @@ async function approveProjectRequest(row: SystemProjectMemberRequest) {
     reviewComment: result.value?.trim() || undefined,
   });
   const saved = await studioApi.system.projectMemberRequests.save(payload);
-  await loadProjectMemberRequests();
+  patchRowById(projectMemberRequests, saved.id ?? row.id, saved, ["status", "reviewComment", "reviewerUserId", "reviewerUsername", "updatedAt"]);
   await refreshProfileForUser(saved.userId ?? payload.userId);
   ElMessage.success("项目加入申请已通过");
 }
@@ -1449,8 +1547,8 @@ async function rejectProjectRequest(row: SystemProjectMemberRequest) {
     status: "REJECTED",
     reviewComment: result.value.trim(),
   });
-  await studioApi.system.projectMemberRequests.save(payload);
-  await loadProjectMemberRequests();
+  const saved = await studioApi.system.projectMemberRequests.save(payload);
+  patchRowById(projectMemberRequests, saved.id ?? row.id, saved, ["status", "reviewComment", "reviewerUserId", "reviewerUsername", "updatedAt"]);
   ElMessage.success("项目加入申请已拒绝");
 }
 
@@ -1463,10 +1561,16 @@ async function saveProjectWorker() {
     workerCode: workerGroupCode,
     enabled: toIntegerFlag(workerForm.enabled),
   });
+  const current = findRowById(projectWorkers, workerForm.id);
   await wrapSave(() => studioApi.system.projectWorkers.save(payload), workerDialogOpen, "Worker 组绑定已保存", {
-    onSaved: async () => {
+    onSaved: async (saved) => {
       projectWorkerOptionsLoaded.value = false;
-      await loadProjectWorkers();
+      const savedWorkerGroupCode = saved.workerGroupCode || saved.workerCode || workerGroupCode;
+      const currentWorkerGroupCode = current?.workerGroupCode || current?.workerCode;
+      const workerGroupChanged = current && currentWorkerGroupCode !== savedWorkerGroupCode;
+      if (workerGroupChanged || !patchRowById(projectWorkers, saved.id, saved, ["workerGroupCode", "workerCode", "enabled", "updatedAt"])) {
+        await loadProjectWorkers();
+      }
     },
   });
 }
@@ -1479,11 +1583,22 @@ async function saveResourceShare() {
     resourceType: normalizedResourceType,
     enabled: toIntegerFlag(shareForm.enabled),
   });
+  const current = findRowById(resourceShares, shareForm.id);
+  const shouldResetSharePage = !current || normalizeResourceType(current.resourceType) !== normalizedResourceType;
   shareFilters.resourceType = normalizedResourceType;
-  resourceSharePagination.page = 1;
+  if (shouldResetSharePage) {
+    resourceSharePagination.page = 1;
+  }
   await wrapSave(() => studioApi.system.resourceShares.save(payload), shareDialogOpen, "资源共享已保存", {
-    onSaved: async () => {
-      await loadResourceSharesData();
+    onSaved: async (saved) => {
+      const labelHydrationChanged = current && (
+        normalizeResourceType(current.resourceType) !== normalizedResourceType
+        || !sameEntityId(current.resourceId, saved.resourceId ?? payload.resourceId)
+        || !sameEntityId(current.targetProjectId, saved.targetProjectId ?? payload.targetProjectId)
+      );
+      if (labelHydrationChanged || !patchRowById(resourceShares, saved.id, saved, ["sourceProjectId", "targetProjectId", "resourceType", "resourceId", "enabled", "updatedAt"])) {
+        await loadResourceSharesData();
+      }
     },
   });
 }
@@ -1491,8 +1606,7 @@ async function saveResourceShare() {
 async function deleteTenant(row: SystemTenant) {
   await confirmDelete(`确认删除租户 ${row.tenantName} 吗？`, () => studioApi.system.tenants.delete(row.id!), {
     onDeleted: async () => {
-      stepBackPaginatedPageAfterDelete("tenants", tenants.value.length);
-      await loadTenants();
+      await removePaginatedSystemRow("tenants", tenants, row.id, loadTenants);
     },
     refreshProfile: true,
   });
@@ -1503,8 +1617,7 @@ async function deleteUser(row: StudioUserListView) {
     await ElMessageBox.confirm(`确认删除用户 ${row.username} 吗？`, t("common.confirm"), { type: "warning" });
     await studioApi.users.delete(row.id!);
     userOptions.value = userOptions.value.filter((item) => !sameEntityId(item.id, row.id));
-    stepBackPaginatedPageAfterDelete("users", users.value.length);
-    await loadUsers();
+    await removePaginatedSystemRow("users", users, row.id, loadUsers);
     ElMessage.success("删除成功");
   } catch (error) {
     if (error !== "cancel") {
@@ -1517,8 +1630,7 @@ async function deleteProject(row: SystemProject) {
   await confirmDelete(`确认删除项目 ${row.projectName} 吗？`, () => studioApi.system.projects.delete(row.id!), {
     onDeleted: async () => {
       projectOptions.value = projectOptions.value.filter((item) => !sameEntityId(item.id, row.id));
-      stepBackPaginatedPageAfterDelete("projects", projects.value.length);
-      await loadProjects();
+      await removePaginatedSystemRow("projects", projects, row.id, loadProjects);
     },
     refreshProfile: true,
   });
@@ -1527,8 +1639,7 @@ async function deleteProject(row: SystemProject) {
 async function deleteTenantMember(row: SystemTenantMember) {
   await confirmDelete(`确认移除租户成员 ${row.username} 吗？`, () => studioApi.system.tenantMembers.delete(row.id!), {
     onDeleted: async () => {
-      stepBackPaginatedPageAfterDelete("tenantMembers", tenantMembers.value.length);
-      await loadTenantMembers();
+      await removePaginatedSystemRow("tenantMembers", tenantMembers, row.id, loadTenantMembers);
       await refreshProfileForUser(row.userId);
     },
   });
@@ -1537,8 +1648,7 @@ async function deleteTenantMember(row: SystemTenantMember) {
 async function deleteProjectMember(row: SystemProjectMember) {
   await confirmDelete(`确认移除项目成员 ${row.username} 吗？`, () => studioApi.system.projectMembers.delete(row.id!), {
     onDeleted: async () => {
-      stepBackPaginatedPageAfterDelete("projectMembers", projectMembers.value.length);
-      await loadProjectMembers();
+      await removePaginatedSystemRow("projectMembers", projectMembers, row.id, loadProjectMembers);
       await refreshProfileForUser(row.userId);
     },
   });
@@ -1547,8 +1657,7 @@ async function deleteProjectMember(row: SystemProjectMember) {
 async function deleteProjectRequest(row: SystemProjectMemberRequest) {
   await confirmDelete(`确认删除记录 ${row.username} 吗？`, () => studioApi.system.projectMemberRequests.delete(row.id!), {
     onDeleted: async () => {
-      stepBackPaginatedPageAfterDelete("requests", projectMemberRequests.value.length);
-      await loadProjectMemberRequests();
+      await removePaginatedSystemRow("requests", projectMemberRequests, row.id, loadProjectMemberRequests);
     },
   });
 }
@@ -1557,8 +1666,7 @@ async function deleteProjectWorker(row: SystemProjectWorker) {
   await confirmDelete(`确认解绑 Worker 组 ${row.workerGroupCode || row.workerCode} 吗？`, () => studioApi.system.projectWorkers.delete(row.id!), {
     onDeleted: async () => {
       projectWorkerOptionsLoaded.value = false;
-      stepBackPaginatedPageAfterDelete("workers", projectWorkers.value.length);
-      await loadProjectWorkers();
+      await removePaginatedSystemRow("workers", projectWorkers, row.id, loadProjectWorkers);
     },
   });
 }
@@ -1566,10 +1674,7 @@ async function deleteProjectWorker(row: SystemProjectWorker) {
 async function deleteResourceShare(row: ResourceShare) {
   await confirmDelete(`确认取消共享 ${resourceLabel(row)} 吗？`, () => studioApi.system.resourceShares.delete(row.id!), {
     onDeleted: async () => {
-      if (resourceShares.value.length <= 1 && resourceSharePagination.page > 1) {
-        resourceSharePagination.page -= 1;
-      }
-      await loadResourceSharesData();
+      await removeResourceShareRow(row.id);
     },
   });
 }
@@ -1581,10 +1686,21 @@ async function approveRegistration(row: UserRegistrationRequestView) {
       cancelButtonText: t("common.cancel"),
       inputPlaceholder: "审批通过后会自动创建账号",
     });
-    await studioApi.system.userRegistrationRequests.approve(row.id!, {
+    const saved = await studioApi.system.userRegistrationRequests.approve(row.id!, {
       reviewComment: result.value?.trim() || undefined,
     });
-    await loadRegistrationRequests();
+    patchRowById(registrationRequests, saved.id ?? row.id, saved, [
+      "status",
+      "displayName",
+      "reason",
+      "reviewComment",
+      "reviewerUserId",
+      "reviewerUsername",
+      "approvedUserId",
+      "approvedUsername",
+      "reviewedAt",
+      "updatedAt",
+    ]);
     userOptions.value = [];
     ElMessage.success("注册登记已通过");
   } catch (error) {
@@ -1607,10 +1723,19 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
         return true;
       },
     });
-    await studioApi.system.userRegistrationRequests.reject(row.id!, {
+    const saved = await studioApi.system.userRegistrationRequests.reject(row.id!, {
       reviewComment: result.value.trim(),
     });
-    await loadRegistrationRequests();
+    patchRowById(registrationRequests, saved.id ?? row.id, saved, [
+      "status",
+      "displayName",
+      "reason",
+      "reviewComment",
+      "reviewerUserId",
+      "reviewerUsername",
+      "reviewedAt",
+      "updatedAt",
+    ]);
     ElMessage.success("注册登记已拒绝");
   } catch (error) {
     if (error !== "cancel") {
@@ -1622,8 +1747,7 @@ async function rejectRegistration(row: UserRegistrationRequestView) {
 async function deleteRegistration(row: UserRegistrationRequestView) {
   await confirmDelete(`确认删除注册登记 ${row.username} 吗？`, () => studioApi.system.userRegistrationRequests.delete(row.id!), {
     onDeleted: async () => {
-      stepBackPaginatedPageAfterDelete("registrationRequests", registrationRequests.value.length);
-      await loadRegistrationRequests();
+      await removePaginatedSystemRow("registrationRequests", registrationRequests, row.id, loadRegistrationRequests);
     },
   });
 }

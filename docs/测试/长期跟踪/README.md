@@ -200,3 +200,6 @@
 - 2026-06-30 已完成 S94 模型同步任务写后刷新收敛：确认并修复 `/models?tab=sync-tasks` 停止/删除模型同步任务后无条件重拉整个列表的问题，`FIX-S94-001` 已进入缺陷回归索引；模型同步任务列表源头字段继续由 S88 既有回归保障。
 - S94 本轮未新增或清理长期数据，未执行真实停止/删除动作；build-nginx `/models?tab=sync-tasks` 在 `长期回归测试项目` 下显示 4 条长期模型同步任务，console warn/error 为 0。
 - S94 回归入口：`ModelSyncTaskServiceRegressionTest`、`ModelSyncTaskApiRegressionTest`、`npm run build:web`、build-nginx `/models?tab=sync-tasks`。后续涉及 `ModelsView.vue`、模型同步任务列表字段、停止/删除刷新或模型同步任务详情明细时，至少复跑这些入口。
+- 2026-06-30 已完成 S95 系统管理写后刷新收敛：确认并修复 `/system` 多个保存、审核、删除动作后无条件重拉对应分页列表的问题，`FIX-S95-001` 已进入缺陷回归索引；系统管理分页源头字段继续由 S64/S66/S67 既有回归保障。
+- S95 保留长期数据变更：通过 build-nginx UI 编辑 `长期回归-业务协作租户` 描述，追加 `S95 验证系统管理编辑后行级刷新。`，页面更新成功且 console warn/error 为 0。
+- S95 回归入口：`SystemManagementPaginationSourceSlimmingRegressionTest`、`SystemProjectWorkerViewRegressionTest`、`ResourceShareServiceTypeRegressionTest`、`npm run build:web`、build-nginx `/system` 租户编辑 smoke、源码复核 `SystemView.vue` 中 `patchRowById/removePaginatedSystemRow` 路径。后续涉及 `SystemView.vue`、系统管理保存/审核/删除、资源共享写后刷新或系统管理分页列表时，至少复跑这些入口。
