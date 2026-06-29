@@ -685,16 +685,7 @@ public class DataModelService {
         if (datasourceType == null || datasourceType.trim().isEmpty()) {
             return Collections.emptySet();
         }
-        Set<Long> datasourceIds = new HashSet<Long>();
-        for (DataSourceDefinition datasource : dataSourceService.list()) {
-            if (datasource != null
-                    && datasource.getId() != null
-                    && datasource.getTypeCode() != null
-                    && datasourceType.equalsIgnoreCase(datasource.getTypeCode())) {
-                datasourceIds.add(Long.valueOf(String.valueOf(datasource.getId())));
-            }
-        }
-        return datasourceIds;
+        return dataSourceService.listAccessibleIdsByType(datasourceType.trim());
     }
 
     private LambdaQueryWrapper<DataModelEntity> cloneQuery(LambdaQueryWrapper<DataModelEntity> queryWrapper) {

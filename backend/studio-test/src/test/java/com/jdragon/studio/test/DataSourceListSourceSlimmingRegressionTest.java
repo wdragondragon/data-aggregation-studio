@@ -40,6 +40,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -175,6 +176,34 @@ class DataSourceListSourceSlimmingRegressionTest {
                         "scheduled_connection_test_timeout_seconds",
                         "technical_metadata",
                         "business_metadata");
+        verify(healthMapper, never()).selectList(any());
+        verify(recordMapper, never()).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
+    }
+
+    @Test
+    void datasourceIdsByTypeShouldSelectOnlyIdAndTypeAndSkipHealthHydration() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
+        DatasourceConnectionTestRecordMapper recordMapper = mock(DatasourceConnectionTestRecordMapper.class);
+        DataSourceService service = dataSourceService(datasourceMapper, healthMapper, recordMapper);
+        when(datasourceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(datasource()));
+
+        Set<Long> ids = service.listAccessibleIdsByType("mysql8");
+
+        assertThat(ids).containsExactly(11L);
+
+        ArgumentCaptor<LambdaQueryWrapper<DatasourceEntity>> datasourceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(datasourceMapper).selectList(datasourceCaptor.capture());
+        assertThat(datasourceCaptor.getValue().getSqlSelect())
+                .contains("id", "type_code")
+                .doesNotContain("tenant_id",
+                        "project_id",
+                        "schema_version_id",
+                        "connection_fingerprint",
+                        "connection_status",
+                        "technical_metadata",
+                        "business_metadata");
+        assertThat(datasourceCaptor.getValue().getTargetSql().toLowerCase()).contains("type_code");
         verify(healthMapper, never()).selectList(any());
         verify(recordMapper, never()).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
     }

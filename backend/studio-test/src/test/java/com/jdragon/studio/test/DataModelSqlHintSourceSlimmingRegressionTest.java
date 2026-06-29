@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.model.DataModelDatasourceOptionView;
+import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -36,6 +37,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -166,6 +168,37 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
                         "schema_version_id",
                         "technical_metadata",
                         "business_metadata");
+    }
+
+    @Test
+    void modelSummaryTypeFilterShouldUseDatasourceIdLookupInsteadOfFullDatasourceList() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataSourceService.listAccessibleIdsByType("mysql8")).thenReturn(Collections.singleton(11L));
+        when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        PageView<DataModelListView> page = service.listSummaryPage("mysql8", 1, 20, "name", "asc");
+
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().get(0).getName()).isEqualTo("客户经营画像表");
+        verify(dataSourceService).listAccessibleIdsByType("mysql8");
+        verify(dataSourceService, never()).list();
+
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataModelMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id",
+                        "tenant_id",
+                        "project_id",
+                        "datasource_id",
+                        "name",
+                        "model_kind",
+                        "physical_locator",
+                        "schema_version_id")
+                .doesNotContain("technical_metadata", "business_metadata");
+        assertThat(captor.getValue().getTargetSql().toLowerCase()).contains("datasource_id");
     }
 
     private DataModelService dataModelService(DataModelMapper dataModelMapper,

@@ -33,7 +33,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -150,6 +152,33 @@ public class DataSourceService {
         List<DataSourceOptionView> result = new ArrayList<DataSourceOptionView>();
         for (DatasourceEntity entity : entities) {
             result.add(toOptionView(entity));
+        }
+        return result;
+    }
+
+    public Set<Long> listAccessibleIdsByType(String typeCode) {
+        Set<Long> result = new LinkedHashSet<Long>();
+        if (typeCode == null || typeCode.trim().isEmpty()) {
+            return result;
+        }
+        String normalizedTypeCode = typeCode.trim();
+        List<String> typeCodes = new ArrayList<String>();
+        typeCodes.add(normalizedTypeCode);
+        String lowerTypeCode = normalizedTypeCode.toLowerCase(Locale.ROOT);
+        if (!typeCodes.contains(lowerTypeCode)) {
+            typeCodes.add(lowerTypeCode);
+        }
+        String upperTypeCode = normalizedTypeCode.toUpperCase(Locale.ROOT);
+        if (!typeCodes.contains(upperTypeCode)) {
+            typeCodes.add(upperTypeCode);
+        }
+        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
+                .select(DatasourceEntity::getId, DatasourceEntity::getTypeCode)
+                .in(DatasourceEntity::getTypeCode, typeCodes));
+        for (DatasourceEntity entity : entities) {
+            if (entity.getId() != null) {
+                result.add(entity.getId());
+            }
         }
         return result;
     }
