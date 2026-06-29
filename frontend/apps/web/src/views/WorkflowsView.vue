@@ -243,11 +243,23 @@ async function deleteWorkflow(workflow: WorkflowListView) {
     );
     await studioApi.workflows.delete(workflow.id);
     ElMessage.success(t("web.workflows.deleteSuccess"));
-    await loadWorkflows();
+    removeWorkflowRow(workflow);
+    if (workflows.value.length === 0 && workflowTotal.value > 0) {
+      workflowPagination.page = Math.max(1, workflowPagination.page - 1);
+      await loadWorkflows();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.workflows.deleteFailed"));
     }
+  }
+}
+
+function removeWorkflowRow(workflow: WorkflowListView) {
+  const beforeCount = workflows.value.length;
+  workflows.value = workflows.value.filter((item) => item.id !== workflow.id);
+  if (workflows.value.length !== beforeCount) {
+    workflowTotal.value = Math.max(0, workflowTotal.value - 1);
   }
 }
 

@@ -194,3 +194,6 @@
 - 2026-06-30 已完成 S92 质量规则任务列表删除刷新收敛：确认并修复 `/quality-rules` 单删/批删和 `/quality-tasks` 单删后无条件重拉整个列表的问题，`FIX-S92-001` 已进入缺陷回归索引；质量规则/任务列表源头字段继续由 S39 既有回归保障。
 - S92 本轮未新增或清理长期数据，未执行真实删除动作；build-nginx `/quality-rules` 与 `/quality-tasks` 在 `长期回归测试项目` 下均可达，当前筛选结果为空态，console warn/error 均为 0。
 - S92 回归入口：`QualityListSourceSlimmingRegressionTest`、`QualityRuleOptionsSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/quality-rules` 与 `/quality-tasks`。后续涉及 `QualityRulesView.vue`、`QualityTasksView.vue`、质量列表字段、列表删除刷新或质量规则选项时，至少复跑这些入口。
+- 2026-06-30 已完成 S93 工作流列表删除刷新收敛：确认并修复 `/workflows` 删除工作流后无条件重拉整个列表的问题，`FIX-S93-001` 已进入缺陷回归索引；工作流列表源头字段继续由 S41 既有回归保障。
+- S93 本轮未新增或清理长期数据，未执行真实删除动作；build-nginx `/workflows` 在 `长期回归测试项目` 下显示 17 行长期工作流，console warn/error 为 0。
+- S93 回归入口：`WorkflowListSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/workflows`。后续涉及 `WorkflowsView.vue`、工作流列表字段、列表删除刷新、工作流发布或工作流触发时，至少复跑这些入口。
