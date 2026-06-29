@@ -301,6 +301,8 @@ const moveTargetDirectoryId = ref<string>("");
 const sqlHintCache = ref<Record<string, SqlEditorHintSource>>({});
 const scriptExecutionArgumentsText = ref("{\n  \n}");
 const refreshToken = ref(0);
+const sqlDatasourceOptionsLoaded = ref(false);
+const scriptEnvironmentOptionsLoaded = ref(false);
 
 const directoryForm = reactive<DataDevelopmentDirectorySaveRequest>({
   id: undefined,
@@ -429,20 +431,18 @@ async function refreshAll() {
     return;
   }
   try {
-    const [tree, directoryList, datasourceList, environmentList] = await Promise.all([
+    const [tree, directoryList] = await Promise.all([
       studioApi.dataDevelopment.tree(),
       studioApi.dataDevelopment.listDirectories(),
-      studioApi.dataDevelopment.listSqlDatasourceOptions(),
-      studioApi.scriptEnvironments.options({ enabledOnly: true }),
     ]);
     if (currentRefreshToken !== refreshToken.value) {
       return;
     }
     treeData.value = tree;
     directories.value = directoryList;
-    sqlDatasources.value = datasourceList;
-    scriptEnvironments.value = environmentList;
-    ensureJavaEnvironmentSelected();
+    if (scriptEditorVisible.value) {
+      await ensureEditorReferenceData(scriptForm.scriptType, true);
+    }
     if (selectedTreeNode.value) {
       synchronizeSelection();
     }
@@ -483,6 +483,8 @@ function resetProjectScopedState() {
   directories.value = [];
   sqlDatasources.value = [];
   scriptEnvironments.value = [];
+  sqlDatasourceOptionsLoaded.value = false;
+  scriptEnvironmentOptionsLoaded.value = false;
   sqlHintCache.value = {};
   selectedTreeNode.value = null;
   selectedDirectory.value = null;
@@ -506,6 +508,52 @@ function resetProjectScopedState() {
   scriptForm.content = "";
   scriptExecutionArgumentsText.value = "{\n  \n}";
   moveTargetDirectoryId.value = "";
+}
+
+async function loadSqlDatasourceOptions(force = false) {
+  if (!hasCurrentProject.value) {
+    sqlDatasources.value = [];
+    sqlDatasourceOptionsLoaded.value = false;
+    return;
+  }
+  if (sqlDatasourceOptionsLoaded.value && !force) {
+    return;
+  }
+  sqlDatasources.value = await studioApi.dataDevelopment.listSqlDatasourceOptions();
+  sqlDatasourceOptionsLoaded.value = true;
+}
+
+async function loadScriptEnvironmentOptions(force = false) {
+  if (!hasCurrentProject.value) {
+    scriptEnvironments.value = [];
+    scriptEnvironmentOptionsLoaded.value = false;
+    return;
+  }
+  if (scriptEnvironmentOptionsLoaded.value && !force) {
+    return;
+  }
+  scriptEnvironments.value = await studioApi.scriptEnvironments.options({ enabledOnly: true });
+  scriptEnvironmentOptionsLoaded.value = true;
+}
+
+async function ensureEditorReferenceData(scriptType = scriptForm.scriptType, force = false) {
+  if (!scriptEditorVisible.value || !hasCurrentProject.value) {
+    return;
+  }
+  const entry = resolveScriptEditorEntry(scriptType);
+  const loaders: Array<Promise<void>> = [];
+  if (entry.requiresDatasource) {
+    loaders.push(loadSqlDatasourceOptions(force));
+  }
+  if (scriptType === "JAVA") {
+    loaders.push(loadScriptEnvironmentOptions(force));
+  }
+  if (loaders.length) {
+    await Promise.all(loaders);
+  }
+  if (scriptType === "JAVA") {
+    ensureJavaEnvironmentSelected();
+  }
 }
 
 function synchronizeSelection() {
@@ -570,8 +618,8 @@ async function loadScript(scriptId: string | number | undefined) {
   scriptForm.environmentName = script.environmentName;
   scriptForm.description = script.description;
   scriptForm.content = script.content;
-  ensureJavaEnvironmentSelected();
   scriptExecutionArgumentsText.value = "{\n  \n}";
+  await ensureEditorReferenceData(script.scriptType);
   await ensureSqlHintsLoaded(script.datasourceId);
 }
 
@@ -594,6 +642,7 @@ function createNewScript() {
   executionResult.value = null;
   executionLogContent.value = "";
   activeExecutionTab.value = "1";
+  void ensureEditorReferenceData("SQL");
 }
 
 function openDirectoryDialog() {
@@ -1063,12 +1112,12 @@ watch(
       scriptForm.environmentName = undefined;
     }
     if (scriptType === "JAVA" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
-      ensureJavaEnvironmentSelected();
       scriptForm.content = defaultJavaTemplate();
     }
     if (scriptType === "PYTHON" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
       scriptForm.content = defaultPythonTemplate();
     }
+    void ensureEditorReferenceData(scriptType);
   },
 );
 

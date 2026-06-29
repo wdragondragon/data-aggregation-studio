@@ -165,3 +165,5 @@
 - 2026-06-29 已完成 S81 运行指标 Dashboard 运行记录源头聚合：确认并修复 `/run-metrics/query` 按时间窗读取全部运行记录明细后在 Java 内存聚合趋势和 TopN 的问题，`FIX-S81-001` 已进入缺陷回归索引。
 - 2026-06-29 已完成 S82 统计分析源头聚合：确认并修复 `/statistics` 执行分析重复读取目标字段索引明细，并在概览、柱图、饼图、TopN 和趋势图链路中 Java 内存聚合的问题，`FIX-S82-001` 已进入缺陷回归索引。
 - S82 回归入口：`DataModelStatisticsRegressionTest`、`DataModelStatisticsSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/statistics` 执行分析 smoke。后续涉及 `DataModelStatisticsService`、`DataModelStatisticsWorkspaceService`、`DataModelAttrIndexMapper`、模型统计页或统计图表接口的修改，至少复跑这些入口。
+- 2026-06-29 已完成 S83 数据开发首屏候选项懒加载：确认并修复 `/data-development` 首屏未打开脚本编辑器时仍预取 SQL 数据源候选和 Java 运行环境候选的问题，`FIX-S83-001` 已进入缺陷回归索引。
+- S83 回归入口：`npm run build:web`、build-nginx `/data-development` 首屏、新建脚本、打开长期 Java 脚本详情 smoke。后续涉及 `DataDevelopmentView.vue`、数据开发脚本树、脚本编辑器候选项或顶部刷新动作的修改，至少复跑这些入口。
