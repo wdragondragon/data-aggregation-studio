@@ -104,6 +104,7 @@
 | FIX-S73-001 | 数据资产/模型中心 | 中 | 模型列表页保存模型后刷新表格外还请求样例预览；列表和详情刷新重跑数据源/元模型初始化；直达同步任务 Tab 可能重复加载任务表格 | `ModelsView.vue` | `npm run build:web`；源码无 `selectModel(saved)`；`refreshModels/refreshDetail` 不调用 `loadPage()`；build-nginx `/models`、`/models?tab=sync-tasks` smoke | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S74-001 | 运行指标/采集任务绑定 | 中 | `/run-metrics/options` 和 `/run-metrics/query` 只需采集任务源/目标绑定摘要，却从 `collection_task_definition` 读取 `source_bindings_json/target_binding_json` 后再组装轻视图 | `CollectionTaskMetricBindingEntity.java`；`CollectionTaskMetricBindingMapper.java`；`CollectionTaskService.java`；`StudioSchemaUpgradeService.java`；`StudioInitializationService.java`；`schema-mysql.sql`；`schema-sqlite.sql`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；`MetricsSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/run-metrics` 页面 smoke | module-regression | 2026-06-29 | 本次提交 |
 | FIX-S75-001 | 开放服务/监控 Dashboard | 中 | `/data-service-metrics` 和 `/data-ingestion-metrics` dashboard 只需聚合指标，却读取时间窗口内全部访问日志后在 Java 内存聚合、排序和截断 TopN | `OpenServiceMetricSqlProvider.java`；`OpenServiceDashboardBucketSummary.java`；`DataServiceAccessLogMapper.java`；`DataIngestionAccessLogMapper.java`；`DataServiceMetricsService.java`；`DataIngestionMetricsService.java`；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest.java` | `OpenServiceMetricsApiStatsSourceSlimmingRegressionTest`；真实 API `/data-service-metrics/dashboard/query`、`/data-ingestion-metrics/dashboard/query`；`npm run build:web`；build-nginx 两个监控页刷新 smoke | module-regression | 2026-06-29 | 本次提交 |
+| FIX-S76-001 | 数据开发/脚本树与列表 | 中 | `/data-development/tree` 和 `/data-development/scripts` 只需 Java 脚本运行环境名称，却逐个调用完整运行环境详情读取，脚本多时形成 N+1 查询 | `DataDevelopmentService.java`；`ScriptEnvironmentService.java`；`DataDevelopmentSourceSlimmingRegressionTest.java`；`ScriptEnvironmentOptionsSourceSlimmingRegressionTest.java` | `DataDevelopmentSourceSlimmingRegressionTest`；`ScriptEnvironmentOptionsSourceSlimmingRegressionTest`；真实 API `/data-development/tree`；build-nginx `/data-development` 打开与刷新 smoke | module-regression | 2026-06-29 | `149b822` |
 
 ## 历史缺陷参考
 
@@ -187,3 +188,4 @@
 | S73 模型列表写后预览过取与刷新收敛 | FIX-S73-001 |
 | S74 运行指标采集任务绑定源头瘦身 | FIX-S74-001 |
 | S75 开放服务监控 Dashboard 源头聚合 | FIX-S75-001 |
+| S76 数据开发脚本树运行环境 N+1 源头瘦身 | FIX-S76-001 |
