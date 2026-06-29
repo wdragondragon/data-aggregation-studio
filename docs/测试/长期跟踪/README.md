@@ -191,3 +191,6 @@
 - 2026-06-29 已完成 S91 采集任务列表删除刷新收敛：确认并修复 `/collection-tasks` 删除采集任务后无条件重拉整个列表的问题，`FIX-S91-001` 已进入缺陷回归索引；采集任务列表源头字段继续由 S40 既有回归保障。
 - S91 本轮未新增或清理长期数据，未执行真实删除动作；build-nginx `/collection-tasks` 在 `长期回归测试项目` 下显示 13 条长期采集任务，console warn/error 为 0。
 - S91 回归入口：`CollectionTaskListSourceSlimmingRegressionTest`、`RunListSourceSlimmingRegressionTest`、`MetricsSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/collection-tasks`。后续涉及 `CollectionTasksView.vue`、采集任务列表字段、列表删除刷新、运行列表或采集指标时，至少复跑这些入口。
+- 2026-06-30 已完成 S92 质量规则任务列表删除刷新收敛：确认并修复 `/quality-rules` 单删/批删和 `/quality-tasks` 单删后无条件重拉整个列表的问题，`FIX-S92-001` 已进入缺陷回归索引；质量规则/任务列表源头字段继续由 S39 既有回归保障。
+- S92 本轮未新增或清理长期数据，未执行真实删除动作；build-nginx `/quality-rules` 与 `/quality-tasks` 在 `长期回归测试项目` 下均可达，当前筛选结果为空态，console warn/error 均为 0。
+- S92 回归入口：`QualityListSourceSlimmingRegressionTest`、`QualityRuleOptionsSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/quality-rules` 与 `/quality-tasks`。后续涉及 `QualityRulesView.vue`、`QualityTasksView.vue`、质量列表字段、列表删除刷新或质量规则选项时，至少复跑这些入口。

@@ -233,7 +233,11 @@ async function deleteRule(rule: QualityRuleListView) {
     await ElMessageBox.confirm(`确认删除规则“${rule.ruleName}”吗？`, "提示", { type: "warning" });
     await studioApi.qualityRules.delete(rule.id);
     ElMessage.success("规则已删除");
-    await loadRules();
+    removeRuleRows([rule.id]);
+    if (page.items.length === 0 && page.total > 0) {
+      page.pageNo = Math.max(1, page.pageNo - 1);
+      await loadRules();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除规则失败");
@@ -245,17 +249,32 @@ async function batchDelete() {
   if (!selectedIds.value.length) {
     return;
   }
+  const ids = [...selectedIds.value];
   try {
-    await ElMessageBox.confirm(`确认批量删除已选中的 ${selectedIds.value.length} 条规则吗？`, "提示", { type: "warning" });
-    await studioApi.qualityRules.batchDelete(selectedIds.value);
+    await ElMessageBox.confirm(`确认批量删除已选中的 ${ids.length} 条规则吗？`, "提示", { type: "warning" });
+    await studioApi.qualityRules.batchDelete(ids);
     ElMessage.success("批量删除成功");
-    selectedIds.value = [];
-    await loadRules();
+    removeRuleRows(ids);
+    if (page.items.length === 0 && page.total > 0) {
+      page.pageNo = Math.max(1, page.pageNo - 1);
+      await loadRules();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "批量删除失败");
     }
   }
+}
+
+function removeRuleRows(ids: Array<string | number>) {
+  const idSet = new Set(ids.map((id) => String(id)));
+  const beforeCount = page.items.length;
+  page.items = page.items.filter((item) => !idSet.has(String(item.id)));
+  const removedCount = beforeCount - page.items.length;
+  if (removedCount > 0) {
+    page.total = Math.max(0, page.total - removedCount);
+  }
+  selectedIds.value = selectedIds.value.filter((id) => !idSet.has(String(id)));
 }
 
 onMounted(loadRules);
