@@ -64,55 +64,14 @@ final class SystemResourceShareSupport {
     }
 
     void validateShareableResource(String tenantId, Long sourceProjectId, String resourceType, Long resourceId) {
-        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
-            DatasourceEntity entity = datasourceMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Datasource");
-            return;
+        String normalizedType = normalizeResourceType(resourceType);
+        String resourceName = shareableResourceName(normalizedType);
+        if (!hasText(resourceName)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
         }
-        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
-            DataModelEntity entity = dataModelMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Model");
-            return;
+        if (findShareResourceOption(tenantId, sourceProjectId, normalizedType, resourceId) == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, resourceName + " not found: " + resourceId);
         }
-        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
-            CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Collection task");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
-            WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Workflow");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
-            DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data development script");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
-            DataServiceDefinitionEntity entity = dataServiceDefinitionMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data service");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
-            DataIngestionServiceEntity entity = dataIngestionServiceMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Data ingestion service");
-            return;
-        }
-        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
-            ProtocolConversionServiceEntity entity = protocolConversionServiceMapper.selectById(resourceId);
-            ensureShareableResource(entity == null ? null : entity.getTenantId(),
-                    entity == null ? null : entity.getProjectId(), resourceId, sourceProjectId, tenantId, "Protocol conversion service");
-            return;
-        }
-        throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported resource type for sharing: " + resourceType);
     }
 
     List<ShareResourceOptionView> listShareResourceOptions(String tenantId, Long sourceProjectId, String resourceType) {
@@ -462,55 +421,90 @@ final class SystemResourceShareSupport {
                         .setDedupeKey("resource-share:" + share.getId() + ":" + targetProject.getId() + ":" + (share.getUpdatedAt() == null ? "0" : share.getUpdatedAt().toString())));
     }
 
-    private void ensureShareableResource(String resourceTenantId,
-                                         Long resourceProjectId,
-                                         Long resourceId,
-                                         Long sourceProjectId,
-                                         String tenantId,
-                                         String resourceName) {
-        if (!tenantId.equals(resourceTenantId) || resourceProjectId == null || !resourceProjectId.equals(sourceProjectId)) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, resourceName + " not found: " + resourceId);
-        }
-    }
-
     private String resolveSharedResourceLabel(ResourceShareEntity share) {
         if (share == null || !hasText(share.getResourceType()) || share.getResourceId() == null) {
             return "未知资源";
         }
-        String resourceType = share.getResourceType().trim().toUpperCase();
-        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
-            DatasourceEntity entity = datasourceMapper.selectById(share.getResourceId());
-            return entity == null ? "数据源#" + share.getResourceId() : "数据源 " + entity.getName();
+        String resourceType = normalizeResourceType(share.getResourceType());
+        String labelPrefix = shareNotificationLabelPrefix(resourceType);
+        ShareResourceOptionView option = findShareResourceOption(share.getTenantId(), share.getSourceProjectId(), resourceType, share.getResourceId());
+        if (option != null) {
+            String displayName = hasText(option.getName()) ? option.getName() : option.getLabel();
+            if (hasText(displayName) && hasText(labelPrefix)) {
+                return labelPrefix + " " + displayName;
+            }
+            if (hasText(displayName)) {
+                return displayName;
+            }
         }
-        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
-            DataModelEntity entity = dataModelMapper.selectById(share.getResourceId());
-            return entity == null ? "模型#" + share.getResourceId() : "模型 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
-            CollectionTaskDefinitionEntity entity = collectionTaskDefinitionMapper.selectById(share.getResourceId());
-            return entity == null ? "采集任务#" + share.getResourceId() : "采集任务 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
-            WorkflowDefinitionEntity entity = workflowDefinitionMapper.selectById(share.getResourceId());
-            return entity == null ? "工作流#" + share.getResourceId() : "工作流 " + entity.getName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
-            DataDevelopmentScriptEntity entity = dataDevelopmentScriptMapper.selectById(share.getResourceId());
-            return entity == null ? "数据开发脚本#" + share.getResourceId() : "数据开发脚本 " + entity.getFileName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
-            DataServiceDefinitionEntity entity = dataServiceDefinitionMapper.selectById(share.getResourceId());
-            return entity == null ? "数据服务#" + share.getResourceId() : "数据服务 " + entity.getServiceName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
-            DataIngestionServiceEntity entity = dataIngestionServiceMapper.selectById(share.getResourceId());
-            return entity == null ? "数据接入服务#" + share.getResourceId() : "数据接入服务 " + entity.getServiceName();
-        }
-        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
-            ProtocolConversionServiceEntity entity = protocolConversionServiceMapper.selectById(share.getResourceId());
-            return entity == null ? "协议转换服务#" + share.getResourceId() : "协议转换服务 " + entity.getServiceName();
+        if (hasText(labelPrefix)) {
+            return labelPrefix + "#" + share.getResourceId();
         }
         return share.getResourceType() + "#" + share.getResourceId();
+    }
+
+    private ShareResourceOptionView findShareResourceOption(String tenantId, Long sourceProjectId, String resourceType, Long resourceId) {
+        if (!hasText(tenantId) || sourceProjectId == null || !hasText(resourceType) || resourceId == null) {
+            return null;
+        }
+        Map<String, Set<Long>> idsByType = Collections.singletonMap(resourceType, Collections.singleton(resourceId));
+        return listShareResourceOptionsByIds(tenantId, sourceProjectId, idsByType).get(resourceKey(resourceType, resourceId));
+    }
+
+    private String shareableResourceName(String resourceType) {
+        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
+            return "Datasource";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
+            return "Model";
+        }
+        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
+            return "Collection task";
+        }
+        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
+            return "Workflow";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
+            return "Data development script";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
+            return "Data service";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
+            return "Data ingestion service";
+        }
+        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
+            return "Protocol conversion service";
+        }
+        return null;
+    }
+
+    private String shareNotificationLabelPrefix(String resourceType) {
+        if (StudioConstants.RESOURCE_TYPE_DATASOURCE.equals(resourceType)) {
+            return "数据源";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_MODEL.equals(resourceType)) {
+            return "模型";
+        }
+        if (StudioConstants.RESOURCE_TYPE_COLLECTION_TASK.equals(resourceType)) {
+            return "采集任务";
+        }
+        if (StudioConstants.RESOURCE_TYPE_WORKFLOW.equals(resourceType)) {
+            return "工作流";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT.equals(resourceType)) {
+            return "数据开发脚本";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_SERVICE.equals(resourceType)) {
+            return "数据服务";
+        }
+        if (StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE.equals(resourceType)) {
+            return "数据接入服务";
+        }
+        if (StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE.equals(resourceType)) {
+            return "协议转换服务";
+        }
+        return null;
     }
 
     private String resolveShareTargetPath(ResourceShareEntity share) {
