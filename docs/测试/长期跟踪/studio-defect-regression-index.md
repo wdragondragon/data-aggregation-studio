@@ -137,6 +137,7 @@
 | FIX-S106-001 | 系统管理/用户下拉 | 中 | 租户成员、项目成员、申请/邀请弹窗只需用户 `id/username/displayName`，却复用 `/users` 全量用户列表视图接口，额外返回表格字段 | `StudioUserOptionView.java`；`UserManagementService.java`；`UserController.java`；`SystemView.vue`；`client.ts`；`types.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/users/options`；build-nginx API `/users/page`；build-nginx `/system?tab=projectMembers` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S107-001 | 系统管理/资源共享 | 中 | 资源共享弹窗“共享到项目”只需 `id/projectName`，却复用 `/system/projects` 项目管理列表接口，额外返回租户、编码、描述、启用状态和时间戳等字段 | `SystemProjectOptionView.java`；`SystemManagementService.java`；`SystemManagementViewAssembler.java`；`SystemManagementController.java`；`SystemView.vue`；`client.ts`；`types.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/system/project-options`；build-nginx API `/system/projects`；build-nginx `/system?tab=shares` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S108-001 | 系统管理/资源共享保存 | 中 | `POST /system/resource-shares` 保存校验和共享通知标签只需要资源归属与名称，却通过 `selectById` 读取完整资源定义，可能加载数据服务 SQL、接入映射、协议转换转换器和脚本/工作流大字段 | `SystemResourceShareSupport.java`；`ResourceShareServiceTypeRegressionTest.java` | `ResourceShareServiceTypeRegressionTest`；`SystemManagementPaginationSourceSlimmingRegressionTest`；build-nginx API `POST /system/resource-shares`；build-nginx `/system?tab=shares` 数据服务共享列表 | module-regression | 2026-07-01 | 本次提交 |
+| FIX-S109-001 | 系统管理/成员列表 | 中 | 成员与申请/邀请表格只需水合用户 `id/username/displayName`，却通过 `selectByIds` 读取用户整行，包含密码哈希、认证来源、启用状态、租户和时间戳等非表格字段 | `SystemManagementService.java`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；build-nginx API `/system/project-members/page`、`/system/project-member-requests/page`；build-nginx `/system?tab=projectMembers`、`/system?tab=requests` | module-regression | 2026-07-01 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -253,3 +254,4 @@
 | S106 系统管理用户下拉源头瘦身 | FIX-S106-001 |
 | S107 系统管理资源共享目标项目下拉源头瘦身 | FIX-S107-001 |
 | S108 系统管理资源共享保存校验源头瘦身 | FIX-S108-001 |
+| S109 系统管理成员用户水合源头瘦身 | FIX-S109-001 |

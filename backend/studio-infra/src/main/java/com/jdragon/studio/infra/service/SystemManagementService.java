@@ -820,7 +820,12 @@ public class SystemManagementService {
             return Collections.emptyMap();
         }
         Map<Long, StudioUserEntity> userMap = new LinkedHashMap<Long, StudioUserEntity>();
-        for (StudioUserEntity user : userMapper.selectByIds(userIds)) {
+        List<StudioUserEntity> users = userMapper.selectList(new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName)
+                .in(StudioUserEntity::getId, userIds));
+        for (StudioUserEntity user : users) {
             userMap.put(user.getId(), user);
         }
         return userMap;

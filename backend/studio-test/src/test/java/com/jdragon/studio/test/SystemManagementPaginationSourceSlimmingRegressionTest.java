@@ -9,12 +9,14 @@ import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.dto.model.system.ResourceShareView;
+import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.SystemProjectOptionView;
 import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
+import com.jdragon.studio.infra.entity.ProjectMemberRequestEntity;
 import com.jdragon.studio.infra.entity.ResourceShareEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.UserRegistrationRequestEntity;
@@ -68,6 +70,7 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         initTableInfo(UserRegistrationRequestEntity.class);
         initTableInfo(ProjectEntity.class);
         initTableInfo(ProjectMemberEntity.class);
+        initTableInfo(ProjectMemberRequestEntity.class);
         initTableInfo(ResourceShareEntity.class);
         initTableInfo(DataModelEntity.class);
     }
@@ -201,9 +204,12 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
             page.setRecords(Arrays.asList(projectMember(201L, 301L), projectMember(202L, 302L)));
             return page;
         });
-        when(userMapper.selectByIds(any())).thenReturn(Arrays.asList(
-                user(301L, "lt_s64_模型管理员", "模型管理员"),
-                user(302L, "lt_s64_质量分析师", "质量分析师")));
+        when(userMapper.selectList(any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            assertUserHydrationSelect(invocation.getArgument(0));
+            return Arrays.asList(
+                    user(301L, "lt_s64_模型管理员", "模型管理员"),
+                    user(302L, "lt_s64_质量分析师", "质量分析师"));
+        });
         SystemManagementService service = systemService(projectMapper, projectMemberMapper, userMapper, securityService);
 
         PageView<SystemProjectMemberView> page = service.listProjectMembersPage(100L, 1, 2);
@@ -213,6 +219,66 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
                 .containsExactly("lt_s64_模型管理员", "lt_s64_质量分析师");
         verify(projectMemberMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
         verify(projectMemberMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(userMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(userMapper, never()).selectByIds(any());
+    }
+
+    @Test
+    void projectMemberRequestsPageShouldHydrateUsersWithLightweightFields() {
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        ProjectMemberRequestMapper requestMapper = mock(ProjectMemberRequestMapper.class);
+        StudioUserMapper userMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectEntity project = project(100L, "长期回归测试项目");
+        when(projectMapper.selectById(100L)).thenReturn(project);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
+        when(requestMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<ProjectMemberRequestEntity> page = invocation.getArgument(0);
+            page.setTotal(4L);
+            page.setRecords(Collections.singletonList(projectMemberRequest(401L, 501L, 502L, 503L)));
+            return page;
+        });
+        when(userMapper.selectList(any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            assertUserHydrationSelect(invocation.getArgument(0));
+            return Arrays.asList(
+                    user(501L, "lt_s109_财务申请人", "财务申请人"),
+                    user(502L, "lt_s109_项目邀请人", "项目邀请人"),
+                    user(503L, "lt_s109_租户审核人", "租户审核人"));
+        });
+        SystemManagementService service = new SystemManagementService(
+                mock(TenantMapper.class),
+                projectMapper,
+                mock(TenantMemberMapper.class),
+                mock(ProjectMemberMapper.class),
+                requestMapper,
+                mock(ProjectWorkerBindingMapper.class),
+                mock(ResourceShareMapper.class),
+                userMapper,
+                mock(WorkerLeaseMapper.class),
+                mock(DatasourceMapper.class),
+                mock(DataModelMapper.class),
+                mock(CollectionTaskDefinitionMapper.class),
+                mock(WorkflowDefinitionMapper.class),
+                mock(DataDevelopmentScriptMapper.class),
+                mock(DataServiceDefinitionMapper.class),
+                mock(DataIngestionServiceMapper.class),
+                mock(ProtocolConversionServiceMapper.class),
+                securityService,
+                mock(NotificationService.class));
+
+        PageView<SystemProjectMemberRequestView> page = service.listProjectMemberRequestsPage(100L, 1, 1);
+
+        assertThat(page.getTotal()).isEqualTo(4L);
+        assertThat(page.getItems()).hasSize(1);
+        SystemProjectMemberRequestView item = page.getItems().get(0);
+        assertThat(item.getUsername()).isEqualTo("lt_s109_财务申请人");
+        assertThat(item.getInviterUsername()).isEqualTo("lt_s109_项目邀请人");
+        assertThat(item.getReviewerUsername()).isEqualTo("lt_s109_租户审核人");
+        verify(requestMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(requestMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(userMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(userMapper, never()).selectByIds(any());
     }
 
     @Test
@@ -327,6 +393,20 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         return member;
     }
 
+    private ProjectMemberRequestEntity projectMemberRequest(Long id, Long userId, Long inviterUserId, Long reviewerUserId) {
+        ProjectMemberRequestEntity request = new ProjectMemberRequestEntity();
+        request.setId(id);
+        request.setTenantId("default");
+        request.setProjectId(100L);
+        request.setUserId(userId);
+        request.setInviterUserId(inviterUserId);
+        request.setReviewerUserId(reviewerUserId);
+        request.setRequestType(StudioConstants.MEMBER_REQUEST_INVITE);
+        request.setStatus(StudioConstants.MEMBER_REQUEST_PENDING);
+        request.setReason("长期回归-S109 财务协作加入项目");
+        return request;
+    }
+
     private ProjectEntity project(Long id, String name) {
         ProjectEntity project = new ProjectEntity();
         project.setId(id);
@@ -355,6 +435,14 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         model.setName(name);
         model.setPhysicalLocator(physicalLocator);
         return model;
+    }
+
+    private static void assertUserHydrationSelect(LambdaQueryWrapper<StudioUserEntity> query) {
+        String sqlSelect = String.valueOf(query.getSqlSelect()).toLowerCase(Locale.ROOT);
+        assertThat(sqlSelect).contains("id", "username", "display_name");
+        assertThat(sqlSelect).doesNotContain("password", "password_hash", "auth_source", "tenant_id",
+                "deleted", "created_at", "updated_at", "enabled");
+        assertThat(query.getSqlSegment().toUpperCase(Locale.ROOT)).contains("IN");
     }
 
     private static void initTableInfo(Class<?> entityClass) {
