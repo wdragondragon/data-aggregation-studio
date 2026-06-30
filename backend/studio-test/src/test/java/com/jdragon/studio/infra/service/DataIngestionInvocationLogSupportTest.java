@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
 import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
+import com.jdragon.studio.dto.model.DataIngestionSourceBinding;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -185,6 +186,112 @@ class DataIngestionInvocationLogSupportTest {
                 "Slow successful writes should wait for the final job state instead of returning timeout");
     }
 
+    @Test
+    void shouldParseMultipleSourcePathsFromSameJsonBody() {
+        DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
+                new ConsoleWriterAssembler(),
+                new ObjectMapper());
+        Map<String, Object> firstOrder = row("orderNo", "O-1");
+        Map<String, Object> secondOrder = row("orderNo", "O-2");
+        Map<String, Object> customer = row("name", "Alice");
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("orders", Arrays.asList(firstOrder, secondOrder));
+        payload.put("customer", customer);
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        body.put("data", payload);
+
+        List<Map<String, Object>> orderRows = executionSupport.parseSourceRows(
+                binding("orders", 1L, 1L, "data.orders", mapping("orderNo")),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                body,
+                Arrays.asList(mapping("orderNo")));
+        List<Map<String, Object>> customerRows = executionSupport.parseSourceRows(
+                binding("customer", 2L, 2L, "data.customer", mapping("name")),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                body,
+                Arrays.asList(mapping("name")));
+
+        assertEquals(2, orderRows.size());
+        assertEquals("O-1", orderRows.get(0).get("orderNo"));
+        assertEquals("O-2", orderRows.get(1).get("orderNo"));
+        assertEquals(1, customerRows.size());
+        assertEquals("Alice", customerRows.get(0).get("name"));
+    }
+
+    @Test
+    void shouldExecuteMixedHeaderQueryFormAndBodyPathMappings() {
+        configureAggregationHome();
+        DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
+                new ConsoleWriterAssembler(),
+                new ObjectMapper());
+        DataIngestionServiceView service = serviceView();
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("items", Arrays.asList(row("name", "Alice")));
+        body.put("data", payload);
+
+        DataIngestionInvokeResult result = executionSupport.executeBindings(service,
+                Arrays.asList(binding("mixed", 1L, 1L, "data.items",
+                        mapping(DataIngestionSourcePosition.BODY, "name", "name"),
+                        mapping(DataIngestionSourcePosition.HEADER, "trace_id", "trace_id"),
+                        mapping(DataIngestionSourcePosition.QUERY, "tenant", "tenant"),
+                        mapping(DataIngestionSourcePosition.FORM, "phone", "phone"))),
+                row("trace_id", "T-1"),
+                row("tenant", "default"),
+                row("phone", "13800000000"),
+                body,
+                "request-mixed-source",
+                Long.valueOf(2026063001L),
+                null,
+                true);
+
+        assertEquals("SUCCESS", result.getStatus());
+        assertEquals(Long.valueOf(1L), result.getReceivedCount());
+        assertEquals(Long.valueOf(1L), result.getSuccessCount());
+        assertEquals(Long.valueOf(0L), result.getFailedCount());
+        assertEquals(1, result.getSourceResults().size());
+    }
+
+    @Test
+    void shouldContinueFollowingSourceWhenOneBindingFails() {
+        configureAggregationHome();
+        DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
+                new FailFirstConsoleWriterAssembler(),
+                new ObjectMapper());
+        DataIngestionServiceView service = serviceView();
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("bad", Arrays.asList(row("name", "bad")));
+        data.put("good", Arrays.asList(row("name", "good")));
+        body.put("data", data);
+
+        DataIngestionInvokeResult result = executionSupport.executeBindings(service,
+                Arrays.asList(
+                        binding("bad", 999L, 1L, "data.bad", mapping("name")),
+                        binding("good", 1L, 1L, "data.good", mapping("name"))),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                body,
+                "request-partial-source",
+                Long.valueOf(2026063002L),
+                null,
+                true);
+
+        assertEquals("PARTIAL_SUCCESS", result.getStatus());
+        assertEquals(Long.valueOf(2L), result.getReceivedCount());
+        assertEquals(Long.valueOf(1L), result.getSuccessCount());
+        assertEquals(Long.valueOf(1L), result.getFailedCount());
+        assertEquals("FAILED", result.getSourceResults().get(0).getStatus());
+        assertEquals("SUCCESS", result.getSourceResults().get(1).getStatus());
+        assertTrue(!result.getSourceResults().get(0).getMessage().contains(" at "),
+                "Source failure message must not expose stack frames");
+    }
+
     private static DataIngestionFieldMapping mapping(String field) {
         DataIngestionFieldMapping mapping = new DataIngestionFieldMapping();
         mapping.setSourcePosition(DataIngestionSourcePosition.BODY);
@@ -193,6 +300,49 @@ class DataIngestionInvocationLogSupportTest {
         mapping.setValueType("age".equals(field) ? FieldValueType.INTEGER : FieldValueType.STRING);
         mapping.setRequired(Boolean.TRUE);
         return mapping;
+    }
+
+    private static DataIngestionFieldMapping mapping(DataIngestionSourcePosition position, String sourceField, String targetField) {
+        DataIngestionFieldMapping mapping = mapping(targetField);
+        mapping.setSourcePosition(position);
+        mapping.setSourceField(sourceField);
+        mapping.setTargetField(targetField);
+        mapping.setValueType(FieldValueType.STRING);
+        return mapping;
+    }
+
+    private static DataIngestionSourceBinding binding(String sourceCode,
+                                                       Long datasourceId,
+                                                       Long modelId,
+                                                       String sourcePath,
+                                                       DataIngestionFieldMapping... mappings) {
+        DataIngestionSourceBinding binding = new DataIngestionSourceBinding();
+        binding.setSourceCode(sourceCode);
+        binding.setSourceName(sourceCode);
+        binding.setSourcePosition(DataIngestionSourcePosition.BODY);
+        binding.setSourcePath(sourcePath);
+        binding.setDatasourceId(datasourceId);
+        binding.setDatasourceName("datasource-" + datasourceId);
+        binding.setModelId(modelId);
+        binding.setModelName("model-" + modelId);
+        binding.setFieldMappings(Arrays.asList(mappings));
+        binding.setWriterOptions(new LinkedHashMap<String, Object>());
+        binding.setEnabled(Boolean.TRUE);
+        return binding;
+    }
+
+    private static DataIngestionServiceView serviceView() {
+        DataIngestionServiceView service = new DataIngestionServiceView();
+        service.setStatus(DataIngestionStatus.ONLINE);
+        service.setServiceCode("multi_source_test");
+        service.setMaxBatchSize(Integer.valueOf(10));
+        return service;
+    }
+
+    private static Map<String, Object> row(String key, Object value) {
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put(key, value);
+        return row;
     }
 
     private static void configureAggregationHome() {
@@ -221,7 +371,7 @@ class DataIngestionInvocationLogSupportTest {
                 "Expected captured JobContainer log to contain [" + expected + "]");
     }
 
-    private static final class ConsoleWriterAssembler extends CollectionTaskAssemblerService {
+    private static class ConsoleWriterAssembler extends CollectionTaskAssemblerService {
 
         private ConsoleWriterAssembler() {
             super(null, null, null, null);
@@ -238,6 +388,21 @@ class DataIngestionInvocationLogSupportTest {
             config.put("secretKey", "plain-secret");
             writer.put("config", config);
             return writer;
+        }
+    }
+
+    private static final class FailFirstConsoleWriterAssembler extends ConsoleWriterAssembler {
+        @Override
+        public Map<String, Object> assembleWriter(Long datasourceId,
+                                                  Long modelId,
+                                                  List<String> targetFields,
+                                                  Map<String, Object> writerOptions) {
+            if (Long.valueOf(999L).equals(datasourceId)) {
+                throw new RuntimeException("Writer failed\r\n"
+                        + "\tat com.example.Writer.write(Writer.java:10)\r\n"
+                        + "Caused by: java.lang.IllegalStateException: simulated write failure");
+            }
+            return super.assembleWriter(datasourceId, modelId, targetFields, writerOptions);
         }
     }
 

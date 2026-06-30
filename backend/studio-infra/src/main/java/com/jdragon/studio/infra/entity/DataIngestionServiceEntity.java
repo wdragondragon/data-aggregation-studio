@@ -47,4 +47,10 @@ public class DataIngestionServiceEntity extends BaseProjectTenantEntity {
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private List<String> sourcePositionsJson = new ArrayList<String>();
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<Map<String, Object>> sourceBindingsJson = new ArrayList<Map<String, Object>>();
+
+    private Integer sourceCount;
+    private Integer targetCount;
 }

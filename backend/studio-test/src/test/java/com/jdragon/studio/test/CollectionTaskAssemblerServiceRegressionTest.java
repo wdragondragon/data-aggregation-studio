@@ -152,6 +152,54 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
     }
 
     @Test
+    void mysqlWriterShouldEnableJdbcBatchRewriteByDefault() {
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        Map<String, Object> config = assemblerService.assemble(buildDefinition(null));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connect = (Map<String, Object>) writerConfig.get("connect");
+
+        assertEquals("{\"rewriteBatchedStatements\":\"true\"}", connect.get("other"));
+    }
+
+    @Test
+    void mysqlWriterShouldKeepExistingBatchRewriteOption() {
+        DataSourceService dataSourceService = mockDataSourceService();
+        DataSourceDefinition targetDatasource = new DataSourceDefinition();
+        targetDatasource.setId(2L);
+        targetDatasource.setTypeCode("mysql8");
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("other", "{\"serverTimezone\":\"Asia/Shanghai\",\"rewriteBatchedStatements\":\"false\"}");
+        targetDatasource.setTechnicalMetadata(metadata);
+        when(dataSourceService.getInternal(2L)).thenReturn(targetDatasource);
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                dataSourceService,
+                mockDataModelService(),
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        Map<String, Object> config = assemblerService.assemble(buildDefinition(null));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> connect = (Map<String, Object>) writerConfig.get("connect");
+
+        assertEquals("{\"serverTimezone\":\"Asia/Shanghai\",\"rewriteBatchedStatements\":\"false\"}", connect.get("other"));
+    }
+
+    @Test
     void fusionReaderOptionsShouldUseDotPathConfigurationForPreviewAndRuntimeConfig() {
         CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
                 mockDataSourceService(),

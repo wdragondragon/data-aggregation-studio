@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
+const studioProxyTarget = process.env.STUDIO_PROXY_TARGET
+  || process.env.VITE_STUDIO_PROXY_TARGET
+  || 'http://127.0.0.1:18080';
+
 function patchNoVue3CronDeprecatedButton() {
   return {
     name: 'studio-patch-no-vue3-cron-deprecated-button',
@@ -77,11 +81,11 @@ export default defineConfig({
         changeOrigin: true
       },
       '/api': {
-        target: 'http://127.0.0.1:18080',
+        target: studioProxyTarget,
         changeOrigin: true
       },
       '/openapi': {
-        target: 'http://127.0.0.1:18080',
+        target: studioProxyTarget,
         changeOrigin: true
       }
     }

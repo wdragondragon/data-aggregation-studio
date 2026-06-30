@@ -1076,6 +1076,9 @@ create table if not exists data_ingestion_service (
     writer_options_json json,
     field_mappings_json json,
     source_positions_json json,
+    source_bindings_json json,
+    source_count int default 1,
+    target_count int default 1,
     unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code),
     key idx_data_ingestion_project_status (project_id, status),
     key idx_data_ingestion_code_key (service_code, service_key)

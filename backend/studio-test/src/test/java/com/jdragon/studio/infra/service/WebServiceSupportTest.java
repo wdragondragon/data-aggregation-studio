@@ -10,7 +10,9 @@ import com.jdragon.studio.dto.enums.ProtocolConversionMode;
 import com.jdragon.studio.dto.enums.ProtocolConversionProtocol;
 import com.jdragon.studio.dto.enums.WebServiceSoapVersion;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
+import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
+import com.jdragon.studio.dto.model.DataIngestionSourceInvokeResult;
 import com.jdragon.studio.dto.model.DataServiceDefinitionView;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
 import com.jdragon.studio.dto.model.ProtocolConversionServiceView;
@@ -117,6 +119,42 @@ class WebServiceSupportTest {
         assertTrue(fault.contains("<soap:Fault>"));
         assertTrue(fault.contains("<code>UNAUTHORIZED</code>"));
         assertTrue(fault.contains("token missing"));
+    }
+
+    @Test
+    void shouldGenerateIngestionSourceResultsAsStructuredSoapElements() {
+        WebServiceConfig config = new WebServiceConfig();
+        config.setSoapVersion(WebServiceSoapVersion.SOAP_11);
+        config.setNamespaceUri("urn:ingestion");
+        config.setResponseRootName("SubmitResponse");
+
+        DataIngestionInvokeResult result = new DataIngestionInvokeResult();
+        result.setRequestId("request-1");
+        result.setServiceCode("submit_orders");
+        result.setReceivedCount(Long.valueOf(1L));
+        result.setSuccessCount(Long.valueOf(1L));
+        result.setFailedCount(Long.valueOf(0L));
+        result.setStatus("SUCCESS");
+        DataIngestionSourceInvokeResult sourceResult = new DataIngestionSourceInvokeResult();
+        sourceResult.setSourceCode("source_1");
+        sourceResult.setSourceName("订单来源");
+        sourceResult.setTargetDatasourceName("MySQL");
+        sourceResult.setTargetModelName("orders");
+        sourceResult.setReceivedCount(Long.valueOf(1L));
+        sourceResult.setSuccessCount(Long.valueOf(1L));
+        sourceResult.setFailedCount(Long.valueOf(0L));
+        sourceResult.setStatus("SUCCESS");
+        sourceResult.setJobId(Long.valueOf(1001L));
+        result.setSourceResults(Collections.singletonList(sourceResult));
+
+        String response = support.successEnvelope(config, support.ingestionResultToPayload(result), WebServiceSoapVersion.SOAP_11);
+
+        assertTrue(response.contains("<sourceResults>"));
+        assertTrue(response.contains("<sourceCode>source_1</sourceCode>"));
+        assertTrue(response.contains("<sourceName>订单来源</sourceName>"));
+        assertTrue(response.contains("<successCount>1</successCount>"));
+        assertTrue(response.contains("<jobId>1001</jobId>"));
+        assertFalse(response.contains("DataIngestionSourceInvokeResult("));
     }
 
     @Test

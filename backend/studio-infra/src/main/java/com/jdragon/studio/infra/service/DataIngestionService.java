@@ -19,6 +19,7 @@ import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionResolveFieldsView;
 import com.jdragon.studio.dto.model.DataIngestionServiceListView;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
+import com.jdragon.studio.dto.model.DataIngestionSourceBinding;
 import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -43,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -58,8 +60,8 @@ public class DataIngestionService {
     private static final int DEFAULT_PAGE_NO = 1;
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 200;
-    private static final int DEFAULT_MAX_BATCH_SIZE = 500;
-    private static final int MAX_BATCH_SIZE = 500;
+    private static final int DEFAULT_MAX_BATCH_SIZE = 1000;
+    private static final int MAX_BATCH_SIZE = 1000;
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
     private static final String OPEN_PATH_PREFIX = "/openapi/data-ingestion-services";
     private static final String WS_OPEN_PATH_PREFIX = "/openapi/ws/data-ingestion-services";
@@ -138,7 +140,9 @@ public class DataIngestionService {
                         DataIngestionServiceEntity::getModelNameSnapshot,
                         DataIngestionServiceEntity::getModelPhysicalLocator,
                         DataIngestionServiceEntity::getEndpointPath,
-                        DataIngestionServiceEntity::getSourcePositionsJson)
+                        DataIngestionServiceEntity::getSourcePositionsJson,
+                        DataIngestionServiceEntity::getSourceCount,
+                        DataIngestionServiceEntity::getTargetCount)
                 .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -184,17 +188,12 @@ public class DataIngestionService {
         ensureUniqueServiceCode(currentProjectId, request.getServiceCode(), entity.getId());
         ensureUniqueServiceName(currentProjectId, request.getServiceName(), entity.getId());
 
-        DataIngestionPayloadMode payloadMode = request.getPayloadMode() == null ? DataIngestionPayloadMode.OBJECT : request.getPayloadMode();
-        DataIngestionTargetType targetType = request.getTargetType() == null ? DataIngestionTargetType.DATABASE : request.getTargetType();
         int maxBatchSize = normalizeMaxBatchSize(request.getMaxBatchSize());
-
-        DataSourceDefinition datasource = requiredDatasource(request.getDatasourceId());
-        DataModelDefinition model = requiredModel(request.getModelId());
-        validateTarget(datasource, model, targetType);
-        List<DataIngestionFieldMapping> mappings = fieldSupport.normalizeFieldMappings(request.getFieldMappings(), model);
+        List<DataIngestionSourceBinding> sourceBindings = normalizeSourceBindings(request);
+        DataIngestionSourceBinding primaryBinding = sourceBindings.get(0);
         DataIngestionRequestFormat requestFormat = Boolean.TRUE.equals(request.getWebserviceEnabled())
                 ? DataIngestionRequestFormat.SOAP
-                : deriveRequestFormat(request.getRequestFormat(), mappings);
+                : deriveRequestFormat(request.getRequestFormat(), fieldMappingsFromBindings(sourceBindings));
 
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
@@ -203,15 +202,15 @@ public class DataIngestionService {
         entity.setServiceName(normalizeRequiredText(request.getServiceName(), "Service name is required"));
         entity.setStatus(resolveSavedStatus(entity).name());
         entity.setRequestFormat(requestFormat.name());
-        entity.setPayloadMode(payloadMode.name());
-        entity.setDataNodePath(normalizeText(request.getDataNodePath()));
-        entity.setTargetType(targetType.name());
-        entity.setDatasourceId(datasource.getId());
-        entity.setDatasourceNameSnapshot(datasource.getName());
-        entity.setDatasourceTypeCode(datasource.getTypeCode());
-        entity.setModelId(model.getId());
-        entity.setModelNameSnapshot(model.getName());
-        entity.setModelPhysicalLocator(model.getPhysicalLocator());
+        entity.setPayloadMode(primaryBinding.getPayloadMode().name());
+        entity.setDataNodePath(normalizeText(primaryBinding.getSourcePath()));
+        entity.setTargetType(primaryBinding.getTargetType().name());
+        entity.setDatasourceId(primaryBinding.getDatasourceId());
+        entity.setDatasourceNameSnapshot(primaryBinding.getDatasourceName());
+        entity.setDatasourceTypeCode(primaryBinding.getDatasourceTypeCode());
+        entity.setModelId(primaryBinding.getModelId());
+        entity.setModelNameSnapshot(primaryBinding.getModelName());
+        entity.setModelPhysicalLocator(primaryBinding.getModelPhysicalLocator());
         entity.setServiceKey(hasText(entity.getServiceKey()) ? entity.getServiceKey() : tokenSupport.generateServiceKey());
         entity.setEndpointPath(buildEndpointPath(entity.getServiceCode(), entity.getServiceKey()));
         entity.setMaxBatchSize(Integer.valueOf(maxBatchSize));
@@ -220,9 +219,12 @@ public class DataIngestionService {
         entity.setWebserviceEnabled(Boolean.TRUE.equals(request.getWebserviceEnabled()) ? Integer.valueOf(1) : Integer.valueOf(0));
         entity.setWebserviceConfigJson(toWebServiceConfigMap(request.getWebserviceConfig(), "data-ingestion-service", entity.getServiceCode(),
                 Integer.valueOf(1).equals(entity.getWebserviceEnabled())));
-        entity.setWriterOptionsJson(request.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : request.getWriterOptions());
-        entity.setFieldMappingsJson(toMapList(mappings));
-        entity.setSourcePositionsJson(sourcePositionsFromMappings(mappings));
+        entity.setWriterOptionsJson(primaryBinding.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : primaryBinding.getWriterOptions());
+        entity.setFieldMappingsJson(toMapList(primaryBinding.getFieldMappings()));
+        entity.setSourceBindingsJson(toSourceBindingMapList(sourceBindings));
+        entity.setSourceCount(Integer.valueOf(enabledSourceBindings(sourceBindings).size()));
+        entity.setTargetCount(Integer.valueOf(targetCount(sourceBindings)));
+        entity.setSourcePositionsJson(sourcePositionsFromBindings(sourceBindings));
         if (entity.getId() == null) {
             serviceMapper.insert(entity);
         } else {
@@ -390,7 +392,7 @@ public class DataIngestionService {
             }
             subscription = resolveInvocationSubscription(entity, token);
             result = execute(toView(entity), headers, query, form, body, requestId, jobId, logScope == null ? null : requestId, true);
-            success = true;
+            success = result != null && "SUCCESS".equalsIgnoreCase(result.getStatus());
             return result;
         } catch (StudioException ex) {
             httpStatus = statusForException(ex);
@@ -550,8 +552,8 @@ public class DataIngestionService {
                                               String logCaptureId,
                                               boolean enforceStatus) {
         validateExecutable(service);
-        List<DataIngestionFieldMapping> mappings = fieldSupport.normalizeFieldMappings(service.getFieldMappings(), requiredModel(service.getModelId()));
-        return executionSupport.execute(service, mappings, headers, query, form, body, requestId, jobId, logCaptureId, enforceStatus);
+        List<DataIngestionSourceBinding> sourceBindings = normalizeExecutableSourceBindings(service);
+        return executionSupport.executeBindings(service, sourceBindings, headers, query, form, body, requestId, jobId, logCaptureId, enforceStatus);
     }
 
     private List<Map<String, Object>> parseSourceRows(DataIngestionServiceView service,
@@ -603,6 +605,8 @@ public class DataIngestionService {
                 ? DataIngestionRequestFormat.SOAP
                 : enumValue(DataIngestionRequestFormat.class, entity.getRequestFormat(), DataIngestionRequestFormat.JSON));
         view.setSourcePositions(sourcePositionsForList(entity));
+        view.setSourceCount(entity.getSourceCount() == null ? Integer.valueOf(1) : entity.getSourceCount());
+        view.setTargetCount(entity.getTargetCount() == null ? Integer.valueOf(1) : entity.getTargetCount());
         return view;
     }
 
@@ -621,6 +625,8 @@ public class DataIngestionService {
         view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
         view.setEndpointPath(entity.getEndpointPath());
         view.setSourcePositions(sourcePositionsForList(entity));
+        view.setSourceCount(entity.getSourceCount() == null ? Integer.valueOf(1) : entity.getSourceCount());
+        view.setTargetCount(entity.getTargetCount() == null ? Integer.valueOf(1) : entity.getTargetCount());
         return view;
     }
 
@@ -653,10 +659,13 @@ public class DataIngestionService {
         view.setDefaultSubscriptionName(listView.getDefaultSubscriptionName());
         view.setWebserviceEnabled(listView.getWebserviceEnabled());
         view.setSourcePositions(listView.getSourcePositions());
+        view.setSourceCount(listView.getSourceCount());
+        view.setTargetCount(listView.getTargetCount());
         view.setServiceKey(entity.getServiceKey());
         view.setWebserviceConfig(fromWebServiceConfigMap(entity.getWebserviceConfigJson(), "data-ingestion-service", entity.getServiceCode(), view.getWebserviceEnabled()));
         view.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());
         view.setFieldMappings(fromMapList(entity.getFieldMappingsJson()));
+        view.setSourceBindings(sourceBindingsForView(entity));
         return view;
     }
 
@@ -691,24 +700,31 @@ public class DataIngestionService {
         normalizeRequiredText(request.getServiceCode(), "Service code is required");
         normalizeRequiredText(request.getServiceName(), "Service name is required");
         validateSimpleIdentifier(request.getServiceCode(), "Service code must contain only letters, numbers and underscores");
-        if (request.getDatasourceId() == null) {
+        boolean hasSourceBindings = request.getSourceBindings() != null && !request.getSourceBindings().isEmpty();
+        if (!hasSourceBindings && request.getDatasourceId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required");
         }
-        if (request.getModelId() == null) {
+        if (!hasSourceBindings && request.getModelId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model is required");
         }
         normalizeMaxBatchSize(request.getMaxBatchSize());
     }
 
     private void validateExecutable(DataIngestionServiceView view) {
-        if (view.getDatasourceId() == null) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required");
+        List<DataIngestionSourceBinding> bindings = view == null ? new ArrayList<DataIngestionSourceBinding>() : sourceBindingsForView(view);
+        if (enabledSourceBindings(bindings).isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one enabled source binding is required");
         }
-        if (view.getModelId() == null) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model is required");
-        }
-        if (view.getFieldMappings() == null || view.getFieldMappings().isEmpty()) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Field mappings are not configured");
+        for (DataIngestionSourceBinding binding : enabledSourceBindings(bindings)) {
+            if (binding.getDatasourceId() == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required for source " + binding.getSourceCode());
+            }
+            if (binding.getModelId() == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model is required for source " + binding.getSourceCode());
+            }
+            if (binding.getFieldMappings() == null || binding.getFieldMappings().isEmpty()) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Field mappings are not configured for source " + binding.getSourceCode());
+            }
         }
     }
 
@@ -727,6 +743,251 @@ public class DataIngestionService {
         if (targetType == DataIngestionTargetType.DATABASE && fileDatasource) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Database target requires a database datasource");
         }
+    }
+
+    private List<DataIngestionSourceBinding> normalizeSourceBindings(DataIngestionServiceSaveRequest request) {
+        List<DataIngestionSourceBinding> incoming = request.getSourceBindings() == null || request.getSourceBindings().isEmpty()
+                ? legacySourceBindings(request)
+                : request.getSourceBindings();
+        List<DataIngestionSourceBinding> result = new ArrayList<DataIngestionSourceBinding>();
+        int index = 0;
+        for (DataIngestionSourceBinding binding : incoming) {
+            if (binding == null) {
+                continue;
+            }
+            DataIngestionSourceBinding normalized = normalizeSourceBinding(binding, request, index);
+            result.add(normalized);
+            index++;
+        }
+        if (enabledSourceBindings(result).isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one enabled source binding is required");
+        }
+        return result;
+    }
+
+    private List<DataIngestionSourceBinding> normalizeExecutableSourceBindings(DataIngestionServiceView service) {
+        List<DataIngestionSourceBinding> sourceBindings = sourceBindingsForView(service);
+        List<DataIngestionSourceBinding> result = new ArrayList<DataIngestionSourceBinding>();
+        int index = 0;
+        for (DataIngestionSourceBinding binding : sourceBindings) {
+            result.add(normalizeSourceBinding(binding, service, index));
+            index++;
+        }
+        if (enabledSourceBindings(result).isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one enabled source binding is required");
+        }
+        return result;
+    }
+
+    private DataIngestionSourceBinding normalizeSourceBinding(DataIngestionSourceBinding binding,
+                                                              DataIngestionServiceSaveRequest request,
+                                                              int index) {
+        DataIngestionSourceBinding fallback = new DataIngestionSourceBinding();
+        fallback.setSourcePosition(DataIngestionSourcePosition.BODY);
+        fallback.setSourcePath(request.getDataNodePath());
+        fallback.setPayloadMode(request.getPayloadMode());
+        fallback.setTargetType(request.getTargetType());
+        fallback.setDatasourceId(request.getDatasourceId());
+        fallback.setModelId(request.getModelId());
+        fallback.setWriterOptions(request.getWriterOptions());
+        fallback.setFieldMappings(request.getFieldMappings());
+        return normalizeSourceBinding(mergeFallback(binding, fallback), index);
+    }
+
+    private DataIngestionSourceBinding normalizeSourceBinding(DataIngestionSourceBinding binding,
+                                                              DataIngestionServiceView service,
+                                                              int index) {
+        DataIngestionSourceBinding fallback = new DataIngestionSourceBinding();
+        fallback.setSourcePosition(DataIngestionSourcePosition.BODY);
+        fallback.setSourcePath(service.getDataNodePath());
+        fallback.setPayloadMode(service.getPayloadMode());
+        fallback.setTargetType(service.getTargetType());
+        fallback.setDatasourceId(service.getDatasourceId());
+        fallback.setDatasourceName(service.getDatasourceName());
+        fallback.setDatasourceTypeCode(service.getDatasourceTypeCode());
+        fallback.setModelId(service.getModelId());
+        fallback.setModelName(service.getModelName());
+        fallback.setModelPhysicalLocator(service.getModelPhysicalLocator());
+        fallback.setWriterOptions(service.getWriterOptions());
+        fallback.setFieldMappings(service.getFieldMappings());
+        return normalizeSourceBinding(mergeFallback(binding, fallback), index);
+    }
+
+    private DataIngestionSourceBinding normalizeSourceBinding(DataIngestionSourceBinding binding, int index) {
+        boolean enabled = !Boolean.FALSE.equals(binding.getEnabled());
+        String sourceCode = hasText(binding.getSourceCode()) ? binding.getSourceCode().trim() : "source_" + (index + 1);
+        validateSimpleIdentifier(sourceCode, "Source code must contain only letters, numbers and underscores: " + sourceCode);
+        if (!enabled && (binding.getDatasourceId() == null || binding.getModelId() == null)) {
+            DataIngestionSourceBinding normalized = new DataIngestionSourceBinding();
+            normalized.setSourceCode(sourceCode);
+            normalized.setSourceName(hasText(binding.getSourceName()) ? binding.getSourceName().trim() : sourceCode);
+            normalized.setSourcePosition(binding.getSourcePosition() == null ? DataIngestionSourcePosition.BODY : binding.getSourcePosition());
+            normalized.setSourcePath(normalizeText(binding.getSourcePath()));
+            normalized.setPayloadMode(binding.getPayloadMode() == null ? defaultPayloadMode(binding.getSourcePath()) : binding.getPayloadMode());
+            normalized.setTargetType(binding.getTargetType() == null ? DataIngestionTargetType.DATABASE : binding.getTargetType());
+            normalized.setDatasourceId(binding.getDatasourceId());
+            normalized.setModelId(binding.getModelId());
+            normalized.setWriterOptions(binding.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : binding.getWriterOptions());
+            normalized.setFieldMappings(binding.getFieldMappings() == null ? new ArrayList<DataIngestionFieldMapping>() : binding.getFieldMappings());
+            normalized.setSortOrder(binding.getSortOrder() == null ? Integer.valueOf(index) : binding.getSortOrder());
+            normalized.setEnabled(Boolean.FALSE);
+            return normalized;
+        }
+        if (binding.getDatasourceId() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required for source " + sourceCode);
+        }
+        if (binding.getModelId() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model is required for source " + sourceCode);
+        }
+        DataIngestionTargetType targetType = binding.getTargetType() == null ? DataIngestionTargetType.DATABASE : binding.getTargetType();
+        DataSourceDefinition datasource = requiredDatasource(binding.getDatasourceId());
+        DataModelDefinition model = requiredModel(binding.getModelId());
+        validateTarget(datasource, model, targetType);
+        List<DataIngestionFieldMapping> mappings = fieldSupport.normalizeFieldMappings(binding.getFieldMappings(), model);
+
+        DataIngestionSourceBinding normalized = new DataIngestionSourceBinding();
+        normalized.setSourceCode(sourceCode);
+        normalized.setSourceName(hasText(binding.getSourceName()) ? binding.getSourceName().trim() : sourceCode);
+        normalized.setSourcePosition(binding.getSourcePosition() == null ? DataIngestionSourcePosition.BODY : binding.getSourcePosition());
+        normalized.setSourcePath(normalizeText(binding.getSourcePath()));
+        normalized.setPayloadMode(binding.getPayloadMode() == null ? defaultPayloadMode(binding.getSourcePath()) : binding.getPayloadMode());
+        normalized.setTargetType(targetType);
+        normalized.setDatasourceId(datasource.getId());
+        normalized.setDatasourceName(datasource.getName());
+        normalized.setDatasourceTypeCode(datasource.getTypeCode());
+        normalized.setModelId(model.getId());
+        normalized.setModelName(model.getName());
+        normalized.setModelPhysicalLocator(model.getPhysicalLocator());
+        normalized.setWriterOptions(binding.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : binding.getWriterOptions());
+        normalized.setFieldMappings(mappings);
+        normalized.setSortOrder(binding.getSortOrder() == null ? Integer.valueOf(index) : binding.getSortOrder());
+        normalized.setEnabled(Boolean.valueOf(enabled));
+        return normalized;
+    }
+
+    private DataIngestionSourceBinding mergeFallback(DataIngestionSourceBinding binding, DataIngestionSourceBinding fallback) {
+        DataIngestionSourceBinding result = new DataIngestionSourceBinding();
+        result.setSourceCode(hasText(binding.getSourceCode()) ? binding.getSourceCode() : fallback.getSourceCode());
+        result.setSourceName(hasText(binding.getSourceName()) ? binding.getSourceName() : fallback.getSourceName());
+        result.setSourcePosition(binding.getSourcePosition() == null ? fallback.getSourcePosition() : binding.getSourcePosition());
+        result.setSourcePath(hasText(binding.getSourcePath()) ? binding.getSourcePath() : fallback.getSourcePath());
+        result.setPayloadMode(binding.getPayloadMode() == null ? fallback.getPayloadMode() : binding.getPayloadMode());
+        result.setTargetType(binding.getTargetType() == null ? fallback.getTargetType() : binding.getTargetType());
+        result.setDatasourceId(binding.getDatasourceId() == null ? fallback.getDatasourceId() : binding.getDatasourceId());
+        result.setDatasourceName(hasText(binding.getDatasourceName()) ? binding.getDatasourceName() : fallback.getDatasourceName());
+        result.setDatasourceTypeCode(hasText(binding.getDatasourceTypeCode()) ? binding.getDatasourceTypeCode() : fallback.getDatasourceTypeCode());
+        result.setModelId(binding.getModelId() == null ? fallback.getModelId() : binding.getModelId());
+        result.setModelName(hasText(binding.getModelName()) ? binding.getModelName() : fallback.getModelName());
+        result.setModelPhysicalLocator(hasText(binding.getModelPhysicalLocator()) ? binding.getModelPhysicalLocator() : fallback.getModelPhysicalLocator());
+        result.setWriterOptions(binding.getWriterOptions() == null || binding.getWriterOptions().isEmpty() ? fallback.getWriterOptions() : binding.getWriterOptions());
+        result.setFieldMappings(binding.getFieldMappings() == null || binding.getFieldMappings().isEmpty() ? fallback.getFieldMappings() : binding.getFieldMappings());
+        result.setSortOrder(binding.getSortOrder() == null ? fallback.getSortOrder() : binding.getSortOrder());
+        result.setEnabled(binding.getEnabled() == null ? fallback.getEnabled() : binding.getEnabled());
+        return result;
+    }
+
+    private List<DataIngestionSourceBinding> legacySourceBindings(DataIngestionServiceSaveRequest request) {
+        DataIngestionSourceBinding binding = new DataIngestionSourceBinding();
+        binding.setSourceCode("source_1");
+        binding.setSourceName("默认来源");
+        binding.setSourcePosition(DataIngestionSourcePosition.BODY);
+        binding.setSourcePath(request.getDataNodePath());
+        binding.setPayloadMode(request.getPayloadMode());
+        binding.setTargetType(request.getTargetType());
+        binding.setDatasourceId(request.getDatasourceId());
+        binding.setModelId(request.getModelId());
+        binding.setWriterOptions(request.getWriterOptions());
+        binding.setFieldMappings(request.getFieldMappings());
+        binding.setSortOrder(Integer.valueOf(0));
+        binding.setEnabled(Boolean.TRUE);
+        return Collections.singletonList(binding);
+    }
+
+    private List<DataIngestionSourceBinding> sourceBindingsForView(DataIngestionServiceEntity entity) {
+        List<DataIngestionSourceBinding> parsed = fromSourceBindingMapList(entity.getSourceBindingsJson());
+        if (!parsed.isEmpty()) {
+            return parsed;
+        }
+        DataIngestionSourceBinding binding = new DataIngestionSourceBinding();
+        binding.setSourceCode("source_1");
+        binding.setSourceName("默认来源");
+        binding.setSourcePosition(DataIngestionSourcePosition.BODY);
+        binding.setSourcePath(entity.getDataNodePath());
+        binding.setPayloadMode(enumValue(DataIngestionPayloadMode.class, entity.getPayloadMode(), DataIngestionPayloadMode.OBJECT));
+        binding.setTargetType(enumValue(DataIngestionTargetType.class, entity.getTargetType(), DataIngestionTargetType.DATABASE));
+        binding.setDatasourceId(entity.getDatasourceId());
+        binding.setDatasourceName(entity.getDatasourceNameSnapshot());
+        binding.setDatasourceTypeCode(entity.getDatasourceTypeCode());
+        binding.setModelId(entity.getModelId());
+        binding.setModelName(entity.getModelNameSnapshot());
+        binding.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        binding.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());
+        binding.setFieldMappings(fromMapList(entity.getFieldMappingsJson()));
+        binding.setSortOrder(Integer.valueOf(0));
+        binding.setEnabled(Boolean.TRUE);
+        return Collections.singletonList(binding);
+    }
+
+    private List<DataIngestionSourceBinding> sourceBindingsForView(DataIngestionServiceView view) {
+        if (view != null && view.getSourceBindings() != null && !view.getSourceBindings().isEmpty()) {
+            return view.getSourceBindings();
+        }
+        if (view == null) {
+            return new ArrayList<DataIngestionSourceBinding>();
+        }
+        DataIngestionSourceBinding binding = new DataIngestionSourceBinding();
+        binding.setSourceCode("source_1");
+        binding.setSourceName("默认来源");
+        binding.setSourcePosition(DataIngestionSourcePosition.BODY);
+        binding.setSourcePath(view.getDataNodePath());
+        binding.setPayloadMode(view.getPayloadMode());
+        binding.setTargetType(view.getTargetType());
+        binding.setDatasourceId(view.getDatasourceId());
+        binding.setDatasourceName(view.getDatasourceName());
+        binding.setDatasourceTypeCode(view.getDatasourceTypeCode());
+        binding.setModelId(view.getModelId());
+        binding.setModelName(view.getModelName());
+        binding.setModelPhysicalLocator(view.getModelPhysicalLocator());
+        binding.setWriterOptions(view.getWriterOptions());
+        binding.setFieldMappings(view.getFieldMappings());
+        binding.setSortOrder(Integer.valueOf(0));
+        binding.setEnabled(Boolean.TRUE);
+        return Collections.singletonList(binding);
+    }
+
+    private List<DataIngestionFieldMapping> fieldMappingsFromBindings(List<DataIngestionSourceBinding> sourceBindings) {
+        List<DataIngestionFieldMapping> result = new ArrayList<DataIngestionFieldMapping>();
+        for (DataIngestionSourceBinding binding : enabledSourceBindings(sourceBindings)) {
+            if (binding.getFieldMappings() != null) {
+                result.addAll(binding.getFieldMappings());
+            }
+        }
+        return result;
+    }
+
+    private List<DataIngestionSourceBinding> enabledSourceBindings(List<DataIngestionSourceBinding> sourceBindings) {
+        List<DataIngestionSourceBinding> result = new ArrayList<DataIngestionSourceBinding>();
+        if (sourceBindings == null) {
+            return result;
+        }
+        for (DataIngestionSourceBinding binding : sourceBindings) {
+            if (binding != null && !Boolean.FALSE.equals(binding.getEnabled())) {
+                result.add(binding);
+            }
+        }
+        return result;
+    }
+
+    private int targetCount(List<DataIngestionSourceBinding> sourceBindings) {
+        Set<String> targets = new LinkedHashSet<String>();
+        for (DataIngestionSourceBinding binding : enabledSourceBindings(sourceBindings)) {
+            targets.add(String.valueOf(binding.getDatasourceId()) + ":" + String.valueOf(binding.getModelId()));
+        }
+        return targets.size();
+    }
+
+    private DataIngestionPayloadMode defaultPayloadMode(String sourcePath) {
+        return hasText(sourcePath) ? DataIngestionPayloadMode.ARRAY : DataIngestionPayloadMode.OBJECT;
     }
 
     private void ensureUniqueServiceCode(Long projectId, String serviceCode, Long selfId) {
@@ -1056,11 +1317,24 @@ public class DataIngestionService {
         });
     }
 
+    private List<Map<String, Object>> toSourceBindingMapList(List<DataIngestionSourceBinding> bindings) {
+        return objectMapper.convertValue(bindings, new TypeReference<List<Map<String, Object>>>() {
+        });
+    }
+
     private List<DataIngestionFieldMapping> fromMapList(List<Map<String, Object>> mappings) {
         if (mappings == null) {
             return new ArrayList<DataIngestionFieldMapping>();
         }
         return objectMapper.convertValue(mappings, new TypeReference<List<DataIngestionFieldMapping>>() {
+        });
+    }
+
+    private List<DataIngestionSourceBinding> fromSourceBindingMapList(List<Map<String, Object>> bindings) {
+        if (bindings == null || bindings.isEmpty()) {
+            return new ArrayList<DataIngestionSourceBinding>();
+        }
+        return objectMapper.convertValue(bindings, new TypeReference<List<DataIngestionSourceBinding>>() {
         });
     }
 
@@ -1072,7 +1346,32 @@ public class DataIngestionService {
         if (!sourcePositions.isEmpty()) {
             return sourcePositions;
         }
+        sourcePositions = sourcePositionsFromBindings(fromSourceBindingMapList(entity.getSourceBindingsJson()));
+        if (!sourcePositions.isEmpty()) {
+            return sourcePositions;
+        }
         return sourcePositions(entity.getFieldMappingsJson());
+    }
+
+    private List<String> sourcePositionsFromBindings(List<DataIngestionSourceBinding> bindings) {
+        Set<String> positions = new LinkedHashSet<String>();
+        if (bindings != null) {
+            for (DataIngestionSourceBinding binding : enabledSourceBindings(bindings)) {
+                DataIngestionSourcePosition sourcePosition = binding.getSourcePosition() == null
+                        ? DataIngestionSourcePosition.BODY
+                        : binding.getSourcePosition();
+                positions.add(sourcePosition.name());
+                if (binding.getFieldMappings() != null) {
+                    for (DataIngestionFieldMapping mapping : binding.getFieldMappings()) {
+                        DataIngestionSourcePosition mappingPosition = mapping == null || mapping.getSourcePosition() == null
+                                ? DataIngestionSourcePosition.BODY
+                                : mapping.getSourcePosition();
+                        positions.add(mappingPosition.name());
+                    }
+                }
+            }
+        }
+        return new ArrayList<String>(positions);
     }
 
     private List<String> sourcePositionsFromMappings(List<DataIngestionFieldMapping> mappings) {

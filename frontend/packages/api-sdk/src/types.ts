@@ -614,6 +614,25 @@ export interface DataIngestionFieldMapping {
   description?: string;
 }
 
+export interface DataIngestionSourceBinding {
+  sourceCode?: string;
+  sourceName?: string;
+  sourcePosition?: DataIngestionSourcePosition;
+  sourcePath?: string;
+  payloadMode?: DataIngestionPayloadMode;
+  targetType?: DataIngestionTargetType;
+  datasourceId?: EntityId;
+  datasourceName?: string;
+  datasourceTypeCode?: string;
+  modelId?: EntityId;
+  modelName?: string;
+  modelPhysicalLocator?: string;
+  writerOptions?: Record<string, unknown>;
+  fieldMappings?: DataIngestionFieldMapping[];
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
 export interface DataIngestionServiceView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
@@ -639,6 +658,9 @@ export interface DataIngestionServiceView extends BaseRecord {
   writerOptions?: Record<string, unknown>;
   fieldMappings?: DataIngestionFieldMapping[];
   sourcePositions?: string[];
+  sourceBindings?: DataIngestionSourceBinding[];
+  sourceCount?: number;
+  targetCount?: number;
 }
 
 export interface DataIngestionServiceListView extends BaseRecord {
@@ -662,6 +684,8 @@ export interface DataIngestionServiceListView extends BaseRecord {
   defaultSubscriptionName?: string;
   webserviceEnabled?: boolean;
   sourcePositions?: string[];
+  sourceCount?: number;
+  targetCount?: number;
 }
 
 export interface DataIngestionServiceSaveRequest {
@@ -681,6 +705,7 @@ export interface DataIngestionServiceSaveRequest {
   webserviceConfig?: WebServiceConfig;
   writerOptions?: Record<string, unknown>;
   fieldMappings: DataIngestionFieldMapping[];
+  sourceBindings?: DataIngestionSourceBinding[];
 }
 
 export interface DataIngestionResolveFieldsRequest {
@@ -707,6 +732,20 @@ export interface DataIngestionInvokeResult {
   successCount?: number;
   failedCount?: number;
   status?: string;
+  sourceResults?: DataIngestionSourceInvokeResult[];
+}
+
+export interface DataIngestionSourceInvokeResult {
+  sourceCode?: string;
+  sourceName?: string;
+  targetDatasourceName?: string;
+  targetModelName?: string;
+  receivedCount?: number;
+  successCount?: number;
+  failedCount?: number;
+  status?: string;
+  message?: string;
+  jobId?: EntityId;
 }
 
 export interface DataIngestionSubscriptionView extends BaseRecord {

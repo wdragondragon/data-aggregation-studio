@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.enums.DataIngestionPayloadMode;
 import com.jdragon.studio.dto.enums.DataIngestionRequestFormat;
 import com.jdragon.studio.dto.enums.DataIngestionTargetType;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
+import com.jdragon.studio.dto.model.DataIngestionSourceBinding;
 import com.jdragon.studio.dto.model.WebServiceConfig;
 import lombok.Data;
 
@@ -36,4 +37,5 @@ public class DataIngestionServiceSaveRequest {
     private WebServiceConfig webserviceConfig;
     private Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
     private List<DataIngestionFieldMapping> fieldMappings = new ArrayList<DataIngestionFieldMapping>();
+    private List<DataIngestionSourceBinding> sourceBindings = new ArrayList<DataIngestionSourceBinding>();
 }

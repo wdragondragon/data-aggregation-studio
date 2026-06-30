@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.enums.WebServiceSoapVersion;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
 import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
+import com.jdragon.studio.dto.model.DataIngestionSourceInvokeResult;
 import com.jdragon.studio.dto.model.DataServiceDefinitionView;
 import com.jdragon.studio.dto.model.DataServicePublishParamView;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
@@ -146,6 +147,7 @@ final class WebServiceSupport {
         outputFields.add(new FieldSpec("successCount", "long", "1"));
         outputFields.add(new FieldSpec("failedCount", "long", "0"));
         outputFields.add(new FieldSpec("status", "string", "SUCCESS"));
+        outputFields.add(new FieldSpec("sourceResults", "string", null));
         return wsdl(service.getServiceName(), config, endpointPath, dataIngestionRequestFields(service), outputFields);
     }
 
@@ -204,6 +206,7 @@ final class WebServiceSupport {
         payload.put("successCount", result == null ? null : result.getSuccessCount());
         payload.put("failedCount", result == null ? null : result.getFailedCount());
         payload.put("status", result == null ? null : result.getStatus());
+        payload.put("sourceResults", new RepeatedElements("sourceResults", sourceResultPayloads(result)));
         return payload;
     }
 
@@ -306,7 +309,40 @@ final class WebServiceSupport {
         root.put("successCount", Integer.valueOf(1));
         root.put("failedCount", Integer.valueOf(0));
         root.put("status", "SUCCESS");
+        Map<String, Object> sourceResult = new LinkedHashMap<String, Object>();
+        sourceResult.put("sourceCode", "source_1");
+        sourceResult.put("sourceName", "默认来源");
+        sourceResult.put("receivedCount", Integer.valueOf(1));
+        sourceResult.put("successCount", Integer.valueOf(1));
+        sourceResult.put("failedCount", Integer.valueOf(0));
+        sourceResult.put("status", "SUCCESS");
+        root.put("sourceResults", new RepeatedElements("sourceResults", java.util.Collections.singletonList(sourceResult)));
         return root;
+    }
+
+    private List<Map<String, Object>> sourceResultPayloads(DataIngestionInvokeResult result) {
+        List<Map<String, Object>> payloads = new ArrayList<Map<String, Object>>();
+        if (result == null || result.getSourceResults() == null) {
+            return payloads;
+        }
+        for (DataIngestionSourceInvokeResult sourceResult : result.getSourceResults()) {
+            if (sourceResult == null) {
+                continue;
+            }
+            Map<String, Object> payload = new LinkedHashMap<String, Object>();
+            payload.put("sourceCode", sourceResult.getSourceCode());
+            payload.put("sourceName", sourceResult.getSourceName());
+            payload.put("targetDatasourceName", sourceResult.getTargetDatasourceName());
+            payload.put("targetModelName", sourceResult.getTargetModelName());
+            payload.put("receivedCount", sourceResult.getReceivedCount());
+            payload.put("successCount", sourceResult.getSuccessCount());
+            payload.put("failedCount", sourceResult.getFailedCount());
+            payload.put("status", sourceResult.getStatus());
+            payload.put("message", sourceResult.getMessage());
+            payload.put("jobId", sourceResult.getJobId());
+            payloads.add(payload);
+        }
+        return payloads;
     }
 
     private String sampleRequest(WebServiceConfig config, List<FieldSpec> fields, boolean includeTokenHeader) {

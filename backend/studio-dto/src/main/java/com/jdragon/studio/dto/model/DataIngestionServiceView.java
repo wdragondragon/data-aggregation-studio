@@ -39,4 +39,7 @@ public class DataIngestionServiceView extends BaseDefinition {
     private Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
     private List<DataIngestionFieldMapping> fieldMappings = new ArrayList<DataIngestionFieldMapping>();
     private List<String> sourcePositions = new ArrayList<String>();
+    private List<DataIngestionSourceBinding> sourceBindings = new ArrayList<DataIngestionSourceBinding>();
+    private Integer sourceCount;
+    private Integer targetCount;
 }

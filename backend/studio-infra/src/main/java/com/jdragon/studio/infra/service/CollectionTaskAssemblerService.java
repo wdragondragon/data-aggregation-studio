@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -26,6 +27,11 @@ public class CollectionTaskAssemblerService {
 
     private static final CollectionTaskRuntimeOptionMerger RUNTIME_OPTION_MERGER = new CollectionTaskRuntimeOptionMerger();
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
+    private static final String MYSQL_BATCH_REWRITE_KEY = "rewriteBatchedStatements";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<LinkedHashMap<String, String>> STRING_MAP_TYPE =
+            new TypeReference<LinkedHashMap<String, String>>() {
+            };
 
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
@@ -282,7 +288,9 @@ public class CollectionTaskAssemblerService {
             writerConfig.putAll(httpConfigSupport.buildWriterConfig(buildConnectionConfig(datasource), model, targetFields));
             return writerConfig;
         }
-        writerConfig.put("connect", buildConnectionConfig(datasource));
+        Map<String, Object> connect = buildConnectionConfig(datasource);
+        applyMysqlWriterBatchOptions(connect, pluginType);
+        writerConfig.put("connect", connect);
         writerConfig.put("table", model.getPhysicalLocator());
         writerConfig.put("columns", targetFields);
         return writerConfig;
@@ -339,6 +347,60 @@ public class CollectionTaskAssemblerService {
         return "mysql8".equalsIgnoreCase(pluginType)
                 || "dm".equalsIgnoreCase(pluginType)
                 || "postgresql".equalsIgnoreCase(pluginType);
+    }
+
+    private void applyMysqlWriterBatchOptions(Map<String, Object> connect, String pluginType) {
+        if (!"mysql8".equalsIgnoreCase(pluginType) && !"mysql5".equalsIgnoreCase(pluginType)) {
+            return;
+        }
+        Map<String, String> other = parseConnectionOther(connect.get("other"));
+        if (containsKeyIgnoreCase(other, MYSQL_BATCH_REWRITE_KEY)) {
+            connect.put("other", toConnectionOther(other));
+            return;
+        }
+        other.put(MYSQL_BATCH_REWRITE_KEY, "true");
+        connect.put("other", toConnectionOther(other));
+    }
+
+    private Map<String, String> parseConnectionOther(Object value) {
+        Map<String, String> result = new LinkedHashMap<String, String>();
+        if (value instanceof Map<?, ?>) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    result.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+                }
+            }
+            return result;
+        }
+        if (!(value instanceof String) || ((String) value).trim().isEmpty()) {
+            return result;
+        }
+        String text = ((String) value).trim();
+        if (text.startsWith("{") && text.endsWith("}")) {
+            try {
+                result.putAll(OBJECT_MAPPER.readValue(text, STRING_MAP_TYPE));
+            } catch (Exception ignored) {
+                return result;
+            }
+        }
+        return result;
+    }
+
+    private String toConnectionOther(Map<String, String> other) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(other);
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
+    private boolean containsKeyIgnoreCase(Map<String, String> map, String key) {
+        for (String item : map.keySet()) {
+            if (item != null && item.equalsIgnoreCase(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void normalizeReaderRuntimeConfig(Map<String, Object> config, String datasourceTypeCode, String pluginType) {

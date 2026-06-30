@@ -43,7 +43,7 @@
       </button>
     </div>
 
-    <SectionCard v-if="activeStep === 0" title="一、基础信息和写入目标配置" description="配置开放 API 基础信息、写入目标模型和 Writer 参数。">
+    <SectionCard v-if="activeStep === 0" title="一、基础信息" description="配置开放 API 基础信息。每个目标的来源路径在目标配置中单独维护。">
       <div class="section-toolbar">
         <div>
           <strong>基础信息</strong>
@@ -56,12 +56,6 @@
         </el-form-item>
         <el-form-item label="服务编码" required>
           <el-input v-model="form.serviceCode" placeholder="customer_ingest" :disabled="Boolean(form.id)" />
-        </el-form-item>
-        <el-form-item label="批量数据节点">
-          <el-input v-model="form.dataNodePath" placeholder="例如：data.items" />
-        </el-form-item>
-        <el-form-item label="单次最大行数">
-          <el-input-number v-model="form.maxBatchSize" :min="1" :max="500" />
         </el-form-item>
         <el-form-item label="访问 Token">
           <el-switch v-model="form.tokenRequired" active-text="需要 Token" inactive-text="免 Token" />
@@ -128,209 +122,478 @@
         </el-collapse-item>
       </el-collapse>
 
-      <div class="section-toolbar section-toolbar--spaced">
-        <div>
-          <strong>写入目标配置</strong>
-          <p>先选择数据源类型，再选择数据源和目标模型；Writer 参数会按目标插件自动渲染。</p>
-        </div>
-      </div>
-      <el-form label-width="120px" class="ingestion-form-grid">
-        <el-form-item label="目标类型">
-          <el-radio-group v-model="form.targetType" @change="handleTargetTypeChange">
-            <el-radio-button value="DATABASE">数据库表</el-radio-button>
-            <el-radio-button value="FILE">文件模型</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="数据源类型" required>
-          <el-select v-model="targetDatasourceType" filterable clearable placeholder="选择数据源类型" @change="handleDatasourceTypeChange">
-            <el-option
-              v-for="item in datasourceTypeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="数据源" required>
-          <el-select v-model="form.datasourceId" filterable clearable :disabled="!targetDatasourceType" placeholder="选择数据源" @change="handleDatasourceChange">
-            <el-option v-for="item in filteredDatasources" :key="item.id" :label="`${item.name} / ${item.typeCode}`" :value="item.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="模型" required>
-          <el-select
-            v-model="form.modelId"
-            filterable
-            remote
-            clearable
-            :disabled="!form.datasourceId"
-            placeholder="选择目标模型"
-            :remote-method="searchModels"
-            @visible-change="handleModelDropdownVisible"
-            @change="handleModelChange"
-          >
-            <el-option v-for="item in models" :key="item.id" :label="`${item.name} / ${item.physicalLocator}`" :value="item.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="字段">
-          <el-button plain :disabled="!form.datasourceId || !form.modelId || modelDetailLoading" :loading="resolving || modelDetailLoading" @click="resolveFields">解析目标字段</el-button>
-        </el-form-item>
-      </el-form>
-      <div class="writer-options-panel">
-        <div class="writer-options-header">
-          <div>
-            <strong>高级写入参数</strong>
-            <p>{{ runtimeSchemaTitle("writer", form.datasourceId) || "选择数据源后加载 Writer 参数表单" }}</p>
-          </div>
-          <el-tag
-            v-if="runtimeSchemaFor('writer', form.datasourceId)"
-            :type="runtimeStatusType('writer', form.datasourceId)"
-          >
-            {{ runtimeStatusLabel("writer", form.datasourceId) }}
-          </el-tag>
-        </div>
-
-        <div v-if="writerRuntimeLoading" class="writer-options-loading">正在加载 Writer 参数...</div>
-        <HttpRequestOptionsEditor
-          v-else-if="writerAdvancedFields.length && isHttpWriterTarget()"
-          :fields="writerAdvancedFields"
-          :model-value="form.writerOptions ?? {}"
-          :dynamic-function-fields="writerDynamicFunctionFields()"
-          @update:model-value="updateWriterOptions($event)"
-        />
-        <MetaFormRenderer
-          v-else-if="writerAdvancedFields.length"
-          :fields="writerAdvancedFields"
-          :model-value="form.writerOptions ?? {}"
-          :dynamic-function-fields="writerDynamicFunctionFields()"
-          @update:model-value="updateWriterOptions($event)"
-        />
-        <el-alert
-          v-else-if="runtimeSchemaFor('writer', form.datasourceId) && !runtimeSchemaFor('writer', form.datasourceId)?.runtimeSupported"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="当前 Writer 插件暂不支持运行参数表单"
-        />
-        <el-alert
-          v-else-if="runtimeSchemaFor('writer', form.datasourceId)"
-          type="info"
-          :closable="false"
-          show-icon
-          title="当前 Writer 插件没有额外运行参数"
-        />
-        <el-alert
-          v-else-if="!form.datasourceId"
-          type="info"
-          :closable="false"
-          show-icon
-          title="选择数据源后会按 Writer 插件自动渲染运行参数"
-        />
-        <div v-else class="writer-options-fallback">
-          <el-alert
-            type="warning"
-            :closable="false"
-            show-icon
-            title="未获取到 Writer 参数 schema，可临时使用 JSON 参数覆盖"
-          />
-          <JsonEditor v-model="writerOptionsText" title="Writer 运行参数" description="支持 writeMode、fileName 等 writer 参数覆盖。" height="180px" />
-        </div>
-      </div>
     </SectionCard>
 
-    <SectionCard v-if="activeStep === 1" title="二、字段映射配置" description="按字段配置取值位置，可混合使用 Body、Form、Query 和 Header；SOAP 模式下 Body 表示 XML 节点路径。">
-      <StudioTableShell min-width="1040px">
-        <el-table :data="form.fieldMappings" border>
-          <el-table-column label="序号" width="70" align="center">
-            <template #default="{ $index }">{{ $index + 1 }}</template>
-          </el-table-column>
-          <el-table-column label="取值位置" width="150">
-            <template #default="{ row }">
-              <el-select v-model="row.sourcePosition">
+    <SectionCard v-if="activeStep === 1" title="二、目标配置" description="维护每个目标的来源截取、写入参数和字段映射。">
+      <div v-if="targetConfigMode === 'overview'" class="target-card-grid">
+        <button
+          v-for="(source, index) in form.sourceBindings"
+          :key="source.sourceCode || index"
+          class="target-card"
+          :class="{ active: activeSourceIndex === index, disabled: source.enabled === false }"
+          type="button"
+          @click="openTargetBinding(index)"
+        >
+          <span
+            class="target-card-delete"
+            :class="{ disabled: (form.sourceBindings?.length ?? 0) <= 1 }"
+            role="button"
+            tabindex="0"
+            aria-label="删除目标配置"
+            @click.stop="removeSourceBinding(index)"
+            @keydown.enter.stop.prevent="removeSourceBinding(index)"
+          >
+            ×
+          </span>
+          <div class="target-card-header">
+            <div class="target-card-title">
+              <strong>{{ source.sourceName || source.sourceCode || `目标 ${index + 1}` }}</strong>
+              <small>{{ source.sourceCode || `source_${index + 1}` }}</small>
+            </div>
+            <div class="target-card-status" :class="{ disabled: source.enabled === false }">
+              {{ source.enabled === false ? "停用" : "启用" }}
+            </div>
+          </div>
+          <div class="target-card-path">
+            <div>
+              <span>截取位置</span>
+              <strong>{{ sourcePositionLabel(source.sourcePosition) }}</strong>
+            </div>
+            <div>
+              <span>完整来源路径</span>
+              <strong>{{ fullSourcePathForBinding(source) || "整个请求节点" }}</strong>
+            </div>
+          </div>
+          <div class="target-card-facts">
+            <div>
+              <span>来源形态</span>
+              <strong>{{ payloadModeLabel(source.payloadMode) }}</strong>
+            </div>
+            <div>
+              <span>数据源类型</span>
+              <strong>{{ sourceBindingDatasourceTypeLabel(source) }}</strong>
+            </div>
+            <div>
+              <span>数据源</span>
+              <strong>{{ sourceBindingDatasourceLabel(source) }}</strong>
+            </div>
+            <div>
+              <span>模型表名</span>
+              <strong>{{ sourceBindingModelLabel(source) }}</strong>
+            </div>
+          </div>
+          <div class="target-card-meta">
+            <el-tag size="small" effect="plain">{{ source.targetType === "FILE" ? "文件模型" : "数据库表" }}</el-tag>
+            <el-tag size="small" effect="plain">{{ (source.fieldMappings ?? []).length }} 个映射</el-tag>
+          </div>
+        </button>
+        <button class="target-card target-card--add" type="button" @click="addSourceBinding">
+          <span>+</span>
+        </button>
+      </div>
+
+      <template v-else>
+        <div class="target-detail-header">
+          <div>
+            <strong>{{ activeSourceBinding.sourceName || activeSourceBinding.sourceCode || `目标 ${activeSourceIndex + 1}` }}</strong>
+            <p>{{ activeTargetFullPath || "读取整个请求节点" }}</p>
+          </div>
+          <div class="target-detail-actions">
+            <el-button plain @click="targetConfigMode = 'overview'">返回目标列表</el-button>
+            <el-button plain @click="copySourceBinding(activeSourceIndex)">复制当前</el-button>
+            <el-button type="danger" plain :disabled="(form.sourceBindings?.length ?? 0) <= 1" @click="removeSourceBinding(activeSourceIndex)">删除当前</el-button>
+          </div>
+        </div>
+
+        <div class="target-secondary-tabs">
+          <button type="button" :class="{ active: targetConfigMode === 'params' }" @click="targetConfigMode = 'params'">目标参数</button>
+          <button type="button" :class="{ active: targetConfigMode === 'mapping' }" @click="targetConfigMode = 'mapping'">字段映射</button>
+        </div>
+
+        <template v-if="targetConfigMode === 'params'">
+          <div class="section-toolbar section-toolbar--spaced">
+            <div>
+              <strong>目标参数</strong>
+              <p>每个目标独立配置从请求中截取数据的完整路径。</p>
+            </div>
+          </div>
+          <el-form label-width="120px" class="ingestion-form-grid">
+            <el-form-item label="目标编码" required>
+              <el-input v-model="activeSourceBinding.sourceCode" placeholder="source_1" @input="handleActiveSourceMetaChange" />
+            </el-form-item>
+            <el-form-item label="目标名称">
+              <el-input v-model="activeSourceBinding.sourceName" placeholder="订单明细" @input="handleActiveSourceMetaChange" />
+            </el-form-item>
+            <el-form-item label="截取位置">
+              <el-select v-model="activeSourceBinding.sourcePosition" @change="handleActiveSourceMetaChange">
                 <el-option v-for="item in sourcePositionOptions" :key="item.value" :label="item.label" :value="item.value" />
               </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="请求字段" min-width="180">
-            <template #default="{ row }">
-              <el-input v-model="row.sourceField" placeholder="支持 a.b 路径" />
-            </template>
-          </el-table-column>
-          <el-table-column label="目标字段" min-width="180">
-            <template #default="{ row }">
-              <el-input v-model="row.targetField" />
-            </template>
-          </el-table-column>
-          <el-table-column label="类型" width="130">
-            <template #default="{ row }">
-              <el-select v-model="row.valueType">
-                <el-option v-for="item in valueTypes" :key="item" :label="item" :value="item" />
+            </el-form-item>
+            <el-form-item label="完整来源路径">
+              <el-input v-model="activeSourceBinding.sourcePath" placeholder="例如：data.order、data.items；空值表示整个请求节点" @input="handleActiveSourcePathChange" />
+            </el-form-item>
+            <el-form-item label="来源形态">
+              <el-radio-group v-model="activeSourceBinding.payloadMode" @change="handleActiveSourceMetaChange">
+                <el-radio-button value="OBJECT">对象</el-radio-button>
+                <el-radio-button value="ARRAY">数组</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="启用目标">
+              <el-switch v-model="activeSourceBinding.enabled" @change="handleActiveSourceMetaChange" />
+            </el-form-item>
+            <el-form-item label="目标类型">
+              <el-radio-group v-model="form.targetType" @change="handleTargetTypeChange">
+                <el-radio-button value="DATABASE">数据库表</el-radio-button>
+                <el-radio-button value="FILE">文件模型</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="数据源类型" required>
+              <el-select v-model="targetDatasourceType" filterable clearable placeholder="选择数据源类型" @change="handleDatasourceTypeChange">
+                <el-option
+                  v-for="item in datasourceTypeOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
               </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="必填" width="90" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.required" />
-            </template>
-          </el-table-column>
-          <el-table-column label="默认值" min-width="150">
-            <template #default="{ row }">
-              <el-input v-model="row.defaultValue" />
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="90" align="center">
-            <template #default="{ $index }">
-              <el-button link type="danger" @click="removeMapping($index)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </StudioTableShell>
-      <div class="mapping-actions">
-        <el-button plain @click="addMapping">新增映射</el-button>
+            </el-form-item>
+            <el-form-item label="数据源" required>
+              <el-select v-model="form.datasourceId" filterable clearable :disabled="!targetDatasourceType" placeholder="选择数据源" @change="handleDatasourceChange">
+                <el-option v-for="item in filteredDatasources" :key="item.id" :label="`${item.name} / ${item.typeCode}`" :value="item.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="模型" required>
+              <el-select
+                v-model="form.modelId"
+                filterable
+                remote
+                clearable
+                :disabled="!form.datasourceId"
+                placeholder="选择目标模型"
+                :remote-method="searchModels"
+                @visible-change="handleModelDropdownVisible"
+                @change="handleModelChange"
+              >
+                <el-option v-for="item in models" :key="item.id" :label="`${item.name} / ${item.physicalLocator}`" :value="item.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="字段">
+              <el-button plain :disabled="!form.datasourceId || !form.modelId || modelDetailLoading" :loading="resolving || modelDetailLoading" @click="resolveFields">解析目标字段</el-button>
+            </el-form-item>
+          </el-form>
+          <div class="writer-options-panel">
+            <div class="writer-options-header">
+              <div>
+                <strong>高级写入参数</strong>
+                <p>{{ runtimeSchemaTitle("writer", form.datasourceId) || "选择数据源后加载 Writer 参数表单" }}</p>
+              </div>
+              <el-tag
+                v-if="runtimeSchemaFor('writer', form.datasourceId)"
+                :type="runtimeStatusType('writer', form.datasourceId)"
+              >
+                {{ runtimeStatusLabel("writer", form.datasourceId) }}
+              </el-tag>
+            </div>
+
+            <div v-if="writerRuntimeLoading" class="writer-options-loading">正在加载 Writer 参数...</div>
+            <HttpRequestOptionsEditor
+              v-else-if="writerAdvancedFields.length && isHttpWriterTarget()"
+              :fields="writerAdvancedFields"
+              :model-value="form.writerOptions ?? {}"
+              :dynamic-function-fields="writerDynamicFunctionFields()"
+              @update:model-value="updateWriterOptions($event)"
+            />
+            <MetaFormRenderer
+              v-else-if="writerAdvancedFields.length"
+              :fields="writerAdvancedFields"
+              :model-value="form.writerOptions ?? {}"
+              :dynamic-function-fields="writerDynamicFunctionFields()"
+              @update:model-value="updateWriterOptions($event)"
+            />
+            <el-alert
+              v-else-if="runtimeSchemaFor('writer', form.datasourceId) && !runtimeSchemaFor('writer', form.datasourceId)?.runtimeSupported"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="当前 Writer 插件暂不支持运行参数表单"
+            />
+            <el-alert
+              v-else-if="runtimeSchemaFor('writer', form.datasourceId)"
+              type="info"
+              :closable="false"
+              show-icon
+              title="当前 Writer 插件没有额外运行参数"
+            />
+            <el-alert
+              v-else-if="!form.datasourceId"
+              type="info"
+              :closable="false"
+              show-icon
+              title="选择数据源后会按 Writer 插件自动渲染运行参数"
+            />
+            <div v-else class="writer-options-fallback">
+              <el-alert
+                type="warning"
+                :closable="false"
+                show-icon
+                title="未获取到 Writer 参数 schema，可临时使用 JSON 参数覆盖"
+              />
+              <JsonEditor v-model="writerOptionsText" title="Writer 运行参数" description="支持 writeMode、fileName 等 writer 参数覆盖。" height="180px" />
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <StudioTableShell min-width="1040px">
+            <el-table :data="form.fieldMappings" border>
+              <el-table-column label="序号" width="70" align="center">
+                <template #default="{ $index }">{{ $index + 1 }}</template>
+              </el-table-column>
+              <el-table-column label="取值位置" width="150">
+                <template #default="{ row }">
+                  <el-select v-model="row.sourcePosition">
+                    <el-option v-for="item in sourcePositionOptions" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="请求字段" min-width="180">
+                <template #default="{ row }">
+                  <el-input v-model="row.sourceField" placeholder="支持 a.b 路径" />
+                </template>
+              </el-table-column>
+              <el-table-column label="目标字段" min-width="180">
+                <template #default="{ row }">
+                  <el-input v-model="row.targetField" />
+                </template>
+              </el-table-column>
+              <el-table-column label="类型" width="130">
+                <template #default="{ row }">
+                  <el-select v-model="row.valueType">
+                    <el-option v-for="item in valueTypes" :key="item" :label="item" :value="item" />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="必填" width="90" align="center">
+                <template #default="{ row }">
+                  <el-switch v-model="row.required" />
+                </template>
+              </el-table-column>
+              <el-table-column label="默认值" min-width="150">
+                <template #default="{ row }">
+                  <el-input v-model="row.defaultValue" />
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="90" align="center">
+                <template #default="{ $index }">
+                  <el-button link type="danger" @click="removeMapping($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </StudioTableShell>
+          <div class="mapping-actions">
+            <el-button plain @click="addMapping">新增映射</el-button>
+          </div>
+        </template>
+      </template>
+    </SectionCard>
+
+    <SectionCard v-if="activeStep === 2" title="三、发布调试" description="显式编辑开放请求内容；HTTP 使用 JSON Body，WebService 使用业务实体 XML 并自动包装 SOAP。">
+      <el-alert
+        v-if="!form.id"
+        class="service-debug-alert"
+        type="info"
+        show-icon
+        :closable="false"
+        title="请先保存服务，保存后会生成接入地址并允许发送调试请求。"
+      />
+
+      <div class="ingestion-debug-toolbar">
+        <el-radio-group v-model="debugMode" size="small">
+          <el-radio-button value="http">HTTP JSON</el-radio-button>
+          <el-radio-button v-if="form.webserviceEnabled" value="soap">WebService SOAP</el-radio-button>
+        </el-radio-group>
+        <div class="ingestion-debug-actions">
+          <el-button v-if="debugMode === 'soap'" plain :disabled="!form.id || !form.webserviceEnabled" :loading="webservicePreviewLoading" @click="previewWebService()">预览 WSDL</el-button>
+          <el-button v-if="debugMode === 'soap'" plain :disabled="!form.id || !form.webserviceEnabled" @click="generateSoapEnvelopeFromEntity">生成 SOAP 包装</el-button>
+          <el-button plain :disabled="debugCurlDisabled" @click="generateCurlCommand('bash')">生成 cURL(bash)</el-button>
+          <el-button plain :disabled="debugCurlDisabled" @click="generateCurlCommand('cmd')">生成 cURL(cmd)</el-button>
+          <el-button type="primary" :disabled="!form.id" :loading="debugging || webserviceDebugging" @click="debugCurrentMode">发送调试</el-button>
+        </div>
+      </div>
+
+      <template v-if="debugMode === 'http'">
+        <el-form-item v-if="endpointUrl" label="接入地址">
+          <el-input :model-value="endpointUrl" readonly />
+        </el-form-item>
+        <div class="ingestion-debug-layout">
+          <section class="ingestion-debug-panel">
+            <div class="ingestion-debug-panel__header">
+              <div>
+                <strong>Header 参数</strong>
+                <p>HTTP 请求头；服务需要 Token 时，生成 cURL 会自动补占位值。</p>
+              </div>
+              <el-button plain size="small" @click="appendHttpHeaderRow">添加参数</el-button>
+            </div>
+            <StudioTableShell min-width="640px">
+              <el-table :data="httpHeaderRows" border size="small" table-layout="fixed">
+                <el-table-column label="参数名" min-width="220">
+                  <template #default="{ row }">
+                    <span v-if="row.readonly">{{ row.name }}</span>
+                    <el-input v-else :model-value="row.name" placeholder="Header 名称" @update:model-value="renameHttpHeader(row.key, String($event ?? ''))" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="值" min-width="260">
+                  <template #default="{ row }">
+                    <el-input :model-value="stringValue(row.value)" :placeholder="row.placeholder" @update:model-value="updateHttpHeaderValue(row.key, String($event ?? ''))" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="86" align="center" header-align="center">
+                  <template #default="{ row }">
+                    <el-button link type="danger" :disabled="row.readonly" @click="removeHttpHeader(row.key)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </StudioTableShell>
+          </section>
+
+          <section class="ingestion-debug-panel">
+            <div class="ingestion-debug-panel__header">
+              <div>
+                <strong>Query 参数</strong>
+                <p>拼接在接入地址后的查询参数。</p>
+              </div>
+              <el-button plain size="small" @click="appendHttpQueryRow">添加参数</el-button>
+            </div>
+            <StudioTableShell min-width="640px">
+              <el-table :data="httpQueryRows" border size="small" table-layout="fixed">
+                <el-table-column label="参数名" min-width="220">
+                  <template #default="{ row }">
+                    <el-input :model-value="row.name" placeholder="Query 名称" @update:model-value="renameHttpQuery(row.key, String($event ?? ''))" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="值" min-width="260">
+                  <template #default="{ row }">
+                    <el-input :model-value="stringValue(row.value)" placeholder="参数值" @update:model-value="updateHttpQueryValue(row.key, String($event ?? ''))" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="86" align="center" header-align="center">
+                  <template #default="{ row }">
+                    <el-button link type="danger" @click="removeHttpQuery(row.key)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </StudioTableShell>
+          </section>
+
+          <JsonEditor
+            v-model="debugBody"
+            title="JSON Body"
+            description="填写完整请求 Body；支持对象、数组或各目标完整来源路径对应的数据结构。"
+            placeholder="{&#10;  &quot;data&quot;: {&#10;    &quot;items&quot;: []&#10;  }&#10;}"
+            height="320px"
+          />
+        </div>
+        <JsonEditor :model-value="debugResult" title="调试结果" readonly height="180px" />
+      </template>
+
+      <template v-else>
+        <el-form-item label="WSDL 地址">
+          <el-input :model-value="webserviceWsdlUrl" readonly placeholder="保存并启用 WebService 后生成" />
+        </el-form-item>
+        <div class="ingestion-debug-layout">
+          <section class="ingestion-debug-panel">
+            <div class="ingestion-debug-panel__header">
+              <div>
+                <strong>HTTP Headers</strong>
+                <p>HTTP 层请求头；服务需要 Token 时，生成 cURL 会自动补占位值。</p>
+              </div>
+              <el-button plain size="small" @click="appendSoapHeaderRow">添加参数</el-button>
+            </div>
+            <StudioTableShell min-width="640px">
+              <el-table :data="soapHeaderRows" border size="small" table-layout="fixed">
+                <el-table-column label="参数名" min-width="220">
+                  <template #default="{ row }">
+                    <span v-if="row.readonly">{{ row.name }}</span>
+                    <el-input v-else :model-value="row.name" placeholder="Header 名称" @update:model-value="renameSoapHeader(row.key, String($event ?? ''))" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="值" min-width="260">
+                  <template #default="{ row }">
+                    <el-input :model-value="stringValue(row.value)" :placeholder="row.placeholder" @update:model-value="updateSoapHeaderValue(row.key, String($event ?? ''))" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="86" align="center" header-align="center">
+                  <template #default="{ row }">
+                    <el-button link type="danger" :disabled="row.readonly" @click="removeSoapHeader(row.key)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </StudioTableShell>
+          </section>
+
+          <XmlEditor
+            v-model="soapEntityXml"
+            title="业务实体 XML"
+            description="只填写 SOAP Body 操作节点内部的业务实体，系统会自动包装 Envelope 和操作节点。"
+            placeholder="&lt;data&gt;&#10;  &lt;items&gt;&#10;    &lt;item&gt;&lt;/item&gt;&#10;  &lt;/items&gt;&#10;&lt;/data&gt;"
+            height="260px"
+            allow-fragment
+          />
+
+          <XmlEditor
+            v-model="soapEnvelope"
+            title="SOAP 请求 Body（Envelope）"
+            description="点击“生成 SOAP 包装”后展示完整请求 XML；生成 cURL 和发送调试会使用此结构。"
+            placeholder="点击生成 SOAP 包装后展示完整 XML 请求 Body"
+            height="300px"
+            readonly
+          />
+
+          <XmlEditor
+            :model-value="debugResult === '{}' ? '' : debugResult"
+            title="SOAP 响应 Body（Envelope）"
+            description="发送 SOAP 调试后展示响应 XML Envelope。"
+            placeholder="发送 SOAP 调试后展示响应 XML"
+            height="220px"
+            readonly
+          />
+        </div>
+      </template>
+
+      <div class="service-debug-curl-panel">
+        <div class="service-debug-curl-panel__header">
+          <div>
+            <strong>cURL 调用命令</strong>
+            <p>{{ debugMode === "soap" ? "根据 HTTP Header 和生成后的 SOAP Envelope 生成调用命令。" : "根据 Header、Query 和 JSON Body 生成开放接入调用命令。" }}</p>
+          </div>
+          <el-button plain :disabled="!curlCommand" @click="copyCurlCommand">复制 cURL</el-button>
+        </div>
+        <el-input
+          :model-value="curlCommand"
+          type="textarea"
+          :rows="8"
+          readonly
+          :placeholder="debugMode === 'soap' ? '点击生成 cURL 后展示 SOAP 调用命令' : '点击“生成 cURL(bash)”或“生成 cURL(cmd)”后展示命令'"
+        />
       </div>
     </SectionCard>
 
-    <OpenServiceDebugPanel
-      v-if="activeStep === 2"
-      v-model:mode="debugMode"
-      :soap-envelope="soapEnvelope"
-      :soap-headers="soapDebugHeaders"
-      title="三、发布调试"
-      description="表单模式按字段映射生成请求样例，原始模式按 Header、Query、Form、Body 分段编辑。"
-      disabled-hint="请先保存服务，保存后会生成接入地址并允许发送调试请求。"
-      :can-debug="Boolean(form.id)"
-      :debugging="debugging || webserviceDebugging"
-      :warning-message="usesBothJsonBodyAndForm ? '同一个开放 HTTP 请求通常只能选择 JSON Body 或 Form Body；Query 和 Header 可与任一 Body 类型混合。' : ''"
-      endpoint-label="接入地址"
-      :endpoint-url="endpointUrl"
-      :form-groups="debugPanelGroups"
-      :raw-sections="debugRawSections"
-      show-curl
-      :curl-command="curlCommand"
-      :show-soap-mode="form.webserviceEnabled"
-      :soap-preview-loading="webservicePreviewLoading"
-      :wsdl-url="webserviceWsdlUrl"
-      soap-description="SOAP Envelope 是完整 XML 请求 Body；字段路径按 SOAP Body 转换后的节点读取，请求会调用数据接入服务 WebService。"
-      :soap-headers-placeholder="'{\n  &quot;X-Data-Ingestion-Token&quot;: &quot;...&quot;\n}'"
-      :soap-envelope-error="soapEnvelopeError"
-      :soap-headers-mode="soapHeadersMode"
-      :soap-headers-error="soapHeadersError"
-      :soap-header-rows="soapHeaderRows"
-      :soap-field-groups="soapFieldGroups"
-      :debug-result="debugResult"
-      @update-field-value="setDebugValue"
-      @update-soap-field-value="setSoapFieldValue"
-      @update-soap-header-value="setSoapHeaderValue"
-      @update:soap-envelope="updateSoapEnvelope"
-      @update:soap-headers="updateSoapHeaders"
-      @update:soap-headers-mode="soapHeadersMode = $event"
-      @update-raw-section="updateDebugRawSection"
-      @reset-form="resetDebugValues"
-      @generate-curl="generateCurlCommand"
-      @copy-curl="copyCurlCommand"
-      @generate-soap-sample="previewWebService(true)"
-      @format-soap-response="formatSoapResponse"
-      @debug="debugCurrentMode"
-    />
+    <SectionCard v-if="activeStep === 2 && debugSourceResults.length" title="来源写入结果" description="按每个来源展示本次接入写入情况。">
+      <StudioTableShell min-width="900px">
+        <el-table :data="debugSourceResults" border>
+          <el-table-column label="来源" min-width="160">
+            <template #default="{ row }">{{ row.sourceName || row.sourceCode }}</template>
+          </el-table-column>
+          <el-table-column prop="targetDatasourceName" label="目标数据源" min-width="160" />
+          <el-table-column prop="targetModelName" label="目标模型" min-width="160" />
+          <el-table-column prop="receivedCount" label="接收数" width="100" align="right" />
+          <el-table-column prop="successCount" label="成功数" width="100" align="right" />
+          <el-table-column prop="failedCount" label="失败数" width="100" align="right" />
+          <el-table-column prop="status" label="状态" width="130" />
+          <el-table-column prop="message" label="信息" min-width="220" show-overflow-tooltip />
+        </el-table>
+      </StudioTableShell>
+    </SectionCard>
 
     <div class="wizard-footer">
       <el-button :disabled="activeStep === 0" @click="previousStep">上一步</el-button>
@@ -347,9 +610,11 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type {
   DataIngestionFieldMapping,
+  DataIngestionPayloadMode,
   DataIngestionRequestFormat,
   DataIngestionServiceSaveRequest,
   DataIngestionServiceView,
+  DataIngestionSourceBinding,
   DataIngestionSourcePosition,
   DataModelDefinition,
   DataModelDatasourceOptionView,
@@ -366,14 +631,8 @@ import { MetaFormRenderer } from "@studio/meta-form";
 import { SectionCard, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import JsonEditor from "@/components/JsonEditor.vue";
+import XmlEditor from "@/components/XmlEditor.vue";
 import HttpRequestOptionsEditor from "@/components/HttpRequestOptionsEditor.vue";
-import OpenServiceDebugPanel from "@/components/open-service/OpenServiceDebugPanel.vue";
-import type {
-  DebugControlType,
-  HeaderEditorMode,
-  OpenServiceDebugGroup,
-  OpenServiceRawSection,
-} from "@/components/open-service/OpenServiceDebugPanel.vue";
 import {
   buildSoapEnvelope,
   formatXmlText,
@@ -382,6 +641,7 @@ import {
   parseJsonValueText,
   parseSoapEnvelope,
   prettyJsonValue,
+  assignPath as assignDebugPath,
   readPath as readDebugPath,
   stringifyDebugValue,
   type DebugObject,
@@ -393,7 +653,6 @@ import {
   buildCmdCurl,
   buildCmdRawBodyCurl,
   copyTextFallback,
-  ensureOpenApiHeaders,
 } from "@/components/data-service/dataServiceEditorSupport";
 import {
   fileWriterDatasourceTypes,
@@ -407,8 +666,36 @@ import {
 } from "@/components/collection-task/collectionTaskEditorSupport";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
-type DebugMode = "form" | "raw" | "soap";
+type DebugMode = "http" | "soap";
+type DebugControlType = "text" | "number" | "boolean" | "textarea";
 type DebugFieldValue = string | number | boolean | null | undefined;
+type TargetConfigMode = "overview" | "params" | "mapping";
+
+interface OpenServiceDebugField {
+  key: string;
+  label: string;
+  meta: string;
+  required?: boolean;
+  controlType?: DebugControlType;
+  value?: DebugFieldValue;
+}
+
+interface OpenServiceDebugGroup {
+  key: string;
+  title: string;
+  description: string;
+  rows: OpenServiceDebugField[];
+}
+
+interface OpenServiceRawSection {
+  key: string;
+  title: string;
+  description: string;
+  value: string;
+  placeholder?: string;
+  rows?: number;
+  parseError?: string;
+}
 
 interface SourcePositionOption {
   label: string;
@@ -434,11 +721,27 @@ interface DebugFieldItem {
   mapping: DataIngestionFieldMapping;
 }
 
+interface DebugMappingEntry {
+  binding: DataIngestionSourceBinding;
+  bindingIndex: number;
+  mapping: DataIngestionFieldMapping;
+  mappingIndex: number;
+}
+
 interface DebugFieldGroup {
   position: DataIngestionSourcePosition;
   title: string;
   description: string;
   rows: DebugFieldItem[];
+}
+
+interface DebugKeyValueRow {
+  key: string;
+  name: string;
+  value?: unknown;
+  readonly?: boolean;
+  required?: boolean;
+  placeholder?: string;
 }
 
 const route = useRoute();
@@ -451,11 +754,12 @@ const sourcePositionOptions: SourcePositionOption[] = [
   { label: "Header", value: "HEADER" },
 ];
 const wizardSteps: WizardStep[] = [
-  { title: "基础与目标", description: "服务信息、数据源和 Writer 参数" },
-  { title: "字段映射", description: "请求字段到目标字段" },
+  { title: "基础信息", description: "服务身份和访问控制" },
+  { title: "目标配置", description: "目标参数和字段映射" },
   { title: "发布调试", description: "样例请求和调试结果" },
 ];
 const sourcePositionOrder: DataIngestionSourcePosition[] = ["BODY", "FORM", "QUERY", "HEADER"];
+const INGESTION_TOKEN_HEADER = "X-Data-Ingestion-Token";
 const serviceId = computed(() => route.params.serviceId as EntityId | undefined);
 const activeStep = ref(0);
 const datasources = ref<DataSourceOptionView[]>([]);
@@ -475,12 +779,24 @@ const webserviceDebugging = ref(false);
 const detailLoadError = ref("");
 const writerOptionsText = ref("{}");
 const endpointPath = ref("");
-const debugMode = ref<DebugMode>("form");
+const activeSourceIndex = ref(0);
+const targetConfigMode = ref<TargetConfigMode>("overview");
+const debugMode = ref<DebugMode>("http");
 const debugHeaders = ref("{}");
 const debugQuery = ref("{}");
 const debugForm = ref("{}");
 const debugBody = ref("{\n  \"id\": 1,\n  \"name\": \"demo\"\n}");
 const debugResult = ref("{}");
+const lastInvokeResult = ref<unknown>(null);
+const debugSourceResults = computed<Array<Record<string, unknown>>>(() => {
+  const payload = lastInvokeResult.value;
+  const sourceResults = isPlainDebugObject(payload) && Array.isArray(payload.sourceResults)
+    ? payload.sourceResults
+    : isPlainDebugObject(payload) && isPlainDebugObject(payload.result) && Array.isArray(payload.result.sourceResults)
+      ? payload.result.sourceResults
+      : [];
+  return sourceResults as Array<Record<string, unknown>>;
+});
 const curlCommand = ref("");
 const debugValues = reactive<Record<string, DebugFieldValue>>({});
 const restDebugPayload = reactive<{
@@ -503,10 +819,10 @@ const debugRawErrors = reactive<Record<"headers" | "query" | "form" | "body", st
 const targetDatasourceType = ref("");
 const webserviceCollapseNames = ref<string[]>([]);
 const webservicePreview = ref<WebServicePreviewView | null>(null);
+const soapEntityXml = ref("");
 const soapEnvelope = ref("");
 const soapDebugHeaders = ref("{}");
 const soapEnvelopeError = ref("");
-const soapHeadersMode = ref<HeaderEditorMode>("form");
 const soapHeadersError = ref("");
 const soapHttpHeaders = reactive<DebugObject>({});
 const soapFieldValues = reactive<Record<string, DebugFieldValue>>({});
@@ -524,14 +840,22 @@ const form = reactive<DataIngestionServiceSaveRequest & {
   targetType: "DATABASE",
   datasourceId: undefined,
   modelId: undefined,
-  maxBatchSize: 500,
+  maxBatchSize: 1000,
   tokenRequired: true,
   defaultSubscriptionName: "",
   webserviceEnabled: false,
   webserviceConfig: defaultWebServiceConfig(),
   writerOptions: {},
   fieldMappings: [],
+  sourceBindings: [],
 });
+
+const activeSourceBinding = computed<DataIngestionSourceBinding>(() => {
+  ensureSourceBindings();
+  return form.sourceBindings?.[activeSourceIndex.value] as DataIngestionSourceBinding;
+});
+
+const activeTargetFullPath = computed(() => fullSourcePathForBinding(activeSourceBinding.value));
 
 const webserviceEndpointPath = computed(() => {
   if (webservicePreview.value?.endpointPath) {
@@ -560,17 +884,27 @@ const webserviceInvokeUrl = computed(() => {
 });
 const endpointUrl = computed(() => resolveEndpoint());
 
-const soapHeaderRows = computed(() => [
-  {
-    key: "X-Data-Ingestion-Token",
-    label: "X-Data-Ingestion-Token",
-    meta: "HTTP Header Token；也可使用 SOAP Header token",
-    required: Boolean(form.tokenRequired),
-    readonly: true,
-    controlType: "text" as DebugControlType,
-    value: soapHttpHeaders["X-Data-Ingestion-Token"] as DebugFieldValue,
-  },
-]);
+const tokenHeaderRow = computed<DebugKeyValueRow[]>(() => form.tokenRequired
+  ? [{
+      key: INGESTION_TOKEN_HEADER,
+      name: INGESTION_TOKEN_HEADER,
+      value: "",
+      readonly: true,
+      required: true,
+      placeholder: "<订阅Token>",
+    }]
+  : []);
+const httpHeaderRows = computed(() => debugObjectRows(restDebugPayload.headers, tokenHeaderRow.value, true));
+const httpQueryRows = computed(() => debugObjectRows(restDebugPayload.query));
+const soapHeaderRows = computed(() => debugObjectRows(soapHttpHeaders, tokenHeaderRow.value, true));
+const debugCurlDisabled = computed(() => {
+  if (!form.id) {
+    return true;
+  }
+  return debugMode.value === "soap"
+    ? !form.webserviceEnabled || !webserviceInvokeUrl.value
+    : !endpointUrl.value;
+});
 
 const targetModel = computed(() =>
   modelDetailCache.value[String(form.modelId ?? "")],
@@ -612,15 +946,16 @@ const writerRuntimeLoading = computed(() => {
 
 const debugFieldGroups = computed<DebugFieldGroup[]>(() => {
   const groups = new Map<DataIngestionSourcePosition, DebugFieldItem[]>();
-  form.fieldMappings.forEach((mapping, index) => {
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping, mappingIndex }) => {
     if (!mapping.targetField) {
       return;
     }
     const position = normalizeSourcePosition(mapping.sourcePosition);
     const rows = groups.get(position) ?? [];
+    const targetName = binding.sourceName || binding.sourceCode || `目标 ${bindingIndex + 1}`;
     rows.push({
-      key: debugFieldKey(mapping, index),
-      label: mapping.sourceField?.trim() || mapping.targetField,
+      key: debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode),
+      label: `${targetName} · ${mapping.sourceField?.trim() || mapping.targetField}`,
       targetField: mapping.targetField,
       required: Boolean(mapping.required),
       valueType: mapping.valueType ?? "STRING",
@@ -697,7 +1032,7 @@ const soapFieldGroups = computed<OpenServiceDebugGroup[]>(() => {
     groups.push({
       key: "soap-body",
       title: "SOAP Body 参数",
-      description: "会写入当前 WebService 操作节点；存在 dataNodePath 时会自动包装到对应节点。",
+      description: "会写入当前 WebService 操作节点；按各目标完整来源路径自动包装节点。",
       rows: bodyRows,
     });
   }
@@ -735,7 +1070,7 @@ const debugRawSections = computed<OpenServiceRawSection[]>(() => [
   {
     key: "body",
     title: "Body 参数",
-    description: "JSON Body 原文；可填写对象、数组或 dataNodePath 指向的数据结构。",
+    description: "JSON Body 原文；可填写对象、数组或各目标完整来源路径对应的数据结构。",
     value: debugBody.value,
     placeholder: "{\n  \"id\": 1,\n  \"name\": \"demo\"\n}",
     rows: 8,
@@ -744,7 +1079,9 @@ const debugRawSections = computed<OpenServiceRawSection[]>(() => [
 ]);
 
 const usesBothJsonBodyAndForm = computed(() => {
-  const positions = new Set(form.fieldMappings.map((mapping) => normalizeSourcePosition(mapping.sourcePosition)));
+  const positions = new Set(
+    allMappingsFromBindings(form.sourceBindings ?? []).map((mapping) => normalizeSourcePosition(mapping.sourcePosition)),
+  );
   return positions.has("BODY") && positions.has("FORM");
 });
 
@@ -758,6 +1095,305 @@ function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): We
     requestRootName: config?.requestRootName || "",
     responseRootName: config?.responseRootName || "",
   };
+}
+
+function ensureSourceBindings() {
+  if (!form.sourceBindings?.length) {
+    form.sourceBindings = [createSourceBindingFromForm(0)];
+    activeSourceIndex.value = 0;
+  }
+  if (activeSourceIndex.value >= form.sourceBindings.length) {
+    activeSourceIndex.value = Math.max(0, form.sourceBindings.length - 1);
+  }
+}
+
+function createSourceBindingFromForm(index: number, seed?: DataIngestionSourceBinding): DataIngestionSourceBinding {
+  return {
+    sourceCode: seed?.sourceCode || uniqueSourceCode(index),
+    sourceName: seed?.sourceName || seed?.sourceCode || `来源 ${index + 1}`,
+    sourcePosition: seed?.sourcePosition ?? "BODY",
+    sourcePath: seed?.sourcePath ?? "",
+    payloadMode: seed?.payloadMode ?? form.payloadMode ?? "OBJECT",
+    targetType: seed?.targetType ?? form.targetType ?? "DATABASE",
+    datasourceId: seed?.datasourceId ?? form.datasourceId,
+    datasourceName: seed?.datasourceName,
+    datasourceTypeCode: seed?.datasourceTypeCode ?? resolveDatasourceTypeCode(seed?.datasourceId ?? form.datasourceId),
+    modelId: seed?.modelId ?? form.modelId,
+    modelName: seed?.modelName,
+    modelPhysicalLocator: seed?.modelPhysicalLocator,
+    writerOptions: cloneWriterOptions(seed?.writerOptions ?? form.writerOptions ?? {}),
+    fieldMappings: cloneMappings(seed?.fieldMappings ?? form.fieldMappings ?? []),
+    sortOrder: seed?.sortOrder ?? index,
+    enabled: seed?.enabled !== false,
+  };
+}
+
+function createSourceBindingFromDetail(detail: DataIngestionServiceView, index: number): DataIngestionSourceBinding {
+  return createSourceBindingFromForm(index, {
+    sourceCode: "source_1",
+    sourceName: "默认来源",
+    sourcePosition: "BODY",
+    sourcePath: detail.dataNodePath ?? "",
+    payloadMode: detail.payloadMode ?? "OBJECT",
+    targetType: detail.targetType ?? "DATABASE",
+    datasourceId: detail.datasourceId,
+    datasourceName: detail.datasourceName,
+    datasourceTypeCode: detail.datasourceTypeCode,
+    modelId: detail.modelId,
+    modelName: detail.modelName,
+    modelPhysicalLocator: detail.modelPhysicalLocator,
+    writerOptions: detail.writerOptions ?? {},
+    fieldMappings: detail.fieldMappings ?? [],
+    sortOrder: index,
+    enabled: true,
+  });
+}
+
+function persistActiveSourceFromForm(
+  writerOptions: Record<string, unknown> = form.writerOptions ?? {},
+  mappings: DataIngestionFieldMapping[] = form.fieldMappings,
+) {
+  ensureSourceBindings();
+  const binding = form.sourceBindings?.[activeSourceIndex.value];
+  if (!binding) {
+    return;
+  }
+  const datasource = datasources.value.find((item) => String(item.id) === String(form.datasourceId ?? ""));
+  const model = modelDetailCache.value[String(form.modelId ?? "")];
+  binding.sourceCode = binding.sourceCode?.trim() || uniqueSourceCode(activeSourceIndex.value);
+  binding.sourceName = binding.sourceName?.trim() || binding.sourceCode;
+  binding.sourcePosition = binding.sourcePosition ?? "BODY";
+  binding.sourcePath = binding.sourcePath ?? "";
+  binding.payloadMode = binding.payloadMode ?? "OBJECT";
+  binding.targetType = form.targetType ?? "DATABASE";
+  binding.datasourceId = form.datasourceId;
+  binding.datasourceName = datasource?.name ?? binding.datasourceName;
+  binding.datasourceTypeCode = datasource?.typeCode ?? binding.datasourceTypeCode ?? resolveDatasourceTypeCode(form.datasourceId);
+  binding.modelId = form.modelId;
+  binding.modelName = model?.name ?? binding.modelName;
+  binding.modelPhysicalLocator = model?.physicalLocator ?? binding.modelPhysicalLocator;
+  binding.writerOptions = cloneWriterOptions(writerOptions);
+  binding.fieldMappings = cloneMappings(mappings);
+  binding.sortOrder = activeSourceIndex.value;
+  binding.enabled = binding.enabled !== false;
+}
+
+function applySourceBindingToForm(binding: DataIngestionSourceBinding) {
+  form.payloadMode = binding.payloadMode ?? "OBJECT";
+  form.targetType = binding.targetType ?? "DATABASE";
+  form.datasourceId = binding.datasourceId;
+  form.modelId = binding.modelId;
+  form.writerOptions = cloneWriterOptions(binding.writerOptions ?? {});
+  form.fieldMappings = cloneMappings(binding.fieldMappings ?? []);
+  targetDatasourceType.value = binding.datasourceTypeCode ?? resolveDatasourceTypeCode(binding.datasourceId);
+  syncWriterOptionsText();
+  syncDebugValues(false);
+  syncRestPayloadFromFields();
+}
+
+async function selectSourceBinding(index: number) {
+  ensureSourceBindings();
+  if (index === activeSourceIndex.value || !form.sourceBindings?.[index]) {
+    return;
+  }
+  persistActiveSourceFromForm();
+  activeSourceIndex.value = index;
+  applySourceBindingToForm(form.sourceBindings[index]);
+  await prepareActiveSourceTarget();
+}
+
+async function openTargetBinding(index: number) {
+  await selectSourceBinding(index);
+  targetConfigMode.value = "params";
+}
+
+function handleActiveSourcePathChange() {
+  clearDebugCommand();
+}
+
+function handleActiveSourceMetaChange() {
+  persistActiveSourceFromForm();
+  syncRestPayloadFromFields();
+}
+
+async function addSourceBinding() {
+  persistActiveSourceFromForm();
+  const nextIndex = form.sourceBindings?.length ?? 0;
+  form.sourceBindings = [
+    ...(form.sourceBindings ?? []),
+    createSourceBindingFromForm(nextIndex, {
+      sourceCode: uniqueSourceCode(nextIndex),
+      sourceName: `来源 ${nextIndex + 1}`,
+      sourcePosition: "BODY",
+      sourcePath: "",
+      payloadMode: "OBJECT",
+      targetType: "DATABASE",
+      writerOptions: {},
+      fieldMappings: [],
+      sortOrder: nextIndex,
+      enabled: true,
+    }),
+  ];
+  await selectSourceBinding(nextIndex);
+  targetConfigMode.value = "params";
+}
+
+async function copySourceBinding(index: number) {
+  ensureSourceBindings();
+  const source = form.sourceBindings?.[index];
+  if (!source) {
+    return;
+  }
+  persistActiveSourceFromForm();
+  const nextIndex = form.sourceBindings?.length ?? 0;
+  const copy = createSourceBindingFromForm(nextIndex, {
+    ...source,
+    sourceCode: uniqueSourceCode(nextIndex),
+    sourceName: `${source.sourceName || source.sourceCode || "来源"}副本`,
+    sortOrder: nextIndex,
+  });
+  form.sourceBindings = [...(form.sourceBindings ?? []), copy];
+  await selectSourceBinding(nextIndex);
+  targetConfigMode.value = "params";
+}
+
+async function removeSourceBinding(index: number) {
+  ensureSourceBindings();
+  if ((form.sourceBindings?.length ?? 0) <= 1) {
+    ElMessage.warning("至少保留一个来源");
+    return;
+  }
+  form.sourceBindings = (form.sourceBindings ?? [])
+    .filter((_, itemIndex) => itemIndex !== index)
+    .map((item, itemIndex) => ({ ...item, sortOrder: itemIndex }));
+  activeSourceIndex.value = Math.min(activeSourceIndex.value, (form.sourceBindings?.length ?? 1) - 1);
+  applySourceBindingToForm(activeSourceBinding.value);
+  targetConfigMode.value = "overview";
+  await prepareActiveSourceTarget();
+}
+
+async function prepareActiveSourceTarget() {
+  if (!form.datasourceId) {
+    models.value = [];
+    return;
+  }
+  await Promise.all([
+    loadModels(form.datasourceId),
+    form.modelId ? loadModelDetail(form.modelId) : Promise.resolve(),
+    ensureRuntimeSchemaForDatasource("writer", form.datasourceId),
+  ]);
+  ensureSelectedModelOption();
+  applyRuntimeDefaultsForWriter();
+}
+
+function normalizedSourceBindingsForSave(
+  mappings: DataIngestionFieldMapping[],
+  writerOptions: Record<string, unknown>,
+) {
+  persistActiveSourceFromForm(writerOptions, mappings);
+  ensureSourceBindings();
+  return (form.sourceBindings ?? []).map((binding, index): DataIngestionSourceBinding => {
+    const sourcePath = fullSourcePathForBinding(binding) || undefined;
+    const normalizedMappingsForBinding = normalizedMappingsFrom(binding.fieldMappings ?? []);
+    return {
+      sourceCode: binding.sourceCode?.trim() || uniqueSourceCode(index),
+      sourceName: binding.sourceName?.trim() || binding.sourceCode?.trim() || `来源 ${index + 1}`,
+      sourcePosition: normalizeSourcePosition(binding.sourcePosition),
+      sourcePath,
+      payloadMode: binding.payloadMode ?? "OBJECT",
+      targetType: binding.targetType ?? "DATABASE",
+      datasourceId: binding.datasourceId,
+      modelId: binding.modelId,
+      writerOptions: cloneWriterOptions(binding.writerOptions ?? {}),
+      fieldMappings: normalizedMappingsForBinding,
+      sortOrder: index,
+      enabled: binding.enabled !== false,
+    };
+  });
+}
+
+function validateSourceBindingsForSave(bindings: DataIngestionSourceBinding[]) {
+  const enabledBindings = bindings.filter((binding) => binding.enabled !== false);
+  if (!enabledBindings.length) {
+    ElMessage.warning("至少启用一个来源");
+    return false;
+  }
+  const invalid = enabledBindings.find((binding) =>
+    !binding.datasourceId || !binding.modelId || !(binding.fieldMappings ?? []).length,
+  );
+  if (invalid) {
+    ElMessage.warning(`${invalid.sourceName || invalid.sourceCode || "来源"}未完成目标或字段映射配置`);
+    return false;
+  }
+  return true;
+}
+
+function allMappingsFromBindings(bindings: DataIngestionSourceBinding[]) {
+  return bindings.flatMap((binding) => binding.fieldMappings ?? []);
+}
+
+function fullSourcePathForBinding(binding?: DataIngestionSourceBinding) {
+  return normalizeSourcePath(binding?.sourcePath);
+}
+
+function sourcePositionLabel(position?: DataIngestionSourcePosition) {
+  const value = position ?? "BODY";
+  return sourcePositionOptions.find((item) => item.value === value)?.label ?? value;
+}
+
+function payloadModeLabel(mode?: DataIngestionPayloadMode) {
+  return mode === "ARRAY" ? "数组" : "对象";
+}
+
+function sourceBindingDatasourceTypeLabel(binding: DataIngestionSourceBinding) {
+  const typeCode = binding.datasourceTypeCode || resolveDatasourceTypeCode(binding.datasourceId);
+  if (!typeCode) {
+    return "未选择";
+  }
+  const type = datasourceTypes.value.find((item) => item.typeCode === typeCode);
+  return type?.typeName ? `${type.typeName} / ${typeCode}` : typeCode;
+}
+
+function sourceBindingDatasourceLabel(binding: DataIngestionSourceBinding) {
+  const datasource = datasources.value.find((item) => String(item.id) === String(binding.datasourceId ?? ""));
+  return datasource?.name || binding.datasourceName || "未选择";
+}
+
+function sourceBindingModelLabel(binding: DataIngestionSourceBinding) {
+  const model = modelDetailCache.value[String(binding.modelId ?? "")];
+  const name = model?.name || binding.modelName;
+  const locator = model?.physicalLocator || binding.modelPhysicalLocator;
+  if (name && locator && name !== locator) {
+    return `${name} / ${locator}`;
+  }
+  return name || locator || "未选择";
+}
+
+function normalizeSourcePath(path?: string) {
+  return path?.split(".").map((segment) => segment.trim()).filter(Boolean).join(".") ?? "";
+}
+
+function uniqueSourceCode(index: number) {
+  const existing = new Set((form.sourceBindings ?? []).map((item) => item.sourceCode).filter(Boolean));
+  let candidate = `source_${index + 1}`;
+  let next = index + 1;
+  while (existing.has(candidate)) {
+    next += 1;
+    candidate = `source_${next}`;
+  }
+  return candidate;
+}
+
+function cloneWriterOptions(value: Record<string, unknown>) {
+  return JSON.parse(JSON.stringify(value ?? {})) as Record<string, unknown>;
+}
+
+function cloneMappings(mappings: DataIngestionFieldMapping[]) {
+  return mappings.map((item) => ({
+    ...item,
+    sourcePosition: normalizeSourcePosition(item.sourcePosition),
+    required: Boolean(item.required),
+  }));
 }
 
 onMounted(async () => {
@@ -775,9 +1411,6 @@ onMounted(async () => {
   }
   if (route.query.debug) {
     activeStep.value = 2;
-    syncDebugValues(false);
-    syncRestPayloadFromFields();
-    syncSoapValues(false);
   }
 });
 
@@ -785,11 +1418,6 @@ watch(
   () => form.fieldMappings,
   () => {
     syncDebugValues(false);
-    syncSoapValues(false);
-    syncRestPayloadFromFields();
-    if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
-      rebuildSoapEnvelopeFromFields();
-    }
   },
   { deep: true, immediate: true },
 );
@@ -802,10 +1430,35 @@ watch(
       return;
     }
     if (debugMode.value === "soap") {
-      debugMode.value = "form";
+      debugMode.value = "http";
     }
+    soapEntityXml.value = "";
     soapEnvelope.value = "";
     soapEnvelopeError.value = "";
+  },
+);
+
+watch(
+  () => debugMode.value,
+  () => {
+    clearDebugCommand();
+  },
+);
+
+watch(
+  () => debugBody.value,
+  () => {
+    debugRawErrors.body = "";
+    clearDebugCommand();
+  },
+);
+
+watch(
+  () => soapEntityXml.value,
+  () => {
+    soapEnvelope.value = "";
+    soapEnvelopeError.value = "";
+    clearDebugCommand();
   },
 );
 
@@ -843,40 +1496,37 @@ function applyDetail(detail: DataIngestionServiceView) {
   form.id = detail.id;
   form.serviceCode = detail.serviceCode;
   form.serviceName = detail.serviceName;
-  form.payloadMode = detail.payloadMode ?? "OBJECT";
-  form.dataNodePath = detail.dataNodePath ?? "";
-  form.targetType = detail.targetType ?? "DATABASE";
-  form.datasourceId = detail.datasourceId;
-  form.modelId = detail.modelId;
-  form.maxBatchSize = detail.maxBatchSize ?? 500;
+  form.maxBatchSize = detail.maxBatchSize ?? 1000;
   form.tokenRequired = detail.tokenRequired !== false;
   form.defaultSubscriptionName = detail.defaultSubscriptionName ?? "";
   form.webserviceEnabled = Boolean(detail.webserviceEnabled);
   form.requestFormat = form.webserviceEnabled ? "SOAP" : detail.requestFormat ?? "JSON";
   form.webserviceConfig = defaultWebServiceConfig(detail.webserviceConfig, form.webserviceEnabled);
-  form.writerOptions = detail.writerOptions ?? {};
-  targetDatasourceType.value = detail.datasourceTypeCode ?? resolveDatasourceTypeCode(detail.datasourceId);
-  form.fieldMappings = (detail.fieldMappings ?? []).map((item) => ({
-    ...item,
-    sourcePosition: normalizeSourcePosition(item.sourcePosition),
-    required: Boolean(item.required),
-  }));
+  const detailBindings = (detail.sourceBindings?.length
+    ? detail.sourceBindings
+    : [createSourceBindingFromDetail(detail, 0)]);
+  form.dataNodePath = detail.dataNodePath ?? detailBindings[0]?.sourcePath ?? "";
+  form.sourceBindings = detailBindings
+    .map((binding, index) => createSourceBindingFromForm(index, {
+      ...binding,
+      sourcePath: normalizeSourcePath(binding.sourcePath ?? ""),
+      sortOrder: binding.sortOrder ?? index,
+      enabled: binding.enabled !== false,
+    }));
+  activeSourceIndex.value = 0;
+  targetConfigMode.value = "overview";
+  applySourceBindingToForm(form.sourceBindings[0]);
   endpointPath.value = detail.endpointPath ?? "";
   webservicePreview.value = null;
   if (!form.webserviceEnabled) {
+    soapEntityXml.value = "";
     soapEnvelope.value = "";
-  }
-  writerOptionsText.value = JSON.stringify(form.writerOptions ?? {}, null, 2);
-  syncDebugValues(false);
-  syncRestPayloadFromFields();
-  syncSoapValues(false);
-  if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
-    rebuildSoapEnvelopeFromFields();
   }
 }
 
 function handleTargetTypeChange() {
   if (!targetDatasourceType.value || isDatasourceTypeAllowedForTarget(targetDatasourceType.value)) {
+    persistActiveSourceFromForm();
     return;
   }
   handleDatasourceTypeChange("");
@@ -890,6 +1540,7 @@ function handleDatasourceTypeChange(value?: string) {
   models.value = [];
   form.writerOptions = {};
   syncWriterOptionsText();
+  persistActiveSourceFromForm();
 }
 
 async function handleDatasourceChange(value?: EntityId) {
@@ -898,6 +1549,7 @@ async function handleDatasourceChange(value?: EntityId) {
   form.fieldMappings = [];
   form.writerOptions = {};
   syncWriterOptionsText();
+  persistActiveSourceFromForm();
   const datasourceType = resolveDatasourceTypeCode(value);
   if (datasourceType) {
     targetDatasourceType.value = datasourceType;
@@ -917,6 +1569,7 @@ async function handleModelChange(value?: EntityId) {
   form.modelId = value;
   await loadModelDetail(value);
   applyRuntimeDefaultsForWriter();
+  persistActiveSourceFromForm();
 }
 
 async function loadModels(datasourceId: EntityId, keyword = "") {
@@ -1079,6 +1732,7 @@ function isHttpWriterTarget() {
 function updateWriterOptions(value: Record<string, unknown>) {
   form.writerOptions = value ?? {};
   syncWriterOptionsText();
+  persistActiveSourceFromForm();
 }
 
 function applyRuntimeDefaultsForWriter() {
@@ -1089,6 +1743,7 @@ function applyRuntimeDefaultsForWriter() {
     mergeRuntimeDefaults(form.writerOptions, writerAdvancedFields.value),
   );
   syncWriterOptionsText();
+  persistActiveSourceFromForm();
 }
 
 function mergeTargetPrimaryKeyDefault(writerOptions: Record<string, unknown>) {
@@ -1129,6 +1784,7 @@ async function resolveFields() {
       sourcePosition: normalizeSourcePosition(item.sourcePosition),
       required: Boolean(item.required),
     }));
+    persistActiveSourceFromForm();
     ElMessage.success(`已解析 ${resolved.fields.length} 个目标字段`);
   } finally {
     resolving.value = false;
@@ -1145,10 +1801,12 @@ function addMapping() {
     required: false,
     defaultValue: "",
   });
+  persistActiveSourceFromForm();
 }
 
 function removeMapping(index: number) {
   form.fieldMappings.splice(index, 1);
+  persistActiveSourceFromForm();
 }
 
 function nextStep() {
@@ -1159,10 +1817,6 @@ function nextStep() {
   if (activeStep.value === 2) {
     syncDebugValues(false);
     syncRestPayloadFromFields();
-    syncSoapValues(false);
-    if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
-      rebuildSoapEnvelopeFromFields();
-    }
   }
 }
 
@@ -1182,10 +1836,6 @@ function goStep(index: number) {
   if (activeStep.value === 2) {
     syncDebugValues(false);
     syncRestPayloadFromFields();
-    syncSoapValues(false);
-    if (form.webserviceEnabled && (!soapEnvelope.value.trim() || !soapEnvelopeError.value)) {
-      rebuildSoapEnvelopeFromFields();
-    }
   }
 }
 
@@ -1195,26 +1845,12 @@ function validateStep(index: number) {
       ElMessage.warning("请先填写服务名称和服务编码");
       return false;
     }
-    if (!targetDatasourceType.value) {
-      ElMessage.warning("请先选择数据源类型");
-      return false;
-    }
-    if (!isDatasourceTypeAllowedForTarget(targetDatasourceType.value)) {
-      ElMessage.warning("数据源类型与目标类型不匹配");
-      return false;
-    }
-    if (!form.datasourceId) {
-      ElMessage.warning("请先选择数据源");
-      return false;
-    }
-    if (!form.modelId) {
-      ElMessage.warning("请先选择目标模型");
-      return false;
-    }
   }
-  if (index === 1 && !normalizedMappings().length) {
-    ElMessage.warning("请先配置字段映射");
-    return false;
+  if (index === 1) {
+    persistActiveSourceFromForm();
+    if (!validateSourceBindingsForSave(form.sourceBindings ?? [])) {
+      return false;
+    }
   }
   return true;
 }
@@ -1227,18 +1863,29 @@ async function saveService() {
   saving.value = true;
   try {
     const fieldMappings = normalizedMappings();
+    const writerOptions = resolveWriterOptionsForSave();
+    const sourceBindings = normalizedSourceBindingsForSave(fieldMappings, writerOptions);
+    if (!validateSourceBindingsForSave(sourceBindings)) {
+      return;
+    }
+    const primaryBinding = sourceBindings[0] ?? createSourceBindingFromForm(0);
+    const requestMappings = primaryBinding.fieldMappings ?? [];
     const saved = await studioApi.dataIngestionServices.save({
       ...form,
-      requestFormat: deriveRequestFormat(fieldMappings),
-      payloadMode: form.dataNodePath?.trim() ? "ARRAY" : "OBJECT",
-      dataNodePath: form.dataNodePath?.trim() || undefined,
+      requestFormat: deriveRequestFormat(allMappingsFromBindings(sourceBindings)),
+      payloadMode: primaryBinding.payloadMode,
+      dataNodePath: primaryBinding.sourcePath,
+      targetType: primaryBinding.targetType,
+      datasourceId: primaryBinding.datasourceId,
+      modelId: primaryBinding.modelId,
       serviceCode: form.serviceCode.trim(),
       serviceName: form.serviceName.trim(),
       defaultSubscriptionName: form.defaultSubscriptionName?.trim() || undefined,
       webserviceEnabled: Boolean(form.webserviceEnabled),
       webserviceConfig: normalizeWebServiceConfigForSave(),
-      writerOptions: resolveWriterOptionsForSave(),
-      fieldMappings,
+      writerOptions: primaryBinding.writerOptions ?? {},
+      fieldMappings: requestMappings,
+      sourceBindings,
     });
     applyDetail(saved);
     ElMessage.success("数据接入服务已保存");
@@ -1312,6 +1959,245 @@ async function publishService() {
   }
 }
 
+function debugObjectRows(
+  source: DebugObject,
+  fixedRows: DebugKeyValueRow[] = [],
+  caseInsensitive = false,
+) {
+  const rows: DebugKeyValueRow[] = fixedRows.map((row) => {
+    const actualName = findDebugObjectKey(source, row.name, caseInsensitive) || row.name;
+    return {
+      ...row,
+      key: row.name,
+      value: source[actualName],
+    };
+  });
+  const fixedNames = new Set(fixedRows.map((row) => normalizeDebugObjectKey(row.name, caseInsensitive)));
+  Object.entries(source).forEach(([name, value]) => {
+    if (fixedNames.has(normalizeDebugObjectKey(name, caseInsensitive))) {
+      return;
+    }
+    rows.push({
+      key: name,
+      name,
+      value,
+    });
+  });
+  return rows;
+}
+
+function appendHttpHeaderRow() {
+  appendDebugObjectRow(restDebugPayload.headers, "X-Header", true);
+}
+
+function renameHttpHeader(key: string, nextName: string) {
+  renameDebugObjectRow(restDebugPayload.headers, key, nextName, true);
+}
+
+function updateHttpHeaderValue(key: string, value: string) {
+  updateDebugObjectValue(restDebugPayload.headers, key, value, true);
+}
+
+function removeHttpHeader(key: string) {
+  removeDebugObjectRow(restDebugPayload.headers, key, true);
+}
+
+function appendHttpQueryRow() {
+  appendDebugObjectRow(restDebugPayload.query, "param");
+}
+
+function renameHttpQuery(key: string, nextName: string) {
+  renameDebugObjectRow(restDebugPayload.query, key, nextName);
+}
+
+function updateHttpQueryValue(key: string, value: string) {
+  updateDebugObjectValue(restDebugPayload.query, key, value);
+}
+
+function removeHttpQuery(key: string) {
+  removeDebugObjectRow(restDebugPayload.query, key);
+}
+
+function appendSoapHeaderRow() {
+  appendDebugObjectRow(soapHttpHeaders, "X-Header", true);
+}
+
+function renameSoapHeader(key: string, nextName: string) {
+  renameDebugObjectRow(soapHttpHeaders, key, nextName, true);
+}
+
+function updateSoapHeaderValue(key: string, value: string) {
+  updateDebugObjectValue(soapHttpHeaders, key, value, true);
+}
+
+function removeSoapHeader(key: string) {
+  removeDebugObjectRow(soapHttpHeaders, key, true);
+}
+
+function appendDebugObjectRow(source: DebugObject, prefix: string, caseInsensitive = false) {
+  const nextName = nextDebugObjectName(source, prefix, caseInsensitive);
+  source[nextName] = "";
+  clearDebugCommand();
+}
+
+function renameDebugObjectRow(source: DebugObject, oldName: string, nextName: string, caseInsensitive = false) {
+  const trimmedName = nextName.trim();
+  if (!trimmedName) {
+    return;
+  }
+  const actualOldName = findDebugObjectKey(source, oldName, caseInsensitive) || oldName;
+  if (normalizeDebugObjectKey(actualOldName, caseInsensitive) === normalizeDebugObjectKey(trimmedName, caseInsensitive)) {
+    return;
+  }
+  if (findDebugObjectKey(source, trimmedName, caseInsensitive)) {
+    ElMessage.warning("参数名已存在");
+    return;
+  }
+  const nextSource: DebugObject = {};
+  Object.entries(source).forEach(([name, value]) => {
+    nextSource[name === actualOldName ? trimmedName : name] = value;
+  });
+  replaceDebugObject(source, nextSource);
+  clearDebugCommand();
+}
+
+function updateDebugObjectValue(source: DebugObject, name: string, value: unknown, caseInsensitive = false) {
+  const actualName = findDebugObjectKey(source, name, caseInsensitive) || name;
+  source[actualName] = value;
+  clearDebugCommand();
+}
+
+function removeDebugObjectRow(source: DebugObject, name: string, caseInsensitive = false) {
+  const actualName = findDebugObjectKey(source, name, caseInsensitive) || name;
+  delete source[actualName];
+  clearDebugCommand();
+}
+
+function nextDebugObjectName(source: DebugObject, prefix: string, caseInsensitive = false) {
+  let index = Object.keys(source).length + 1;
+  let candidate = `${prefix}-${index}`;
+  while (findDebugObjectKey(source, candidate, caseInsensitive)) {
+    index += 1;
+    candidate = `${prefix}-${index}`;
+  }
+  return candidate;
+}
+
+function findDebugObjectKey(source: Record<string, unknown>, name: string, caseInsensitive = false) {
+  const normalizedName = normalizeDebugObjectKey(name, caseInsensitive);
+  return Object.keys(source).find((key) => normalizeDebugObjectKey(key, caseInsensitive) === normalizedName);
+}
+
+function normalizeDebugObjectKey(name: string, caseInsensitive = false) {
+  const value = String(name || "").trim();
+  return caseInsensitive ? value.toLowerCase() : value;
+}
+
+function compactDebugObject(source: DebugObject, caseInsensitive = false) {
+  const result: Record<string, unknown> = {};
+  Object.entries(source).forEach(([name, value]) => {
+    const trimmedName = name.trim();
+    if (!trimmedName || isBlankHeaderValue(value)) {
+      return;
+    }
+    const existingKey = findDebugObjectKey(result, trimmedName, caseInsensitive);
+    result[existingKey || trimmedName] = value;
+  });
+  return result;
+}
+
+function currentHttpHeaders() {
+  return compactDebugObject(restDebugPayload.headers, true);
+}
+
+function currentHttpQuery() {
+  return compactDebugObject(restDebugPayload.query);
+}
+
+function parseCurrentHttpBody() {
+  const parsed = parseJsonValueText(debugBody.value, "Body");
+  if (!parsed.ok) {
+    debugRawErrors.body = parsed.error;
+    throw new Error(parsed.error);
+  }
+  debugRawErrors.body = "";
+  return parsed.value;
+}
+
+function stringValue(value: unknown) {
+  return value == null ? "" : String(value);
+}
+
+function isPlainDebugObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function clearDebugCommand() {
+  curlCommand.value = "";
+}
+
+function generateSoapEnvelopeFromEntity() {
+  try {
+    soapEnvelope.value = buildCurrentSoapEnvelope();
+    clearDebugCommand();
+    ElMessage.success("SOAP 包装已生成");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "SOAP 包装生成失败");
+  }
+}
+
+function buildCurrentSoapEnvelope() {
+  const innerXml = normalizedSoapEntityXml();
+  const envelope = buildSoapEnvelope({
+    soapVersion: form.webserviceConfig.soapVersion || "SOAP_11",
+    namespaceUri: resolveSoapNamespaceUri(),
+    requestRootName: resolveSoapRequestRootName(),
+    includeToken: false,
+    bodyInnerXml: indentSoapInnerXml(innerXml),
+  });
+  const formatted = formatXmlText(envelope, "SOAP Envelope");
+  if (!formatted.ok) {
+    soapEnvelopeError.value = formatted.error;
+    throw new Error(formatted.error);
+  }
+  soapEnvelopeError.value = "";
+  return formatted.value;
+}
+
+function normalizedSoapEntityXml() {
+  const text = soapEntityXml.value.trim();
+  if (!text) {
+    return "";
+  }
+  const parsed = formatXmlText(`<__fragment>${text}</__fragment>`, "业务实体 XML");
+  if (!parsed.ok) {
+    soapEnvelopeError.value = parsed.error;
+    throw new Error(parsed.error);
+  }
+  return text;
+}
+
+function indentSoapInnerXml(value: string) {
+  return value
+    .split(/\r?\n/u)
+    .map((line) => line.trim() ? `      ${line}` : line)
+    .join("\n");
+}
+
+function resolveSoapNamespaceUri() {
+  return form.webserviceConfig.namespaceUri?.trim()
+    || webservicePreview.value?.namespaceUri
+    || "http://studio.jdragon.com/open-service";
+}
+
+function resolveSoapRequestRootName() {
+  return form.webserviceConfig.requestRootName?.trim()
+    || webservicePreview.value?.operationName
+    || form.webserviceConfig.operationName?.trim()
+    || form.serviceCode
+    || "request";
+}
+
 async function debugService() {
   if (!form.id) {
     ElMessage.warning("请先保存服务");
@@ -1321,6 +2207,7 @@ async function debugService() {
   try {
     const payload = buildCurrentRestDebugPayload();
     const result = await studioApi.dataIngestionServices.debug(form.id, payload);
+    lastInvokeResult.value = result;
     debugResult.value = JSON.stringify(result, null, 2);
   } catch (error) {
     if (error instanceof Error) {
@@ -1340,18 +2227,14 @@ async function debugCurrentMode() {
 }
 
 function buildCurrentRestDebugPayload() {
-  if (debugMode.value === "form") {
-    return buildDebugPayloadFromForm();
-  }
-  const invalidSection = Object.values(debugRawErrors).find(Boolean);
-  if (invalidSection) {
-    throw new Error(invalidSection);
-  }
+  const body = parseCurrentHttpBody();
+  restDebugPayload.body = body;
+  syncRestRawTextFromPayload();
   return {
-    headers: parseJsonObject(debugHeaders.value, "Headers"),
-    query: parseJsonObject(debugQuery.value, "Query"),
-    form: parseJsonObject(debugForm.value, "Form"),
-    body: parseJsonValue(debugBody.value, "Body"),
+    headers: currentHttpHeaders(),
+    query: currentHttpQuery(),
+    form: {},
+    body,
   };
 }
 
@@ -1383,10 +2266,10 @@ async function generateCurlCommand(mode: "bash" | "cmd") {
   }
   try {
     const payload = buildCurrentRestDebugPayload();
-    const headers = ensureOpenApiHeaders(payload.headers, "X-Data-Ingestion-Token");
+    const headers = buildHttpCurlHeaders(payload.headers);
     curlCommand.value = mode === "bash"
-      ? buildBashCurl(endpointUrl.value, "POST", headers, payload.query, payload.body, payload.form)
-      : buildCmdCurl(endpointUrl.value, "POST", headers, payload.query, payload.body, payload.form);
+      ? buildBashCurl(endpointUrl.value, "POST", headers, payload.query, payload.body)
+      : buildCmdCurl(endpointUrl.value, "POST", headers, payload.query, payload.body);
     ElMessage.success(`已生成 cURL(${mode === "bash" ? "bash" : "cmd"})`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "生成 cURL 失败");
@@ -1399,31 +2282,39 @@ async function generateSoapCurlCommand(mode: "bash" | "cmd") {
     return;
   }
   try {
-    if (!soapEnvelope.value.trim()) {
-      await previewWebService(true);
-    }
+    const envelope = buildCurrentSoapEnvelope();
     if (soapEnvelopeError.value) {
       throw new Error(soapEnvelopeError.value);
     }
-    if (!soapEnvelope.value.trim()) {
+    if (!envelope.trim()) {
       throw new Error("SOAP Envelope 不能为空");
     }
+    soapEnvelope.value = envelope;
     const headers = buildSoapCurlHeaders();
     const contentType = resolveSoapContentType();
     curlCommand.value = mode === "bash"
-      ? buildBashRawBodyCurl(webserviceInvokeUrl.value, "POST", headers, soapEnvelope.value, contentType)
-      : buildCmdRawBodyCurl(webserviceInvokeUrl.value, "POST", headers, soapEnvelope.value, contentType);
+      ? buildBashRawBodyCurl(webserviceInvokeUrl.value, "POST", headers, envelope, contentType)
+      : buildCmdRawBodyCurl(webserviceInvokeUrl.value, "POST", headers, envelope, contentType);
     ElMessage.success(`已生成 SOAP cURL(${mode === "bash" ? "bash" : "cmd"})`);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "生成 SOAP cURL 失败");
   }
 }
 
+function buildHttpCurlHeaders(source: Record<string, unknown>) {
+  const headers: Record<string, unknown> = { ...source };
+  setHeaderIfMissing(headers, "Accept", "application/json");
+  if (form.tokenRequired) {
+    setHeaderIfMissing(headers, INGESTION_TOKEN_HEADER, "<订阅Token>");
+  }
+  return compactCurlHeaders(headers);
+}
+
 function buildSoapCurlHeaders() {
   const headers: Record<string, unknown> = { ...currentSoapHttpHeaders() };
   setHeaderIfMissing(headers, "Accept", "text/xml");
   if (form.tokenRequired) {
-    setHeaderIfMissing(headers, "X-Data-Ingestion-Token", "<订阅Token>");
+    setHeaderIfMissing(headers, INGESTION_TOKEN_HEADER, "<订阅Token>");
   }
   const soapAction = resolveSoapAction();
   if (soapAction) {
@@ -1499,9 +2390,7 @@ async function previewWebService(fillSample = false) {
   webservicePreviewLoading.value = true;
   try {
     webservicePreview.value = await studioApi.dataIngestionServices.previewWebService(form.id);
-    if (fillSample || !soapEnvelope.value.trim()) {
-      updateSoapEnvelope(webservicePreview.value.sampleRequest || "");
-    }
+    void fillSample;
     ElMessage.success("WebService 预览已生成");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "WebService 预览失败");
@@ -1519,28 +2408,26 @@ async function debugWebService() {
     ElMessage.warning("请先启用 WebService 并保存");
     return;
   }
-  if (!soapEnvelope.value.trim()) {
-    await previewWebService(true);
-  }
-  if (soapEnvelopeError.value) {
-    ElMessage.error(soapEnvelopeError.value);
+  let envelope = "";
+  try {
+    envelope = buildCurrentSoapEnvelope();
+    soapEnvelope.value = envelope;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "SOAP Envelope 生成失败");
     return;
   }
-  if (soapHeadersError.value) {
-    ElMessage.error(soapHeadersError.value);
-    return;
-  }
-  if (!soapEnvelope.value.trim()) {
+  if (!envelope.trim()) {
     return;
   }
   webserviceDebugging.value = true;
   try {
     const headers = currentSoapHttpHeaders();
     const result = await studioApi.dataIngestionServices.debugWebService(form.id, {
-      soapEnvelope: soapEnvelope.value,
+      soapEnvelope: envelope,
       soapVersion: form.webserviceConfig.soapVersion || "SOAP_11",
       headers,
     });
+    lastInvokeResult.value = result.result ?? null;
     debugResult.value = result.responseEnvelope || JSON.stringify(result, null, 2);
   } catch (error) {
     if (error instanceof Error) {
@@ -1552,7 +2439,11 @@ async function debugWebService() {
 }
 
 function normalizedMappings() {
-  return form.fieldMappings
+  return normalizedMappingsFrom(form.fieldMappings);
+}
+
+function normalizedMappingsFrom(mappings: DataIngestionFieldMapping[]) {
+  return mappings
     .map((item, index): DataIngestionFieldMapping => ({
       ...item,
       sortOrder: index,
@@ -1583,9 +2474,28 @@ function normalizeSourcePosition(position?: DataIngestionSourcePosition): DataIn
   return position ?? "BODY";
 }
 
+function debugMappingEntries(): DebugMappingEntry[] {
+  ensureSourceBindings();
+  const entries: DebugMappingEntry[] = [];
+  (form.sourceBindings ?? []).forEach((binding, bindingIndex) => {
+    if (binding.enabled === false) {
+      return;
+    }
+    (binding.fieldMappings ?? []).forEach((mapping, mappingIndex) => {
+      entries.push({
+        binding,
+        bindingIndex,
+        mapping,
+        mappingIndex,
+      });
+    });
+  });
+  return entries;
+}
+
 function syncDebugValues(force: boolean) {
-  form.fieldMappings.forEach((mapping, index) => {
-    const key = debugFieldKey(mapping, index);
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping, mappingIndex }) => {
+    const key = debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode);
     if (force || !(key in debugValues)) {
       debugValues[key] = initialDebugValue(mapping);
     }
@@ -1595,13 +2505,16 @@ function syncDebugValues(force: boolean) {
 function resetDebugValues() {
   syncDebugValues(true);
   syncRestPayloadFromFields();
-  syncSoapValues(true);
-  rebuildSoapEnvelopeFromFields();
   curlCommand.value = "";
 }
 
-function debugFieldKey(mapping: DataIngestionFieldMapping, index: number) {
-  return `${index}:${normalizeSourcePosition(mapping.sourcePosition)}:${mapping.targetField || ""}:${mapping.sourceField || ""}`;
+function debugFieldKey(
+  mapping: DataIngestionFieldMapping,
+  index: number,
+  bindingIndex = activeSourceIndex.value,
+  sourceCode = activeSourceBinding.value?.sourceCode,
+) {
+  return `${bindingIndex}:${sourceCode || ""}:${index}:${normalizeSourcePosition(mapping.sourcePosition)}:${mapping.targetField || ""}:${mapping.sourceField || ""}`;
 }
 
 function initialDebugValue(mapping: DataIngestionFieldMapping): DebugFieldValue {
@@ -1635,13 +2548,13 @@ function defaultDebugValue(value: string, valueType?: FieldValueType): DebugFiel
 }
 
 function buildDebugPayloadFromForm() {
+  persistActiveSourceFromForm();
   const headers: Record<string, unknown> = {};
   const query: Record<string, unknown> = {};
   const formValues: Record<string, unknown> = {};
-  const bodyRow: Record<string, unknown> = {};
-  let hasBody = false;
+  const bodyRows = new Map<number, Record<string, unknown>>();
 
-  form.fieldMappings.forEach((rawMapping, index) => {
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping: rawMapping, mappingIndex }) => {
     if (!rawMapping.targetField?.trim()) {
       return;
     }
@@ -1654,7 +2567,7 @@ function buildDebugPayloadFromForm() {
       required: Boolean(rawMapping.required),
     };
     const sourceField = mapping.sourceField?.trim() || mapping.targetField;
-    const key = debugFieldKey(mapping, index);
+    const key = debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode);
     const value = parseDebugFieldValue(debugValues[key], mapping);
     if (isBlankDebugValue(value) && !mapping.required) {
       return;
@@ -1672,58 +2585,55 @@ function buildDebugPayloadFromForm() {
       formValues[sourceField] = value;
       return;
     }
-    hasBody = true;
+    const bodyRow = bodyRows.get(bindingIndex) ?? {};
     assignPath(bodyRow, sourceField, value);
+    bodyRows.set(bindingIndex, bodyRow);
   });
 
   return {
     headers,
     query,
     form: formValues,
-    body: hasBody ? wrapBodyPayload(bodyRow) : {},
+    body: bodyRows.size ? wrapBodyPayload(bodyRows) : {},
   };
 }
 
-function wrapBodyPayload(row: Record<string, unknown>) {
-  const path = form.dataNodePath?.trim();
-  if (!path) {
-    return row;
+function wrapBodyPayload(rowsByBinding: Map<number, Record<string, unknown>>) {
+  if (rowsByBinding.size === 1) {
+    const [[bindingIndex, row]] = Array.from(rowsByBinding.entries());
+    const binding = form.sourceBindings?.[bindingIndex];
+    const path = fullSourcePathForBinding(binding);
+    const payload = binding?.payloadMode === "ARRAY" ? [row] : row;
+    if (!path) {
+      return payload;
+    }
+    const root: Record<string, unknown> = {};
+    assignPath(root, path, payload);
+    return root;
   }
   const root: Record<string, unknown> = {};
-  assignPath(root, path, [row]);
-  return root;
-}
-
-function wrapSoapBodyPayload(row: Record<string, unknown>) {
-  const path = form.dataNodePath?.trim();
-  if (!path) {
-    return row;
-  }
-  const root: Record<string, unknown> = {};
-  assignPath(root, path, row);
+  rowsByBinding.forEach((row, bindingIndex) => {
+    const binding = form.sourceBindings?.[bindingIndex];
+    const path = fullSourcePathForBinding(binding);
+    const payload = binding?.payloadMode === "ARRAY" ? [row] : row;
+    if (path) {
+      assignPath(root, path, payload);
+      return;
+    }
+    Object.assign(root, row);
+  });
   return root;
 }
 
 function syncRestPayloadFromFields() {
-  try {
-    const payload = buildDebugPayloadFromForm();
-    replaceDebugObject(restDebugPayload.headers, payload.headers);
-    replaceDebugObject(restDebugPayload.query, payload.query);
-    replaceDebugObject(restDebugPayload.form, payload.form);
-    restDebugPayload.body = payload.body;
-    syncRestRawTextFromPayload();
-    clearRestRawErrors();
-    curlCommand.value = "";
-  } catch {
-    // 保留用户正在填写的非法表单值，发送调试时再提示。
-  }
+  syncRestRawTextFromPayload();
+  clearRestRawErrors();
 }
 
 function syncRestRawTextFromPayload() {
   debugHeaders.value = prettyJsonValue(restDebugPayload.headers);
   debugQuery.value = prettyJsonValue(restDebugPayload.query);
   debugForm.value = prettyJsonValue(restDebugPayload.form);
-  debugBody.value = prettyJsonValue(restDebugPayload.body);
 }
 
 function updateRawObjectSection(key: "headers" | "query" | "form", value: string, label: string) {
@@ -1749,11 +2659,11 @@ function updateRawBodySection(value: string) {
 }
 
 function syncDebugValuesFromRestPayload() {
-  const bodySource = resolveBodySourceRow(restDebugPayload.body);
-  form.fieldMappings.forEach((mapping, index) => {
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping, mappingIndex }) => {
     if (!mapping.targetField?.trim()) {
       return;
     }
+    const bodySource = resolveBodySourceRow(restDebugPayload.body, binding);
     const normalized: DataIngestionFieldMapping = {
       ...mapping,
       sourcePosition: normalizeSourcePosition(mapping.sourcePosition),
@@ -1772,13 +2682,13 @@ function syncDebugValuesFromRestPayload() {
           : bodySource;
     const value = position === "BODY" ? readDebugPath(source, sourceField) : source[sourceField];
     if (value !== undefined) {
-      debugValues[debugFieldKey(mapping, index)] = toDebugFieldValue(value);
+      debugValues[debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode)] = toDebugFieldValue(value);
     }
   });
 }
 
-function resolveBodySourceRow(body: unknown) {
-  const path = form.dataNodePath?.trim();
+function resolveBodySourceRow(body: unknown, binding: DataIngestionSourceBinding = activeSourceBinding.value) {
+  const path = fullSourcePathForBinding(binding);
   const payload = path ? readDebugPath(body, path) : body;
   return firstArrayItemOrSelf(payload) ?? {};
 }
@@ -1791,22 +2701,7 @@ function clearRestRawErrors() {
 }
 
 function assignPath(target: Record<string, unknown>, path: string, value: unknown) {
-  const segments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
-  if (!segments.length) {
-    return;
-  }
-  let current: Record<string, unknown> = target;
-  segments.forEach((segment, index) => {
-    if (index === segments.length - 1) {
-      current[segment] = value;
-      return;
-    }
-    const next = current[segment];
-    if (!next || typeof next !== "object" || Array.isArray(next)) {
-      current[segment] = {};
-    }
-    current = current[segment] as Record<string, unknown>;
-  });
+  assignDebugPath(target, path, value);
 }
 
 function parseDebugFieldValue(value: DebugFieldValue, mapping: DataIngestionFieldMapping) {
@@ -1892,8 +2787,8 @@ function syncSoapValues(force: boolean) {
   if (force || !(SOAP_TOKEN_FIELD_KEY in soapFieldValues)) {
     soapFieldValues[SOAP_TOKEN_FIELD_KEY] = "your-token";
   }
-  form.fieldMappings.forEach((mapping, index) => {
-    const key = debugFieldKey(mapping, index);
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping, mappingIndex }) => {
+    const key = debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode);
     if (force || !(key in soapFieldValues)) {
       soapFieldValues[key] = initialDebugValue(mapping);
     }
@@ -1905,17 +2800,17 @@ function syncSoapValues(force: boolean) {
 }
 
 function syncSoapValuesFromEnvelope(bodyValues: DebugObject, headerValues: DebugObject) {
-  const bodySource = resolveBodySourceRow(bodyValues);
-  form.fieldMappings.forEach((mapping, index) => {
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping, mappingIndex }) => {
     if (!mapping.targetField?.trim()) {
       return;
     }
+    const bodySource = resolveBodySourceRow(bodyValues, binding);
     const sourceField = mapping.sourceField?.trim() || mapping.targetField.trim();
     const position = normalizeSourcePosition(mapping.sourcePosition);
     const source = position === "HEADER" ? headerValues : bodySource;
     const value = position === "BODY" ? readDebugPath(source, sourceField) : source[sourceField];
     if (value !== undefined) {
-      soapFieldValues[debugFieldKey(mapping, index)] = toDebugFieldValue(value);
+      soapFieldValues[debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode)] = toDebugFieldValue(value);
     }
   });
 }
@@ -1939,8 +2834,7 @@ function rebuildSoapEnvelopeFromFields() {
 }
 
 function buildSoapFieldSpecs(target: "HEADER" | "BODY"): SoapFieldSpec[] {
-  return form.fieldMappings
-    .map((mapping, index) => ({ mapping, index }))
+  return debugMappingEntries()
     .filter(({ mapping }) => {
       if (!mapping.targetField?.trim()) {
         return false;
@@ -1948,22 +2842,30 @@ function buildSoapFieldSpecs(target: "HEADER" | "BODY"): SoapFieldSpec[] {
       const position = normalizeSourcePosition(mapping.sourcePosition);
       return target === "HEADER" ? position === "HEADER" : position !== "HEADER";
     })
-    .map(({ mapping, index }) => {
+    .map(({ binding, bindingIndex, mapping, mappingIndex }) => {
       const sourceField = mapping.sourceField?.trim() || mapping.targetField.trim();
+      const key = debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode);
       return {
-        key: debugFieldKey(mapping, index),
+        key,
         elementName: sourceField,
-        value: soapFieldValues[debugFieldKey(mapping, index)] ?? initialDebugValue(mapping),
+        value: soapFieldValues[key] ?? initialDebugValue(mapping),
       };
     });
 }
 
 function buildSoapBodyPayload() {
-  const row: DebugObject = {};
-  buildSoapFieldSpecs("BODY").forEach((field) => {
-    assignPath(row, field.elementName, field.value);
+  const bodyRows = new Map<number, Record<string, unknown>>();
+  debugMappingEntries().forEach(({ binding, bindingIndex, mapping, mappingIndex }) => {
+    if (!mapping.targetField?.trim() || normalizeSourcePosition(mapping.sourcePosition) === "HEADER") {
+      return;
+    }
+    const row = bodyRows.get(bindingIndex) ?? {};
+    const sourceField = mapping.sourceField?.trim() || mapping.targetField.trim();
+    const key = debugFieldKey(mapping, mappingIndex, bindingIndex, binding.sourceCode);
+    assignPath(row, sourceField, soapFieldValues[key] ?? initialDebugValue(mapping));
+    bodyRows.set(bindingIndex, row);
   });
-  return wrapSoapBodyPayload(row);
+  return bodyRows.size ? wrapBodyPayload(bodyRows) : {};
 }
 
 function syncSoapHeadersRawFromPayload() {
@@ -1971,18 +2873,8 @@ function syncSoapHeadersRawFromPayload() {
 }
 
 function currentSoapHttpHeaders() {
-  if (soapHeadersError.value) {
-    throw new Error(soapHeadersError.value);
-  }
-  if (soapHeadersMode.value === "raw") {
-    const parsed = parseJsonObjectText(soapDebugHeaders.value, "HTTP Headers");
-    if (!parsed.ok) {
-      soapHeadersError.value = parsed.error;
-      throw new Error(parsed.error);
-    }
-    replaceDebugObject(soapHttpHeaders, parsed.value);
-  }
-  return { ...soapHttpHeaders };
+  soapHeadersError.value = "";
+  return compactDebugObject(soapHttpHeaders, true);
 }
 
 function toDebugFieldValue(value: unknown): DebugFieldValue {
@@ -2043,9 +2935,7 @@ function sourcePositionDescription(position: DataIngestionSourcePosition) {
   if (position === "HEADER") {
     return "随请求头提交的元数据。";
   }
-  return form.dataNodePath?.trim()
-    ? `写入 ${form.dataNodePath.trim()} 节点下的 Body 数据，SOAP 模式下按 XML 节点路径读取。`
-    : "写入请求 Body，SOAP 模式下按 XML 节点路径读取。";
+  return "写入各目标完整来源路径下的请求 Body，SOAP 模式下按 XML 节点路径读取。";
 }
 
 function parseJsonObject(value: string, label: string) {
@@ -2168,6 +3058,365 @@ function resolveEndpoint() {
   padding-top: 14px;
 }
 
+.target-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+  padding: 4px 0;
+}
+
+.target-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 248px;
+  padding: 22px 20px 18px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 1) 42%),
+    #fff;
+  color: var(--studio-text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.07);
+  overflow: visible;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.target-card:hover,
+.target-card.active {
+  border-color: var(--studio-primary);
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 1) 46%),
+    #fff;
+  box-shadow: 0 22px 46px rgba(37, 99, 235, 0.14);
+  transform: translateY(-2px);
+}
+
+.target-card.disabled {
+  opacity: 0.62;
+}
+
+.target-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.target-card-title {
+  min-width: 0;
+}
+
+.target-card-title strong {
+  display: block;
+  padding-right: 8px;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target-card-title small {
+  display: block;
+  margin-top: 4px;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target-card-status {
+  flex: 0 0 auto;
+  min-width: 48px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.1);
+  color: #15803d;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.target-card-status.disabled {
+  border-color: rgba(100, 116, 139, 0.24);
+  background: rgba(100, 116, 139, 0.08);
+  color: var(--studio-text-soft);
+}
+
+.target-card-path {
+  display: grid;
+  grid-template-columns: minmax(84px, max-content) minmax(0, 1fr);
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.target-card-path div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.target-card-path span,
+.target-card-facts span {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.target-card-path strong {
+  color: var(--studio-text);
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.target-card-path div:first-child strong {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.target-card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.target-card-facts div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.target-card-facts strong {
+  min-width: 0;
+  color: var(--studio-text);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target-card-delete {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 50%;
+  background: #fff;
+  color: #dc2626;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 10px 22px rgba(239, 68, 68, 0.18), 0 2px 6px rgba(15, 23, 42, 0.08);
+  z-index: 2;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.target-card-delete:hover {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(239, 68, 68, 0.25), 0 3px 8px rgba(15, 23, 42, 0.1);
+  transform: scale(1.04);
+}
+
+.target-card-delete.disabled {
+  border-color: var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  color: var(--studio-text-soft);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.target-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-self: end;
+}
+
+.target-card--add {
+  place-items: center;
+  align-content: center;
+  min-height: 248px;
+  color: var(--studio-primary);
+  border-style: dashed;
+  background: var(--el-fill-color-extra-light);
+  box-shadow: none;
+}
+
+.target-card--add span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgba(37, 99, 235, 0.26);
+  background: #fff;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.target-detail-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.target-detail-header p {
+  margin: 4px 0 0;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.target-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.target-secondary-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.target-secondary-tabs button {
+  min-width: 96px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--studio-text-soft);
+  cursor: pointer;
+}
+
+.target-secondary-tabs button.active {
+  background: #fff;
+  color: var(--studio-primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.service-debug-alert {
+  margin-bottom: 14px;
+}
+
+.ingestion-debug-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ingestion-debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ingestion-debug-layout {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.ingestion-debug-panel {
+  overflow: hidden;
+  border: 1px solid var(--studio-border);
+  border-left: 4px solid var(--studio-primary);
+  border-radius: 8px;
+  background: var(--studio-surface-strong, #fff);
+}
+
+.ingestion-debug-panel:nth-of-type(2) {
+  border-left-color: var(--studio-accent);
+}
+
+.ingestion-debug-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid rgba(64, 113, 187, 0.12);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.96));
+}
+
+.ingestion-debug-panel__header strong {
+  color: var(--studio-text);
+  font-size: 13px;
+}
+
+.ingestion-debug-panel__header p {
+  margin: 4px 0 0;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.service-debug-curl-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.service-debug-curl-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-debug-curl-panel__header strong {
+  color: var(--studio-text);
+  font-size: 13px;
+}
+
+.service-debug-curl-panel__header p {
+  margin: 4px 0 0;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.service-debug-curl-panel :deep(.el-textarea__inner) {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .wizard-footer {
   display: flex;
   justify-content: flex-end;
@@ -2233,6 +3482,24 @@ function resolveEndpoint() {
 
   .service-wizard {
     grid-template-columns: 1fr;
+  }
+
+  .target-detail-header {
+    display: grid;
+  }
+
+  .target-detail-actions {
+    justify-content: flex-start;
+  }
+
+  .ingestion-debug-toolbar,
+  .ingestion-debug-panel__header,
+  .service-debug-curl-panel__header {
+    display: grid;
+  }
+
+  .ingestion-debug-actions {
+    justify-content: flex-start;
   }
 }
 </style>

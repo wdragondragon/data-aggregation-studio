@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -1614,14 +1615,20 @@ public class StudioSchemaUpgradeService {
                 || !columnExists("data_ingestion_service", "source_positions_json")) {
             return;
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select id, field_mappings_json, source_positions_json from data_ingestion_service");
+        String selectColumns = columnExists("data_ingestion_service", "source_bindings_json")
+                ? "id, source_bindings_json, field_mappings_json, source_positions_json"
+                : "id, field_mappings_json, source_positions_json";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select " + selectColumns + " from data_ingestion_service");
         for (Map<String, Object> row : rows) {
             Long serviceId = objectLong(row.get("id"));
             Object existing = row.get("source_positions_json");
             if (serviceId == null || existing != null && !String.valueOf(existing).trim().isEmpty()) {
                 continue;
             }
-            List<String> positions = sourcePositionsFromJson(row.get("field_mappings_json"));
+            List<String> positions = sourcePositionsFromJson(row.get("source_bindings_json"));
+            if (positions.isEmpty()) {
+                positions = sourcePositionsFromJson(row.get("field_mappings_json"));
+            }
             try {
                 jdbcTemplate.update("update data_ingestion_service set source_positions_json = ? where id = ?",
                         objectMapper.writeValueAsString(positions),
@@ -1630,6 +1637,70 @@ public class StudioSchemaUpgradeService {
                 // Upgrade should remain best-effort; runtime save keeps the summary current afterwards.
             }
         }
+    }
+
+    private void backfillDataIngestionSourceBindings() {
+        if (!tableExists("data_ingestion_service")
+                || !columnExists("data_ingestion_service", "source_bindings_json")
+                || !columnExists("data_ingestion_service", "source_count")
+                || !columnExists("data_ingestion_service", "target_count")) {
+            return;
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("select " +
+                "id, data_node_path, payload_mode, target_type, datasource_id, datasource_name_snapshot, datasource_type_code, " +
+                "model_id, model_name_snapshot, model_physical_locator, writer_options_json, field_mappings_json, source_bindings_json " +
+                "from data_ingestion_service");
+        for (Map<String, Object> row : rows) {
+            Long serviceId = objectLong(row.get("id"));
+            if (serviceId == null) {
+                continue;
+            }
+            try {
+                JsonNode existing = readJsonNode(row.get("source_bindings_json"));
+                String bindingsJson;
+                if (existing != null && existing.isArray() && existing.size() > 0) {
+                    bindingsJson = String.valueOf(row.get("source_bindings_json"));
+                } else {
+                    bindingsJson = objectMapper.writeValueAsString(legacyDataIngestionSourceBindings(row));
+                    existing = readJsonNode(bindingsJson);
+                }
+                int sourceCount = sourceBindingCount(existing);
+                int targetCount = sourceBindingTargetCount(existing);
+                jdbcTemplate.update("update data_ingestion_service set source_bindings_json = ?, source_count = ?, target_count = ? where id = ?",
+                        bindingsJson,
+                        Integer.valueOf(sourceCount < 1 ? 1 : sourceCount),
+                        Integer.valueOf(targetCount < 1 ? 1 : targetCount),
+                        serviceId);
+            } catch (Exception ignored) {
+                // Upgrade should remain best-effort; runtime save keeps the binding JSON current afterwards.
+            }
+        }
+    }
+
+    private List<Map<String, Object>> legacyDataIngestionSourceBindings(Map<String, Object> row) {
+        Map<String, Object> binding = new LinkedHashMap<String, Object>();
+        String sourcePath = textValue(row.get("data_node_path"));
+        binding.put("sourceCode", "source_1");
+        binding.put("sourceName", "默认来源");
+        binding.put("sourcePosition", "BODY");
+        binding.put("sourcePath", sourcePath);
+        binding.put("payloadMode", hasText(textValue(row.get("payload_mode")))
+                ? textValue(row.get("payload_mode"))
+                : hasText(sourcePath) ? "ARRAY" : "OBJECT");
+        binding.put("targetType", hasText(textValue(row.get("target_type"))) ? textValue(row.get("target_type")) : "DATABASE");
+        binding.put("datasourceId", row.get("datasource_id"));
+        binding.put("datasourceName", row.get("datasource_name_snapshot"));
+        binding.put("datasourceTypeCode", row.get("datasource_type_code"));
+        binding.put("modelId", row.get("model_id"));
+        binding.put("modelName", row.get("model_name_snapshot"));
+        binding.put("modelPhysicalLocator", row.get("model_physical_locator"));
+        binding.put("writerOptions", parsedJsonOrDefault(row.get("writer_options_json"), new LinkedHashMap<String, Object>()));
+        binding.put("fieldMappings", parsedJsonOrDefault(row.get("field_mappings_json"), new ArrayList<Object>()));
+        binding.put("sortOrder", Integer.valueOf(0));
+        binding.put("enabled", Boolean.TRUE);
+        List<Map<String, Object>> bindings = new ArrayList<Map<String, Object>>();
+        bindings.add(binding);
+        return bindings;
     }
 
     private void insertCollectionTaskMetricBinding(Map<String, Object> row, String role, int sequence, JsonNode bindingNode) {
@@ -1687,10 +1758,64 @@ public class StudioSchemaUpgradeService {
                 } else if (item.isObject()) {
                     JsonNode sourcePosition = item.get("sourcePosition");
                     addSourcePosition(positions, sourcePosition == null ? null : sourcePosition.asText());
+                    JsonNode fieldMappings = item.get("fieldMappings");
+                    if (fieldMappings != null && fieldMappings.isArray()) {
+                        for (JsonNode mapping : fieldMappings) {
+                            if (mapping != null && mapping.isObject()) {
+                                JsonNode mappingPosition = mapping.get("sourcePosition");
+                                addSourcePosition(positions, mappingPosition == null ? null : mappingPosition.asText());
+                            }
+                        }
+                    }
                 }
             }
         }
         return new ArrayList<String>(positions);
+    }
+
+    private int sourceBindingCount(JsonNode bindingsNode) {
+        if (bindingsNode == null || !bindingsNode.isArray()) {
+            return 0;
+        }
+        int count = 0;
+        for (JsonNode binding : bindingsNode) {
+            if (!jsonBooleanFalse(binding, "enabled")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int sourceBindingTargetCount(JsonNode bindingsNode) {
+        if (bindingsNode == null || !bindingsNode.isArray()) {
+            return 0;
+        }
+        Set<String> targets = new LinkedHashSet<String>();
+        for (JsonNode binding : bindingsNode) {
+            if (binding == null || jsonBooleanFalse(binding, "enabled")) {
+                continue;
+            }
+            Long datasourceId = jsonLong(binding, "datasourceId");
+            Long modelId = jsonLong(binding, "modelId");
+            if (datasourceId != null || modelId != null) {
+                targets.add(String.valueOf(datasourceId) + ":" + String.valueOf(modelId));
+            }
+        }
+        return targets.isEmpty() ? sourceBindingCount(bindingsNode) : targets.size();
+    }
+
+    private boolean jsonBooleanFalse(JsonNode node, String fieldName) {
+        if (node == null || fieldName == null) {
+            return false;
+        }
+        JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return false;
+        }
+        if (value.isBoolean()) {
+            return !value.asBoolean();
+        }
+        return "false".equalsIgnoreCase(value.asText());
     }
 
     private void addSourcePosition(Set<String> positions, String value) {
@@ -1803,6 +1928,26 @@ public class StudioSchemaUpgradeService {
             return null;
         }
         return text.trim();
+    }
+
+    private Object parsedJsonOrDefault(Object rawJson, Object fallback) {
+        String text = textValue(rawJson);
+        if (!hasText(text)) {
+            return fallback;
+        }
+        try {
+            return objectMapper.readValue(text, Object.class);
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private String textValue(Object value) {
+        return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private void ensureColumn(String tableName, String columnName, String ddl) {
@@ -2830,7 +2975,10 @@ public class StudioSchemaUpgradeService {
                     "webservice_config_json json," +
                     "writer_options_json json," +
                     "field_mappings_json json," +
-                    "source_positions_json json" +
+                    "source_positions_json json," +
+                    "source_bindings_json json," +
+                    "source_count int default 1," +
+                    "target_count int default 1" +
                     ")");
         }
         ensureColumn("data_ingestion_service", "token_required",
@@ -2843,6 +2991,13 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_service add column webservice_config_json json after webservice_enabled");
         ensureColumn("data_ingestion_service", "source_positions_json",
                 "alter table data_ingestion_service add column source_positions_json json after field_mappings_json");
+        ensureColumn("data_ingestion_service", "source_bindings_json",
+                "alter table data_ingestion_service add column source_bindings_json json after source_positions_json");
+        ensureColumn("data_ingestion_service", "source_count",
+                "alter table data_ingestion_service add column source_count int default 1 after source_bindings_json");
+        ensureColumn("data_ingestion_service", "target_count",
+                "alter table data_ingestion_service add column target_count int default 1 after source_count");
+        backfillDataIngestionSourceBindings();
         backfillDataIngestionSourcePositions();
         ensureIndex("data_ingestion_service", "uk_data_ingestion_project_code",
                 "alter table data_ingestion_service add unique key uk_data_ingestion_project_code (tenant_id, project_id, service_code)");
@@ -2991,7 +3146,10 @@ public class StudioSchemaUpgradeService {
                 "webservice_config_json text," +
                 "writer_options_json text," +
                 "field_mappings_json text," +
-                "source_positions_json text" +
+                "source_positions_json text," +
+                "source_bindings_json text," +
+                "source_count integer default 1," +
+                "target_count integer default 1" +
                 ")");
         ensureColumn("data_ingestion_service", "token_required",
                 "alter table data_ingestion_service add column token_required integer default 1");
@@ -3003,6 +3161,13 @@ public class StudioSchemaUpgradeService {
                 "alter table data_ingestion_service add column webservice_config_json text");
         ensureColumn("data_ingestion_service", "source_positions_json",
                 "alter table data_ingestion_service add column source_positions_json text");
+        ensureColumn("data_ingestion_service", "source_bindings_json",
+                "alter table data_ingestion_service add column source_bindings_json text");
+        ensureColumn("data_ingestion_service", "source_count",
+                "alter table data_ingestion_service add column source_count integer default 1");
+        ensureColumn("data_ingestion_service", "target_count",
+                "alter table data_ingestion_service add column target_count integer default 1");
+        backfillDataIngestionSourceBindings();
         backfillDataIngestionSourcePositions();
         jdbcTemplate.execute("create unique index if not exists uk_data_ingestion_project_code on data_ingestion_service(tenant_id, project_id, service_code)");
         jdbcTemplate.execute("create index if not exists idx_data_ingestion_project_status on data_ingestion_service(project_id, status)");

@@ -28,7 +28,7 @@ export interface SoapEnvelopeBuildOptions {
   tokenValue?: string;
   headerFields?: SoapFieldSpec[];
   fields?: SoapFieldSpec[];
-  bodyPayload?: DebugObject;
+  bodyPayload?: unknown;
   bodyInnerXml?: string;
 }
 
@@ -44,6 +44,11 @@ export interface XmlFormatResult {
   ok: boolean;
   value: string;
   error: string;
+}
+
+interface DebugPathSegment {
+  name: string;
+  index?: number;
 }
 
 export function prettyJsonValue(value: unknown) {
@@ -146,34 +151,113 @@ export function stringifyDebugValue(value: unknown) {
 }
 
 export function assignPath(target: DebugObject, path: string, value: unknown) {
-  const segments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
+  const segments = parseDebugPath(path);
   if (!segments.length) {
     return;
   }
-  let current: DebugObject = target;
-  segments.forEach((segment, index) => {
-    if (index === segments.length - 1) {
-      current[segment] = value;
+  let current: unknown = target;
+  segments.forEach((segment, segmentIndex) => {
+    const last = segmentIndex === segments.length - 1;
+    const nextSegment = segments[segmentIndex + 1];
+    if (segment.name) {
+      if (!isDebugObject(current)) {
+        return;
+      }
+      if (segment.index != null) {
+        let nextArray = current[segment.name] as unknown[];
+        if (!Array.isArray(nextArray)) {
+          nextArray = [];
+          current[segment.name] = nextArray;
+        }
+        if (last) {
+          nextArray[segment.index] = value;
+          return;
+        }
+        const child = nextArray[segment.index];
+        if (!child || typeof child !== "object" || Array.isArray(child)) {
+          nextArray[segment.index] = createPathContainer(nextSegment);
+        }
+        current = nextArray[segment.index];
+        return;
+      }
+      if (last) {
+        current[segment.name] = value;
+        return;
+      }
+      const child = current[segment.name];
+      if (!child || typeof child !== "object" || Array.isArray(child)) {
+        current[segment.name] = createPathContainer(nextSegment);
+      }
+      current = current[segment.name];
       return;
     }
-    const next = current[segment];
-    if (!next || typeof next !== "object" || Array.isArray(next)) {
-      current[segment] = {};
+    if (segment.index == null || !Array.isArray(current)) {
+      return;
     }
-    current = current[segment] as DebugObject;
+    if (last) {
+      current[segment.index] = value;
+      return;
+    }
+    const child = current[segment.index];
+    if (!child || typeof child !== "object" || Array.isArray(child)) {
+      current[segment.index] = createPathContainer(nextSegment);
+    }
+    current = current[segment.index];
   });
 }
 
 export function readPath(source: unknown, path: string) {
-  const segments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
+  const segments = parseDebugPath(path);
   let current = source;
   for (const segment of segments) {
-    if (!current || typeof current !== "object") {
+    if (current == null) {
       return undefined;
     }
-    current = (current as DebugObject)[segment];
+    let value: unknown = current;
+    if (segment.name) {
+      if (!isDebugObject(current)) {
+        return undefined;
+      }
+      value = current[segment.name];
+    }
+    if (segment.index != null) {
+      if (!Array.isArray(value)) {
+        return undefined;
+      }
+      current = value[segment.index];
+      continue;
+    }
+    current = value;
   }
   return current;
+}
+
+function parseDebugPath(path: string) {
+  return path
+    .split(".")
+    .map((rawSegment): DebugPathSegment | undefined => {
+      const segment = rawSegment.trim();
+      if (!segment) {
+        return undefined;
+      }
+      const bracketMatch = segment.match(/^([^\[\]]*)\[(\d+)]$/);
+      if (!bracketMatch) {
+        return { name: segment };
+      }
+      return {
+        name: bracketMatch[1],
+        index: Number(bracketMatch[2]),
+      };
+    })
+    .filter((segment): segment is DebugPathSegment => Boolean(segment && (segment.name || segment.index != null)));
+}
+
+function createPathContainer(nextSegment?: DebugPathSegment): DebugObject | unknown[] {
+  return nextSegment && !nextSegment.name && nextSegment.index != null ? [] : {};
+}
+
+function isDebugObject(value: unknown): value is DebugObject {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 export function firstArrayItemOrSelf(value: unknown) {
@@ -195,7 +279,7 @@ export function buildSoapEnvelope(options: SoapEnvelopeBuildOptions) {
   const fieldXml = options.bodyInnerXml != null
     ? options.bodyInnerXml
     : options.bodyPayload
-    ? appendObjectChildren(options.bodyPayload, 6)
+    ? appendXmlPayload(options.bodyPayload, 6)
     : (options.fields ?? [])
       .map((field) => appendXmlValue(field.elementName, field.value, 6))
       .filter(Boolean)
@@ -379,6 +463,16 @@ function appendXmlValue(rawName: string, value: unknown, indentSize: number, pre
     return `${indent}<${tag}>\n${children}\n${indent}</${tag}>`;
   }
   return `${indent}<${tag}>${escapeXml(stringifyDebugValue(value))}</${tag}>`;
+}
+
+function appendXmlPayload(value: unknown, indentSize: number): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => appendXmlValue("item", item, indentSize)).filter(Boolean).join("\n");
+  }
+  if (isDebugObject(value)) {
+    return appendObjectChildren(value, indentSize);
+  }
+  return appendXmlValue("value", value, indentSize);
 }
 
 function appendObjectChildren(value: DebugObject, indentSize: number): string {

@@ -86,12 +86,14 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
                 .contains("id", "project_id", "created_at", "updated_at",
                         "service_code", "service_name", "status", "target_type",
                         "datasource_name_snapshot", "model_name_snapshot",
-                        "model_physical_locator", "endpoint_path", "source_positions_json")
+                        "model_physical_locator", "endpoint_path", "source_positions_json",
+                        "source_count", "target_count")
                 .doesNotContain("tenant_id", "deleted", "created_by",
                         "request_format", "payload_mode", "data_node_path",
                         "datasource_id", "datasource_type_code", "model_id",
                         "max_batch_size", "token_required", "default_subscription_name",
-                        "webservice_enabled", "field_mappings_json", "writer_options_json", "webservice_config_json");
+                        "webservice_enabled", "field_mappings_json", "writer_options_json",
+                        "source_bindings_json", "webservice_config_json");
     }
 
     @Test
@@ -116,9 +118,14 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
 
         DataIngestionServiceView saved = service.save(saveRequest());
 
-        assertThat(saved.getSourcePositions()).containsExactly("QUERY", "HEADER", "FORM");
-        assertThat(savedRef.get().getSourcePositionsJson()).containsExactly("QUERY", "HEADER", "FORM");
+        assertThat(saved.getSourcePositions()).containsExactly("BODY", "QUERY", "HEADER", "FORM");
+        assertThat(saved.getSourceCount()).isEqualTo(1);
+        assertThat(saved.getTargetCount()).isEqualTo(1);
+        assertThat(savedRef.get().getSourcePositionsJson()).containsExactly("BODY", "QUERY", "HEADER", "FORM");
         assertThat(savedRef.get().getFieldMappingsJson()).hasSize(3);
+        assertThat(savedRef.get().getSourceBindingsJson()).hasSize(1);
+        assertThat(savedRef.get().getSourceCount()).isEqualTo(1);
+        assertThat(savedRef.get().getTargetCount()).isEqualTo(1);
     }
 
     private DataIngestionService service(DataIngestionServiceMapper serviceMapper,

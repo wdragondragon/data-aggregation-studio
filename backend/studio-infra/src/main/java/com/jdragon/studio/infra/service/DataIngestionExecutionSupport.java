@@ -24,6 +24,8 @@ import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
 import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
+import com.jdragon.studio.dto.model.DataIngestionSourceBinding;
+import com.jdragon.studio.dto.model.DataIngestionSourceInvokeResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +47,7 @@ import java.util.concurrent.TimeoutException;
 final class DataIngestionExecutionSupport {
 
     private static final Logger log = LoggerFactory.getLogger(DataIngestionExecutionSupport.class);
-    private static final int DEFAULT_MAX_BATCH_SIZE = 500;
+    private static final int DEFAULT_MAX_BATCH_SIZE = 1000;
     private static final long DEFAULT_WRITE_SLOW_THRESHOLD_MS = 10000L;
 
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
@@ -75,47 +77,145 @@ final class DataIngestionExecutionSupport {
                                       Long jobId,
                                       String logCaptureId,
                                       boolean enforceStatus) {
+        DataIngestionSourceBinding binding = new DataIngestionSourceBinding();
+        binding.setSourceCode("source_1");
+        binding.setSourceName("默认来源");
+        binding.setSourcePosition(DataIngestionSourcePosition.BODY);
+        binding.setSourcePath(service.getDataNodePath());
+        binding.setPayloadMode(service.getPayloadMode());
+        binding.setTargetType(service.getTargetType());
+        binding.setDatasourceId(service.getDatasourceId());
+        binding.setDatasourceName(service.getDatasourceName());
+        binding.setDatasourceTypeCode(service.getDatasourceTypeCode());
+        binding.setModelId(service.getModelId());
+        binding.setModelName(service.getModelName());
+        binding.setModelPhysicalLocator(service.getModelPhysicalLocator());
+        binding.setWriterOptions(service.getWriterOptions());
+        binding.setFieldMappings(mappings);
+        binding.setSortOrder(Integer.valueOf(0));
+        binding.setEnabled(Boolean.TRUE);
+        return executeBindings(service, Collections.singletonList(binding), headers, query, form, body, requestId, jobId, logCaptureId, enforceStatus);
+    }
+
+    DataIngestionInvokeResult executeBindings(DataIngestionServiceView service,
+                                              List<DataIngestionSourceBinding> sourceBindings,
+                                              Map<String, Object> headers,
+                                              Map<String, Object> query,
+                                              Map<String, Object> form,
+                                              Object body,
+                                              String requestId,
+                                              Long jobId,
+                                              String logCaptureId,
+                                              boolean enforceStatus) {
         if (enforceStatus && service.getStatus() != DataIngestionStatus.ONLINE) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service is not available");
         }
-        List<Map<String, Object>> sourceRows = parseSourceRows(service, body, mappings);
-        int maxBatchSize = service.getMaxBatchSize() == null ? DEFAULT_MAX_BATCH_SIZE : service.getMaxBatchSize().intValue();
-        if (sourceRows.size() > maxBatchSize) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Request row count exceeds max batch size: " + maxBatchSize);
-        }
-        List<String> targetFields = resolveTargetFields(mappings);
-        List<Map<String, Object>> writerRows = new ArrayList<Map<String, Object>>();
-        for (Map<String, Object> sourceRow : sourceRows) {
-            writerRows.add(buildWriterRow(mappings, sourceRow, headers, query, form));
-        }
-        if (!writerRows.isEmpty()) {
-            Map<String, Object> writer = collectionTaskAssemblerService.assembleWriter(service.getDatasourceId(),
-                    service.getModelId(),
-                    targetFields,
-                    service.getWriterOptions());
-            applyIngestionWriterOptions(writer, service.getWriterOptions());
-            Map<String, Object> jobConfig = new LinkedHashMap<String, Object>();
-            jobConfig.put("core.container.taskGroup.reportInterval", Integer.valueOf(1000));
-            jobConfig.put("core.container.taskGroup.sleepInterval", Integer.valueOf(50));
-            Map<String, Object> reader = new LinkedHashMap<String, Object>();
-            reader.put("type", "memory");
-            reader.put("config", new LinkedHashMap<String, Object>());
-            jobConfig.put("reader", reader);
-            jobConfig.put("writer", writer);
-            JobContainer container = new JobContainer(Configuration.from(jobConfig));
-            Long safeJobId = jobId == null ? IdWorker.getId() : jobId;
-            container.setRunContext("jobId", safeJobId);
-            container.addConsumerPlugin(PluginType.READER, new InMemoryRecordReader(writerRows, targetFields, mappings));
-            startAndAssertJob(container, requestId, safeJobId, logCaptureId);
+        List<DataIngestionSourceBinding> enabledBindings = enabledBindings(sourceBindings);
+        if (enabledBindings.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one enabled source binding is required");
         }
         DataIngestionInvokeResult result = new DataIngestionInvokeResult();
         result.setRequestId(requestId);
         result.setServiceCode(service.getServiceCode());
-        result.setReceivedCount(Long.valueOf(sourceRows.size()));
-        result.setSuccessCount(Long.valueOf(sourceRows.size()));
-        result.setFailedCount(Long.valueOf(0L));
-        result.setStatus("SUCCESS");
+        long receivedCount = 0L;
+        long successCount = 0L;
+        long failedCount = 0L;
+        int successSources = 0;
+        int failedSources = 0;
+        List<DataIngestionSourceInvokeResult> sourceResults = new ArrayList<DataIngestionSourceInvokeResult>();
+        int index = 0;
+        for (DataIngestionSourceBinding binding : enabledBindings) {
+            Long sourceJobId = jobId == null ? IdWorker.getId() : Long.valueOf(jobId.longValue() + index);
+            DataIngestionSourceInvokeResult sourceResult = executeBinding(service, binding, headers, query, form, body,
+                    requestId, sourceJobId, logCaptureId);
+            sourceResults.add(sourceResult);
+            receivedCount += safeLong(sourceResult.getReceivedCount());
+            successCount += safeLong(sourceResult.getSuccessCount());
+            failedCount += safeLong(sourceResult.getFailedCount());
+            if ("SUCCESS".equalsIgnoreCase(sourceResult.getStatus())) {
+                successSources++;
+            } else {
+                failedSources++;
+            }
+            index++;
+        }
+        result.setReceivedCount(Long.valueOf(receivedCount));
+        result.setSuccessCount(Long.valueOf(successCount));
+        result.setFailedCount(Long.valueOf(failedCount));
+        result.setSourceResults(sourceResults);
+        if (failedSources == 0) {
+            result.setStatus("SUCCESS");
+        } else if (successSources == 0) {
+            result.setStatus("FAILED");
+        } else {
+            result.setStatus("PARTIAL_SUCCESS");
+        }
         return result;
+    }
+
+    private DataIngestionSourceInvokeResult executeBinding(DataIngestionServiceView service,
+                                                           DataIngestionSourceBinding binding,
+                                                           Map<String, Object> headers,
+                                                           Map<String, Object> query,
+                                                           Map<String, Object> form,
+                                                           Object body,
+                                                           String requestId,
+                                                           Long jobId,
+                                                           String logCaptureId) {
+        DataIngestionSourceInvokeResult sourceResult = new DataIngestionSourceInvokeResult();
+        sourceResult.setSourceCode(binding.getSourceCode());
+        sourceResult.setSourceName(binding.getSourceName());
+        sourceResult.setTargetDatasourceName(binding.getDatasourceName());
+        sourceResult.setTargetModelName(binding.getModelName());
+        sourceResult.setJobId(jobId);
+        long receivedCount = 0L;
+        try {
+            List<DataIngestionFieldMapping> mappings = binding.getFieldMappings() == null
+                    ? Collections.<DataIngestionFieldMapping>emptyList()
+                    : binding.getFieldMappings();
+            List<Map<String, Object>> sourceRows = parseSourceRows(binding, headers, query, form, body, mappings);
+            receivedCount = sourceRows.size();
+            int maxBatchSize = service.getMaxBatchSize() == null ? DEFAULT_MAX_BATCH_SIZE : service.getMaxBatchSize().intValue();
+            if (sourceRows.size() > maxBatchSize) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Request row count exceeds max batch size: " + maxBatchSize);
+            }
+            List<String> targetFields = resolveTargetFields(mappings);
+            List<Map<String, Object>> writerRows = new ArrayList<Map<String, Object>>();
+            for (Map<String, Object> sourceRow : sourceRows) {
+                writerRows.add(buildWriterRow(mappings, sourceRow, headers, query, form));
+            }
+            if (!writerRows.isEmpty()) {
+                Map<String, Object> writer = collectionTaskAssemblerService.assembleWriter(binding.getDatasourceId(),
+                        binding.getModelId(),
+                        targetFields,
+                        binding.getWriterOptions());
+                applyIngestionWriterOptions(writer, binding.getWriterOptions());
+                Map<String, Object> jobConfig = new LinkedHashMap<String, Object>();
+                jobConfig.put("core.container.taskGroup.reportInterval", Integer.valueOf(1000));
+                jobConfig.put("core.container.taskGroup.sleepInterval", Integer.valueOf(50));
+                Map<String, Object> reader = new LinkedHashMap<String, Object>();
+                reader.put("type", "memory");
+                reader.put("config", new LinkedHashMap<String, Object>());
+                jobConfig.put("reader", reader);
+                jobConfig.put("writer", writer);
+                JobContainer container = new JobContainer(Configuration.from(jobConfig));
+                container.setRunContext("jobId", jobId);
+                container.addConsumerPlugin(PluginType.READER, new InMemoryRecordReader(writerRows, targetFields, mappings));
+                startAndAssertJob(container, requestId, jobId, logCaptureId);
+            }
+            sourceResult.setReceivedCount(Long.valueOf(receivedCount));
+            sourceResult.setSuccessCount(Long.valueOf(sourceRows.size()));
+            sourceResult.setFailedCount(Long.valueOf(0L));
+            sourceResult.setStatus("SUCCESS");
+            return sourceResult;
+        } catch (RuntimeException ex) {
+            sourceResult.setReceivedCount(Long.valueOf(receivedCount));
+            sourceResult.setSuccessCount(Long.valueOf(0L));
+            sourceResult.setFailedCount(Long.valueOf(receivedCount));
+            sourceResult.setStatus("FAILED");
+            sourceResult.setMessage(safeFailureMessage(ex));
+            return sourceResult;
+        }
     }
 
     void startAndAssertJob(JobContainer container, String requestId, Long jobId, String logCaptureId) {
@@ -247,21 +347,60 @@ final class DataIngestionExecutionSupport {
     List<Map<String, Object>> parseSourceRows(DataIngestionServiceView service,
                                               Object body,
                                               List<DataIngestionFieldMapping> mappings) {
-        if (!usesJsonBody(mappings)) {
+        DataIngestionSourceBinding binding = new DataIngestionSourceBinding();
+        binding.setSourcePosition(DataIngestionSourcePosition.BODY);
+        binding.setSourcePath(service == null ? null : service.getDataNodePath());
+        binding.setFieldMappings(mappings);
+        return parseSourceRows(binding,
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                body,
+                mappings);
+    }
+
+    List<Map<String, Object>> parseSourceRows(DataIngestionSourceBinding binding,
+                                              Map<String, Object> headers,
+                                              Map<String, Object> query,
+                                              Map<String, Object> form,
+                                              Object body,
+                                              List<DataIngestionFieldMapping> mappings) {
+        DataIngestionSourcePosition sourcePosition = binding == null || binding.getSourcePosition() == null
+                ? DataIngestionSourcePosition.BODY
+                : binding.getSourcePosition();
+        Object root = sourceRoot(sourcePosition, headers, query, form, body);
+        if (sourcePosition == DataIngestionSourcePosition.BODY && !usesJsonBody(mappings) && !hasText(binding == null ? null : binding.getSourcePath())) {
             return Collections.singletonList(new LinkedHashMap<String, Object>());
         }
-        Object payload = body;
-        if (hasText(service.getDataNodePath())) {
-            payload = readPath(body, service.getDataNodePath());
+        Object payload = root;
+        if (binding != null && hasText(binding.getSourcePath())) {
+            payload = readPath(root, binding.getSourcePath());
         }
         if (payload instanceof List<?>) {
             List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
             for (Object item : (List<?>) payload) {
-                rows.add(asObjectMap(item, "JSON array item must be an object"));
+                rows.add(asObjectMap(item, "Source array item must be an object"));
             }
             return rows;
         }
-        return Collections.singletonList(asObjectMap(payload, "JSON body must be an object or array"));
+        return Collections.singletonList(asObjectMap(payload, "Source payload must be an object or array"));
+    }
+
+    private Object sourceRoot(DataIngestionSourcePosition sourcePosition,
+                              Map<String, Object> headers,
+                              Map<String, Object> query,
+                              Map<String, Object> form,
+                              Object body) {
+        if (sourcePosition == DataIngestionSourcePosition.HEADER) {
+            return headers == null ? new LinkedHashMap<String, Object>() : headers;
+        }
+        if (sourcePosition == DataIngestionSourcePosition.QUERY) {
+            return query == null ? new LinkedHashMap<String, Object>() : query;
+        }
+        if (sourcePosition == DataIngestionSourcePosition.FORM) {
+            return form == null ? new LinkedHashMap<String, Object>() : form;
+        }
+        return body;
     }
 
     private Map<String, Object> buildWriterRow(List<DataIngestionFieldMapping> mappings,
@@ -325,6 +464,19 @@ final class DataIngestionExecutionSupport {
         List<String> result = new ArrayList<String>();
         for (DataIngestionFieldMapping mapping : mappings) {
             result.add(mapping.getTargetField());
+        }
+        return result;
+    }
+
+    private List<DataIngestionSourceBinding> enabledBindings(List<DataIngestionSourceBinding> sourceBindings) {
+        List<DataIngestionSourceBinding> result = new ArrayList<DataIngestionSourceBinding>();
+        if (sourceBindings == null) {
+            return result;
+        }
+        for (DataIngestionSourceBinding binding : sourceBindings) {
+            if (binding != null && !Boolean.FALSE.equals(binding.getEnabled())) {
+                result.add(binding);
+            }
         }
         return result;
     }
@@ -505,6 +657,10 @@ final class DataIngestionExecutionSupport {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private long safeLong(Long value) {
+        return value == null ? 0L : value.longValue();
     }
 
     private <T> T absent() {

@@ -26,6 +26,7 @@ import {
   ElRadio,
   ElRadioButton,
   ElRadioGroup,
+  ElResult,
   ElRow,
   ElSelect,
   ElSwitch,
@@ -72,6 +73,7 @@ import "element-plus/es/components/progress/style/css";
 import "element-plus/es/components/radio/style/css";
 import "element-plus/es/components/radio-button/style/css";
 import "element-plus/es/components/radio-group/style/css";
+import "element-plus/es/components/result/style/css";
 import "element-plus/es/components/row/style/css";
 import "element-plus/es/components/select/style/css";
 import "element-plus/es/components/switch/style/css";
@@ -117,6 +119,7 @@ const components: Plugin[] = [
   ElRadio,
   ElRadioButton,
   ElRadioGroup,
+  ElResult,
   ElRow,
   ElSelect,
   ElSwitch,

@@ -33,4 +33,6 @@ public class DataIngestionServiceListView extends BaseDefinition {
     private String defaultSubscriptionName;
     private Boolean webserviceEnabled;
     private List<String> sourcePositions = new ArrayList<String>();
+    private Integer sourceCount;
+    private Integer targetCount;
 }

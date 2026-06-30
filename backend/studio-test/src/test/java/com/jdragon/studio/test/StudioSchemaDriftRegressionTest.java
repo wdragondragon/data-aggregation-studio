@@ -110,6 +110,9 @@ class StudioSchemaDriftRegressionTest {
     private static final List<String> DATA_INGESTION_SOURCE_POSITION_COLUMNS = Arrays.asList(
             "data_ingestion_service", "source_positions_json");
 
+    private static final List<String> DATA_INGESTION_SOURCE_BINDING_COLUMNS = Arrays.asList(
+            "data_ingestion_service", "source_bindings_json", "source_count", "target_count");
+
     private static final List<String> HTTP_TABLE_FIELDS = Arrays.asList(
             "physicalName", "description", "protocolMode", "mode", "resultType",
             "soapVersion", "namespaceUri", "operationName", "soapAction",
@@ -310,6 +313,21 @@ class StudioSchemaDriftRegressionTest {
         assertFieldsPresent("Upgrade data ingestion source positions summary", upgradeService,
                 Arrays.asList("source_positions_json", "backfillDataIngestionSourcePositions"));
         assertFieldsPresent("Delta data ingestion source positions summary", delta, DATA_INGESTION_SOURCE_POSITION_COLUMNS);
+    }
+
+    @Test
+    void dataIngestionSourceBindingsShouldStayAlignedAcrossSchemaUpgradeAndDeltaScripts() throws Exception {
+        String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String upgradeService = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java");
+        String delta = readBackendFile("studio-server/src/main/resources/update/20260630/20260630-data-ingestion-source-bindings-delta.sql");
+
+        assertFieldsPresent("MySQL data ingestion source bindings", mysqlSchema, DATA_INGESTION_SOURCE_BINDING_COLUMNS);
+        assertFieldsPresent("SQLite data ingestion source bindings", sqliteSchema, DATA_INGESTION_SOURCE_BINDING_COLUMNS);
+        assertFieldsPresent("Upgrade data ingestion source bindings", upgradeService,
+                Arrays.asList("source_bindings_json", "source_count", "target_count",
+                        "backfillDataIngestionSourceBindings", "legacyDataIngestionSourceBindings"));
+        assertFieldsPresent("Delta data ingestion source bindings", delta, DATA_INGESTION_SOURCE_BINDING_COLUMNS);
     }
 
     private void assertHttpCapability(String label, String content) {
