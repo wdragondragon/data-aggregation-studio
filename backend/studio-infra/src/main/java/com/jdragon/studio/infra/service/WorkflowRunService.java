@@ -218,12 +218,35 @@ public class WorkflowRunService {
     }
 
     public WorkflowRunDetailView terminate(Long workflowRunId) {
-        get(workflowRunId);
+        String currentTenantId = securityService.currentTenantId();
+        Long currentProjectId = securityService.currentProjectId();
+        ensureWorkflowRunExists(currentTenantId, currentProjectId, workflowRunId);
         staleExecutionRecoveryService.terminateWorkflowRun(
-                securityService.currentTenantId(),
-                securityService.currentProjectId(),
+                currentTenantId,
+                currentProjectId,
                 workflowRunId);
         return get(workflowRunId);
+    }
+
+    private void ensureWorkflowRunExists(String currentTenantId, Long currentProjectId, Long workflowRunId) {
+        if (workflowRunId == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow run not found: null");
+        }
+        Long runRecordCount = runRecordMapper.selectCount(new LambdaQueryWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getTenantId, currentTenantId)
+                .eq(RunRecordEntity::getWorkflowRunId, workflowRunId)
+                .eq(currentProjectId != null, RunRecordEntity::getProjectId, currentProjectId));
+        if (runRecordCount != null && runRecordCount.longValue() > 0L) {
+            return;
+        }
+        Long dispatchTaskCount = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
+                .eq(DispatchTaskEntity::getWorkflowRunId, workflowRunId)
+                .eq(currentProjectId != null, DispatchTaskEntity::getProjectId, currentProjectId));
+        if (dispatchTaskCount != null && dispatchTaskCount.longValue() > 0L) {
+            return;
+        }
+        throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow run not found: " + workflowRunId);
     }
 
     private Map<Long, String> workflowNames(Set<Long> workflowDefinitionIds) {

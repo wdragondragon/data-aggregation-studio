@@ -132,6 +132,7 @@
 | FIX-S101-001 | 工作流/运行详情 | 中 | 工作流运行详情只需摘要、DAG、节点状态和日志入口，却读取完整 `run_record`、`dispatch_task`，包含 `payload_json`、`result_json` 等运行时大字段 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java` | `WorkflowRunSourceSlimmingRegressionTest`；build-nginx API `/workflow-runs`、`/workflow-runs/{workflowRunId}`；build-nginx `/runs`、`/runs/{workflowRunId}` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S102-001 | 调度/手动触发 | 中 | 工作流、采集任务、质量任务手动触发接口成功 dispatch 后又读取完整定义作为响应返回，但前端只使用成功提示和当前页刷新 | `WorkflowController.java`；`CollectionTaskController.java`；`QualityTaskController.java`；`frontend/packages/api-sdk/src/client.ts`；`ManualTriggerResponseSlimmingRegressionTest.java` | `ManualTriggerResponseSlimmingRegressionTest`；`npm run build:web`；三类 trigger API 返回 `data:null`；build-nginx `/workflows`、`/collection-tasks`、`/quality-tasks` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S103-001 | 工作流/运行详情 | 中 | 工作流运行详情已瘦身运行记录字段，但只读 DAG 仍调用完整 `workflowService.get()`，读取当前工作流节点配置、字段映射和调度定义 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java`；`WorkflowCanvas.vue` | `WorkflowRunSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/workflow-runs/{workflowRunId}`；build-nginx `/runs/{workflowRunId}` | module-regression | 2026-07-01 | 本次提交 |
+| FIX-S104-001 | 工作流/运行终止 | 中 | 工作流运行终止接口写操作前只需确认运行存在和可读，却调用完整 `get(workflowRunId)`，额外读取运行详情、DAG 节点和边；终止后详情返回保留用于当前详情页刷新状态 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java` | `WorkflowRunSourceSlimmingRegressionTest`；build-nginx API `/workflow-runs/{workflowRunId}`；build-nginx API `/workflow-runs/{missingId}/terminate`；build-nginx `/runs/{workflowRunId}` | module-regression | 2026-07-01 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -243,3 +244,4 @@
 | S101 工作流运行详情运行记录源头瘦身 | FIX-S101-001 |
 | S102 手动触发响应尾部详情源头瘦身 | FIX-S102-001 |
 | S103 工作流运行详情画布定义源头瘦身 | FIX-S103-001 |
+| S104 工作流运行终止前置校验源头瘦身 | FIX-S104-001 |

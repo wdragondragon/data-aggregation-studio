@@ -23,6 +23,7 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
@@ -33,8 +34,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -251,6 +254,58 @@ class WorkflowRunSourceSlimmingRegressionTest {
         verify(workflowEdgeMapper).selectList(edgeCaptor.capture());
         assertThat(edgeCaptor.getValue().getSqlSelect())
                 .contains("workflow_version_id", "from_node_code", "to_node_code", "condition_type");
+    }
+
+    @Test
+    void terminateShouldUseLightExistenceCheckBeforeReturningUpdatedDetail() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowNodeMapper workflowNodeMapper = mock(WorkflowNodeMapper.class);
+        WorkflowEdgeMapper workflowEdgeMapper = mock(WorkflowEdgeMapper.class);
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        StaleExecutionRecoveryService recoveryService = mock(StaleExecutionRecoveryService.class);
+        WorkflowRunService service = new WorkflowRunService(
+                runRecordMapper,
+                dispatchTaskMapper,
+                workflowDefinitionMapper,
+                workflowNodeMapper,
+                workflowEdgeMapper,
+                jdbcTemplate,
+                securityService,
+                recoveryService);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentProjectId()).thenReturn(100L);
+        when(runRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(runRecordMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(runRecord()));
+        when(dispatchTaskMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(dispatchTask()));
+        when(workflowDefinitionMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowDefinition()));
+        when(workflowNodeMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowNode()));
+        when(workflowEdgeMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowEdge()));
+
+        WorkflowRunDetailView detail = service.terminate(9001L);
+
+        assertThat(detail.getWorkflowRunId()).isEqualTo(9001L);
+        verify(runRecordMapper).selectCount(any(LambdaQueryWrapper.class));
+        verify(dispatchTaskMapper, never()).selectCount(any(LambdaQueryWrapper.class));
+        verify(runRecordMapper, times(1)).selectList(any(LambdaQueryWrapper.class));
+        verify(dispatchTaskMapper, times(1)).selectList(any(LambdaQueryWrapper.class));
+        verify(recoveryService).terminateWorkflowRun("default", 100L, 9001L);
+
+        InOrder inOrder = inOrder(runRecordMapper, recoveryService);
+        inOrder.verify(runRecordMapper).selectCount(any(LambdaQueryWrapper.class));
+        inOrder.verify(recoveryService).terminateWorkflowRun("default", 100L, 9001L);
+        inOrder.verify(runRecordMapper).selectList(any(LambdaQueryWrapper.class));
+
+        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> countCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(runRecordMapper).selectCount(countCaptor.capture());
+        assertThat(countCaptor.getValue().getSqlSelect()).isNull();
     }
 
     private static void initTableInfo(Class<?> entityClass) {
