@@ -239,6 +239,31 @@ class DataSourceListSourceSlimmingRegressionTest {
     }
 
     @Test
+    void readableDatasourceProbeShouldSelectOnlyAccessFields() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        DatasourceConnectionHealthMapper healthMapper = mock(DatasourceConnectionHealthMapper.class);
+        DatasourceConnectionTestRecordMapper recordMapper = mock(DatasourceConnectionTestRecordMapper.class);
+        DataSourceService service = dataSourceService(datasourceMapper, healthMapper, recordMapper);
+        when(datasourceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(datasource());
+
+        service.assertReadableIfPresent(11L);
+
+        ArgumentCaptor<LambdaQueryWrapper<DatasourceEntity>> datasourceCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(datasourceMapper).selectOne(datasourceCaptor.capture());
+        assertThat(datasourceCaptor.getValue().getSqlSelect())
+                .contains("id", "project_id")
+                .doesNotContain("tenant_id",
+                        "name",
+                        "type_code",
+                        "schema_version_id",
+                        "connection_fingerprint",
+                        "technical_metadata",
+                        "business_metadata");
+        verify(healthMapper, never()).selectList(any());
+        verify(recordMapper, never()).selectRecentTrendByFingerprints(any(), any(), any(Integer.class));
+    }
+
+    @Test
     void recentTrendSqlShouldNotSelectFullHistoryRows() throws Exception {
         Method method = DatasourceConnectionTestRecordMapper.class.getMethod(
                 "selectRecentTrendByFingerprints", String.class, Collection.class, int.class);

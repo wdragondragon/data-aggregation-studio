@@ -206,3 +206,5 @@
 - 2026-06-30 已完成 S96 模型列表删除刷新收敛：确认并修复 `/models` 模型列表删除成功后无条件重新执行 `handleDatasourceChange()` 的问题，`FIX-S96-001` 已进入缺陷回归索引；模型摘要列表源头字段继续由 S73/S79 既有回归保障。
 - S96 本轮未新增或清理长期数据，未执行真实删除动作；后端 health 为 `UP`，build-nginx `/models` 可达，模型列表与模型同步任务页签可见，console warn/error 为 0，页面资产加载 `ModelsView-BAhGb1Qm.js`。
 - S96 回归入口：`DataModelSqlHintSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/models`、源码复核 `ModelsView.vue` 中 `deleteModel/reloadModelPageAfterDelete/loadModelsForSelectedDatasource` 路径。后续涉及 `ModelsView.vue`、模型列表字段、模型删除刷新、模型摘要列表或模型动态筛选时，至少复跑这些入口。后续写后刷新边界按“分页列表可重拉当前页，避免跨上下文重载和详情过取”执行。
+- 2026-06-30 已完成 S97 质量指标模型筛选数据源探针源头瘦身：确认并修复 `/quality-metrics/model-options` 带 datasourceId 查询时，为校验数据源可读而调用完整 `dataSourceService.get()` 的隐性过度读取问题，`FIX-S97-001` 已进入缺陷回归索引。
+- S97 本轮未新增或清理长期数据，未改前端；定向后端回归 `DataSourceListSourceSlimmingRegressionTest`、`DataModelSqlHintSourceSlimmingRegressionTest`、`QualityMetricsOptionsSourceSlimmingRegressionTest` 共 15 tests 全部通过。后续涉及 `DataSourceService`、`DataModelService.listMetricFilterOptionPage`、质量指标模型筛选下拉或数据源可读探针时，至少复跑这些入口。

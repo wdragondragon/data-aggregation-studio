@@ -256,6 +256,23 @@ public class DataSourceService {
         return entity == null ? null : toDefinition(entity, false);
     }
 
+    public void assertReadableIfPresent(Long id) {
+        if (id == null) {
+            return;
+        }
+        DatasourceEntity entity = datasourceMapper.selectOne(new LambdaQueryWrapper<DatasourceEntity>()
+                .select(DatasourceEntity::getId,
+                        DatasourceEntity::getProjectId)
+                .eq(DatasourceEntity::getTenantId, securityService.currentTenantId())
+                .eq(DatasourceEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            return;
+        }
+        projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATASOURCE,
+                entity.getProjectId(), entity.getId(), "Datasource not found: " + id);
+    }
+
     @Transactional
     public DataSourceDefinition save(DataSourceSaveRequest request) {
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();

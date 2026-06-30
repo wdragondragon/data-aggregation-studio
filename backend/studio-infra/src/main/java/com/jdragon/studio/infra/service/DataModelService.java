@@ -165,7 +165,7 @@ public class DataModelService {
                                                                           Integer pageNo,
                                                                           Integer pageSize) {
         if (datasourceId != null) {
-            dataSourceService.get(datasourceId);
+            dataSourceService.assertReadableIfPresent(datasourceId);
         }
         LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(datasourceId, null, null, "name", "asc");
         if (keyword != null && !keyword.trim().isEmpty()) {
