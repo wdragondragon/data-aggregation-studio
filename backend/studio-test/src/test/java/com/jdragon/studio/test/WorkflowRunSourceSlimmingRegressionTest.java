@@ -9,15 +9,16 @@ import com.jdragon.studio.dto.model.WorkflowRunSummaryView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
+import com.jdragon.studio.infra.entity.WorkflowEdgeEntity;
 import com.jdragon.studio.infra.entity.WorkflowNodeEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.mapper.WorkflowEdgeMapper;
 import com.jdragon.studio.infra.mapper.WorkflowNodeMapper;
 import com.jdragon.studio.infra.service.StaleExecutionRecoveryService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.WorkflowRunService;
-import com.jdragon.studio.infra.service.WorkflowService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
         initTableInfo(DispatchTaskEntity.class);
         initTableInfo(WorkflowDefinitionEntity.class);
         initTableInfo(WorkflowNodeEntity.class);
+        initTableInfo(WorkflowEdgeEntity.class);
     }
 
     @Test
@@ -53,7 +55,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
         WorkflowNodeMapper workflowNodeMapper = mock(WorkflowNodeMapper.class);
-        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowEdgeMapper workflowEdgeMapper = mock(WorkflowEdgeMapper.class);
         NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         WorkflowRunService service = new WorkflowRunService(
@@ -61,7 +63,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
                 dispatchTaskMapper,
                 workflowDefinitionMapper,
                 workflowNodeMapper,
-                workflowService,
+                workflowEdgeMapper,
                 jdbcTemplate,
                 securityService,
                 mock(StaleExecutionRecoveryService.class));
@@ -84,7 +86,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
         assertThat(page.getItems()).hasSize(1);
         assertThat(page.getItems().get(0).getWorkflowName()).isEqualTo("客户订单日终工作流");
         assertThat(page.getItems().get(0).getTotalNodes()).isEqualTo(1);
-        verify(workflowService, never()).get(any());
+        verify(workflowEdgeMapper, never()).selectList(any(LambdaQueryWrapper.class));
 
         ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> runCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(runRecordMapper).selectList(runCaptor.capture());
@@ -119,7 +121,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
         WorkflowNodeMapper workflowNodeMapper = mock(WorkflowNodeMapper.class);
-        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowEdgeMapper workflowEdgeMapper = mock(WorkflowEdgeMapper.class);
         NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         WorkflowRunService service = new WorkflowRunService(
@@ -127,7 +129,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
                 dispatchTaskMapper,
                 workflowDefinitionMapper,
                 workflowNodeMapper,
-                workflowService,
+                workflowEdgeMapper,
                 jdbcTemplate,
                 securityService,
                 mock(StaleExecutionRecoveryService.class));
@@ -169,7 +171,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
         WorkflowNodeMapper workflowNodeMapper = mock(WorkflowNodeMapper.class);
-        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowEdgeMapper workflowEdgeMapper = mock(WorkflowEdgeMapper.class);
         NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         WorkflowRunService service = new WorkflowRunService(
@@ -177,7 +179,7 @@ class WorkflowRunSourceSlimmingRegressionTest {
                 dispatchTaskMapper,
                 workflowDefinitionMapper,
                 workflowNodeMapper,
-                workflowService,
+                workflowEdgeMapper,
                 jdbcTemplate,
                 securityService,
                 mock(StaleExecutionRecoveryService.class));
@@ -191,10 +193,18 @@ class WorkflowRunSourceSlimmingRegressionTest {
                 .thenReturn(Collections.singletonList(workflowDefinition()));
         when(workflowNodeMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(Collections.singletonList(workflowNode()));
+        when(workflowEdgeMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowEdge()));
 
         WorkflowRunDetailView detail = service.get(9001L);
 
         assertThat(detail.getWorkflowName()).isEqualTo("客户订单日终工作流");
+        assertThat(detail.getWorkflow()).isNotNull();
+        assertThat(detail.getWorkflow().getNodes()).hasSize(1);
+        assertThat(detail.getWorkflow().getNodes().get(0).getNodeName()).isEqualTo("客户订单汇总节点");
+        assertThat(detail.getWorkflow().getNodes().get(0).getConfig()).isEmpty();
+        assertThat(detail.getWorkflow().getNodes().get(0).getFieldMappings()).isEmpty();
+        assertThat(detail.getWorkflow().getEdges()).hasSize(1);
         assertThat(detail.getNodeRuns()).hasSize(1);
         assertThat(detail.getNodeRuns().get(0).getNodeName()).isEqualTo("客户订单汇总节点");
         assertThat(detail.getNodeRuns().get(0).getMessage()).isEqualTo("completed");
@@ -224,6 +234,23 @@ class WorkflowRunSourceSlimmingRegressionTest {
                         "node_code",
                         "lease_owner")
                 .doesNotContain("payload_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<WorkflowDefinitionEntity>> definitionCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(workflowDefinitionMapper).selectList(definitionCaptor.capture());
+        assertThat(definitionCaptor.getValue().getSqlSelect())
+                .contains("id", "name")
+                .doesNotContain("current_version_id", "published");
+
+        ArgumentCaptor<LambdaQueryWrapper<WorkflowNodeEntity>> nodeCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(workflowNodeMapper).selectList(nodeCaptor.capture());
+        assertThat(nodeCaptor.getValue().getSqlSelect())
+                .contains("workflow_version_id", "node_code", "node_name", "node_type")
+                .doesNotContain("config_json", "field_mappings_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<WorkflowEdgeEntity>> edgeCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(workflowEdgeMapper).selectList(edgeCaptor.capture());
+        assertThat(edgeCaptor.getValue().getSqlSelect())
+                .contains("workflow_version_id", "from_node_code", "to_node_code", "condition_type");
     }
 
     private static void initTableInfo(Class<?> entityClass) {
@@ -263,6 +290,15 @@ class WorkflowRunSourceSlimmingRegressionTest {
         entity.setNodeCode("node_customer_order_close");
         entity.setNodeName("客户订单汇总节点");
         entity.setNodeType("DATA_SCRIPT");
+        return entity;
+    }
+
+    private WorkflowEdgeEntity workflowEdge() {
+        WorkflowEdgeEntity entity = new WorkflowEdgeEntity();
+        entity.setWorkflowVersionId(8001L);
+        entity.setFromNodeCode("node_customer_order_close");
+        entity.setToNodeCode("node_archive");
+        entity.setConditionType("ON_SUCCESS");
         return entity;
     }
 

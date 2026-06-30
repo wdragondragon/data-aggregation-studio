@@ -294,6 +294,7 @@ function renderGraph() {
     const created = graph?.createEdge({
       source: { cell: edge.fromNodeCode, port: "out" },
       target: { cell: edge.toNodeCode, port: "in" },
+      router: props.readonly ? "orth" : "manhattan",
       attrs: {
         line: {
           stroke: "#2f5fa9",

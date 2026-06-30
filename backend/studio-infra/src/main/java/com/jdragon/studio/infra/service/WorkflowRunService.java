@@ -3,19 +3,24 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.EdgeCondition;
+import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
-import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
+import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeRunView;
+import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.WorkflowRunDetailView;
 import com.jdragon.studio.dto.model.WorkflowRunSummaryView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
+import com.jdragon.studio.infra.entity.WorkflowEdgeEntity;
 import com.jdragon.studio.infra.entity.WorkflowNodeEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.mapper.WorkflowEdgeMapper;
 import com.jdragon.studio.infra.mapper.WorkflowNodeMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -38,7 +43,7 @@ public class WorkflowRunService {
     private final DispatchTaskMapper dispatchTaskMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final WorkflowNodeMapper workflowNodeMapper;
-    private final WorkflowService workflowService;
+    private final WorkflowEdgeMapper workflowEdgeMapper;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final StudioSecurityService securityService;
     private final StaleExecutionRecoveryService staleExecutionRecoveryService;
@@ -48,7 +53,7 @@ public class WorkflowRunService {
                               DispatchTaskMapper dispatchTaskMapper,
                               WorkflowDefinitionMapper workflowDefinitionMapper,
                               WorkflowNodeMapper workflowNodeMapper,
-                              WorkflowService workflowService,
+                              WorkflowEdgeMapper workflowEdgeMapper,
                               NamedParameterJdbcTemplate namedParameterJdbcTemplate,
                               StudioSecurityService securityService,
                               StaleExecutionRecoveryService staleExecutionRecoveryService) {
@@ -56,7 +61,7 @@ public class WorkflowRunService {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.workflowNodeMapper = workflowNodeMapper;
-        this.workflowService = workflowService;
+        this.workflowEdgeMapper = workflowEdgeMapper;
         this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
         this.securityService = securityService;
         this.staleExecutionRecoveryService = staleExecutionRecoveryService;
@@ -147,13 +152,14 @@ public class WorkflowRunService {
 
         Map<Long, String> workflowNames = workflowNames(resolveWorkflowDefinitionIds(records, tasks));
         Map<Long, List<WorkflowNodeMetadata>> workflowNodes = workflowNodes(resolveWorkflowVersionIds(records, tasks));
+        Map<Long, List<WorkflowEdgeMetadata>> workflowEdges = workflowEdges(resolveWorkflowVersionIds(records, tasks));
         WorkflowRunDetailView detail = new WorkflowRunDetailView();
         WorkflowRunSummaryView summary = buildSummary(workflowRunId, records, tasks, workflowNames, workflowNodes);
         copySummary(summary, detail);
 
-        Long workflowDefinitionId = summary.getWorkflowDefinitionId();
-        WorkflowDefinitionView workflow = workflowDefinitionId == null ? null : workflowService.get(workflowDefinitionId);
-        detail.setWorkflow(workflow);
+        detail.setWorkflow(buildWorkflowSnapshot(summary,
+                workflowNodes.get(summary.getWorkflowVersionId()),
+                workflowEdges.get(summary.getWorkflowVersionId())));
 
         Map<String, RunRecordEntity> latestRecordByNode = latestRecordByNode(records);
         Map<String, DispatchTaskEntity> latestTaskByNode = latestTaskByNode(tasks);
@@ -162,7 +168,7 @@ public class WorkflowRunService {
 
         List<WorkflowNodeMetadata> nodeMetadata = workflowNodes.get(summary.getWorkflowVersionId());
         if (nodeMetadata == null || nodeMetadata.isEmpty()) {
-            nodeMetadata = workflow == null ? new ArrayList<WorkflowNodeMetadata>() : toNodeMetadata(workflow.getNodes());
+            nodeMetadata = new ArrayList<WorkflowNodeMetadata>();
         }
         for (WorkflowNodeMetadata node : nodeMetadata) {
             if (node.nodeCode != null) {
@@ -261,6 +267,28 @@ public class WorkflowRunService {
         return result;
     }
 
+    private Map<Long, List<WorkflowEdgeMetadata>> workflowEdges(Set<Long> workflowVersionIds) {
+        Map<Long, List<WorkflowEdgeMetadata>> result = new LinkedHashMap<Long, List<WorkflowEdgeMetadata>>();
+        if (workflowVersionIds == null || workflowVersionIds.isEmpty()) {
+            return result;
+        }
+        List<WorkflowEdgeEntity> edges = workflowEdgeMapper.selectList(new LambdaQueryWrapper<WorkflowEdgeEntity>()
+                .select(WorkflowEdgeEntity::getWorkflowVersionId,
+                        WorkflowEdgeEntity::getFromNodeCode,
+                        WorkflowEdgeEntity::getToNodeCode,
+                        WorkflowEdgeEntity::getConditionType)
+                .in(WorkflowEdgeEntity::getWorkflowVersionId, workflowVersionIds)
+                .orderByAsc(WorkflowEdgeEntity::getId));
+        for (WorkflowEdgeEntity edge : edges) {
+            if (edge.getWorkflowVersionId() == null) {
+                continue;
+            }
+            result.computeIfAbsent(edge.getWorkflowVersionId(), key -> new ArrayList<WorkflowEdgeMetadata>())
+                    .add(new WorkflowEdgeMetadata(edge.getFromNodeCode(), edge.getToNodeCode(), edge.getConditionType()));
+        }
+        return result;
+    }
+
     private Set<Long> resolveWorkflowVersionIds(List<RunRecordEntity> records, List<DispatchTaskEntity> tasks) {
         Set<Long> workflowVersionIds = new LinkedHashSet<Long>();
         for (RunRecordEntity record : records) {
@@ -276,20 +304,6 @@ public class WorkflowRunService {
         return workflowVersionIds;
     }
 
-    private List<WorkflowNodeMetadata> toNodeMetadata(List<WorkflowNodeDefinition> nodes) {
-        List<WorkflowNodeMetadata> result = new ArrayList<WorkflowNodeMetadata>();
-        if (nodes == null) {
-            return result;
-        }
-        for (WorkflowNodeDefinition node : nodes) {
-            result.add(new WorkflowNodeMetadata(
-                    node.getNodeCode(),
-                    node.getNodeName(),
-                    node.getNodeType() == null ? null : node.getNodeType().name()));
-        }
-        return result;
-    }
-
     private Set<Long> resolveWorkflowDefinitionIds(List<RunRecordEntity> records, List<DispatchTaskEntity> tasks) {
         Set<Long> workflowDefinitionIds = new LinkedHashSet<Long>();
         for (RunRecordEntity record : records) {
@@ -303,6 +317,72 @@ public class WorkflowRunService {
             }
         }
         return workflowDefinitionIds;
+    }
+
+    private WorkflowDefinitionView buildWorkflowSnapshot(WorkflowRunSummaryView summary,
+                                                         List<WorkflowNodeMetadata> nodeMetadata,
+                                                         List<WorkflowEdgeMetadata> edgeMetadata) {
+        WorkflowDefinitionView workflow = new WorkflowDefinitionView();
+        workflow.setId(summary.getWorkflowDefinitionId());
+        workflow.setTenantId(summary.getTenantId());
+        workflow.setProjectId(summary.getProjectId());
+        workflow.setName(summary.getWorkflowName());
+        workflow.setVersionId(summary.getWorkflowVersionId());
+        workflow.setNodes(toWorkflowNodes(nodeMetadata));
+        workflow.setEdges(toWorkflowEdges(edgeMetadata));
+        return workflow;
+    }
+
+    private List<WorkflowNodeDefinition> toWorkflowNodes(List<WorkflowNodeMetadata> nodeMetadata) {
+        List<WorkflowNodeDefinition> nodes = new ArrayList<WorkflowNodeDefinition>();
+        if (nodeMetadata == null) {
+            return nodes;
+        }
+        for (WorkflowNodeMetadata metadata : nodeMetadata) {
+            WorkflowNodeDefinition node = new WorkflowNodeDefinition();
+            node.setNodeCode(metadata.nodeCode);
+            node.setNodeName(metadata.nodeName);
+            node.setNodeType(parseNodeType(metadata.nodeType));
+            nodes.add(node);
+        }
+        return nodes;
+    }
+
+    private List<WorkflowEdgeDefinition> toWorkflowEdges(List<WorkflowEdgeMetadata> edgeMetadata) {
+        List<WorkflowEdgeDefinition> edges = new ArrayList<WorkflowEdgeDefinition>();
+        if (edgeMetadata == null) {
+            return edges;
+        }
+        for (WorkflowEdgeMetadata metadata : edgeMetadata) {
+            WorkflowEdgeDefinition edge = new WorkflowEdgeDefinition();
+            edge.setFromNodeCode(metadata.fromNodeCode);
+            edge.setToNodeCode(metadata.toNodeCode);
+            edge.setCondition(parseEdgeCondition(metadata.conditionType));
+            edges.add(edge);
+        }
+        return edges;
+    }
+
+    private NodeType parseNodeType(String nodeType) {
+        if (nodeType == null || nodeType.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return NodeType.valueOf(nodeType.trim());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private EdgeCondition parseEdgeCondition(String conditionType) {
+        if (conditionType == null || conditionType.trim().isEmpty()) {
+            return EdgeCondition.ON_SUCCESS;
+        }
+        try {
+            return EdgeCondition.valueOf(conditionType.trim());
+        } catch (IllegalArgumentException ignored) {
+            return EdgeCondition.ON_SUCCESS;
+        }
     }
 
     private Map<Long, List<RunRecordEntity>> groupRunRecords(List<RunRecordEntity> records,
@@ -962,6 +1042,18 @@ public class WorkflowRunService {
             this.nodeCode = nodeCode;
             this.nodeName = nodeName;
             this.nodeType = nodeType;
+        }
+    }
+
+    private static class WorkflowEdgeMetadata {
+        private final String fromNodeCode;
+        private final String toNodeCode;
+        private final String conditionType;
+
+        private WorkflowEdgeMetadata(String fromNodeCode, String toNodeCode, String conditionType) {
+            this.fromNodeCode = fromNodeCode;
+            this.toNodeCode = toNodeCode;
+            this.conditionType = conditionType;
         }
     }
 }
