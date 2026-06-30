@@ -211,67 +211,29 @@ function buildActions(row: ProtocolConversionServiceListView) {
 }
 
 async function publishService(row: ProtocolConversionServiceListView) {
-  const updated = await studioApi.protocolConversions.publish(row.id as EntityId);
-  patchServiceRow(row, updated);
+  await studioApi.protocolConversions.publish(row.id as EntityId);
+  await loadServices();
   ElMessage.success("协议转换服务已发布");
 }
 
 async function offlineService(row: ProtocolConversionServiceListView) {
-  const updated = await studioApi.protocolConversions.offline(row.id as EntityId);
-  patchServiceRow(row, updated);
+  await studioApi.protocolConversions.offline(row.id as EntityId);
+  await loadServices();
   ElMessage.success("协议转换服务已下线");
-}
-
-function patchServiceRow(row: ProtocolConversionServiceListView, patch: Partial<ProtocolConversionServiceListView>) {
-  const target = services.value.find((item) => item.id === row.id);
-  if (!target) {
-    return;
-  }
-  const keys: (keyof ProtocolConversionServiceListView)[] = [
-    "updatedAt",
-    "serviceCode",
-    "serviceName",
-    "status",
-    "endpointPath",
-    "webserviceEndpointPath",
-    "sourceProtocol",
-    "conversionMode",
-    "targetDatasourceName",
-    "targetPath",
-    "targetProtocol",
-  ];
-  const next: Partial<ProtocolConversionServiceListView> = {};
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
-    }
-  }
-  Object.assign(target, next);
-  if (selectedService.value?.id === target.id) {
-    selectedService.value = target;
-  }
 }
 
 async function deleteService(row: ProtocolConversionServiceListView) {
   await ElMessageBox.confirm(`确认删除协议转换服务「${row.serviceName}」？`, "删除确认", { type: "warning" });
   await studioApi.protocolConversions.delete(row.id as EntityId);
+  await reloadCurrentPageAfterDelete();
   ElMessage.success("协议转换服务已删除");
-  removeServiceRow(row);
-  if (services.value.length === 0 && total.value > 0) {
-    pagination.page = Math.max(1, pagination.page - 1);
-    await loadServices();
-  }
 }
 
-function removeServiceRow(row: ProtocolConversionServiceListView) {
-  const beforeCount = services.value.length;
-  services.value = services.value.filter((item) => item.id !== row.id);
-  if (services.value.length !== beforeCount) {
-    total.value = Math.max(0, total.value - 1);
-  }
-  if (selectedService.value?.id === row.id) {
-    selectedService.value = null;
-  }
+async function reloadCurrentPageAfterDelete() {
+  const nextTotal = Math.max(0, total.value - 1);
+  const maxPage = Math.max(1, Math.ceil(nextTotal / pagination.pageSize));
+  pagination.page = Math.min(pagination.page, maxPage);
+  await loadServices();
 }
 
 async function openSubscriptions(row: ProtocolConversionServiceListView) {

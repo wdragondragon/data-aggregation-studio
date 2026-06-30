@@ -127,6 +127,7 @@
 | FIX-S96-001 | 数据资产/模型列表 | 中 | `/models` 模型删除成功后无条件执行 `handleDatasourceChange()`，跨越当前分页列表重新加载数据源上下文 | `ModelsView.vue` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/models`；源码复核 `deleteModel/reloadModelPageAfterDelete/loadModelsForSelectedDatasource` 路径 | module-regression | 2026-06-30 | 已提交 |
 | FIX-S97-001 | 质量指标/模型筛选 | 中 | `/quality-metrics/model-options` 带 datasourceId 查询时，只需校验数据源可读，却调用完整 `dataSourceService.get()` 读取连接元数据和健康信息 | `DataSourceService.java`；`DataModelService.java`；`DataSourceListSourceSlimmingRegressionTest.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java` | `DataSourceListSourceSlimmingRegressionTest`；`DataModelSqlHintSourceSlimmingRegressionTest`；`QualityMetricsOptionsSourceSlimmingRegressionTest` | module-regression | 2026-06-30 | 已提交 |
 | FIX-S98-001 | 数据开发/脚本详情 | 中 | `/data-development/scripts/{id}` 只需为编辑器回填数据源名称和类型，却调用完整 `dataSourceService.get()` 读取完整数据源定义并水合连接健康 | `DataDevelopmentService.java`；`DataDevelopmentSourceSlimmingRegressionTest.java` | `DataDevelopmentSourceSlimmingRegressionTest`；IDEA `StudioServerApplication` health；build-nginx `/data-development` 打开长期 SQL 脚本详情 smoke | module-regression | 2026-06-30 | 本次提交 |
+| FIX-S99-001 | 开放服务/分页写后刷新 | 中 | 数据服务、数据接入服务、协议转换服务列表发布/下线/删除后只本地 patch/remove，可能导致按 `updatedAt` 倒序的分页列表状态、排序和补位不一致 | `DataServicesView.vue`；`DataIngestionServicesView.vue`；`ProtocolConversionServicesView.vue` | `npm run build:web`；`DataIngestionServiceListSourceSlimmingRegressionTest`；build-nginx `/data-services`、`/data-ingestion-services`、`/protocol-conversions` 长期项目 smoke | module-regression | 2026-07-01 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -233,3 +234,4 @@
 | S96 模型列表删除刷新收敛 | FIX-S96-001 |
 | S97 质量指标模型筛选数据源探针源头瘦身 | FIX-S97-001 |
 | S98 数据开发脚本详情数据源摘要源头瘦身 | FIX-S98-001 |
+| S99 开放服务分页写动作刷新边界修正 | FIX-S99-001 |

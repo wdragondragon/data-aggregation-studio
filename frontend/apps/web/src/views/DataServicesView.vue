@@ -225,8 +225,8 @@ async function publishService(row: DataServiceListView) {
     return;
   }
   try {
-    const updated = await studioApi.dataServices.publish(row.id);
-    patchServiceRow(row, updated);
+    await studioApi.dataServices.publish(row.id);
+    await loadServices();
     ElMessage.success("数据服务已发布");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "发布失败");
@@ -238,40 +238,11 @@ async function offlineService(row: DataServiceListView) {
     return;
   }
   try {
-    const updated = await studioApi.dataServices.offline(row.id);
-    patchServiceRow(row, updated);
+    await studioApi.dataServices.offline(row.id);
+    await loadServices();
     ElMessage.success("数据服务已下线");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "下线失败");
-  }
-}
-
-function patchServiceRow(row: DataServiceListView, patch: Partial<DataServiceListView>) {
-  const target = services.value.find((item) => item.id === row.id);
-  if (!target) {
-    return;
-  }
-  const keys: (keyof DataServiceListView)[] = [
-    "updatedAt",
-    "serviceCode",
-    "serviceName",
-    "status",
-    "sourceType",
-    "datasourceName",
-    "datasourceTypeCode",
-    "modelName",
-    "modelPhysicalLocator",
-    "endpointPath",
-  ];
-  const next: Partial<DataServiceListView> = {};
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
-    }
-  }
-  Object.assign(target, next);
-  if (selectedService.value?.id === target.id) {
-    selectedService.value = target;
   }
 }
 
@@ -282,12 +253,8 @@ async function deleteService(row: DataServiceListView) {
   try {
     await ElMessageBox.confirm(`确认删除数据服务“${row.serviceName}”吗？`, "提示", { type: "warning" });
     await studioApi.dataServices.delete(row.id);
+    await reloadCurrentPageAfterDelete();
     ElMessage.success("数据服务已删除");
-    removeServiceRow(row);
-    if (services.value.length === 0 && total.value > 0) {
-      pagination.page = Math.max(1, pagination.page - 1);
-      await loadServices();
-    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : "删除失败");
@@ -295,15 +262,11 @@ async function deleteService(row: DataServiceListView) {
   }
 }
 
-function removeServiceRow(row: DataServiceListView) {
-  const beforeCount = services.value.length;
-  services.value = services.value.filter((item) => item.id !== row.id);
-  if (services.value.length !== beforeCount) {
-    total.value = Math.max(0, total.value - 1);
-  }
-  if (selectedService.value?.id === row.id) {
-    selectedService.value = null;
-  }
+async function reloadCurrentPageAfterDelete() {
+  const nextTotal = Math.max(0, total.value - 1);
+  const maxPage = Math.max(1, Math.ceil(nextTotal / pagination.pageSize));
+  pagination.page = Math.min(pagination.page, maxPage);
+  await loadServices();
 }
 
 async function openSubscriptions(row: DataServiceListView) {

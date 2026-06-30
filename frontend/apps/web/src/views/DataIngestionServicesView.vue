@@ -217,66 +217,29 @@ function buildActions(row: DataIngestionServiceListView) {
 }
 
 async function publishService(row: DataIngestionServiceListView) {
-  const updated = await studioApi.dataIngestionServices.publish(row.id as EntityId);
-  patchServiceRow(row, updated);
+  await studioApi.dataIngestionServices.publish(row.id as EntityId);
+  await loadServices();
   ElMessage.success("数据接入服务已发布");
 }
 
 async function offlineService(row: DataIngestionServiceListView) {
-  const updated = await studioApi.dataIngestionServices.offline(row.id as EntityId);
-  patchServiceRow(row, updated);
+  await studioApi.dataIngestionServices.offline(row.id as EntityId);
+  await loadServices();
   ElMessage.success("数据接入服务已下线");
-}
-
-function patchServiceRow(row: DataIngestionServiceListView, patch: Partial<DataIngestionServiceListView>) {
-  const target = services.value.find((item) => item.id === row.id);
-  if (!target) {
-    return;
-  }
-  const keys: (keyof DataIngestionServiceListView)[] = [
-    "updatedAt",
-    "serviceCode",
-    "serviceName",
-    "status",
-    "targetType",
-    "datasourceName",
-    "modelName",
-    "modelPhysicalLocator",
-    "endpointPath",
-    "sourcePositions",
-  ];
-  const next: Partial<DataIngestionServiceListView> = {};
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
-    }
-  }
-  Object.assign(target, next);
-  if (selectedService.value?.id === target.id) {
-    selectedService.value = target;
-  }
 }
 
 async function deleteService(row: DataIngestionServiceListView) {
   await ElMessageBox.confirm(`确认删除接入服务「${row.serviceName}」？`, "删除确认", { type: "warning" });
   await studioApi.dataIngestionServices.delete(row.id as EntityId);
+  await reloadCurrentPageAfterDelete();
   ElMessage.success("数据接入服务已删除");
-  removeServiceRow(row);
-  if (services.value.length === 0 && total.value > 0) {
-    pagination.page = Math.max(1, pagination.page - 1);
-    await loadServices();
-  }
 }
 
-function removeServiceRow(row: DataIngestionServiceListView) {
-  const beforeCount = services.value.length;
-  services.value = services.value.filter((item) => item.id !== row.id);
-  if (services.value.length !== beforeCount) {
-    total.value = Math.max(0, total.value - 1);
-  }
-  if (selectedService.value?.id === row.id) {
-    selectedService.value = null;
-  }
+async function reloadCurrentPageAfterDelete() {
+  const nextTotal = Math.max(0, total.value - 1);
+  const maxPage = Math.max(1, Math.ceil(nextTotal / pagination.pageSize));
+  pagination.page = Math.min(pagination.page, maxPage);
+  await loadServices();
 }
 
 async function openSubscriptions(row: DataIngestionServiceListView) {
