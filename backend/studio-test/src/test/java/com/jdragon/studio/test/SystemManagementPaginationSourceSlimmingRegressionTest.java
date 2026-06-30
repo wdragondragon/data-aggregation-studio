@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
+import com.jdragon.studio.dto.model.system.SystemProjectOptionView;
 import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.ProjectEntity;
@@ -65,6 +66,7 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
     static void initTableInfo() {
         initTableInfo(StudioUserEntity.class);
         initTableInfo(UserRegistrationRequestEntity.class);
+        initTableInfo(ProjectEntity.class);
         initTableInfo(ProjectMemberEntity.class);
         initTableInfo(ResourceShareEntity.class);
         initTableInfo(DataModelEntity.class);
@@ -126,6 +128,29 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
                 .containsExactly("供应链专员", "质量专员");
         verify(userMapper).selectList(any(LambdaQueryWrapper.class));
         verify(userMapper, never()).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void projectOptionsShouldSelectOnlyDropdownFields() {
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
+        when(projectMapper.selectList(any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            LambdaQueryWrapper<ProjectEntity> query = invocation.getArgument(0);
+            String sqlSelect = String.valueOf(query.getSqlSelect()).toLowerCase(Locale.ROOT);
+            assertThat(sqlSelect).contains("id", "project_name");
+            assertThat(sqlSelect).doesNotContain("tenant_id", "deleted", "created_at", "updated_at", "project_code", "description", "enabled", "default_project");
+            return Arrays.asList(project(100L, "长期回归测试项目"), project(200L, "财务共享验证项目"));
+        });
+        SystemManagementService service = systemService(projectMapper, mock(ProjectMemberMapper.class), mock(StudioUserMapper.class), securityService);
+
+        java.util.List<SystemProjectOptionView> options = service.listProjectOptions();
+
+        assertThat(options).extracting(SystemProjectOptionView::getProjectName)
+                .containsExactly("长期回归测试项目", "财务共享验证项目");
+        verify(projectMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(projectMapper, never()).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
     }
 
     @Test

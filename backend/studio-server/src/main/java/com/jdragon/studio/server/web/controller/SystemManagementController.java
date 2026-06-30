@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
+import com.jdragon.studio.dto.model.system.SystemProjectOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
@@ -79,6 +80,12 @@ public class SystemManagementController {
     @GetMapping("/projects")
     public Result<List<SystemProjectView>> listProjects() {
         return Result.success(systemManagementService.listProjects());
+    }
+
+    @Operation(summary = "List lightweight project options")
+    @GetMapping("/project-options")
+    public Result<List<SystemProjectOptionView>> listProjectOptions() {
+        return Result.success(systemManagementService.listProjectOptions());
     }
 
     @Operation(summary = "List accessible projects in current tenant by page")

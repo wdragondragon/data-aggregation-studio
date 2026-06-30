@@ -167,6 +167,7 @@ import type {
   SqlExecutionRequest,
   SqlExecutionResult,
   SystemProject,
+  SystemProjectOption,
   SystemProjectMember,
   SystemProjectMemberRequest,
   SystemProjectWorkerOption,
@@ -1727,6 +1728,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       projects: {
         list(config?: StudioRequestConfig) {
           return request<SystemProject[]>({ ...config, url: "/system/projects", method: "GET" });
+        },
+        options(config?: StudioRequestConfig) {
+          return request<SystemProjectOption[]>({ ...config, url: "/system/project-options", method: "GET" });
         },
         listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
           return requestPage<SystemProject>({ ...config, url: "/system/projects/page", method: "GET", params }, params);

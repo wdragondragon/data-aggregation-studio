@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
+import com.jdragon.studio.dto.model.system.SystemProjectOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
@@ -54,6 +55,13 @@ final class SystemManagementViewAssembler {
         view.setDescription(entity.getDescription());
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
         view.setDefaultProject(entity.getDefaultProject() != null && entity.getDefaultProject() == 1);
+        return view;
+    }
+
+    static SystemProjectOptionView toProjectOptionView(ProjectEntity entity) {
+        SystemProjectOptionView view = new SystemProjectOptionView();
+        view.setId(entity.getId());
+        view.setProjectName(entity.getProjectName());
         return view;
     }
 

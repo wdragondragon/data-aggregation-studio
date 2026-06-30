@@ -620,6 +620,7 @@ import type {
   StudioUserListView,
   StudioUserOption,
   SystemProject,
+  SystemProjectOption,
   SystemProjectMember,
   SystemProjectMemberRequest,
   SystemProjectWorker,
@@ -683,7 +684,7 @@ const tabLoading = reactive<Record<SystemTabName, boolean>>({
 const tenants = ref<SystemTenant[]>([]);
 const projects = ref<SystemProject[]>([]);
 const users = ref<StudioUserListView[]>([]);
-const projectOptions = ref<SystemProject[]>([]);
+const projectOptions = ref<SystemProjectOption[]>([]);
 const userOptions = ref<StudioUserOption[]>([]);
 const registrationRequests = ref<UserRegistrationRequestView[]>([]);
 const tenantMembers = ref<SystemTenantMember[]>([]);
@@ -980,7 +981,7 @@ async function loadResourceSharesTab() {
 }
 
 async function loadProjectsData() {
-  projectOptions.value = await studioApi.system.projects.list(LOCAL_LOADING_REQUEST);
+  projectOptions.value = await studioApi.system.projects.options(LOCAL_LOADING_REQUEST);
 }
 
 async function loadResourceSharesData() {

@@ -11,6 +11,7 @@ import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
+import com.jdragon.studio.dto.model.system.SystemProjectOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
@@ -61,6 +62,7 @@ import java.util.Set;
 
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectMemberRequestView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectMemberView;
+import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectOptionView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toResourceShareView;
 import static com.jdragon.studio.infra.service.SystemManagementViewAssembler.toProjectWorkerView;
@@ -572,6 +574,15 @@ public class SystemManagementService {
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
+    public List<SystemProjectOptionView> listProjectOptions() {
+        String tenantId = requireCurrentTenantId();
+        List<SystemProjectOptionView> result = new ArrayList<SystemProjectOptionView>();
+        for (ProjectEntity project : projectMapper.selectList(projectOptionQuery(tenantId))) {
+            result.add(toProjectOptionView(project));
+        }
+        return result;
+    }
+
     private List<SystemProjectWorkerView> assembleProjectWorkerViews(ProjectEntity project,
                                                                      List<String> workerGroupCodes,
                                                                      List<WorkerLeaseEntity> workerLeases,
@@ -760,6 +771,20 @@ public class SystemManagementService {
         LambdaQueryWrapper<ProjectEntity> queryWrapper = new LambdaQueryWrapper<ProjectEntity>()
                 .eq(ProjectEntity::getTenantId, tenantId)
                 .orderByDesc(ProjectEntity::getDefaultProject)
+                .orderByAsc(ProjectEntity::getProjectName)
+                .orderByAsc(ProjectEntity::getId);
+        if (!hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN)
+                && securityService.currentProjectId() != null) {
+            queryWrapper.eq(ProjectEntity::getId, securityService.currentProjectId());
+        }
+        return queryWrapper;
+    }
+
+    private LambdaQueryWrapper<ProjectEntity> projectOptionQuery(String tenantId) {
+        LambdaQueryWrapper<ProjectEntity> queryWrapper = new LambdaQueryWrapper<ProjectEntity>()
+                .select(ProjectEntity::getId,
+                        ProjectEntity::getProjectName)
+                .eq(ProjectEntity::getTenantId, tenantId)
                 .orderByAsc(ProjectEntity::getProjectName)
                 .orderByAsc(ProjectEntity::getId);
         if (!hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN)

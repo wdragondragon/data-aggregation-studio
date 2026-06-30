@@ -2949,6 +2949,11 @@ export interface SystemProject extends BaseRecord {
   defaultProject?: boolean | number;
 }
 
+export interface SystemProjectOption {
+  id?: EntityId;
+  projectName?: string;
+}
+
 export interface SystemTenantMember extends BaseRecord {
   userId: EntityId;
   username?: string;
