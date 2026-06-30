@@ -203,3 +203,6 @@
 - 2026-06-30 已完成 S95 系统管理写后刷新收敛：确认并修复 `/system` 多个保存、审核、删除动作后无条件重拉对应分页列表的问题，`FIX-S95-001` 已进入缺陷回归索引；系统管理分页源头字段继续由 S64/S66/S67 既有回归保障。
 - S95 保留长期数据变更：通过 build-nginx UI 编辑 `长期回归-业务协作租户` 描述，追加 `S95 验证系统管理编辑后行级刷新。`，页面更新成功且 console warn/error 为 0。
 - S95 回归入口：`SystemManagementPaginationSourceSlimmingRegressionTest`、`SystemProjectWorkerViewRegressionTest`、`ResourceShareServiceTypeRegressionTest`、`npm run build:web`、build-nginx `/system` 租户编辑 smoke、源码复核 `SystemView.vue` 中 `patchRowById/removePaginatedSystemRow` 路径。后续涉及 `SystemView.vue`、系统管理保存/审核/删除、资源共享写后刷新或系统管理分页列表时，至少复跑这些入口。
+- 2026-06-30 已完成 S96 模型列表删除刷新收敛：确认并修复 `/models` 模型列表删除成功后无条件重新执行 `handleDatasourceChange()` 的问题，`FIX-S96-001` 已进入缺陷回归索引；模型摘要列表源头字段继续由 S73/S79 既有回归保障。
+- S96 本轮未新增或清理长期数据，未执行真实删除动作；后端 health 为 `UP`，build-nginx `/models` 可达，模型列表与模型同步任务页签可见，console warn/error 为 0，页面资产加载 `ModelsView-rEp-GDUS.js`。
+- S96 回归入口：`DataModelSqlHintSourceSlimmingRegressionTest`、`npm run build:web`、build-nginx `/models`、源码复核 `ModelsView.vue` 中 `deleteModel/removeModelRow/loadModelsForSelectedDatasource` 路径。后续涉及 `ModelsView.vue`、模型列表字段、模型删除刷新、模型摘要列表或模型动态筛选时，至少复跑这些入口。

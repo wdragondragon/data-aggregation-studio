@@ -1095,11 +1095,23 @@ async function deleteModel(model: DataModelListView) {
       goBackToList();
       return;
     }
-    await handleDatasourceChange();
+    removeModelRow(model);
+    if (models.value.length === 0 && modelPagination.total > 0) {
+      modelPagination.page = Math.max(1, modelPagination.page - 1);
+      await loadModelsForSelectedDatasource();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.models.deleteFailed"));
     }
+  }
+}
+
+function removeModelRow(model: DataModelListView) {
+  const beforeCount = models.value.length;
+  models.value = models.value.filter((item) => !sameId(item.id, model.id));
+  if (models.value.length !== beforeCount) {
+    modelPagination.total = Math.max(0, modelPagination.total - 1);
   }
 }
 
