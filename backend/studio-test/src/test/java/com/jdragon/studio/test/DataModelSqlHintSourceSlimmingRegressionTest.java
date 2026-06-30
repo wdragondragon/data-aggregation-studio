@@ -4,10 +4,10 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.model.DataModelDatasourceOptionView;
+import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
-import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
 import com.jdragon.studio.infra.entity.DataModelEntity;
@@ -55,7 +55,6 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         DataModelMapper dataModelMapper = mock(DataModelMapper.class);
         DataSourceService dataSourceService = mock(DataSourceService.class);
         DataModelService service = dataModelService(dataModelMapper, dataSourceService);
-        when(dataSourceService.get(11L)).thenReturn(datasource());
         when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
 
         List<DataModelSqlHintView> hints = service.listSqlHintsByDatasource(11L);
@@ -67,6 +66,8 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         assertThat(hint.getColumns()).containsExactly("customer_id", "customer_name");
 
         ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataSourceService).assertReadableIfPresent(11L);
+        verify(dataSourceService, never()).get(11L);
         verify(dataModelMapper).selectList(captor.capture());
         assertThat(captor.getValue().getSqlSelect())
                 .contains("id", "datasource_id", "name", "physical_locator", "technical_metadata")
@@ -106,7 +107,6 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         DataModelMapper dataModelMapper = mock(DataModelMapper.class);
         DataSourceService dataSourceService = mock(DataSourceService.class);
         DataModelService service = dataModelService(dataModelMapper, dataSourceService);
-        when(dataSourceService.get(11L)).thenReturn(datasource());
         when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(300L);
         when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
 
@@ -121,6 +121,8 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         assertThat(option.getPhysicalLocator()).isEqualTo("lt_reg_customer_profile");
 
         ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataSourceService).assertReadableIfPresent(11L);
+        verify(dataSourceService, never()).get(11L);
         verify(dataModelMapper).selectList(captor.capture());
         assertThat(captor.getValue().getSqlSelect())
                 .contains("id", "datasource_id", "name", "model_kind", "physical_locator")
@@ -202,6 +204,52 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         assertThat(captor.getValue().getTargetSql().toLowerCase()).contains("datasource_id");
     }
 
+    @Test
+    void datasourceModelSummaryShouldAssertReadableWithoutFullDatasourceHydration() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        PageView<DataModelListView> page = service.listByDatasourceSummaryPage(11L, 1, 20, "name", "asc");
+
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().get(0).getName()).isEqualTo("客户经营画像表");
+        verify(dataSourceService).assertReadableIfPresent(11L);
+        verify(dataSourceService, never()).get(11L);
+
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataModelMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id",
+                        "tenant_id",
+                        "project_id",
+                        "datasource_id",
+                        "name",
+                        "model_kind",
+                        "physical_locator",
+                        "schema_version_id")
+                .doesNotContain("technical_metadata", "business_metadata");
+    }
+
+    @Test
+    void datasourceModelDefinitionListShouldAssertReadableWithoutFullDatasourceHydration() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        PageView<DataModelDefinition> page = service.listByDatasourcePage(11L, 1, 20, "name", "asc");
+
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().get(0).getName()).isEqualTo("客户经营画像表");
+        assertThat(page.getItems().get(0).getTechnicalMetadata()).containsKey("columns");
+        verify(dataSourceService).assertReadableIfPresent(11L);
+        verify(dataSourceService, never()).get(11L);
+    }
+
     private DataModelService dataModelService(DataModelMapper dataModelMapper,
                                               DataSourceService dataSourceService) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
@@ -222,14 +270,6 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
                 accessService,
                 scopeService,
                 mock(DatasourceTypeCapabilityService.class));
-    }
-
-    private DataSourceDefinition datasource() {
-        DataSourceDefinition definition = new DataSourceDefinition();
-        definition.setId(11L);
-        definition.setName("长期回归-客户经营画像数据源");
-        definition.setTypeCode("mysql8");
-        return definition;
     }
 
     private DataModelEntity model() {

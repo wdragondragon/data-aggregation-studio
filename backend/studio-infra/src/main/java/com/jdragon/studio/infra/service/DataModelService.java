@@ -121,7 +121,7 @@ public class DataModelService {
 
     public PageView<DataModelDefinition> listByDatasourcePage(Long datasourceId, Integer pageNo, Integer pageSize,
                                                               String sortField, String sortOrder) {
-        dataSourceService.get(datasourceId);
+        dataSourceService.assertReadableIfPresent(datasourceId);
         return pageQuery(buildBaseQuery(datasourceId, null, null, sortField, sortOrder), pageNo, pageSize);
     }
 
@@ -179,7 +179,7 @@ public class DataModelService {
 
     public PageView<DataModelListView> listByDatasourceSummaryPage(Long datasourceId, Integer pageNo, Integer pageSize,
                                                                    String sortField, String sortOrder) {
-        dataSourceService.get(datasourceId);
+        dataSourceService.assertReadableIfPresent(datasourceId);
         return summaryPageQuery(buildBaseQuery(datasourceId, null, null, sortField, sortOrder), pageNo, pageSize);
     }
 
@@ -187,7 +187,7 @@ public class DataModelService {
                                                                          String keyword,
                                                                          Integer pageNo,
                                                                          Integer pageSize) {
-        dataSourceService.get(datasourceId);
+        dataSourceService.assertReadableIfPresent(datasourceId);
         LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(datasourceId, null, null, "name", "asc");
         if (keyword != null && !keyword.trim().isEmpty()) {
             String normalizedKeyword = keyword.trim();
@@ -199,7 +199,7 @@ public class DataModelService {
     }
 
     public List<DataModelSqlHintView> listSqlHintsByDatasource(Long datasourceId) {
-        dataSourceService.get(datasourceId);
+        dataSourceService.assertReadableIfPresent(datasourceId);
         List<DataModelEntity> entities = dataModelMapper.selectList(buildBaseQuery(datasourceId, null, null, "name", "asc")
                 .select(DataModelEntity::getId,
                         DataModelEntity::getDatasourceId,
