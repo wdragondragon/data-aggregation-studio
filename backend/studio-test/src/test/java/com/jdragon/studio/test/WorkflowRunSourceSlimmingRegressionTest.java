@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.WorkflowRunDetailView;
 import com.jdragon.studio.dto.model.WorkflowRunSummaryView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
@@ -162,6 +163,69 @@ class WorkflowRunSourceSlimmingRegressionTest {
         assertThat(idParamsCaptor.getValue().getValue("offset")).isEqualTo(0);
     }
 
+    @Test
+    void workflowRunDetailShouldSkipRuntimePayloadAndResultJson() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowNodeMapper workflowNodeMapper = mock(WorkflowNodeMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        NamedParameterJdbcTemplate jdbcTemplate = mock(NamedParameterJdbcTemplate.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        WorkflowRunService service = new WorkflowRunService(
+                runRecordMapper,
+                dispatchTaskMapper,
+                workflowDefinitionMapper,
+                workflowNodeMapper,
+                workflowService,
+                jdbcTemplate,
+                securityService,
+                mock(StaleExecutionRecoveryService.class));
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentProjectId()).thenReturn(100L);
+        when(runRecordMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(runRecord()));
+        when(dispatchTaskMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(dispatchTask()));
+        when(workflowDefinitionMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowDefinition()));
+        when(workflowNodeMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(workflowNode()));
+
+        WorkflowRunDetailView detail = service.get(9001L);
+
+        assertThat(detail.getWorkflowName()).isEqualTo("客户订单日终工作流");
+        assertThat(detail.getNodeRuns()).hasSize(1);
+        assertThat(detail.getNodeRuns().get(0).getNodeName()).isEqualTo("客户订单汇总节点");
+        assertThat(detail.getNodeRuns().get(0).getMessage()).isEqualTo("completed");
+
+        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> runCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(runRecordMapper).selectList(runCaptor.capture());
+        String runSelect = runCaptor.getValue().getSqlSelect();
+        assertThat(runSelect)
+                .contains("workflow_run_id",
+                        "workflow_definition_id",
+                        "workflow_version_id",
+                        "node_code",
+                        "message",
+                        "log_file_path")
+                .doesNotContain("payload_json",
+                        "result_json",
+                        "log_object_key",
+                        "log_object_bucket");
+
+        ArgumentCaptor<LambdaQueryWrapper<DispatchTaskEntity>> taskCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dispatchTaskMapper).selectList(taskCaptor.capture());
+        String taskSelect = taskCaptor.getValue().getSqlSelect();
+        assertThat(taskSelect)
+                .contains("workflow_run_id",
+                        "workflow_definition_id",
+                        "workflow_version_id",
+                        "node_code",
+                        "lease_owner")
+                .doesNotContain("payload_json");
+    }
+
     private static void initTableInfo(Class<?> entityClass) {
         if (TableInfoHelper.getTableInfo(entityClass) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entityClass);
@@ -199,6 +263,23 @@ class WorkflowRunSourceSlimmingRegressionTest {
         entity.setNodeCode("node_customer_order_close");
         entity.setNodeName("客户订单汇总节点");
         entity.setNodeType("DATA_SCRIPT");
+        return entity;
+    }
+
+    private DispatchTaskEntity dispatchTask() {
+        DispatchTaskEntity entity = new DispatchTaskEntity();
+        entity.setId(2L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        entity.setCreatedAt(LocalDateTime.of(2026, 6, 27, 8, 59, 0));
+        entity.setWorkflowRunId(9001L);
+        entity.setWorkflowDefinitionId(7001L);
+        entity.setWorkflowVersionId(8001L);
+        entity.setNodeCode("node_customer_order_close");
+        entity.setStatus("QUEUED");
+        entity.setWorkerGroupCode("default-worker");
+        entity.setLeaseOwner("worker-01");
+        entity.setWorkerInstanceId("worker-01-001");
         return entity;
     }
 }

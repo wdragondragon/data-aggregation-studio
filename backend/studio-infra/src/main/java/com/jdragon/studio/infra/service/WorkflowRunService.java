@@ -139,16 +139,8 @@ public class WorkflowRunService {
 
     public WorkflowRunDetailView get(Long workflowRunId) {
         String currentTenantId = securityService.currentTenantId();
-        List<RunRecordEntity> records = runRecordMapper.selectList(new LambdaQueryWrapper<RunRecordEntity>()
-                .eq(RunRecordEntity::getTenantId, currentTenantId)
-                .eq(RunRecordEntity::getWorkflowRunId, workflowRunId)
-                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
-                .orderByDesc(RunRecordEntity::getCreatedAt));
-        List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
-                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
-                .eq(DispatchTaskEntity::getWorkflowRunId, workflowRunId)
-                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
-                .orderByDesc(DispatchTaskEntity::getCreatedAt));
+        List<RunRecordEntity> records = runRecordMapper.selectList(detailRunRecordQuery(currentTenantId, workflowRunId));
+        List<DispatchTaskEntity> tasks = dispatchTaskMapper.selectList(detailDispatchTaskQuery(currentTenantId, workflowRunId));
         if (records.isEmpty() && tasks.isEmpty()) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow run not found: " + workflowRunId);
         }
@@ -474,6 +466,30 @@ public class WorkflowRunService {
                 .orderByDesc(RunRecordEntity::getCreatedAt);
     }
 
+    private LambdaQueryWrapper<RunRecordEntity> detailRunRecordQuery(String currentTenantId, Long workflowRunId) {
+        return new LambdaQueryWrapper<RunRecordEntity>()
+                .select(RunRecordEntity::getId,
+                        RunRecordEntity::getTenantId,
+                        RunRecordEntity::getProjectId,
+                        RunRecordEntity::getCreatedAt,
+                        RunRecordEntity::getWorkflowRunId,
+                        RunRecordEntity::getWorkflowDefinitionId,
+                        RunRecordEntity::getWorkflowVersionId,
+                        RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getStatus,
+                        RunRecordEntity::getWorkerGroupCode,
+                        RunRecordEntity::getWorkerCode,
+                        RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getMessage,
+                        RunRecordEntity::getStartedAt,
+                        RunRecordEntity::getEndedAt,
+                        RunRecordEntity::getLogFilePath)
+                .eq(RunRecordEntity::getTenantId, currentTenantId)
+                .eq(RunRecordEntity::getWorkflowRunId, workflowRunId)
+                .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
+                .orderByDesc(RunRecordEntity::getCreatedAt);
+    }
+
     private LambdaQueryWrapper<DispatchTaskEntity> summaryDispatchTaskQuery(String currentTenantId, List<Long> workflowRunIds) {
         return new LambdaQueryWrapper<DispatchTaskEntity>()
                 .select(DispatchTaskEntity::getId,
@@ -490,6 +506,26 @@ public class WorkflowRunService {
                         DispatchTaskEntity::getWorkerInstanceId)
                 .eq(DispatchTaskEntity::getTenantId, currentTenantId)
                 .in(DispatchTaskEntity::getWorkflowRunId, workflowRunIds)
+                .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
+                .orderByDesc(DispatchTaskEntity::getCreatedAt);
+    }
+
+    private LambdaQueryWrapper<DispatchTaskEntity> detailDispatchTaskQuery(String currentTenantId, Long workflowRunId) {
+        return new LambdaQueryWrapper<DispatchTaskEntity>()
+                .select(DispatchTaskEntity::getId,
+                        DispatchTaskEntity::getTenantId,
+                        DispatchTaskEntity::getProjectId,
+                        DispatchTaskEntity::getCreatedAt,
+                        DispatchTaskEntity::getWorkflowRunId,
+                        DispatchTaskEntity::getWorkflowDefinitionId,
+                        DispatchTaskEntity::getWorkflowVersionId,
+                        DispatchTaskEntity::getNodeCode,
+                        DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getWorkerGroupCode,
+                        DispatchTaskEntity::getLeaseOwner,
+                        DispatchTaskEntity::getWorkerInstanceId)
+                .eq(DispatchTaskEntity::getTenantId, currentTenantId)
+                .eq(DispatchTaskEntity::getWorkflowRunId, workflowRunId)
                 .eq(securityService.currentProjectId() != null, DispatchTaskEntity::getProjectId, securityService.currentProjectId())
                 .orderByDesc(DispatchTaskEntity::getCreatedAt);
     }
