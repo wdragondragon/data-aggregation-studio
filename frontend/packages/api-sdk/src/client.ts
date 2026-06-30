@@ -1205,7 +1205,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}/publish`, method: "POST" });
       },
       trigger(id: EntityId) {
-        return request<WorkflowDefinitionView>({ url: `/workflows/${id}/trigger`, method: "POST" });
+        return request<void>({ url: `/workflows/${id}/trigger`, method: "POST" });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/workflows/${id}`, method: "DELETE" });
@@ -1262,7 +1262,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         });
       },
       trigger(id: EntityId) {
-        return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/trigger`, method: "POST" });
+        return request<void>({ url: `/collection-tasks/${id}/trigger`, method: "POST" });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/collection-tasks/${id}`, method: "DELETE" });
@@ -1349,7 +1349,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}/schedule`, method: "POST", data: payload });
       },
       trigger(id: EntityId) {
-        return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}/trigger`, method: "POST" });
+        return request<void>({ url: `/quality-tasks/${id}/trigger`, method: "POST" });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/quality-tasks/${id}`, method: "DELETE" });

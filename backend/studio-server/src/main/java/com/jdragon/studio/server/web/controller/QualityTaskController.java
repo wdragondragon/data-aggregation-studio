@@ -110,9 +110,9 @@ public class QualityTaskController {
 
     @Operation(summary = "Trigger quality task")
     @PostMapping("/{id}/trigger")
-    public Result<QualityTaskDefinitionView> trigger(@PathVariable("id") Long id) {
+    public Result<Void> trigger(@PathVariable("id") Long id) {
         dispatchService.triggerQualityTask(id);
-        return Result.success(qualityTaskService.get(id));
+        return Result.success(null);
     }
 
     @Operation(summary = "Delete quality task")

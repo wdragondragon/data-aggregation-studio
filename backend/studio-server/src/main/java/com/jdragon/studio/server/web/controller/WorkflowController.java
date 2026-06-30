@@ -74,9 +74,9 @@ public class WorkflowController {
 
     @Operation(summary = "Trigger workflow execution")
     @PostMapping("/{id}/trigger")
-    public Result<WorkflowDefinitionView> trigger(@PathVariable("id") Long id) {
+    public Result<Void> trigger(@PathVariable("id") Long id) {
         dispatchService.triggerManualRun(id);
-        return Result.success(workflowService.get(id));
+        return Result.success(null);
     }
 
     @Operation(summary = "Delete workflow")

@@ -119,9 +119,9 @@ public class CollectionTaskController {
 
     @Operation(summary = "Trigger collection task")
     @PostMapping("/{id}/trigger")
-    public Result<CollectionTaskDefinitionView> trigger(@PathVariable("id") Long id) {
+    public Result<Void> trigger(@PathVariable("id") Long id) {
         dispatchService.triggerCollectionTask(id);
-        return Result.success(collectionTaskService.get(id));
+        return Result.success(null);
     }
 
     @Operation(summary = "Delete collection task")
