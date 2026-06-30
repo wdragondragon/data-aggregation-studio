@@ -618,6 +618,7 @@ import type {
   ShareResourceOption,
   StudioUser,
   StudioUserListView,
+  StudioUserOption,
   SystemProject,
   SystemProjectMember,
   SystemProjectMemberRequest,
@@ -683,7 +684,7 @@ const tenants = ref<SystemTenant[]>([]);
 const projects = ref<SystemProject[]>([]);
 const users = ref<StudioUserListView[]>([]);
 const projectOptions = ref<SystemProject[]>([]);
-const userOptions = ref<StudioUserListView[]>([]);
+const userOptions = ref<StudioUserOption[]>([]);
 const registrationRequests = ref<UserRegistrationRequestView[]>([]);
 const tenantMembers = ref<SystemTenantMember[]>([]);
 const projectMembers = ref<SystemProjectMember[]>([]);
@@ -1023,7 +1024,7 @@ async function loadShareResourceOptions(resourceType = shareFilters.resourceType
 
 function loadUsersForDialog() {
   if (userOptions.value.length === 0) {
-    void studioApi.users.list(LOCAL_LOADING_REQUEST)
+    void studioApi.users.options(LOCAL_LOADING_REQUEST)
       .then((items) => {
         userOptions.value = items;
       })
@@ -1220,7 +1221,7 @@ function requireCurrentProjectId() {
   return authStore.currentProjectId;
 }
 
-function userLabel(user: StudioUserListView) {
+function userLabel(user: StudioUserOption) {
   return user.displayName ? `${user.displayName} (${user.username})` : user.username;
 }
 

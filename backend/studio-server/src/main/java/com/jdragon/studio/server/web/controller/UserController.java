@@ -3,6 +3,7 @@ package com.jdragon.studio.server.web.controller;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
+import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.service.UserManagementService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +34,12 @@ public class UserController {
     @GetMapping
     public Result<List<StudioUserListView>> list() {
         return Result.success(userManagementService.list());
+    }
+
+    @Operation(summary = "List lightweight user options")
+    @GetMapping("/options")
+    public Result<List<StudioUserOptionView>> listOptions() {
+        return Result.success(userManagementService.listOptions());
     }
 
     @Operation(summary = "List users by page")

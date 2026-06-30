@@ -134,6 +134,7 @@
 | FIX-S103-001 | 工作流/运行详情 | 中 | 工作流运行详情已瘦身运行记录字段，但只读 DAG 仍调用完整 `workflowService.get()`，读取当前工作流节点配置、字段映射和调度定义 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java`；`WorkflowCanvas.vue` | `WorkflowRunSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/workflow-runs/{workflowRunId}`；build-nginx `/runs/{workflowRunId}` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S104-001 | 工作流/运行终止 | 中 | 工作流运行终止接口写操作前只需确认运行存在和可读，却调用完整 `get(workflowRunId)`，额外读取运行详情、DAG 节点和边；终止后详情返回保留用于当前详情页刷新状态 | `WorkflowRunService.java`；`WorkflowRunSourceSlimmingRegressionTest.java` | `WorkflowRunSourceSlimmingRegressionTest`；build-nginx API `/workflow-runs/{workflowRunId}`；build-nginx API `/workflow-runs/{missingId}/terminate`；build-nginx `/runs/{workflowRunId}` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S105-001 | 系统管理/Worker 下发 | 中 | `绑定 Worker 组` 弹窗只需组级候选项，却复用 `/system/project-workers` 重接口读取全部可见 Worker 实例明细和绑定明细；分页表格当前页刷新保留 | `SystemProjectWorkerOptionView.java`；`WorkerLeaseMapper.java`；`SystemManagementService.java`；`SystemManagementController.java`；`SystemView.vue`；`client.ts`；`types.ts`；`SystemProjectWorkerViewRegressionTest.java` | `SystemProjectWorkerViewRegressionTest`；`npm run build:web`；build-nginx API `/system/project-worker-options`；build-nginx API `/system/project-workers/page`；build-nginx `/system?tab=workers` | module-regression | 2026-07-01 | 本次提交 |
+| FIX-S106-001 | 系统管理/用户下拉 | 中 | 租户成员、项目成员、申请/邀请弹窗只需用户 `id/username/displayName`，却复用 `/users` 全量用户列表视图接口，额外返回表格字段 | `StudioUserOptionView.java`；`UserManagementService.java`；`UserController.java`；`SystemView.vue`；`client.ts`；`types.ts`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx API `/users/options`；build-nginx API `/users/page`；build-nginx `/system?tab=projectMembers` | module-regression | 2026-07-01 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -247,3 +248,4 @@
 | S103 工作流运行详情画布定义源头瘦身 | FIX-S103-001 |
 | S104 工作流运行终止前置校验源头瘦身 | FIX-S104-001 |
 | S105 系统管理 Worker 组下拉源头瘦身 | FIX-S105-001 |
+| S106 系统管理用户下拉源头瘦身 | FIX-S106-001 |

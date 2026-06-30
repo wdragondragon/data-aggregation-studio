@@ -7,6 +7,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
+import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.infra.entity.StudioExternalUserBindingEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.UserRoleEntity;
@@ -51,6 +52,21 @@ public class UserManagementService {
         List<StudioUserListView> result = new ArrayList<StudioUserListView>();
         for (StudioUserEntity user : users) {
             result.add(toListView(user));
+        }
+        return result;
+    }
+
+    public List<StudioUserOptionView> listOptions() {
+        requireSuperAdmin();
+        List<StudioUserEntity> users = userMapper.selectList(new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName)
+                .orderByAsc(StudioUserEntity::getUsername)
+                .orderByAsc(StudioUserEntity::getId));
+        List<StudioUserOptionView> result = new ArrayList<StudioUserOptionView>();
+        for (StudioUserEntity user : users) {
+            result.add(toOptionView(user));
         }
         return result;
     }
@@ -189,6 +205,14 @@ public class UserManagementService {
         view.setUsername(entity.getUsername());
         view.setDisplayName(entity.getDisplayName());
         view.setEnabled(entity.getEnabled());
+        return view;
+    }
+
+    private StudioUserOptionView toOptionView(StudioUserEntity entity) {
+        StudioUserOptionView view = new StudioUserOptionView();
+        view.setId(entity.getId());
+        view.setUsername(entity.getUsername());
+        view.setDisplayName(entity.getDisplayName());
         return view;
     }
 

@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.StudioUserListView;
+import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.dto.model.system.ResourceShareView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
@@ -96,6 +97,35 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
                 .containsExactly("lt_s64_客户运营", "lt_s64_订单分析");
         verify(userMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
         verify(userMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void userOptionsShouldSelectOnlyDropdownFields() {
+        StudioUserMapper userMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        when(securityService.hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN)).thenReturn(true);
+        when(userMapper.selectList(any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            LambdaQueryWrapper<StudioUserEntity> query = invocation.getArgument(0);
+            String sqlSelect = String.valueOf(query.getSqlSelect()).toLowerCase(Locale.ROOT);
+            assertThat(sqlSelect).contains("id", "username", "display_name");
+            assertThat(sqlSelect).doesNotContain("tenant_id", "deleted", "created_at", "updated_at", "enabled", "password");
+            return Arrays.asList(user(12L, "lt_s106_供应链专员", "供应链专员"), user(13L, "lt_s106_质量专员", "质量专员"));
+        });
+        UserManagementService service = new UserManagementService(
+                userMapper,
+                mock(UserRoleMapper.class),
+                mock(PasswordEncoder.class),
+                securityService,
+                mock(StudioExternalUserBindingMapper.class));
+
+        java.util.List<StudioUserOptionView> options = service.listOptions();
+
+        assertThat(options).extracting(StudioUserOptionView::getUsername)
+                .containsExactly("lt_s106_供应链专员", "lt_s106_质量专员");
+        assertThat(options).extracting(StudioUserOptionView::getDisplayName)
+                .containsExactly("供应链专员", "质量专员");
+        verify(userMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(userMapper, never()).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
     }
 
     @Test

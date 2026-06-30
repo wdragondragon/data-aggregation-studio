@@ -188,6 +188,7 @@ import type {
   StudioDashboardView,
   StudioUser,
   StudioUserListView,
+  StudioUserOption,
   WebServiceDebugRequest,
   WebServiceDebugResult,
   WebServicePreviewView,
@@ -1672,6 +1673,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     users: {
       list(config?: StudioRequestConfig) {
         return request<StudioUserListView[]>({ ...config, url: "/users", method: "GET" });
+      },
+      options(config?: StudioRequestConfig) {
+        return request<StudioUserOption[]>({ ...config, url: "/users/options", method: "GET" });
       },
       listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
         return requestPage<StudioUserListView>({ ...config, url: "/users/page", method: "GET", params }, params);

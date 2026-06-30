@@ -2877,6 +2877,12 @@ export interface StudioUserListView extends BaseRecord {
   enabled?: number | boolean;
 }
 
+export interface StudioUserOption {
+  id?: EntityId;
+  username?: string;
+  displayName?: string;
+}
+
 export interface UserRegistrationRequestView extends BaseRecord {
   status?: string;
   username: string;
