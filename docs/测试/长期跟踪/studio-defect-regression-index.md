@@ -124,6 +124,9 @@
 | FIX-S93-001 | 数据开发/工作流列表 | 中 | `/workflows` 删除工作流后无条件重拉整个列表，刷新范围超过当前行变化 | `WorkflowsView.vue` | `WorkflowListSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/workflows` | module-regression | 2026-06-30 | 本次提交 |
 | FIX-S94-001 | 数据资产/模型同步任务 | 中 | `/models?tab=sync-tasks` 停止/删除模型同步任务后无条件重拉整个列表，刷新范围超过当前行变化 | `ModelsView.vue` | `ModelSyncTaskServiceRegressionTest`；`ModelSyncTaskApiRegressionTest`；`npm run build:web`；build-nginx `/models?tab=sync-tasks` | module-regression | 2026-06-30 | 本次提交 |
 | FIX-S95-001 | 系统管理/写后刷新 | 中 | `/system` 多个保存、审核、删除动作后无条件重拉对应分页列表，刷新范围超过当前行变化 | `SystemView.vue` | `SystemManagementPaginationSourceSlimmingRegressionTest`；`SystemProjectWorkerViewRegressionTest`；`ResourceShareServiceTypeRegressionTest`；`npm run build:web`；build-nginx `/system` 租户编辑 smoke；源码复核 `patchRowById/removePaginatedSystemRow` 路径 | module-regression | 2026-06-30 | 本次提交 |
+| FIX-S96-001 | 数据资产/模型列表 | 中 | `/models` 模型删除成功后无条件执行 `handleDatasourceChange()`，跨越当前分页列表重新加载数据源上下文 | `ModelsView.vue` | `DataModelSqlHintSourceSlimmingRegressionTest`；`npm run build:web`；build-nginx `/models`；源码复核 `deleteModel/reloadModelPageAfterDelete/loadModelsForSelectedDatasource` 路径 | module-regression | 2026-06-30 | 已提交 |
+| FIX-S97-001 | 质量指标/模型筛选 | 中 | `/quality-metrics/model-options` 带 datasourceId 查询时，只需校验数据源可读，却调用完整 `dataSourceService.get()` 读取连接元数据和健康信息 | `DataSourceService.java`；`DataModelService.java`；`DataSourceListSourceSlimmingRegressionTest.java`；`DataModelSqlHintSourceSlimmingRegressionTest.java` | `DataSourceListSourceSlimmingRegressionTest`；`DataModelSqlHintSourceSlimmingRegressionTest`；`QualityMetricsOptionsSourceSlimmingRegressionTest` | module-regression | 2026-06-30 | 已提交 |
+| FIX-S98-001 | 数据开发/脚本详情 | 中 | `/data-development/scripts/{id}` 只需为编辑器回填数据源名称和类型，却调用完整 `dataSourceService.get()` 读取完整数据源定义并水合连接健康 | `DataDevelopmentService.java`；`DataDevelopmentSourceSlimmingRegressionTest.java` | `DataDevelopmentSourceSlimmingRegressionTest`；IDEA `StudioServerApplication` health；build-nginx `/data-development` 打开长期 SQL 脚本详情 smoke | module-regression | 2026-06-30 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -229,3 +232,4 @@
 | S95 系统管理写后刷新收敛 | FIX-S95-001 |
 | S96 模型列表删除刷新收敛 | FIX-S96-001 |
 | S97 质量指标模型筛选数据源探针源头瘦身 | FIX-S97-001 |
+| S98 数据开发脚本详情数据源摘要源头瘦身 | FIX-S98-001 |

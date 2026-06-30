@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataDevelopmentScriptListView;
+import com.jdragon.studio.dto.model.DataDevelopmentScriptView;
 import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
+import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentOptionView;
 import com.jdragon.studio.infra.entity.DataDevelopmentDirectoryEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
@@ -100,20 +102,52 @@ class DataDevelopmentSourceSlimmingRegressionTest {
         verify(scriptEnvironmentService, never()).requireEnabledEnvironment(any());
     }
 
+    @Test
+    void scriptDetailShouldResolveDatasourceNameFromBasicSummary() {
+        DataDevelopmentDirectoryMapper directoryMapper = mock(DataDevelopmentDirectoryMapper.class);
+        DataDevelopmentScriptMapper scriptMapper = mock(DataDevelopmentScriptMapper.class);
+        ScriptEnvironmentService scriptEnvironmentService = mock(ScriptEnvironmentService.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataDevelopmentService service = service(directoryMapper, scriptMapper, scriptEnvironmentService, dataSourceService);
+        DataDevelopmentScriptEntity entity = script(15L, "长期回归-客户分层统计.sql", ScriptType.SQL, null);
+        entity.setDatasourceId(41L);
+        entity.setContent("select customer_id, customer_level from dwd_customer_profile");
+        when(scriptMapper.selectById(15L)).thenReturn(entity);
+        when(dataSourceService.listBasicSummaryMap(any())).thenReturn(datasourceSummaries());
+
+        DataDevelopmentScriptView script = service.getScript(15L);
+
+        assertThat(script.getDatasourceName()).isEqualTo("长期回归-客户经营画像数据源");
+        assertThat(script.getDatasourceTypeCode()).isEqualTo("mysql8");
+        assertThat(script.getContent()).contains("dwd_customer_profile");
+
+        ArgumentCaptor<Set<Long>> captor = ArgumentCaptor.forClass(Set.class);
+        verify(dataSourceService).listBasicSummaryMap(captor.capture());
+        assertThat(captor.getValue()).containsExactly(41L);
+        verify(dataSourceService, never()).get(any());
+    }
+
     private DataDevelopmentService service(DataDevelopmentDirectoryMapper directoryMapper,
                                            DataDevelopmentScriptMapper scriptMapper,
                                            ScriptEnvironmentService scriptEnvironmentService) {
+        return service(directoryMapper, scriptMapper, scriptEnvironmentService, null);
+    }
+
+    private DataDevelopmentService service(DataDevelopmentDirectoryMapper directoryMapper,
+                                           DataDevelopmentScriptMapper scriptMapper,
+                                           ScriptEnvironmentService scriptEnvironmentService,
+                                           DataSourceService dataSourceService) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService projectResourceAccessService = mock(ProjectResourceAccessService.class);
-        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataSourceService effectiveDataSourceService = dataSourceService == null ? mock(DataSourceService.class) : dataSourceService;
         when(securityService.currentTenantId()).thenReturn("default");
         when(projectResourceAccessService.requireCurrentProjectId()).thenReturn(2068077680446365698L);
         when(projectResourceAccessService.sharedResourceIdList(anyString())).thenReturn(Collections.emptyList());
-        when(dataSourceService.listBasicSummaryMap(any())).thenReturn(Collections.emptyMap());
+        when(effectiveDataSourceService.listBasicSummaryMap(any())).thenReturn(Collections.emptyMap());
         return new DataDevelopmentService(
                 directoryMapper,
                 scriptMapper,
-                dataSourceService,
+                effectiveDataSourceService,
                 mock(DataDevelopmentSqlExecutor.class),
                 securityService,
                 projectResourceAccessService,
@@ -140,6 +174,16 @@ class DataDevelopmentSourceSlimmingRegressionTest {
         entity.setScriptType(scriptType.name());
         entity.setEnvironmentId(environmentId);
         return entity;
+    }
+
+    private Map<Long, DataSourceListView> datasourceSummaries() {
+        Map<Long, DataSourceListView> summaries = new LinkedHashMap<Long, DataSourceListView>();
+        DataSourceListView datasource = new DataSourceListView();
+        datasource.setId(41L);
+        datasource.setName("长期回归-客户经营画像数据源");
+        datasource.setTypeCode("mysql8");
+        summaries.put(41L, datasource);
+        return summaries;
     }
 
     private Map<Long, ScriptEnvironmentOptionView> environmentOptions() {

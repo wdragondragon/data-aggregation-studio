@@ -637,7 +637,7 @@ public class DataDevelopmentService {
         view.setFileName(entity.getFileName());
         view.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
         view.setDatasourceId(entity.getDatasourceId());
-        DataSourceDefinition datasource = safeResolveScriptDatasource(entity.getDatasourceId());
+        DataSourceListView datasource = safeResolveScriptDatasource(entity.getDatasourceId());
         if (datasource != null) {
             view.setDatasourceName(datasource.getName());
             view.setDatasourceTypeCode(datasource.getTypeCode());
@@ -755,18 +755,11 @@ public class DataDevelopmentService {
         return environmentBundle.environments.get(environmentId);
     }
 
-    private DataSourceDefinition safeResolveScriptDatasource(Long datasourceId) {
+    private DataSourceListView safeResolveScriptDatasource(Long datasourceId) {
         if (datasourceId == null) {
             return null;
         }
-        try {
-            return dataSourceService.get(datasourceId);
-        } catch (StudioException exception) {
-            if (StudioErrorCode.NOT_FOUND.equals(exception.getCode())) {
-                return null;
-            }
-            throw exception;
-        }
+        return dataSourceService.listBasicSummaryMap(Collections.singleton(datasourceId)).get(datasourceId);
     }
 
     private boolean matchesTenant(String tenantId) {
