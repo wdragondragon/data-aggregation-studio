@@ -291,7 +291,10 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         ProjectEntity sourceProject = project(100L, "长期回归测试项目");
         ProjectEntity targetProject = project(200L, "财务共享验证项目");
         when(projectMapper.selectById(100L)).thenReturn(sourceProject);
-        when(projectMapper.selectByIds(any())).thenReturn(Arrays.asList(sourceProject, targetProject));
+        when(projectMapper.selectList(any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            assertProjectShareLabelSelect(invocation.getArgument(0));
+            return Arrays.asList(sourceProject, targetProject);
+        });
         when(securityService.currentTenantId()).thenReturn("default");
         when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
         when(resourceShareMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
@@ -335,6 +338,8 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         assertThat(modelQueryCaptor.getValue().getSqlSegment().toUpperCase(Locale.ROOT)).contains("IN");
         verify(resourceShareMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
         verify(resourceShareMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(projectMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(projectMapper, never()).selectByIds(any());
     }
 
     private SystemManagementService systemService(ProjectMapper projectMapper,
@@ -442,6 +447,14 @@ class SystemManagementPaginationSourceSlimmingRegressionTest {
         assertThat(sqlSelect).contains("id", "username", "display_name");
         assertThat(sqlSelect).doesNotContain("password", "password_hash", "auth_source", "tenant_id",
                 "deleted", "created_at", "updated_at", "enabled");
+        assertThat(query.getSqlSegment().toUpperCase(Locale.ROOT)).contains("IN");
+    }
+
+    private static void assertProjectShareLabelSelect(LambdaQueryWrapper<ProjectEntity> query) {
+        String sqlSelect = String.valueOf(query.getSqlSelect()).toLowerCase(Locale.ROOT);
+        assertThat(sqlSelect).contains("id", "project_name");
+        assertThat(sqlSelect).doesNotContain("tenant_id", "deleted", "created_at", "updated_at",
+                "project_code", "description", "enabled", "default_project");
         assertThat(query.getSqlSegment().toUpperCase(Locale.ROOT)).contains("IN");
     }
 

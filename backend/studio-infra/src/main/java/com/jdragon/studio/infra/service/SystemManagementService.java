@@ -1182,7 +1182,10 @@ public class SystemManagementService {
         if (projectIds.isEmpty()) {
             return result;
         }
-        List<ProjectEntity> projects = projectMapper.selectByIds(projectIds);
+        List<ProjectEntity> projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                .select(ProjectEntity::getId,
+                        ProjectEntity::getProjectName)
+                .in(ProjectEntity::getId, projectIds));
         for (ProjectEntity project : projects) {
             result.put(project.getId(), project);
         }
