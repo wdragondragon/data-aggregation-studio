@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.system.SystemProjectWorkerOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemWorkerInstanceView;
 import com.jdragon.studio.infra.entity.ProjectEntity;
@@ -47,6 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -175,6 +178,21 @@ class SystemProjectWorkerViewRegressionTest {
         return binding;
     }
 
+    private SystemProjectWorkerOptionView workerOption(String workerGroupCode,
+                                                       int onlineInstanceCount,
+                                                       int recentInstanceCount,
+                                                       boolean boundToProject,
+                                                       boolean enabled) {
+        SystemProjectWorkerOptionView option = new SystemProjectWorkerOptionView();
+        option.setWorkerGroupCode(workerGroupCode);
+        option.setWorkerCode(workerGroupCode);
+        option.setOnlineInstanceCount(onlineInstanceCount);
+        option.setRecentInstanceCount(recentInstanceCount);
+        option.setBoundToProject(boundToProject);
+        option.setEnabled(enabled);
+        return option;
+    }
+
     private SystemProjectWorkerView find(List<SystemProjectWorkerView> views, String workerGroupCode) {
         SystemProjectWorkerView view = findOrNull(views, workerGroupCode);
         assertNotNull(view, workerGroupCode);
@@ -250,6 +268,41 @@ class SystemProjectWorkerViewRegressionTest {
         assertTrue(Boolean.TRUE.equals(page.getItems().get(1).getBoundToProject()));
         verify(workerLeaseMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(bindingMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void workerOptionsShouldUseLightweightGroupProjectionOnly() {
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        ProjectWorkerBindingMapper bindingMapper = mock(ProjectWorkerBindingMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        SystemManagementService service = service(projectMapper, bindingMapper, workerLeaseMapper, securityService);
+
+        ProjectEntity project = new ProjectEntity();
+        project.setId(100L);
+        project.setTenantId("default");
+        when(projectMapper.selectById(100L)).thenReturn(project);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentRoleCodes()).thenReturn(Collections.singletonList(StudioConstants.ROLE_TENANT_ADMIN));
+        when(workerLeaseMapper.selectVisibleWorkerGroupOptions(eq("default"), eq(100L), any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(Collections.singletonList(workerOption("数据采集Worker组", 2, 3, true, true)));
+
+        List<SystemProjectWorkerOptionView> options = service.listProjectWorkerOptions(100L);
+
+        assertEquals(1, options.size());
+        SystemProjectWorkerOptionView option = options.get(0);
+        assertEquals("数据采集Worker组", option.getWorkerGroupCode());
+        assertEquals(Integer.valueOf(2), option.getOnlineInstanceCount());
+        assertEquals(Integer.valueOf(3), option.getRecentInstanceCount());
+        assertTrue(Boolean.TRUE.equals(option.getBoundToProject()));
+        assertTrue(Boolean.TRUE.equals(option.getEnabled()));
+        verify(workerLeaseMapper).selectVisibleWorkerGroupOptions(eq("default"), eq(100L), any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDateTime.class));
+        verify(workerLeaseMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(workerLeaseMapper, never()).countVisibleWorkerGroups(eq("default"), eq(100L), any(LocalDateTime.class), any(LocalDateTime.class));
+        verify(workerLeaseMapper, never()).selectVisibleWorkerGroupPage(eq("default"), eq(100L), any(LocalDateTime.class), any(LocalDateTime.class), anyInt(), anyInt());
+        verify(workerLeaseMapper, never()).selectVisibleLeasesForGroups(eq("default"), any(LocalDateTime.class), any(LocalDateTime.class), anyList());
+        verify(bindingMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(bindingMapper, never()).selectForWorkerGroups(eq("default"), eq(100L), anyList());
     }
 
     @Test

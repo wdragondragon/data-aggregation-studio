@@ -622,6 +622,7 @@ import type {
   SystemProjectMember,
   SystemProjectMemberRequest,
   SystemProjectWorker,
+  SystemProjectWorkerOption,
   SystemWorkerInstance,
   SystemTenant,
   SystemTenantMember,
@@ -688,7 +689,7 @@ const tenantMembers = ref<SystemTenantMember[]>([]);
 const projectMembers = ref<SystemProjectMember[]>([]);
 const projectMemberRequests = ref<SystemProjectMemberRequest[]>([]);
 const projectWorkers = ref<SystemProjectWorker[]>([]);
-const projectWorkerOptions = ref<SystemProjectWorker[]>([]);
+const projectWorkerOptions = ref<SystemProjectWorkerOption[]>([]);
 const projectWorkerOptionsLoaded = ref(false);
 const resourceShares = ref<ResourceShare[]>([]);
 const shareResourceOptions = reactive<Record<string, ShareResourceOption[]>>({});
@@ -741,19 +742,26 @@ const requestForm = reactive<Partial<SystemProjectMemberRequest>>({ requestType:
 const workerForm = reactive<Partial<SystemProjectWorker>>({ enabled: true });
 const shareForm = reactive<Partial<ResourceShare>>({ enabled: true });
 
-const workerGroupOptions = computed(() =>
-  (projectWorkerOptions.value.length > 0 ? projectWorkerOptions.value : projectWorkers.value)
+type WorkerGroupOptionSource = Pick<SystemProjectWorkerOption,
+  "workerGroupCode" | "workerCode" | "onlineInstanceCount" | "recentInstanceCount" | "boundToProject"> & {
+    instances?: SystemWorkerInstance[];
+  };
+
+const workerGroupOptions = computed(() => {
+  const source: WorkerGroupOptionSource[] = projectWorkerOptions.value.length > 0 ? projectWorkerOptions.value : projectWorkers.value;
+  return source
     .map((item) => {
       const value = item.workerGroupCode || item.workerCode;
+      const recentCount = item.recentInstanceCount ?? item.instances?.length ?? 0;
       return value
         ? {
           value,
-          label: `${value} / 在线 ${item.onlineInstanceCount ?? 0} / 近期 ${item.recentInstanceCount ?? workerInstances(item).length} / ${item.boundToProject ? "已下发" : "未下发"}`,
+          label: `${value} / 在线 ${item.onlineInstanceCount ?? 0} / 近期 ${recentCount} / ${item.boundToProject ? "已下发" : "未下发"}`,
         }
         : null;
     })
-    .filter((item): item is { value: string; label: string } => item != null),
-);
+    .filter((item): item is { value: string; label: string } => item != null);
+});
 const workerDialogTitle = computed(() => (workerForm.id ? "编辑 Worker 组下发" : "下发 Worker 组"));
 const shareTargetProjects = computed(() =>
   projectOptions.value.filter((item) => item.id != null && !sameEntityId(item.id, authStore.currentProjectId)),
@@ -1038,7 +1046,7 @@ function loadWorkerGroupsForDialog() {
   if (currentProjectId == null || projectWorkerOptionsLoaded.value) {
     return;
   }
-  void studioApi.system.projectWorkers.list(currentProjectId, LOCAL_LOADING_REQUEST)
+  void studioApi.system.projectWorkers.options(currentProjectId, LOCAL_LOADING_REQUEST)
     .then((items) => {
       projectWorkerOptions.value = items;
       projectWorkerOptionsLoaded.value = true;

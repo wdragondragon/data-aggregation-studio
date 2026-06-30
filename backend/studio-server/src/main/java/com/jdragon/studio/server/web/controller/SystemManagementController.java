@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
 import com.jdragon.studio.dto.model.system.SystemProjectView;
+import com.jdragon.studio.dto.model.system.SystemProjectWorkerOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
@@ -192,6 +193,12 @@ public class SystemManagementController {
                                                                             @RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                                             @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         return Result.success(systemManagementService.listProjectWorkersPage(projectId, pageNo, pageSize));
+    }
+
+    @Operation(summary = "List lightweight project worker group options")
+    @GetMapping("/project-worker-options")
+    public Result<List<SystemProjectWorkerOptionView>> listProjectWorkerOptions(@RequestParam(value = "projectId", required = false) Long projectId) {
+        return Result.success(systemManagementService.listProjectWorkerOptions(projectId));
     }
 
     @Operation(summary = "Create or update project worker binding")

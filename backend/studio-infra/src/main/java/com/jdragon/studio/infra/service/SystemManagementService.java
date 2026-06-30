@@ -11,6 +11,7 @@ import com.jdragon.studio.dto.model.system.SystemProjectView;
 import com.jdragon.studio.dto.model.system.ShareResourceOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberRequestView;
 import com.jdragon.studio.dto.model.system.SystemProjectMemberView;
+import com.jdragon.studio.dto.model.system.SystemProjectWorkerOptionView;
 import com.jdragon.studio.dto.model.system.SystemProjectWorkerView;
 import com.jdragon.studio.dto.model.system.SystemTenantMemberView;
 import com.jdragon.studio.dto.model.system.SystemTenantView;
@@ -507,6 +508,18 @@ public class SystemManagementService {
                     instances));
         }
         return result;
+    }
+
+    public List<SystemProjectWorkerOptionView> listProjectWorkerOptions(Long projectId) {
+        ProjectEntity project = requireTenantManagedProject(projectId);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime recentThreshold = now.minusHours(WORKER_RECENT_INSTANCE_HOURS);
+        LocalDateTime heartbeatThreshold = now.minusSeconds(StudioConstants.WORKER_HEARTBEAT_TIMEOUT_SECONDS);
+        return workerLeaseMapper.selectVisibleWorkerGroupOptions(project.getTenantId(),
+                project.getId(),
+                recentThreshold,
+                heartbeatThreshold,
+                now);
     }
 
     public PageView<SystemProjectWorkerView> listProjectWorkersPage(Long projectId, Integer pageNo, Integer pageSize) {

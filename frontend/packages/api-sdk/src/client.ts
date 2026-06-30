@@ -169,6 +169,7 @@ import type {
   SystemProject,
   SystemProjectMember,
   SystemProjectMemberRequest,
+  SystemProjectWorkerOption,
   SystemProjectWorker,
   SystemTenant,
   SystemTenantMember,
@@ -1796,6 +1797,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
         listPage(params?: { projectId?: EntityId; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
           return requestPage<SystemProjectWorker>({ ...config, url: "/system/project-workers/page", method: "GET", params }, params);
+        },
+        options(projectId?: EntityId, config?: StudioRequestConfig) {
+          return request<SystemProjectWorkerOption[]>({
+            ...config,
+            url: "/system/project-worker-options",
+            method: "GET",
+            params: projectId == null ? undefined : { projectId },
+          });
         },
         save(payload: Partial<SystemProjectWorker>) {
           return request<SystemProjectWorker>({ url: "/system/project-workers", method: "POST", data: payload });

@@ -2994,6 +2994,15 @@ export interface SystemProjectWorker extends BaseRecord {
   instances?: SystemWorkerInstance[];
 }
 
+export interface SystemProjectWorkerOption {
+  workerGroupCode?: string;
+  workerCode?: string;
+  onlineInstanceCount?: number;
+  recentInstanceCount?: number;
+  boundToProject?: boolean;
+  enabled?: boolean;
+}
+
 export interface SystemWorkerInstance {
   workerGroupCode?: string;
   workerCode?: string;
