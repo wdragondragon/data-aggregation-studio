@@ -68,7 +68,12 @@ public class StudioAccessService {
         if (principal == null) {
             return new AuthProfileView();
         }
-        StudioUserEntity user = userMapper.selectById(principal.getUserId());
+        StudioUserEntity user = userMapper.selectOne(new LambdaQueryWrapper<StudioUserEntity>()
+                .select(StudioUserEntity::getId,
+                        StudioUserEntity::getTenantId,
+                        StudioUserEntity::getUsername,
+                        StudioUserEntity::getDisplayName)
+                .eq(StudioUserEntity::getId, principal.getUserId()));
         if (user == null) {
             throw new StudioException(StudioErrorCode.UNAUTHORIZED, "User not found: " + principal.getUsername());
         }
@@ -119,6 +124,7 @@ public class StudioAccessService {
 
     private List<String> loadSystemRoleCodes(Long userId) {
         List<UserRoleEntity> userRoles = userRoleMapper.selectList(new LambdaQueryWrapper<UserRoleEntity>()
+                .select(UserRoleEntity::getRoleId)
                 .eq(UserRoleEntity::getUserId, userId));
         if (userRoles.isEmpty()) {
             return Collections.emptyList();
@@ -127,7 +133,9 @@ public class StudioAccessService {
         for (UserRoleEntity userRole : userRoles) {
             roleIds.add(userRole.getRoleId());
         }
-        List<RoleEntity> roles = roleMapper.selectByIds(roleIds);
+        List<RoleEntity> roles = roleMapper.selectList(new LambdaQueryWrapper<RoleEntity>()
+                .select(RoleEntity::getCode)
+                .in(RoleEntity::getId, roleIds));
         List<String> codes = new ArrayList<String>();
         for (RoleEntity role : roles) {
             appendUnique(codes, role.getCode());
@@ -137,6 +145,8 @@ public class StudioAccessService {
 
     private Map<String, List<String>> loadTenantRoleCodes(Long userId) {
         List<TenantMemberEntity> members = tenantMemberMapper.selectList(new LambdaQueryWrapper<TenantMemberEntity>()
+                .select(TenantMemberEntity::getTenantId,
+                        TenantMemberEntity::getRoleCode)
                 .eq(TenantMemberEntity::getUserId, userId)
                 .eq(TenantMemberEntity::getStatus, StudioConstants.MEMBER_STATUS_ACTIVE));
         Map<String, List<String>> roleCodes = new LinkedHashMap<String, List<String>>();
@@ -153,6 +163,8 @@ public class StudioAccessService {
 
     private Map<Long, List<String>> loadProjectRoleCodes(Long userId) {
         List<ProjectMemberEntity> members = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMemberEntity>()
+                .select(ProjectMemberEntity::getProjectId,
+                        ProjectMemberEntity::getRoleCode)
                 .eq(ProjectMemberEntity::getUserId, userId)
                 .eq(ProjectMemberEntity::getStatus, StudioConstants.MEMBER_STATUS_ACTIVE));
         Map<Long, List<String>> roleCodes = new LinkedHashMap<Long, List<String>>();
@@ -170,13 +182,14 @@ public class StudioAccessService {
     private Map<Long, ProjectEntity> loadAccessibleProjectMap(boolean superAdmin, Set<Long> projectIds) {
         List<ProjectEntity> projects;
         if (superAdmin) {
-            projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
-                    .orderByDesc(ProjectEntity::getDefaultProject)
-                    .orderByAsc(ProjectEntity::getProjectName));
+            projects = Collections.emptyList();
         } else if (projectIds.isEmpty()) {
             projects = Collections.emptyList();
         } else {
-            projects = projectMapper.selectByIds(projectIds);
+            projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                    .select(ProjectEntity::getId,
+                            ProjectEntity::getTenantId)
+                    .in(ProjectEntity::getId, projectIds));
         }
         Map<Long, ProjectEntity> projectMap = new LinkedHashMap<Long, ProjectEntity>();
         for (ProjectEntity project : projects) {
@@ -192,6 +205,10 @@ public class StudioAccessService {
         List<TenantEntity> tenants;
         if (superAdmin) {
             tenants = tenantMapper.selectList(new LambdaQueryWrapper<TenantEntity>()
+                    .select(TenantEntity::getTenantId,
+                            TenantEntity::getTenantCode,
+                            TenantEntity::getTenantName,
+                            TenantEntity::getEnabled)
                     .orderByAsc(TenantEntity::getTenantName));
         } else {
             Set<String> tenantIds = new LinkedHashSet<String>(tenantRoleCodes.keySet());
@@ -204,6 +221,10 @@ public class StudioAccessService {
                 return Collections.emptyList();
             }
             tenants = tenantMapper.selectList(new LambdaQueryWrapper<TenantEntity>()
+                    .select(TenantEntity::getTenantId,
+                            TenantEntity::getTenantCode,
+                            TenantEntity::getTenantName,
+                            TenantEntity::getEnabled)
                     .in(TenantEntity::getTenantId, tenantIds)
                     .orderByAsc(TenantEntity::getTenantName));
         }
@@ -234,6 +255,12 @@ public class StudioAccessService {
         List<ProjectEntity> projects;
         if (superAdmin) {
             projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                    .select(ProjectEntity::getId,
+                            ProjectEntity::getTenantId,
+                            ProjectEntity::getProjectCode,
+                            ProjectEntity::getProjectName,
+                            ProjectEntity::getEnabled,
+                            ProjectEntity::getDefaultProject)
                     .eq(ProjectEntity::getTenantId, tenantId)
                     .orderByDesc(ProjectEntity::getDefaultProject)
                     .orderByAsc(ProjectEntity::getProjectName));
@@ -242,6 +269,12 @@ public class StudioAccessService {
                 return Collections.emptyList();
             }
             projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                    .select(ProjectEntity::getId,
+                            ProjectEntity::getTenantId,
+                            ProjectEntity::getProjectCode,
+                            ProjectEntity::getProjectName,
+                            ProjectEntity::getEnabled,
+                            ProjectEntity::getDefaultProject)
                     .eq(ProjectEntity::getTenantId, tenantId)
                     .in(ProjectEntity::getId, projectRoleCodes.keySet())
                     .orderByDesc(ProjectEntity::getDefaultProject)
