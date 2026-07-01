@@ -2,6 +2,7 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -186,6 +188,42 @@ class CollectionTaskListSourceSlimmingRegressionTest {
                 .doesNotContain("source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
         verify(definitionMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void publishShouldReturnSlimListViewInsteadOfFullDefinitionView() {
+        CollectionTaskDefinitionMapper definitionMapper = mock(CollectionTaskDefinitionMapper.class);
+        CollectionTaskMetricBindingMapper metricBindingMapper = mock(CollectionTaskMetricBindingMapper.class);
+        CollectionTaskScheduleMapper scheduleMapper = mock(CollectionTaskScheduleMapper.class);
+        CollectionTaskService service = collectionTaskService(definitionMapper, metricBindingMapper, scheduleMapper);
+        CollectionTaskDefinitionEntity beforePublish = taskEntity();
+        beforePublish.setStatus(CollectionTaskStatus.DRAFT.name());
+        CollectionTaskDefinitionEntity afterPublish = taskEntity();
+        afterPublish.setStatus(CollectionTaskStatus.ONLINE.name());
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(beforePublish)
+                .thenReturn(afterPublish);
+        when(scheduleMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(scheduleEntity()));
+
+        CollectionTaskListView published = service.publish(11L);
+
+        assertThat(published.getStatus()).isEqualTo(CollectionTaskStatus.ONLINE);
+        assertThat(published.getTargetDatasourceName()).isEqualTo("长期回归-客户经营画像数据源");
+        assertThat(published.getSchedule()).isNotNull();
+
+        ArgumentCaptor<LambdaQueryWrapper<CollectionTaskDefinitionEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper, times(2)).selectOne(queryCaptor.capture());
+        for (LambdaQueryWrapper<CollectionTaskDefinitionEntity> query : queryCaptor.getAllValues()) {
+            assertTaskListSelectIsSlim(query.getSqlSelect());
+        }
+
+        ArgumentCaptor<LambdaUpdateWrapper<CollectionTaskDefinitionEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(definitionMapper).update(any(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet()).contains("status");
+        verify(definitionMapper, never()).selectById(any());
+        verify(metricBindingMapper).update(any(), any(LambdaUpdateWrapper.class));
+        verify(scheduleMapper).selectList(any(LambdaQueryWrapper.class));
+        verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
     }
 
     private static void initTableInfo(Class<?> entityClass) {

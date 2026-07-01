@@ -37,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -375,14 +376,15 @@ public class CollectionTaskService {
     }
 
     @Transactional
-    public CollectionTaskDefinitionView publish(Long id) {
-        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
-        entity.setStatus(CollectionTaskStatus.ONLINE.name());
-        definitionMapper.updateById(entity);
+    public CollectionTaskListView publish(Long id) {
+        CollectionTaskDefinitionEntity entity = requireWritableListEntity(id);
+        definitionMapper.update(null, new LambdaUpdateWrapper<CollectionTaskDefinitionEntity>()
+                .set(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
+                .eq(CollectionTaskDefinitionEntity::getId, entity.getId()));
         metricBindingMapper.update(null, new LambdaUpdateWrapper<CollectionTaskMetricBindingEntity>()
                 .set(CollectionTaskMetricBindingEntity::getTaskStatus, CollectionTaskStatus.ONLINE.name())
                 .eq(CollectionTaskMetricBindingEntity::getCollectionTaskId, id));
-        return get(id);
+        return getListView(id);
     }
 
     @Transactional
@@ -520,6 +522,17 @@ public class CollectionTaskService {
         view.setTargetModelPhysicalLocator(entity.getTargetModelPhysicalLocatorSnapshot());
         view.setSchedule(schedule);
         return view;
+    }
+
+    private CollectionTaskListView getListView(Long id) {
+        CollectionTaskDefinitionEntity entity = definitionMapper.selectOne(selectListColumns(buildAccessibleQuery())
+                .eq(CollectionTaskDefinitionEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
+        }
+        Map<Long, CollectionTaskScheduleDefinition> schedules = loadScheduleMap(Collections.singletonList(entity));
+        return toListView(entity, schedules.get(entity.getId()));
     }
 
     private CollectionTaskWorkflowOptionView toWorkflowOptionView(CollectionTaskDefinitionEntity entity) {
@@ -676,6 +689,17 @@ public class CollectionTaskService {
 
     private CollectionTaskDefinitionEntity requireWritableEntity(Long id) {
         CollectionTaskDefinitionEntity entity = definitionMapper.selectById(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
+        }
+        projectResourceAccessService.assertWritable(entity.getProjectId());
+        return entity;
+    }
+
+    private CollectionTaskDefinitionEntity requireWritableListEntity(Long id) {
+        CollectionTaskDefinitionEntity entity = definitionMapper.selectOne(selectListColumns(buildAccessibleQuery())
+                .eq(CollectionTaskDefinitionEntity::getId, id)
+                .last("limit 1"));
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
         }

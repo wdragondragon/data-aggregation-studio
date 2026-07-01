@@ -140,6 +140,7 @@
 | FIX-S109-001 | 系统管理/成员列表 | 中 | 成员与申请/邀请表格只需水合用户 `id/username/displayName`，却通过 `selectByIds` 读取用户整行，包含密码哈希、认证来源、启用状态、租户和时间戳等非表格字段 | `SystemManagementService.java`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；build-nginx API `/system/project-members/page`、`/system/project-member-requests/page`；build-nginx `/system?tab=projectMembers`、`/system?tab=requests` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S110-001 | 系统管理/资源共享表格 | 中 | 资源共享表格只需源项目和目标项目名称，却通过 `selectByIds` 读取项目整行，包含项目编码、描述、启用状态、默认项目标记、租户和时间戳等非表格字段 | `SystemManagementService.java`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；build-nginx API `/system/resource-shares/page`；build-nginx `/system?tab=shares` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S111-001 | 认证/全局布局 | 中 | `/auth/me` 和登录 Profile 只需全局头部租户、项目、角色上下文，却读取用户、角色、租户、项目整实体；超级管理员路径还会为租户候选预取全部项目 | `StudioAccessService.java`；`StudioAccessProfileSourceSlimmingRegressionTest.java` | `StudioAccessProfileSourceSlimmingRegressionTest`；build-nginx API `/auth/login`、`/auth/me`；build-nginx `/dashboard` 长期项目上下文 | module-regression | 2026-07-01 | 本次提交 |
+| FIX-S112-001 | 数据采集/采集任务列表 | 中 | `/collection-tasks/{id}/online` 列表页上线动作只需当前行摘要，却返回完整采集任务定义，包含 `sourceBindings`、`targetBinding`、`fieldMappings`、`executionOptions` 等详情 JSON | `CollectionTaskController.java`；`CollectionTaskService.java`；`client.ts`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；build-nginx API `/collection-tasks/page`、`/collection-tasks/{id}/online`；build-nginx `/collection-tasks` | module-regression | 2026-07-01 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -259,3 +260,4 @@
 | S109 系统管理成员用户水合源头瘦身 | FIX-S109-001 |
 | S110 系统管理资源共享项目名称水合源头瘦身 | FIX-S110-001 |
 | S111 认证上下文 Profile 源头瘦身 | FIX-S111-001 |
+| S112 采集任务上线响应源头瘦身 | FIX-S112-001 |

@@ -1248,7 +1248,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<JobContainerConfig>({ url: "/collection-tasks/preview", method: "POST", data: payload });
       },
       publish(id: EntityId) {
-        return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/online`, method: "POST" });
+        return request<CollectionTaskListView>({ url: `/collection-tasks/${id}/online`, method: "POST" });
       },
       saveSchedule(id: EntityId, payload: CollectionTaskScheduleDefinition) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/schedule`, method: "POST", data: payload });

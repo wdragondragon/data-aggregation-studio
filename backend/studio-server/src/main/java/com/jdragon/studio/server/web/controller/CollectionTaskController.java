@@ -97,7 +97,7 @@ public class CollectionTaskController {
 
     @Operation(summary = "Publish collection task")
     @PostMapping("/{id}/online")
-    public Result<CollectionTaskDefinitionView> publish(@PathVariable("id") Long id) {
+    public Result<CollectionTaskListView> publish(@PathVariable("id") Long id) {
         return Result.success(collectionTaskService.publish(id));
     }
 
