@@ -528,17 +528,32 @@ final class DataIngestionExecutionSupport {
         if (source == null || !hasText(path)) {
             return source;
         }
-        Object current = source;
-        for (String segment : path.split("\\.")) {
-            if (current == null || !hasText(segment)) {
+        List<Object> currentValues = new ArrayList<Object>();
+        currentValues.add(source);
+        boolean expandedArray = false;
+        for (String rawSegment : path.split("\\.")) {
+            if (!hasText(rawSegment)) {
                 return absent();
             }
-            current = readSegment(current, segment.trim());
+            PathSegment segment = parsePathSegment(rawSegment.trim());
+            if (segment == null) {
+                return absent();
+            }
+            List<Object> nextValues = new ArrayList<Object>();
+            for (Object current : currentValues) {
+                if (appendPathValues(current, segment, nextValues)) {
+                    expandedArray = true;
+                }
+            }
+            if (nextValues.isEmpty()) {
+                return expandedArray ? Collections.emptyList() : absent();
+            }
+            currentValues = nextValues;
         }
-        return current;
+        return pathResult(currentValues);
     }
 
-    private Object readSegment(Object source, String segment) {
+    private PathSegment parsePathSegment(String segment) {
         String name = segment;
         Integer index = absent();
         int bracket = segment.indexOf('[');
@@ -546,25 +561,86 @@ final class DataIngestionExecutionSupport {
             name = segment.substring(0, bracket);
             try {
                 index = Integer.valueOf(segment.substring(bracket + 1, segment.length() - 1));
+                if (index.intValue() < 0) {
+                    return absent();
+                }
             } catch (Exception ex) {
                 return absent();
             }
         }
-        Object value = source;
-        if (hasText(name)) {
-            if (!(source instanceof Map<?, ?>)) {
-                return absent();
-            }
-            value = lookupIgnoreCase(castMap(source), name);
+        if (!hasText(name) && index == null) {
+            return absent();
         }
-        if (index != null) {
+        return new PathSegment(name == null ? "" : name.trim(), index);
+    }
+
+    private boolean appendPathValues(Object source, PathSegment segment, List<Object> target) {
+        if (source instanceof List<?> && hasText(segment.name)) {
+            for (Object item : (List<?>) source) {
+                appendSinglePathValue(item, segment, target);
+            }
+            return true;
+        }
+        appendSinglePathValue(source, segment, target);
+        return false;
+    }
+
+    private void appendSinglePathValue(Object source, PathSegment segment, List<Object> target) {
+        Object value = source;
+        if (hasText(segment.name)) {
+            if (!(source instanceof Map<?, ?>)) {
+                return;
+            }
+            LookupResult lookup = lookupPathValue(castMap(source), segment.name);
+            if (!lookup.present) {
+                return;
+            }
+            value = lookup.value;
+        }
+        if (segment.index != null) {
             if (!(value instanceof List<?>)) {
-                return absent();
+                return;
             }
             List<?> list = (List<?>) value;
-            return index.intValue() >= 0 && index.intValue() < list.size() ? list.get(index.intValue()) : absent();
+            if (segment.index.intValue() < list.size()) {
+                target.add(list.get(segment.index.intValue()));
+            }
+            return;
         }
-        return value;
+        target.add(value);
+    }
+
+    private Object pathResult(List<Object> values) {
+        if (values == null || values.isEmpty()) {
+            return absent();
+        }
+        if (values.size() == 1) {
+            return values.get(0);
+        }
+        List<Object> result = new ArrayList<Object>();
+        for (Object value : values) {
+            if (value instanceof List<?>) {
+                result.addAll((List<?>) value);
+            } else {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private LookupResult lookupPathValue(Map<String, Object> source, String key) {
+        if (source == null || key == null) {
+            return LookupResult.missing();
+        }
+        if (source.containsKey(key)) {
+            return LookupResult.found(source.get(key));
+        }
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(key)) {
+                return LookupResult.found(entry.getValue());
+            }
+        }
+        return LookupResult.missing();
     }
 
     private Map<String, Object> asObjectMap(Object value, String message) {
@@ -665,6 +741,34 @@ final class DataIngestionExecutionSupport {
 
     private <T> T absent() {
         return Optional.<T>empty().orElse(null);
+    }
+
+    private static final class PathSegment {
+        private final String name;
+        private final Integer index;
+
+        private PathSegment(String name, Integer index) {
+            this.name = name;
+            this.index = index;
+        }
+    }
+
+    private static final class LookupResult {
+        private final boolean present;
+        private final Object value;
+
+        private LookupResult(boolean present, Object value) {
+            this.present = present;
+            this.value = value;
+        }
+
+        private static LookupResult found(Object value) {
+            return new LookupResult(true, value);
+        }
+
+        private static LookupResult missing() {
+            return new LookupResult(false, null);
+        }
     }
 
     private final class InMemoryRecordReader extends Reader.Job {
