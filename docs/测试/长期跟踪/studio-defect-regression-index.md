@@ -142,6 +142,7 @@
 | FIX-S111-001 | 认证/全局布局 | 中 | `/auth/me` 和登录 Profile 只需全局头部租户、项目、角色上下文，却读取用户、角色、租户、项目整实体；超级管理员路径还会为租户候选预取全部项目 | `StudioAccessService.java`；`StudioAccessProfileSourceSlimmingRegressionTest.java` | `StudioAccessProfileSourceSlimmingRegressionTest`；build-nginx API `/auth/login`、`/auth/me`；build-nginx `/dashboard` 长期项目上下文 | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S112-001 | 数据采集/采集任务列表 | 中 | `/collection-tasks/{id}/online` 列表页上线动作只需当前行摘要，却返回完整采集任务定义，包含 `sourceBindings`、`targetBinding`、`fieldMappings`、`executionOptions` 等详情 JSON | `CollectionTaskController.java`；`CollectionTaskService.java`；`client.ts`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；build-nginx API `/collection-tasks/page`、`/collection-tasks/{id}/online`；build-nginx `/collection-tasks` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S113-001 | 数据接入/接入服务列表 | 中 | `/data-ingestion-services/{id}/publish`、`/offline` 列表页动作只需列表行摘要和当前页刷新，却返回完整接入服务定义，包含字段映射、来源绑定、writer 选项和 WebService 配置等详情 JSON | `DataIngestionService.java`；`DataIngestionServiceController.java`；`client.ts`；`DataIngestionServicesView.vue`；`DataIngestionServiceListSourceSlimmingRegressionTest.java` | `DataIngestionServiceListSourceSlimmingRegressionTest`；build-nginx API `/data-ingestion-services/{id}/publish-summary`、`/offline-summary`；build-nginx `/data-ingestion-services` | module-regression | 2026-07-03 | 本次提交 |
+| FIX-S118-001 | 通知/站内信已读动作 | 中 | `POST /notifications/{id}/read` 只需标记已读，却读取并返回完整通知视图；`read-all` 先拉取全部未读行再逐条更新；无 SSE 订阅者时仍提前构造 snapshot | `NotificationService.java`；`NotificationController.java`；`client.ts`；`NotificationServiceRegressionTest.java` | `NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；`npm run build:web`；build-nginx API `/notifications/{id}/read` 返回 `data=null`；build-nginx `/notifications` | module-regression | 2026-07-03 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -263,3 +264,4 @@
 | S111 认证上下文 Profile 源头瘦身 | FIX-S111-001 |
 | S112 采集任务上线响应源头瘦身 | FIX-S112-001 |
 | S113 数据接入列表发布下线响应源头瘦身 | FIX-S113-001 |
+| S118 站内信已读写接口源头瘦身 | FIX-S118-001 |

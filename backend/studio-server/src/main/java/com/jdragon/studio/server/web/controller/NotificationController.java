@@ -48,8 +48,9 @@ public class NotificationController {
 
     @Operation(summary = "Mark notification as read")
     @PostMapping("/{id}/read")
-    public Result<NotificationView> read(@PathVariable("id") Long id) {
-        return Result.success(notificationService.markRead(id));
+    public Result<Void> read(@PathVariable("id") Long id) {
+        notificationService.markRead(id);
+        return Result.success(null);
     }
 
     @Operation(summary = "Mark all notifications as read")

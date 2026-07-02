@@ -1650,7 +1650,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<number>({ url: "/notifications/unread-count", method: "GET" });
       },
       markRead(id: EntityId) {
-        return request<NotificationView>({ url: `/notifications/${id}/read`, method: "POST" });
+        return request<void>({ url: `/notifications/${id}/read`, method: "POST" });
       },
       markAllRead() {
         return request<void>({ url: "/notifications/read-all", method: "POST" });

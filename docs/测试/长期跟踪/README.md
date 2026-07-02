@@ -254,3 +254,5 @@
 - S116 本轮未新增或清理长期数据；`OpenServiceInvocationLogSourceSlimmingRegressionTest` 与 `ProtocolConversionTraceSourceSlimmingRegressionTest` 共 3 tests 全部通过；build-nginx 协议转换访问日志页显示长期项目上下文、筛选区和表格表头，console warn/error 为 0。
 - 2026-07-03 已完成 S117 运维中心源头复核：`/ops-center` 代码与 build-nginx 页面均复核通过，未发现需要修复的真实过取问题；队列、运行异常、服务异常、接入异常和日志异常表格区走分页查询并字段级 `select`，Worker 状态和队列对象名称解析只读轻字段。
 - S117 本轮未新增或清理长期数据；`OpsCenterServiceRegressionTest` 14 tests 全部通过；build-nginx 运维中心显示 `Default Tenant / 长期回归测试项目`、健康卡片、Worker 组和各异常区块，console warn/error 为 0。当前页分页、刷新按钮、自动刷新和状态刷新继续视为正常行为。
+- 2026-07-03 已完成 S118 站内信已读写接口源头瘦身：确认并修复 `POST /notifications/{id}/read` 读取并返回完整通知视图、`read-all` 先拉取全部未读行、无 SSE 订阅者也构造 snapshot 的写接口过取问题，`FIX-S118-001` 已进入缺陷回归索引。
+- S118 本轮保留通知 `2072147707808309250` 标记已读状态；`NotificationServiceRegressionTest`、`NotificationStreamSecurityRegressionTest` 共 6 tests 全部通过，`npm run build:web` 与 `mvn -pl studio-server -am -DskipTests package` 通过；重启 server PID `18492` 后 build-nginx 已读 API 返回 `data=null`，`/notifications` 显示长期项目、消息列表和分页 `共 164 条`，console warn/error 为 0。

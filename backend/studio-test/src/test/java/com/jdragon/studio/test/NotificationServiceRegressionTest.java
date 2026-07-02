@@ -1,5 +1,9 @@
 package com.jdragon.studio.test;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.infra.entity.NotificationEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
@@ -13,6 +17,8 @@ import com.jdragon.studio.infra.service.NotificationCommand;
 import com.jdragon.studio.infra.service.NotificationService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -20,12 +26,23 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class NotificationServiceRegressionTest {
+
+    @BeforeAll
+    static void initMyBatisLambdaCaches() {
+        if (TableInfoHelper.getTableInfo(NotificationEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), NotificationEntity.class);
+        }
+    }
 
     @Test
     void activeProjectMemberUserIdsShouldSkipDisabledUsers() {
@@ -69,17 +86,66 @@ class NotificationServiceRegressionTest {
         assertEquals(10L, captor.getValue().getRecipientUserId());
     }
 
+    @Test
+    void markReadShouldUseLightweightMarkerAndVoidUpdate() {
+        TestContext context = context();
+        NotificationEntity notification = new NotificationEntity();
+        notification.setId(200L);
+        notification.setRecipientUserId(10L);
+        when(context.notificationMapper.selectOne(any())).thenReturn(notification);
+
+        context.service.markRead(200L);
+
+        ArgumentCaptor<LambdaQueryWrapper<NotificationEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(context.notificationMapper).selectOne(queryCaptor.capture());
+        String sqlSelect = String.valueOf(queryCaptor.getValue().getSqlSelect()).toLowerCase();
+        assertTrue(sqlSelect.contains("id"));
+        assertTrue(sqlSelect.contains("recipient_user_id"));
+        assertTrue(sqlSelect.contains("read_at"));
+        assertFalse(sqlSelect.contains("title"));
+        assertFalse(sqlSelect.contains("content"));
+        assertFalse(sqlSelect.contains("target_path"));
+        assertFalse(sqlSelect.contains("payload_json"));
+
+        ArgumentCaptor<LambdaUpdateWrapper<NotificationEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(context.notificationMapper).update(isNull(), updateCaptor.capture());
+        String updateSql = String.valueOf(updateCaptor.getValue().getSqlSet()).toLowerCase()
+                + " " + String.valueOf(updateCaptor.getValue().getSqlSegment()).toLowerCase();
+        assertTrue(updateSql.contains("read_at"));
+        assertTrue(updateSql.contains("recipient_user_id"));
+        assertTrue(updateSql.contains("archived_at"));
+        verify(context.notificationMapper, never()).selectList(any());
+    }
+
+    @Test
+    void markAllReadShouldUpdateByConditionWithoutLoadingUnreadRows() {
+        TestContext context = context();
+
+        context.service.markAllRead();
+
+        ArgumentCaptor<LambdaUpdateWrapper<NotificationEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(context.notificationMapper).update(isNull(), updateCaptor.capture());
+        String updateSql = String.valueOf(updateCaptor.getValue().getSqlSet()).toLowerCase()
+                + " " + String.valueOf(updateCaptor.getValue().getSqlSegment()).toLowerCase();
+        assertTrue(updateSql.contains("read_at"));
+        assertTrue(updateSql.contains("recipient_user_id"));
+        assertTrue(updateSql.contains("archived_at"));
+        verify(context.notificationMapper, never()).selectList(any());
+    }
+
     private TestContext context() {
         NotificationMapper notificationMapper = mock(NotificationMapper.class);
         ProjectMemberMapper projectMemberMapper = mock(ProjectMemberMapper.class);
         StudioUserMapper studioUserMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        when(securityService.currentUserId()).thenReturn(10L);
         NotificationService service = new NotificationService(
                 notificationMapper,
                 projectMemberMapper,
                 studioUserMapper,
                 mock(UserRoleMapper.class),
                 mock(RoleMapper.class),
-                mock(StudioSecurityService.class),
+                securityService,
                 mock(ProjectResourceAccessService.class)
         );
         return new TestContext(service, notificationMapper, projectMemberMapper, studioUserMapper);

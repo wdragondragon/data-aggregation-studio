@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -123,34 +124,27 @@ public class NotificationService {
     }
 
     @Transactional
-    public NotificationView markRead(Long notificationId) {
-        NotificationEntity entity = requireCurrentUserNotification(notificationId);
+    public void markRead(Long notificationId) {
+        NotificationEntity entity = requireCurrentUserNotificationMarker(notificationId);
         if (entity.getReadAt() == null) {
-            entity.setReadAt(LocalDateTime.now());
-            notificationMapper.updateById(entity);
+            notificationMapper.update(null, new LambdaUpdateWrapper<NotificationEntity>()
+                    .set(NotificationEntity::getReadAt, LocalDateTime.now())
+                    .eq(NotificationEntity::getId, entity.getId())
+                    .eq(NotificationEntity::getRecipientUserId, entity.getRecipientUserId())
+                    .isNull(NotificationEntity::getArchivedAt)
+                    .isNull(NotificationEntity::getReadAt));
         }
         emitSnapshot(entity.getRecipientUserId(), "notification-read");
-        return toView(entity);
     }
 
     @Transactional
     public void markAllRead() {
         Long currentUserId = requireCurrentUserId();
-        List<NotificationEntity> unread = notificationMapper.selectList(baseUserNotificationQuery(currentUserId)
-                .select(NotificationEntity::getId,
-                        NotificationEntity::getRecipientUserId,
-                        NotificationEntity::getReadAt)
+        notificationMapper.update(null, new LambdaUpdateWrapper<NotificationEntity>()
+                .set(NotificationEntity::getReadAt, LocalDateTime.now())
+                .eq(NotificationEntity::getRecipientUserId, currentUserId)
                 .isNull(NotificationEntity::getReadAt)
                 .isNull(NotificationEntity::getArchivedAt));
-        if (unread.isEmpty()) {
-            emitSnapshot(currentUserId, "notification-read-all");
-            return;
-        }
-        LocalDateTime now = LocalDateTime.now();
-        for (NotificationEntity entity : unread) {
-            entity.setReadAt(now);
-            notificationMapper.updateById(entity);
-        }
         emitSnapshot(currentUserId, "notification-read-all");
     }
 
@@ -284,11 +278,11 @@ public class NotificationService {
         if (userId == null) {
             return;
         }
-        NotificationSnapshotView snapshot = snapshotForUser(userId);
         CopyOnWriteArrayList<SseEmitter> emitters = emittersByUserId.get(userId);
         if (emitters == null || emitters.isEmpty()) {
             return;
         }
+        NotificationSnapshotView snapshot = snapshotForUser(userId);
         List<SseEmitter> stale = new ArrayList<SseEmitter>();
         for (SseEmitter emitter : emitters) {
             try {
@@ -336,12 +330,17 @@ public class NotificationService {
         return snapshot;
     }
 
-    private NotificationEntity requireCurrentUserNotification(Long notificationId) {
+    private NotificationEntity requireCurrentUserNotificationMarker(Long notificationId) {
         if (notificationId == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Notification id is required");
         }
-        NotificationEntity entity = notificationMapper.selectOne(notificationViewQuery(requireCurrentUserId())
+        NotificationEntity entity = notificationMapper.selectOne(new LambdaQueryWrapper<NotificationEntity>()
+                .select(NotificationEntity::getId,
+                        NotificationEntity::getRecipientUserId,
+                        NotificationEntity::getReadAt)
+                .eq(NotificationEntity::getRecipientUserId, requireCurrentUserId())
                 .eq(NotificationEntity::getId, notificationId)
+                .isNull(NotificationEntity::getArchivedAt)
                 .last("limit 1"));
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Notification not found");
