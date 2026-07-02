@@ -1043,7 +1043,7 @@ async function syncTechnical(datasourceType?: string) {
   }
   try {
     await schemaAction.run(async () => {
-      const synced = await studioApi.metaSchemas.syncTechnical(datasourceType);
+      const synced = await studioApi.metaSchemas.syncTechnicalSummary(datasourceType);
       upsertSchemas(synced);
       await selectCurrentNodeAfterPatch();
     }, {
@@ -1061,7 +1061,7 @@ async function syncAllTechnical() {
   }
   try {
     await schemaAction.run(async () => {
-      const synced = await studioApi.metaSchemas.syncAllTechnical();
+      const synced = await studioApi.metaSchemas.syncAllTechnicalSummary();
       upsertSchemas(synced);
       await selectCurrentNodeAfterPatch();
     }, {

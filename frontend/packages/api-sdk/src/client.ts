@@ -551,8 +551,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       syncTechnical(typeCode: string) {
         return request<MetadataSchemaDefinition[]>({ url: `/meta-schemas/technical/sync/${typeCode}`, method: "POST" });
       },
+      syncTechnicalSummary(typeCode: string) {
+        return request<MetadataSchemaDefinition[]>({ url: `/meta-schemas/technical/sync/${typeCode}/summary`, method: "POST" });
+      },
       syncAllTechnical() {
         return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas/technical/sync-all", method: "POST" });
+      },
+      syncAllTechnicalSummary() {
+        return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas/technical/sync-all/summary", method: "POST" });
       },
       syncStandardRuntimeOptions() {
         return request<MetadataSchemaDefinition[]>({ url: "/meta-schemas/runtime-options/sync-standard", method: "POST" });

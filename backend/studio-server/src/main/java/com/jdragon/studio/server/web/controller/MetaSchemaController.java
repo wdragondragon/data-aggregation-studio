@@ -79,11 +79,25 @@ public class MetaSchemaController {
         return Result.success(metadataSchemaService.syncTechnicalMetaModels(typeCode));
     }
 
+    @Operation(summary = "Sync technical meta model summaries for datasource type")
+    @PostMapping("/technical/sync/{typeCode}/summary")
+    public Result<List<MetadataSchemaDefinition>> syncTechnicalSummary(@PathVariable("typeCode") String typeCode) {
+        requireSchemaManagementPermission();
+        return Result.success(metadataSchemaService.syncTechnicalMetaModelSummaries(typeCode));
+    }
+
     @Operation(summary = "Sync technical meta models for all supported datasource types")
     @PostMapping("/technical/sync-all")
     public Result<List<MetadataSchemaDefinition>> syncAllTechnical() {
         requireSchemaManagementPermission();
         return Result.success(metadataSchemaService.syncAllTechnicalMetaModels());
+    }
+
+    @Operation(summary = "Sync technical meta model summaries for all supported datasource types")
+    @PostMapping("/technical/sync-all/summary")
+    public Result<List<MetadataSchemaDefinition>> syncAllTechnicalSummary() {
+        requireSchemaManagementPermission();
+        return Result.success(metadataSchemaService.syncAllTechnicalMetaModelSummaries());
     }
 
     @Operation(summary = "Sync standard runtime option meta models")

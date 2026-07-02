@@ -206,22 +206,40 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     @Transactional
     public List<MetadataSchemaDefinition> syncAllTechnicalMetaModels() {
+        return syncAllTechnicalMetaModels(true);
+    }
+
+    @Transactional
+    public List<MetadataSchemaDefinition> syncAllTechnicalMetaModelSummaries() {
+        return syncAllTechnicalMetaModels(false);
+    }
+
+    private List<MetadataSchemaDefinition> syncAllTechnicalMetaModels(boolean includeFieldsInReturn) {
         List<MetadataSchemaDefinition> result = new ArrayList<MetadataSchemaDefinition>();
         for (String typeCode : datasourceTypeCapabilityService.sourceTypes()) {
-            result.addAll(syncTechnicalMetaModels(typeCode));
+            result.addAll(syncTechnicalMetaModels(typeCode, includeFieldsInReturn));
         }
         return result;
     }
 
     @Transactional
     public List<MetadataSchemaDefinition> syncTechnicalMetaModels(String typeCode) {
+        return syncTechnicalMetaModels(typeCode, true);
+    }
+
+    @Transactional
+    public List<MetadataSchemaDefinition> syncTechnicalMetaModelSummaries(String typeCode) {
+        return syncTechnicalMetaModels(typeCode, false);
+    }
+
+    private List<MetadataSchemaDefinition> syncTechnicalMetaModels(String typeCode, boolean includeFieldsInReturn) {
         if (typeCode == null || typeCode.trim().isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource type is required");
         }
         List<MetadataSchemaDefinition> synced = new ArrayList<MetadataSchemaDefinition>();
-        synced.add(ensureTechnicalMetaModel(typeCode, "source"));
-        synced.add(ensureTechnicalMetaModel(typeCode, "table"));
-        synced.add(ensureTechnicalMetaModel(typeCode, "field"));
+        synced.add(ensureTechnicalMetaModel(typeCode, "source", includeFieldsInReturn));
+        synced.add(ensureTechnicalMetaModel(typeCode, "table", includeFieldsInReturn));
+        synced.add(ensureTechnicalMetaModel(typeCode, "field", includeFieldsInReturn));
         return synced;
     }
 
@@ -249,26 +267,10 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                 || metaModelCode == null || metaModelCode.trim().isEmpty()) {
             return null;
         }
-        String expectedSchemaCode = "technical:" + datasourceType.trim() + ":" + metaModelCode.trim();
-        for (MetadataSchemaDefinition schema : listSchemas()) {
-            JSONObject config = extractMetaModelConfig(schema);
-            if (config == null) {
-                continue;
-            }
-            if (!"TECHNICAL".equalsIgnoreCase(config.getString("domain"))) {
-                continue;
-            }
-            if (!normalize(datasourceType).equals(normalize(config.getString("datasourceType")))) {
-                continue;
-            }
-            if (!normalize(metaModelCode).equals(normalize(config.getString("metaModelCode")))) {
-                continue;
-            }
-            if (expectedSchemaCode.equalsIgnoreCase(schema.getSchemaCode())) {
-                return schema;
-            }
-        }
-        return null;
+        MetaSchemaEntity schema = schemaMapper.selectOne(new LambdaQueryWrapper<MetaSchemaEntity>()
+                .eq(MetaSchemaEntity::getSchemaCode, technicalSchemaCode(datasourceType, metaModelCode))
+                .last("limit 1"));
+        return schema == null ? null : toDefinition(schema);
     }
 
     public MetadataSchemaDefinition findCurrentSchema(String objectType, String typeCode) {
@@ -331,12 +333,15 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         return max + 1;
     }
 
-    private MetadataSchemaDefinition ensureTechnicalMetaModel(String datasourceType, String metaModelCode) {
+    private MetadataSchemaDefinition ensureTechnicalMetaModel(String datasourceType,
+                                                             String metaModelCode,
+                                                             boolean includeFieldsInReturn) {
         MetadataSchemaDefinition existing = findTechnicalMetaModel(datasourceType, metaModelCode);
         if (existing != null && !needsTechnicalMetaModelRefresh(existing, datasourceType, metaModelCode)) {
-            return existing;
+            return includeFieldsInReturn ? existing : toSchemaSummary(existing);
         }
-        return saveDraft(buildTechnicalMetaModelDraft(datasourceType, metaModelCode));
+        MetadataSchemaDefinition saved = saveDraft(buildTechnicalMetaModelDraft(datasourceType, metaModelCode));
+        return includeFieldsInReturn ? saved : toSchemaSummary(saved);
     }
 
     private boolean needsTechnicalMetaModelRefresh(MetadataSchemaDefinition existing,
@@ -362,7 +367,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         MetadataSchemaDefinition existing = findExistingTechnicalSchema(normalizedType, metaModelCode);
         MetadataSchemaSaveRequest request = new MetadataSchemaSaveRequest();
         request.setSchemaId(existing == null ? null : existing.getId());
-        request.setSchemaCode("technical:" + normalizedType + ":" + metaModelCode);
+        request.setSchemaCode(technicalSchemaCode(normalizedType, metaModelCode));
         request.setSchemaName(buildTechnicalSchemaName(normalizedType, metaModelCode));
         request.setObjectType("source".equalsIgnoreCase(metaModelCode) ? "datasource" : "model");
         request.setTypeCode("source".equalsIgnoreCase(metaModelCode) ? normalizedType : normalizedType + "." + metaModelCode);
@@ -382,6 +387,25 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
 
     private MetadataSchemaDefinition findExistingTechnicalSchema(String datasourceType, String metaModelCode) {
         return findTechnicalMetaModel(datasourceType, metaModelCode);
+    }
+
+    private String technicalSchemaCode(String datasourceType, String metaModelCode) {
+        return "technical:" + datasourceType.trim() + ":" + metaModelCode.trim();
+    }
+
+    private MetadataSchemaDefinition toSchemaSummary(MetadataSchemaDefinition source) {
+        MetadataSchemaDefinition summary = new MetadataSchemaDefinition();
+        summary.setId(source.getId());
+        summary.setSchemaCode(source.getSchemaCode());
+        summary.setSchemaName(source.getSchemaName());
+        summary.setObjectType(source.getObjectType());
+        summary.setTypeCode(source.getTypeCode());
+        summary.setCurrentVersionId(source.getCurrentVersionId());
+        summary.setStatus(source.getStatus());
+        summary.setDescription(source.getDescription());
+        summary.setVersionNumber(source.getVersionNumber());
+        summary.setFields(new ArrayList<MetadataFieldDefinition>());
+        return summary;
     }
 
     private String buildTechnicalSchemaName(String datasourceType, String metaModelCode) {

@@ -111,6 +111,21 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();
         assertThat(extractFieldKeys(readBody(detailResult).path("data"))).contains("physicalName", "tableType", "columnCount", "columns");
+
+        MvcResult syncSummaryResult = mockMvc.perform(post("/api/v1/meta-schemas/technical/sync/mysql8/summary")
+                        .header(HttpHeaders.AUTHORIZATION, authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data", hasSize(3)))
+                .andReturn();
+        JsonNode syncSummaries = readBody(syncSummaryResult).path("data");
+        assertThat(findSchema(syncSummaries, "technical:mysql8:source")).isNotNull();
+        assertThat(findSchema(syncSummaries, "technical:mysql8:table")).isNotNull();
+        assertThat(findSchema(syncSummaries, "technical:mysql8:field")).isNotNull();
+        for (JsonNode schema : syncSummaries) {
+            assertThat(extractFieldKeys(schema)).isEmpty();
+        }
     }
 
     @Test
