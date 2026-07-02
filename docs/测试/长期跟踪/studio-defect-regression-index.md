@@ -144,6 +144,7 @@
 | FIX-S113-001 | 数据接入/接入服务列表 | 中 | `/data-ingestion-services/{id}/publish`、`/offline` 列表页动作只需列表行摘要和当前页刷新，却返回完整接入服务定义，包含字段映射、来源绑定、writer 选项和 WebService 配置等详情 JSON | `DataIngestionService.java`；`DataIngestionServiceController.java`；`client.ts`；`DataIngestionServicesView.vue`；`DataIngestionServiceListSourceSlimmingRegressionTest.java` | `DataIngestionServiceListSourceSlimmingRegressionTest`；build-nginx API `/data-ingestion-services/{id}/publish-summary`、`/offline-summary`；build-nginx `/data-ingestion-services` | module-regression | 2026-07-03 | 本次提交 |
 | FIX-S118-001 | 通知/站内信已读动作 | 中 | `POST /notifications/{id}/read` 只需标记已读，却读取并返回完整通知视图；`read-all` 先拉取全部未读行再逐条更新；无 SSE 订阅者时仍提前构造 snapshot | `NotificationService.java`；`NotificationController.java`；`client.ts`；`NotificationServiceRegressionTest.java` | `NotificationServiceRegressionTest`；`NotificationStreamSecurityRegressionTest`；`npm run build:web`；build-nginx API `/notifications/{id}/read` 返回 `data=null`；build-nginx `/notifications` | module-regression | 2026-07-03 | 本次提交 |
 | FIX-S119-001 | 运行记录/指标摘要 | 中 | `/runs` 列表源头不读取旧 `result_json/payload_json` 后，缺少指标列的旧运行记录会被 `RunMetricSummaryMapper.fromEntity()` 误推导出 `successRecords=0`、`transformerTotalRecords=0`，造成缺失指标显示为 0；旧 API 回归夹具也未同步 S74 后的 metric binding 摘要表 | `RunMetricSummaryMapper.java`；`RunMetricsApiRegressionTest.java` | `RunMetricsApiRegressionTest`；`RunListSourceSlimmingRegressionTest`；`MetricsSourceSlimmingRegressionTest`；`CollectionTaskListSourceSlimmingRegressionTest`；build-nginx `/run-metrics`、`/collection-task-runs` | module-regression | 2026-07-03 | 本次提交 |
+| FIX-S121-001 | 运行记录/分页名称水合 | 中 | `/runs/page` 作为采集运行或质量运行表格接口时，当前页表格只需一种任务名称，却读取全项目采集任务名、质量任务名和工作流名，属于数量维度过取 | `RunService.java`；`CollectionTaskService.java`；`QualityTaskService.java`；`RunListSourceSlimmingRegressionTest.java`；`CollectionTaskListSourceSlimmingRegressionTest.java`；`QualityListSourceSlimmingRegressionTest.java` | `RunListSourceSlimmingRegressionTest`；`CollectionTaskListSourceSlimmingRegressionTest`；`QualityListSourceSlimmingRegressionTest`；build-nginx API `/runs/page?qualityTaskOnly=true`、`/runs/page?collectionTaskOnly=true`；build-nginx `/quality-task-runs`、`/collection-task-runs` | module-regression | 2026-07-03 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -266,3 +267,4 @@
 | S112 采集任务上线响应源头瘦身 | FIX-S112-001 |
 | S113 数据接入列表发布下线响应源头瘦身 | FIX-S113-001 |
 | S118 站内信已读写接口源头瘦身 | FIX-S118-001 |
+| S121 质量运行分页名称水合源头瘦身 | FIX-S121-001 |

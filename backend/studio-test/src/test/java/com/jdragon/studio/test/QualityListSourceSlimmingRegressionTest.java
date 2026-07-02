@@ -147,6 +147,24 @@ class QualityListSourceSlimmingRegressionTest {
     }
 
     @Test
+    void qualityTaskNamesByIdsShouldSelectOnlyIdAndTaskName() {
+        QualityTaskDefinitionMapper taskMapper = mock(QualityTaskDefinitionMapper.class);
+        QualityTaskService service = qualityTaskService(taskMapper);
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(taskEntity()));
+
+        assertThat(service.listAccessibleNamesByIds(Collections.singletonList(21L)))
+                .containsEntry(21L, "客户手机号完整性巡检任务");
+
+        ArgumentCaptor<LambdaQueryWrapper<QualityTaskDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(taskMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "task_name")
+                .doesNotContain("task_code", "status", "datasource_id", "datasource_name_snapshot",
+                        "model_id", "model_name_snapshot", "model_physical_locator", "column_name",
+                        "where_clause", "resolved_sql_preview", "parameter_bindings_json", "rule_snapshot_json");
+    }
+
+    @Test
     void qualityTaskWorkflowOptionsShouldSelectOnlyWorkflowBindingColumns() {
         QualityTaskDefinitionMapper taskMapper = mock(QualityTaskDefinitionMapper.class);
         QualityTaskService service = qualityTaskService(taskMapper);

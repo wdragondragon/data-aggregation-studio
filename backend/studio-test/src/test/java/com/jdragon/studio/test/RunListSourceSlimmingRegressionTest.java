@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -123,10 +124,7 @@ class RunListSourceSlimmingRegressionTest {
                 new RunMetricSummaryMapper());
         when(securityService.currentTenantId()).thenReturn("default");
         when(securityService.currentProjectId()).thenReturn(100L);
-        when(collectionTaskService.listAccessibleNames()).thenReturn(nameMap(11L, "客户订单采集任务"));
-        when(qualityTaskService.listAccessibleNames()).thenReturn(nameMap(22L, "合同完整性质量任务"));
-        when(workflowDefinitionMapper.selectList(any(LambdaQueryWrapper.class)))
-                .thenReturn(Collections.singletonList(workflowDefinition()));
+        when(collectionTaskService.listAccessibleNamesByIds(any())).thenReturn(nameMap(11L, "客户订单采集任务"));
         when(runRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
             Page<RunRecordEntity> page = invocation.getArgument(0);
             page.setTotal(48L);
@@ -146,6 +144,13 @@ class RunListSourceSlimmingRegressionTest {
         assertThat(page.getItems()).hasSize(1);
         assertThat(page.getItems().get(0).getCollectionTaskName()).isEqualTo("客户订单采集任务");
 
+        ArgumentCaptor<Collection<Long>> collectionNameIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(collectionTaskService).listAccessibleNamesByIds(collectionNameIdsCaptor.capture());
+        assertThat(collectionNameIdsCaptor.getValue()).containsOnly(11L);
+        verify(collectionTaskService, never()).listAccessibleNames();
+        verify(qualityTaskService, never()).listAccessibleNamesByIds(any());
+        verify(qualityTaskService, never()).listAccessibleNames();
+        verify(workflowDefinitionMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(dispatchTaskMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(runRecordMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verify(runRecordMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
@@ -156,6 +161,51 @@ class RunListSourceSlimmingRegressionTest {
         assertThat(pageQueryCaptor.getValue().getSqlSelect())
                 .contains("collection_task_id", "quality_task_id", "workflow_definition_id", "message", "collected_records")
                 .doesNotContain("payload_json", "result_json", "log_file_path", "log_object_key", "log_object_bucket", "log_chunk_count");
+    }
+
+    @Test
+    void qualityRunRecordPageShouldHydrateOnlyQualityTaskNamesForCurrentPage() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        QualityTaskService qualityTaskService = mock(QualityTaskService.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        RunService service = new RunService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                collectionTaskService,
+                qualityTaskService,
+                workflowDefinitionMapper,
+                securityService,
+                new RunMetricSummaryMapper());
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentProjectId()).thenReturn(100L);
+        when(qualityTaskService.listAccessibleNamesByIds(any())).thenReturn(nameMap(22L, "合同完整性质量任务"));
+        when(runRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<RunRecordEntity> page = invocation.getArgument(0);
+            page.setTotal(18L);
+            page.setRecords(Collections.singletonList(runRecord()));
+            return page;
+        });
+        when(runRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L, 0L, 17L);
+
+        RunRecordPageView page = service.listRunRecords(null, 22L, null, false, true, null, null, null, 1, 10);
+
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getItems().get(0).getQualityTaskName()).isEqualTo("合同完整性质量任务");
+        assertThat(page.getItems().get(0).getCollectionTaskName()).isNull();
+        assertThat(page.getItems().get(0).getWorkflowName()).isNull();
+
+        ArgumentCaptor<Collection<Long>> qualityNameIdsCaptor = ArgumentCaptor.forClass(Collection.class);
+        verify(qualityTaskService).listAccessibleNamesByIds(qualityNameIdsCaptor.capture());
+        assertThat(qualityNameIdsCaptor.getValue()).containsOnly(22L);
+        verify(qualityTaskService, never()).listAccessibleNames();
+        verify(collectionTaskService, never()).listAccessibleNamesByIds(any());
+        verify(collectionTaskService, never()).listAccessibleNames();
+        verify(workflowDefinitionMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(runRecordMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(runRecordMapper, times(3)).selectCount(any(LambdaQueryWrapper.class));
     }
 
     @Test

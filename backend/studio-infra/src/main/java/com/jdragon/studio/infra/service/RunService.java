@@ -21,10 +21,13 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class RunService {
@@ -82,11 +85,12 @@ public class RunService {
                 endTime)
                 .orderByDesc(RunRecordEntity::getCreatedAt)
                 .orderByDesc(RunRecordEntity::getId));
-        Map<Long, String> collectionTaskNames = collectionTaskNames();
-        Map<Long, String> qualityTaskNames = qualityTaskNames();
-        Map<Long, String> workflowNames = workflowNames();
+        List<RunRecordEntity> records = entityPage.getRecords();
+        Map<Long, String> collectionTaskNames = collectionTaskNamesForPage(records, collectionTaskOnly, qualityTaskOnly);
+        Map<Long, String> qualityTaskNames = qualityTaskNamesForPage(records, collectionTaskOnly, qualityTaskOnly);
+        Map<Long, String> workflowNames = workflowNamesForPage(records, collectionTaskOnly, qualityTaskOnly);
         List<RunRecordListView> items = new ArrayList<RunRecordListView>();
-        for (RunRecordEntity entity : entityPage.getRecords()) {
+        for (RunRecordEntity entity : records) {
             items.add(toRunRecordListView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
         }
 
@@ -467,6 +471,118 @@ public class RunService {
         Map<Long, String> result = new LinkedHashMap<Long, String>();
         if (id != null && name != null) {
             result.put(id, name);
+        }
+        return result;
+    }
+
+    private Map<Long, String> collectionTaskNamesForPage(List<RunRecordEntity> records,
+                                                         Boolean collectionTaskOnly,
+                                                         Boolean qualityTaskOnly) {
+        if (Boolean.TRUE.equals(qualityTaskOnly)) {
+            return new LinkedHashMap<Long, String>();
+        }
+        Set<Long> ids = collectionTaskIds(records);
+        if (ids.isEmpty()) {
+            return new LinkedHashMap<Long, String>();
+        }
+        return collectionTaskService.listAccessibleNamesByIds(ids);
+    }
+
+    private Map<Long, String> qualityTaskNamesForPage(List<RunRecordEntity> records,
+                                                      Boolean collectionTaskOnly,
+                                                      Boolean qualityTaskOnly) {
+        if (Boolean.TRUE.equals(collectionTaskOnly)) {
+            return new LinkedHashMap<Long, String>();
+        }
+        Set<Long> ids = qualityTaskIds(records);
+        if (ids.isEmpty()) {
+            return new LinkedHashMap<Long, String>();
+        }
+        return qualityTaskService.listAccessibleNamesByIds(ids);
+    }
+
+    private Map<Long, String> workflowNamesForPage(List<RunRecordEntity> records,
+                                                   Boolean collectionTaskOnly,
+                                                   Boolean qualityTaskOnly) {
+        if (Boolean.TRUE.equals(collectionTaskOnly) || Boolean.TRUE.equals(qualityTaskOnly)) {
+            return new LinkedHashMap<Long, String>();
+        }
+        Set<Long> ids = workflowDefinitionIds(records);
+        if (ids.isEmpty()) {
+            return new LinkedHashMap<Long, String>();
+        }
+        return workflowNames(ids);
+    }
+
+    private Map<Long, String> workflowNames(Collection<Long> workflowDefinitionIds) {
+        Set<Long> ids = normalizeIds(workflowDefinitionIds);
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (ids.isEmpty()) {
+            return result;
+        }
+        List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .select(WorkflowDefinitionEntity::getId,
+                        WorkflowDefinitionEntity::getName)
+                .eq(WorkflowDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(securityService.currentProjectId() != null, WorkflowDefinitionEntity::getProjectId, securityService.currentProjectId())
+                .in(WorkflowDefinitionEntity::getId, ids)
+                .orderByAsc(WorkflowDefinitionEntity::getCode));
+        for (WorkflowDefinitionEntity definition : definitions) {
+            if (definition.getId() != null) {
+                result.put(definition.getId(), definition.getName());
+            }
+        }
+        return result;
+    }
+
+    private Set<Long> collectionTaskIds(Collection<RunRecordEntity> records) {
+        Set<Long> result = new HashSet<Long>();
+        if (records == null) {
+            return result;
+        }
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getCollectionTaskId() != null) {
+                result.add(record.getCollectionTaskId());
+            }
+        }
+        return result;
+    }
+
+    private Set<Long> qualityTaskIds(Collection<RunRecordEntity> records) {
+        Set<Long> result = new HashSet<Long>();
+        if (records == null) {
+            return result;
+        }
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getQualityTaskId() != null) {
+                result.add(record.getQualityTaskId());
+            }
+        }
+        return result;
+    }
+
+    private Set<Long> workflowDefinitionIds(Collection<RunRecordEntity> records) {
+        Set<Long> result = new HashSet<Long>();
+        if (records == null) {
+            return result;
+        }
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getWorkflowDefinitionId() != null) {
+                result.add(record.getWorkflowDefinitionId());
+            }
+        }
+        return result;
+    }
+
+    private Set<Long> normalizeIds(Collection<Long> ids) {
+        Set<Long> result = new HashSet<Long>();
+        if (ids == null) {
+            return result;
+        }
+        for (Long id : ids) {
+            if (id != null) {
+                result.add(id);
+            }
         }
         return result;
     }

@@ -37,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -210,6 +211,26 @@ public class CollectionTaskService {
                 .orderByAsc(CollectionTaskDefinitionEntity::getName)
                 .orderByAsc(CollectionTaskDefinitionEntity::getId));
         Map<Long, String> result = new LinkedHashMap<Long, String>();
+        for (CollectionTaskDefinitionEntity entity : entities) {
+            if (entity.getId() != null) {
+                result.put(entity.getId(), entity.getName());
+            }
+        }
+        return result;
+    }
+
+    public Map<Long, String> listAccessibleNamesByIds(Collection<Long> ids) {
+        Set<Long> taskIds = normalizeIds(ids);
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (taskIds.isEmpty()) {
+            return result;
+        }
+        List<CollectionTaskDefinitionEntity> entities = definitionMapper.selectList(buildAccessibleQuery()
+                .select(CollectionTaskDefinitionEntity::getId,
+                        CollectionTaskDefinitionEntity::getName)
+                .in(CollectionTaskDefinitionEntity::getId, taskIds)
+                .orderByAsc(CollectionTaskDefinitionEntity::getName)
+                .orderByAsc(CollectionTaskDefinitionEntity::getId));
         for (CollectionTaskDefinitionEntity entity : entities) {
             if (entity.getId() != null) {
                 result.put(entity.getId(), entity.getName());
@@ -598,6 +619,19 @@ public class CollectionTaskService {
             schedule.setEnabled(entity.getEnabled() != null && entity.getEnabled() == 1);
             schedule.setTimezone(entity.getTimezone());
             result.put(entity.getCollectionTaskId(), schedule);
+        }
+        return result;
+    }
+
+    private Set<Long> normalizeIds(Collection<Long> ids) {
+        Set<Long> result = new HashSet<Long>();
+        if (ids == null) {
+            return result;
+        }
+        for (Long id : ids) {
+            if (id != null) {
+                result.add(id);
+            }
         }
         return result;
     }

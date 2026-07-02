@@ -131,6 +131,26 @@ class CollectionTaskListSourceSlimmingRegressionTest {
     }
 
     @Test
+    void collectionTaskNamesByIdsShouldSelectOnlyIdAndNameWithoutSchedules() {
+        CollectionTaskDefinitionMapper definitionMapper = mock(CollectionTaskDefinitionMapper.class);
+        CollectionTaskScheduleMapper scheduleMapper = mock(CollectionTaskScheduleMapper.class);
+        CollectionTaskService service = collectionTaskService(definitionMapper, scheduleMapper);
+        when(definitionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(taskEntity()));
+
+        assertThat(service.listAccessibleNamesByIds(Collections.singletonList(11L)))
+                .containsEntry(11L, "长期回归-客户订单增量采集任务");
+
+        ArgumentCaptor<LambdaQueryWrapper<CollectionTaskDefinitionEntity>> taskCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper).selectList(taskCaptor.capture());
+        assertThat(taskCaptor.getValue().getSqlSelect())
+                .contains("id", "name")
+                .doesNotContain("task_type", "status", "source_count",
+                        "source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
+        verify(scheduleMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(scheduleMapper, never()).selectOne(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
     void collectionTaskWorkflowOptionsShouldSelectOnlyWorkflowBindingColumns() {
         CollectionTaskDefinitionMapper definitionMapper = mock(CollectionTaskDefinitionMapper.class);
         CollectionTaskScheduleMapper scheduleMapper = mock(CollectionTaskScheduleMapper.class);

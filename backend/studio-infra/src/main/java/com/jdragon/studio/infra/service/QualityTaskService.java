@@ -40,10 +40,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class QualityTaskService {
@@ -249,6 +252,29 @@ public class QualityTaskService {
         return result;
     }
 
+    public Map<Long, String> listAccessibleNamesByIds(Collection<Long> ids) {
+        Long currentProjectId = projectResourceAccessService.currentProjectId();
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        Set<Long> taskIds = normalizeIds(ids);
+        if (currentProjectId == null || taskIds.isEmpty()) {
+            return result;
+        }
+        List<QualityTaskDefinitionEntity> entities = definitionMapper.selectList(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+                .select(QualityTaskDefinitionEntity::getId,
+                        QualityTaskDefinitionEntity::getTaskName)
+                .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
+                .in(QualityTaskDefinitionEntity::getId, taskIds)
+                .orderByAsc(QualityTaskDefinitionEntity::getTaskName)
+                .orderByAsc(QualityTaskDefinitionEntity::getId));
+        for (QualityTaskDefinitionEntity entity : entities) {
+            if (entity.getId() != null) {
+                result.put(entity.getId(), entity.getTaskName());
+            }
+        }
+        return result;
+    }
+
     public String getAccessibleName(Long id) {
         if (id == null) {
             return null;
@@ -265,6 +291,19 @@ public class QualityTaskService {
                 .eq(QualityTaskDefinitionEntity::getId, id)
                 .last("limit 1"));
         return entity == null ? null : entity.getTaskName();
+    }
+
+    private Set<Long> normalizeIds(Collection<Long> ids) {
+        Set<Long> result = new HashSet<Long>();
+        if (ids == null) {
+            return result;
+        }
+        for (Long id : ids) {
+            if (id != null) {
+                result.add(id);
+            }
+        }
+        return result;
     }
 
     public QualityTaskDefinitionView get(Long id) {
