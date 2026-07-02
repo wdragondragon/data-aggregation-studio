@@ -250,3 +250,5 @@
 - S114 本轮未新增或清理长期数据；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest` 与 `OpenServiceInvocationLogSourceSlimmingRegressionTest` 共 6 tests 全部通过；build-nginx 两个页面均显示长期项目上下文，console warn/error 为 0。后续继续遵循“当前页分页拉取、刷新按钮、状态刷新是正常行为；重点排查列表入口读取详情大字段或写动作返回大对象”的判定边界。
 - 2026-07-03 已完成 S115 数据服务监控日志源头复核：`/data-service-metrics`、`/data-service-metrics/access-logs` 代码与 build-nginx 页面均复核通过，未发现需要修复的真实过取问题；监控选项只读服务/订阅轻字段，dashboard/API 统计走聚合 SQL，访问日志列表字段级 `select`，完整日志抽屉通过独立接口先读日志指针。
 - S115 本轮未新增或清理长期数据；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest` 与 `OpenServiceInvocationLogSourceSlimmingRegressionTest` 共 6 tests 全部通过；build-nginx 服务监控和访问日志页均显示长期项目上下文，console warn/error 为 0。默认访问日志筛选下未出现数据行，不影响代码侧字段源头结论。
+- 2026-07-03 已完成 S116 协议转换访问日志源头复核：`/protocol-conversions/access-logs` 代码与 build-nginx 页面均复核通过，未发现需要修复的真实过取问题；选项接口只读服务/订阅轻字段，访问日志列表字段级 `select`，Trace 详情按 id 独立轻量摘要校验，完整日志抽屉先读日志指针。
+- S116 本轮未新增或清理长期数据；`OpenServiceInvocationLogSourceSlimmingRegressionTest` 与 `ProtocolConversionTraceSourceSlimmingRegressionTest` 共 3 tests 全部通过；build-nginx 协议转换访问日志页显示长期项目上下文、筛选区和表格表头，console warn/error 为 0。
