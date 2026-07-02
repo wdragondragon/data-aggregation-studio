@@ -252,3 +252,5 @@
 - S115 本轮未新增或清理长期数据；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest` 与 `OpenServiceInvocationLogSourceSlimmingRegressionTest` 共 6 tests 全部通过；build-nginx 服务监控和访问日志页均显示长期项目上下文，console warn/error 为 0。默认访问日志筛选下未出现数据行，不影响代码侧字段源头结论。
 - 2026-07-03 已完成 S116 协议转换访问日志源头复核：`/protocol-conversions/access-logs` 代码与 build-nginx 页面均复核通过，未发现需要修复的真实过取问题；选项接口只读服务/订阅轻字段，访问日志列表字段级 `select`，Trace 详情按 id 独立轻量摘要校验，完整日志抽屉先读日志指针。
 - S116 本轮未新增或清理长期数据；`OpenServiceInvocationLogSourceSlimmingRegressionTest` 与 `ProtocolConversionTraceSourceSlimmingRegressionTest` 共 3 tests 全部通过；build-nginx 协议转换访问日志页显示长期项目上下文、筛选区和表格表头，console warn/error 为 0。
+- 2026-07-03 已完成 S117 运维中心源头复核：`/ops-center` 代码与 build-nginx 页面均复核通过，未发现需要修复的真实过取问题；队列、运行异常、服务异常、接入异常和日志异常表格区走分页查询并字段级 `select`，Worker 状态和队列对象名称解析只读轻字段。
+- S117 本轮未新增或清理长期数据；`OpsCenterServiceRegressionTest` 14 tests 全部通过；build-nginx 运维中心显示 `Default Tenant / 长期回归测试项目`、健康卡片、Worker 组和各异常区块，console warn/error 为 0。当前页分页、刷新按钮、自动刷新和状态刷新继续视为正常行为。
