@@ -2,6 +2,7 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +46,10 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -88,6 +92,70 @@ class QualityListSourceSlimmingRegressionTest {
         assertThat(captor.getValue().getSqlSelect())
                 .contains("rule_name", "rule_code", "scope_type", "rule_dimension", "granularity", "enabled")
                 .doesNotContain("description", "supported_datasource_types_json", "logic_sql");
+    }
+
+    @Test
+    void qualityRuleEnableSummaryShouldUseReferenceCheckAndReturnListView() {
+        QualityRuleMapper ruleMapper = mock(QualityRuleMapper.class);
+        QualityRuleInputParamMapper inputParamMapper = mock(QualityRuleInputParamMapper.class);
+        QualityRuleOutputParamMapper outputParamMapper = mock(QualityRuleOutputParamMapper.class);
+        QualityRuleService service = qualityRuleService(ruleMapper, inputParamMapper, outputParamMapper);
+        QualityRuleEntity enabledRule = ruleEntity();
+        enabledRule.setEnabled(1);
+        when(ruleMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(ruleReference())
+                .thenReturn(enabledRule);
+
+        QualityRuleListView result = service.enableSummary(11L);
+
+        assertThat(result.getRuleName()).isEqualTo("客户手机号完整性规则");
+        assertThat(result.getEnabled()).isTrue();
+        verify(ruleMapper, never()).selectById(any());
+        verify(ruleMapper, never()).updateById(any(QualityRuleEntity.class));
+        verify(inputParamMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(outputParamMapper, never()).selectList(any(LambdaQueryWrapper.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QualityRuleEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(ruleMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("enabled", "updated_at")
+                .doesNotContain("logic_sql", "description", "supported_datasource_types_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<QualityRuleEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(ruleMapper, times(2)).selectOne(queryCaptor.capture());
+        assertThat(queryCaptor.getAllValues().get(0).getSqlSelect())
+                .contains("id", "tenant_id", "project_id", "scope_type")
+                .doesNotContain("description", "supported_datasource_types_json", "logic_sql");
+        assertThat(queryCaptor.getAllValues().get(1).getSqlSelect())
+                .contains("rule_name", "rule_code", "scope_type", "rule_dimension", "granularity", "enabled")
+                .doesNotContain("description", "supported_datasource_types_json", "logic_sql");
+    }
+
+    @Test
+    void qualityRuleDisableSummaryShouldUseReferenceCheckAndReturnListView() {
+        QualityRuleMapper ruleMapper = mock(QualityRuleMapper.class);
+        QualityRuleInputParamMapper inputParamMapper = mock(QualityRuleInputParamMapper.class);
+        QualityRuleOutputParamMapper outputParamMapper = mock(QualityRuleOutputParamMapper.class);
+        QualityRuleService service = qualityRuleService(ruleMapper, inputParamMapper, outputParamMapper);
+        QualityRuleEntity disabledRule = ruleEntity();
+        disabledRule.setEnabled(0);
+        when(ruleMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(ruleReference())
+                .thenReturn(disabledRule);
+
+        QualityRuleListView result = service.disableSummary(11L);
+
+        assertThat(result.getEnabled()).isFalse();
+        verify(ruleMapper, never()).selectById(any());
+        verify(ruleMapper, never()).updateById(any(QualityRuleEntity.class));
+        verify(inputParamMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        verify(outputParamMapper, never()).selectList(any(LambdaQueryWrapper.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QualityRuleEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(ruleMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("enabled", "updated_at")
+                .doesNotContain("logic_sql", "description", "supported_datasource_types_json");
     }
 
     @Test
@@ -198,6 +266,24 @@ class QualityListSourceSlimmingRegressionTest {
         }
     }
 
+    private QualityRuleService qualityRuleService(QualityRuleMapper ruleMapper,
+                                                  QualityRuleInputParamMapper inputParamMapper,
+                                                  QualityRuleOutputParamMapper outputParamMapper) {
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.hasAnyRole(any(String[].class))).thenReturn(true);
+        when(accessService.currentProjectId()).thenReturn(100L);
+        return new QualityRuleService(
+                ruleMapper,
+                inputParamMapper,
+                outputParamMapper,
+                mock(StudioUserMapper.class),
+                securityService,
+                accessService,
+                mock(QualitySqlTemplateService.class));
+    }
+
     private QualityTaskService qualityTaskService(QualityTaskDefinitionMapper taskMapper) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
@@ -239,6 +325,15 @@ class QualityListSourceSlimmingRegressionTest {
         entity.setRuleDimension(QualityRuleDimension.COMPLETENESS.name());
         entity.setGranularity(QualityRuleGranularity.COLUMN.name());
         entity.setEnabled(1);
+        return entity;
+    }
+
+    private QualityRuleEntity ruleReference() {
+        QualityRuleEntity entity = new QualityRuleEntity();
+        entity.setId(11L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        entity.setScopeType(QualityRuleScopeType.PROJECT.name());
         return entity;
     }
 

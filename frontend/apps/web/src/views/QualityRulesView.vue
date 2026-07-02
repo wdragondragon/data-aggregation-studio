@@ -184,45 +184,19 @@ async function toggleRule(rule: QualityRuleListView) {
     return;
   }
   try {
-    const updated = rule.enabled
-      ? await studioApi.qualityRules.disable(rule.id)
-      : await studioApi.qualityRules.enable(rule.id);
-    if (rule.enabled) {
+    const wasEnabled = rule.enabled;
+    await (wasEnabled
+      ? studioApi.qualityRules.disableSummary(rule.id)
+      : studioApi.qualityRules.enableSummary(rule.id));
+    await loadRules();
+    if (wasEnabled) {
       ElMessage.success("规则已停用");
     } else {
       ElMessage.success("规则已启用");
     }
-    patchRuleRow(rule, updated);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "更新规则状态失败");
   }
-}
-
-function patchRuleRow(rule: QualityRuleListView, patch: Partial<QualityRuleListView>) {
-  const target = page.items.find((item) => item.id === rule.id);
-  if (!target) {
-    return;
-  }
-  const keys: (keyof QualityRuleListView)[] = [
-    "updatedAt",
-    "ruleName",
-    "ruleCode",
-    "scopeType",
-    "ruleDimension",
-    "granularity",
-    "enabled",
-    "createdBy",
-    "createdByName",
-    "editable",
-    "deletable",
-  ];
-  const next: Partial<QualityRuleListView> = {};
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      (next as Record<string, unknown>)[key] = (patch as Record<string, unknown>)[key];
-    }
-  }
-  Object.assign(target, next);
 }
 
 async function deleteRule(rule: QualityRuleListView) {

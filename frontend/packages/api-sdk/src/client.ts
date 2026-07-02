@@ -502,8 +502,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       enable(id: EntityId) {
         return request<QualityRuleView>({ url: `/quality-rules/${id}/enable`, method: "POST" });
       },
+      enableSummary(id: EntityId) {
+        return request<QualityRuleListView>({ url: `/quality-rules/${id}/enable-summary`, method: "POST" });
+      },
       disable(id: EntityId) {
         return request<QualityRuleView>({ url: `/quality-rules/${id}/disable`, method: "POST" });
+      },
+      disableSummary(id: EntityId) {
+        return request<QualityRuleListView>({ url: `/quality-rules/${id}/disable-summary`, method: "POST" });
       },
       parse(payload: QualityRuleParseRequest) {
         return request<QualityRuleParseResult>({ url: "/quality-rules/parse-params", method: "POST", data: payload });

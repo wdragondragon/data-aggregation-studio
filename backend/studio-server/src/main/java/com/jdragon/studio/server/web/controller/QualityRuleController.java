@@ -98,10 +98,22 @@ public class QualityRuleController {
         return Result.success(qualityRuleService.enable(id));
     }
 
+    @Operation(summary = "Enable quality rule and return table row summary")
+    @PostMapping("/{id}/enable-summary")
+    public Result<QualityRuleListView> enableSummary(@PathVariable("id") Long id) {
+        return Result.success(qualityRuleService.enableSummary(id));
+    }
+
     @Operation(summary = "Disable quality rule")
     @PostMapping("/{id}/disable")
     public Result<QualityRuleView> disable(@PathVariable("id") Long id) {
         return Result.success(qualityRuleService.disable(id));
+    }
+
+    @Operation(summary = "Disable quality rule and return table row summary")
+    @PostMapping("/{id}/disable-summary")
+    public Result<QualityRuleListView> disableSummary(@PathVariable("id") Long id) {
+        return Result.success(qualityRuleService.disableSummary(id));
     }
 
     @Operation(summary = "Parse quality rule parameters")

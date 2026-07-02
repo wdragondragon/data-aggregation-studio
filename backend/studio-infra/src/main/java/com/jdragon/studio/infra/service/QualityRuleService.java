@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -34,6 +35,7 @@ import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -196,8 +198,20 @@ public class QualityRuleService {
     }
 
     @Transactional
+    public QualityRuleListView enableSummary(Long id) {
+        updateEnabledStatus(id, true);
+        return getListView(id);
+    }
+
+    @Transactional
     public QualityRuleView disable(Long id) {
         return updateEnabled(id, false);
+    }
+
+    @Transactional
+    public QualityRuleListView disableSummary(Long id) {
+        updateEnabledStatus(id, false);
+        return getListView(id);
     }
 
     public QualityRuleParseResultView parse(QualityRuleParseRequest request) {
@@ -270,10 +284,27 @@ public class QualityRuleService {
     }
 
     private QualityRuleView updateEnabled(Long id, boolean enabled) {
-        QualityRuleEntity entity = requireWritableEntity(id);
-        entity.setEnabled(enabled ? Integer.valueOf(1) : Integer.valueOf(0));
-        qualityRuleMapper.updateById(entity);
+        updateEnabledStatus(id, enabled);
         return get(id);
+    }
+
+    private void updateEnabledStatus(Long id, boolean enabled) {
+        QualityRuleEntity entity = requireWritableReference(id);
+        qualityRuleMapper.update(null, new LambdaUpdateWrapper<QualityRuleEntity>()
+                .set(QualityRuleEntity::getEnabled, enabled ? Integer.valueOf(1) : Integer.valueOf(0))
+                .set(QualityRuleEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(QualityRuleEntity::getId, entity.getId()));
+    }
+
+    private QualityRuleListView getListView(Long id) {
+        QualityRuleEntity entity = qualityRuleMapper.selectOne(selectRuleListColumns(new LambdaQueryWrapper<QualityRuleEntity>())
+                .eq(QualityRuleEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityRuleEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null || !canRead(entity)) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Quality rule not found: " + id);
+        }
+        return toListView(entity, resolveCreatorName(entity.getCreatedBy()));
     }
 
     private void saveRuleChildren(Long ruleId, QualityRuleSaveRequest request) {
@@ -590,6 +621,27 @@ public class QualityRuleService {
 
     private QualityRuleEntity requireWritableEntity(Long id) {
         QualityRuleEntity entity = requireAccessibleEntity(id);
+        if (!canManage(entity)) {
+            throw new StudioException(StudioErrorCode.FORBIDDEN, "Operation is not allowed in the current context");
+        }
+        return entity;
+    }
+
+    private QualityRuleEntity requireWritableReference(Long id) {
+        if (id == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Rule id is required");
+        }
+        QualityRuleEntity entity = qualityRuleMapper.selectOne(new LambdaQueryWrapper<QualityRuleEntity>()
+                .select(QualityRuleEntity::getId,
+                        QualityRuleEntity::getTenantId,
+                        QualityRuleEntity::getProjectId,
+                        QualityRuleEntity::getScopeType)
+                .eq(QualityRuleEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityRuleEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null || !canRead(entity)) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Quality rule not found: " + id);
+        }
         if (!canManage(entity)) {
             throw new StudioException(StudioErrorCode.FORBIDDEN, "Operation is not allowed in the current context");
         }
