@@ -2,6 +2,7 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,7 +31,9 @@ import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,6 +72,95 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionServiceEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(serviceMapper).selectPage(any(Page.class), captor.capture());
         assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "project_id", "created_at", "updated_at",
+                        "service_code", "service_name", "status", "endpoint_path", "webservice_endpoint_path",
+                        "source_protocol", "conversion_mode", "target_datasource_name_snapshot",
+                        "target_path", "target_protocol")
+                .doesNotContain("tenant_id", "deleted", "created_by",
+                        "token_required", "default_subscription_name",
+                        "source_method", "source_data_node_path",
+                        "target_datasource_id", "target_method", "payload_mode",
+                        "service_key", "webservice_config_json",
+                        "field_mappings_json", "raw_transformers_json", "fixed_fields_json",
+                        "body_bridge_options_json", "request_passthrough_json",
+                        "target_headers_json", "target_query_json", "target_webservice_config_json",
+                        "target_body_template", "target_data_node_path", "response_status_json");
+    }
+
+    @Test
+    void protocolConversionListPublishShouldReturnSlimListViewInsteadOfFullDefinitionView() {
+        ProtocolConversionServiceMapper serviceMapper = mock(ProtocolConversionServiceMapper.class);
+        ProtocolConversionService service = service(serviceMapper);
+        ProtocolConversionServiceEntity beforePublish = protocolConversionEntity();
+        beforePublish.setStatus(ProtocolConversionStatus.DRAFT.name());
+        beforePublish.setConversionMode(ProtocolConversionMode.BODY_BRIDGE.name());
+        beforePublish.setServiceKey(null);
+        beforePublish.setEndpointPath(null);
+        beforePublish.setWebserviceEndpointPath(null);
+        ProtocolConversionServiceEntity afterPublish = protocolConversionEntity();
+        afterPublish.setStatus(ProtocolConversionStatus.ONLINE.name());
+        when(serviceMapper.selectById(50L)).thenReturn(beforePublish);
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(afterPublish);
+
+        ProtocolConversionServiceListView published = service.publishSummary(50L);
+
+        assertThat(published.getStatus()).isEqualTo(ProtocolConversionStatus.ONLINE);
+        assertThat(published.getTokenRequired()).isNull();
+        assertThat(published.getSourceMethod()).isNull();
+        assertThat(published.getTargetDatasourceId()).isNull();
+        verify(serviceMapper).selectById(50L);
+        verify(serviceMapper, never()).updateById(any(ProtocolConversionServiceEntity.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<ProtocolConversionServiceEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(serviceMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("status", "updated_at", "service_key", "endpoint_path", "webservice_endpoint_path")
+                .doesNotContain("field_mappings_json", "raw_transformers_json", "fixed_fields_json",
+                        "target_headers_json", "target_query_json", "target_body_template", "response_status_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionServiceEntity>> listQueryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(serviceMapper).selectOne(listQueryCaptor.capture());
+        assertTableListSelectIsSlim(listQueryCaptor.getValue().getSqlSelect());
+    }
+
+    @Test
+    void protocolConversionListOfflineShouldUseReferenceCheckAndReturnSlimListView() {
+        ProtocolConversionServiceMapper serviceMapper = mock(ProtocolConversionServiceMapper.class);
+        ProtocolConversionService service = service(serviceMapper);
+        ProtocolConversionServiceEntity reference = serviceReference();
+        ProtocolConversionServiceEntity afterOffline = protocolConversionEntity();
+        afterOffline.setStatus(ProtocolConversionStatus.OFFLINE.name());
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(reference)
+                .thenReturn(afterOffline);
+
+        ProtocolConversionServiceListView offline = service.offlineSummary(50L);
+
+        assertThat(offline.getStatus()).isEqualTo(ProtocolConversionStatus.OFFLINE);
+        assertThat(offline.getTokenRequired()).isNull();
+        assertThat(offline.getSourceMethod()).isNull();
+        assertThat(offline.getTargetDatasourceId()).isNull();
+        verify(serviceMapper, never()).selectById(any());
+        verify(serviceMapper, never()).updateById(any(ProtocolConversionServiceEntity.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<ProtocolConversionServiceEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(serviceMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("status", "updated_at")
+                .doesNotContain("field_mappings_json", "raw_transformers_json", "fixed_fields_json",
+                        "target_headers_json", "target_query_json", "target_body_template", "response_status_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionServiceEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(serviceMapper, org.mockito.Mockito.times(2)).selectOne(queryCaptor.capture());
+        assertThat(queryCaptor.getAllValues().get(0).getSqlSelect())
+                .contains("id", "tenant_id", "project_id")
+                .doesNotContain("field_mappings_json", "raw_transformers_json", "fixed_fields_json",
+                        "target_headers_json", "target_query_json", "target_body_template", "response_status_json");
+        assertTableListSelectIsSlim(queryCaptor.getAllValues().get(1).getSqlSelect());
+    }
+
+    private void assertTableListSelectIsSlim(String sqlSelect) {
+        assertThat(sqlSelect)
                 .contains("id", "project_id", "created_at", "updated_at",
                         "service_code", "service_name", "status", "endpoint_path", "webservice_endpoint_path",
                         "source_protocol", "conversion_mode", "target_datasource_name_snapshot",
@@ -129,6 +221,14 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
         entity.setTargetMethod("POST");
         entity.setPayloadMode("OBJECT");
         entity.setFieldMappingsJson(Collections.emptyList());
+        return entity;
+    }
+
+    private ProtocolConversionServiceEntity serviceReference() {
+        ProtocolConversionServiceEntity entity = new ProtocolConversionServiceEntity();
+        entity.setId(50L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
         return entity;
     }
 }

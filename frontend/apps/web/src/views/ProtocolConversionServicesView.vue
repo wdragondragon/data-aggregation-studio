@@ -211,13 +211,13 @@ function buildActions(row: ProtocolConversionServiceListView) {
 }
 
 async function publishService(row: ProtocolConversionServiceListView) {
-  await studioApi.protocolConversions.publish(row.id as EntityId);
+  await studioApi.protocolConversions.publishSummary(row.id as EntityId);
   await loadServices();
   ElMessage.success("协议转换服务已发布");
 }
 
 async function offlineService(row: ProtocolConversionServiceListView) {
-  await studioApi.protocolConversions.offline(row.id as EntityId);
+  await studioApi.protocolConversions.offlineSummary(row.id as EntityId);
   await loadServices();
   ElMessage.success("协议转换服务已下线");
 }

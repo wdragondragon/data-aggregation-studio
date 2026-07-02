@@ -69,10 +69,22 @@ public class ProtocolConversionServiceController {
         return Result.success(protocolConversionService.publish(id));
     }
 
+    @Operation(summary = "Publish protocol conversion service and return table row summary")
+    @PostMapping("/{id}/publish-summary")
+    public Result<ProtocolConversionServiceListView> publishSummary(@PathVariable("id") Long id) {
+        return Result.success(protocolConversionService.publishSummary(id));
+    }
+
     @Operation(summary = "Offline protocol conversion service")
     @PostMapping("/{id}/offline")
     public Result<ProtocolConversionServiceView> offline(@PathVariable("id") Long id) {
         return Result.success(protocolConversionService.offline(id));
+    }
+
+    @Operation(summary = "Offline protocol conversion service and return table row summary")
+    @PostMapping("/{id}/offline-summary")
+    public Result<ProtocolConversionServiceListView> offlineSummary(@PathVariable("id") Long id) {
+        return Result.success(protocolConversionService.offlineSummary(id));
     }
 
     @Operation(summary = "Debug protocol conversion service")

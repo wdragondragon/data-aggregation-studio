@@ -1,5 +1,6 @@
 package com.jdragon.studio.dto.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.jdragon.studio.dto.enums.DataServiceRequestMethod;
 import com.jdragon.studio.dto.enums.DataServiceResponseType;
 import com.jdragon.studio.dto.enums.DataServiceSourceType;
@@ -9,6 +10,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @EqualsAndHashCode(callSuper = true)
 public class DataServiceListView extends BaseDefinition {
     private Long createdBy;

@@ -140,21 +140,7 @@ public class ProtocolConversionService {
         String normalizedKeyword = normalizeText(keyword);
         String normalizedStatus = normalizeText(status);
         Page<ProtocolConversionServiceEntity> page = new Page<ProtocolConversionServiceEntity>(safePageNo, safePageSize);
-        LambdaQueryWrapper<ProtocolConversionServiceEntity> queryWrapper = new LambdaQueryWrapper<ProtocolConversionServiceEntity>()
-                .select(ProtocolConversionServiceEntity::getId,
-                        ProtocolConversionServiceEntity::getProjectId,
-                        ProtocolConversionServiceEntity::getCreatedAt,
-                        ProtocolConversionServiceEntity::getUpdatedAt,
-                        ProtocolConversionServiceEntity::getServiceCode,
-                        ProtocolConversionServiceEntity::getServiceName,
-                        ProtocolConversionServiceEntity::getStatus,
-                        ProtocolConversionServiceEntity::getEndpointPath,
-                        ProtocolConversionServiceEntity::getWebserviceEndpointPath,
-                        ProtocolConversionServiceEntity::getSourceProtocol,
-                        ProtocolConversionServiceEntity::getConversionMode,
-                        ProtocolConversionServiceEntity::getTargetDatasourceNameSnapshot,
-                        ProtocolConversionServiceEntity::getTargetPath,
-                        ProtocolConversionServiceEntity::getTargetProtocol)
+        LambdaQueryWrapper<ProtocolConversionServiceEntity> queryWrapper = selectTableListColumns(new LambdaQueryWrapper<ProtocolConversionServiceEntity>())
                 .eq(ProtocolConversionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -261,24 +247,47 @@ public class ProtocolConversionService {
 
     @Transactional
     public ProtocolConversionServiceView publish(Long id) {
-        ProtocolConversionServiceEntity entity = requireWritableEntity(id);
-        validateExecutable(toView(entity));
-        entity.setStatus(ProtocolConversionStatus.ONLINE.name());
-        if (!hasText(entity.getServiceKey())) {
-            entity.setServiceKey(tokenSupport.generateServiceKey());
-        }
-        entity.setEndpointPath(buildEndpointPath(entity.getServiceCode(), entity.getServiceKey()));
-        entity.setWebserviceEndpointPath(buildWebServiceEndpointPath(entity.getServiceCode(), entity.getServiceKey()));
-        serviceMapper.updateById(entity);
+        publishDefinition(id);
         return get(id);
     }
 
     @Transactional
-    public ProtocolConversionServiceView offline(Long id) {
+    public ProtocolConversionServiceListView publishSummary(Long id) {
+        publishDefinition(id);
+        return getTableListView(id);
+    }
+
+    private void publishDefinition(Long id) {
         ProtocolConversionServiceEntity entity = requireWritableEntity(id);
-        entity.setStatus(ProtocolConversionStatus.OFFLINE.name());
-        serviceMapper.updateById(entity);
+        validateExecutable(toView(entity));
+        String serviceKey = hasText(entity.getServiceKey()) ? entity.getServiceKey() : tokenSupport.generateServiceKey();
+        serviceMapper.update(null, new LambdaUpdateWrapper<ProtocolConversionServiceEntity>()
+                .set(ProtocolConversionServiceEntity::getStatus, ProtocolConversionStatus.ONLINE.name())
+                .set(ProtocolConversionServiceEntity::getUpdatedAt, LocalDateTime.now())
+                .set(!hasText(entity.getServiceKey()), ProtocolConversionServiceEntity::getServiceKey, serviceKey)
+                .set(ProtocolConversionServiceEntity::getEndpointPath, buildEndpointPath(entity.getServiceCode(), serviceKey))
+                .set(ProtocolConversionServiceEntity::getWebserviceEndpointPath, buildWebServiceEndpointPath(entity.getServiceCode(), serviceKey))
+                .eq(ProtocolConversionServiceEntity::getId, id));
+    }
+
+    @Transactional
+    public ProtocolConversionServiceView offline(Long id) {
+        offlineDefinition(id);
         return get(id);
+    }
+
+    @Transactional
+    public ProtocolConversionServiceListView offlineSummary(Long id) {
+        offlineDefinition(id);
+        return getTableListView(id);
+    }
+
+    private void offlineDefinition(Long id) {
+        ProtocolConversionServiceEntity entity = requireWritableServiceReference(id);
+        serviceMapper.update(null, new LambdaUpdateWrapper<ProtocolConversionServiceEntity>()
+                .set(ProtocolConversionServiceEntity::getStatus, ProtocolConversionStatus.OFFLINE.name())
+                .set(ProtocolConversionServiceEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(ProtocolConversionServiceEntity::getId, entity.getId()));
     }
 
     public ProtocolConversionDebugResult debug(Long id, ProtocolConversionDebugRequest request) {
@@ -1298,6 +1307,34 @@ public class ProtocolConversionService {
         view.setTargetPath(entity.getTargetPath());
         view.setTargetProtocol(enumValue(ProtocolConversionProtocol.class, entity.getTargetProtocol(), ProtocolConversionProtocol.HTTP_JSON));
         return view;
+    }
+
+    private LambdaQueryWrapper<ProtocolConversionServiceEntity> selectTableListColumns(LambdaQueryWrapper<ProtocolConversionServiceEntity> query) {
+        return query.select(ProtocolConversionServiceEntity::getId,
+                ProtocolConversionServiceEntity::getProjectId,
+                ProtocolConversionServiceEntity::getCreatedAt,
+                ProtocolConversionServiceEntity::getUpdatedAt,
+                ProtocolConversionServiceEntity::getServiceCode,
+                ProtocolConversionServiceEntity::getServiceName,
+                ProtocolConversionServiceEntity::getStatus,
+                ProtocolConversionServiceEntity::getEndpointPath,
+                ProtocolConversionServiceEntity::getWebserviceEndpointPath,
+                ProtocolConversionServiceEntity::getSourceProtocol,
+                ProtocolConversionServiceEntity::getConversionMode,
+                ProtocolConversionServiceEntity::getTargetDatasourceNameSnapshot,
+                ProtocolConversionServiceEntity::getTargetPath,
+                ProtocolConversionServiceEntity::getTargetProtocol);
+    }
+
+    private ProtocolConversionServiceListView getTableListView(Long id) {
+        ProtocolConversionServiceEntity entity = serviceMapper.selectOne(selectTableListColumns(new LambdaQueryWrapper<ProtocolConversionServiceEntity>())
+                .eq(ProtocolConversionServiceEntity::getTenantId, securityService.currentTenantId())
+                .eq(ProtocolConversionServiceEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Protocol conversion service not found: " + id);
+        }
+        return toTableListView(entity);
     }
 
     private ProtocolConversionServiceView toView(ProtocolConversionServiceEntity entity) {

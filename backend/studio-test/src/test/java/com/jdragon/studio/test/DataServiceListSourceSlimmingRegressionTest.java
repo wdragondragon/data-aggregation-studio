@@ -2,15 +2,22 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.dto.enums.DataServiceParamPosition;
+import com.jdragon.studio.dto.enums.DataServiceQueryOperator;
 import com.jdragon.studio.dto.enums.DataServiceSourceType;
 import com.jdragon.studio.dto.enums.DataServiceStatus;
 import com.jdragon.studio.dto.enums.DataServiceType;
+import com.jdragon.studio.dto.enums.DataServiceValueType;
 import com.jdragon.studio.dto.model.DataServiceListView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
+import com.jdragon.studio.infra.entity.DataServicePublishParamEntity;
+import com.jdragon.studio.infra.entity.DataServiceRequestParamEntity;
+import com.jdragon.studio.infra.entity.DataServiceResponseParamEntity;
 import com.jdragon.studio.infra.mapper.DataServiceAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.DataServiceAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataServiceDefinitionMapper;
@@ -37,7 +44,9 @@ import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -88,7 +97,102 @@ class DataServiceListSourceSlimmingRegressionTest {
                         "response_params_json", "webservice_config_json");
     }
 
+    @Test
+    void dataServiceListPublishShouldReturnSlimListViewInsteadOfFullDefinitionView() {
+        DataServiceDefinitionMapper definitionMapper = mock(DataServiceDefinitionMapper.class);
+        DataServiceRequestParamMapper requestParamMapper = mock(DataServiceRequestParamMapper.class);
+        DataServiceResponseParamMapper responseParamMapper = mock(DataServiceResponseParamMapper.class);
+        DataServicePublishParamMapper publishParamMapper = mock(DataServicePublishParamMapper.class);
+        DataServiceService service = service(definitionMapper, requestParamMapper, responseParamMapper, publishParamMapper);
+        DataServiceDefinitionEntity beforePublish = dataServiceEntity();
+        beforePublish.setStatus(DataServiceStatus.DRAFT.name());
+        beforePublish.setServiceKey(null);
+        beforePublish.setEndpointPath(null);
+        DataServiceDefinitionEntity afterPublish = dataServiceEntity();
+        afterPublish.setStatus(DataServiceStatus.ONLINE.name());
+        when(definitionMapper.selectById(10L)).thenReturn(beforePublish);
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(afterPublish);
+        when(requestParamMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(requestParamEntity()));
+        when(responseParamMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(responseParamEntity()));
+        when(publishParamMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(publishParamEntity()));
+
+        DataServiceListView published = service.publishSummary(10L);
+
+        assertThat(published.getStatus()).isEqualTo(DataServiceStatus.ONLINE);
+        assertThat(published.getDatasourceId()).isNull();
+        assertThat(published.getModelId()).isNull();
+        assertThat(published.getTokenRequired()).isNull();
+        verify(definitionMapper).selectById(10L);
+        verify(definitionMapper, never()).updateById(any(DataServiceDefinitionEntity.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<DataServiceDefinitionEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(definitionMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("status", "updated_at", "service_key", "endpoint_path")
+                .doesNotContain("webservice_config_json", "custom_sql", "cache_enabled", "token_required");
+
+        ArgumentCaptor<LambdaQueryWrapper<DataServiceDefinitionEntity>> listQueryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper).selectOne(listQueryCaptor.capture());
+        assertTableListSelectIsSlim(listQueryCaptor.getValue().getSqlSelect());
+    }
+
+    @Test
+    void dataServiceListOfflineShouldUseReferenceCheckAndReturnSlimListView() {
+        DataServiceDefinitionMapper definitionMapper = mock(DataServiceDefinitionMapper.class);
+        DataServiceService service = service(definitionMapper);
+        DataServiceDefinitionEntity reference = serviceReference();
+        DataServiceDefinitionEntity afterOffline = dataServiceEntity();
+        afterOffline.setStatus(DataServiceStatus.OFFLINE.name());
+        when(definitionMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(reference)
+                .thenReturn(afterOffline);
+
+        DataServiceListView offline = service.offlineSummary(10L);
+
+        assertThat(offline.getStatus()).isEqualTo(DataServiceStatus.OFFLINE);
+        assertThat(offline.getRequestMethod()).isNull();
+        assertThat(offline.getTokenRequired()).isNull();
+        verify(definitionMapper, never()).selectById(any());
+        verify(definitionMapper, never()).updateById(any(DataServiceDefinitionEntity.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<DataServiceDefinitionEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(definitionMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("status", "updated_at")
+                .doesNotContain("webservice_config_json", "custom_sql", "cache_enabled", "token_required");
+
+        ArgumentCaptor<LambdaQueryWrapper<DataServiceDefinitionEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(definitionMapper, org.mockito.Mockito.times(2)).selectOne(queryCaptor.capture());
+        assertThat(queryCaptor.getAllValues().get(0).getSqlSelect())
+                .contains("id", "tenant_id", "project_id")
+                .doesNotContain("webservice_config_json", "custom_sql", "cache_enabled", "token_required");
+        assertTableListSelectIsSlim(queryCaptor.getAllValues().get(1).getSqlSelect());
+    }
+
+    private void assertTableListSelectIsSlim(String sqlSelect) {
+        assertThat(sqlSelect)
+                .contains("id", "project_id", "created_at", "updated_at",
+                        "service_code", "service_name", "status", "source_type",
+                        "datasource_name_snapshot", "datasource_type_code",
+                        "model_name_snapshot", "model_physical_locator", "endpoint_path")
+                .doesNotContain("tenant_id", "deleted", "created_by", "service_type",
+                        "datasource_id", "model_id", "request_method", "response_type",
+                        "cache_enabled", "token_required", "default_subscription_name",
+                        "webservice_enabled", "custom_sql", "request_params_json",
+                        "response_params_json", "webservice_config_json");
+    }
+
     private DataServiceService service(DataServiceDefinitionMapper definitionMapper) {
+        return service(definitionMapper,
+                mock(DataServiceRequestParamMapper.class),
+                mock(DataServiceResponseParamMapper.class),
+                mock(DataServicePublishParamMapper.class));
+    }
+
+    private DataServiceService service(DataServiceDefinitionMapper definitionMapper,
+                                       DataServiceRequestParamMapper requestParamMapper,
+                                       DataServiceResponseParamMapper responseParamMapper,
+                                       DataServicePublishParamMapper publishParamMapper) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         when(securityService.currentTenantId()).thenReturn("default");
@@ -96,9 +200,9 @@ class DataServiceListSourceSlimmingRegressionTest {
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
         return new DataServiceService(
                 definitionMapper,
-                mock(DataServiceRequestParamMapper.class),
-                mock(DataServiceResponseParamMapper.class),
-                mock(DataServicePublishParamMapper.class),
+                requestParamMapper,
+                responseParamMapper,
+                publishParamMapper,
                 mock(DataServiceSubscriptionMapper.class),
                 mock(DataServiceAccessLogMapper.class),
                 mock(DataServiceAccessCounterMapper.class),
@@ -140,6 +244,52 @@ class DataServiceListSourceSlimmingRegressionTest {
         entity.setDefaultSubscriptionName("客户经营系统默认订阅");
         entity.setWebserviceEnabled(1);
         entity.setCustomSql("select * from lt_customer_profile");
+        return entity;
+    }
+
+    private DataServiceDefinitionEntity serviceReference() {
+        DataServiceDefinitionEntity entity = new DataServiceDefinitionEntity();
+        entity.setId(10L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        return entity;
+    }
+
+    private DataServiceRequestParamEntity requestParamEntity() {
+        DataServiceRequestParamEntity entity = new DataServiceRequestParamEntity();
+        entity.setId(1L);
+        entity.setServiceId(10L);
+        entity.setSortOrder(1);
+        entity.setParamName("customerId");
+        entity.setFieldName("customerId");
+        entity.setValueType(DataServiceValueType.STRING.name());
+        entity.setQueryOperator(DataServiceQueryOperator.EQ.name());
+        entity.setRequired(1);
+        entity.setFixedParam(0);
+        return entity;
+    }
+
+    private DataServiceResponseParamEntity responseParamEntity() {
+        DataServiceResponseParamEntity entity = new DataServiceResponseParamEntity();
+        entity.setId(2L);
+        entity.setServiceId(10L);
+        entity.setSortOrder(1);
+        entity.setEnabled(1);
+        entity.setParamName("customerName");
+        entity.setFieldName("customerName");
+        return entity;
+    }
+
+    private DataServicePublishParamEntity publishParamEntity() {
+        DataServicePublishParamEntity entity = new DataServicePublishParamEntity();
+        entity.setId(3L);
+        entity.setServiceId(10L);
+        entity.setSortOrder(1);
+        entity.setFrontendParamName("customerId");
+        entity.setBackendParamName("customerId");
+        entity.setPosition(DataServiceParamPosition.QUERY.name());
+        entity.setValueType(DataServiceValueType.STRING.name());
+        entity.setRequired(1);
         return entity;
     }
 }

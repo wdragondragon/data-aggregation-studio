@@ -1,5 +1,6 @@
 package com.jdragon.studio.dto.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.jdragon.studio.dto.enums.DataIngestionPayloadMode;
 import com.jdragon.studio.dto.enums.ProtocolConversionMode;
 import com.jdragon.studio.dto.enums.ProtocolConversionProtocol;
@@ -8,6 +9,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @EqualsAndHashCode(callSuper = true)
 public class ProtocolConversionServiceListView extends BaseDefinition {
     private Long createdBy;

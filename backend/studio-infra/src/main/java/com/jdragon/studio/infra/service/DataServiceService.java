@@ -125,20 +125,7 @@ public class DataServiceService {
         String normalizedStatus = dataServiceInvocationSupport.normalizeText(status);
         String normalizedServiceType = dataServiceInvocationSupport.normalizeText(serviceType);
         Page<DataServiceDefinitionEntity> page = new Page<DataServiceDefinitionEntity>(safePageNo, safePageSize);
-        LambdaQueryWrapper<DataServiceDefinitionEntity> queryWrapper = new LambdaQueryWrapper<DataServiceDefinitionEntity>()
-                .select(DataServiceDefinitionEntity::getId,
-                        DataServiceDefinitionEntity::getProjectId,
-                        DataServiceDefinitionEntity::getCreatedAt,
-                        DataServiceDefinitionEntity::getUpdatedAt,
-                        DataServiceDefinitionEntity::getServiceCode,
-                        DataServiceDefinitionEntity::getServiceName,
-                        DataServiceDefinitionEntity::getStatus,
-                        DataServiceDefinitionEntity::getSourceType,
-                        DataServiceDefinitionEntity::getDatasourceNameSnapshot,
-                        DataServiceDefinitionEntity::getDatasourceTypeCode,
-                        DataServiceDefinitionEntity::getModelNameSnapshot,
-                        DataServiceDefinitionEntity::getModelPhysicalLocator,
-                        DataServiceDefinitionEntity::getEndpointPath)
+        LambdaQueryWrapper<DataServiceDefinitionEntity> queryWrapper = selectTableListColumns(new LambdaQueryWrapper<DataServiceDefinitionEntity>())
                 .eq(DataServiceDefinitionEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -266,26 +253,54 @@ public class DataServiceService {
 
     @Transactional
     public DataServiceDefinitionView publish(Long id) {
-        DataServiceDefinitionEntity entity = requireWritableEntity(id);
-        DataServiceDefinitionView view = toView(entity, true);
-        validateExecutable(view);
-        if (view.getServiceKey() == null || view.getServiceKey().trim().isEmpty()) {
-            entity.setServiceKey(dataServiceTokenSupport.generateServiceKey());
-            entity.setEndpointPath(dataServiceInvocationSupport.buildEndpointPath(entity.getServiceCode(), entity.getServiceKey()));
-        }
-        entity.setStatus(DataServiceStatus.ONLINE.name());
-        definitionMapper.updateById(entity);
-        evictServiceCache(id);
+        publishDefinition(id);
         return get(id);
     }
 
     @Transactional
-    public DataServiceDefinitionView offline(Long id) {
+    public DataServiceListView publishSummary(Long id) {
+        publishDefinition(id);
+        return getTableListView(id);
+    }
+
+    private void publishDefinition(Long id) {
         DataServiceDefinitionEntity entity = requireWritableEntity(id);
-        entity.setStatus(DataServiceStatus.OFFLINE.name());
-        definitionMapper.updateById(entity);
+        DataServiceDefinitionView view = toView(entity, true);
+        validateExecutable(view);
+        LambdaUpdateWrapper<DataServiceDefinitionEntity> updateWrapper = new LambdaUpdateWrapper<DataServiceDefinitionEntity>()
+                .set(DataServiceDefinitionEntity::getStatus, DataServiceStatus.ONLINE.name())
+                .set(DataServiceDefinitionEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(DataServiceDefinitionEntity::getId, id);
+        if (view.getServiceKey() == null || view.getServiceKey().trim().isEmpty()) {
+            String serviceKey = dataServiceTokenSupport.generateServiceKey();
+            updateWrapper
+                    .set(DataServiceDefinitionEntity::getServiceKey, serviceKey)
+                    .set(DataServiceDefinitionEntity::getEndpointPath,
+                            dataServiceInvocationSupport.buildEndpointPath(entity.getServiceCode(), serviceKey));
+        }
+        definitionMapper.update(null, updateWrapper);
         evictServiceCache(id);
+    }
+
+    @Transactional
+    public DataServiceDefinitionView offline(Long id) {
+        offlineDefinition(id);
         return get(id);
+    }
+
+    @Transactional
+    public DataServiceListView offlineSummary(Long id) {
+        offlineDefinition(id);
+        return getTableListView(id);
+    }
+
+    private void offlineDefinition(Long id) {
+        DataServiceDefinitionEntity entity = requireWritableServiceReference(id);
+        definitionMapper.update(null, new LambdaUpdateWrapper<DataServiceDefinitionEntity>()
+                .set(DataServiceDefinitionEntity::getStatus, DataServiceStatus.OFFLINE.name())
+                .set(DataServiceDefinitionEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(DataServiceDefinitionEntity::getId, entity.getId()));
+        evictServiceCache(id);
     }
 
     public DataServiceResolveFieldsView resolveFields(DataServiceResolveFieldsRequest request) {
@@ -896,6 +911,33 @@ public class DataServiceService {
         view.setModelPhysicalLocator(entity.getModelPhysicalLocator());
         view.setEndpointPath(entity.getEndpointPath());
         return view;
+    }
+
+    private LambdaQueryWrapper<DataServiceDefinitionEntity> selectTableListColumns(LambdaQueryWrapper<DataServiceDefinitionEntity> query) {
+        return query.select(DataServiceDefinitionEntity::getId,
+                DataServiceDefinitionEntity::getProjectId,
+                DataServiceDefinitionEntity::getCreatedAt,
+                DataServiceDefinitionEntity::getUpdatedAt,
+                DataServiceDefinitionEntity::getServiceCode,
+                DataServiceDefinitionEntity::getServiceName,
+                DataServiceDefinitionEntity::getStatus,
+                DataServiceDefinitionEntity::getSourceType,
+                DataServiceDefinitionEntity::getDatasourceNameSnapshot,
+                DataServiceDefinitionEntity::getDatasourceTypeCode,
+                DataServiceDefinitionEntity::getModelNameSnapshot,
+                DataServiceDefinitionEntity::getModelPhysicalLocator,
+                DataServiceDefinitionEntity::getEndpointPath);
+    }
+
+    private DataServiceListView getTableListView(Long id) {
+        DataServiceDefinitionEntity entity = definitionMapper.selectOne(selectTableListColumns(new LambdaQueryWrapper<DataServiceDefinitionEntity>())
+                .eq(DataServiceDefinitionEntity::getTenantId, securityService.currentTenantId())
+                .eq(DataServiceDefinitionEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data service not found: " + id);
+        }
+        return toTableListView(entity);
     }
 
     private DataServiceSubscriptionView toSubscriptionView(DataServiceSubscriptionEntity entity, String token) {

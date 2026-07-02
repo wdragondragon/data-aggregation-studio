@@ -646,8 +646,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       publish(id: EntityId) {
         return request<DataServiceDefinitionView>({ url: `/data-services/${id}/publish`, method: "POST" });
       },
+      publishSummary(id: EntityId) {
+        return request<DataServiceListView>({ url: `/data-services/${id}/publish-summary`, method: "POST" });
+      },
       offline(id: EntityId) {
         return request<DataServiceDefinitionView>({ url: `/data-services/${id}/offline`, method: "POST" });
+      },
+      offlineSummary(id: EntityId) {
+        return request<DataServiceListView>({ url: `/data-services/${id}/offline-summary`, method: "POST" });
       },
       resolveFields(payload: DataServiceResolveFieldsRequest) {
         return request<DataServiceResolveFieldsView>({ url: "/data-services/resolve-fields", method: "POST", data: payload });
@@ -787,8 +793,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       publish(id: EntityId) {
         return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}/publish`, method: "POST" });
       },
+      publishSummary(id: EntityId) {
+        return request<ProtocolConversionServiceListView>({ url: `/protocol-conversions/${id}/publish-summary`, method: "POST" });
+      },
       offline(id: EntityId) {
         return request<ProtocolConversionServiceView>({ url: `/protocol-conversions/${id}/offline`, method: "POST" });
+      },
+      offlineSummary(id: EntityId) {
+        return request<ProtocolConversionServiceListView>({ url: `/protocol-conversions/${id}/offline-summary`, method: "POST" });
       },
       debug(id: EntityId, payload: ProtocolConversionDebugRequest) {
         return request<ProtocolConversionDebugResult>({ url: `/protocol-conversions/${id}/debug`, method: "POST", data: payload });

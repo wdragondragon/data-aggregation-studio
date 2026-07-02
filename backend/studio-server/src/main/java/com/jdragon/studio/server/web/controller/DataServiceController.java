@@ -75,10 +75,22 @@ public class DataServiceController {
         return Result.success(dataServiceService.publish(id));
     }
 
+    @Operation(summary = "Publish data service and return table row summary")
+    @PostMapping("/{id}/publish-summary")
+    public Result<DataServiceListView> publishSummary(@PathVariable("id") Long id) {
+        return Result.success(dataServiceService.publishSummary(id));
+    }
+
     @Operation(summary = "Offline data service")
     @PostMapping("/{id}/offline")
     public Result<DataServiceDefinitionView> offline(@PathVariable("id") Long id) {
         return Result.success(dataServiceService.offline(id));
+    }
+
+    @Operation(summary = "Offline data service and return table row summary")
+    @PostMapping("/{id}/offline-summary")
+    public Result<DataServiceListView> offlineSummary(@PathVariable("id") Long id) {
+        return Result.success(dataServiceService.offlineSummary(id));
     }
 
     @Operation(summary = "Resolve source fields")

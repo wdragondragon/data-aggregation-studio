@@ -225,7 +225,7 @@ async function publishService(row: DataServiceListView) {
     return;
   }
   try {
-    await studioApi.dataServices.publish(row.id);
+    await studioApi.dataServices.publishSummary(row.id);
     await loadServices();
     ElMessage.success("数据服务已发布");
   } catch (error) {
@@ -238,7 +238,7 @@ async function offlineService(row: DataServiceListView) {
     return;
   }
   try {
-    await studioApi.dataServices.offline(row.id);
+    await studioApi.dataServices.offlineSummary(row.id);
     await loadServices();
     ElMessage.success("数据服务已下线");
   } catch (error) {
