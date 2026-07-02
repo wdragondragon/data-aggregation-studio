@@ -181,6 +181,10 @@
               <span>模型表名</span>
               <strong>{{ sourceBindingModelLabel(source) }}</strong>
             </div>
+            <div>
+              <span>单次最大行数</span>
+              <strong>{{ sourceMaxBatchSizeLabel(source) }}</strong>
+            </div>
           </div>
           <div class="target-card-meta">
             <el-tag size="small" effect="plain">{{ source.targetType === "FILE" ? "文件模型" : "数据库表" }}</el-tag>
@@ -237,6 +241,16 @@
                 <el-radio-button value="OBJECT">对象</el-radio-button>
                 <el-radio-button value="ARRAY">数组</el-radio-button>
               </el-radio-group>
+            </el-form-item>
+            <el-form-item label="单次最大行数">
+              <el-input-number
+                v-model="activeSourceBinding.maxBatchSize"
+                class="full-width target-max-batch-input"
+                :min="1"
+                :controls="false"
+                placeholder="不限制"
+                @change="handleActiveSourceMetaChange"
+              />
             </el-form-item>
             <el-form-item label="启用目标">
               <el-switch v-model="activeSourceBinding.enabled" @change="handleActiveSourceMetaChange" />
@@ -1121,6 +1135,7 @@ function createSourceBindingFromForm(index: number, seed?: DataIngestionSourceBi
     modelId: seed?.modelId ?? form.modelId,
     modelName: seed?.modelName,
     modelPhysicalLocator: seed?.modelPhysicalLocator,
+    maxBatchSize: normalizeTargetMaxBatchSize(seed?.maxBatchSize),
     writerOptions: cloneWriterOptions(seed?.writerOptions ?? form.writerOptions ?? {}),
     fieldMappings: cloneMappings(seed?.fieldMappings ?? form.fieldMappings ?? []),
     sortOrder: seed?.sortOrder ?? index,
@@ -1142,6 +1157,7 @@ function createSourceBindingFromDetail(detail: DataIngestionServiceView, index: 
     modelId: detail.modelId,
     modelName: detail.modelName,
     modelPhysicalLocator: detail.modelPhysicalLocator,
+    maxBatchSize: detail.maxBatchSize,
     writerOptions: detail.writerOptions ?? {},
     fieldMappings: detail.fieldMappings ?? [],
     sortOrder: index,
@@ -1172,6 +1188,7 @@ function persistActiveSourceFromForm(
   binding.modelId = form.modelId;
   binding.modelName = model?.name ?? binding.modelName;
   binding.modelPhysicalLocator = model?.physicalLocator ?? binding.modelPhysicalLocator;
+  binding.maxBatchSize = normalizeTargetMaxBatchSize(binding.maxBatchSize);
   binding.writerOptions = cloneWriterOptions(writerOptions);
   binding.fieldMappings = cloneMappings(mappings);
   binding.sortOrder = activeSourceIndex.value;
@@ -1228,6 +1245,7 @@ async function addSourceBinding() {
       sourcePath: "",
       payloadMode: "OBJECT",
       targetType: "DATABASE",
+      maxBatchSize: undefined,
       writerOptions: {},
       fieldMappings: [],
       sortOrder: nextIndex,
@@ -1304,6 +1322,7 @@ function normalizedSourceBindingsForSave(
       targetType: binding.targetType ?? "DATABASE",
       datasourceId: binding.datasourceId,
       modelId: binding.modelId,
+      maxBatchSize: normalizeTargetMaxBatchSize(binding.maxBatchSize),
       writerOptions: cloneWriterOptions(binding.writerOptions ?? {}),
       fieldMappings: normalizedMappingsForBinding,
       sortOrder: index,
@@ -1367,6 +1386,19 @@ function sourceBindingModelLabel(binding: DataIngestionSourceBinding) {
     return `${name} / ${locator}`;
   }
   return name || locator || "未选择";
+}
+
+function normalizeTargetMaxBatchSize(value: unknown) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
+    return undefined;
+  }
+  return Math.floor(numberValue);
+}
+
+function sourceMaxBatchSizeLabel(binding: DataIngestionSourceBinding) {
+  const maxBatchSize = normalizeTargetMaxBatchSize(binding.maxBatchSize);
+  return maxBatchSize ? `${maxBatchSize} 行` : "不限制";
 }
 
 function normalizeSourcePath(path?: string) {
@@ -3045,6 +3077,10 @@ function resolveEndpoint() {
   display: grid;
   grid-template-columns: repeat(2, minmax(260px, 1fr));
   gap: 2px 20px;
+}
+
+.target-max-batch-input {
+  width: 100%;
 }
 
 .studio-toolbar-actions,

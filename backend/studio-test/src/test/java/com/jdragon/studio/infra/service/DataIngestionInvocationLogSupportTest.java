@@ -9,6 +9,7 @@ import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.studio.dto.enums.DataIngestionSourcePosition;
 import com.jdragon.studio.dto.enums.DataIngestionStatus;
 import com.jdragon.studio.dto.enums.FieldValueType;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataIngestionFieldMapping;
 import com.jdragon.studio.dto.model.DataIngestionInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DataIngestionInvocationLogSupportTest {
@@ -292,6 +294,38 @@ class DataIngestionInvocationLogSupportTest {
                 "Source failure message must not expose stack frames");
     }
 
+    @Test
+    void shouldValidateAllTargetRowLimitsBeforeStartingAnyTargetJob() {
+        CountingConsoleWriterAssembler assembler = new CountingConsoleWriterAssembler();
+        DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
+                assembler,
+                new ObjectMapper());
+        DataIngestionServiceView service = serviceView();
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        Map<String, Object> data = new LinkedHashMap<String, Object>();
+        data.put("small", Arrays.asList(row("name", "small")));
+        data.put("large", Arrays.asList(row("name", "large-1"), row("name", "large-2")));
+        body.put("data", data);
+        DataIngestionSourceBinding small = binding("small", 1L, 1L, "data.small", mapping("name"));
+        small.setMaxBatchSize(Integer.valueOf(10));
+        DataIngestionSourceBinding large = binding("large", 1L, 1L, "data.large", mapping("name"));
+        large.setMaxBatchSize(Integer.valueOf(1));
+
+        StudioException exception = assertThrows(StudioException.class, () -> executionSupport.executeBindings(service,
+                Arrays.asList(small, large),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                new LinkedHashMap<String, Object>(),
+                body,
+                "request-limit-before-start",
+                Long.valueOf(2026070203L),
+                null,
+                true));
+
+        assertContains(exception.getMessage(), "source large exceeds max batch size: 1");
+        assertEquals(0, assembler.calls);
+    }
+
     private static DataIngestionFieldMapping mapping(String field) {
         DataIngestionFieldMapping mapping = new DataIngestionFieldMapping();
         mapping.setSourcePosition(DataIngestionSourcePosition.BODY);
@@ -402,6 +436,19 @@ class DataIngestionInvocationLogSupportTest {
                         + "\tat com.example.Writer.write(Writer.java:10)\r\n"
                         + "Caused by: java.lang.IllegalStateException: simulated write failure");
             }
+            return super.assembleWriter(datasourceId, modelId, targetFields, writerOptions);
+        }
+    }
+
+    private static final class CountingConsoleWriterAssembler extends ConsoleWriterAssembler {
+        private int calls;
+
+        @Override
+        public Map<String, Object> assembleWriter(Long datasourceId,
+                                                  Long modelId,
+                                                  List<String> targetFields,
+                                                  Map<String, Object> writerOptions) {
+            calls++;
             return super.assembleWriter(datasourceId, modelId, targetFields, writerOptions);
         }
     }

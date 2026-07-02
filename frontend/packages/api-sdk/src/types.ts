@@ -627,6 +627,7 @@ export interface DataIngestionSourceBinding {
   modelId?: EntityId;
   modelName?: string;
   modelPhysicalLocator?: string;
+  maxBatchSize?: number;
   writerOptions?: Record<string, unknown>;
   fieldMappings?: DataIngestionFieldMapping[];
   sortOrder?: number;

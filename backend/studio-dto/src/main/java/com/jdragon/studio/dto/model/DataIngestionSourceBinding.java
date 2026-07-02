@@ -24,6 +24,7 @@ public class DataIngestionSourceBinding {
     private Long modelId;
     private String modelName;
     private String modelPhysicalLocator;
+    private Integer maxBatchSize;
     private Map<String, Object> writerOptions = new LinkedHashMap<String, Object>();
     private List<DataIngestionFieldMapping> fieldMappings = new ArrayList<DataIngestionFieldMapping>();
     private Integer sortOrder;

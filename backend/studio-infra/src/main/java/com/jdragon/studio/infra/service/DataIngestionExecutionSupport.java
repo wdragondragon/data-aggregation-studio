@@ -48,7 +48,6 @@ import java.util.concurrent.TimeoutException;
 final class DataIngestionExecutionSupport {
 
     private static final Logger log = LoggerFactory.getLogger(DataIngestionExecutionSupport.class);
-    private static final int DEFAULT_MAX_BATCH_SIZE = 1000;
     private static final int DEFAULT_MAX_PARALLEL_TARGETS = 4;
     private static final long DEFAULT_WRITE_SLOW_THRESHOLD_MS = 10000L;
 
@@ -92,6 +91,7 @@ final class DataIngestionExecutionSupport {
         binding.setModelId(service.getModelId());
         binding.setModelName(service.getModelName());
         binding.setModelPhysicalLocator(service.getModelPhysicalLocator());
+        binding.setMaxBatchSize(service.getMaxBatchSize());
         binding.setWriterOptions(service.getWriterOptions());
         binding.setFieldMappings(mappings);
         binding.setSortOrder(Integer.valueOf(0));
@@ -139,6 +139,7 @@ final class DataIngestionExecutionSupport {
         int successSources = 0;
         int failedSources = 0;
         List<DataIngestionSourceInvokeResult> sourceResults = new ArrayList<DataIngestionSourceInvokeResult>();
+        List<PreparedSourceBinding> preparedBindings = prepareSourceBindings(enabledBindings, headers, query, form, body);
         ExecutorService executor = Executors.newFixedThreadPool(Math.min(enabledBindings.size(), DEFAULT_MAX_PARALLEL_TARGETS), new ThreadFactory() {
             private int index = 1;
 
@@ -152,10 +153,11 @@ final class DataIngestionExecutionSupport {
         List<Future<IndexedSourceResult>> futures = new ArrayList<Future<IndexedSourceResult>>();
         List<Long> sourceJobIds = new ArrayList<Long>();
         List<String> logSectionKeys = new ArrayList<String>();
-        for (int index = 0; index < enabledBindings.size(); index++) {
-            final int sourceIndex = index;
-            final DataIngestionSourceBinding binding = enabledBindings.get(index);
-            final Long sourceJobId = IdWorker.getId();
+        for (int index = 0; index < preparedBindings.size(); index++) {
+            final PreparedSourceBinding preparedBinding = preparedBindings.get(index);
+            final int sourceIndex = preparedBinding.index;
+            final DataIngestionSourceBinding binding = preparedBinding.binding;
+            final Long sourceJobId = preparedBindings.size() == 1 && jobId != null ? jobId : IdWorker.getId();
             final String logSectionKey = buildLogSectionKey(binding, index, sourceJobId);
             sourceJobIds.add(sourceJobId);
             logSectionKeys.add(logSectionKey);
@@ -165,15 +167,21 @@ final class DataIngestionExecutionSupport {
             futures.add(executor.submit(new Callable<IndexedSourceResult>() {
                 @Override
                 public IndexedSourceResult call() {
-                    DataIngestionSourceInvokeResult sourceResult = executeBinding(service, binding, headers, query, form, body,
-                            requestId, sourceJobId, logCaptureId, logSectionKey);
+                    DataIngestionSourceInvokeResult sourceResult = executeBinding(preparedBinding,
+                            headers,
+                            query,
+                            form,
+                            requestId,
+                            sourceJobId,
+                            logCaptureId,
+                            logSectionKey);
                     return new IndexedSourceResult(sourceIndex, sourceResult);
                 }
             }));
         }
         try {
             for (int index = 0; index < futures.size(); index++) {
-                DataIngestionSourceBinding binding = enabledBindings.get(index);
+                DataIngestionSourceBinding binding = preparedBindings.get(index).binding;
                 Long sourceJobId = sourceJobIds.get(index);
                 String logSectionKey = logSectionKeys.get(index);
                 DataIngestionSourceInvokeResult sourceResult;
@@ -215,16 +223,43 @@ final class DataIngestionExecutionSupport {
         return result;
     }
 
-    private DataIngestionSourceInvokeResult executeBinding(DataIngestionServiceView service,
-                                                           DataIngestionSourceBinding binding,
+    private List<PreparedSourceBinding> prepareSourceBindings(List<DataIngestionSourceBinding> enabledBindings,
+                                                              Map<String, Object> headers,
+                                                              Map<String, Object> query,
+                                                              Map<String, Object> form,
+                                                              Object body) {
+        List<PreparedSourceBinding> preparedBindings = new ArrayList<PreparedSourceBinding>();
+        for (int index = 0; index < enabledBindings.size(); index++) {
+            DataIngestionSourceBinding binding = enabledBindings.get(index);
+            List<DataIngestionFieldMapping> mappings = binding.getFieldMappings() == null
+                    ? Collections.<DataIngestionFieldMapping>emptyList()
+                    : binding.getFieldMappings();
+            List<Map<String, Object>> sourceRows = parseSourceRows(binding, headers, query, form, body, mappings);
+            validateSourceRowLimit(binding, sourceRows.size());
+            preparedBindings.add(new PreparedSourceBinding(index, binding, mappings, sourceRows));
+        }
+        return preparedBindings;
+    }
+
+    private void validateSourceRowLimit(DataIngestionSourceBinding binding, int rowCount) {
+        Integer maxBatchSize = binding == null ? null : binding.getMaxBatchSize();
+        if (maxBatchSize == null || maxBatchSize.intValue() <= 0 || rowCount <= maxBatchSize.intValue()) {
+            return;
+        }
+        String sourceCode = hasText(binding.getSourceCode()) ? binding.getSourceCode() : "source";
+        throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                "Request row count for source " + sourceCode + " exceeds max batch size: " + maxBatchSize);
+    }
+
+    private DataIngestionSourceInvokeResult executeBinding(PreparedSourceBinding preparedBinding,
                                                            Map<String, Object> headers,
                                                            Map<String, Object> query,
                                                            Map<String, Object> form,
-                                                           Object body,
                                                            String requestId,
                                                            Long jobId,
                                                            String logCaptureId,
                                                            String logSectionKey) {
+        DataIngestionSourceBinding binding = preparedBinding.binding;
         DataIngestionSourceInvokeResult sourceResult = new DataIngestionSourceInvokeResult();
         sourceResult.setSourceCode(binding.getSourceCode());
         sourceResult.setSourceName(binding.getSourceName());
@@ -232,17 +267,10 @@ final class DataIngestionExecutionSupport {
         sourceResult.setTargetModelName(binding.getModelName());
         sourceResult.setJobId(jobId);
         sourceResult.setLogSectionKey(logSectionKey);
-        long receivedCount = 0L;
+        long receivedCount = preparedBinding.sourceRows.size();
         try {
-            List<DataIngestionFieldMapping> mappings = binding.getFieldMappings() == null
-                    ? Collections.<DataIngestionFieldMapping>emptyList()
-                    : binding.getFieldMappings();
-            List<Map<String, Object>> sourceRows = parseSourceRows(binding, headers, query, form, body, mappings);
-            receivedCount = sourceRows.size();
-            int maxBatchSize = service.getMaxBatchSize() == null ? DEFAULT_MAX_BATCH_SIZE : service.getMaxBatchSize().intValue();
-            if (sourceRows.size() > maxBatchSize) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Request row count exceeds max batch size: " + maxBatchSize);
-            }
+            List<DataIngestionFieldMapping> mappings = preparedBinding.mappings;
+            List<Map<String, Object>> sourceRows = preparedBinding.sourceRows;
             List<String> targetFields = resolveTargetFields(mappings);
             List<Map<String, Object>> writerRows = new ArrayList<Map<String, Object>>();
             for (Map<String, Object> sourceRow : sourceRows) {
@@ -408,6 +436,23 @@ final class DataIngestionExecutionSupport {
                 ? "Data ingestion write failed: " + detail
                 : "Data ingestion write failed";
         throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, message);
+    }
+
+    private static final class PreparedSourceBinding {
+        private final int index;
+        private final DataIngestionSourceBinding binding;
+        private final List<DataIngestionFieldMapping> mappings;
+        private final List<Map<String, Object>> sourceRows;
+
+        private PreparedSourceBinding(int index,
+                                      DataIngestionSourceBinding binding,
+                                      List<DataIngestionFieldMapping> mappings,
+                                      List<Map<String, Object>> sourceRows) {
+            this.index = index;
+            this.binding = binding;
+            this.mappings = mappings;
+            this.sourceRows = sourceRows;
+        }
     }
 
     private static final class IndexedSourceResult {

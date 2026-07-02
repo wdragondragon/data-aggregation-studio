@@ -855,6 +855,7 @@ public class DataIngestionService {
             normalized.setTargetType(binding.getTargetType() == null ? DataIngestionTargetType.DATABASE : binding.getTargetType());
             normalized.setDatasourceId(binding.getDatasourceId());
             normalized.setModelId(binding.getModelId());
+            normalized.setMaxBatchSize(normalizeBindingMaxBatchSize(binding.getMaxBatchSize()));
             normalized.setWriterOptions(binding.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : binding.getWriterOptions());
             normalized.setFieldMappings(binding.getFieldMappings() == null ? new ArrayList<DataIngestionFieldMapping>() : binding.getFieldMappings());
             normalized.setSortOrder(binding.getSortOrder() == null ? Integer.valueOf(index) : binding.getSortOrder());
@@ -886,6 +887,7 @@ public class DataIngestionService {
         normalized.setModelId(model.getId());
         normalized.setModelName(model.getName());
         normalized.setModelPhysicalLocator(model.getPhysicalLocator());
+        normalized.setMaxBatchSize(normalizeBindingMaxBatchSize(binding.getMaxBatchSize()));
         normalized.setWriterOptions(binding.getWriterOptions() == null ? new LinkedHashMap<String, Object>() : binding.getWriterOptions());
         normalized.setFieldMappings(mappings);
         normalized.setSortOrder(binding.getSortOrder() == null ? Integer.valueOf(index) : binding.getSortOrder());
@@ -907,6 +909,7 @@ public class DataIngestionService {
         result.setModelId(binding.getModelId() == null ? fallback.getModelId() : binding.getModelId());
         result.setModelName(hasText(binding.getModelName()) ? binding.getModelName() : fallback.getModelName());
         result.setModelPhysicalLocator(hasText(binding.getModelPhysicalLocator()) ? binding.getModelPhysicalLocator() : fallback.getModelPhysicalLocator());
+        result.setMaxBatchSize(binding.getMaxBatchSize() == null ? fallback.getMaxBatchSize() : binding.getMaxBatchSize());
         result.setWriterOptions(binding.getWriterOptions() == null || binding.getWriterOptions().isEmpty() ? fallback.getWriterOptions() : binding.getWriterOptions());
         result.setFieldMappings(binding.getFieldMappings() == null || binding.getFieldMappings().isEmpty() ? fallback.getFieldMappings() : binding.getFieldMappings());
         result.setSortOrder(binding.getSortOrder() == null ? fallback.getSortOrder() : binding.getSortOrder());
@@ -924,6 +927,7 @@ public class DataIngestionService {
         binding.setTargetType(request.getTargetType());
         binding.setDatasourceId(request.getDatasourceId());
         binding.setModelId(request.getModelId());
+        binding.setMaxBatchSize(request.getMaxBatchSize());
         binding.setWriterOptions(request.getWriterOptions());
         binding.setFieldMappings(request.getFieldMappings());
         binding.setSortOrder(Integer.valueOf(0));
@@ -949,6 +953,7 @@ public class DataIngestionService {
         binding.setModelId(entity.getModelId());
         binding.setModelName(entity.getModelNameSnapshot());
         binding.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        binding.setMaxBatchSize(entity.getMaxBatchSize());
         binding.setWriterOptions(entity.getWriterOptionsJson() == null ? new LinkedHashMap<String, Object>() : entity.getWriterOptionsJson());
         binding.setFieldMappings(fromMapList(entity.getFieldMappingsJson()));
         binding.setSortOrder(Integer.valueOf(0));
@@ -976,6 +981,7 @@ public class DataIngestionService {
         binding.setModelId(view.getModelId());
         binding.setModelName(view.getModelName());
         binding.setModelPhysicalLocator(view.getModelPhysicalLocator());
+        binding.setMaxBatchSize(view.getMaxBatchSize());
         binding.setWriterOptions(view.getWriterOptions());
         binding.setFieldMappings(view.getFieldMappings());
         binding.setSortOrder(Integer.valueOf(0));
@@ -1461,6 +1467,13 @@ public class DataIngestionService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Max batch size cannot exceed " + MAX_BATCH_SIZE);
         }
         return maxBatchSize.intValue();
+    }
+
+    private Integer normalizeBindingMaxBatchSize(Integer maxBatchSize) {
+        if (maxBatchSize == null || maxBatchSize.intValue() <= 0) {
+            return null;
+        }
+        return maxBatchSize;
     }
 
     private int statusForException(StudioException ex) {
