@@ -39,6 +39,12 @@
   - 快速迭代验证：`lt_reg_iter_YYYYMMDD_`
 - 不再使用一次性 `e2e_YYYYMMDD_` 后清理策略，除非用户明确要求一次性隔离测试。
 
+## 性能与刷新判定边界
+
+- 列表分页当前页拉取、刷新按钮、写后重拉当前页和运行状态刷新属于正常行为，用于保持分页、排序、状态和边界补位可信，不作为过度请求问题。
+- 需要重点判定的问题是列表或轻量入口源头读取详情级大字段、完整定义 JSON、完整日志、跨项目/跨页面无关数据，或写动作响应返回前端当前场景不需要的大对象。
+- 若详情页、编辑页、日志详情页确实需要完整数据，应保留或新增独立详情接口，不把详情需求压到列表接口，也不通过“先查全量再裁剪”的方式伪瘦身。
+
 ## 记录规则
 
 每轮测试至少记录：
@@ -240,3 +246,5 @@
 - S112 本轮未新增或清理长期数据，复用长期采集任务 `长期回归-S24共享执行权限采集任务-20260623095618` / `2069238183573151746` 并重复调用一次上线接口验证响应字段；`CollectionTaskListSourceSlimmingRegressionTest` 6 tests 全部通过，`mvn -pl studio-server -am -DskipTests package` 与 `npm run build:web` 均通过；build-nginx API `/collection-tasks/page` 返回长期项目 `total=13`，`POST /collection-tasks/{id}/online` 返回 15 个列表行字段且不含 `sourceBindings/targetBinding/fieldMappings/executionOptions`；build-nginx `/collection-tasks` 显示长期项目列表，console warn/error 为 0。后续继续按“分页该拉取还是拉取刷新状态，重点排查隐藏详情读取、大 JSON 源头读取和跨上下文刷新”执行。
 - 2026-07-03 已完成 S113 数据接入列表发布下线响应源头瘦身：确认并修复 `/data-ingestion-services/{id}/publish`、`/offline` 列表页动作只需列表行摘要和当前页刷新，却返回完整接入服务定义的问题，`FIX-S113-001` 已进入缺陷回归索引；编辑页完整发布/下线接口保持不变。
 - S113 本轮未新增或清理长期数据，复用长期接入服务 `长期回归-S12客户边界批量接入服务` / `2068717572302008321`；`DataIngestionServiceListSourceSlimmingRegressionTest` 4 tests 全部通过，`mvn -pl studio-server -am -DskipTests package` 与 `npm run build:web` 均通过；build-nginx API `offline-summary/publish-summary` 响应不含 `fieldMappings/sourceBindings/writerOptions/webserviceConfig`，最终详情保持 `ONLINE`、字段映射 10 条、source binding 1 条；build-nginx `/data-ingestion-services` 下线/发布往返成功，console warn/error 为 0。后续继续按“分页该拉取还是拉取刷新状态，重点排查隐藏详情读取、大 JSON 源头读取和跨上下文刷新”执行。
+- 2026-07-03 已完成 S114 数据接入监控日志源头复核：`/data-ingestion-metrics`、`/data-ingestion-metrics/access-logs` 代码与 build-nginx 页面均复核通过，未发现需要修复的真实过取问题；监控 dashboard/API 统计走聚合 SQL，访问日志列表字段级 `select`，完整日志抽屉通过独立接口先读日志指针，历史兜底才读 `systemLog`。
+- S114 本轮未新增或清理长期数据；`OpenServiceMetricsApiStatsSourceSlimmingRegressionTest` 与 `OpenServiceInvocationLogSourceSlimmingRegressionTest` 共 6 tests 全部通过；build-nginx 两个页面均显示长期项目上下文，console warn/error 为 0。后续继续遵循“当前页分页拉取、刷新按钮、状态刷新是正常行为；重点排查列表入口读取详情大字段或写动作返回大对象”的判定边界。
