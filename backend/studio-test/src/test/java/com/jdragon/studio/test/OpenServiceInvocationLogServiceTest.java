@@ -85,6 +85,11 @@ class OpenServiceInvocationLogServiceTest {
         }
 
         @Override
+        public void delete(String bucket, String objectKey) {
+            // Not used by these archive configuration tests.
+        }
+
+        @Override
         public boolean available() {
             return true;
         }

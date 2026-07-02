@@ -36,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +49,7 @@ final class DataIngestionExecutionSupport {
 
     private static final Logger log = LoggerFactory.getLogger(DataIngestionExecutionSupport.class);
     private static final int DEFAULT_MAX_BATCH_SIZE = 1000;
+    private static final int DEFAULT_MAX_PARALLEL_TARGETS = 4;
     private static final long DEFAULT_WRITE_SLOW_THRESHOLD_MS = 10000L;
 
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
@@ -94,7 +96,7 @@ final class DataIngestionExecutionSupport {
         binding.setFieldMappings(mappings);
         binding.setSortOrder(Integer.valueOf(0));
         binding.setEnabled(Boolean.TRUE);
-        return executeBindings(service, Collections.singletonList(binding), headers, query, form, body, requestId, jobId, logCaptureId, enforceStatus);
+        return executeBindings(service, Collections.singletonList(binding), headers, query, form, body, requestId, jobId, logCaptureId, null, enforceStatus);
     }
 
     DataIngestionInvokeResult executeBindings(DataIngestionServiceView service,
@@ -106,6 +108,20 @@ final class DataIngestionExecutionSupport {
                                               String requestId,
                                               Long jobId,
                                               String logCaptureId,
+                                              boolean enforceStatus) {
+        return executeBindings(service, sourceBindings, headers, query, form, body, requestId, jobId, logCaptureId, null, enforceStatus);
+    }
+
+    DataIngestionInvokeResult executeBindings(DataIngestionServiceView service,
+                                              List<DataIngestionSourceBinding> sourceBindings,
+                                              Map<String, Object> headers,
+                                              Map<String, Object> query,
+                                              Map<String, Object> form,
+                                              Object body,
+                                              String requestId,
+                                              Long jobId,
+                                              String logCaptureId,
+                                              OpenServiceInvocationLogSupport.LogScope logScope,
                                               boolean enforceStatus) {
         if (enforceStatus && service.getStatus() != DataIngestionStatus.ONLINE) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service is not available");
@@ -123,21 +139,67 @@ final class DataIngestionExecutionSupport {
         int successSources = 0;
         int failedSources = 0;
         List<DataIngestionSourceInvokeResult> sourceResults = new ArrayList<DataIngestionSourceInvokeResult>();
-        int index = 0;
-        for (DataIngestionSourceBinding binding : enabledBindings) {
-            Long sourceJobId = jobId == null ? IdWorker.getId() : Long.valueOf(jobId.longValue() + index);
-            DataIngestionSourceInvokeResult sourceResult = executeBinding(service, binding, headers, query, form, body,
-                    requestId, sourceJobId, logCaptureId);
-            sourceResults.add(sourceResult);
-            receivedCount += safeLong(sourceResult.getReceivedCount());
-            successCount += safeLong(sourceResult.getSuccessCount());
-            failedCount += safeLong(sourceResult.getFailedCount());
-            if ("SUCCESS".equalsIgnoreCase(sourceResult.getStatus())) {
-                successSources++;
-            } else {
-                failedSources++;
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(enabledBindings.size(), DEFAULT_MAX_PARALLEL_TARGETS), new ThreadFactory() {
+            private int index = 1;
+
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable, "DataIngestion-TargetDispatcher-" + requestId + "-" + index++);
+                thread.setDaemon(true);
+                return thread;
             }
-            index++;
+        });
+        List<Future<IndexedSourceResult>> futures = new ArrayList<Future<IndexedSourceResult>>();
+        List<Long> sourceJobIds = new ArrayList<Long>();
+        List<String> logSectionKeys = new ArrayList<String>();
+        for (int index = 0; index < enabledBindings.size(); index++) {
+            final int sourceIndex = index;
+            final DataIngestionSourceBinding binding = enabledBindings.get(index);
+            final Long sourceJobId = IdWorker.getId();
+            final String logSectionKey = buildLogSectionKey(binding, index, sourceJobId);
+            sourceJobIds.add(sourceJobId);
+            logSectionKeys.add(logSectionKey);
+            if (logScope != null) {
+                logScope.registerSection(logSectionKey, sourceJobId);
+            }
+            futures.add(executor.submit(new Callable<IndexedSourceResult>() {
+                @Override
+                public IndexedSourceResult call() {
+                    DataIngestionSourceInvokeResult sourceResult = executeBinding(service, binding, headers, query, form, body,
+                            requestId, sourceJobId, logCaptureId, logSectionKey);
+                    return new IndexedSourceResult(sourceIndex, sourceResult);
+                }
+            }));
+        }
+        try {
+            for (int index = 0; index < futures.size(); index++) {
+                DataIngestionSourceBinding binding = enabledBindings.get(index);
+                Long sourceJobId = sourceJobIds.get(index);
+                String logSectionKey = logSectionKeys.get(index);
+                DataIngestionSourceInvokeResult sourceResult;
+                try {
+                    sourceResult = futures.get(index).get().sourceResult;
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    for (Future<IndexedSourceResult> future : futures) {
+                        future.cancel(true);
+                    }
+                    throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
+                } catch (ExecutionException ex) {
+                    sourceResult = failedResult(binding, sourceJobId, logSectionKey, ex.getCause());
+                }
+                sourceResults.add(sourceResult);
+                receivedCount += safeLong(sourceResult.getReceivedCount());
+                successCount += safeLong(sourceResult.getSuccessCount());
+                failedCount += safeLong(sourceResult.getFailedCount());
+                if ("SUCCESS".equalsIgnoreCase(sourceResult.getStatus())) {
+                    successSources++;
+                } else {
+                    failedSources++;
+                }
+            }
+        } finally {
+            executor.shutdownNow();
         }
         result.setReceivedCount(Long.valueOf(receivedCount));
         result.setSuccessCount(Long.valueOf(successCount));
@@ -161,13 +223,15 @@ final class DataIngestionExecutionSupport {
                                                            Object body,
                                                            String requestId,
                                                            Long jobId,
-                                                           String logCaptureId) {
+                                                           String logCaptureId,
+                                                           String logSectionKey) {
         DataIngestionSourceInvokeResult sourceResult = new DataIngestionSourceInvokeResult();
         sourceResult.setSourceCode(binding.getSourceCode());
         sourceResult.setSourceName(binding.getSourceName());
         sourceResult.setTargetDatasourceName(binding.getDatasourceName());
         sourceResult.setTargetModelName(binding.getModelName());
         sourceResult.setJobId(jobId);
+        sourceResult.setLogSectionKey(logSectionKey);
         long receivedCount = 0L;
         try {
             List<DataIngestionFieldMapping> mappings = binding.getFieldMappings() == null
@@ -216,6 +280,52 @@ final class DataIngestionExecutionSupport {
             sourceResult.setMessage(safeFailureMessage(ex));
             return sourceResult;
         }
+    }
+
+    private DataIngestionSourceInvokeResult failedResult(DataIngestionSourceBinding binding,
+                                                         Long jobId,
+                                                         String logSectionKey,
+                                                         Throwable throwable) {
+        DataIngestionSourceInvokeResult result = new DataIngestionSourceInvokeResult();
+        result.setSourceCode(binding == null ? null : binding.getSourceCode());
+        result.setSourceName(binding == null ? null : binding.getSourceName());
+        result.setTargetDatasourceName(binding == null ? null : binding.getDatasourceName());
+        result.setTargetModelName(binding == null ? null : binding.getModelName());
+        result.setJobId(jobId);
+        result.setLogSectionKey(logSectionKey);
+        result.setReceivedCount(Long.valueOf(0L));
+        result.setSuccessCount(Long.valueOf(0L));
+        result.setFailedCount(Long.valueOf(0L));
+        result.setStatus("FAILED");
+        result.setMessage(safeFailureMessage(throwable));
+        return result;
+    }
+
+    private String buildLogSectionKey(DataIngestionSourceBinding binding, int index, Long jobId) {
+        String sourceCode = binding == null ? null : binding.getSourceCode();
+        String normalized = normalizeSectionPart(sourceCode);
+        if (normalized.length() == 0) {
+            normalized = "source_" + (index + 1);
+        }
+        return "target_" + (index + 1) + "_" + normalized + "_" + (jobId == null ? "no_job" : jobId);
+    }
+
+    private String normalizeSectionPart(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char ch = value.charAt(index);
+            if ((ch >= 'A' && ch <= 'Z')
+                    || (ch >= 'a' && ch <= 'z')
+                    || (ch >= '0' && ch <= '9')
+                    || ch == '_'
+                    || ch == '-') {
+                builder.append(ch);
+            }
+        }
+        return builder.toString();
     }
 
     void startAndAssertJob(JobContainer container, String requestId, Long jobId, String logCaptureId) {
@@ -298,6 +408,16 @@ final class DataIngestionExecutionSupport {
                 ? "Data ingestion write failed: " + detail
                 : "Data ingestion write failed";
         throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, message);
+    }
+
+    private static final class IndexedSourceResult {
+        private final int index;
+        private final DataIngestionSourceInvokeResult sourceResult;
+
+        private IndexedSourceResult(int index, DataIngestionSourceInvokeResult sourceResult) {
+            this.index = index;
+            this.sourceResult = sourceResult;
+        }
     }
 
     static String safeFailureMessage(Throwable throwable) {

@@ -5,6 +5,7 @@ import com.jdragon.studio.dto.model.DataIngestionApiMetricView;
 import com.jdragon.studio.dto.model.DataServiceMetricDistributionView;
 import com.jdragon.studio.infra.entity.DataIngestionAccessLogEntity;
 import com.jdragon.studio.infra.model.OpenServiceDashboardBucketSummary;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -15,6 +16,27 @@ import java.util.List;
 
 @Mapper
 public interface DataIngestionAccessLogMapper extends BaseMapper<DataIngestionAccessLogEntity> {
+
+    @Select({"<script>",
+            "select id, updated_at, request_id, log_storage_type, log_object_bucket, log_object_key, log_charset, log_archive_status",
+            "from data_ingestion_access_log",
+            "where occurred_at &lt; #{before}",
+            "<if test='excludeIds != null and excludeIds.size > 0'>",
+            "and id not in",
+            "<foreach collection='excludeIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</if>",
+            "order by occurred_at asc, id asc",
+            "limit #{limit}",
+            "</script>"})
+    List<DataIngestionAccessLogEntity> selectExpiredArchivePointers(@Param("before") LocalDateTime before,
+                                                                    @Param("limit") int limit,
+                                                                    @Param("excludeIds") List<Long> excludeIds);
+
+    @Delete({"<script>",
+            "delete from data_ingestion_access_log where id in",
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</script>"})
+    int deleteExpiredByIds(@Param("ids") List<Long> ids);
 
     @SelectProvider(type = OpenServiceMetricSqlProvider.class, method = "selectDataIngestionDashboardSummary")
     DataIngestionApiMetricView selectDashboardSummary(@Param("tenantId") String tenantId,

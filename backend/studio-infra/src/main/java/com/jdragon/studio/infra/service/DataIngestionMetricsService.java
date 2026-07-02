@@ -22,6 +22,8 @@ import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionSubscriptionMapper;
 import com.jdragon.studio.infra.model.DataIngestionAccessCounterSummary;
 import com.jdragon.studio.infra.model.OpenServiceDashboardBucketSummary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -37,9 +39,11 @@ import java.util.Map;
 @Service
 public class DataIngestionMetricsService {
 
+    private static final Logger log = LoggerFactory.getLogger(DataIngestionMetricsService.class);
     private static final int DEFAULT_PAGE_NO = 1;
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 200;
+    private static final int PURGE_BATCH_SIZE = 200;
     private static final int DEFAULT_TOP_N = 10;
     private static final String DEFAULT_NO_TOKEN_SUBSCRIPTION_NAME = "免 Token 调用";
     private static final DateTimeFormatter REQUEST_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -54,6 +58,7 @@ public class DataIngestionMetricsService {
     private final DataIngestionSubscriptionMapper subscriptionMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private final OpenServiceInvocationLogService invocationLogService;
     private final DataIngestionMetricViewSupport metricViewSupport = new DataIngestionMetricViewSupport();
 
     public DataIngestionMetricsService(DataIngestionAccessLogMapper accessLogMapper,
@@ -61,13 +66,15 @@ public class DataIngestionMetricsService {
                                        DataIngestionServiceMapper serviceMapper,
                                        DataIngestionSubscriptionMapper subscriptionMapper,
                                        StudioSecurityService securityService,
-                                       ProjectResourceAccessService projectResourceAccessService) {
+                                       ProjectResourceAccessService projectResourceAccessService,
+                                       OpenServiceInvocationLogService invocationLogService) {
         this.accessLogMapper = accessLogMapper;
         this.accessCounterMapper = accessCounterMapper;
         this.serviceMapper = serviceMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
+        this.invocationLogService = invocationLogService;
     }
 
     public DataServiceMetricOptionsView options() {
@@ -237,6 +244,43 @@ public class DataIngestionMetricsService {
             items.add(metricViewSupport.toAccessLogListView(entity));
         }
         return PageView.of(context.pageNo, context.pageSize, entityPage.getTotal(), items);
+    }
+
+    public int purgeExpiredAccessLogs(int retentionDays) {
+        int days = retentionDays <= 0 ? 90 : retentionDays;
+        LocalDateTime before = LocalDateTime.now().minusDays(days);
+        int totalDeleted = 0;
+        List<Long> skippedIds = new ArrayList<Long>();
+        while (true) {
+            List<DataIngestionAccessLogEntity> candidates = accessLogMapper.selectExpiredArchivePointers(before, PURGE_BATCH_SIZE, skippedIds);
+            if (candidates == null || candidates.isEmpty()) {
+                return totalDeleted;
+            }
+            List<Long> deletableIds = new ArrayList<Long>();
+            for (DataIngestionAccessLogEntity candidate : candidates) {
+                if (candidate == null || candidate.getId() == null) {
+                    continue;
+                }
+                boolean objectsDeleted = invocationLogService.deleteDataIngestionArchivedObjects(candidate.getId(),
+                        candidate.getLogObjectBucket(),
+                        candidate.getLogObjectKey(),
+                        candidate.getLogCharset(),
+                        candidate.getLogArchiveStatus());
+                if (objectsDeleted) {
+                    deletableIds.add(candidate.getId());
+                } else {
+                    skippedIds.add(candidate.getId());
+                    log.warn("Skipped purging data ingestion access log {} because archived log objects could not be deleted", candidate.getId());
+                }
+            }
+            if (deletableIds.isEmpty()) {
+                continue;
+            }
+            totalDeleted += accessLogMapper.deleteExpiredByIds(deletableIds);
+            if (candidates.size() < PURGE_BATCH_SIZE) {
+                return totalDeleted;
+            }
+        }
     }
 
     private MetricContext loadContext(DataIngestionMetricQueryRequest request) {

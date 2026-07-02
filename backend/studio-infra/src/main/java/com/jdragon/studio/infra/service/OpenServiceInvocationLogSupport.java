@@ -13,6 +13,7 @@ import org.slf4j.MDC;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -168,6 +169,16 @@ final class OpenServiceInvocationLogSupport {
             return appender == null ? "" : appender.content();
         }
 
+        void registerSection(String sectionKey, Long jobId) {
+            if (appender != null) {
+                appender.registerSection(sectionKey, jobId);
+            }
+        }
+
+        Map<String, String> sectionContents() {
+            return appender == null ? new LinkedHashMap<String, String>() : appender.sectionContents();
+        }
+
         @Override
         public void close() {
             if (!disabled && requestId != null && requestId.equals(MDC.get(MDC_KEY))) {
@@ -193,6 +204,8 @@ final class OpenServiceInvocationLogSupport {
     private static final class InMemoryAppender extends AppenderBase<ILoggingEvent> {
         private final String requestId;
         private final Set<String> threadNames = new LinkedHashSet<String>();
+        private final Map<String, String> threadSectionKeys = new LinkedHashMap<String, String>();
+        private final Map<String, StringBuilder> sectionContents = new LinkedHashMap<String, StringBuilder>();
         private final PatternLayout layout;
         private final StringBuilder content = new StringBuilder(8192);
         private boolean truncated;
@@ -206,24 +219,57 @@ final class OpenServiceInvocationLogSupport {
             this.layout.setPattern("%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%ex");
             this.layout.start();
             if (jobId != null) {
-                String suffix = String.valueOf(jobId);
-                this.threadNames.addAll(Arrays.asList(
-                        "DataIngestion-JobContainer-" + suffix,
-                        "DataAggregation-Thread-reader-" + suffix,
-                        "DataAggregation-Thread-writer-" + suffix,
-                        "DataAggregation-Thread-reporter-" + suffix
-                ));
+                registerThreadNames(jobId, null);
             }
             start();
         }
 
+        private synchronized void registerSection(String sectionKey, Long jobId) {
+            if (isBlank(sectionKey) || jobId == null) {
+                return;
+            }
+            if (!sectionContents.containsKey(sectionKey)) {
+                sectionContents.put(sectionKey, new StringBuilder(2048));
+            }
+            registerThreadNames(jobId, sectionKey);
+        }
+
+        private void registerThreadNames(Long jobId, String sectionKey) {
+            if (jobId == null) {
+                return;
+            }
+            String suffix = String.valueOf(jobId);
+            List<String> names = Arrays.asList(
+                    "DataIngestion-JobContainer-" + suffix,
+                    "DataAggregation-Thread-reader-" + suffix,
+                    "DataAggregation-Thread-writer-" + suffix,
+                    "DataAggregation-Thread-reporter-" + suffix
+            );
+            threadNames.addAll(names);
+            if (!isBlank(sectionKey)) {
+                for (String name : names) {
+                    threadSectionKeys.put(name, sectionKey);
+                }
+            }
+        }
+
         @Override
         protected void append(ILoggingEvent event) {
-            if (event == null || truncated || !matches(event)) {
+            if (event == null) {
+                return;
+            }
+            String threadName = event.getThreadName();
+            boolean sectionThread = threadName != null && threadSectionKeys.containsKey(threadName);
+            if (!sectionThread && !matches(event)) {
                 return;
             }
             event.prepareForDeferredProcessing();
-            appendText(layout.doLayout(event));
+            String text = layout.doLayout(event);
+            if (sectionThread) {
+                appendSectionText(threadName, text);
+            } else {
+                appendText(text);
+            }
         }
 
         private boolean matches(ILoggingEvent event) {
@@ -254,8 +300,41 @@ final class OpenServiceInvocationLogSupport {
             content.append(System.lineSeparator()).append("[log truncated after ").append(MAX_LOG_CHARS).append(" chars]");
         }
 
+        private synchronized void appendSectionText(String threadName, String value) {
+            if (isBlank(threadName) || value == null || value.isEmpty()) {
+                return;
+            }
+            String sectionKey = threadSectionKeys.get(threadName);
+            if (isBlank(sectionKey)) {
+                return;
+            }
+            StringBuilder section = sectionContents.get(sectionKey);
+            if (section == null) {
+                return;
+            }
+            value = sanitizeSensitiveLog(value);
+            int remaining = MAX_LOG_CHARS - section.length();
+            if (remaining <= 0) {
+                return;
+            }
+            if (value.length() <= remaining) {
+                section.append(value);
+            } else {
+                section.append(value, 0, remaining);
+                section.append(System.lineSeparator()).append("[section log truncated after ").append(MAX_LOG_CHARS).append(" chars]");
+            }
+        }
+
         private synchronized String content() {
             return content.toString();
+        }
+
+        private synchronized Map<String, String> sectionContents() {
+            Map<String, String> result = new LinkedHashMap<String, String>();
+            for (Map.Entry<String, StringBuilder> entry : sectionContents.entrySet()) {
+                result.put(entry.getKey(), entry.getValue() == null ? "" : entry.getValue().toString());
+            }
+            return result;
         }
     }
 }

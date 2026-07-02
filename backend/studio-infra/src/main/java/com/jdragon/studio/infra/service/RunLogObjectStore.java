@@ -6,5 +6,7 @@ public interface RunLogObjectStore {
 
     byte[] get(String bucket, String objectKey);
 
+    void delete(String bucket, String objectKey);
+
     boolean available();
 }

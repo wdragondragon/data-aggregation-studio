@@ -22,6 +22,11 @@ public class MinioRunLogObjectStore implements RunLogObjectStore {
     }
 
     @Override
+    public void delete(String bucket, String objectKey) {
+        cloudObjectStorageService.delete(bucket, objectKey);
+    }
+
+    @Override
     public boolean available() {
         return cloudObjectStorageService.available();
     }

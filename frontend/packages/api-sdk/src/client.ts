@@ -1585,6 +1585,19 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           method: "GET",
         });
       },
+      getSection(domain: string, accessLogId: EntityId, sectionKey: string, params?: RunLogQuery) {
+        return request<RunLogView>({
+          url: `/invocation-logs/${encodeURIComponent(domain)}/${accessLogId}/sections/${encodeURIComponent(sectionKey)}`,
+          method: "GET",
+          params,
+        });
+      },
+      downloadSection(domain: string, accessLogId: EntityId, sectionKey: string) {
+        return request<RunLogView>({
+          url: `/invocation-logs/${encodeURIComponent(domain)}/${accessLogId}/sections/${encodeURIComponent(sectionKey)}/download`,
+          method: "GET",
+        });
+      },
     },
     runMetrics: {
       options() {

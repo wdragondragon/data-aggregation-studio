@@ -37,4 +37,22 @@ public class InvocationLogController {
                                        @PathVariable("accessLogId") Long accessLogId) {
         return Result.success(invocationLogService.downloadLog(domain, accessLogId));
     }
+
+    @Operation(summary = "Get invocation log section page")
+    @GetMapping("/{domain}/{accessLogId}/sections/{sectionKey}")
+    public Result<RunLogView> sectionLog(@PathVariable("domain") String domain,
+                                         @PathVariable("accessLogId") Long accessLogId,
+                                         @PathVariable("sectionKey") String sectionKey,
+                                         @RequestParam(value = "pageNo", required = false) Integer pageNo,
+                                         @RequestParam(value = "pageSizeBytes", required = false) Integer pageSizeBytes) {
+        return Result.success(invocationLogService.viewLogSection(domain, accessLogId, sectionKey, pageNo, pageSizeBytes));
+    }
+
+    @Operation(summary = "Download full invocation log section")
+    @GetMapping("/{domain}/{accessLogId}/sections/{sectionKey}/download")
+    public Result<RunLogView> downloadSection(@PathVariable("domain") String domain,
+                                              @PathVariable("accessLogId") Long accessLogId,
+                                              @PathVariable("sectionKey") String sectionKey) {
+        return Result.success(invocationLogService.downloadLogSection(domain, accessLogId, sectionKey));
+    }
 }

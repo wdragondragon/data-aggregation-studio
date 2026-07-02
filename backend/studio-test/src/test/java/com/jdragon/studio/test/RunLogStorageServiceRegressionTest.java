@@ -49,6 +49,11 @@ class RunLogStorageServiceRegressionTest {
         }
 
         @Override
+        public void delete(String bucket, String objectKey) {
+            values.remove(bucket + "/" + objectKey);
+        }
+
+        @Override
         public boolean available() {
             return true;
         }

@@ -77,6 +77,10 @@ public class RunLogStorageService {
         objectStore.put(bucket, objectKey, bytes, contentType);
     }
 
+    public void deleteObject(String bucket, String objectKey) {
+        objectStore.delete(bucket, objectKey);
+    }
+
     public RunLogView readObjectLog(RunRecordEntity entity, Integer pageNo, Integer pageSizeBytes, boolean full) {
         if (entity == null || !StringUtils.hasText(entity.getLogObjectBucket()) || !StringUtils.hasText(entity.getLogObjectKey())) {
             throw new IllegalStateException("Run log object metadata is missing");

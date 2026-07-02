@@ -746,6 +746,7 @@ export interface DataIngestionSourceInvokeResult {
   status?: string;
   message?: string;
   jobId?: EntityId;
+  logSectionKey?: string;
 }
 
 export interface DataIngestionSubscriptionView extends BaseRecord {
@@ -2622,6 +2623,24 @@ export interface RunLogView {
   pageNo?: number;
   totalPages?: number;
   pageSizeBytes?: number;
+  sections?: InvocationLogSectionView[];
+}
+
+export interface InvocationLogSectionView {
+  sectionKey?: string;
+  sourceCode?: string;
+  sourceName?: string;
+  targetDatasourceName?: string;
+  targetModelName?: string;
+  receivedCount?: number;
+  successCount?: number;
+  failedCount?: number;
+  status?: string;
+  message?: string;
+  jobId?: EntityId;
+  sizeBytes?: number;
+  archiveStatus?: string;
+  archiveError?: string;
 }
 
 export interface RunListResponse {

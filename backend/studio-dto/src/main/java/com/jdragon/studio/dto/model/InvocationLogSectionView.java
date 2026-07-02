@@ -3,7 +3,8 @@ package com.jdragon.studio.dto.model;
 import lombok.Data;
 
 @Data
-public class DataIngestionSourceInvokeResult {
+public class InvocationLogSectionView {
+    private String sectionKey;
     private String sourceCode;
     private String sourceName;
     private String targetDatasourceName;
@@ -14,5 +15,7 @@ public class DataIngestionSourceInvokeResult {
     private String status;
     private String message;
     private Long jobId;
-    private String logSectionKey;
+    private Long sizeBytes;
+    private String archiveStatus;
+    private String archiveError;
 }

@@ -26,6 +26,7 @@ import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
 import com.jdragon.studio.infra.model.OpenServiceDashboardBucketSummary;
 import com.jdragon.studio.infra.service.DataIngestionMetricsService;
 import com.jdragon.studio.infra.service.DataServiceMetricsService;
+import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -133,7 +134,8 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
                 serviceMapper,
                 mock(DataIngestionSubscriptionMapper.class),
                 securityService(),
-                accessService());
+                accessService(),
+                mock(OpenServiceInvocationLogService.class));
         when(serviceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dataIngestionService()));
         when(accessLogMapper.countApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any()))
                 .thenReturn(1L);
@@ -163,7 +165,8 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
                 serviceMapper,
                 mock(DataIngestionSubscriptionMapper.class),
                 securityService(),
-                accessService());
+                accessService(),
+                mock(OpenServiceInvocationLogService.class));
         when(serviceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dataIngestionService()));
         when(accessLogMapper.selectDashboardSummary(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(dataIngestionMetric());

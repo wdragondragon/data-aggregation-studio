@@ -168,6 +168,11 @@ class OpenServiceInvocationLogSourceSlimmingRegressionTest {
         }
 
         @Override
+        public void delete(String bucket, String objectKey) {
+            // Not used by these source-slimming tests.
+        }
+
+        @Override
         public boolean available() {
             return true;
         }

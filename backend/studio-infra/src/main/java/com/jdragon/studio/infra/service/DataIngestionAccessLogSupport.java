@@ -39,6 +39,7 @@ final class DataIngestionAccessLogSupport {
                          String errorCode,
                          String errorMessage,
                          String systemLog,
+                         String invocationLogFallback,
                          String clientIp,
                          String userAgent,
                          long receivedCount,
@@ -63,7 +64,8 @@ final class DataIngestionAccessLogSupport {
             entity.setHttpStatus(Integer.valueOf(httpStatus));
             entity.setErrorCode(truncate(errorCode, 128));
             entity.setErrorMessage(truncate(errorMessage, 1000));
-            entity.setSystemLog(truncate(systemLog, OpenServiceInvocationLogSupport.MAX_LOG_CHARS + 4096));
+            entity.setSystemLog(truncate(resolveSystemLog(systemLog, invocationLogFallback, archiveResult),
+                    OpenServiceInvocationLogSupport.MAX_LOG_CHARS + 4096));
             entity.setClientIp(truncate(clientIp, 128));
             entity.setUserAgent(truncate(userAgent, 500));
             entity.setReceivedCount(Long.valueOf(Math.max(0L, receivedCount)));
@@ -75,6 +77,23 @@ final class DataIngestionAccessLogSupport {
         } catch (RuntimeException ex) {
             log.warn("Failed to write data ingestion access log", ex);
         }
+    }
+
+    private String resolveSystemLog(String systemLog,
+                                    String invocationLogFallback,
+                                    OpenServiceInvocationLogService.ArchiveResult archiveResult) {
+        if (archiveAvailable(archiveResult) || isBlank(invocationLogFallback)) {
+            return systemLog;
+        }
+        return OpenServiceInvocationLogSupport.sanitizeSensitiveLog(invocationLogFallback);
+    }
+
+    private boolean archiveAvailable(OpenServiceInvocationLogService.ArchiveResult archiveResult) {
+        return archiveResult != null
+                && OpenServiceInvocationLogService.ARCHIVE_AVAILABLE.equalsIgnoreCase(archiveResult.getLogArchiveStatus())
+                && RunLogStorageService.STORAGE_OBJECT.equalsIgnoreCase(archiveResult.getLogStorageType())
+                && !isBlank(archiveResult.getLogObjectBucket())
+                && !isBlank(archiveResult.getLogObjectKey());
     }
 
     private void recordAccessCounter(DataIngestionAccessLogEntity logEntity) {

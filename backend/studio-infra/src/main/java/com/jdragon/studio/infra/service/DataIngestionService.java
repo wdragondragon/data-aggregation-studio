@@ -20,6 +20,7 @@ import com.jdragon.studio.dto.model.DataIngestionResolveFieldsView;
 import com.jdragon.studio.dto.model.DataIngestionServiceListView;
 import com.jdragon.studio.dto.model.DataIngestionServiceView;
 import com.jdragon.studio.dto.model.DataIngestionSourceBinding;
+import com.jdragon.studio.dto.model.DataIngestionSourceInvokeResult;
 import com.jdragon.studio.dto.model.DataIngestionSubscriptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -391,7 +392,7 @@ public class DataIngestionService {
                 throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service is not available");
             }
             subscription = resolveInvocationSubscription(entity, token);
-            result = execute(toView(entity), headers, query, form, body, requestId, jobId, logScope == null ? null : requestId, true);
+            result = execute(toView(entity), headers, query, form, body, requestId, jobId, logScope == null ? null : requestId, logScope, true);
             success = result != null && "SUCCESS".equalsIgnoreCase(result.getStatus());
             return result;
         } catch (StudioException ex) {
@@ -412,17 +413,31 @@ public class DataIngestionService {
                 logScope.close();
             }
             String capturedLog = logScope == null ? null : logScope.content();
+            Map<String, String> targetLogs = logScope == null ? new LinkedHashMap<String, String>() : logScope.sectionContents();
             String systemLog = buildInvocationSystemLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod,
                     occurredAt, startedAt, success, httpStatus, errorCode, errorMessage, receivedCount, successCount, failedCount);
-            String archiveContent = buildInvocationArchiveLog(systemLog, headers, query, form, body, result, capturedLog);
+            String mainObjectKey = invocationLogService.buildArchiveObjectKey(
+                    OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
+                    "data-ingestion",
+                    requestId,
+                    occurredAt);
+            List<TargetLogArchiveEntry> targetLogArchives = archiveTargetLogs(mainObjectKey, result, targetLogs);
+            String archiveContent = buildInvocationArchiveLog(systemLog, headers, query, form, body, result, capturedLog, targetLogArchives, false);
             OpenServiceInvocationLogService.ArchiveResult archiveResult = invocationLogService.archive(
                     OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
                     "data-ingestion",
                     requestId,
                     occurredAt,
-                    archiveContent);
+                    archiveContent,
+                    mainObjectKey);
+            if (!archiveAvailable(archiveResult)) {
+                deleteUploadedTargetArchives(targetLogArchives);
+            }
+            String accessLogFallback = archiveAvailable(archiveResult)
+                    ? archiveContent
+                    : buildInvocationArchiveLog(systemLog, headers, query, form, body, result, capturedLog, targetLogArchives, true);
             accessLogSupport.recordAccessLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod, occurredAt, startedAt, success,
-                    httpStatus, errorCode, errorMessage, systemLog, clientIp, userAgent, receivedCount, successCount, failedCount, archiveResult);
+                    httpStatus, errorCode, errorMessage, systemLog, accessLogFallback, clientIp, userAgent, receivedCount, successCount, failedCount, archiveResult);
         }
     }
 
@@ -551,9 +566,22 @@ public class DataIngestionService {
                                               Long jobId,
                                               String logCaptureId,
                                               boolean enforceStatus) {
+        return execute(service, headers, query, form, body, requestId, jobId, logCaptureId, null, enforceStatus);
+    }
+
+    private DataIngestionInvokeResult execute(DataIngestionServiceView service,
+                                              Map<String, Object> headers,
+                                              Map<String, Object> query,
+                                              Map<String, Object> form,
+                                              Object body,
+                                              String requestId,
+                                              Long jobId,
+                                              String logCaptureId,
+                                              OpenServiceInvocationLogSupport.LogScope logScope,
+                                              boolean enforceStatus) {
         validateExecutable(service);
         List<DataIngestionSourceBinding> sourceBindings = normalizeExecutableSourceBindings(service);
-        return executionSupport.executeBindings(service, sourceBindings, headers, query, form, body, requestId, jobId, logCaptureId, enforceStatus);
+        return executionSupport.executeBindings(service, sourceBindings, headers, query, form, body, requestId, jobId, logCaptureId, logScope, enforceStatus);
     }
 
     private List<Map<String, Object>> parseSourceRows(DataIngestionServiceView service,
@@ -1172,7 +1200,9 @@ public class DataIngestionService {
                                              Map<String, Object> form,
                                              Object body,
                                              DataIngestionInvokeResult result,
-                                             String capturedLog) {
+                                             String capturedLog,
+                                             List<TargetLogArchiveEntry> targetLogArchives,
+                                             boolean forceInlineTargetLogs) {
         StringBuilder builder = new StringBuilder(4096);
         invocationLogService.appendSection(builder, "Invocation Summary", systemLog);
         invocationLogService.appendSection(builder, "Request Headers", invocationLogService.previewValue(invocationLogService.sanitizeHeaders(headers)));
@@ -1180,9 +1210,164 @@ public class DataIngestionService {
         invocationLogService.appendSection(builder, "Request Form", invocationLogService.previewValue(form));
         invocationLogService.appendSection(builder, "Request Body", invocationLogService.previewValue(body));
         invocationLogService.appendSection(builder, "Response Summary", invocationLogService.previewValue(result));
+        appendTargetLogSections(builder, targetLogArchives, forceInlineTargetLogs);
         invocationLogService.appendSection(builder, "Captured Console Logs",
                 hasText(capturedLog) ? capturedLog : "No console log was captured for this invocation.");
         return builder.toString();
+    }
+
+    private void appendTargetLogSections(StringBuilder builder,
+                                         List<TargetLogArchiveEntry> targetLogArchives,
+                                         boolean forceInlineTargetLogs) {
+        if (targetLogArchives == null || targetLogArchives.isEmpty()) {
+            return;
+        }
+        StringBuilder index = new StringBuilder(1024);
+        for (TargetLogArchiveEntry targetArchive : targetLogArchives) {
+            DataIngestionSourceInvokeResult sourceResult = targetArchive == null ? null : targetArchive.sourceResult;
+            if (sourceResult == null || !hasText(sourceResult.getLogSectionKey())) {
+                continue;
+            }
+            OpenServiceInvocationLogService.ArchiveResult targetArchiveResult = targetArchive.archiveResult;
+            boolean inlineFallback = forceInlineTargetLogs
+                    && archiveAvailable(targetArchiveResult)
+                    && targetArchive.targetObjectDeletedAfterMainArchiveFailure;
+            invocationLogService.appendLine(index, "sectionKey", sourceResult.getLogSectionKey());
+            invocationLogService.appendLine(index, "sourceCode", sourceResult.getSourceCode());
+            invocationLogService.appendLine(index, "sourceName", sourceResult.getSourceName());
+            invocationLogService.appendLine(index, "targetDatasourceName", sourceResult.getTargetDatasourceName());
+            invocationLogService.appendLine(index, "targetModelName", sourceResult.getTargetModelName());
+            invocationLogService.appendLine(index, "receivedCount", sourceResult.getReceivedCount());
+            invocationLogService.appendLine(index, "successCount", sourceResult.getSuccessCount());
+            invocationLogService.appendLine(index, "failedCount", sourceResult.getFailedCount());
+            invocationLogService.appendLine(index, "status", sourceResult.getStatus());
+            invocationLogService.appendLine(index, "message", sourceResult.getMessage());
+            invocationLogService.appendLine(index, "jobId", sourceResult.getJobId());
+            invocationLogService.appendLine(index, "logObjectBucket", inlineFallback || targetArchiveResult == null ? null : targetArchiveResult.getLogObjectBucket());
+            invocationLogService.appendLine(index, "logObjectKey", inlineFallback || targetArchiveResult == null ? null : targetArchiveResult.getLogObjectKey());
+            invocationLogService.appendLine(index, "logSizeBytes", targetArchiveResult == null ? null : targetArchiveResult.getLogSizeBytes());
+            invocationLogService.appendLine(index, "archiveStatus", inlineFallback
+                    ? OpenServiceInvocationLogService.ARCHIVE_SKIPPED
+                    : targetArchiveResult == null ? null : targetArchiveResult.getLogArchiveStatus());
+            invocationLogService.appendLine(index, "archiveError", inlineFallback
+                    ? "target log stored inline because main archive is unavailable"
+                    : targetArchiveResult == null ? null : targetArchiveResult.getLogArchiveError());
+            index.append(System.lineSeparator());
+        }
+        invocationLogService.appendSection(builder, OpenServiceInvocationLogService.DATA_INGESTION_TARGET_LOG_OBJECT_INDEX_TITLE, index.toString());
+        for (TargetLogArchiveEntry targetArchive : targetLogArchives) {
+            if (targetArchive == null || targetArchive.sourceResult == null || !hasText(targetArchive.sourceResult.getLogSectionKey())) {
+                continue;
+            }
+            if (forceInlineTargetLogs || !archiveAvailable(targetArchive.archiveResult)) {
+                appendInlineTargetLogSection(builder, targetArchive.sourceResult.getLogSectionKey(), targetArchive.sectionContent);
+            }
+        }
+    }
+
+    private List<TargetLogArchiveEntry> archiveTargetLogs(String mainObjectKey,
+                                                          DataIngestionInvokeResult result,
+                                                          Map<String, String> targetLogs) {
+        List<TargetLogArchiveEntry> entries = new ArrayList<TargetLogArchiveEntry>();
+        if (result == null || result.getSourceResults() == null || result.getSourceResults().isEmpty()) {
+            return entries;
+        }
+        for (DataIngestionSourceInvokeResult sourceResult : result.getSourceResults()) {
+            if (sourceResult == null || !hasText(sourceResult.getLogSectionKey())) {
+                continue;
+            }
+            String sectionContent = buildSingleTargetLogSectionContent(sourceResult, targetLogs);
+            OpenServiceInvocationLogService.ArchiveResult archiveResult = invocationLogService.archiveDataIngestionTargetLog(
+                    mainObjectKey,
+                    sourceResult.getLogSectionKey(),
+                    sectionContent);
+            entries.add(new TargetLogArchiveEntry(sourceResult, sectionContent, archiveResult));
+        }
+        return entries;
+    }
+
+    private void deleteUploadedTargetArchives(List<TargetLogArchiveEntry> targetLogArchives) {
+        if (targetLogArchives == null || targetLogArchives.isEmpty()) {
+            return;
+        }
+        for (TargetLogArchiveEntry targetArchive : targetLogArchives) {
+            if (targetArchive != null && archiveAvailable(targetArchive.archiveResult)) {
+                targetArchive.targetObjectDeletedAfterMainArchiveFailure = invocationLogService.deleteArchivedObjectQuietly(targetArchive.archiveResult);
+            }
+        }
+    }
+
+    private String buildSingleTargetLogSectionContent(DataIngestionSourceInvokeResult sourceResult,
+                                                      Map<String, String> targetLogs) {
+        if (sourceResult == null || !hasText(sourceResult.getLogSectionKey())) {
+            return "";
+        }
+        String sectionKey = sourceResult.getLogSectionKey();
+        StringBuilder section = new StringBuilder(2048);
+        invocationLogService.appendSection(section, "Target Summary", targetSummary(sourceResult));
+        String targetLog = targetLogs == null ? null : targetLogs.get(sectionKey);
+        invocationLogService.appendSection(section, "Target Captured Console Logs",
+                hasText(targetLog) ? targetLog : "No target console log was captured for this data ingestion target.");
+        return section.toString();
+    }
+
+    private void appendInlineTargetLogSection(StringBuilder builder, String sectionKey, String sectionContent) {
+        if (!hasText(sectionKey)) {
+            return;
+        }
+        builder.append(System.lineSeparator())
+                .append(OpenServiceInvocationLogService.DATA_INGESTION_TARGET_LOG_START_PREFIX)
+                .append(sectionKey)
+                .append(" =====")
+                .append(System.lineSeparator());
+        builder.append(sectionContent == null ? "" : sectionContent.trim()).append(System.lineSeparator());
+        builder.append(OpenServiceInvocationLogService.DATA_INGESTION_TARGET_LOG_END_PREFIX)
+                .append(sectionKey)
+                .append(" =====")
+                .append(System.lineSeparator());
+    }
+
+    private boolean archiveAvailable(OpenServiceInvocationLogService.ArchiveResult archiveResult) {
+        return archiveResult != null
+                && OpenServiceInvocationLogService.ARCHIVE_AVAILABLE.equalsIgnoreCase(archiveResult.getLogArchiveStatus())
+                && RunLogStorageService.STORAGE_OBJECT.equalsIgnoreCase(archiveResult.getLogStorageType())
+                && hasText(archiveResult.getLogObjectBucket())
+                && hasText(archiveResult.getLogObjectKey());
+    }
+
+    private String targetSummary(DataIngestionSourceInvokeResult sourceResult) {
+        Map<String, Object> values = new LinkedHashMap<String, Object>();
+        values.put("sectionKey", sourceResult.getLogSectionKey());
+        values.put("sourceCode", sourceResult.getSourceCode());
+        values.put("sourceName", sourceResult.getSourceName());
+        values.put("targetDatasourceName", sourceResult.getTargetDatasourceName());
+        values.put("targetModelName", sourceResult.getTargetModelName());
+        values.put("receivedCount", sourceResult.getReceivedCount());
+        values.put("successCount", sourceResult.getSuccessCount());
+        values.put("failedCount", sourceResult.getFailedCount());
+        values.put("status", sourceResult.getStatus());
+        values.put("message", sourceResult.getMessage());
+        values.put("jobId", sourceResult.getJobId());
+        return invocationLogService.summaryLog(null, values);
+    }
+
+    private String firstText(String first, String second) {
+        return hasText(first) ? first : second;
+    }
+
+    private static final class TargetLogArchiveEntry {
+        private final DataIngestionSourceInvokeResult sourceResult;
+        private final String sectionContent;
+        private final OpenServiceInvocationLogService.ArchiveResult archiveResult;
+        private boolean targetObjectDeletedAfterMainArchiveFailure;
+
+        private TargetLogArchiveEntry(DataIngestionSourceInvokeResult sourceResult,
+                                      String sectionContent,
+                                      OpenServiceInvocationLogService.ArchiveResult archiveResult) {
+            this.sourceResult = sourceResult;
+            this.sectionContent = sectionContent;
+            this.archiveResult = archiveResult;
+        }
     }
 
     private String joinError(String errorCode, String errorMessage) {
