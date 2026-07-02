@@ -2,10 +2,12 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
+import com.jdragon.studio.dto.enums.QualityIssueStatus;
 import com.jdragon.studio.dto.enums.QualityRuleDimension;
 import com.jdragon.studio.dto.enums.QualityRuleGranularity;
 import com.jdragon.studio.dto.enums.QualityTaskStatus;
@@ -20,10 +22,12 @@ import com.jdragon.studio.dto.model.QualityIssueAssigneeOptionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.request.QualityAssetQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueQueryRequest;
+import com.jdragon.studio.dto.model.request.QualityIssueStatusRequest;
 import com.jdragon.studio.dto.model.request.QualityMetricDashboardQueryRequest;
 import com.jdragon.studio.dto.model.request.RunMetricDashboardQueryRequest;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.QualityIssueEntity;
+import com.jdragon.studio.infra.entity.QualityIssueEventEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
@@ -58,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -78,6 +83,9 @@ class MetricsSourceSlimmingRegressionTest {
         }
         if (TableInfoHelper.getTableInfo(StudioUserEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), StudioUserEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(QualityIssueEventEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), QualityIssueEventEntity.class);
         }
     }
 
@@ -275,11 +283,87 @@ class MetricsSourceSlimmingRegressionTest {
         verify(issueMapper, never()).selectList(any(LambdaQueryWrapper.class));
     }
 
+    @Test
+    void qualityIssueStatusActionShouldUseLightReferenceAndFieldUpdate() {
+        QualityIssueMapper issueMapper = mock(QualityIssueMapper.class);
+        QualityIssueEventMapper eventMapper = mock(QualityIssueEventMapper.class);
+        StudioUserMapper userMapper = mock(StudioUserMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        QualityIssueService service = new QualityIssueService(issueMapper,
+                mock(QualityIssueCommentMapper.class),
+                eventMapper,
+                mock(QualityTaskService.class),
+                mock(ProjectMemberMapper.class),
+                userMapper,
+                securityService,
+                accessService);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentUserId()).thenReturn(7L);
+        when(securityService.currentUsername()).thenReturn("admin");
+        when(accessService.currentProjectId()).thenReturn(100L);
+        when(issueMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(openIssueReference());
+        when(issueMapper.selectById(11L)).thenReturn(resolvedIssueDetail());
+        when(eventMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user());
+        QualityIssueStatusRequest request = new QualityIssueStatusRequest();
+        request.setStatus(QualityIssueStatus.RESOLVED.name());
+        request.setComment("长期回归-S124验证状态轻量更新");
+
+        service.updateStatus(11L, request);
+
+        verify(issueMapper, never()).updateById(any(QualityIssueEntity.class));
+        ArgumentCaptor<LambdaQueryWrapper<QualityIssueEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(issueMapper).selectOne(queryCaptor.capture());
+        String sqlSelect = queryCaptor.getValue().getSqlSelect();
+        assertTrue(sqlSelect.contains("id"));
+        assertTrue(sqlSelect.contains("tenant_id"));
+        assertTrue(sqlSelect.contains("project_id"));
+        assertTrue(sqlSelect.contains("status"));
+        assertTrue(sqlSelect.contains("severity"));
+        assertFalse(sqlSelect.contains("latest_message"));
+        assertFalse(sqlSelect.contains("current_evidence_json"));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QualityIssueEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(issueMapper).update(isNull(), updateCaptor.capture());
+        String sqlSet = updateCaptor.getValue().getSqlSet();
+        assertTrue(sqlSet.contains("status"));
+        assertTrue(sqlSet.contains("consecutive_failure_count"));
+        assertTrue(sqlSet.contains("last_run_status"));
+        assertTrue(sqlSet.contains("last_recovery_at"));
+        assertTrue(sqlSet.contains("updated_at"));
+        assertFalse(sqlSet.contains("current_evidence_json"));
+        assertFalse(sqlSet.contains("latest_message"));
+    }
+
     private RunMetricDashboardQueryRequest runMetricRequest() {
         RunMetricDashboardQueryRequest request = new RunMetricDashboardQueryRequest();
         request.setStartTime(LocalDateTime.now().minusDays(1L).toString());
         request.setEndTime(LocalDateTime.now().toString());
         return request;
+    }
+
+    private QualityIssueEntity openIssueReference() {
+        QualityIssueEntity entity = new QualityIssueEntity();
+        entity.setId(11L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        entity.setStatus(QualityIssueStatus.OPEN.name());
+        entity.setSeverity("HIGH");
+        entity.setReopenCount(1);
+        return entity;
+    }
+
+    private QualityIssueEntity resolvedIssueDetail() {
+        QualityIssueEntity entity = openIssueReference();
+        entity.setStatus(QualityIssueStatus.RESOLVED.name());
+        entity.setIssueCode("QI-LT-S124-001");
+        entity.setTitle("长期回归-S124合同金额质量问题");
+        entity.setLatestMessage("长期回归-S124验证状态轻量更新后详情返回");
+        entity.setModelNameSnapshot("长期回归-合同质量模型");
+        entity.setDatasourceNameSnapshot("长期回归-客户经营画像数据源");
+        entity.setCurrentEvidenceJson(Collections.<String, Object>singletonMap("sample", "长期回归-S124证据"));
+        return entity;
     }
 
     private CollectionTaskDefinitionView collectionTask() {

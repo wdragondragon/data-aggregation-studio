@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -262,35 +263,45 @@ public class QualityIssueService {
 
     @Transactional
     public QualityIssueDetailView assign(Long id, QualityIssueAssignRequest request) {
-        QualityIssueEntity entity = requireIssue(id);
+        QualityIssueEntity entity = requireIssueReference(id);
         Long assigneeUserId = request == null ? null : request.getAssigneeUserId();
-        entity.setAssigneeUserId(assigneeUserId);
-        entity.setAssigneeNameSnapshot(resolveUserDisplayName(assigneeUserId));
-        issueMapper.updateById(entity);
+        String assigneeName = resolveUserDisplayName(assigneeUserId);
+        entity.setAssigneeNameSnapshot(assigneeName);
+        issueMapper.update(null, new LambdaUpdateWrapper<QualityIssueEntity>()
+                .set(QualityIssueEntity::getAssigneeUserId, assigneeUserId)
+                .set(QualityIssueEntity::getAssigneeNameSnapshot, assigneeName)
+                .set(QualityIssueEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(QualityIssueEntity::getId, entity.getId()));
         recordIssueEvent(entity, "ASSIGNED", "更新负责人",
-                assigneeUserId == null ? "已清空负责人" : "负责人已更新为 " + safeText(entity.getAssigneeNameSnapshot(), String.valueOf(assigneeUserId)),
+                assigneeUserId == null ? "已清空负责人" : "负责人已更新为 " + safeText(assigneeName, String.valueOf(assigneeUserId)),
                 null);
         return get(id);
     }
 
     @Transactional
     public QualityIssueDetailView updateStatus(Long id, QualityIssueStatusRequest request) {
-        QualityIssueEntity entity = requireIssue(id);
+        QualityIssueEntity entity = requireIssueStatusReference(id);
         QualityIssueStatus previous = parseStatus(entity.getStatus());
         QualityIssueStatus current = parseStatus(request == null ? null : request.getStatus());
         if (current == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Issue status is required");
         }
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<QualityIssueEntity> updateWrapper = new LambdaUpdateWrapper<QualityIssueEntity>()
+                .set(QualityIssueEntity::getStatus, current.name())
+                .set(QualityIssueEntity::getUpdatedAt, now)
+                .eq(QualityIssueEntity::getId, entity.getId());
         if (current == QualityIssueStatus.RESOLVED || current == QualityIssueStatus.FALSE_POSITIVE) {
-            entity.setConsecutiveFailureCount(Integer.valueOf(0));
-            entity.setLastRunStatus("SUCCESS");
-            entity.setLastRecoveryAt(LocalDateTime.now());
+            updateWrapper
+                    .set(QualityIssueEntity::getConsecutiveFailureCount, Integer.valueOf(0))
+                    .set(QualityIssueEntity::getLastRunStatus, "SUCCESS")
+                    .set(QualityIssueEntity::getLastRecoveryAt, now);
         } else if (isClosedStatus(previous) && isActiveStatus(current)) {
-            entity.setReopenCount(Integer.valueOf(safeInt(entity.getReopenCount()) + 1));
-            entity.setSlaDueAt(LocalDateTime.now().plus(resolveSlaDuration(parseSeverity(entity.getSeverity()))));
+            updateWrapper
+                    .set(QualityIssueEntity::getReopenCount, Integer.valueOf(safeInt(entity.getReopenCount()) + 1))
+                    .set(QualityIssueEntity::getSlaDueAt, now.plus(resolveSlaDuration(parseSeverity(entity.getSeverity()))));
         }
-        entity.setStatus(current.name());
-        issueMapper.updateById(entity);
+        issueMapper.update(null, updateWrapper);
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("previousStatus", previous == null ? null : previous.name());
         metadata.put("currentStatus", current.name());
@@ -302,18 +313,22 @@ public class QualityIssueService {
 
     @Transactional
     public QualityIssueDetailView updateSeverity(Long id, QualityIssueSeverityRequest request) {
-        QualityIssueEntity entity = requireIssue(id);
+        QualityIssueEntity entity = requireIssueSeverityReference(id);
         QualityIssueSeverity previous = parseSeverity(entity.getSeverity());
         QualityIssueSeverity current = parseSeverity(request == null ? null : request.getSeverity());
         if (current == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Issue severity is required");
         }
-        entity.setManualSeverity(current.name());
-        entity.setSeverity(current.name());
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<QualityIssueEntity> updateWrapper = new LambdaUpdateWrapper<QualityIssueEntity>()
+                .set(QualityIssueEntity::getManualSeverity, current.name())
+                .set(QualityIssueEntity::getSeverity, current.name())
+                .set(QualityIssueEntity::getUpdatedAt, now)
+                .eq(QualityIssueEntity::getId, entity.getId());
         if (isActiveStatus(parseStatus(entity.getStatus()))) {
-            entity.setSlaDueAt(LocalDateTime.now().plus(resolveSlaDuration(current)));
+            updateWrapper.set(QualityIssueEntity::getSlaDueAt, now.plus(resolveSlaDuration(current)));
         }
-        issueMapper.updateById(entity);
+        issueMapper.update(null, updateWrapper);
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("previousSeverity", previous == null ? null : previous.name());
         metadata.put("currentSeverity", current.name());
@@ -325,7 +340,7 @@ public class QualityIssueService {
 
     @Transactional
     public QualityIssueDetailView addComment(Long id, QualityIssueCommentRequest request) {
-        QualityIssueEntity entity = requireIssue(id);
+        QualityIssueEntity entity = requireIssueReference(id);
         String content = normalizeText(request == null ? null : request.getContent());
         if (!hasText(content)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Comment content is required");
@@ -535,6 +550,49 @@ public class QualityIssueService {
 
     private QualityIssueEntity requireIssue(Long id) {
         QualityIssueEntity entity = issueMapper.selectById(id);
+        if (entity == null
+                || !securityService.currentTenantId().equals(entity.getTenantId())
+                || (projectResourceAccessService.currentProjectId() != null
+                && !projectResourceAccessService.currentProjectId().equals(entity.getProjectId()))) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Quality issue not found: " + id);
+        }
+        return entity;
+    }
+
+    private QualityIssueEntity requireIssueReference(Long id) {
+        return requireIssueByWrapper(id, new LambdaQueryWrapper<QualityIssueEntity>()
+                .select(QualityIssueEntity::getId,
+                        QualityIssueEntity::getTenantId,
+                        QualityIssueEntity::getProjectId));
+    }
+
+    private QualityIssueEntity requireIssueStatusReference(Long id) {
+        return requireIssueByWrapper(id, new LambdaQueryWrapper<QualityIssueEntity>()
+                .select(QualityIssueEntity::getId,
+                        QualityIssueEntity::getTenantId,
+                        QualityIssueEntity::getProjectId,
+                        QualityIssueEntity::getStatus,
+                        QualityIssueEntity::getSeverity,
+                        QualityIssueEntity::getReopenCount));
+    }
+
+    private QualityIssueEntity requireIssueSeverityReference(Long id) {
+        return requireIssueByWrapper(id, new LambdaQueryWrapper<QualityIssueEntity>()
+                .select(QualityIssueEntity::getId,
+                        QualityIssueEntity::getTenantId,
+                        QualityIssueEntity::getProjectId,
+                        QualityIssueEntity::getStatus,
+                        QualityIssueEntity::getSeverity));
+    }
+
+    private QualityIssueEntity requireIssueByWrapper(Long id, LambdaQueryWrapper<QualityIssueEntity> wrapper) {
+        if (id == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Issue id is required");
+        }
+        QualityIssueEntity entity = issueMapper.selectOne(wrapper
+                .eq(QualityIssueEntity::getTenantId, securityService.currentTenantId())
+                .eq(QualityIssueEntity::getId, id)
+                .last("limit 1"));
         if (entity == null
                 || !securityService.currentTenantId().equals(entity.getTenantId())
                 || (projectResourceAccessService.currentProjectId() != null
