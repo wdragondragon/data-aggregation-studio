@@ -217,13 +217,13 @@ function buildActions(row: DataIngestionServiceListView) {
 }
 
 async function publishService(row: DataIngestionServiceListView) {
-  await studioApi.dataIngestionServices.publish(row.id as EntityId);
+  await studioApi.dataIngestionServices.publishSummary(row.id as EntityId);
   await loadServices();
   ElMessage.success("数据接入服务已发布");
 }
 
 async function offlineService(row: DataIngestionServiceListView) {
-  await studioApi.dataIngestionServices.offline(row.id as EntityId);
+  await studioApi.dataIngestionServices.offlineSummary(row.id as EntityId);
   await loadServices();
   ElMessage.success("数据接入服务已下线");
 }

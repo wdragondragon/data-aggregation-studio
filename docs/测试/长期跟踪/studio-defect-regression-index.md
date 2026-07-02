@@ -141,6 +141,7 @@
 | FIX-S110-001 | 系统管理/资源共享表格 | 中 | 资源共享表格只需源项目和目标项目名称，却通过 `selectByIds` 读取项目整行，包含项目编码、描述、启用状态、默认项目标记、租户和时间戳等非表格字段 | `SystemManagementService.java`；`SystemManagementPaginationSourceSlimmingRegressionTest.java` | `SystemManagementPaginationSourceSlimmingRegressionTest`；build-nginx API `/system/resource-shares/page`；build-nginx `/system?tab=shares` | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S111-001 | 认证/全局布局 | 中 | `/auth/me` 和登录 Profile 只需全局头部租户、项目、角色上下文，却读取用户、角色、租户、项目整实体；超级管理员路径还会为租户候选预取全部项目 | `StudioAccessService.java`；`StudioAccessProfileSourceSlimmingRegressionTest.java` | `StudioAccessProfileSourceSlimmingRegressionTest`；build-nginx API `/auth/login`、`/auth/me`；build-nginx `/dashboard` 长期项目上下文 | module-regression | 2026-07-01 | 本次提交 |
 | FIX-S112-001 | 数据采集/采集任务列表 | 中 | `/collection-tasks/{id}/online` 列表页上线动作只需当前行摘要，却返回完整采集任务定义，包含 `sourceBindings`、`targetBinding`、`fieldMappings`、`executionOptions` 等详情 JSON | `CollectionTaskController.java`；`CollectionTaskService.java`；`client.ts`；`CollectionTaskListSourceSlimmingRegressionTest.java` | `CollectionTaskListSourceSlimmingRegressionTest`；build-nginx API `/collection-tasks/page`、`/collection-tasks/{id}/online`；build-nginx `/collection-tasks` | module-regression | 2026-07-01 | 本次提交 |
+| FIX-S113-001 | 数据接入/接入服务列表 | 中 | `/data-ingestion-services/{id}/publish`、`/offline` 列表页动作只需列表行摘要和当前页刷新，却返回完整接入服务定义，包含字段映射、来源绑定、writer 选项和 WebService 配置等详情 JSON | `DataIngestionService.java`；`DataIngestionServiceController.java`；`client.ts`；`DataIngestionServicesView.vue`；`DataIngestionServiceListSourceSlimmingRegressionTest.java` | `DataIngestionServiceListSourceSlimmingRegressionTest`；build-nginx API `/data-ingestion-services/{id}/publish-summary`、`/offline-summary`；build-nginx `/data-ingestion-services` | module-regression | 2026-07-03 | 本次提交 |
 
 ## 历史缺陷参考
 
@@ -261,3 +262,4 @@
 | S110 系统管理资源共享项目名称水合源头瘦身 | FIX-S110-001 |
 | S111 认证上下文 Profile 源头瘦身 | FIX-S111-001 |
 | S112 采集任务上线响应源头瘦身 | FIX-S112-001 |
+| S113 数据接入列表发布下线响应源头瘦身 | FIX-S113-001 |

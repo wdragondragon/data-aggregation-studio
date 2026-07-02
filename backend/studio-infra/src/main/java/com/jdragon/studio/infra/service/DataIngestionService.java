@@ -128,22 +128,7 @@ public class DataIngestionService {
         String normalizedStatus = normalizeText(status);
         String normalizedTargetType = normalizeText(targetType);
         Page<DataIngestionServiceEntity> page = new Page<DataIngestionServiceEntity>(safePageNo, safePageSize);
-        LambdaQueryWrapper<DataIngestionServiceEntity> queryWrapper = new LambdaQueryWrapper<DataIngestionServiceEntity>()
-                .select(DataIngestionServiceEntity::getId,
-                        DataIngestionServiceEntity::getProjectId,
-                        DataIngestionServiceEntity::getCreatedAt,
-                        DataIngestionServiceEntity::getUpdatedAt,
-                        DataIngestionServiceEntity::getServiceCode,
-                        DataIngestionServiceEntity::getServiceName,
-                        DataIngestionServiceEntity::getStatus,
-                        DataIngestionServiceEntity::getTargetType,
-                        DataIngestionServiceEntity::getDatasourceNameSnapshot,
-                        DataIngestionServiceEntity::getModelNameSnapshot,
-                        DataIngestionServiceEntity::getModelPhysicalLocator,
-                        DataIngestionServiceEntity::getEndpointPath,
-                        DataIngestionServiceEntity::getSourcePositionsJson,
-                        DataIngestionServiceEntity::getSourceCount,
-                        DataIngestionServiceEntity::getTargetCount)
+        LambdaQueryWrapper<DataIngestionServiceEntity> queryWrapper = selectTableListColumns(new LambdaQueryWrapper<DataIngestionServiceEntity>())
                 .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId());
         List<Long> sharedIds = projectResourceAccessService.sharedResourceIdList(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE);
         if (sharedIds.isEmpty()) {
@@ -242,23 +227,50 @@ public class DataIngestionService {
 
     @Transactional
     public DataIngestionServiceView publish(Long id) {
-        DataIngestionServiceEntity entity = requireWritableEntity(id);
-        validateExecutable(toView(entity));
-        if (!hasText(entity.getServiceKey())) {
-            entity.setServiceKey(tokenSupport.generateServiceKey());
-            entity.setEndpointPath(buildEndpointPath(entity.getServiceCode(), entity.getServiceKey()));
-        }
-        entity.setStatus(DataIngestionStatus.ONLINE.name());
-        serviceMapper.updateById(entity);
+        publishDefinition(id);
         return get(id);
     }
 
     @Transactional
-    public DataIngestionServiceView offline(Long id) {
+    public DataIngestionServiceListView publishSummary(Long id) {
+        publishDefinition(id);
+        return getTableListView(id);
+    }
+
+    private void publishDefinition(Long id) {
         DataIngestionServiceEntity entity = requireWritableEntity(id);
-        entity.setStatus(DataIngestionStatus.OFFLINE.name());
-        serviceMapper.updateById(entity);
+        validateExecutable(toView(entity));
+        LambdaUpdateWrapper<DataIngestionServiceEntity> updateWrapper = new LambdaUpdateWrapper<DataIngestionServiceEntity>()
+                .set(DataIngestionServiceEntity::getStatus, DataIngestionStatus.ONLINE.name())
+                .set(DataIngestionServiceEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(DataIngestionServiceEntity::getId, id);
+        if (!hasText(entity.getServiceKey())) {
+            String serviceKey = tokenSupport.generateServiceKey();
+            updateWrapper
+                    .set(DataIngestionServiceEntity::getServiceKey, serviceKey)
+                    .set(DataIngestionServiceEntity::getEndpointPath, buildEndpointPath(entity.getServiceCode(), serviceKey));
+        }
+        serviceMapper.update(null, updateWrapper);
+    }
+
+    @Transactional
+    public DataIngestionServiceView offline(Long id) {
+        offlineDefinition(id);
         return get(id);
+    }
+
+    @Transactional
+    public DataIngestionServiceListView offlineSummary(Long id) {
+        offlineDefinition(id);
+        return getTableListView(id);
+    }
+
+    private void offlineDefinition(Long id) {
+        DataIngestionServiceEntity entity = requireWritableServiceReference(id);
+        serviceMapper.update(null, new LambdaUpdateWrapper<DataIngestionServiceEntity>()
+                .set(DataIngestionServiceEntity::getStatus, DataIngestionStatus.OFFLINE.name())
+                .set(DataIngestionServiceEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(DataIngestionServiceEntity::getId, entity.getId()));
     }
 
     public DataIngestionResolveFieldsView resolveFields(DataIngestionResolveFieldsRequest request) {
@@ -636,6 +648,35 @@ public class DataIngestionService {
         view.setSourceCount(entity.getSourceCount() == null ? Integer.valueOf(1) : entity.getSourceCount());
         view.setTargetCount(entity.getTargetCount() == null ? Integer.valueOf(1) : entity.getTargetCount());
         return view;
+    }
+
+    private LambdaQueryWrapper<DataIngestionServiceEntity> selectTableListColumns(LambdaQueryWrapper<DataIngestionServiceEntity> query) {
+        return query.select(DataIngestionServiceEntity::getId,
+                DataIngestionServiceEntity::getProjectId,
+                DataIngestionServiceEntity::getCreatedAt,
+                DataIngestionServiceEntity::getUpdatedAt,
+                DataIngestionServiceEntity::getServiceCode,
+                DataIngestionServiceEntity::getServiceName,
+                DataIngestionServiceEntity::getStatus,
+                DataIngestionServiceEntity::getTargetType,
+                DataIngestionServiceEntity::getDatasourceNameSnapshot,
+                DataIngestionServiceEntity::getModelNameSnapshot,
+                DataIngestionServiceEntity::getModelPhysicalLocator,
+                DataIngestionServiceEntity::getEndpointPath,
+                DataIngestionServiceEntity::getSourcePositionsJson,
+                DataIngestionServiceEntity::getSourceCount,
+                DataIngestionServiceEntity::getTargetCount);
+    }
+
+    private DataIngestionServiceListView getTableListView(Long id) {
+        DataIngestionServiceEntity entity = serviceMapper.selectOne(selectTableListColumns(new LambdaQueryWrapper<DataIngestionServiceEntity>())
+                .eq(DataIngestionServiceEntity::getTenantId, securityService.currentTenantId())
+                .eq(DataIngestionServiceEntity::getId, id)
+                .last("limit 1"));
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Data ingestion service not found: " + id);
+        }
+        return toTableListView(entity);
     }
 
     private DataIngestionServiceListView toTableListView(DataIngestionServiceEntity entity) {

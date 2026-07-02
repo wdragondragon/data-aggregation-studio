@@ -75,10 +75,22 @@ public class DataIngestionServiceController {
         return Result.success(dataIngestionService.publish(id));
     }
 
+    @Operation(summary = "Publish data ingestion service for list view")
+    @PostMapping("/{id}/publish-summary")
+    public Result<DataIngestionServiceListView> publishSummary(@PathVariable("id") Long id) {
+        return Result.success(dataIngestionService.publishSummary(id));
+    }
+
     @Operation(summary = "Offline data ingestion service")
     @PostMapping("/{id}/offline")
     public Result<DataIngestionServiceView> offline(@PathVariable("id") Long id) {
         return Result.success(dataIngestionService.offline(id));
+    }
+
+    @Operation(summary = "Offline data ingestion service for list view")
+    @PostMapping("/{id}/offline-summary")
+    public Result<DataIngestionServiceListView> offlineSummary(@PathVariable("id") Long id) {
+        return Result.success(dataIngestionService.offlineSummary(id));
     }
 
     @Operation(summary = "Resolve target fields")

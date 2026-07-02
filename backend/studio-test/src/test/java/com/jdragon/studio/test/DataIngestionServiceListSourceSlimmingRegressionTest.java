@@ -2,6 +2,7 @@ package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,12 +38,17 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -128,6 +134,85 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         assertThat(savedRef.get().getTargetCount()).isEqualTo(1);
     }
 
+    @Test
+    void dataIngestionServiceListPublishShouldReturnSlimListViewInsteadOfFullDefinitionView() {
+        DataIngestionServiceMapper serviceMapper = mock(DataIngestionServiceMapper.class);
+        DataIngestionService service = service(serviceMapper, mock(DataSourceService.class), mock(DataModelService.class),
+                mock(PluginRuntimeOptionSchemaService.class));
+        DataIngestionServiceEntity beforePublish = executableEntity();
+        beforePublish.setStatus(DataIngestionStatus.DRAFT.name());
+        beforePublish.setServiceKey(null);
+        beforePublish.setEndpointPath(null);
+        DataIngestionServiceEntity afterPublish = listEntity();
+        afterPublish.setStatus(DataIngestionStatus.ONLINE.name());
+        when(serviceMapper.selectById(30L)).thenReturn(beforePublish);
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(afterPublish);
+
+        DataIngestionServiceListView published = service.publishSummary(30L);
+
+        assertThat(published.getStatus()).isEqualTo(DataIngestionStatus.ONLINE);
+        assertThat(published.getSourcePositions()).containsExactly("QUERY", "HEADER");
+        verify(serviceMapper).selectById(30L);
+        verify(serviceMapper).selectOne(any(LambdaQueryWrapper.class));
+        verify(serviceMapper, never()).updateById(any(DataIngestionServiceEntity.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<DataIngestionServiceEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(serviceMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("status", "updated_at", "service_key", "endpoint_path")
+                .doesNotContain("field_mappings_json", "source_bindings_json", "writer_options_json", "webservice_config_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<DataIngestionServiceEntity>> listQueryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(serviceMapper).selectOne(listQueryCaptor.capture());
+        assertTableListSelectIsSlim(listQueryCaptor.getValue().getSqlSelect());
+    }
+
+    @Test
+    void dataIngestionServiceListOfflineShouldUseReferenceCheckAndReturnSlimListView() {
+        DataIngestionServiceMapper serviceMapper = mock(DataIngestionServiceMapper.class);
+        DataIngestionService service = service(serviceMapper, mock(DataSourceService.class), mock(DataModelService.class),
+                mock(PluginRuntimeOptionSchemaService.class));
+        DataIngestionServiceEntity reference = serviceReference();
+        DataIngestionServiceEntity afterOffline = listEntity();
+        afterOffline.setStatus(DataIngestionStatus.OFFLINE.name());
+        when(serviceMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(reference)
+                .thenReturn(afterOffline);
+
+        DataIngestionServiceListView offline = service.offlineSummary(30L);
+
+        assertThat(offline.getStatus()).isEqualTo(DataIngestionStatus.OFFLINE);
+        verify(serviceMapper, never()).selectById(any());
+        verify(serviceMapper, never()).updateById(any(DataIngestionServiceEntity.class));
+
+        ArgumentCaptor<LambdaUpdateWrapper<DataIngestionServiceEntity>> updateCaptor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(serviceMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSet())
+                .contains("status", "updated_at")
+                .doesNotContain("field_mappings_json", "source_bindings_json", "writer_options_json", "webservice_config_json");
+
+        ArgumentCaptor<LambdaQueryWrapper<DataIngestionServiceEntity>> queryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(serviceMapper, times(2)).selectOne(queryCaptor.capture());
+        assertThat(queryCaptor.getAllValues().get(0).getSqlSelect())
+                .contains("id", "tenant_id", "project_id")
+                .doesNotContain("field_mappings_json", "source_bindings_json", "writer_options_json", "webservice_config_json");
+        assertTableListSelectIsSlim(queryCaptor.getAllValues().get(1).getSqlSelect());
+    }
+
+    private void assertTableListSelectIsSlim(String sqlSelect) {
+        assertThat(sqlSelect)
+                .contains("id", "project_id", "created_at", "updated_at",
+                        "service_code", "service_name", "status", "target_type",
+                        "datasource_name_snapshot", "model_name_snapshot",
+                        "model_physical_locator", "endpoint_path", "source_positions_json",
+                        "source_count", "target_count")
+                .doesNotContain("created_by", "request_format", "payload_mode", "data_node_path",
+                        "datasource_id", "datasource_type_code", "model_id", "service_key",
+                        "max_batch_size", "token_required", "default_subscription_name",
+                        "webservice_enabled", "field_mappings_json", "writer_options_json",
+                        "source_bindings_json", "webservice_config_json");
+    }
+
     private DataIngestionService service(DataIngestionServiceMapper serviceMapper,
                                          DataSourceService dataSourceService,
                                          DataModelService dataModelService,
@@ -184,6 +269,34 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         entity.setWebserviceEnabled(1);
         entity.setSourcePositionsJson(Arrays.asList("QUERY", "HEADER"));
         return entity;
+    }
+
+    private DataIngestionServiceEntity executableEntity() {
+        DataIngestionServiceEntity entity = listEntity();
+        entity.setTenantId("default");
+        entity.setDatasourceId(10L);
+        entity.setDatasourceTypeCode("mysql8");
+        entity.setModelId(20L);
+        entity.setRequestFormat("JSON");
+        entity.setPayloadMode("OBJECT");
+        entity.setFieldMappingsJson(Collections.singletonList(mappingRow("customer_id", "customer_id")));
+        return entity;
+    }
+
+    private DataIngestionServiceEntity serviceReference() {
+        DataIngestionServiceEntity entity = new DataIngestionServiceEntity();
+        entity.setId(30L);
+        entity.setTenantId("default");
+        entity.setProjectId(100L);
+        return entity;
+    }
+
+    private Map<String, Object> mappingRow(String sourceField, String targetField) {
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put("sourcePosition", "BODY");
+        row.put("sourceField", sourceField);
+        row.put("targetField", targetField);
+        return row;
     }
 
     private DataIngestionServiceSaveRequest saveRequest() {

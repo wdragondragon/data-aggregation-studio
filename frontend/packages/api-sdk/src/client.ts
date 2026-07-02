@@ -716,8 +716,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       publish(id: EntityId) {
         return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}/publish`, method: "POST" });
       },
+      publishSummary(id: EntityId) {
+        return request<DataIngestionServiceListView>({ url: `/data-ingestion-services/${id}/publish-summary`, method: "POST" });
+      },
       offline(id: EntityId) {
         return request<DataIngestionServiceView>({ url: `/data-ingestion-services/${id}/offline`, method: "POST" });
+      },
+      offlineSummary(id: EntityId) {
+        return request<DataIngestionServiceListView>({ url: `/data-ingestion-services/${id}/offline-summary`, method: "POST" });
       },
       resolveFields(payload: DataIngestionResolveFieldsRequest) {
         return request<DataIngestionResolveFieldsView>({ url: "/data-ingestion-services/resolve-fields", method: "POST", data: payload });
