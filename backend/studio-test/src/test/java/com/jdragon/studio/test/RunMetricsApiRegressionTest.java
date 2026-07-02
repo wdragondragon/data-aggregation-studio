@@ -2,8 +2,10 @@ package com.jdragon.studio.test;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.CollectionTaskMetricBindingEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.CollectionTaskMetricBindingMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.test.support.StudioApiRegressionTestSupport;
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,9 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
     private CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
 
     @Autowired
+    private CollectionTaskMetricBindingMapper collectionTaskMetricBindingMapper;
+
+    @Autowired
     private RunRecordMapper runRecordMapper;
 
     @Test
@@ -43,7 +48,7 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
         task.setId(31001L);
         task.setTenantId("default");
         task.setProjectId(defaultProjectId);
-        task.setName("Orders Sync");
+        task.setName("客户订单指标采集");
         task.setTaskType("SINGLE_TABLE");
         task.setStatus("ONLINE");
         task.setSourceCount(1);
@@ -51,6 +56,10 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
         task.setTargetBindingJson(targetBinding());
         task.setExecutionOptionsJson(new LinkedHashMap<String, Object>());
         collectionTaskDefinitionMapper.insert(task);
+        collectionTaskMetricBindingMapper.insert(metricBinding(310011L, task, "SOURCE", "src1",
+                501L, "客户订单源库", 601L, "客户订单源表", "mock_data.orders_src"));
+        collectionTaskMetricBindingMapper.insert(metricBinding(310012L, task, "TARGET", null,
+                502L, "客户订单指标库", 602L, "客户订单指标表", "mock_data_target.orders_target"));
 
         RunRecordEntity preciseRun = new RunRecordEntity();
         preciseRun.setId(41001L);
@@ -105,7 +114,9 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
         assertThat(runRecords).hasSize(2);
         assertThat(findRunRecord(runRecords, "41001").path("metricSummary").path("successRecords").asLong()).isEqualTo(9L);
         assertThat(findRunRecord(runRecords, "41001").path("metricSummary").path("writeSucceedRecords").asLong()).isEqualTo(11L);
-        assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("collectedRecords").asLong()).isEqualTo(8L);
+        assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("collectedRecords").isNull()).isTrue();
+        assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("successRecords").isNull()).isTrue();
+        assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("transformerTotalRecords").isNull()).isTrue();
 
         MvcResult queuedOnlyResult = mockMvc.perform(get("/api/v1/runs")
                         .header("Authorization", authorization)
@@ -122,6 +133,16 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.data.metricSummary.successRecords").value(9))
                 .andExpect(jsonPath("$.data.metricSummary.writeSucceedRecords").value(11))
                 .andExpect(jsonPath("$.data.metricSummary.transformerFilterRecords").value(2));
+
+        mockMvc.perform(get("/api/v1/runs/{id}", legacyRun.getId())
+                        .header("Authorization", authorization))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.metricSummary.collectedRecords").value(8))
+                .andExpect(jsonPath("$.data.metricSummary.failedRecords").value(1))
+                .andExpect(jsonPath("$.data.metricSummary.transformerTotalRecords").value(8))
+                .andExpect(jsonPath("$.data.metricSummary.transformerSuccessRecords").value(6))
+                .andExpect(jsonPath("$.data.metricSummary.transformerFailedRecords").value(1))
+                .andExpect(jsonPath("$.data.metricSummary.transformerFilterRecords").value(1));
 
         mockMvc.perform(get("/api/v1/run-metrics/options")
                         .header("Authorization", authorization))
@@ -161,10 +182,10 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
         Map<String, Object> source = new LinkedHashMap<String, Object>();
         source.put("sourceAlias", "src1");
         source.put("datasourceId", 501L);
-        source.put("datasourceName", "mysql_source");
+        source.put("datasourceName", "客户订单源库");
         source.put("datasourceTypeCode", "mysql8");
         source.put("modelId", 601L);
-        source.put("modelName", "orders_src");
+        source.put("modelName", "客户订单源表");
         source.put("modelPhysicalLocator", "mock_data.orders_src");
         bindings.add(source);
         return bindings;
@@ -173,12 +194,42 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
     private Map<String, Object> targetBinding() {
         Map<String, Object> target = new LinkedHashMap<String, Object>();
         target.put("datasourceId", 502L);
-        target.put("datasourceName", "mysql_target");
+        target.put("datasourceName", "客户订单指标库");
         target.put("datasourceTypeCode", "mysql8");
         target.put("modelId", 602L);
-        target.put("modelName", "orders_target");
+        target.put("modelName", "客户订单指标表");
         target.put("modelPhysicalLocator", "mock_data_target.orders_target");
         return target;
+    }
+
+    private CollectionTaskMetricBindingEntity metricBinding(Long id,
+                                                            CollectionTaskDefinitionEntity task,
+                                                            String role,
+                                                            String sourceAlias,
+                                                            Long datasourceId,
+                                                            String datasourceName,
+                                                            Long modelId,
+                                                            String modelName,
+                                                            String modelPhysicalLocator) {
+        CollectionTaskMetricBindingEntity entity = new CollectionTaskMetricBindingEntity();
+        entity.setId(id);
+        entity.setTenantId(task.getTenantId());
+        entity.setProjectId(task.getProjectId());
+        entity.setDeleted(0);
+        entity.setCollectionTaskId(task.getId());
+        entity.setTaskNameSnapshot(task.getName());
+        entity.setTaskType(task.getTaskType());
+        entity.setTaskStatus(task.getStatus());
+        entity.setSourceCount(task.getSourceCount());
+        entity.setBindingRole(role);
+        entity.setSourceAlias(sourceAlias);
+        entity.setDatasourceId(datasourceId);
+        entity.setDatasourceName(datasourceName);
+        entity.setDatasourceTypeCode("mysql8");
+        entity.setModelId(modelId);
+        entity.setModelName(modelName);
+        entity.setModelPhysicalLocator(modelPhysicalLocator);
+        return entity;
     }
 
     private Map<String, Object> summaryPayload(long collected,

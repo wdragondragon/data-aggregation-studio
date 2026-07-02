@@ -22,12 +22,12 @@ public class RunMetricSummaryMapper {
         summary.setWriteFailedRecords(firstNonNull(entity.getWriteFailedRecords(), extractMetric(entity.getResultJson(), "writeFailedRecords")));
         summary.setFailedRecords(firstNonNull(entity.getFailedRecords(), extractMetric(entity.getResultJson(), "failedRecords", "errorRecords")));
         summary.setSuccessRecords(firstNonNull(entity.getSuccessRecords(), firstNonNull(extractMetric(entity.getResultJson(), "successRecords"),
-                calculateSuccessRecords(summary.getReadSucceedRecords(), summary.getWriteFailedRecords()))));
+                calculateSuccessRecordsOrNull(summary.getReadSucceedRecords(), summary.getWriteFailedRecords()))));
         Long transformerSuccess = firstNonNull(entity.getTransformerSuccessRecords(), extractMetric(entity.getResultJson(), "transformerSuccessRecords", "transformerSuccess"));
         Long transformerFailed = firstNonNull(entity.getTransformerFailedRecords(), extractMetric(entity.getResultJson(), "transformerFailedRecords", "transformerError"));
         Long transformerFilter = firstNonNull(entity.getTransformerFilterRecords(), extractMetric(entity.getResultJson(), "transformerFilterRecords", "transformerFilter"));
         Long transformerTotal = firstNonNull(entity.getTransformerTotalRecords(), extractMetric(entity.getResultJson(), "transformerTotalRecords"));
-        if (transformerTotal == null) {
+        if (transformerTotal == null && hasAnyValue(transformerSuccess, transformerFailed, transformerFilter)) {
             transformerTotal = safeValue(transformerSuccess) + safeValue(transformerFailed) + safeValue(transformerFilter);
         }
         summary.setTransformerTotalRecords(transformerTotal);
@@ -148,6 +148,25 @@ public class RunMetricSummaryMapper {
     private Long calculateSuccessRecords(Long readSucceedRecords, Long writeFailedRecords) {
         long successRecords = safeValue(readSucceedRecords) - safeValue(writeFailedRecords);
         return Long.valueOf(Math.max(0L, successRecords));
+    }
+
+    private Long calculateSuccessRecordsOrNull(Long readSucceedRecords, Long writeFailedRecords) {
+        if (readSucceedRecords == null) {
+            return null;
+        }
+        return calculateSuccessRecords(readSucceedRecords, writeFailedRecords);
+    }
+
+    private boolean hasAnyValue(Long... values) {
+        if (values == null) {
+            return false;
+        }
+        for (Long value : values) {
+            if (value != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Map<String, Object> copyObjectMap(Object candidate) {
