@@ -68,6 +68,8 @@ management:
         include: health,info
 
 studio:
+  schema:
+    auto-upgrade-on-startup: false
   aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
   encryption-secret: studio-secret-key
   instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-server-local}}}
