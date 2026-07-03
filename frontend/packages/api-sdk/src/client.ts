@@ -1,6 +1,11 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { beginStudioApiRequest, endStudioApiRequest } from "./loading";
 import type {
+  AssistantKnowledgeCapability,
+  AssistantLearnRequest,
+  AssistantLearnResponse,
+  AssistantPlanRequest,
+  AssistantPlanResponse,
   AuthProfile,
   CapabilityMatrix,
   CollectionTaskDefinitionView,
@@ -424,6 +429,17 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     dashboard: {
       overview() {
         return request<StudioDashboardView>({ url: "/dashboard/overview", method: "GET" });
+      },
+    },
+    assistant: {
+      capabilities() {
+        return request<AssistantKnowledgeCapability[]>({ url: "/assistant/capabilities", method: "GET" });
+      },
+      plan(payload: AssistantPlanRequest) {
+        return request<AssistantPlanResponse>({ url: "/assistant/plan", method: "POST", data: payload, timeout: 60000 });
+      },
+      learn(payload: AssistantLearnRequest) {
+        return request<AssistantLearnResponse>({ url: "/assistant/learn", method: "POST", data: payload, studioSkipGlobalLoading: true });
       },
     },
     catalog: {

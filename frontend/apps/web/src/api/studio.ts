@@ -1,4 +1,5 @@
 import { createStudioApi } from "@studio/api-sdk";
+import type { AssistantPlanRequest } from "@studio/api-sdk";
 
 export const STUDIO_TOKEN_KEY = "studio_token";
 export const STUDIO_USERNAME_KEY = "studio_username";
@@ -170,6 +171,133 @@ export function buildStudioRequestHeaders() {
     headers["X-Project-Id"] = String(projectId);
   }
   return headers;
+}
+
+export interface AssistantStreamHandlers {
+  onDelta?: (content: string) => void;
+  onProgress?: (event: AssistantProgressEvent) => void;
+  onError?: (message: string) => void;
+  onDone?: () => void;
+}
+
+export interface AssistantProgressEvent {
+  stage?: string;
+  title?: string;
+  detail?: string;
+  status?: "running" | "done" | "warning" | "error" | string;
+  metadata?: Record<string, unknown>;
+}
+
+type AssistantSseFrameStatus = "continue" | "done" | "error";
+
+export async function streamAssistantChat(
+  payload: AssistantPlanRequest,
+  handlers: AssistantStreamHandlers,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(resolveStudioApiBaseUrl("/assistant/chat/stream"), {
+    method: "POST",
+    headers: {
+      ...buildStudioRequestHeaders(),
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`助手流式接口请求失败：HTTP ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("助手流式接口没有返回响应体");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split(/\r?\n\r?\n/);
+      buffer = frames.pop() ?? "";
+      for (let index = 0; index < frames.length; index++) {
+        const status = handleAssistantSseFrame(frames[index], handlers);
+        if (status !== "continue") {
+          await cancelAssistantStreamReader(reader);
+          return;
+        }
+        if ((index + 1) % 12 === 0) {
+          await yieldToBrowser();
+        }
+      }
+      if (frames.length) {
+        await yieldToBrowser();
+      }
+    }
+    if (buffer.trim()) {
+      const status = handleAssistantSseFrame(buffer, handlers);
+      if (status !== "continue") {
+        return;
+      }
+    }
+    throw new Error("助手流式响应提前结束，未收到完成事件");
+  } finally {
+    await cancelAssistantStreamReader(reader);
+  }
+}
+
+function cancelAssistantStreamReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  return reader.cancel().catch(() => undefined);
+}
+
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
+}
+
+function handleAssistantSseFrame(frame: string, handlers: AssistantStreamHandlers): AssistantSseFrameStatus {
+  const lines = frame.split(/\r?\n/);
+  let eventName = "message";
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      eventName = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    }
+  }
+  const rawData = dataLines.join("\n");
+  let data: Record<string, unknown> = {};
+  try {
+    data = rawData ? JSON.parse(rawData) as Record<string, unknown> : {};
+  } catch {
+    handlers.onError?.("助手流式响应解析失败");
+    return "error";
+  }
+  if (eventName === "delta") {
+    const content = String(data.content ?? "");
+    if (content) {
+      handlers.onDelta?.(content);
+    }
+  } else if (eventName === "progress") {
+    handlers.onProgress?.(data as AssistantProgressEvent);
+  } else if (eventName === "error") {
+    handlers.onError?.(String(data.message ?? "助手流式响应失败"));
+    return "error";
+  } else if (eventName === "done") {
+    handlers.onDone?.();
+    return "done";
+  }
+  return "continue";
 }
 
 export const studioApi = createStudioApi({

@@ -1714,6 +1714,129 @@ export interface CollectionTaskSaveRequest {
 
 export type JobContainerConfig = Record<string, unknown>;
 
+export interface AssistantInputOption {
+  label?: string;
+  value?: unknown;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AssistantInputDefinition {
+  key: string;
+  label: string;
+  type: "select" | "text" | "boolean" | "confirm" | "fieldMapping" | "cron" | string;
+  required?: boolean;
+  description?: string;
+  placeholder?: string;
+  options?: AssistantInputOption[];
+}
+
+export interface AssistantInterfaceDefinition {
+  interfaceCode: string;
+  method: string;
+  path: string;
+  purpose?: string;
+  mutation?: boolean;
+  requiredValues?: string[];
+  responseUsage?: string;
+}
+
+export interface AssistantValueResolver {
+  inputKey: string;
+  interfaceCode: string;
+  description?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AssistantKnowledgeCapability {
+  capabilityCode: string;
+  capabilityName: string;
+  description?: string;
+  intentExamples: string[];
+  requiredInputs: AssistantInputDefinition[];
+  optionalInputs: AssistantInputDefinition[];
+  interfaces: AssistantInterfaceDefinition[];
+  valueResolvers: AssistantValueResolver[];
+  assemblyRules: string[];
+  confirmationPolicy: string[];
+}
+
+export interface AssistantChatMessage {
+  role: "user" | "assistant" | "system" | string;
+  content: string;
+}
+
+export interface AssistantPlanRequest {
+  message?: string;
+  messages?: AssistantChatMessage[];
+  context?: Record<string, unknown>;
+  collectedInputs?: Record<string, unknown>;
+  toolResults?: Record<string, unknown>[];
+}
+
+export interface AssistantToolCall {
+  id?: string;
+  interfaceCode: string;
+  reason?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AssistantBackendToolCall {
+  code: string;
+  reason?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AssistantBackendToolResult {
+  code?: string;
+  ok?: boolean;
+  params?: Record<string, unknown>;
+  data?: unknown;
+  error?: string;
+}
+
+export interface AssistantActionDraft {
+  actionCode?: string;
+  summary?: string;
+  payload?: Record<string, unknown>;
+  preview?: Record<string, unknown>;
+  confirmationLevel?: string;
+}
+
+export interface AssistantLlmPlan {
+  capabilityCode?: string;
+  confidence?: number;
+  assistantMessage?: string;
+  inferredInputs?: Record<string, unknown>;
+  missingInputs?: string[];
+  toolCalls?: AssistantToolCall[];
+  backendToolCalls?: AssistantBackendToolCall[];
+  warnings?: string[];
+}
+
+export interface AssistantLearnRequest extends AssistantPlanRequest {
+  assistantContent?: string;
+}
+
+export interface AssistantLearnResponse {
+  accepted?: boolean;
+  message?: string;
+}
+
+export interface AssistantPlanResponse {
+  assistantMessage?: string;
+  selectedCapabilityCode?: string;
+  capabilities: AssistantKnowledgeCapability[];
+  selectedCapability?: AssistantKnowledgeCapability;
+  requiredInputs: AssistantInputDefinition[];
+  toolCalls: AssistantToolCall[];
+  backendToolResults?: AssistantBackendToolResult[];
+  actionDraft?: AssistantActionDraft;
+  plannerMode?: string;
+  llmPlan?: AssistantLlmPlan;
+  warnings?: string[];
+}
+
 export type QualityRuleScopeType = "SYSTEM" | "PROJECT";
 export type QualityRuleDimension = "CONSISTENCY" | "ACCURACY" | "UNIQUENESS" | "TIMELINESS" | "COMPLETENESS" | "VALIDITY";
 export type QualityRuleGranularity = "TABLE" | "COLUMN";

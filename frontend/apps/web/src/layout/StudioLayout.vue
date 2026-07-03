@@ -13,6 +13,14 @@
     @logout="handleLogout"
   >
     <template #header-actions>
+      <el-button
+        v-if="authStore.isAuthenticated && authStore.currentProjectId"
+        class="studio-layout__assistant-button"
+        @click="assistantOpen = true"
+      >
+        <el-icon><ChatLineRound /></el-icon>
+        <span>AI 助手</span>
+      </el-button>
       <NotificationBell v-if="authStore.isAuthenticated" />
     </template>
     <template #sidebar-context>
@@ -63,6 +71,7 @@
         </div>
       </div>
     </template>
+    <StudioAssistantDrawer v-model="assistantOpen" />
     <router-view />
   </StudioShell>
 </template>
@@ -70,12 +79,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
+import { ChatLineRound } from "@element-plus/icons-vue";
 import { useRoute, useRouter } from "vue-router";
 import { subscribeStudioApiLoading } from "@studio/api-sdk";
 import { StudioShell, type StudioNavItem } from "@studio/ui";
 import { persistStudioLocale, resolveStudioLocale } from "@studio/i18n";
 import { useI18n } from "vue-i18n";
 import NotificationBell from "@/components/NotificationBell.vue";
+import StudioAssistantDrawer from "@/components/assistant/StudioAssistantDrawer.vue";
 import { resolveStudioMenus } from "@/router";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationStore } from "@/stores/notifications";
@@ -87,6 +98,7 @@ const notificationStore = useNotificationStore();
 const { locale, t } = useI18n();
 const appLoading = ref(false);
 const contextLoading = ref(false);
+const assistantOpen = ref(false);
 const unsubscribe = subscribeStudioApiLoading((loading) => {
   appLoading.value = loading;
 });
@@ -231,6 +243,12 @@ function resolveActiveMenuPath(items: StudioNavItem[], currentPath: string): str
 </script>
 
 <style scoped>
+.studio-layout__assistant-button {
+  border-radius: 999px;
+  font-weight: 700;
+  box-shadow: var(--studio-shadow);
+}
+
 .studio-layout__context {
   display: grid;
   gap: 10px;

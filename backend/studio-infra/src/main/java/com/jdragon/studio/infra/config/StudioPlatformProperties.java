@@ -32,6 +32,7 @@ public class StudioPlatformProperties {
     private RunLogProperties runLog = new RunLogProperties();
     private InvocationLogProperties invocationLog = new InvocationLogProperties();
     private DatasourceHealthProperties datasourceHealth = new DatasourceHealthProperties();
+    private AssistantProperties assistant = new AssistantProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -105,6 +106,31 @@ public class StudioPlatformProperties {
         private Integer jitterSeconds = 60;
         private Map<String, TypeDefaultProperties> typeDefaults = new LinkedHashMap<String, TypeDefaultProperties>();
         private HistoryProperties history = new HistoryProperties();
+    }
+
+    @Data
+    public static class AssistantProperties {
+        private LlmProperties llm = new LlmProperties();
+        private SkillMemoryProperties skillMemory = new SkillMemoryProperties();
+    }
+
+    @Data
+    public static class LlmProperties {
+        private boolean enabled = false;
+        private String baseUrl = "https://api.openai.com/v1";
+        private String apiKey;
+        private String model = "gpt-5.4-mini";
+        private Integer timeoutSeconds = 30;
+        private Double temperature = 0.1D;
+        private Integer maxTokens = 1200;
+    }
+
+    @Data
+    public static class SkillMemoryProperties {
+        private boolean enabled = true;
+        private String localDir = "./runtime/assistant-skills";
+        private String objectPrefix = "studio/assistant-skills";
+        private Integer maxContextSkills = 6;
     }
 
     @Data

@@ -20,6 +20,9 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  mvc:
+    async:
+      request-timeout: ${STUDIO_MVC_ASYNC_REQUEST_TIMEOUT:300000}
   data:
     redis:
       host: ${REDIS_HOST:172.16.20.19}
@@ -70,6 +73,8 @@ management:
 studio:
   schema:
     auto-upgrade-on-startup: false
+  web:
+    async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
   aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
   encryption-secret: studio-secret-key
   instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-server-local}}}
@@ -82,6 +87,20 @@ studio:
     trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:true}
     shared-secret: ${STUDIO_GATEWAY_SHARED_SECRET:change-me}
     signature-expire-seconds: ${STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS:300}
+  assistant:
+    llm:
+      enabled: ${STUDIO_ASSISTANT_LLM_ENABLED:false}
+      base-url: ${STUDIO_ASSISTANT_LLM_BASE_URL:http://8.140.247.113:8317/v1}
+      api-key: ${STUDIO_ASSISTANT_LLM_API_KEY:}
+      model: ${STUDIO_ASSISTANT_LLM_MODEL:gpt-5.4-mini}
+      timeout-seconds: ${STUDIO_ASSISTANT_LLM_TIMEOUT_SECONDS:60}
+      temperature: ${STUDIO_ASSISTANT_LLM_TEMPERATURE:0.1}
+      max-tokens: ${STUDIO_ASSISTANT_LLM_MAX_TOKENS:1200}
+    skill-memory:
+      enabled: ${STUDIO_ASSISTANT_SKILL_MEMORY_ENABLED:true}
+      local-dir: ${STUDIO_ASSISTANT_SKILL_MEMORY_LOCAL_DIR:./runtime/assistant-skills}
+      object-prefix: ${STUDIO_ASSISTANT_SKILL_MEMORY_OBJECT_PREFIX:studio/assistant-skills}
+      max-context-skills: ${STUDIO_ASSISTANT_SKILL_MEMORY_MAX_CONTEXT_SKILLS:6}
   model-sync-task:
     max-concurrency: ${STUDIO_MODEL_SYNC_TASK_MAX_CONCURRENCY:1}
   dispatch:
