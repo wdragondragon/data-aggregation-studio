@@ -81,8 +81,11 @@ public abstract class StudioHttpIntegrationTestSupport {
         registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
         registry.add("spring.datasource.username", () -> "");
         registry.add("spring.datasource.password", () -> "");
-        registry.add("spring.data.redis.host", () -> redisConfigValue("REDIS_HOST", "192.168.188.129"));
-        registry.add("spring.data.redis.port", () -> redisConfigValue("REDIS_PORT", "6379"));
+        registry.add("spring.autoconfigure.exclude", () ->
+                "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,"
+                        + "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration");
+        registry.add("spring.cloud.nacos.config.enabled", () -> "false");
+        registry.add("spring.cloud.nacos.discovery.enabled", () -> "false");
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.sql.init.schema-locations", () -> SQLITE_SCHEMA.toUri().toString());
         registry.add("studio.aggregation-home", () -> AGGREGATION_HOME.toAbsolutePath().normalize().toString());
@@ -225,11 +228,6 @@ public abstract class StudioHttpIntegrationTestSupport {
 
     private static String normalizeSqlitePath(Path path) {
         return path.toAbsolutePath().normalize().toString().replace('\\', '/');
-    }
-
-    private static String redisConfigValue(String envName, String defaultValue) {
-        String value = System.getenv(envName);
-        return value == null || value.trim().isEmpty() ? defaultValue : value.trim();
     }
 
     private static Path locateWorkspaceRoot() {

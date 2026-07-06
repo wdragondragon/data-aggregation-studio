@@ -2,12 +2,11 @@ package com.jdragon.studio.infra.service;
 
 import com.jdragon.studio.dto.model.assistant.AssistantInterfaceDefinition;
 import com.jdragon.studio.dto.model.assistant.AssistantKnowledgeCapability;
-import com.jdragon.studio.dto.model.assistant.AssistantToolCall;
+import com.jdragon.studio.dto.model.assistant.AssistantValueResolver;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,7 +41,7 @@ class AssistantKnowledgeRegistryTest {
     }
 
     @Test
-    void registryShouldReturnInitialReadToolsWithoutBusinessMutationToolCalls() {
+    void registryShouldReturnDraftWithoutBusinessMutationSideEffects() {
         AssistantKnowledgeRegistry registry = new AssistantKnowledgeRegistry();
         AssistantKnowledgeCapability capability = registry.resolveCapabilityByCode(
                 AssistantKnowledgeRegistry.CAPABILITY_COLLECTION_SINGLE_TABLE_CREATE);
@@ -51,16 +50,37 @@ class AssistantKnowledgeRegistryTest {
         assertEquals("PREVIEW_THEN_CONFIRM", registry.createInitialDraft(capability, "", null).getConfirmationLevel());
         assertEquals("DO_NOT_GENERATE_SCHEDULE",
                 registry.createInitialDraft(capability, "", null).getPayload().get("schedulePolicy"));
+    }
 
-        Set<String> suggestedToolCodes = registry.suggestInitialToolCalls(capability).stream()
-                .map(AssistantToolCall::getInterfaceCode)
-                .collect(Collectors.toSet());
-        assertTrue(suggestedToolCodes.contains("catalog.capabilities"));
-        assertTrue(suggestedToolCodes.contains("datasources.options"));
-        assertFalse(suggestedToolCodes.contains("collectionTasks.save"));
-        assertFalse(suggestedToolCodes.contains("collectionTasks.publish"));
-        assertFalse(suggestedToolCodes.contains("collectionTasks.trigger"));
-        assertFalse(suggestedToolCodes.contains("collectionTasks.delete"));
+    @Test
+    void capabilitiesShouldExposeGenericStudioFeatureToolsToLlm() {
+        AssistantKnowledgeRegistry registry = new AssistantKnowledgeRegistry();
+        AssistantKnowledgeCapability capability = registry.resolveCapabilityByCode(
+                AssistantKnowledgeRegistry.CAPABILITY_COLLECTION_SINGLE_TABLE_CREATE);
+
+        assertNotNull(capability);
+        for (AssistantInterfaceDefinition interfaceDefinition : capability.getInterfaces()) {
+            String code = interfaceDefinition.getInterfaceCode();
+            assertTrue("studio.feature.list".equals(code)
+                    || "studio.feature.get".equals(code)
+                    || "studio.feature.action".equals(code));
+        }
+        StringBuilder text = new StringBuilder();
+        for (AssistantInterfaceDefinition interfaceDefinition : capability.getInterfaces()) {
+            text.append(interfaceDefinition.getInterfaceCode())
+                    .append(interfaceDefinition.getPath())
+                    .append(interfaceDefinition.getPurpose());
+        }
+        for (AssistantValueResolver resolver : capability.getValueResolvers()) {
+            text.append(resolver.getInterfaceCode())
+                    .append(resolver.getDescription());
+        }
+        assertFalse(text.toString().contains("catalog.capabilities"));
+        assertFalse(text.toString().contains("datasources.options"));
+        assertFalse(text.toString().contains("models.datasourceOptions"));
+        assertFalse(text.toString().contains("models.get"));
+        assertFalse(text.toString().contains("catalog.runtimeOptionSchema"));
+        assertFalse(text.toString().contains("collectionTasks.preview"));
     }
 
     private void assertText(String value) {
