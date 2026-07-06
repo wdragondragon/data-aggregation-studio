@@ -138,6 +138,7 @@ public class AssistantLlmPlanner {
                                      String latestMessage) throws Exception {
         StudioPlatformProperties.LlmProperties llm = properties.getAssistant().getLlm();
         HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(resolveTimeoutSeconds(llm)))
                 .build();
 
@@ -149,13 +150,14 @@ public class AssistantLlmPlanner {
                 loadAssistantSkills(request),
                 listBackendTools()));
 
-        String body = objectMapper.writeValueAsString(payload);
+        byte[] body = objectMapper.writeValueAsBytes(payload);
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(resolveChatCompletionsUrl(llm.getBaseUrl())))
+                .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(resolveTimeoutSeconds(llm)))
                 .header("Authorization", "Bearer " + llm.getApiKey())
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
         HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -202,6 +204,7 @@ public class AssistantLlmPlanner {
                                                           OutputStream outputStream) throws Exception {
         StudioPlatformProperties.LlmProperties llm = properties.getAssistant().getLlm();
         HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(resolveTimeoutSeconds(llm)))
                 .build();
 
@@ -212,13 +215,14 @@ public class AssistantLlmPlanner {
         payload.put("stream", Boolean.TRUE);
         payload.put("messages", messages);
 
-        String body = objectMapper.writeValueAsString(payload);
+        byte[] body = objectMapper.writeValueAsBytes(payload);
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(resolveChatCompletionsUrl(llm.getBaseUrl())))
+                .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(resolveTimeoutSeconds(llm)))
                 .header("Authorization", "Bearer " + llm.getApiKey())
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
         writeProgress(outputStream, "llm.connect", "连接语言模型", "使用模型 " + llm.getModel() + " 生成回复。", "running");
         HttpResponse<InputStream> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());

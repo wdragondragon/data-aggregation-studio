@@ -212,10 +212,14 @@ class AssistantLlmPlannerTest {
     void streamChatShouldTellLlmToUsePageContextActiveObjectForCurrentSelection() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         AtomicReference<String> requestBody = new AtomicReference<String>("");
+        AtomicReference<String> requestContentLength = new AtomicReference<String>("");
+        AtomicReference<String> requestTransferEncoding = new AtomicReference<String>("");
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
             byte[] body = exchange.getRequestBody().readAllBytes();
             requestBody.set(new String(body, StandardCharsets.UTF_8));
+            requestContentLength.set(exchange.getRequestHeaders().getFirst("Content-length"));
+            requestTransferEncoding.set(exchange.getRequestHeaders().getFirst("Transfer-encoding"));
             byte[] response = ("data: {\"choices\":[{\"delta\":{\"content\":\"收到\"}}]}\n\n"
                     + "data: [DONE]\n\n").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -252,6 +256,8 @@ class AssistantLlmPlannerTest {
             planner.streamChat(request, Collections.<AssistantKnowledgeCapability>emptyList(), outputStream);
 
             JsonNode payload = objectMapper.readTree(requestBody.get());
+            assertEquals(String.valueOf(requestBody.get().getBytes(StandardCharsets.UTF_8).length), requestContentLength.get());
+            assertFalse("chunked".equalsIgnoreCase(requestTransferEncoding.get()));
             String systemPrompt = payload.path("messages").path(0).path("content").asText();
             String runtimeContext = payload.path("messages").path(1).path("content").asText();
             assertTrue(systemPrompt.contains("currentContext.pageContext"));
