@@ -1410,6 +1410,7 @@ create table if not exists dispatch_task (
     workflow_definition_id bigint,
     workflow_version_id bigint,
     collection_task_id bigint,
+    quality_task_id bigint,
     triggered_by_user_id bigint,
     run_record_id bigint,
     node_code varchar(255),
@@ -1424,6 +1425,7 @@ create table if not exists dispatch_task (
     payload_json json,
     key idx_dispatch_task_project_status (project_id, status),
     key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id),
+    key idx_dispatch_task_project_quality_task_status (project_id, quality_task_id, status),
     key idx_dispatch_task_project_status_created (project_id, status, created_at),
     key idx_dispatch_task_group_status_created (worker_group_code, status, created_at)
 );
@@ -1440,6 +1442,7 @@ create table if not exists run_record (
     workflow_definition_id bigint,
     workflow_version_id bigint,
     collection_task_id bigint,
+    quality_task_id bigint,
     triggered_by_user_id bigint,
     node_code varchar(255),
     status varchar(64),
@@ -1475,7 +1478,8 @@ create table if not exists run_record (
     result_json json,
     key idx_run_record_project_created (project_id, created_at),
     key idx_run_record_project_workflow_run (project_id, workflow_run_id),
-    key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at)
+    key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at),
+    key idx_run_record_project_quality_task_ended (project_id, quality_task_id, ended_at)
 );
 
 create table if not exists data_model_lineage_relation (

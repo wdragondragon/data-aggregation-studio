@@ -302,6 +302,30 @@ class StudioSchemaDriftRegressionTest {
     }
 
     @Test
+    void qualityTaskRunColumnsShouldStayAlignedAcrossSchemaAndUpgrade() throws Exception {
+        String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String upgradeService = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java");
+
+        assertTableDefinitionContains("MySQL dispatch task quality task run columns", mysqlSchema, "dispatch_task",
+                Arrays.asList("quality_task_id", "idx_dispatch_task_project_quality_task_status"));
+        assertTableDefinitionContains("MySQL run record quality task run columns", mysqlSchema, "run_record",
+                Arrays.asList("quality_task_id", "idx_run_record_project_quality_task_ended"));
+        assertTableDefinitionContains("SQLite dispatch task quality task run columns", sqliteSchema, "dispatch_task",
+                Arrays.asList("quality_task_id"));
+        assertTableDefinitionContains("SQLite run record quality task run columns", sqliteSchema, "run_record",
+                Arrays.asList("quality_task_id"));
+        assertFieldsPresent("SQLite quality task run indexes", sqliteSchema,
+                Arrays.asList("idx_dispatch_task_project_quality_task_status",
+                        "idx_run_record_project_quality_task_ended"));
+        assertFieldsPresent("Upgrade quality task run columns", upgradeService,
+                Arrays.asList("ensureColumn(\"dispatch_task\", \"quality_task_id\"",
+                        "ensureColumn(\"run_record\", \"quality_task_id\"",
+                        "idx_dispatch_task_project_quality_task_status",
+                        "idx_run_record_project_quality_task_ended"));
+    }
+
+    @Test
     void dataIngestionSourcePositionSummaryColumnShouldStayAlignedAcrossSchemaAndUpgrade() throws Exception {
         String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
         String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
@@ -340,6 +364,18 @@ class StudioSchemaDriftRegressionTest {
         assertThat(content)
                 .as(label)
                 .contains(fields.toArray(new String[0]));
+    }
+
+    private void assertTableDefinitionContains(String label, String content, String tableName, List<String> fields) {
+        Pattern tablePattern = Pattern.compile("create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?`?"
+                + Pattern.quote(tableName) + "`?\\s*\\(", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = tablePattern.matcher(content);
+        assertThat(matcher.find())
+                .as(label + " table definition exists")
+                .isTrue();
+        int end = content.indexOf(';', matcher.end());
+        String tableDefinition = content.substring(matcher.start(), end < 0 ? content.length() : end);
+        assertFieldsPresent(label, tableDefinition, fields);
     }
 
     private void assertCapabilityPresent(String label,
