@@ -14,6 +14,15 @@ public class AssistantPlanRequest {
     @Schema(description = "Latest user message")
     private String message;
 
+    @Schema(description = "Assistant interaction mode: chat, plan, or goal")
+    private String assistantMode = "chat";
+
+    @Schema(description = "Preferred response language: zh or en")
+    private String responseLanguage = "zh";
+
+    @Schema(description = "Custom assistant protocol version")
+    private String protocolVersion = "studio-assistant.v1";
+
     @Schema(description = "Conversation messages")
     private List<AssistantChatMessage> messages = new ArrayList<AssistantChatMessage>();
 

@@ -6,7 +6,6 @@ import com.jdragon.studio.dto.model.assistant.AssistantInputOption;
 import com.jdragon.studio.dto.model.assistant.AssistantInterfaceDefinition;
 import com.jdragon.studio.dto.model.assistant.AssistantKnowledgeCapability;
 import com.jdragon.studio.dto.model.assistant.AssistantPlanRequest;
-import com.jdragon.studio.dto.model.assistant.AssistantToolCall;
 import com.jdragon.studio.dto.model.assistant.AssistantValueResolver;
 import org.springframework.stereotype.Service;
 
@@ -52,10 +51,6 @@ public class AssistantKnowledgeRegistry {
         return missingInputs(capability, collectedInputs);
     }
 
-    public List<AssistantToolCall> suggestInitialToolCalls(AssistantKnowledgeCapability capability) {
-        return initialToolCalls(capability);
-    }
-
     public AssistantActionDraft createInitialDraft(AssistantKnowledgeCapability capability,
                                                    String message,
                                                    Map<String, Object> collectedInputs) {
@@ -75,13 +70,6 @@ public class AssistantKnowledgeRegistry {
             }
         }
         return missing;
-    }
-
-    private List<AssistantToolCall> initialToolCalls(AssistantKnowledgeCapability capability) {
-        List<AssistantToolCall> calls = new ArrayList<AssistantToolCall>();
-        calls.add(toolCall("tool-capabilities", "catalog.capabilities", "先读取能力矩阵，约束可读/可写数据源范围"));
-        calls.add(toolCall("tool-datasources", "datasources.options", "查询当前项目可选数据源，由用户确认源端和目标端"));
-        return calls;
     }
 
     private AssistantActionDraft buildInitialDraft(AssistantKnowledgeCapability capability,
@@ -145,30 +133,30 @@ public class AssistantKnowledgeRegistry {
         collectionMode.getOptions().add(option("全量采集", "FULL", "不生成增量游标参数"));
         capability.getOptionalInputs().add(collectionMode);
 
-        capability.getInterfaces().add(api("catalog.capabilities", "GET", "/api/v1/catalog/capabilities", "读取可执行能力矩阵，判断可读/可写数据源类型", false));
-        capability.getInterfaces().add(api("datasources.options", "GET", "/api/v1/datasources/options", "查询当前项目的数据源候选", false));
-        capability.getInterfaces().add(api("models.datasourceOptions", "GET", "/api/v1/models/datasource/{datasourceId}/options", "查询指定数据源下的模型候选", false, "source.datasourceId|target.datasourceId"));
-        capability.getInterfaces().add(api("models.get", "GET", "/api/v1/models/{modelId}", "读取模型字段元数据", false, "source.modelId|target.modelId"));
-        capability.getInterfaces().add(api("catalog.runtimeOptionSchema", "GET", "/api/v1/catalog/runtime-option-schemas", "读取 reader/writer 运行参数元模型", false, "role", "datasourceType"));
-        capability.getInterfaces().add(api("collectionTasks.preview", "POST", "/api/v1/collection-tasks/preview", "预览 JobContainer 配置，保存前必调", false, "collectionTaskPayload"));
-        capability.getInterfaces().add(api("collectionTasks.save", "POST", "/api/v1/collection-tasks", "用户确认后保存采集任务草稿", true, "collectionTaskPayload"));
+        capability.getInterfaces().add(api("studio.feature.list", "POST", "/api/v1/assistant/tools/execute {path=/catalog}", "读取可执行能力矩阵，判断可读/可写数据源类型", false, "path"));
+        capability.getInterfaces().add(api("studio.feature.list", "POST", "/api/v1/assistant/tools/execute {path=/datasources}", "查询当前项目的数据源候选", false, "path"));
+        capability.getInterfaces().add(api("studio.feature.list", "POST", "/api/v1/assistant/tools/execute {path=/models,datasourceId}", "查询指定数据源下的模型候选", false, "path", "source.datasourceId|target.datasourceId"));
+        capability.getInterfaces().add(api("studio.feature.get", "POST", "/api/v1/assistant/tools/execute {path=/models,id}", "读取模型字段元数据", false, "path", "source.modelId|target.modelId"));
+        capability.getInterfaces().add(api("studio.feature.list", "POST", "/api/v1/assistant/tools/execute {path=/catalog,view=runtimeOptionSchema}", "读取 reader/writer 运行参数元模型", false, "path", "view", "role", "datasourceType"));
+        capability.getInterfaces().add(api("studio.feature.action", "POST", "/api/v1/assistant/tools/execute {path=/collection-tasks,action=preview}", "预览 JobContainer 配置，保存前必调", false, "path", "action", "payload"));
+        capability.getInterfaces().add(api("studio.feature.action", "POST", "/api/v1/assistant/tools/execute {path=/collection-tasks,action=save}", "用户确认后保存采集任务草稿", true, "path", "action", "payload"));
 
-        capability.getValueResolvers().add(resolver("source.datasourceId", "datasources.options", "查询数据源候选后筛选 readable=true 的类型"));
-        capability.getValueResolvers().add(resolver("target.datasourceId", "datasources.options", "查询数据源候选后筛选 writable=true 的类型"));
-        capability.getValueResolvers().add(resolver("source.modelId", "models.datasourceOptions", "用源数据源 id 查询模型候选"));
-        capability.getValueResolvers().add(resolver("target.modelId", "models.datasourceOptions", "用目标数据源 id 查询模型候选"));
-        capability.getValueResolvers().add(resolver("fieldMappings", "models.get", "读取源/目标模型字段，执行同名字段自动映射"));
-        capability.getValueResolvers().add(resolver("readerOptions", "catalog.runtimeOptionSchema", "读取 reader 默认运行参数"));
-        capability.getValueResolvers().add(resolver("writerOptions", "catalog.runtimeOptionSchema", "读取 writer 默认运行参数"));
+        capability.getValueResolvers().add(resolver("source.datasourceId", "studio.feature.list", "用 {path:/datasources} 查询数据源候选后筛选 readable=true 的类型"));
+        capability.getValueResolvers().add(resolver("target.datasourceId", "studio.feature.list", "用 {path:/datasources} 查询数据源候选后筛选 writable=true 的类型"));
+        capability.getValueResolvers().add(resolver("source.modelId", "studio.feature.list", "用 {path:/models,datasourceId:source.datasourceId} 查询模型候选"));
+        capability.getValueResolvers().add(resolver("target.modelId", "studio.feature.list", "用 {path:/models,datasourceId:target.datasourceId} 查询模型候选"));
+        capability.getValueResolvers().add(resolver("fieldMappings", "studio.feature.get", "用 {path:/models,id:source.modelId|target.modelId} 读取字段并执行同名字段自动映射"));
+        capability.getValueResolvers().add(resolver("readerOptions", "studio.feature.list", "用 {path:/catalog,view:runtimeOptionSchema,role:reader,datasourceType} 读取 reader 默认运行参数"));
+        capability.getValueResolvers().add(resolver("writerOptions", "studio.feature.list", "用 {path:/catalog,view:runtimeOptionSchema,role:writer,datasourceType} 读取 writer 默认运行参数"));
 
         capability.getAssemblyRules().add("sourceBindings 固定为单元素数组，sourceAlias 固定为 src1。");
         capability.getAssemblyRules().add("targetBinding 使用用户选定的目标数据源和目标模型。");
         capability.getAssemblyRules().add("同名字段自动生成直接映射；未匹配目标字段必须让用户选择，不自动丢弃，不保存空映射。");
         capability.getAssemblyRules().add("executionOptions.collectionMode 默认 FULL。");
         capability.getAssemblyRules().add("不生成定时调度配置；如请求体必须携带 schedule，则仅传 {\"enabled\": false}。");
-        capability.getAssemblyRules().add("保存前必须先调用 collectionTasks.preview，并展示预览摘要。");
+        capability.getAssemblyRules().add("保存前必须先通过 studio.feature.action {path:/collection-tasks,action:preview,payload} 预览，并展示预览摘要。");
 
-        capability.getConfirmationPolicy().add("collectionTasks.preview 是保存前置条件。");
+        capability.getConfirmationPolicy().add("studio.feature.action {path:/collection-tasks,action:preview} 是保存前置条件。");
         capability.getConfirmationPolicy().add("collectionTasks.save 必须由用户确认后执行。");
         capability.getConfirmationPolicy().add("发布、触发、删除、修改配置等写操作必须进入统一确认队列。");
         capability.getConfirmationPolicy().add("AI 规划接口不得直接调用任何业务写接口。");
@@ -216,14 +204,6 @@ public class AssistantKnowledgeRegistry {
         resolver.setInterfaceCode(interfaceCode);
         resolver.setDescription(description);
         return resolver;
-    }
-
-    private AssistantToolCall toolCall(String id, String interfaceCode, String reason) {
-        AssistantToolCall call = new AssistantToolCall();
-        call.setId(id);
-        call.setInterfaceCode(interfaceCode);
-        call.setReason(reason);
-        return call;
     }
 
     private String latestMessage(AssistantPlanRequest request) {

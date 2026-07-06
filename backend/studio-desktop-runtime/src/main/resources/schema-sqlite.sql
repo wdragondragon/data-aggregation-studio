@@ -252,6 +252,245 @@ create table if not exists field_mapping_rule_param (
 create index if not exists idx_field_mapping_rule_param_rule_order on field_mapping_rule_param(rule_id, param_order);
 create index if not exists idx_field_mapping_rule_param_rule_name on field_mapping_rule_param(rule_id, param_name);
 
+create table if not exists quality_rule (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    created_by integer,
+    rule_name text not null,
+    rule_code text not null,
+    scope_type text not null,
+    rule_dimension text not null,
+    description text,
+    supported_datasource_types_json text,
+    granularity text not null,
+    logic_sql text,
+    enabled integer default 1
+);
+create unique index if not exists uk_quality_rule_scope_code on quality_rule(tenant_id, project_id, scope_type, rule_code);
+create index if not exists idx_quality_rule_scope_enabled on quality_rule(tenant_id, project_id, scope_type, enabled);
+create index if not exists idx_quality_rule_dimension_enabled on quality_rule(rule_dimension, enabled);
+
+create table if not exists quality_rule_input_param (
+    id integer primary key,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    rule_id integer not null,
+    param_order integer not null,
+    param_name text not null,
+    param_type text not null,
+    param_meaning text
+);
+create index if not exists idx_quality_rule_input_param_rule_order on quality_rule_input_param(rule_id, param_order);
+create index if not exists idx_quality_rule_input_param_rule_name on quality_rule_input_param(rule_id, param_name);
+
+create table if not exists quality_rule_output_param (
+    id integer primary key,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    rule_id integer not null,
+    output_order integer not null,
+    result_field text not null,
+    output_type text not null,
+    output_description text
+);
+create index if not exists idx_quality_rule_output_param_rule_order on quality_rule_output_param(rule_id, output_order);
+create index if not exists idx_quality_rule_output_param_rule_field on quality_rule_output_param(rule_id, result_field);
+
+create table if not exists quality_task_definition (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    created_by integer,
+    task_name text not null,
+    task_code text not null,
+    status text,
+    rule_id integer not null,
+    rule_name_snapshot text,
+    rule_dimension text,
+    granularity text,
+    datasource_id integer,
+    datasource_name_snapshot text,
+    datasource_type_code text,
+    model_id integer,
+    model_name_snapshot text,
+    model_physical_locator text,
+    column_name text,
+    where_clause text,
+    resolved_sql_preview text,
+    parameter_bindings_json text,
+    rule_snapshot_json text
+);
+create unique index if not exists uk_quality_task_definition_project_code on quality_task_definition(project_id, task_code);
+create unique index if not exists uk_quality_task_definition_project_name on quality_task_definition(project_id, task_name);
+create index if not exists idx_quality_task_definition_project_status on quality_task_definition(project_id, status);
+create index if not exists idx_quality_task_definition_rule_dimension on quality_task_definition(project_id, rule_dimension);
+
+create table if not exists quality_task_schedule (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    quality_task_id integer,
+    cron_expression text,
+    enabled integer default 0,
+    timezone text,
+    last_triggered_at text
+);
+create index if not exists idx_quality_task_schedule_project on quality_task_schedule(project_id);
+create index if not exists idx_quality_task_schedule_task on quality_task_schedule(quality_task_id);
+
+create table if not exists quality_task_alert (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    quality_task_id integer not null,
+    output_order integer not null,
+    result_field text not null,
+    output_type text not null,
+    enabled integer default 0,
+    operator text,
+    expected_value text,
+    min_value text,
+    max_value text
+);
+create index if not exists idx_quality_task_alert_task on quality_task_alert(quality_task_id);
+create index if not exists idx_quality_task_alert_task_order on quality_task_alert(quality_task_id, output_order);
+
+create table if not exists quality_issue (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    issue_code text,
+    signature text not null,
+    issue_type text,
+    quality_task_id integer,
+    quality_task_name_snapshot text,
+    rule_id integer,
+    rule_name_snapshot text,
+    rule_dimension text,
+    datasource_id integer,
+    datasource_name_snapshot text,
+    datasource_type_code text,
+    model_id integer,
+    model_name_snapshot text,
+    model_physical_locator text,
+    column_name text,
+    output_field text,
+    granularity text,
+    title text,
+    latest_message text,
+    severity text,
+    system_severity text,
+    manual_severity text,
+    status text,
+    assignee_user_id integer,
+    assignee_name_snapshot text,
+    first_seen_at text,
+    last_seen_at text,
+    last_recovery_at text,
+    sla_due_at text,
+    occurrence_count integer default 0,
+    consecutive_failure_count integer default 0,
+    reopen_count integer default 0,
+    last_run_record_id integer,
+    last_run_status text,
+    current_evidence_json text
+);
+create unique index if not exists uk_quality_issue_signature on quality_issue(tenant_id, project_id, signature);
+create index if not exists idx_quality_issue_status_severity on quality_issue(project_id, status, severity);
+create index if not exists idx_quality_issue_asset on quality_issue(project_id, datasource_id, model_id);
+create index if not exists idx_quality_issue_task on quality_issue(project_id, quality_task_id);
+create index if not exists idx_quality_issue_last_seen on quality_issue(project_id, last_seen_at);
+
+create table if not exists quality_issue_comment (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    issue_id integer not null,
+    author_user_id integer,
+    author_name_snapshot text,
+    content text
+);
+create index if not exists idx_quality_issue_comment_issue on quality_issue_comment(issue_id, created_at);
+
+create table if not exists quality_issue_event (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    issue_id integer not null,
+    event_type text,
+    event_title text,
+    event_message text,
+    actor_user_id integer,
+    actor_name_snapshot text,
+    metadata_json text
+);
+create index if not exists idx_quality_issue_event_issue on quality_issue_event(issue_id, created_at);
+create index if not exists idx_quality_issue_event_project_type on quality_issue_event(project_id, event_type, created_at);
+
+create table if not exists quality_metric_snapshot (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    snapshot_date text,
+    datasource_id integer,
+    datasource_name_snapshot text,
+    datasource_type_code text,
+    model_id integer,
+    model_name_snapshot text,
+    model_physical_locator text,
+    rule_dimension text,
+    execution_health_score integer,
+    governance_risk_score integer,
+    active_issue_count integer,
+    overdue_issue_count integer,
+    coverage_rate integer,
+    failure_rate integer,
+    affected_asset_count integer,
+    reopen_rate integer
+);
+create index if not exists idx_quality_metric_snapshot_project_date on quality_metric_snapshot(project_id, snapshot_date);
+create index if not exists idx_quality_metric_snapshot_asset on quality_metric_snapshot(project_id, datasource_id, model_id, snapshot_date);
+create index if not exists idx_quality_metric_snapshot_dimension on quality_metric_snapshot(project_id, rule_dimension, snapshot_date);
+
+create table if not exists studio_cluster_lock (
+    id integer primary key,
+    lock_name text not null,
+    owner_id text,
+    locked_until text,
+    last_acquired_at text,
+    created_at text,
+    updated_at text
+);
+create unique index if not exists uk_studio_cluster_lock_name on studio_cluster_lock(lock_name);
+create index if not exists idx_studio_cluster_lock_until on studio_cluster_lock(locked_until);
+
 create table if not exists user_registration_request (
     id integer primary key,
     deleted integer default 0,
@@ -678,6 +917,175 @@ create table if not exists collection_task_schedule (
 );
 create index if not exists idx_collection_task_schedule_project on collection_task_schedule(project_id);
 
+create table if not exists data_service_definition (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    created_by integer,
+    service_code text not null,
+    service_name text not null,
+    service_type text not null,
+    status text not null,
+    source_type text not null,
+    datasource_id integer,
+    datasource_name_snapshot text,
+    datasource_type_code text,
+    model_id integer,
+    model_name_snapshot text,
+    model_physical_locator text,
+    custom_sql text,
+    request_method text,
+    response_type text,
+    endpoint_path text,
+    service_key text,
+    cache_enabled integer default 0,
+    token_required integer default 1,
+    default_subscription_name text,
+    webservice_enabled integer default 0,
+    webservice_config_json text
+);
+create unique index if not exists uk_data_service_project_code on data_service_definition(tenant_id, project_id, service_code);
+create index if not exists idx_data_service_project_status on data_service_definition(project_id, status);
+create index if not exists idx_data_service_code_key on data_service_definition(service_code, service_key);
+
+create table if not exists data_service_request_param (
+    id integer primary key,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null,
+    sort_order integer,
+    param_name text not null,
+    field_name text,
+    value_type text,
+    query_operator text,
+    required integer default 0,
+    description text,
+    fixed_param integer default 0
+);
+create index if not exists idx_data_service_request_service_order on data_service_request_param(service_id, sort_order);
+
+create table if not exists data_service_response_param (
+    id integer primary key,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null,
+    sort_order integer,
+    enabled integer default 1,
+    param_name text not null,
+    field_name text not null,
+    example_value text,
+    description text,
+    transformers_json text
+);
+create index if not exists idx_data_service_response_service_order on data_service_response_param(service_id, sort_order);
+
+create table if not exists data_service_publish_param (
+    id integer primary key,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null,
+    sort_order integer,
+    frontend_param_name text not null,
+    backend_param_name text not null,
+    position text,
+    value_type text,
+    example_value text,
+    default_value text,
+    required integer default 0,
+    description text
+);
+create index if not exists idx_data_service_publish_service_order on data_service_publish_param(service_id, sort_order);
+
+create table if not exists data_service_subscription (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null,
+    subscription_name text not null,
+    token_hash text not null,
+    token_masked text,
+    enabled integer default 1,
+    created_by integer,
+    last_used_at text,
+    rotated_at text,
+    rotated_by integer
+);
+create unique index if not exists uk_data_service_sub_active_name
+    on data_service_subscription(service_id, subscription_name)
+    where deleted = 0;
+create index if not exists idx_data_service_subscription_service_enabled on data_service_subscription(service_id, enabled);
+create index if not exists idx_data_service_subscription_token on data_service_subscription(token_hash);
+
+create table if not exists data_service_access_log (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer,
+    service_code_snapshot text,
+    service_name_snapshot text,
+    service_status_snapshot text,
+    subscription_id integer,
+    subscription_name_snapshot text,
+    request_id text,
+    request_method text,
+    occurred_at text,
+    duration_ms integer,
+    success integer default 0,
+    http_status integer,
+    error_code text,
+    error_message text,
+    system_log text,
+    client_ip text,
+    user_agent text,
+    cache_enabled integer default 0,
+    cache_hit integer default 0,
+    row_count integer default 0,
+    log_storage_type text,
+    log_object_bucket text,
+    log_object_key text,
+    log_size_bytes integer,
+    log_charset text,
+    log_archive_status text,
+    log_archive_error text
+);
+create index if not exists idx_data_service_access_project_time on data_service_access_log(tenant_id, project_id, occurred_at);
+create index if not exists idx_data_service_access_service_time on data_service_access_log(service_id, occurred_at);
+create index if not exists idx_data_service_access_subscription_time on data_service_access_log(subscription_id, occurred_at);
+create index if not exists idx_data_service_access_success on data_service_access_log(project_id, success, occurred_at);
+create index if not exists idx_data_service_access_cache on data_service_access_log(project_id, cache_hit, occurred_at);
+
+create table if not exists data_service_access_counter (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    service_id integer not null default 0,
+    subscription_id integer not null default 0,
+    bucket_start text not null,
+    success integer not null default 0,
+    cache_enabled integer not null default 0,
+    cache_hit integer not null default 0,
+    access_count integer default 0,
+    row_count integer default 0
+);
+create unique index if not exists uk_data_service_access_counter on data_service_access_counter(tenant_id, project_id, service_id, subscription_id, bucket_start, success, cache_enabled, cache_hit);
+create index if not exists idx_data_service_counter_project_bucket on data_service_access_counter(tenant_id, project_id, bucket_start);
+create index if not exists idx_data_service_counter_service_bucket on data_service_access_counter(service_id, bucket_start);
+
 create table if not exists data_ingestion_service (
     id integer primary key,
     tenant_id text default 'default',
@@ -1076,6 +1484,7 @@ create table if not exists dispatch_task (
     workflow_definition_id integer,
     workflow_version_id integer,
     collection_task_id integer,
+    quality_task_id integer,
     triggered_by_user_id integer,
     run_record_id integer,
     node_code text,
@@ -1091,6 +1500,7 @@ create table if not exists dispatch_task (
 );
 create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status);
 create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id);
+create index if not exists idx_dispatch_task_project_quality_task_status on dispatch_task(project_id, quality_task_id, status);
 create index if not exists idx_dispatch_task_project_status_created on dispatch_task(project_id, status, created_at);
 create index if not exists idx_dispatch_task_group_status_created on dispatch_task(worker_group_code, status, created_at);
 
@@ -1106,6 +1516,7 @@ create table if not exists run_record (
     workflow_definition_id integer,
     workflow_version_id integer,
     collection_task_id integer,
+    quality_task_id integer,
     triggered_by_user_id integer,
     node_code text,
     status text,
@@ -1143,6 +1554,7 @@ create table if not exists run_record (
 create index if not exists idx_run_record_project_created on run_record(project_id, created_at);
 create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id);
 create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at);
+create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at);
 
 create table if not exists data_model_lineage_relation (
     id integer primary key,

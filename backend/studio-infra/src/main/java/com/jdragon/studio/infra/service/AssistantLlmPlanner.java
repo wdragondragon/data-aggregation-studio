@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.dto.model.assistant.AssistantBackendToolCall;
@@ -26,30 +27,32 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 @Service
 public class AssistantLlmPlanner {
 
     private static final int MAX_BACKEND_TOOL_CALLS = 3;
+    private static final String PROTOCOL_VERSION = "studio-assistant.v1";
 
     private final StudioPlatformProperties properties;
     private final ObjectMapper objectMapper;
-    private final AssistantSkillMemoryService skillMemoryService;
+    private final List<AssistantSkillProvider> skillProviders;
     private final AssistantBackendToolRegistry backendToolRegistry;
 
     @Autowired
     public AssistantLlmPlanner(StudioPlatformProperties properties,
                                ObjectMapper objectMapper,
-                               AssistantSkillMemoryService skillMemoryService,
+                               List<AssistantSkillProvider> skillProviders,
                                AssistantBackendToolRegistry backendToolRegistry) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.skillMemoryService = skillMemoryService;
+        this.skillProviders = skillProviders == null ? Collections.<AssistantSkillProvider>emptyList() : skillProviders;
         this.backendToolRegistry = backendToolRegistry;
     }
 
     public AssistantLlmPlanner(StudioPlatformProperties properties, ObjectMapper objectMapper) {
-        this(properties, objectMapper, null, null);
+        this(properties, objectMapper, Collections.<AssistantSkillProvider>emptyList(), null);
     }
 
     public boolean isEnabled() {
@@ -75,36 +78,36 @@ public class AssistantLlmPlanner {
             }
             return plan;
         } catch (Exception ex) {
-            AssistantLlmPlan fallback = new AssistantLlmPlan();
-            fallback.getWarnings().add("LLM planning failed: " + ex.getMessage());
-            return fallback;
+            AssistantLlmPlan warningPlan = new AssistantLlmPlan();
+            warningPlan.getWarnings().add("LLM planning failed: " + ex.getMessage());
+            return warningPlan;
         }
     }
 
     public void streamChat(AssistantPlanRequest request,
                            List<AssistantKnowledgeCapability> capabilities,
                            OutputStream outputStream) {
+        AssistantPlanRequest safeRequest = request == null ? new AssistantPlanRequest() : request;
         if (!isEnabled()) {
-            writeProgress(outputStream, "llm.config", "检查 LLM 配置", "LLM 尚未启用，返回配置提示。", "warning");
-            writeSse(outputStream, "delta", Collections.singletonMap(
-                    "content", "LLM 尚未启用。请配置 STUDIO_ASSISTANT_LLM_ENABLED、STUDIO_ASSISTANT_LLM_BASE_URL、STUDIO_ASSISTANT_LLM_API_KEY 和模型名称后再使用对话助手。"));
+            writeProgress(outputStream, "llm.disabled", "AI 助手未启用", "LLM 未启用或配置不完整，本轮不会执行 Studio 操作。", "warning");
+            writeSse(outputStream, "error", Collections.singletonMap(
+                    "message", "AI 助手未启用。请启用并完整配置 LLM 后再使用 Web 端 AI 助手。"));
             writeSse(outputStream, "done", Collections.<String, Object>emptyMap());
             return;
         }
+        List<Map<String, Object>> assistantSkills = loadAssistantSkills(safeRequest);
+        List<Map<String, Object>> backendTools = listBackendTools();
+        writeProgress(outputStream, "context.prepare", "整理当前上下文", "已读取当前路由、模式、语言、最近对话和工具结果。", "done");
+        writeProgress(outputStream, "knowledge.load", "加载 Studio 内置技能", "已加载 " + assistantSkills.size() + " 条 portable skill 和 " + backendTools.size() + " 个后端工具。", "done");
         try {
-            StudioPlatformProperties.LlmProperties llm = properties.getAssistant().getLlm();
-            List<Map<String, Object>> assistantSkills = loadAssistantSkills(request);
-            List<Map<String, Object>> backendTools = listBackendTools();
-            writeProgress(outputStream, "context.prepare", "整理当前上下文", "已读取当前路由、租户、项目、已收集输入和最近对话。", "done");
-            writeProgress(outputStream, "knowledge.load", "加载 Studio 能力知识", "已加载 " + (capabilities == null ? 0 : capabilities.size()) + " 个能力包。", "done");
-            writeProgress(outputStream, "skills.load", "加载助手技能记忆", "已加载 " + assistantSkills.size() + " 条技能摘要和 " + backendTools.size() + " 个后端白名单工具。", "done");
-            String streamedContent = requestStreamingCompletion(request, capabilities, assistantSkills, backendTools, outputStream);
-            List<AssistantBackendToolResult> backendToolResults = executeBackendToolCallsFromResponse(request, streamedContent, outputStream);
+            writeProgress(outputStream, "protocol.prepare", "注入助手协议", "已启用 " + PROTOCOL_VERSION + "，LLM 只输出协议化内部动作。", "done");
+            String streamedContent = requestStreamingCompletion(safeRequest, capabilities, assistantSkills, backendTools, outputStream);
+            List<AssistantBackendToolResult> backendToolResults = executeBackendToolCallsFromResponse(safeRequest, streamedContent, outputStream);
             if (!backendToolResults.isEmpty()) {
                 writeProgress(outputStream, "backend.tools.complete", "后端白名单工具完成",
                         "已返回 " + backendToolResults.size() + " 项工具结果，正在让助手补充说明。", "done");
                 requestBackendToolFollowUpCompletion(
-                        request,
+                        safeRequest,
                         capabilities,
                         assistantSkills,
                         backendTools,
@@ -115,10 +118,19 @@ public class AssistantLlmPlanner {
             writeProgress(outputStream, "llm.complete", "模型回复完成", "已接收完整流式回复。", "done");
             writeSse(outputStream, "done", Collections.<String, Object>emptyMap());
         } catch (Exception ex) {
-            writeProgress(outputStream, "llm.error", "模型回复失败", ex.getMessage(), "error");
-            writeSse(outputStream, "error", Collections.singletonMap("message", "LLM stream failed: " + ex.getMessage()));
+            writeProgress(outputStream, "llm.error", "模型回复失败", ex.getMessage(), "warning");
+            writeSse(outputStream, "delta", Collections.singletonMap("content",
+                    llmFailureReply(ex)));
             writeSse(outputStream, "done", Collections.<String, Object>emptyMap());
         }
+    }
+
+    private String llmFailureReply(Exception ex) {
+        String message = ex == null ? "" : ex.getMessage();
+        if (!hasText(message)) {
+            message = "未知错误";
+        }
+        return "LLM 请求失败，本轮未执行任何 Studio 操作。请稍后重试或检查助手模型配置。错误信息：" + message;
     }
 
     private String requestCompletion(AssistantPlanRequest request,
@@ -182,7 +194,7 @@ public class AssistantLlmPlanner {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("backendToolResults", summarizeBackendToolResults(backendToolResults));
         messages.add(message("system", "Backend allow-listed tool results JSON:\n" + objectMapper.writeValueAsString(payload)));
-        messages.add(message("user", "请基于后端工具结果继续回答。只输出用户可见内容；除非还需要前端安全接口调用或问答控件，否则不要再输出 assistant-action。"));
+        messages.add(message("user", "请基于后端工具结果继续回答。只输出用户可见内容；除非还需要前端安全接口调用或问答控件，否则不要再输出内部协议块。"));
         requestStreamingCompletionWithMessages(messages, outputStream);
     }
 
@@ -249,6 +261,9 @@ public class AssistantLlmPlanner {
 
         Map<String, Object> userPayload = new LinkedHashMap<String, Object>();
         userPayload.put("latestMessage", latestMessage);
+        userPayload.put("assistantMode", resolveAssistantMode(request));
+        userPayload.put("responseLanguage", resolveResponseLanguage(request));
+        userPayload.put("protocolVersion", PROTOCOL_VERSION);
         userPayload.put("conversation", request == null ? null : request.getMessages());
         userPayload.put("collectedInputs", request == null ? null : request.getCollectedInputs());
         userPayload.put("toolResults", request == null ? null : request.getToolResults());
@@ -267,6 +282,9 @@ public class AssistantLlmPlanner {
         List<Map<String, String>> messages = new ArrayList<Map<String, String>>();
         messages.add(message("system", chatSystemPrompt()));
         Map<String, Object> knowledge = new LinkedHashMap<String, Object>();
+        knowledge.put("protocolVersion", PROTOCOL_VERSION);
+        knowledge.put("assistantMode", resolveAssistantMode(request));
+        knowledge.put("responseLanguage", resolveResponseLanguage(request));
         knowledge.put("currentContext", request == null ? null : request.getContext());
         knowledge.put("collectedInputs", request == null ? null : request.getCollectedInputs());
         knowledge.put("toolResults", request == null ? null : request.getToolResults());
@@ -294,10 +312,11 @@ public class AssistantLlmPlanner {
         return ""
                 + "You are the planning brain for Data Aggregation Studio's built-in assistant.\n"
                 + "Return only one valid JSON object. Do not include markdown fences.\n"
+                + "Use the custom " + PROTOCOL_VERSION + " schema for all internal calls and never rely on provider-specific function-calling response bodies.\n"
                 + "You must not invent datasource IDs, model IDs, field names, or execute any business API.\n"
                 + "You may copy IDs or field names only when they are present in collectedInputs or toolResults.\n"
                 + "Use only capability codes and interfaceCode values from the provided knowledge capabilities.\n"
-                + "You may suggest backendToolCalls only with codes listed in backendTools. Backend tools are allow-listed annotated methods; user text is never a method name.\n"
+                + "You may suggest backendTool actions only with codes listed in backendTools. Backend tools are allow-listed annotated methods; user text is never a method name.\n"
                 + "Backend tools may retrieve assistant skills or safe metadata only. Do not use or request them for business mutations.\n"
                 + "Write operations such as save, publish, trigger, delete, or configuration mutation must not be suggested for direct execution.\n"
                 + "The frontend executes read-only tools through Studio HTTP APIs, validates selected values, and asks the user to choose ambiguous or missing values.\n"
@@ -316,8 +335,7 @@ public class AssistantLlmPlanner {
                 + "    \"executionOptions\": {\"collectionMode\": \"FULL\"}\n"
                 + "  },\n"
                 + "  \"missingInputs\": [\"source.datasourceId\"],\n"
-                + "  \"toolCalls\": [{\"interfaceCode\": \"catalog.capabilities\", \"reason\": \"why\"}],\n"
-                + "  \"backendToolCalls\": [{\"code\": \"assistant.skills.search\", \"reason\": \"why\", \"params\": {\"query\": \"optional\"}}],\n"
+                + "  \"protocol\": {\"protocol\": \"studio-assistant.v1\", \"plan\": {\"intent\": \"why\", \"basis\": [\"evidence\"], \"requiredObjects\": [], \"nextActions\": [{\"type\": \"backendTool\", \"tool\": \"assistant.skills.search\"}]}, \"loop\": {\"status\": \"tool_pending\", \"autoContinue\": true, \"questions\": [], \"next\": [], \"evidence\": [], \"stopReason\": \"waiting_for_tool_result\"}, \"actions\": [{\"type\": \"backendTool\", \"tool\": \"assistant.skills.search\", \"params\": {\"query\": \"optional\"}}], \"controls\": []},\n"
                 + "  \"warnings\": []\n"
                 + "}";
     }
@@ -325,35 +343,51 @@ public class AssistantLlmPlanner {
     private String chatSystemPrompt() {
         return ""
                 + "You are Data Aggregation Studio's built-in AI assistant. Reply in concise, natural Chinese.\n"
+                + "Use responseLanguage from context: zh means Chinese, en means English.\n"
+                + "Use assistantMode from context: chat gives direct answers, plan produces staged plans, goal keeps a goal-state oriented loop.\n"
                 + "You can explain Studio concepts, modules, current automation capabilities, and how the guided assistant works.\n"
-                + "Use assistantSkills and the provided runtime context as your project knowledge. Do not imply that you scanned source code or databases.\n"
-                + "This is not a keyword-triggered wizard. Decide from the whole conversation, current context, toolResults, and capability knowledge whether a Studio API call or a user decision is needed.\n"
-                + "When you need project candidates, metadata, preview output, or a user decision before continuing, append exactly one hidden fenced block after your visible answer:\n"
-                + "```assistant-action\n"
-                + "{\"toolCalls\":[{\"interfaceCode\":\"datasources.options\",\"reason\":\"resolve datasource candidates\",\"params\":{}}]}\n"
+                + "Use assistantSkills and the provided runtime context as product knowledge. Do not imply that you scanned source code or databases.\n"
+                + "This is not a keyword-triggered wizard. Decompose every user input into concrete questions, answer what can be answered, and continue with the next inferred question when context is enough.\n"
+                + "All internal calls must use the custom " + PROTOCOL_VERSION + " block, not vendor function-call fields. Append at most one hidden fenced block after visible content when needed:\n"
+                + "```studio-assistant-protocol\n"
+                + "{\"protocol\":\"studio-assistant.v1\",\"plan\":{\"intent\":\"Read datasource candidates\",\"basis\":[\"User asked to inspect datasource context\",\"assistantCapabilities exposes /datasources\"],\"requiredObjects\":[{\"type\":\"feature\",\"path\":\"/datasources\"}],\"nextActions\":[{\"type\":\"tool\",\"tool\":\"studio.feature.list\",\"path\":\"/datasources\",\"reason\":\"Read controlled Studio datasource data\"}]},\"loop\":{\"mode\":\"goal\",\"status\":\"tool_pending\",\"autoContinue\":true,\"questions\":[{\"id\":\"q1\",\"input\":\"Which datasource records are visible?\",\"status\":\"needs_tool\",\"output\":\"pending tool result\"}],\"next\":[{\"id\":\"step1\",\"type\":\"tool\",\"status\":\"pending\",\"description\":\"read controlled Studio data\"}],\"evidence\":[],\"stopReason\":\"waiting_for_tool_result\"},\"actions\":[{\"type\":\"frontendTool\",\"tool\":\"studio.feature.list\",\"reason\":\"resolve datasource candidates\",\"params\":{\"path\":\"/datasources\",\"pageNo\":1,\"pageSize\":20}}],\"controls\":[]}\n"
                 + "```\n"
-                + "The action fence syntax must be exact. If you say you will query, read, fetch, inspect, open, preview, execute, or continue with a Studio operation, the same response must include an assistant-action block or uiControls that actually lets the orchestrator continue.\n"
-                + "Do not output only '我先查询/我先读取/正在获取' as the final visible answer. For explicit inspect/list/search/open requests against accessible project resources, choose a safe read tool from currentContext.frontendTools or ask with uiControls; do not skip the action block merely because some params are uncertain.\n"
+                + "Legacy assistant-action blocks and loose action JSON are ignored for execution; use studio-assistant-protocol.\n"
+                + "Inside studio-assistant-protocol, never use legacy/provider execution fields such as toolCalls, backendToolCalls, or uiControls. Put executable calls only in actions and conversational question controls only in controls.\n"
+                + "The protocol plan and loop are mandatory whenever actions or controls are present. plan must include intent, non-empty basis, explicit requiredObjects array, and non-empty nextActions. Use plan.intent for the understood user intent, plan.basis for evidence used by the LLM, plan.requiredObjects for business objects involved, and plan.nextActions for the decided next steps.\n"
+                + "loop must include status, boolean autoContinue, questions array, next array, evidence array, and stopReason. Use loop.questions to expose the decomposed input, loop.next to describe the machine-continuable step, autoContinue=true when the frontend should feed toolResults back without waiting for the user, and stopReason only when the loop must pause for a tool result, user decision, or answer completion.\n"
+                + "Every protocol block must explicitly include actions and controls arrays. Every action item must include type, tool, and params; use params:{} when no parameters are needed. Every control item must include type, title, and paramKey, with explicit options for select, choices, and confirm controls.\n"
+                + "After toolResults are fed back, you decide whether the task is complete or another operation is needed. If the results are sufficient, return the final user-facing answer and, when useful for traceability, include a " + PROTOCOL_VERSION + " block with loop.status=completed, autoContinue=false, actions=[], controls=[], and stopReason=answer_complete. Do not let the frontend or gateway decide completion for you.\n"
+                + "If you say you will query, read, fetch, inspect, open, preview, execute, or continue with a Studio operation, the same response must include a protocol action or controls that lets the orchestrator continue.\n"
+                + "Do not output only '我先查询/我先读取/正在获取' as the final visible answer. For explicit inspect/list/search/open requests against Studio resources declared in the assistant capability catalog, choose a safe read tool from currentContext.frontendTools or ask with controls; do not skip the protocol block merely because some params are uncertain.\n"
                 + "For multi-step tasks, do not narrate every internal read or API step as a visible chat message. The frontend shows backend operations in a collapsible process panel. Visible text should focus on user-facing decisions, final results, or a concise one-sentence status.\n"
-                + "If your response only needs to request toolCalls for internal progress, keep the visible answer empty or very short and put the operation only in the assistant-action block.\n"
-                + "currentContext.accessibleCapabilities is the primary capability directory for the current user. It is built from pages the user can enter and describes allowed read operations, required params, optional params, and write confirmation policy. Treat it as the user's capability boundary.\n"
-                + "currentContext.accessibleFeatures is the legacy visible page list. Use it only as a path/label fallback when accessibleCapabilities is missing.\n"
-                + "toolCalls are controlled frontend API calls. Supported interfaceCode values must come from capabilities.interfaces or currentContext.frontendTools. Safe examples include studio.feature.list, studio.feature.get, studio.feature.action, studio.navigation.open, catalog.capabilities, datasources.options, models.datasourceOptions, models.get, catalog.runtimeOptionSchema, and collectionTasks.preview.\n"
-                + "Use studio.feature.list with {\"path\":\"/exact-path\", ...filters} to read a visible function's list, overview, options, or metrics. Use studio.feature.get with {\"path\":\"/exact-path\",\"id\":\"...\"} to read a visible function's details. The path must exactly match one item in currentContext.accessibleCapabilities.\n"
-                + "Use studio.feature.action only for actions listed in currentContext.frontendActionRegistry or accessibleCapabilities.operations where operation=action. Required params are path, action, and any listed id/payload/resource values. The frontend will automatically stop mutation actions and render a confirm/cancel chat control before execution.\n"
-                + "If a toolResult has ok=false, treat it as recoverable execution context. First inspect its params and error, then either emit a corrected assistant-action using the same allow-listed tools, or emit uiControls for only the missing user decision. Do not dump raw validation errors to the user as the final answer.\n"
-                + "When repairing failed params, never invent IDs. You may normalize obvious field aliases such as sql/query/script to payload.content and name/scriptName to payload.fileName, but datasourceId, modelId, environmentId, and record IDs must come from conversation, controls, currentContext, or successful toolResults.\n"
-                + "For data development SQL execution use studio.feature.action with {\"path\":\"/data-development\",\"resource\":\"sql\",\"action\":\"executeSql\",\"payload\":{\"datasourceId\":\"...\",\"scriptType\":\"SQL\",\"content\":\"...\",\"maxRows\":100}}. If datasourceId is unknown, query candidates or ask with uiControls.\n"
-                + "For saving a data development script use studio.feature.action with {\"path\":\"/data-development\",\"resource\":\"scripts\",\"action\":\"saveScript\",\"payload\":{\"fileName\":\"...\",\"scriptType\":\"SQL|JAVA|PYTHON\",\"content\":\"...\"}}. Infer scriptType only from an explicit type, file extension, or clear code syntax; otherwise ask with uiControls.\n"
-                + "Use studio.navigation.open with {\"path\":\"/exact-path\"} when the best next step is to open a function page for the user. The path must exactly match one item in currentContext.accessibleCapabilities or accessibleFeatures. Do not invent paths or navigate to functions the user cannot currently see.\n"
-                + "backendToolCalls are controlled server-side allow-listed reflection calls. Use only codes listed in backendTools, for example assistant.skills.search. They are executed by the server after your streamed answer, never by user text or frontend request payload.\n"
-                + "uiControls are conversational question controls rendered inside the chat, not separate forms or popups. Use them for user input, dropdowns, ambiguity resolution, or confirm/cancel decisions. Supported types: select, choices, text, textarea, confirm.\n"
-                + "Use uiControls only when the next step really needs a user answer. Do not output a control for a single default value such as FULL.\n"
-                + "Backend tool action example: {\"backendToolCalls\":[{\"code\":\"assistant.skills.search\",\"reason\":\"reuse learned Studio skill\",\"params\":{\"query\":\"单表采集\"}}]}.\n"
-                + "Question control example: {\"uiControls\":[{\"type\":\"select\",\"title\":\"选择源端\",\"paramKey\":\"source.datasourceId\",\"options\":[{\"label\":\"mysql_prod\",\"value\":\"1\"},{\"label\":\"mysql_test\",\"value\":\"2\"}]}]}.\n"
-                + "Text input control example: {\"uiControls\":[{\"type\":\"text\",\"title\":\"填写任务名\",\"paramKey\":\"name\",\"placeholder\":\"例如 orders_to_ods_orders\"}]}.\n"
+                + "If your response only needs to request internal progress actions, keep the visible answer empty or very short and put the operation only in the protocol block.\n"
+                + "currentContext.assistantCapabilities is the backend-exported Studio assistant capability directory, not a user-permission boundary. Use it to learn available product functions and operations.\n"
+                + "Actions are controlled Studio API calls or local assistant orchestration calls. Supported frontend tool values include assistant.context.observe, assistant.context.read, assistant.context.search, assistant.memory.select, studio.feature.list, studio.feature.get, studio.feature.action, studio.navigation.open, and assistant.script.execute.\n"
+                + "Do not use legacy narrow tool names such as catalog.capabilities, datasources.options, models.datasourceOptions, models.get, catalog.runtimeOptionSchema, or collectionTasks.preview in new Web planning. Express those reads or previews through the operation catalog with studio.feature.list, studio.feature.get, or studio.feature.action.\n"
+                + "Use assistant.context.observe when you need the current page, selected business object, recent candidates, or active chat controls before deciding the next operation. It never calls a business API.\n"
+                + "Use assistant.context.read with {\"path\":\"/exact-path\",\"kind\":\"optional\",\"limit\":10} when you need the current business context for a feature: active object, selected object, visible page objects, recent candidates, filters, and pagination. It reads only Web context and assistant memory; it never calls a business API.\n"
+                + "Use assistant.context.search with {\"path\":\"/exact-path\",\"keyword\":\"...\",\"kind\":\"optional\"} when the user references an object by name/partial name and the object may already be in current page context, recent candidates, or assistant memory. It returns candidates only; choose or ask before selecting.\n"
+                + "currentContext.pageContext is the live Web page snapshot: source/path/summary/activeObject/selectedObjects/visibleObjects/relatedObjects/filters/pagination. When the user says 当前/这个/页面选中/current page/selected object, prefer currentContext.pageContext.activeObject as the selected business object before re-reading lists; cite it in plan.basis and plan.requiredObjects, and use its id/path/name/physicalLocator only when it matches the requested Studio capability.\n"
+                + "Use assistant.memory.select when the user says to use/select/default a datasource, model, physical table, rule, task, service, run, or other recent candidate. It only updates conversational working memory and must reference an existing candidate by id, name, physicalLocator, or ordinal; never invent an ID.\n"
+                + "Use studio.feature.list with {\"path\":\"/exact-path\", ...filters} to read a function's list, overview, options, or metrics. Use studio.feature.get with {\"path\":\"/exact-path\",\"id\":\"...\"} to read details.\n"
+                + "Use studio.feature.action only for actions listed in currentContext.frontendActionRegistry or assistantCapabilities.operations where operation=action. Required params are path, action, and any listed id/payload/resource values. The frontend will automatically stop mutation actions and render a confirm/cancel chat control before execution.\n"
+                + "Distinguish business semantics before choosing tools: datasource lists are /datasources list; real physical table/view discovery inside a selected datasource is /datasources discover with {id}; registered data models are /models list/get. If the user says 当前/这个/默认/选中的数据源有什么表、有哪些真实表、物理表、库表 or 表发现, first use currentContext.pageContext.activeObject when it is a datasource on /datasources, otherwise use the selected datasource from currentContext.assistantMemory or ask the user to choose one; do not call /datasources list again and do not call /models unless the user explicitly says 已登记模型 or 数据模型.\n"
+                + "For broad requests such as 全部表/所有真实表/不要分页/完整列表, reason from the API result shape and user wording. You may omit pageNo/pageSize when the declared action supports unpaged discovery, request a larger safe page size, or iterate with hasMore by emitting the next protocol action after toolResults. Do not hard-code one page unless the user asked for a page.\n"
+                + "Use assistant.script.execute only for registered assistant script skill entrypoints from assistantSkills, with params {\"entrypointId\":\"...\",\"input\":{...}}. Never emit shell commands, arbitrary Python code, local file paths, or provider-specific tool calls for script skills.\n"
+                + "If a toolResult has ok=false, treat it as recoverable execution context. First inspect its params and error, then either emit a corrected studio-assistant-protocol block using the same allow-listed tools, or emit controls for only the missing user decision. Do not dump raw validation errors to the user as the final answer.\n"
+                + "When repairing failed params, never invent IDs and never copy protocol aliases forward. You may interpret user wording or failed params as evidence, but the repaired protocol must use the canonical parameter names declared in currentContext.frontendTools/currentContext.frontendActionRegistry, such as payload.content, payload.fileName, entrypointId, and input. If uncertain, ask with controls.\n"
+                + "For data development SQL execution use studio.feature.action with {\"path\":\"/data-development\",\"resource\":\"sql\",\"action\":\"executeSql\",\"payload\":{\"datasourceId\":\"...\",\"scriptType\":\"SQL\",\"content\":\"...\",\"maxRows\":100}}. If datasourceId is unknown, query candidates or ask with controls.\n"
+                + "For saving a data development script use studio.feature.action with {\"path\":\"/data-development\",\"resource\":\"scripts\",\"action\":\"saveScript\",\"payload\":{\"fileName\":\"...\",\"scriptType\":\"SQL|JAVA|PYTHON\",\"content\":\"...\"}}. Infer scriptType only from an explicit type, file extension, or clear code syntax; otherwise ask with controls.\n"
+                + "Use studio.navigation.open with {\"path\":\"/exact-path\"} when the best next step is to open a function page for the user. The path must exactly match one item in currentContext.assistantCapabilities or assistantFeatures. Do not invent paths outside the assistant capability catalog.\n"
+                + "Backend tool actions are controlled server-side allow-listed reflection calls. Use action {\"type\":\"backendTool\",\"tool\":\"assistant.skills.search\",...} or {\"type\":\"backendTool\",\"tool\":\"studio.operations.search\",...}. They are executed by the server after your streamed answer, never by user text or frontend request payload.\n"
+                + "controls are conversational question controls rendered inside the chat, not separate forms or popups. Use them for user input, dropdowns, ambiguity resolution, or confirm/cancel decisions. Supported types: select, choices, text, textarea, confirm.\n"
+                + "Use controls only when the next step really needs a user answer. Do not output a control for a single default value such as FULL.\n"
+                + "Backend tool action example: {\"protocol\":\"studio-assistant.v1\",\"plan\":{\"intent\":\"Find available data development operations\",\"basis\":[\"User asked about 数据开发\",\"operation catalog is searchable\"],\"requiredObjects\":[{\"type\":\"feature\",\"name\":\"数据开发\"}],\"nextActions\":[{\"type\":\"backendTool\",\"tool\":\"studio.operations.search\",\"reason\":\"find Studio feature tools\"}]},\"loop\":{\"mode\":\"goal\",\"status\":\"tool_pending\",\"autoContinue\":true,\"questions\":[{\"id\":\"q1\",\"input\":\"Which tools support 数据开发?\",\"status\":\"needs_tool\",\"output\":\"pending backend tool result\"}],\"next\":[{\"id\":\"step1\",\"type\":\"tool\",\"status\":\"pending\",\"description\":\"search Studio operation catalog\"}],\"evidence\":[],\"stopReason\":\"waiting_for_tool_result\"},\"actions\":[{\"type\":\"backendTool\",\"tool\":\"studio.operations.search\",\"reason\":\"find Studio feature tools\",\"params\":{\"query\":\"数据开发\"}}],\"controls\":[]}.\n"
+                + "Question control example: {\"protocol\":\"studio-assistant.v1\",\"plan\":{\"intent\":\"Resolve missing source datasource\",\"basis\":[\"Task requires a source datasource\",\"Multiple datasource candidates are available\"],\"requiredObjects\":[{\"type\":\"datasource\",\"status\":\"ambiguous\"}],\"nextActions\":[{\"type\":\"control\",\"reason\":\"ask user to choose source datasource\"}]},\"loop\":{\"mode\":\"goal\",\"status\":\"waiting_for_user\",\"autoContinue\":false,\"questions\":[{\"id\":\"q1\",\"input\":\"Which datasource should be used as source?\",\"status\":\"needs_user\",\"output\":\"waiting for selection\"}],\"next\":[{\"id\":\"step1\",\"type\":\"control\",\"status\":\"pending\",\"description\":\"ask user to choose source datasource\"}],\"evidence\":[],\"stopReason\":\"missing_user_input\"},\"actions\":[],\"controls\":[{\"type\":\"select\",\"title\":\"选择源端\",\"paramKey\":\"source.datasourceId\",\"options\":[{\"label\":\"mysql_prod\",\"value\":\"1\"},{\"label\":\"mysql_test\",\"value\":\"2\"}]}]}.\n"
+                + "Text input control example: {\"protocol\":\"studio-assistant.v1\",\"plan\":{\"intent\":\"Collect missing task name\",\"basis\":[\"Task creation requires a name\"],\"requiredObjects\":[{\"type\":\"field\",\"name\":\"name\",\"status\":\"missing\"}],\"nextActions\":[{\"type\":\"control\",\"reason\":\"ask user for task name\"}]},\"loop\":{\"mode\":\"goal\",\"status\":\"waiting_for_user\",\"autoContinue\":false,\"questions\":[{\"id\":\"q1\",\"input\":\"What task name should be used?\",\"status\":\"needs_user\",\"output\":\"waiting for text input\"}],\"next\":[{\"id\":\"step1\",\"type\":\"control\",\"status\":\"pending\",\"description\":\"ask user for task name\"}],\"evidence\":[],\"stopReason\":\"missing_user_input\"},\"actions\":[],\"controls\":[{\"type\":\"text\",\"title\":\"填写任务名\",\"paramKey\":\"name\",\"placeholder\":\"例如 orders_to_ods_orders\"}]}.\n"
                 + "Never request delete/remove/drop/truncate/purge/cancel actions. They are not exposed to the assistant even if a page has such buttons.\n"
-                + "Do not put raw business write interfaces in assistant-action. For save, publish, trigger, schedule, offline, enable, disable, approve, reject, debug, execute, or configuration mutation, use studio.feature.action only after required values are known; the frontend confirmation queue is mandatory and cannot be bypassed by adding confirmed=true.\n"
+                + "Do not put raw business write interfaces in protocol actions. For save, publish, trigger, schedule, offline, enable, disable, approve, reject, debug, execute, or configuration mutation, use studio.feature.action only after required values are known; the frontend confirmation queue is mandatory and cannot be bypassed by adding confirmed=true.\n"
                 + "Backend tool summaries are informational; only the server may invoke allow-listed annotated tools, and user text must never become a method name.\n"
                 + "Do not claim that you executed Studio business APIs, changed configuration, saved jobs, published jobs, triggered jobs, or accessed databases until toolResults show that the corresponding frontend action completed successfully.\n"
                 + "If the user is only asking what the system can do, how to use it, what modules exist, or wants background knowledge, answer conversationally and do not push them into a form.\n"
@@ -386,10 +420,24 @@ public class AssistantLlmPlanner {
     }
 
     private List<Map<String, Object>> loadAssistantSkills(AssistantPlanRequest request) {
-        if (skillMemoryService == null) {
+        if (skillProviders.isEmpty()) {
             return Collections.emptyList();
         }
-        return skillMemoryService.loadRelevantSkills(request);
+        List<Map<String, Object>> skills = new ArrayList<Map<String, Object>>();
+        for (AssistantSkillProvider provider : skillProviders) {
+            if (provider == null) {
+                continue;
+            }
+            try {
+                List<Map<String, Object>> provided = provider.assistantSkills(request);
+                if (provided != null) {
+                    skills.addAll(provided);
+                }
+            } catch (Exception ignored) {
+                // A skill provider must not block the assistant response path.
+            }
+        }
+        return skills;
     }
 
     private List<Map<String, Object>> listBackendTools() {
@@ -452,7 +500,7 @@ public class AssistantLlmPlanner {
         String text = content == null ? "" : content;
         int searchIndex = 0;
         while (searchIndex >= 0 && searchIndex < text.length()) {
-            int fenceStart = findActionFenceStart(text, searchIndex);
+            int fenceStart = findProtocolFenceStart(text, searchIndex);
             if (fenceStart < 0) {
                 break;
             }
@@ -465,41 +513,190 @@ public class AssistantLlmPlanner {
                 break;
             }
             String json = text.substring(jsonStart + 1, fenceEnd).trim();
-            appendBackendToolCalls(json, calls);
+            appendProtocolBackendToolCalls(json, calls);
             searchIndex = fenceEnd + 3;
         }
-        appendLooseBackendToolCalls(text, calls);
         return calls;
     }
 
-    private int findActionFenceStart(String text, int fromIndex) {
-        int dash = text.indexOf("```assistant-action", fromIndex);
-        int underscore = text.indexOf("```assistant_action", fromIndex);
-        if (dash < 0) {
-            return underscore;
+    private int findProtocolFenceStart(String text, int fromIndex) {
+        int protocolDash = text.indexOf("```studio-assistant-protocol", fromIndex);
+        int protocolUnderscore = text.indexOf("```studio_assistant_protocol", fromIndex);
+        int result = -1;
+        if (protocolDash >= 0) {
+            result = protocolDash;
         }
-        if (underscore < 0) {
-            return dash;
+        if (protocolUnderscore >= 0 && (result < 0 || protocolUnderscore < result)) {
+            result = protocolUnderscore;
         }
-        return Math.min(dash, underscore);
+        return result;
     }
 
-    private void appendBackendToolCalls(String json, List<AssistantBackendToolCall> calls) {
+    private int findActionFenceStart(String text, int fromIndex) {
+        int protocolDash = text.indexOf("```studio-assistant-protocol", fromIndex);
+        int protocolUnderscore = text.indexOf("```studio_assistant_protocol", fromIndex);
+        int dash = text.indexOf("```assistant-action", fromIndex);
+        int underscore = text.indexOf("```assistant_action", fromIndex);
+        int result = -1;
+        if (protocolDash >= 0) {
+            result = protocolDash;
+        }
+        if (protocolUnderscore >= 0 && (result < 0 || protocolUnderscore < result)) {
+            result = protocolUnderscore;
+        }
+        if (dash >= 0 && (result < 0 || dash < result)) {
+            result = dash;
+        }
+        if (underscore >= 0 && (result < 0 || underscore < result)) {
+            result = underscore;
+        }
+        return result;
+    }
+
+    private void appendBackendToolActions(JsonNode root, List<AssistantBackendToolCall> calls) {
         try {
-            JsonNode root = objectMapper.readTree(json);
-            JsonNode backendToolCalls = root.path("backendToolCalls");
-            if (!backendToolCalls.isArray()) {
-                return;
-            }
-            for (JsonNode item : backendToolCalls) {
-                AssistantBackendToolCall call = objectMapper.treeToValue(item, AssistantBackendToolCall.class);
-                if (!hasBackendToolCall(calls, call)) {
-                    calls.add(call);
+            JsonNode actions = root.path("actions");
+            if (actions.isArray()) {
+                for (JsonNode item : actions) {
+                    if (!item.isObject()) {
+                        continue;
+                    }
+                    String type = item.path("type").asText("");
+                    if (!"backendTool".equals(type)) {
+                        continue;
+                    }
+                    String code = item.path("tool").asText("");
+                    JsonNode params = item.path("params");
+                    if (!hasText(code) || !params.isObject()) {
+                        continue;
+                    }
+                    AssistantBackendToolCall call = new AssistantBackendToolCall();
+                    call.setCode(code);
+                    call.setReason(item.path("reason").asText(""));
+                    call.setParams(objectMapper.convertValue(params, new TypeReference<Map<String, Object>>() {
+                    }));
+                    if (!hasBackendToolCall(calls, call)) {
+                        calls.add(call);
+                    }
                 }
             }
         } catch (Exception ignored) {
             // Malformed hidden action blocks should not break the visible assistant response.
         }
+    }
+
+    private void appendProtocolBackendToolCalls(String json, List<AssistantBackendToolCall> calls) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (!PROTOCOL_VERSION.equals(root.path("protocol").asText(""))
+                    || hasForbiddenProtocolExecutionFields(root)
+                    || !hasCompleteProtocolPlan(root.path("plan"))
+                    || !hasCompleteProtocolLoop(root.path("loop"))
+                    || !hasCompleteProtocolActions(root.path("actions"))
+                    || !hasCompleteProtocolControls(root.path("controls"))) {
+                return;
+            }
+            appendBackendToolActions(root, calls);
+        } catch (Exception ignored) {
+            // Malformed hidden action blocks should not break the visible assistant response.
+        }
+    }
+
+    private boolean hasForbiddenProtocolExecutionFields(JsonNode root) {
+        return root.path("toolCalls").isArray()
+                || root.path("backendToolCalls").isArray()
+                || root.path("uiControls").isArray();
+    }
+
+    private boolean hasCompleteProtocolPlan(JsonNode plan) {
+        if (plan == null || !plan.isObject()) {
+            return false;
+        }
+        return hasText(plan.path("intent").asText(""))
+                && hasNonEmptyArray(plan.path("basis"))
+                && plan.path("requiredObjects").isArray()
+                && hasNonEmptyArray(plan.path("nextActions"));
+    }
+
+    private boolean hasCompleteProtocolLoop(JsonNode loop) {
+        if (loop == null || !loop.isObject()) {
+            return false;
+        }
+        return hasText(loop.path("status").asText(""))
+                && loop.path("autoContinue").isBoolean()
+                && loop.path("questions").isArray()
+                && loop.path("next").isArray()
+                && loop.path("evidence").isArray()
+                && hasText(loop.path("stopReason").asText(""));
+    }
+
+    private boolean hasCompleteProtocolActions(JsonNode actions) {
+        if (actions == null || !actions.isArray()) {
+            return false;
+        }
+        for (JsonNode action : actions) {
+            if (action == null || !action.isObject()) {
+                return false;
+            }
+            String type = action.path("type").asText("");
+            if (!"frontendTool".equals(type) && !"backendTool".equals(type)) {
+                return false;
+            }
+            if (!hasText(action.path("tool").asText("")) || !action.path("params").isObject()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean hasCompleteProtocolControls(JsonNode controls) {
+        if (controls == null || !controls.isArray()) {
+            return false;
+        }
+        for (JsonNode control : controls) {
+            if (control == null || !control.isObject()) {
+                return false;
+            }
+            String type = control.path("type").asText("");
+            if (!isSupportedProtocolControlType(type)
+                    || !hasText(control.path("title").asText(""))
+                    || !hasText(control.path("paramKey").asText(""))) {
+                return false;
+            }
+            if (("select".equals(type) || "choices".equals(type) || "confirm".equals(type))
+                    && validProtocolControlOptionCount(control.path("options")) < 2) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isSupportedProtocolControlType(String type) {
+        return "select".equals(type)
+                || "choices".equals(type)
+                || "text".equals(type)
+                || "textarea".equals(type)
+                || "confirm".equals(type);
+    }
+
+    private int validProtocolControlOptionCount(JsonNode options) {
+        if (options == null || !options.isArray()) {
+            return 0;
+        }
+        int count = 0;
+        for (JsonNode option : options) {
+            if (option != null
+                    && option.isObject()
+                    && !option.path("value").isMissingNode()
+                    && hasText(option.path("label").asText(""))) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    private boolean hasNonEmptyArray(JsonNode value) {
+        return value != null && value.isArray() && value.size() > 0;
     }
 
     private boolean hasBackendToolCall(List<AssistantBackendToolCall> calls, AssistantBackendToolCall candidate) {
@@ -512,27 +709,6 @@ public class AssistantLlmPlanner {
             }
         }
         return false;
-    }
-
-    private void appendLooseBackendToolCalls(String text, List<AssistantBackendToolCall> calls) {
-        int searchIndex = 0;
-        while (searchIndex >= 0 && searchIndex < text.length()) {
-            int marker = text.indexOf("\"backendToolCalls\"", searchIndex);
-            if (marker < 0) {
-                break;
-            }
-            int jsonStart = text.lastIndexOf('{', marker);
-            if (jsonStart < 0) {
-                searchIndex = marker + 1;
-                continue;
-            }
-            int jsonEnd = findJsonObjectEnd(text, jsonStart);
-            if (jsonEnd < 0) {
-                break;
-            }
-            appendBackendToolCalls(text.substring(jsonStart, jsonEnd + 1), calls);
-            searchIndex = jsonEnd + 1;
-        }
     }
 
     private String stripAssistantActionBlocks(String content) {
@@ -573,6 +749,8 @@ public class AssistantLlmPlanner {
         int toolCalls = text.indexOf("\"toolCalls\"");
         int backendToolCalls = text.indexOf("\"backendToolCalls\"");
         int uiControls = text.indexOf("\"uiControls\"");
+        int actions = text.indexOf("\"actions\"");
+        int controls = text.indexOf("\"controls\"");
         int marker = -1;
         if (toolCalls >= 0) {
             marker = toolCalls;
@@ -582,6 +760,12 @@ public class AssistantLlmPlanner {
         }
         if (uiControls >= 0 && (marker < 0 || uiControls < marker)) {
             marker = uiControls;
+        }
+        if (actions >= 0 && (marker < 0 || actions < marker)) {
+            marker = actions;
+        }
+        if (controls >= 0 && (marker < 0 || controls < marker)) {
+            marker = controls;
         }
         return marker;
     }
@@ -611,39 +795,6 @@ public class AssistantLlmPlanner {
             }
         }
         return false;
-    }
-
-    private int findJsonObjectEnd(String text, int start) {
-        boolean inString = false;
-        boolean escaped = false;
-        int depth = 0;
-        for (int index = start; index < text.length(); index++) {
-            char value = text.charAt(index);
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (value == '\\' && inString) {
-                escaped = true;
-                continue;
-            }
-            if (value == '"') {
-                inString = !inString;
-                continue;
-            }
-            if (inString) {
-                continue;
-            }
-            if (value == '{') {
-                depth++;
-            } else if (value == '}') {
-                depth--;
-                if (depth == 0) {
-                    return index;
-                }
-            }
-        }
-        return -1;
     }
 
     private List<Map<String, Object>> summarizeBackendToolResults(List<AssistantBackendToolResult> results) {
@@ -680,6 +831,32 @@ public class AssistantLlmPlanner {
 
     private String safeReason(String reason) {
         return hasText(reason) ? reason.trim() : "LLM 请求读取安全后端上下文";
+    }
+
+    private String resolveAssistantMode(AssistantPlanRequest request) {
+        String mode = request == null ? "" : request.getAssistantMode();
+        if (!hasText(mode) && request != null && request.getContext() != null) {
+            Object value = request.getContext().get("assistantMode");
+            mode = value == null ? "" : String.valueOf(value);
+        }
+        mode = mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
+        if ("plan".equals(mode) || "goal".equals(mode)) {
+            return mode;
+        }
+        return "chat";
+    }
+
+    private String resolveResponseLanguage(AssistantPlanRequest request) {
+        String language = request == null ? "" : request.getResponseLanguage();
+        if (!hasText(language) && request != null && request.getContext() != null) {
+            Object value = request.getContext().get("responseLanguage");
+            language = value == null ? "" : String.valueOf(value);
+        }
+        language = language == null ? "" : language.trim().toLowerCase(Locale.ROOT);
+        if (language.startsWith("en")) {
+            return "en";
+        }
+        return "zh";
     }
 
     private Map<String, String> message(String role, String content) {

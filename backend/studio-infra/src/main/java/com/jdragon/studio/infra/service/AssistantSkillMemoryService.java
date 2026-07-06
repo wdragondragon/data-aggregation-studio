@@ -60,11 +60,6 @@ public class AssistantSkillMemoryService {
         return result;
     }
 
-    @AssistantBackendTool(
-            code = "assistant.skills.search",
-            name = "搜索助手技能记忆",
-            description = "按当前问题检索 Studio 助手已沉淀的技能摘要，只返回文本知识，不执行业务写操作。"
-    )
     public List<Map<String, Object>> searchSkills(AssistantPlanRequest request, Map<String, Object> params) {
         String query = stringValue(params.get("query"));
         if (!StringUtils.hasText(query)) {

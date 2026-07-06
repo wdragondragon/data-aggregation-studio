@@ -26,6 +26,7 @@ import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+@ConditionalOnProperty(name = "studio.worker.lifecycle.enabled", havingValue = "true", matchIfMissing = true)
 @Slf4j
 public class WorkerLifecycleRunner {
 

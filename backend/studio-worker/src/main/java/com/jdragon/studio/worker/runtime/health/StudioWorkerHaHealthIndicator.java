@@ -2,11 +2,13 @@ package com.jdragon.studio.worker.runtime.health;
 
 import com.jdragon.studio.infra.service.RunLogStorageService;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "studio.worker.lifecycle.enabled", havingValue = "true", matchIfMissing = true)
 public class StudioWorkerHaHealthIndicator implements HealthIndicator {
 
     private final WorkerLifecycleRunner workerLifecycleRunner;
