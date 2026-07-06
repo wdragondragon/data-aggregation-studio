@@ -14,8 +14,9 @@
   >
     <template #header-actions>
       <el-button
-        v-if="authStore.isAuthenticated && authStore.currentProjectId"
+        v-if="assistantVisible"
         class="studio-layout__assistant-button"
+        data-testid="studio-assistant-open"
         @click="assistantOpen = true"
       >
         <el-icon><ChatLineRound /></el-icon>
@@ -71,7 +72,7 @@
         </div>
       </div>
     </template>
-    <StudioAssistantDrawer v-model="assistantOpen" />
+    <StudioAssistantDrawer v-if="assistantVisible" v-model="assistantOpen" />
     <router-view />
   </StudioShell>
 </template>
@@ -85,6 +86,7 @@ import { subscribeStudioApiLoading } from "@studio/api-sdk";
 import { StudioShell, type StudioNavItem } from "@studio/ui";
 import { persistStudioLocale, resolveStudioLocale } from "@studio/i18n";
 import { useI18n } from "vue-i18n";
+import { studioApi } from "@/api/studio";
 import NotificationBell from "@/components/NotificationBell.vue";
 import StudioAssistantDrawer from "@/components/assistant/StudioAssistantDrawer.vue";
 import { resolveStudioMenus } from "@/router";
@@ -99,6 +101,8 @@ const { locale, t } = useI18n();
 const appLoading = ref(false);
 const contextLoading = ref(false);
 const assistantOpen = ref(false);
+const assistantEnabled = ref(false);
+const assistantConfigLoading = ref(false);
 const unsubscribe = subscribeStudioApiLoading((loading) => {
   appLoading.value = loading;
 });
@@ -129,6 +133,11 @@ const localeOptions = computed(() => [
   { value: "en-US", label: t("common.locales.en") },
   { value: "zh-CN", label: t("common.locales.zh") },
 ]);
+const assistantVisible = computed(() => (
+  authStore.isAuthenticated
+    && Boolean(authStore.currentProjectId)
+    && assistantEnabled.value
+));
 
 const pageTitle = computed(() => {
   const titleKey = typeof route.meta.titleKey === "string" ? route.meta.titleKey : "app.name";
@@ -196,6 +205,31 @@ async function handleProjectChange(projectId: string | number) {
   }
 }
 
+async function refreshAssistantConfig() {
+  if (!authStore.isAuthenticated) {
+    assistantEnabled.value = false;
+    assistantOpen.value = false;
+    return;
+  }
+  assistantEnabled.value = false;
+  assistantOpen.value = false;
+  if (assistantConfigLoading.value) {
+    return;
+  }
+  assistantConfigLoading.value = true;
+  try {
+    const config = await studioApi.assistant.config();
+    assistantEnabled.value = config.enabled === true;
+  } catch {
+    assistantEnabled.value = false;
+  } finally {
+    assistantConfigLoading.value = false;
+    if (!assistantVisible.value) {
+      assistantOpen.value = false;
+    }
+  }
+}
+
 onBeforeUnmount(() => {
   unsubscribe();
   notificationStore.stop();
@@ -203,6 +237,7 @@ onBeforeUnmount(() => {
 
 onMounted(() => {
   if (authStore.isAuthenticated) {
+    void refreshAssistantConfig();
     notificationStore.start();
     void notificationStore.loadSnapshot().catch(() => {});
   }
@@ -210,10 +245,13 @@ onMounted(() => {
 
 watch(() => authStore.isAuthenticated, (authenticated) => {
   if (authenticated) {
+    void refreshAssistantConfig();
     notificationStore.start();
     void notificationStore.loadSnapshot().catch(() => {});
     return;
   }
+  assistantEnabled.value = false;
+  assistantOpen.value = false;
   notificationStore.stop();
 });
 
@@ -221,9 +259,19 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
   if (!authStore.isAuthenticated) {
     return;
   }
+  void refreshAssistantConfig();
+  if (!assistantVisible.value) {
+    assistantOpen.value = false;
+  }
   notificationStore.stop();
   notificationStore.start();
   void notificationStore.loadSnapshot().catch(() => {});
+});
+
+watch(assistantVisible, (visible) => {
+  if (!visible) {
+    assistantOpen.value = false;
+  }
 });
 
 function resolveActiveMenuPath(items: StudioNavItem[], currentPath: string): string | null {

@@ -1,19 +1,9 @@
 import type {
   AssistantInterfaceDefinition,
-  CapabilityMatrix,
-  CollectionTaskSaveRequest,
-  DataModelDatasourceOptionView,
   DataModelDefinition,
-  DataSourceOptionView,
-  EntityId,
-  FieldMappingDefinition,
-  PluginRuntimeOptionSchemaView,
 } from "@studio/api-sdk";
-import { mergeRuntimeDefaults, resolveFieldsByModel } from "@/components/collection-task/collectionTaskEditorSupport";
+import { resolveFieldsByModel } from "@/components/collection-task/collectionTaskEditorSupport";
 
-export const SINGLE_TABLE_CAPABILITY_CODE = "collection.singleTable.create";
-export const SINGLE_TABLE_SOURCE_ALIAS = "src1";
-export const DEFAULT_COLLECTION_MODE = "FULL";
 const MAX_PLANNER_RESULT_ITEMS = 20;
 const MAX_PLANNER_OBJECT_FIELDS = 32;
 const MAX_PLANNER_NESTED_ITEMS = 80;
@@ -29,6 +19,8 @@ const SUMMARY_ARRAY_KEYS = [
   "targetFields",
   "mappings",
   "fieldMappings",
+  "models",
+  "tables",
   "rows",
   "records",
   "sampleRows",
@@ -91,6 +83,7 @@ export interface AssistantToolResult {
   params: Record<string, unknown>;
   data?: unknown;
   error?: string;
+  execution?: Record<string, unknown>;
   executedAt: string;
 }
 
@@ -98,71 +91,6 @@ export interface AssistantToolExecutionCandidate {
   interfaceCode: string;
   interfaceDefinition?: AssistantInterfaceDefinition;
   params: Record<string, unknown>;
-}
-
-export interface CollectionIntentTerms {
-  sourcePhrase: string;
-  targetPhrase: string;
-  sourceTokens: string[];
-  targetTokens: string[];
-}
-
-export interface CandidateMatch<T> {
-  item: T;
-  score: number;
-}
-
-export interface CandidateResolution<T> {
-  selected?: T;
-  ranked: CandidateMatch<T>[];
-  ambiguous: boolean;
-  reason: "empty" | "single" | "matched" | "ambiguous" | "missing";
-}
-
-export interface AssistantFieldMappingRow {
-  targetField: string;
-  sourceField: string;
-  matchedAutomatically: boolean;
-  skipped: boolean;
-}
-
-export interface SingleTableAssistantDraft {
-  name: string;
-  sourceDatasourceId: string;
-  sourceModelId: string;
-  targetDatasourceId: string;
-  targetModelId: string;
-  collectionMode: string;
-  fieldMappings: AssistantFieldMappingRow[];
-}
-
-export interface SingleTableCollectedInputs {
-  name?: string;
-  source?: {
-    datasourceId?: string;
-    modelId?: string;
-  };
-  target?: {
-    datasourceId?: string;
-    modelId?: string;
-  };
-  fieldMappings?: FieldMappingDefinition[];
-  executionOptions?: {
-    collectionMode?: string;
-  };
-}
-
-export interface RuntimeSchemaState {
-  reader?: PluginRuntimeOptionSchemaView;
-  writer?: PluginRuntimeOptionSchemaView;
-}
-
-export interface BuildPayloadContext {
-  sourceDatasource?: DataSourceOptionView;
-  targetDatasource?: DataSourceOptionView;
-  sourceModel?: DataModelDefinition | DataModelDatasourceOptionView;
-  targetModel?: DataModelDefinition | DataModelDatasourceOptionView;
-  runtimeSchemas?: RuntimeSchemaState;
 }
 
 export function createAssistantMessage(role: AssistantLogMessage["role"], content: string): AssistantLogMessage {
@@ -173,58 +101,13 @@ export function createAssistantMessage(role: AssistantLogMessage["role"], conten
   };
 }
 
-export function createEmptySingleTableDraft(): SingleTableAssistantDraft {
-  return {
-    name: "",
-    sourceDatasourceId: "",
-    sourceModelId: "",
-    targetDatasourceId: "",
-    targetModelId: "",
-    collectionMode: DEFAULT_COLLECTION_MODE,
-    fieldMappings: [],
-  };
-}
-
-export function collectSingleTableInputs(draft: SingleTableAssistantDraft): SingleTableCollectedInputs {
-  const inputs: SingleTableCollectedInputs = {
-    executionOptions: {
-      collectionMode: draft.collectionMode || DEFAULT_COLLECTION_MODE,
-    },
-  };
-  if (draft.name.trim()) {
-    inputs.name = draft.name.trim();
-  }
-  if (draft.sourceDatasourceId || draft.sourceModelId) {
-    inputs.source = {};
-    if (draft.sourceDatasourceId) {
-      inputs.source.datasourceId = draft.sourceDatasourceId;
-    }
-    if (draft.sourceModelId) {
-      inputs.source.modelId = draft.sourceModelId;
-    }
-  }
-  if (draft.targetDatasourceId || draft.targetModelId) {
-    inputs.target = {};
-    if (draft.targetDatasourceId) {
-      inputs.target.datasourceId = draft.targetDatasourceId;
-    }
-    if (draft.targetModelId) {
-      inputs.target.modelId = draft.targetModelId;
-    }
-  }
-  const mappings = toFieldMappings(draft.fieldMappings);
-  if (mappings.length) {
-    inputs.fieldMappings = mappings;
-  }
-  return inputs;
-}
-
 export function createToolResult(
   interfaceCode: string,
   params: Record<string, unknown>,
   data: unknown,
   ok = true,
   error?: string,
+  execution?: Record<string, unknown>,
 ): AssistantToolResult {
   return {
     id: `${interfaceCode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -233,6 +116,7 @@ export function createToolResult(
     params,
     data,
     error,
+    execution,
     executedAt: new Date().toISOString(),
   };
 }
@@ -244,8 +128,29 @@ export function summarizeToolResultForPlanner(result: AssistantToolResult) {
     ok: result.ok,
     params: result.params,
     error: result.error,
+    execution: summarizeToolExecution(result.execution),
     data: summarizeToolData(result.data),
   };
+}
+
+function summarizeToolExecution(execution: Record<string, unknown> | undefined) {
+  if (!execution) {
+    return undefined;
+  }
+  return cleanSummaryObject({
+    schema: execution.schema,
+    interfaceCode: execution.interfaceCode,
+    path: execution.path,
+    action: execution.action,
+    resource: execution.resource,
+    entrypointId: execution.entrypointId,
+    executedBy: execution.executedBy,
+    mutation: execution.mutation,
+    requiresConfirmation: execution.requiresConfirmation,
+    params: execution.params,
+    effectiveParams: execution.effectiveParams,
+    defaultedParams: execution.defaultedParams,
+  });
 }
 
 export function latestToolData<T>(results: AssistantToolResult[], interfaceCode: string, params?: Record<string, unknown>) {
@@ -273,272 +178,8 @@ export function findInterfaceDefinition(
   return interfaces?.find((item) => item.interfaceCode === interfaceCode);
 }
 
-export function extractCollectionIntentTerms(message: string): CollectionIntentTerms {
-  const text = String(message ?? "").trim();
-  const connector = /(.+?)(?:采集到|同步到|同步至|写入到|抽取到|写入|->|=>|到)(.+)/i.exec(text);
-  const sourcePhrase = cleanIntentPhrase(connector?.[1] ?? text);
-  const targetPhrase = cleanIntentPhrase(connector?.[2] ?? "");
-  return {
-    sourcePhrase,
-    targetPhrase,
-    sourceTokens: tokenizeIntentPhrase(sourcePhrase),
-    targetTokens: tokenizeIntentPhrase(targetPhrase),
-  };
-}
-
-export function inferSingleTableTaskName(message: string, terms: CollectionIntentTerms) {
-  const source = shortPhrase(terms.sourcePhrase);
-  const target = shortPhrase(terms.targetPhrase);
-  if (source && target) {
-    return `${source}到${target}采集`;
-  }
-  const compact = shortPhrase(cleanIntentPhrase(message));
-  return compact ? `${compact}采集` : "AI 单表采集任务";
-}
-
-export function filterDatasourceCandidates(
-  datasources: DataSourceOptionView[],
-  capabilityMatrix: CapabilityMatrix | null | undefined,
-  role: "source" | "target",
-) {
-  const allowedTypes = resolveAllowedDatasourceTypes(capabilityMatrix, role);
-  return datasources.filter((item) => {
-    if (item.enabled === false) {
-      return false;
-    }
-    if (!allowedTypes.size) {
-      return true;
-    }
-    return allowedTypes.has(normalizeTypeCode(item.typeCode));
-  });
-}
-
-export function resolveCandidate<T>(items: T[], score: (item: T) => number): CandidateResolution<T> {
-  const ranked = items
-    .map((item) => ({ item, score: score(item) }))
-    .sort((left, right) => right.score - left.score);
-  if (ranked.length === 0) {
-    return { ranked, ambiguous: false, reason: "empty" };
-  }
-  if (ranked.length === 1) {
-    return { selected: ranked[0].item, ranked, ambiguous: false, reason: "single" };
-  }
-  const matched = ranked.filter((item) => item.score > 0);
-  if (!matched.length) {
-    return { ranked, ambiguous: false, reason: "missing" };
-  }
-  const [best, second] = matched;
-  if (!second || best.score >= second.score + 4) {
-    return { selected: best.item, ranked: matched, ambiguous: false, reason: "matched" };
-  }
-  return { ranked: matched, ambiguous: true, reason: "ambiguous" };
-}
-
-export function scoreDatasourceCandidate(datasource: DataSourceOptionView, phrase: string, tokens: string[]) {
-  return scoreByCandidateTexts([
-    datasource.name,
-    datasource.typeCode,
-    datasource.id,
-  ], phrase, tokens);
-}
-
-export function scoreModelCandidate(model: DataModelDatasourceOptionView, phrase: string, tokens: string[]) {
-  return scoreByCandidateTexts([
-    model.name,
-    model.physicalLocator,
-    model.id,
-  ], phrase, tokens);
-}
-
-export function createFieldMappingRows(sourceFields: string[], targetFields: string[]): AssistantFieldMappingRow[] {
-  const sourceByLowercase = new Map(sourceFields.map((field) => [field.toLowerCase(), field]));
-  return targetFields.map((targetField) => {
-    const exactMatch = sourceFields.find((field) => field === targetField);
-    const matchedSource = exactMatch ?? sourceByLowercase.get(targetField.toLowerCase()) ?? "";
-    return {
-      targetField,
-      sourceField: matchedSource,
-      matchedAutomatically: Boolean(matchedSource),
-      skipped: false,
-    };
-  });
-}
-
-export function toFieldMappings(rows: AssistantFieldMappingRow[]): FieldMappingDefinition[] {
-  return rows
-    .filter((row) => !row.skipped && row.sourceField && row.targetField)
-    .map((row) => ({
-      sourceAlias: SINGLE_TABLE_SOURCE_ALIAS,
-      sourceField: row.sourceField,
-      targetField: row.targetField,
-      transformers: [],
-    }));
-}
-
-export function unresolvedMappingRows(rows: AssistantFieldMappingRow[]) {
-  return rows.filter((row) => !row.skipped && (!row.sourceField || !row.targetField));
-}
-
-export function validateSingleTableDraft(draft: SingleTableAssistantDraft, sourceFields: string[], targetFields: string[]) {
-  const errors: string[] = [];
-  if (!draft.name.trim()) {
-    errors.push("请填写任务名");
-  }
-  if (!draft.sourceDatasourceId) {
-    errors.push("请选择源数据源");
-  }
-  if (!draft.sourceModelId) {
-    errors.push("请选择源模型/表");
-  }
-  if (!draft.targetDatasourceId) {
-    errors.push("请选择目标数据源");
-  }
-  if (!draft.targetModelId) {
-    errors.push("请选择目标模型/表");
-  }
-  if (!sourceFields.length) {
-    errors.push("源模型没有可映射字段");
-  }
-  if (!targetFields.length) {
-    errors.push("目标模型没有可映射字段");
-  }
-  const unresolvedRows = unresolvedMappingRows(draft.fieldMappings);
-  if (unresolvedRows.length) {
-    errors.push("存在未确认的字段映射");
-  }
-  if (toFieldMappings(draft.fieldMappings).length < 1) {
-    errors.push("至少需要保留一个字段映射");
-  }
-  return errors;
-}
-
-export function buildSingleTablePayload(draft: SingleTableAssistantDraft, context: BuildPayloadContext): CollectionTaskSaveRequest {
-  const readerOptions = mergeRuntimeDefaults({}, context.runtimeSchemas?.reader?.fields ?? []);
-  const writerOptions = mergeRuntimeDefaults({}, context.runtimeSchemas?.writer?.fields ?? []);
-  return {
-    name: draft.name.trim(),
-    sourceBindings: [
-      {
-        sourceAlias: SINGLE_TABLE_SOURCE_ALIAS,
-        datasourceId: draft.sourceDatasourceId as EntityId,
-        datasourceName: context.sourceDatasource?.name,
-        datasourceTypeCode: context.sourceDatasource?.typeCode,
-        modelId: draft.sourceModelId as EntityId,
-        modelName: context.sourceModel?.name,
-        modelPhysicalLocator: context.sourceModel?.physicalLocator,
-        readerOptions,
-        incremental: {
-          enabled: false,
-          incrModel: ">",
-        },
-      },
-    ],
-    targetBinding: {
-      datasourceId: draft.targetDatasourceId as EntityId,
-      datasourceName: context.targetDatasource?.name,
-      datasourceTypeCode: context.targetDatasource?.typeCode,
-      modelId: draft.targetModelId as EntityId,
-      modelName: context.targetModel?.name,
-      modelPhysicalLocator: context.targetModel?.physicalLocator,
-      writerOptions,
-    },
-    fieldMappings: toFieldMappings(draft.fieldMappings),
-    executionOptions: {
-      collectionMode: DEFAULT_COLLECTION_MODE,
-    },
-    schedule: {
-      enabled: false,
-    },
-  };
-}
-
 export function resolveFields(model: DataModelDefinition | undefined) {
   return resolveFieldsByModel(model);
-}
-
-export function compactText(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~\s_\-，。；：、（）【】《》“”‘’]/g, "");
-}
-
-function resolveAllowedDatasourceTypes(capabilityMatrix: CapabilityMatrix | null | undefined, role: "source" | "target") {
-  const sourceCapabilities = capabilityMatrix?.sourceCapabilities ?? [];
-  const typesFromRows = sourceCapabilities
-    .filter((item) => (role === "source" ? item.readable : item.writable))
-    .map((item) => normalizeTypeCode(item.typeCode))
-    .filter(Boolean);
-  if (typesFromRows.length) {
-    return new Set(typesFromRows);
-  }
-  const fallbackTypes = role === "source"
-    ? capabilityMatrix?.executableSourceTypes ?? capabilityMatrix?.executableDatasourceTypes ?? []
-    : capabilityMatrix?.executableTargetTypes ?? capabilityMatrix?.executableDatasourceTypes ?? [];
-  return new Set(fallbackTypes.map(normalizeTypeCode).filter(Boolean));
-}
-
-function normalizeTypeCode(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function cleanIntentPhrase(value: unknown) {
-  return String(value ?? "")
-    .replace(/我想|帮我|请|需要|创建|新建|配置|一个|一条|把|将|从|全量|增量|单表|采集任务|同步任务|采集|同步|任务/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function tokenizeIntentPhrase(value: string) {
-  const cleaned = cleanIntentPhrase(value);
-  const tokens = [
-    cleaned,
-    compactText(cleaned),
-    ...cleaned.split(/[\s,，。；;:：/\\|]+|的/g),
-  ]
-    .map((item) => String(item ?? "").trim())
-    .filter(Boolean)
-    .flatMap((item) => [item, compactText(item)])
-    .filter((item) => item.length > 0);
-  return Array.from(new Set(tokens));
-}
-
-function shortPhrase(value: string) {
-  return cleanIntentPhrase(value)
-    .replace(/[，。；;]+$/g, "")
-    .slice(0, 48)
-    .trim();
-}
-
-function scoreByCandidateTexts(candidateTexts: unknown[], phrase: string, tokens: string[]) {
-  const phraseText = compactText(phrase);
-  const tokenTexts = tokens.map(compactText).filter(Boolean);
-  const candidateParts = candidateTexts.map(compactText).filter(Boolean);
-  let score = 0;
-  for (const candidate of candidateParts) {
-    if (!candidate) {
-      continue;
-    }
-    if (phraseText && phraseText.includes(candidate)) {
-      score += 12;
-    }
-    if (phraseText && candidate.includes(phraseText)) {
-      score += 8;
-    }
-    for (const token of tokenTexts) {
-      if (!token) {
-        continue;
-      }
-      if (candidate === token) {
-        score += 10;
-      } else if (candidate.includes(token)) {
-        score += 5;
-      } else if (token.includes(candidate)) {
-        score += 4;
-      }
-    }
-  }
-  return score;
 }
 
 function paramsMatch(actual: Record<string, unknown>, expected: Record<string, unknown>) {
@@ -558,6 +199,7 @@ function summarizeToolData(data: unknown): unknown {
     if (Array.isArray(record.items)) {
       return {
         ...pickSummaryFields(record),
+        pagination: summarizePagination(record, record.items.length),
         items: record.items.slice(0, MAX_PLANNER_RESULT_ITEMS).map((item) => summarizeToolItem(item)),
         total: record.total ?? record.totalCount ?? record.items.length,
       };
@@ -573,6 +215,10 @@ function summarizeToolItem(item: unknown): unknown {
   }
   const record = item as Record<string, unknown>;
   const summary = pickSummaryFields(record);
+  const pagination = summarizePagination(record);
+  if (pagination) {
+    summary.pagination = pagination;
+  }
   appendFieldSummary(summary, record);
   appendRowSummary(summary, record);
   for (const key of SUMMARY_ARRAY_KEYS) {
@@ -592,6 +238,36 @@ function summarizeToolItem(item: unknown): unknown {
     summary.sourceCapabilities = sourceCapabilities.slice(0, MAX_PLANNER_RESULT_ITEMS).map((capability) => pickSummaryFields(capability as Record<string, unknown>));
   }
   return summary;
+}
+
+function summarizePagination(record: Record<string, unknown>, itemCount?: number) {
+  const pageNo = firstFiniteNumber(record, ["pageNo", "pageNum", "page", "currentPage", "current"]);
+  const pageSize = firstFiniteNumber(record, ["pageSize", "size", "limit"]);
+  const total = firstFiniteNumber(record, ["total", "totalCount", "count"]);
+  const explicitPages = firstFiniteNumber(record, ["pages", "totalPages", "pageCount"]);
+  const pages = explicitPages ?? (total != null && pageSize ? Math.max(1, Math.ceil(total / pageSize)) : undefined);
+  const explicitHasMore = firstBoolean(record, ["hasMore", "hasNext"]);
+  let hasMore = explicitHasMore;
+  if (hasMore === undefined && pageNo != null && pages != null) {
+    hasMore = pageNo < pages;
+  }
+  if (hasMore === undefined && pageNo != null && pageSize != null && total != null) {
+    hasMore = pageNo * pageSize < total;
+  }
+  const explicitNextPage = firstFiniteNumber(record, ["nextPage", "nextPageNo", "nextPageNum"]);
+  const nextPage = explicitNextPage ?? (hasMore && pageNo != null ? pageNo + 1 : undefined);
+  const pagination = cleanSummaryObject({
+    pageNo,
+    pageSize,
+    total,
+    pages,
+    hasMore,
+    nextPage,
+    cursor: record.cursor,
+    nextCursor: record.nextCursor,
+    itemCount,
+  });
+  return Object.keys(pagination).length ? pagination : undefined;
 }
 
 function summarizeField(field: unknown) {
@@ -631,6 +307,26 @@ function pickSummaryFields(record: Record<string, unknown>) {
     "description",
     "remark",
     "remarks",
+    "pageNo",
+    "pageNum",
+    "page",
+    "currentPage",
+    "current",
+    "pageSize",
+    "size",
+    "total",
+    "totalCount",
+    "count",
+    "pages",
+    "totalPages",
+    "pageCount",
+    "hasMore",
+    "hasNext",
+    "nextPage",
+    "nextPageNo",
+    "nextPageNum",
+    "cursor",
+    "nextCursor",
     "createdAt",
     "updatedAt",
     "sourceType",
@@ -660,6 +356,39 @@ function pickSummaryFields(record: Record<string, unknown>) {
     }
   }
   return summary;
+}
+
+function firstFiniteNumber(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) {
+      return numberValue;
+    }
+  }
+  return undefined;
+}
+
+function firstBoolean(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true") {
+        return true;
+      }
+      if (normalized === "false") {
+        return false;
+      }
+    }
+  }
+  return undefined;
 }
 
 function summarizeArrayValue(key: string, value: unknown[]) {

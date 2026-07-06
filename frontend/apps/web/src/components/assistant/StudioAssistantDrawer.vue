@@ -6,17 +6,40 @@
           <strong>Studio AI 助手</strong>
           <span>{{ authStore.currentProjectName || "未选择项目" }}</span>
         </div>
-        <el-tag type="success" round>LLM 对话</el-tag>
+        <div class="assistant-header__controls">
+          <el-radio-group v-model="assistantMode" class="assistant-header__radio" size="small">
+            <el-radio-button
+              v-for="option in assistantModeOptions"
+              :key="option.value"
+              :label="option.value"
+              :data-testid="`studio-assistant-mode-${option.value}`"
+            >
+              {{ option.label }}
+            </el-radio-button>
+          </el-radio-group>
+          <el-radio-group v-model="responseLanguage" class="assistant-header__radio" size="small">
+            <el-radio-button
+              v-for="option in responseLanguageOptions"
+              :key="option.value"
+              :label="option.value"
+              :data-testid="`studio-assistant-language-${option.value}`"
+            >
+              {{ option.label }}
+            </el-radio-button>
+          </el-radio-group>
+          <el-tag type="success" round>{{ assistantModeLabel }}</el-tag>
+        </div>
       </div>
     </template>
 
-    <div class="assistant-root">
-      <section ref="threadRef" class="assistant-thread" aria-label="assistant conversation">
+    <div class="assistant-root" data-testid="studio-assistant-root">
+      <section ref="threadRef" class="assistant-thread" aria-label="assistant conversation" data-testid="studio-assistant-thread">
         <div
           v-for="message in messages"
           :key="message.id"
           class="assistant-message"
           :class="`assistant-message--${message.role}`"
+          :data-testid="`studio-assistant-message-${message.role}`"
         >
           <span class="assistant-message__role">{{ message.role === "user" ? "你" : "助手" }}</span>
           <div class="assistant-message__content">
@@ -37,6 +60,7 @@
         class="assistant-process"
         :class="{ 'assistant-process--expanded': processPanelExpanded }"
         aria-label="assistant execution process"
+        data-testid="studio-assistant-process"
       >
         <button
           class="assistant-process__summary"
@@ -127,17 +151,18 @@
         </div>
       </section>
 
-      <section class="assistant-composer">
+      <section class="assistant-composer" data-testid="studio-assistant-composer">
         <el-input
           v-model="prompt"
           type="textarea"
+          data-testid="studio-assistant-prompt"
           :autosize="{ minRows: 2, maxRows: 4 }"
           resize="none"
           placeholder="可以问 Studio 能做什么，也可以说：创建 mysql1 的 order 表到 doris1 的 ods_order 表的单表采集"
           :disabled="assistantBusy"
           @keydown.ctrl.enter.prevent="submitPrompt"
         />
-        <el-button type="primary" :loading="assistantBusy" :disabled="!prompt.trim()" @click="submitPrompt">
+        <el-button type="primary" data-testid="studio-assistant-send" :loading="assistantBusy" :disabled="!prompt.trim()" @click="submitPrompt">
           发送
         </el-button>
       </section>
@@ -146,23 +171,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import type {
+  AssistantToolExecutionResult,
   AssistantToolCall,
+  AssistantStudioOperation,
   CapabilityMatrix,
-  CollectionTaskSaveRequest,
-  DataModelStatisticsOptionsRequest,
   DataModelDatasourceOptionView,
   DataModelDefinition,
   DataSourceOptionView,
   PluginRuntimeOptionSchemaView,
   ScriptType,
-  WorkflowSaveRequest,
 } from "@studio/api-sdk";
 import { streamAssistantChat, studioApi } from "@/api/studio";
-import { resolveStudioMenus } from "@/router";
 import { useAuthStore } from "@/stores/auth";
 import {
   createAssistantMessage,
@@ -174,6 +197,7 @@ import {
   type AssistantLogMessage,
   type AssistantToolResult,
 } from "./assistantOrchestrator";
+import { useAssistantPageContext, type AssistantPageBusinessObject } from "./assistantPageContext";
 
 interface AssistantProcessEvent {
   id: string;
@@ -187,6 +211,14 @@ interface AssistantProcessEvent {
 interface AssistantActionPayload {
   toolCalls: AssistantToolCall[];
   uiControls: AssistantActionControl[];
+  plan?: AssistantProtocolPlan;
+  loop?: AssistantProtocolLoop;
+  protocolViolations: AssistantProtocolViolation[];
+}
+
+interface AssistantProtocolViolation {
+  code: "missingPlan" | "invalidPlan" | "missingLoop" | "invalidLoop" | "invalidProtocolFields";
+  detail: string;
 }
 
 interface AssistantActionControl {
@@ -200,6 +232,36 @@ interface AssistantActionControl {
   options?: AssistantChatControlOption[];
 }
 
+interface AssistantToolExecutionOutput {
+  data: unknown;
+  execution?: Record<string, unknown>;
+}
+
+interface AssistantProtocolLoop {
+  mode?: string;
+  status?: string;
+  autoContinue?: boolean;
+  questions?: unknown[];
+  next?: unknown[];
+  evidence?: unknown[];
+  stopReason?: string;
+}
+
+interface AssistantProtocolPlan {
+  intent?: string;
+  basis?: unknown[];
+  requiredObjects?: unknown[];
+  nextActions?: unknown[];
+  confidence?: string;
+}
+
+const STUDIO_ASSISTANT_PROTOCOL = "studio-assistant.v1";
+const PROTOCOL_ACTION_TYPES = new Set(["frontendTool", "backendTool"]);
+const PROTOCOL_CONTROL_TYPES = new Set(["select", "choices", "text", "textarea", "confirm"]);
+
+type AssistantMode = "chat" | "plan" | "goal";
+type ResponseLanguage = "zh" | "en";
+
 interface ToolCacheState {
   capabilityMatrix: CapabilityMatrix | null;
   datasources: DataSourceOptionView[];
@@ -208,7 +270,45 @@ interface ToolCacheState {
   runtimeSchemas: Record<string, PluginRuntimeOptionSchemaView>;
 }
 
-interface AccessibleAssistantFeature {
+type AssistantMemoryEntityKind =
+  | "datasource"
+  | "physicalTable"
+  | "model"
+  | "task"
+  | "service"
+  | "rule"
+  | "run"
+  | "workflow"
+  | "script"
+  | "notification"
+  | "unknown";
+
+interface AssistantMemoryEntity {
+  kind: AssistantMemoryEntityKind;
+  id?: string;
+  name: string;
+  typeCode?: string;
+  physicalLocator?: string;
+  modelKind?: string;
+  sourcePath?: string;
+  raw?: Record<string, unknown>;
+  selectedAt?: string;
+}
+
+interface AssistantWorkingMemory {
+  lastDatasourceList: AssistantMemoryEntity[];
+  selectedDatasource?: AssistantMemoryEntity;
+  lastPhysicalTableList: AssistantMemoryEntity[];
+  selectedPhysicalTable?: AssistantMemoryEntity;
+  lastModelList: AssistantMemoryEntity[];
+  selectedModel?: AssistantMemoryEntity;
+  recentEntitiesByPath: Record<string, AssistantMemoryEntity[]>;
+  selectedEntitiesByPath: Record<string, AssistantMemoryEntity | undefined>;
+  lastEntityListPath?: string;
+  selectedEntity?: AssistantMemoryEntity;
+}
+
+interface AssistantFeature {
   group: string;
   path: string;
   label: string;
@@ -258,6 +358,7 @@ interface AssistantFeatureToolSpec {
   description: string;
   list?: {
     purpose: string;
+    requiredValues?: string[];
     optionalValues?: string[];
     defaultParams?: Record<string, unknown>;
   };
@@ -269,7 +370,7 @@ interface AssistantFeatureToolSpec {
   writePolicy?: string;
 }
 
-interface AccessibleAssistantCapability {
+interface AssistantCapability {
   capabilityCode: string;
   group: string;
   path: string;
@@ -280,355 +381,70 @@ interface AccessibleAssistantCapability {
 }
 
 const MAX_TOOL_FOLLOW_UP_DEPTH = 4;
-const DEFAULT_FEATURE_PAGE_SIZE = 20;
-const MAX_FEATURE_PAGE_SIZE = 100;
 const ASSISTANT_STREAM_IDLE_TIMEOUT_MS = 45_000;
-
-const ASSISTANT_FEATURE_TOOL_SPECS: Record<string, AssistantFeatureToolSpec> = {
-  "/dashboard": {
-    capabilityCode: "studio.dashboard.overview",
-    description: "查看当前项目的数据源、模型、任务、运行等概览。",
-    list: { purpose: "读取项目看板概览。" },
-  },
-  "/access-center": {
-    capabilityCode: "studio.accessCenter.overview",
-    description: "查看当前用户可申请或已申请的项目访问入口。",
-    list: { purpose: "读取工作区访问概览。" },
-    writePolicy: "项目访问申请、取消申请必须由用户确认后执行。",
-  },
-  "/catalog": {
-    capabilityCode: "studio.catalog.capabilities",
-    description: "查看 Studio 支持的数据源类型、读写能力和运行参数能力。",
-    list: { purpose: "读取数据源能力矩阵。" },
-  },
-  "/metadata": {
-    capabilityCode: "studio.metadata.schemas",
-    description: "查看元模型和字段定义。",
-    list: { purpose: "列出元模型定义。", optionalValues: ["includeFields"] },
-    get: { purpose: "读取单个元模型详情。", requiredValues: ["id"] },
-  },
-  "/datasources": {
-    capabilityCode: "studio.datasources.manage",
-    description: "查看数据源列表、详情和连接历史。",
-    list: { purpose: "分页读取数据源列表。", optionalValues: ["pageNo", "pageSize"] },
-    get: { purpose: "读取数据源详情。", requiredValues: ["id"] },
-    writePolicy: "新增、修改、测试、删除数据源必须经过用户确认。",
-  },
-  "/models": {
-    capabilityCode: "studio.models.manage",
-    description: "查看数据模型、表字段、预览数据和血缘。",
-    list: { purpose: "分页读取模型摘要或按关键词查询模型候选。", optionalValues: ["keyword", "name", "tableName", "datasourceId", "datasourceType", "pageNo", "pageSize"] },
-    get: { purpose: "读取模型详情。", requiredValues: ["id"], optionalValues: ["preview", "lineageLevel"] },
-    writePolicy: "模型同步、保存、删除、手工血缘变更必须经过用户确认。",
-  },
-  "/statistics": {
-    capabilityCode: "studio.modelStatistics.query",
-    description: "查看模型统计配置和统计图表。",
-    list: { purpose: "读取模型统计选项或按条件查询统计图表。", optionalValues: ["view", "datasourceId", "modelId", "startTime", "endTime"] },
-  },
-  "/field-mapping-rules": {
-    capabilityCode: "studio.fieldMappingRules.manage",
-    description: "查看字段映射规则。",
-    list: { purpose: "分页读取字段映射规则。", optionalValues: ["keyword", "mappingType", "enabled", "pageNo", "pageSize"] },
-    get: { purpose: "读取字段映射规则详情。", requiredValues: ["id"] },
-    writePolicy: "保存、删除字段映射规则必须经过用户确认。",
-  },
-  "/collection-tasks": {
-    capabilityCode: "studio.collectionTasks.manage",
-    description: "查看和配置采集任务。",
-    list: { purpose: "分页读取采集任务。", optionalValues: ["keyword", "name", "targetDatasource", "targetModel", "pageNo", "pageSize"] },
-    get: { purpose: "读取采集任务详情。", requiredValues: ["id"] },
-    writePolicy: "保存、上线、触发、删除、调度、重置增量游标必须经过用户确认；默认不生成定时调度。",
-  },
-  "/collection-task-runs": {
-    capabilityCode: "studio.collectionTaskRuns.query",
-    description: "查看采集任务运行记录和日志。",
-    list: { purpose: "分页读取采集任务运行记录。", optionalValues: ["collectionTaskId", "status", "startTime", "endTime", "pageNo", "pageSize"] },
-    get: { purpose: "读取运行记录详情或日志。", requiredValues: ["id"], optionalValues: ["log"] },
-  },
-  "/run-metrics": {
-    capabilityCode: "studio.runMetrics.query",
-    description: "查看任务运行指标。",
-    list: { purpose: "查询运行指标概览。", optionalValues: ["startTime", "endTime", "executionType", "status"] },
-  },
-  "/data-development": {
-    capabilityCode: "studio.dataDevelopment.manage",
-    description: "查看脚本目录、脚本和 SQL 数据源候选。",
-    list: { purpose: "读取脚本目录树或脚本列表。", optionalValues: ["view", "scriptType"] },
-    get: { purpose: "读取脚本详情。", requiredValues: ["id"] },
-    writePolicy: "保存、移动、删除、执行 SQL/脚本必须经过用户确认。",
-  },
-  "/workflows": {
-    capabilityCode: "studio.workflows.manage",
-    description: "查看工作流定义和可绑定任务。",
-    list: { purpose: "分页读取工作流列表。", optionalValues: ["pageNo", "pageSize"] },
-    get: { purpose: "读取工作流详情。", requiredValues: ["id"] },
-    writePolicy: "保存、发布、触发、删除工作流必须经过用户确认。",
-  },
-  "/runs": {
-    capabilityCode: "studio.runs.query",
-    description: "查看工作流、采集、质量等运行记录和日志。",
-    list: { purpose: "分页读取运行记录。", optionalValues: ["collectionTaskId", "qualityTaskId", "workflowDefinitionId", "status", "startTime", "endTime", "pageNo", "pageSize"] },
-    get: { purpose: "读取运行记录详情或日志。", requiredValues: ["id"], optionalValues: ["log"] },
-  },
-  "/data-services": {
-    capabilityCode: "studio.dataServices.manage",
-    description: "查看开放数据服务及订阅。",
-    list: { purpose: "分页读取数据服务。", optionalValues: ["keyword", "status", "serviceType", "pageNo", "pageSize"] },
-    get: { purpose: "读取数据服务详情、WebService 预览或订阅。", requiredValues: ["id"], optionalValues: ["view"] },
-    writePolicy: "保存、发布、下线、删除、调试、订阅变更必须经过用户确认。",
-  },
-  "/data-ingestion-services": {
-    capabilityCode: "studio.dataIngestionServices.manage",
-    description: "查看数据接入服务及订阅。",
-    list: { purpose: "分页读取数据接入服务。", optionalValues: ["keyword", "status", "targetType", "pageNo", "pageSize"] },
-    get: { purpose: "读取数据接入服务详情、WebService 预览或订阅。", requiredValues: ["id"], optionalValues: ["view"] },
-    writePolicy: "保存、发布、下线、删除、调试、订阅变更必须经过用户确认。",
-  },
-  "/protocol-conversions": {
-    capabilityCode: "studio.protocolConversions.manage",
-    description: "查看协议转换服务及订阅。",
-    list: { purpose: "分页读取协议转换服务。", optionalValues: ["keyword", "status", "pageNo", "pageSize"] },
-    get: { purpose: "读取协议转换服务详情或订阅。", requiredValues: ["id"], optionalValues: ["view"] },
-    writePolicy: "保存、发布、下线、删除、调试、订阅变更必须经过用户确认。",
-  },
-  "/data-ingestion-metrics": {
-    capabilityCode: "studio.dataIngestionMetrics.query",
-    description: "查看数据接入服务指标、接口统计和访问日志。",
-    list: { purpose: "查询数据接入指标。", optionalValues: ["view", "startTime", "endTime", "status", "pageNo", "pageSize"] },
-  },
-  "/data-service-metrics": {
-    capabilityCode: "studio.dataServiceMetrics.query",
-    description: "查看数据服务指标、接口统计和访问日志。",
-    list: { purpose: "查询数据服务指标。", optionalValues: ["view", "startTime", "endTime", "status", "pageNo", "pageSize"] },
-  },
-  "/quality-rules": {
-    capabilityCode: "studio.qualityRules.manage",
-    description: "查看质量规则和规则候选。",
-    list: { purpose: "分页读取质量规则。", optionalValues: ["keyword", "ruleDimension", "scopeType", "enabled", "pageNo", "pageSize"] },
-    get: { purpose: "读取质量规则详情。", requiredValues: ["id"] },
-    writePolicy: "保存、启用、禁用、删除质量规则必须经过用户确认。",
-  },
-  "/quality-tasks": {
-    capabilityCode: "studio.qualityTasks.manage",
-    description: "查看质量任务和预览/校验配置。",
-    list: { purpose: "分页读取质量任务。", optionalValues: ["keyword", "status", "ruleDimension", "granularity", "pageNo", "pageSize"] },
-    get: { purpose: "读取质量任务详情。", requiredValues: ["id"] },
-    writePolicy: "保存、上线、触发、删除、调度质量任务必须经过用户确认。",
-  },
-  "/quality-task-runs": {
-    capabilityCode: "studio.qualityTaskRuns.query",
-    description: "查看质量任务运行记录和日志。",
-    list: { purpose: "分页读取质量任务运行记录。", optionalValues: ["qualityTaskId", "status", "startTime", "endTime", "pageNo", "pageSize"] },
-    get: { purpose: "读取运行记录详情或日志。", requiredValues: ["id"], optionalValues: ["log"] },
-  },
-  "/quality-metrics": {
-    capabilityCode: "studio.qualityMetrics.query",
-    description: "查看质量指标、资产风险和问题详情。",
-    list: { purpose: "查询质量指标、资产或问题。", optionalValues: ["view", "datasourceId", "keyword", "status", "startTime", "endTime", "pageNo", "pageSize"] },
-    get: { purpose: "读取质量问题或资产详情。", requiredValues: ["id"], optionalValues: ["resource"] },
-    writePolicy: "分派问题、更新状态、更新严重级别、评论必须经过用户确认。",
-  },
-  "/system": {
-    capabilityCode: "studio.system.manage",
-    description: "查看租户、项目、成员、角色、权限和资源共享。",
-    list: { purpose: "分页读取系统管理资源。", optionalValues: ["resource", "projectId", "resourceType", "pageNo", "pageSize"] },
-    writePolicy: "系统管理中的保存、审批、驳回、删除必须经过用户确认。",
-  },
-  "/script-environments": {
-    capabilityCode: "studio.scriptEnvironments.manage",
-    description: "查看脚本运行环境。",
-    list: { purpose: "分页读取脚本运行环境。", optionalValues: ["keyword", "enabled", "pageNo", "pageSize"] },
-    get: { purpose: "读取脚本运行环境详情。", requiredValues: ["id"] },
-    writePolicy: "保存、启用、禁用、刷新脚本环境必须经过用户确认。",
-  },
-  "/ops-center": {
-    capabilityCode: "studio.opsCenter.query",
-    description: "查看运行中心概览、队列、Worker、服务事件和日志事件。",
-    list: { purpose: "查询运维中心概览或明细。", optionalValues: ["view", "startTime", "endTime", "executionType", "status", "workerGroupCode", "pageNo", "pageSize"] },
-  },
-};
 
 const FORBIDDEN_ASSISTANT_ACTION_PATTERN = /(?:^|[._-])(delete|remove|drop|truncate|purge|destroy|batchdelete|unfollow|cancel)(?:$|[._-])|删除|移除|清空|销毁|批量删除/i;
 
-const ASSISTANT_FEATURE_ACTION_DEFINITIONS: AssistantFeatureActionDefinition[] = [
-  { path: "/access-center", action: "apply", purpose: "申请进入项目或工作区。", mutation: true, requiredValues: ["payload"], aliases: ["requestAccess"] },
-
-  { path: "/metadata", action: "saveDraft", purpose: "保存元模型草稿。", mutation: true, requiredValues: ["payload"], aliases: ["save"] },
-  { path: "/metadata", action: "publish", purpose: "发布元模型。", mutation: true, requiredValues: ["id"] },
-  { path: "/metadata", action: "syncTechnical", purpose: "同步指定数据源类型的技术元模型。", mutation: true, requiredValues: ["typeCode"], aliases: ["sync"] },
-  { path: "/metadata", action: "syncAllTechnical", purpose: "同步全部技术元模型。", mutation: true, aliases: ["syncAll"] },
-  { path: "/metadata", action: "syncStandardRuntimeOptions", purpose: "同步标准运行参数元模型。", mutation: true, aliases: ["syncRuntimeOptions"] },
-
-  { path: "/datasources", action: "save", purpose: "新增或修改数据源。", mutation: true, requiredValues: ["payload"] },
-  { path: "/datasources", action: "test", purpose: "测试已保存数据源连接。", mutation: true, requiredValues: ["id"] },
-  { path: "/datasources", action: "testCurrent", purpose: "测试尚未保存的数据源配置。", mutation: true, requiredValues: ["payload"] },
-  { path: "/datasources", action: "discover", purpose: "发现数据源下的模型候选。", mutation: false, requiredValues: ["id"], optionalValues: ["keyword", "pageNo", "pageSize"] },
-
-  { path: "/models", action: "save", purpose: "保存模型定义。", mutation: true, requiredValues: ["payload"] },
-  { path: "/models", action: "sync", purpose: "同步指定数据源的模型。", mutation: true, requiredValues: ["datasourceId"], aliases: ["syncDatasource"] },
-  { path: "/models", action: "syncSelected", purpose: "按选择范围同步指定数据源的模型。", mutation: true, requiredValues: ["datasourceId", "payload"] },
-  { path: "/models", action: "rebuildIndex", purpose: "重建模型检索索引。", mutation: true, optionalValues: ["datasourceId"] },
-
-  { path: "/field-mapping-rules", action: "save", purpose: "保存字段映射规则。", mutation: true, requiredValues: ["payload"] },
-
-  { path: "/collection-tasks", action: "preview", purpose: "预览采集任务配置。", mutation: false, requiredValues: ["payload"], aliases: ["validatePreview"] },
-  { path: "/collection-tasks", action: "save", purpose: "保存采集任务草稿或配置。", mutation: true, requiredValues: ["payload"] },
-  { path: "/collection-tasks", action: "publish", purpose: "上线采集任务。", mutation: true, requiredValues: ["id"], aliases: ["online"] },
-  { path: "/collection-tasks", action: "trigger", purpose: "立即触发采集任务。", mutation: true, requiredValues: ["id"], aliases: ["run", "execute"] },
-  { path: "/collection-tasks", action: "schedule", purpose: "保存采集任务调度配置。", mutation: true, requiredValues: ["id", "payload"] },
-  { path: "/collection-tasks", action: "resetIncrementalCursor", purpose: "重置采集任务增量游标。", mutation: true, requiredValues: ["id"], optionalValues: ["sourceAlias", "incrColumn", "incrModel"] },
-
-  { path: "/data-development", action: "saveDirectory", resource: "directories", purpose: "保存脚本目录。", mutation: true, requiredValues: ["payload"], aliases: ["save"] },
-  { path: "/data-development", action: "moveDirectory", resource: "directories", purpose: "移动脚本目录。", mutation: true, requiredValues: ["id", "payload"], aliases: ["move"] },
-  { path: "/data-development", action: "saveScript", resource: "scripts", purpose: "保存脚本。", mutation: true, requiredValues: ["payload"], aliases: ["save"] },
-  { path: "/data-development", action: "moveScript", resource: "scripts", purpose: "移动脚本。", mutation: true, requiredValues: ["id", "payload"], aliases: ["move"] },
-  { path: "/data-development", action: "executeSql", resource: "sql", purpose: "执行 SQL。", mutation: true, requiredValues: ["payload"], aliases: ["execute", "run"] },
-  { path: "/data-development", action: "executeScript", resource: "scripts", purpose: "执行未保存脚本内容。", mutation: true, requiredValues: ["payload"], aliases: ["executeContent"] },
-  { path: "/data-development", action: "executeSavedScript", resource: "scripts", purpose: "执行已保存脚本。", mutation: true, requiredValues: ["id"], optionalValues: ["payload"], aliases: ["executeSaved", "runSaved"] },
-
-  { path: "/workflows", action: "save", purpose: "保存工作流定义。", mutation: true, requiredValues: ["payload"] },
-  { path: "/workflows", action: "publish", purpose: "发布工作流。", mutation: true, requiredValues: ["id"] },
-  { path: "/workflows", action: "trigger", purpose: "立即触发工作流。", mutation: true, requiredValues: ["id"], aliases: ["run", "execute"] },
-  { path: "/workflows", action: "schedule", purpose: "保存工作流调度配置。", mutation: true, requiredValues: ["id", "payload"], aliases: ["timing", "cron"] },
-
-  { path: "/data-services", action: "save", purpose: "保存数据服务。", mutation: true, requiredValues: ["payload"] },
-  { path: "/data-services", action: "publish", purpose: "发布数据服务。", mutation: true, requiredValues: ["id"] },
-  { path: "/data-services", action: "offline", purpose: "下线数据服务。", mutation: true, requiredValues: ["id"] },
-  { path: "/data-services", action: "resolveFields", purpose: "解析数据服务字段。", mutation: false, requiredValues: ["payload"] },
-  { path: "/data-services", action: "debug", purpose: "调试数据服务。", mutation: true, requiredValues: ["id", "payload"] },
-  { path: "/data-services", action: "debugWebService", purpose: "调试数据服务 WebService。", mutation: true, requiredValues: ["id", "payload"], resource: "webservice", aliases: ["debug"] },
-  { path: "/data-services", action: "createSubscription", purpose: "创建数据服务订阅。", mutation: true, requiredValues: ["id", "subscriptionName"], resource: "subscriptions", aliases: ["subscribe"] },
-  { path: "/data-services", action: "enableSubscription", purpose: "启用数据服务订阅。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["enable"] },
-  { path: "/data-services", action: "disableSubscription", purpose: "禁用数据服务订阅。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["disable"] },
-  { path: "/data-services", action: "rotateSubscription", purpose: "轮换数据服务订阅密钥。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["rotate"] },
-
-  { path: "/data-ingestion-services", action: "save", purpose: "保存数据接入服务。", mutation: true, requiredValues: ["payload"] },
-  { path: "/data-ingestion-services", action: "publish", purpose: "发布数据接入服务。", mutation: true, requiredValues: ["id"] },
-  { path: "/data-ingestion-services", action: "offline", purpose: "下线数据接入服务。", mutation: true, requiredValues: ["id"] },
-  { path: "/data-ingestion-services", action: "resolveFields", purpose: "解析数据接入服务字段。", mutation: false, requiredValues: ["payload"] },
-  { path: "/data-ingestion-services", action: "debug", purpose: "调试数据接入服务。", mutation: true, requiredValues: ["id", "payload"] },
-  { path: "/data-ingestion-services", action: "debugWebService", purpose: "调试数据接入 WebService。", mutation: true, requiredValues: ["id", "payload"], resource: "webservice", aliases: ["debug"] },
-  { path: "/data-ingestion-services", action: "createSubscription", purpose: "创建数据接入订阅。", mutation: true, requiredValues: ["id", "subscriptionName"], resource: "subscriptions", aliases: ["subscribe"] },
-  { path: "/data-ingestion-services", action: "enableSubscription", purpose: "启用数据接入订阅。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["enable"] },
-  { path: "/data-ingestion-services", action: "disableSubscription", purpose: "禁用数据接入订阅。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["disable"] },
-  { path: "/data-ingestion-services", action: "rotateSubscription", purpose: "轮换数据接入订阅密钥。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["rotate"] },
-
-  { path: "/protocol-conversions", action: "save", purpose: "保存协议转换服务。", mutation: true, requiredValues: ["payload"] },
-  { path: "/protocol-conversions", action: "publish", purpose: "发布协议转换服务。", mutation: true, requiredValues: ["id"] },
-  { path: "/protocol-conversions", action: "offline", purpose: "下线协议转换服务。", mutation: true, requiredValues: ["id"] },
-  { path: "/protocol-conversions", action: "debug", purpose: "调试协议转换服务。", mutation: true, requiredValues: ["id", "payload"] },
-  { path: "/protocol-conversions", action: "createSubscription", purpose: "创建协议转换订阅。", mutation: true, requiredValues: ["id", "subscriptionName"], resource: "subscriptions", aliases: ["subscribe"] },
-  { path: "/protocol-conversions", action: "enableSubscription", purpose: "启用协议转换订阅。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["enable"] },
-  { path: "/protocol-conversions", action: "disableSubscription", purpose: "禁用协议转换订阅。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["disable"] },
-  { path: "/protocol-conversions", action: "rotateSubscription", purpose: "轮换协议转换订阅密钥。", mutation: true, requiredValues: ["id", "subscriptionId"], resource: "subscriptions", aliases: ["rotate"] },
-
-  { path: "/quality-rules", action: "save", purpose: "保存质量规则。", mutation: true, requiredValues: ["payload"] },
-  { path: "/quality-rules", action: "enable", purpose: "启用质量规则。", mutation: true, requiredValues: ["id"] },
-  { path: "/quality-rules", action: "disable", purpose: "禁用质量规则。", mutation: true, requiredValues: ["id"] },
-  { path: "/quality-rules", action: "parse", purpose: "解析质量规则参数。", mutation: false, requiredValues: ["payload"] },
-  { path: "/quality-rules", action: "validate", purpose: "校验质量规则。", mutation: false, requiredValues: ["payload"] },
-
-  { path: "/quality-tasks", action: "preview", purpose: "预览质量任务配置。", mutation: false, requiredValues: ["payload"] },
-  { path: "/quality-tasks", action: "validate", purpose: "校验质量任务配置。", mutation: false, requiredValues: ["payload"] },
-  { path: "/quality-tasks", action: "save", purpose: "保存质量任务。", mutation: true, requiredValues: ["payload"] },
-  { path: "/quality-tasks", action: "publish", purpose: "上线质量任务。", mutation: true, requiredValues: ["id"], aliases: ["online"] },
-  { path: "/quality-tasks", action: "trigger", purpose: "立即触发质量任务。", mutation: true, requiredValues: ["id"], aliases: ["run", "execute"] },
-  { path: "/quality-tasks", action: "schedule", purpose: "保存质量任务调度配置。", mutation: true, requiredValues: ["id", "payload"] },
-
-  { path: "/quality-metrics", action: "assignIssue", resource: "issues", purpose: "分派质量问题。", mutation: true, requiredValues: ["id"], optionalValues: ["payload"], aliases: ["assign"] },
-  { path: "/quality-metrics", action: "updateIssueStatus", resource: "issues", purpose: "更新质量问题状态。", mutation: true, requiredValues: ["id", "payload"], aliases: ["status"] },
-  { path: "/quality-metrics", action: "updateIssueSeverity", resource: "issues", purpose: "更新质量问题严重级别。", mutation: true, requiredValues: ["id", "payload"], aliases: ["severity"] },
-  { path: "/quality-metrics", action: "addIssueComment", resource: "issues", purpose: "追加质量问题评论。", mutation: true, requiredValues: ["id", "payload"], aliases: ["comment"] },
-
-  { path: "/script-environments", action: "save", purpose: "保存脚本运行环境。", mutation: true, requiredValues: ["payload"], aliases: ["saveOrUpdateCheck"] },
-  { path: "/script-environments", action: "enable", purpose: "启用脚本运行环境。", mutation: true, requiredValues: ["id"] },
-  { path: "/script-environments", action: "disable", purpose: "禁用脚本运行环境。", mutation: true, requiredValues: ["id"] },
-  { path: "/script-environments", action: "refresh", purpose: "刷新脚本运行环境。", mutation: true, requiredValues: ["id"] },
-
-  { path: "/system", action: "save", resource: "tenants", purpose: "保存租户。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "projects", purpose: "保存项目。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "tenantMembers", purpose: "保存租户成员。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "projectMembers", purpose: "保存项目成员。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "projectMemberRequests", purpose: "保存项目成员申请。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "projectWorkers", purpose: "保存项目 Worker。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "resourceShares", purpose: "保存资源共享配置。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "users", purpose: "保存用户。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "roles", purpose: "保存角色。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "save", resource: "permissions", purpose: "保存权限。", mutation: true, requiredValues: ["payload"] },
-  { path: "/system", action: "approve", resource: "userRegistrationRequests", purpose: "通过用户注册申请。", mutation: true, requiredValues: ["id"], optionalValues: ["payload"] },
-  { path: "/system", action: "reject", resource: "userRegistrationRequests", purpose: "拒绝用户注册申请。", mutation: true, requiredValues: ["id"], optionalValues: ["payload"] },
-];
-
 const ASSISTANT_FRONTEND_TOOL_DEFINITIONS: AssistantFrontendToolDefinition[] = [
   {
+    interfaceCode: "assistant.context.observe",
+    purpose: "观察当前 Studio 页面状态、路由、项目上下文、最近候选和助手工作记忆；只返回上下文，不执行业务 API。",
+    mutation: false,
+    optionalValues: ["path"],
+  },
+  {
+    interfaceCode: "assistant.context.read",
+    purpose: "读取当前业务上下文中的 activeObject、已选对象、可见对象、最近候选和分页/筛选摘要；只读前端上下文，不调用业务 API。",
+    mutation: false,
+    optionalValues: ["path", "kind", "limit"],
+  },
+  {
+    interfaceCode: "assistant.context.search",
+    purpose: "按 path、keyword、kind 在当前页面上下文、最近候选和助手工作记忆中搜索业务对象；只返回候选，不调用业务 API。",
+    mutation: false,
+    requiredValues: ["path"],
+    optionalValues: ["keyword", "kind", "limit"],
+  },
+  {
+    interfaceCode: "assistant.memory.select",
+    purpose: "在 LLM 已理解用户选择意图后，从最近候选中设置当前会话默认业务对象；只更新助手工作记忆，不调用业务 API。",
+    mutation: false,
+    requiredValues: ["path"],
+    optionalValues: ["id", "name", "physicalLocator", "ordinal"],
+  },
+  {
     interfaceCode: "studio.navigation.open",
-    purpose: "打开当前用户可见功能页面，只允许 path 来自 accessibleCapabilities。",
+    purpose: "打开 Studio 助手能力目录中的功能页面，只允许 path 来自 assistantCapabilities。",
     mutation: false,
     requiredValues: ["path"],
   },
   {
     interfaceCode: "studio.feature.list",
-    purpose: "按当前用户可见功能读取列表、概览、候选值或指标查询；path 必须来自 accessibleCapabilities。",
+    purpose: "按 Studio 助手能力目录读取列表、概览、候选值或指标查询；path 必须来自 assistantCapabilities。",
     mutation: false,
     requiredValues: ["path"],
     optionalValues: ["view", "keyword", "status", "pageNo", "pageSize"],
   },
   {
     interfaceCode: "studio.feature.get",
-    purpose: "读取当前用户可见功能下的单条记录详情；path 必须来自 accessibleCapabilities，且该功能声明了 get 操作。",
+    purpose: "读取 Studio 助手能力目录下的单条记录详情；path 必须来自 assistantCapabilities，且该功能声明了 get 操作。",
     mutation: false,
     requiredValues: ["path", "id"],
     optionalValues: ["view", "resource", "log", "lineageLevel", "preview"],
   },
   {
     interfaceCode: "studio.feature.action",
-    purpose: "对当前用户可见功能执行前端动作注册表中的非删除动作；必须提供 path 和 action，写入/执行/配置变更动作会被前端拦截为确认控件，确认前不会执行。",
+    purpose: "对 Studio 助手能力目录中的功能执行动作注册表中的非删除动作；必须提供 path 和 action，写入/执行/配置变更动作会被前端拦截为确认控件，确认前不会执行。",
     mutation: true,
     requiredValues: ["path", "action"],
     optionalValues: ["id", "payload", "resource", "subscriptionId", "subscriptionName", "datasourceId", "keyword", "pageNo", "pageSize"],
   },
   {
-    interfaceCode: "catalog.capabilities",
-    purpose: "读取数据源读写能力矩阵，常用于采集任务编排前判断源端/目标端能力。",
+    interfaceCode: "assistant.script.execute",
+    purpose: "执行后端登记的助手脚本 skill；只能传 entrypointId 和 stdin-json input，不能传 shell 命令或任意脚本文本。",
     mutation: false,
-    featurePaths: ["/catalog", "/collection-tasks"],
-  },
-  {
-    interfaceCode: "datasources.options",
-    purpose: "读取当前项目可选数据源，用于让用户选择源端或目标端。",
-    mutation: false,
-    featurePaths: ["/datasources", "/models", "/collection-tasks", "/data-development", "/workflows"],
-  },
-  {
-    interfaceCode: "models.datasourceOptions",
-    purpose: "读取某个数据源下的模型/表候选。",
-    mutation: false,
-    requiredValues: ["datasourceId"],
-    optionalValues: ["keyword"],
-    featurePaths: ["/models", "/collection-tasks", "/data-development"],
-  },
-  {
-    interfaceCode: "models.get",
-    purpose: "读取模型字段元数据。",
-    mutation: false,
-    requiredValues: ["modelId"],
-    featurePaths: ["/models", "/collection-tasks", "/data-development"],
-  },
-  {
-    interfaceCode: "catalog.runtimeOptionSchema",
-    purpose: "读取 reader/writer 运行参数元模型。",
-    mutation: false,
-    requiredValues: ["role", "datasourceType"],
-    optionalValues: ["protocolMode"],
-    featurePaths: ["/catalog", "/collection-tasks"],
-  },
-  {
-    interfaceCode: "collectionTasks.preview",
-    purpose: "预览采集任务 JobContainer 配置；只做校验和预览，不保存。",
-    mutation: false,
-    requiredValues: ["collectionTaskPayload"],
-    featurePaths: ["/collection-tasks"],
+    requiredValues: ["entrypointId", "input"],
+    optionalValues: ["skillId"],
   },
 ];
 
@@ -643,9 +459,12 @@ const emit = defineEmits<{
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const assistantPageContext = useAssistantPageContext();
 const { t } = useI18n();
 
 const prompt = ref("");
+const assistantMode = ref<AssistantMode>("chat");
+const responseLanguage = ref<ResponseLanguage>("zh");
 const messages = ref<AssistantLogMessage[]>([
   createAssistantMessage(
     "assistant",
@@ -668,7 +487,18 @@ const toolCache = reactive<ToolCacheState>({
   modelDetails: {},
   runtimeSchemas: {},
 });
+const assistantMemory = reactive<AssistantWorkingMemory>({
+  lastDatasourceList: [],
+  lastPhysicalTableList: [],
+  lastModelList: [],
+  recentEntitiesByPath: {},
+  selectedEntitiesByPath: {},
+});
+const assistantOperationCatalog = ref<AssistantStudioOperation[]>([]);
+const assistantOperationCatalogLoaded = ref(false);
+const assistantOperationCatalogLoading = ref(false);
 let chatAbortController: AbortController | null = null;
+let assistantOperationCatalogLoadPromise: Promise<void> | null = null;
 
 const drawerVisible = computed({
   get: () => props.modelValue,
@@ -714,26 +544,159 @@ const activeComposerControls = computed(() =>
   messages.value.flatMap((message) => message.controls ?? [])
     .filter((control) => !consumedControlIds[control.id]),
 );
-const accessibleFeatures = computed(() => resolveAccessibleFeatures());
-const accessibleCapabilities = computed(() => resolveAccessibleCapabilities());
+const assistantFeatureToolSpecs = computed(() => resolveAssistantFeatureToolSpecs());
+const assistantFeatureActionDefinitions = computed(() => resolveAssistantFeatureActionDefinitions());
+const assistantFeatures = computed(() => resolveAssistantFeatures());
+const assistantCapabilities = computed(() => resolveAssistantCapabilities());
 const availableFeatureActions = computed(() => resolveAvailableFeatureActions());
 const availableFrontendTools = computed(() => resolveAvailableFrontendTools());
+const assistantModeOptions = [
+  { label: "Chat", value: "chat" },
+  { label: "Plan", value: "plan" },
+  { label: "Goal", value: "goal" },
+];
+const responseLanguageOptions = [
+  { label: "中文", value: "zh" },
+  { label: "EN", value: "en" },
+];
+const assistantModeLabel = computed(() => {
+  if (assistantMode.value === "goal") {
+    return responseLanguage.value === "en" ? "Goal mode" : "目标模式";
+  }
+  if (assistantMode.value === "plan") {
+    return responseLanguage.value === "en" ? "Plan mode" : "计划模式";
+  }
+  return responseLanguage.value === "en" ? "Chat mode" : "问答模式";
+});
 
-async function submitPrompt() {
+watch(drawerVisible, (visible) => {
+  if (visible) {
+    void ensureAssistantOperationCatalog();
+  }
+}, { immediate: true });
+
+async function ensureAssistantOperationCatalog(force = false) {
+  if (assistantOperationCatalogLoaded.value && !force) {
+    return;
+  }
+  if (assistantOperationCatalogLoading.value && assistantOperationCatalogLoadPromise && !force) {
+    await assistantOperationCatalogLoadPromise;
+    return;
+  }
+  assistantOperationCatalogLoading.value = true;
+  assistantOperationCatalogLoadPromise = (async () => {
+    pushProcessEvent({
+      stage: "assistant.operations.load",
+      title: "加载 Studio 功能目录",
+      detail: "正在从后端读取 portable operation catalog。",
+      status: "running",
+    });
+    try {
+      const operations = await studioApi.assistant.operations();
+      assistantOperationCatalog.value = Array.isArray(operations)
+        ? operations.filter((operation) => normalizeRoutePath(operation.path))
+        : [];
+      assistantOperationCatalogLoaded.value = true;
+      markProcessDone(
+        "assistant.operations.load",
+        assistantOperationCatalog.value.length ? "后端功能目录已加载" : "后端功能目录为空",
+        assistantOperationCatalog.value.length
+          ? `已加载 ${assistantOperationCatalog.value.length} 个 Studio operation。`
+          : "本轮不开放本地 Studio 操作目录。",
+        assistantOperationCatalog.value.length ? "done" : "warning",
+      );
+    } catch (error) {
+      assistantOperationCatalogLoaded.value = true;
+      markProcessDone(
+        "assistant.operations.load",
+        "后端功能目录暂不可用",
+        `${resolveErrorMessage(error, "读取失败")}；本轮不开放本地 Studio 操作目录。`,
+        "warning",
+      );
+    }
+  })();
+  try {
+    await assistantOperationCatalogLoadPromise;
+  } finally {
+    assistantOperationCatalogLoading.value = false;
+    assistantOperationCatalogLoadPromise = null;
+  }
+}
+
+type SubmitPromptOptions = {
+  preserveToolResults?: boolean;
+};
+
+async function submitPrompt(options?: SubmitPromptOptions | Event) {
   const message = prompt.value.trim();
   if (!message || assistantBusy.value) {
     return;
   }
 
+  const preserveToolResults = Boolean(
+    options
+      && !(options instanceof Event)
+      && "preserveToolResults" in options
+      && options.preserveToolResults,
+  );
   processEvents.value = [];
   processPanelExpanded.value = false;
+  if (!preserveToolResults) {
+    toolResults.value = [];
+  }
   messages.value.push(createAssistantMessage("user", message));
   prompt.value = "";
   await nextTick(scrollThreadToBottom);
+  await ensureAssistantOperationCatalog();
 
   const assistantMessage = await streamAssistantReply(message, conversationForRequest());
   await handleAssistantActions(assistantMessage, 0);
-  void maybePersistLocalLearning(message, assistantMessage.content);
+}
+
+async function handleAssistantMemoryControl(control: AssistantChatControl, value: string, option?: AssistantChatControlOption) {
+  const datasource = knownDatasourceEntities().find((item) => String(item.id) === String(value));
+  if (!datasource) {
+    messages.value.push(createAssistantMessage("assistant", "我没有在最近的数据源候选里找到这个选项，请重新读取数据源列表后再试。"));
+    await nextTick(scrollThreadToBottom);
+    return;
+  }
+  messages.value.push(createAssistantMessage("user", option?.label || datasource.name));
+  selectDatasourceMemory(datasource, "control");
+  const instruction = `用户已经选择当前数据源：${JSON.stringify(summarizeMemoryEntity(datasource))}。请基于 currentContext.assistantMemory 继续判断下一步；如果需要读取真实项目数据，请输出 studio-assistant-protocol；如果已有足够信息，直接回答。`;
+  const assistantMessage = await streamAssistantReply(
+    instruction,
+    conversationForRequest(instruction),
+  );
+  await handleAssistantActions(assistantMessage, 0);
+  await nextTick(scrollThreadToBottom);
+}
+
+async function handleGenericMemoryControl(control: AssistantChatControl, value: string, option?: AssistantChatControlOption) {
+  const path = normalizeRoutePath(String(control.paramKey ?? "").replace(/^assistantMemory\.selectedEntity:/, ""));
+  const entity = knownEntitiesForPath(path).find((item) => String(item.id) === String(value));
+  if (!entity) {
+    messages.value.push(createAssistantMessage("assistant", "我没有在最近候选里找到这个选项，请重新读取列表后再试。"));
+    await nextTick(scrollThreadToBottom);
+    return;
+  }
+  messages.value.push(createAssistantMessage("user", option?.label || entity.name));
+  selectGenericMemoryEntity(path, entity, "control");
+  const instruction = `用户已经选择当前${memoryPathLabel(path)}：${JSON.stringify(summarizeMemoryEntity(entity))}。请基于 currentContext.assistantMemory 继续判断下一步；如果需要读取真实项目数据，请输出 studio-assistant-protocol；如果已有足够信息，直接回答。`;
+  const assistantMessage = await streamAssistantReply(
+    instruction,
+    conversationForRequest(instruction),
+  );
+  await handleAssistantActions(assistantMessage, 0);
+  await nextTick(scrollThreadToBottom);
+}
+
+function selectDatasourceMemory(datasource: AssistantMemoryEntity, source: string) {
+  assistantMemory.selectedDatasource = {
+    ...datasource,
+    selectedAt: new Date().toISOString(),
+    sourcePath: datasource.sourcePath || source,
+  };
+  selectGenericMemoryEntity("/datasources", assistantMemory.selectedDatasource, source);
 }
 
 async function streamAssistantReply(message: string, requestMessages: Array<{ role: string; content: string }>) {
@@ -792,6 +755,9 @@ async function streamAssistantReply(message: string, requestMessages: Array<{ ro
     refreshStreamWatchdog();
     await streamAssistantChat({
       message,
+      assistantMode: assistantMode.value,
+      responseLanguage: responseLanguage.value,
+      protocolVersion: "studio-assistant.v1",
       messages: requestMessages,
       context: buildRuntimeContext("general_chat"),
       collectedInputs: collectCurrentInputs(),
@@ -859,7 +825,9 @@ async function streamAssistantReply(message: string, requestMessages: Array<{ ro
     }
     assistantMessage.streaming = false;
     if (!assistantMessage.content.trim()) {
-      assistantMessage.content = "我现在没有拿到有效回复，请稍后再试。";
+      assistantMessage.content = responseLanguage.value === "en"
+        ? "I did not receive a valid response. Please try again."
+        : "我现在没有拿到有效回复，请稍后再试。";
     }
     chatStreaming.value = false;
     if (chatAbortController === activeAbortController) {
@@ -914,6 +882,12 @@ onBeforeUnmount(() => {
 
 async function handleAssistantActions(message: AssistantLogMessage, depth: number) {
   const parsed = extractAssistantActions(message.rawContent || message.content);
+  appendAssistantPlanProcessEvent(parsed.plan);
+  appendAssistantLoopProcessEvents(parsed.loop, parsed.toolCalls.length, parsed.uiControls.length);
+  if (parsed.protocolViolations.length > 0) {
+    await continueAfterProtocolViolation(parsed.protocolViolations[0], depth + 1);
+    return;
+  }
   const actionOnly = parsed.toolCalls.length > 0 && parsed.uiControls.length === 0 && !parsed.content.trim();
   if (actionOnly) {
     removeAssistantMessage(message);
@@ -923,9 +897,6 @@ async function handleAssistantActions(message: AssistantLogMessage, depth: numbe
 
   const waitingForUser = appendActionControls(parsed.uiControls);
   if (!parsed.toolCalls.length) {
-    if (!waitingForUser && shouldRecoverMissingAssistantAction(message, parsed.content, depth)) {
-      await continueAfterMissingAssistantAction(depth + 1);
-    }
     return;
   }
 
@@ -974,6 +945,7 @@ async function handleAssistantActions(message: AssistantLogMessage, depth: numbe
         ? "候选值已作为对话控件输出。"
         : "接口结果已返回给对话上下文。",
   );
+  finalizeAssistantLoopProcessEvent(parsed.loop, executedCount, failedCount, confirmationCount, waitingForUser);
 
   if (failedCount > 0 && !waitingForUser && confirmationCount === 0 && depth < MAX_TOOL_FOLLOW_UP_DEPTH) {
     await continueAfterToolFailure(depth + 1);
@@ -991,7 +963,7 @@ function removeAssistantMessage(message: AssistantLogMessage) {
 
 function resolveVisibleActionMessage(
   parsed: { content: string } & AssistantActionPayload,
-  fallback: string,
+  defaultMessage: string,
 ) {
   const visible = parsed.content.trim();
   if (parsed.uiControls.length && (!visible || /^[A-Za-z`_[\]\s]+$/.test(visible))) {
@@ -1006,7 +978,7 @@ function resolveVisibleActionMessage(
   if (parsed.toolCalls.length) {
     return "我会先读取必要的项目上下文，再继续判断下一步。";
   }
-  return fallback;
+  return defaultMessage;
 }
 
 async function continueAfterToolResults(depth: number) {
@@ -1018,7 +990,7 @@ async function continueAfterToolResults(depth: number) {
 }
 
 async function continueAfterToolFailure(depth: number) {
-  const instruction = "最近一次接口或参数校验失败。请只根据 toolResults 中的 error、params、已有对话和可用能力自检原因：如果可以从上下文修正参数，请输出修正后的 assistant-action；如果缺少必须由用户决定的值，请输出 uiControls 让用户选择或填写；不要直接复述原始接口错误。";
+  const instruction = "最近一次接口或参数校验失败。请只根据 toolResults 中的 error、params、已有对话和可用能力自检原因：如果可以从上下文修正参数，请输出修正后的 studio-assistant-protocol；如果缺少必须由用户决定的值，请输出 controls 让用户选择或填写；不要直接复述原始接口错误。";
   const assistantMessage = await streamAssistantReply(
     instruction,
     conversationForRequest(instruction),
@@ -1026,47 +998,61 @@ async function continueAfterToolFailure(depth: number) {
   await handleAssistantActions(assistantMessage, depth);
 }
 
-async function continueAfterMissingAssistantAction(depth: number) {
+async function continueAfterProtocolViolation(violation: AssistantProtocolViolation, depth: number) {
   pushProcessEvent({
-    stage: "llm.self-check",
-    title: "自检缺失的接口调用",
-    detail: "模型表达了要继续查询，但没有给出可执行 action，正在要求它补齐。",
-    status: "running",
+    stage: "llm.protocol.invalid",
+    title: "协议结构不完整",
+    detail: violation.detail,
+    status: "warning",
   });
-  const instruction = "上一条助手回复表达了要查询、读取、获取、查看、打开、预览或继续处理，但没有输出 assistant-action 或 uiControls，导致编排器无法继续。请基于最新用户问题、currentContext.frontendTools、accessibleCapabilities 和 toolResults 自检：如果需要读取项目资源，输出一个隐藏 assistant-action；如果缺少用户必须决定的值，输出 uiControls；如果已有足够结果，直接给最终答案。不要再只说准备查询。";
+  if (depth >= MAX_TOOL_FOLLOW_UP_DEPTH) {
+    return;
+  }
+  const instruction = `上一条助手回复输出了 studio-assistant.v1 协议块，但协议结构缺失、不完整、包含旧执行字段，或没有放入 fenced studio-assistant-protocol 代码块。协议问题：${violation.detail} 请基于最新用户问题、currentContext、assistantCapabilities、assistantMemory 和 toolResults 重新判断，并只输出一个包含完整 plan{intent,basis,requiredObjects,nextActions}、loop{mode,status,autoContinue,questions,next,evidence,stopReason}、actions、controls 的 fenced studio-assistant-protocol；即使没有下一步动作、只是结束 loop，也必须保留 actions: []、controls: []、结构化计划和 loop 决策；每个 action 必须显式包含 type、tool、params；每个 control 必须显式包含 type、title、paramKey；不要使用 toolCalls、backendToolCalls 或 uiControls。`;
   const assistantMessage = await streamAssistantReply(
     instruction,
     conversationForRequest(instruction),
   );
-  markProcessDone("llm.self-check", "缺失 action 自检完成", "已让模型重新判断下一步。");
+  markProcessDone("llm.protocol.invalid", "协议自检完成", "已要求模型补齐结构化计划后再继续。", "warning");
   await handleAssistantActions(assistantMessage, depth);
-}
-
-function shouldRecoverMissingAssistantAction(message: AssistantLogMessage, visibleContent: string, depth: number) {
-  if (depth >= MAX_TOOL_FOLLOW_UP_DEPTH || message.controls?.length) {
-    return false;
-  }
-  const text = stripAssistantActionBlocks(visibleContent || message.content).trim();
-  if (!text || text.length > 120) {
-    return false;
-  }
-  const actionIntent = /(我先|先帮你|我会|将|准备|正在|继续).{0,16}(查询|读取|获取|查看|检索|加载|打开|预览|分析|处理)/;
-  const hasFinalSignal = /(如下|以下|结果|表格|列表|没有|暂无|未找到|已完成|可以看到|汇总)/;
-  return actionIntent.test(text) && !hasFinalSignal.test(text);
 }
 
 function extractAssistantActions(content: string): { content: string } & AssistantActionPayload {
   const toolCalls: AssistantToolCall[] = [];
   const uiControls: AssistantActionControl[] = [];
-  const cleaned = String(content ?? "").replace(/```assistant[-_]action\s*([\s\S]*?)```/gi, (_match, rawJson) => {
-    appendAssistantActionPayload(String(rawJson).trim(), toolCalls, uiControls);
+  const plans: AssistantProtocolPlan[] = [];
+  const loops: AssistantProtocolLoop[] = [];
+  const protocolViolations: AssistantProtocolViolation[] = [];
+  const cleanedProtocol = String(content ?? "").replace(/```studio[-_]assistant[-_]protocol\s*([\s\S]*?)```/gi, (_match, rawJson) => {
+    appendAssistantActionPayload(String(rawJson).trim(), toolCalls, uiControls, plans, loops, protocolViolations);
     return "";
   });
-  appendLooseAssistantActionPayloads(cleaned, toolCalls, uiControls);
+  let legacyActionBlockCount = 0;
+  const cleaned = cleanedProtocol.replace(/```assistant[-_]action\s*[\s\S]*?```/gi, () => {
+    legacyActionBlockCount += 1;
+    return "";
+  });
+  if (legacyActionBlockCount > 0) {
+    appendPlanViolation(
+      protocolViolations,
+      "invalidProtocolFields",
+      "助手输出了旧格式动作协议块。已阻止执行并要求 LLM 使用 fenced studio-assistant-protocol + studio-assistant.v1 重新输出。",
+    );
+  }
+  if (hasLooseAssistantActionPayload(cleaned)) {
+    appendPlanViolation(
+      protocolViolations,
+      "invalidProtocolFields",
+      "助手输出了未放入 fenced studio-assistant-protocol 代码块的结构化动作 JSON。已阻止执行或采纳该松散 JSON，并要求 LLM 使用标准协议块重新输出。",
+    );
+  }
   return {
     content: stripAssistantActionBlocks(cleaned),
     toolCalls,
     uiControls,
+    plan: plans.length ? plans[plans.length - 1] : undefined,
+    loop: loops.length ? loops[loops.length - 1] : undefined,
+    protocolViolations,
   };
 }
 
@@ -1074,29 +1060,541 @@ function appendAssistantActionPayload(
   rawJson: string,
   toolCalls: AssistantToolCall[],
   uiControls: AssistantActionControl[],
+  plans: AssistantProtocolPlan[],
+  loops: AssistantProtocolLoop[],
+  protocolViolations: AssistantProtocolViolation[],
 ) {
   try {
-    const payload = JSON.parse(rawJson) as Partial<AssistantActionPayload> & { controls?: AssistantActionControl[] };
+    const payload = JSON.parse(rawJson) as Partial<AssistantActionPayload> & {
+      actions?: unknown;
+      controls?: unknown;
+      plan?: unknown;
+      loop?: unknown;
+    };
     if (Array.isArray(payload)) {
-      uiControls.push(...payload.filter(isLikelyActionControl));
+      appendMissingPlanViolation(protocolViolations, "studio-assistant.v1 协议块必须是包含 protocol/plan/loop/actions/controls 的对象，不能直接输出控件数组。已阻止渲染控件并要求 LLM 重新规划。");
       return;
     }
     if (isLikelyActionControl(payload)) {
-      uiControls.push(payload);
+      appendMissingPlanViolation(protocolViolations, "studio-assistant.v1 协议块必须是包含 protocol/plan/loop/actions/controls 的对象，不能直接输出单个 control。已阻止渲染控件并要求 LLM 重新规划。");
       return;
     }
-    if (Array.isArray(payload.toolCalls)) {
-      toolCalls.push(...payload.toolCalls);
+    const isStudioProtocol = String((payload as { protocol?: unknown }).protocol ?? "").trim() === STUDIO_ASSISTANT_PROTOCOL;
+    if (!isStudioProtocol) {
+      appendPlanViolation(
+        protocolViolations,
+        "invalidProtocolFields",
+        "fenced studio-assistant-protocol 必须显式声明 protocol=studio-assistant.v1。已阻止执行或采纳该协议，并要求 LLM 重新规划。",
+      );
+      return;
     }
-    if (Array.isArray(payload.uiControls)) {
-      uiControls.push(...payload.uiControls);
+    const legacyFields = ["toolCalls", "backendToolCalls", "uiControls"]
+      .filter((field) => Array.isArray((payload as Record<string, unknown>)[field]));
+    if (legacyFields.length) {
+      appendPlanViolation(
+        protocolViolations,
+        "invalidProtocolFields",
+        `studio-assistant.v1 协议使用了旧执行字段：${legacyFields.join(", ")}；必须把可执行调用放入 actions，把对话控件放入 controls。已阻止执行并要求 LLM 重新规划。`,
+      );
+      return;
     }
-    if (Array.isArray(payload.controls)) {
-      uiControls.push(...payload.controls);
+    const localToolCalls: AssistantToolCall[] = [];
+    const localControls: AssistantActionControl[] = [];
+    const actionsValidation = validateAssistantProtocolActions(payload.actions);
+    if (!actionsValidation.ok) {
+      appendPlanViolation(protocolViolations, actionsValidation.code, actionsValidation.detail);
+      return;
+    }
+    localToolCalls.push(...actionsValidation.toolCalls);
+    const controlsValidation = validateAssistantProtocolControls(payload.controls);
+    if (!controlsValidation.ok) {
+      appendPlanViolation(protocolViolations, controlsValidation.code, controlsValidation.detail);
+      return;
+    }
+    localControls.push(...controlsValidation.controls);
+    const planValidation = validateAssistantProtocolPlan(payload.plan);
+    if (!planValidation.ok) {
+      const detail = localToolCalls.length > 0
+        ? `studio-assistant.v1 协议包含 actions，但 ${planValidation.detail}，已阻止执行并要求 LLM 重新规划。`
+        : localControls.length > 0
+          ? `studio-assistant.v1 协议包含 controls，但 ${planValidation.detail}，已阻止渲染控件并要求 LLM 重新规划。`
+          : `studio-assistant.v1 协议 ${planValidation.detail}；即使是 loop-only/actionless/completed loop 协议也必须带完整 plan。已阻止采纳该协议并要求 LLM 重新规划。`;
+      appendPlanViolation(protocolViolations, planValidation.code, detail);
+      return;
+    }
+    const loopValidation = validateAssistantProtocolLoop(payload.loop);
+    if (!loopValidation.ok) {
+      const detail = localToolCalls.length > 0
+        ? `studio-assistant.v1 协议包含 actions，但 ${loopValidation.detail}，已阻止执行并要求 LLM 重新规划。`
+        : localControls.length > 0
+          ? `studio-assistant.v1 协议包含 controls，但 ${loopValidation.detail}，已阻止渲染控件并要求 LLM 重新规划。`
+          : `studio-assistant.v1 协议 ${loopValidation.detail}；即使是 actionless/completed 协议也必须带完整 loop 决策。已阻止采纳该协议并要求 LLM 重新规划。`;
+      appendPlanViolation(protocolViolations, loopValidation.code, detail);
+      return;
+    }
+    const plan = normalizeAssistantProtocolPlan(payload.plan);
+    toolCalls.push(...localToolCalls);
+    uiControls.push(...localControls);
+    if (plan) {
+      plans.push(plan);
+    }
+    const loop = normalizeAssistantProtocolLoop(payload.loop);
+    if (loop) {
+      loops.push(loop);
     }
   } catch {
-    // Malformed action blocks are hidden from the user but otherwise ignored.
+    appendPlanViolation(
+      protocolViolations,
+      "invalidProtocolFields",
+      "studio-assistant.v1 协议块不是合法 JSON，已阻止执行或采纳该协议，并要求 LLM 使用完整 fenced studio-assistant-protocol 重新输出。",
+    );
   }
+}
+
+function appendMissingPlanViolation(protocolViolations: AssistantProtocolViolation[], detail?: string) {
+  appendPlanViolation(
+    protocolViolations,
+    "missingPlan",
+    detail || "studio-assistant.v1 协议缺少 plan，已阻止执行或采纳该协议，并要求 LLM 重新规划。",
+  );
+}
+
+function appendPlanViolation(protocolViolations: AssistantProtocolViolation[], code: AssistantProtocolViolation["code"], detail: string) {
+  protocolViolations.push({
+    code,
+    detail,
+  });
+}
+
+function actionToToolCall(action: Record<string, unknown>): AssistantToolCall | undefined {
+  const type = String(action.type ?? "").trim();
+  if (type !== "frontendTool") {
+    return undefined;
+  }
+  const interfaceCode = String(action.tool ?? "").trim();
+  if (!interfaceCode) {
+    return undefined;
+  }
+  return {
+    id: String(action.id ?? `protocol-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    interfaceCode,
+    reason: String(action.reason ?? ""),
+    params: isPlainRecord(action.params) ? action.params : {},
+  };
+}
+
+function normalizeAssistantProtocolLoop(value: unknown): AssistantProtocolLoop | undefined {
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+  return {
+    mode: firstLoopText(value, ["mode"]),
+    status: firstLoopText(value, ["status"]),
+    autoContinue: value.autoContinue === true,
+    questions: Array.isArray(value.questions) ? value.questions : [],
+    next: Array.isArray(value.next) ? value.next : [],
+    evidence: Array.isArray(value.evidence) ? value.evidence : [],
+    stopReason: firstLoopText(value, ["stopReason"]),
+  };
+}
+
+function validateAssistantProtocolActions(value: unknown): { ok: true; toolCalls: AssistantToolCall[] } | { ok: false; code: AssistantProtocolViolation["code"]; detail: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, code: "invalidProtocolFields", detail: "studio-assistant.v1 协议缺少必需的 actions 数组；无动作时也必须输出 actions: []。已阻止执行并要求 LLM 重新规划。" };
+  }
+  const invalid: string[] = [];
+  const toolCalls: AssistantToolCall[] = [];
+  value.forEach((item, index) => {
+    if (!isPlainRecord(item)) {
+      invalid.push(`actions[${index}] 必须是对象`);
+      return;
+    }
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(item, key);
+    const type = String(item.type ?? "").trim();
+    const tool = String(item.tool ?? "").trim();
+    if (!hasOwn("type") || !type) {
+      invalid.push(`actions[${index}].type 必须显式声明为 frontendTool 或 backendTool`);
+    } else if (!PROTOCOL_ACTION_TYPES.has(type)) {
+      invalid.push(`actions[${index}].type 不支持：${type}`);
+    }
+    if (!hasOwn("tool") || !tool) {
+      invalid.push(`actions[${index}].tool 必须是非空文本`);
+    }
+    if (!hasOwn("params") || !isPlainRecord(item.params)) {
+      invalid.push(`actions[${index}].params 必须是显式对象；无参数时使用 {}`);
+    }
+    if (!invalid.length && type === "frontendTool") {
+      const call = actionToToolCall(item);
+      if (call) {
+        toolCalls.push(call);
+      }
+    }
+  });
+  if (invalid.length) {
+    return {
+      ok: false,
+      code: "invalidProtocolFields",
+      detail: `studio-assistant.v1 协议 actions 字段不合规：${invalid.join("；")}。已阻止执行并要求 LLM 重新规划。`,
+    };
+  }
+  return { ok: true, toolCalls };
+}
+
+function validateAssistantProtocolControls(value: unknown): { ok: true; controls: AssistantActionControl[] } | { ok: false; code: AssistantProtocolViolation["code"]; detail: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, code: "invalidProtocolFields", detail: "studio-assistant.v1 协议缺少必需的 controls 数组；无需用户输入时也必须输出 controls: []。已阻止渲染控件并要求 LLM 重新规划。" };
+  }
+  const invalid: string[] = [];
+  const controls: AssistantActionControl[] = [];
+  value.forEach((item, index) => {
+    if (!isPlainRecord(item)) {
+      invalid.push(`controls[${index}] 必须是对象`);
+      return;
+    }
+    const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(item, key);
+    const type = String(item.type ?? "").trim();
+    const title = String(item.title ?? "").trim();
+    const paramKey = String(item.paramKey ?? "").trim();
+    if (!hasOwn("type") || !type) {
+      invalid.push(`controls[${index}].type 必须显式声明`);
+    } else if (!PROTOCOL_CONTROL_TYPES.has(type)) {
+      invalid.push(`controls[${index}].type 不支持：${type}`);
+    }
+    if (!title) {
+      invalid.push(`controls[${index}].title 必须是非空文本`);
+    }
+    if (!paramKey) {
+      invalid.push(`controls[${index}].paramKey 必须是非空文本`);
+    }
+    if (type === "select" || type === "choices" || type === "confirm") {
+      const options = Array.isArray(item.options) ? item.options : [];
+      const validOptionCount = options.filter((option) => isPlainRecord(option) && option.value != null && String(option.label ?? "").trim()).length;
+      if (validOptionCount < 2) {
+        invalid.push(`controls[${index}].options 至少需要 2 个有效选项`);
+      }
+    }
+    controls.push(item as AssistantActionControl);
+  });
+  if (invalid.length) {
+    return {
+      ok: false,
+      code: "invalidProtocolFields",
+      detail: `studio-assistant.v1 协议 controls 字段不合规：${invalid.join("；")}。已阻止渲染控件并要求 LLM 重新规划。`,
+    };
+  }
+  return { ok: true, controls };
+}
+
+function normalizeAssistantProtocolPlan(value: unknown): AssistantProtocolPlan | undefined {
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+  const intent = firstLoopText(value, ["intent"]);
+  const basis = toProtocolArray(value.basis);
+  const requiredObjects = toProtocolArray(value.requiredObjects);
+  const nextActions = toProtocolArray(value.nextActions);
+  const confidence = firstLoopText(value, ["confidence"]);
+  if (!intent && !basis.length && !requiredObjects.length && !nextActions.length) {
+    return undefined;
+  }
+  return {
+    intent,
+    basis,
+    requiredObjects,
+    nextActions,
+    confidence,
+  };
+}
+
+function validateAssistantProtocolPlan(value: unknown): { ok: true } | { ok: false; code: AssistantProtocolViolation["code"]; detail: string } {
+  if (!isPlainRecord(value)) {
+    return { ok: false, code: "missingPlan", detail: "缺少必需的 plan" };
+  }
+  const missing: string[] = [];
+  const invalid: string[] = [];
+  const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(value, key);
+  if (!hasOwn("intent")) {
+    missing.push("intent");
+  } else if (!String(value.intent ?? "").trim()) {
+    invalid.push("intent 必须是非空文本");
+  }
+  for (const key of ["basis", "requiredObjects", "nextActions"]) {
+    if (!hasOwn(key)) {
+      missing.push(key);
+      continue;
+    }
+    if (!Array.isArray(value[key])) {
+      invalid.push(`${key} 必须是数组`);
+      continue;
+    }
+    if (key !== "requiredObjects" && value[key].length === 0) {
+      invalid.push(`${key} 不能为空数组`);
+    }
+  }
+  if (!missing.length && !invalid.length) {
+    return { ok: true };
+  }
+  const parts = [
+    missing.length ? `缺少必需的 plan 字段：${missing.join(", ")}` : "",
+    invalid.length ? `plan 字段不合规：${invalid.join(", ")}` : "",
+  ].filter(Boolean);
+  return { ok: false, code: missing.length ? "missingPlan" : "invalidPlan", detail: parts.join("；") };
+}
+
+function validateAssistantProtocolLoop(value: unknown): { ok: true } | { ok: false; code: AssistantProtocolViolation["code"]; detail: string } {
+  if (!isPlainRecord(value)) {
+    return { ok: false, code: "missingLoop", detail: "缺少必需的 loop" };
+  }
+  const missing: string[] = [];
+  const invalid: string[] = [];
+  const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(value, key);
+  if (!hasOwn("status")) {
+    missing.push("status");
+  } else if (!String(value.status ?? "").trim()) {
+    invalid.push("status 必须是非空文本");
+  }
+  if (!hasOwn("autoContinue")) {
+    missing.push("autoContinue");
+  } else if (typeof value.autoContinue !== "boolean") {
+    invalid.push("autoContinue 必须是布尔值");
+  }
+  if (!hasOwn("stopReason")) {
+    missing.push("stopReason");
+  } else if (!String(value.stopReason ?? "").trim()) {
+    invalid.push("stopReason 必须是非空文本");
+  }
+  for (const key of ["questions", "next", "evidence"]) {
+    if (!hasOwn(key)) {
+      missing.push(key);
+      continue;
+    }
+    if (!Array.isArray(value[key])) {
+      invalid.push(`${key} 必须是数组`);
+    }
+  }
+  if (!missing.length && !invalid.length) {
+    return { ok: true };
+  }
+  const parts = [
+    missing.length ? `缺少必需的 loop 字段：${missing.join(", ")}` : "",
+    invalid.length ? `loop 字段不合规：${invalid.join(", ")}` : "",
+  ].filter(Boolean);
+  return { ok: false, code: missing.length ? "missingLoop" : "invalidLoop", detail: parts.join("；") };
+}
+
+function toProtocolArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value == null || value === "") {
+    return [];
+  }
+  return [value];
+}
+
+function appendAssistantPlanProcessEvent(plan: AssistantProtocolPlan | undefined) {
+  if (!plan) {
+    return;
+  }
+  const parts = [
+    plan.intent ? `意图：${plan.intent}` : "",
+    plan.basis?.length ? `依据：${summarizePlanItems(plan.basis, ["text", "basis", "source", "description"])}` : "",
+    plan.requiredObjects?.length ? `对象：${summarizePlanItems(plan.requiredObjects, ["name", "label", "id", "path", "type", "description"])}` : "",
+    plan.nextActions?.length ? `下一步：${summarizePlanItems(plan.nextActions, ["description", "action", "tool", "path", "reason"])}` : "",
+  ].filter(Boolean);
+  if (!parts.length) {
+    return;
+  }
+  pushProcessEvent({
+    stage: "assistant.plan.structured",
+    title: "LLM 结构化计划",
+    detail: parts.join("；"),
+    status: "done",
+  });
+}
+
+function summarizePlanItems(items: unknown[], keys: string[]) {
+  return items
+    .map((item) => describePlanItem(item, keys))
+    .filter(Boolean)
+    .slice(0, 4)
+    .join("，");
+}
+
+function describePlanItem(item: unknown, keys: string[]) {
+  if (isPlainRecord(item)) {
+    const text = firstLoopText(item, keys);
+    if (text) {
+      return text;
+    }
+    const compact = Object.entries(item)
+      .filter(([, value]) => value != null && ["string", "number", "boolean"].includes(typeof value))
+      .slice(0, 3)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join("/");
+    return compact;
+  }
+  return String(item ?? "").trim();
+}
+
+function appendAssistantLoopProcessEvents(
+  loop: AssistantProtocolLoop | undefined,
+  toolCallCount: number,
+  controlCount: number,
+) {
+  if (!loop) {
+    return;
+  }
+  const questions = summarizeAssistantLoopQuestions(loop.questions);
+  if (questions) {
+    pushProcessEvent({
+      stage: "assistant.loop.questions",
+      title: "问题拆解",
+      detail: questions,
+      status: "done",
+    });
+  }
+  const nextDetail = summarizeAssistantLoopNext(loop, toolCallCount, controlCount);
+  if (nextDetail) {
+    pushProcessEvent({
+      stage: "assistant.loop.next",
+      title: resolveAssistantLoopTitle(loop, toolCallCount, controlCount),
+      detail: nextDetail,
+      status: resolveAssistantLoopStatus(loop, toolCallCount, controlCount),
+    });
+  }
+}
+
+function finalizeAssistantLoopProcessEvent(
+  loop: AssistantProtocolLoop | undefined,
+  executedCount: number,
+  failedCount: number,
+  confirmationCount: number,
+  waitingForUser: boolean,
+) {
+  if (!loop) {
+    return;
+  }
+  if (failedCount > 0) {
+    markProcessDone("assistant.loop.next", "Loop 等待恢复", "工具执行失败已写入上下文，助手会根据失败原因继续恢复。", "warning");
+    return;
+  }
+  if (confirmationCount > 0 || waitingForUser) {
+    markProcessDone("assistant.loop.next", "Loop 等待用户输入", "下一步需要用户确认或补充信息后才能继续。", "warning");
+    return;
+  }
+  if (executedCount > 0) {
+    markProcessDone("assistant.loop.next", "Loop 已回灌工具结果", "工具结果已写入对话上下文，助手会自动继续总结或判断下一步。", "done");
+  }
+}
+
+function summarizeAssistantLoopQuestions(questions: unknown[] | undefined) {
+  const items = (questions ?? [])
+    .map((item) => {
+      if (isPlainRecord(item)) {
+        return firstLoopText(item, ["input", "question", "title", "description"]);
+      }
+      return String(item ?? "").trim();
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+  return items.length ? items.map((item, index) => `${index + 1}. ${item}`).join("；") : "";
+}
+
+function summarizeAssistantLoopNext(
+  loop: AssistantProtocolLoop,
+  toolCallCount: number,
+  controlCount: number,
+) {
+  const nextItems = (loop.next ?? [])
+    .map((item) => {
+      if (isPlainRecord(item)) {
+        return firstLoopText(item, ["description", "title", "input", "step"]);
+      }
+      return String(item ?? "").trim();
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  if (nextItems.length) {
+    return nextItems.join("；");
+  }
+  if (isCompletedLoop(loop)) {
+    return "LLM 已判断当前工具结果足够，无需继续调用接口。";
+  }
+  if (controlCount > 0 || isUserWaitingLoop(loop)) {
+    return "等待用户在对话控件中确认或补充信息。";
+  }
+  if (toolCallCount > 0 || loop.autoContinue) {
+    return "执行受控工具后，将把结果回灌给助手继续总结。";
+  }
+  return "";
+}
+
+function resolveAssistantLoopTitle(
+  loop: AssistantProtocolLoop,
+  toolCallCount: number,
+  controlCount: number,
+) {
+  if (isCompletedLoop(loop)) {
+    return "Loop 已由 LLM 结束";
+  }
+  if (controlCount > 0 || isUserWaitingLoop(loop)) {
+    return "Loop 等待用户输入";
+  }
+  if (toolCallCount > 0 || loop.autoContinue) {
+    return "工具结果自动继续";
+  }
+  return "Loop 状态已记录";
+}
+
+function resolveAssistantLoopStatus(
+  loop: AssistantProtocolLoop,
+  toolCallCount: number,
+  controlCount: number,
+): AssistantProcessEvent["status"] {
+  if (isCompletedLoop(loop)) {
+    return "done";
+  }
+  if (controlCount > 0 || isUserWaitingLoop(loop)) {
+    return "warning";
+  }
+  if (toolCallCount > 0 || loop.autoContinue) {
+    return "running";
+  }
+  return "done";
+}
+
+function isUserWaitingLoop(loop: AssistantProtocolLoop) {
+  const text = `${loop.status ?? ""} ${loop.stopReason ?? ""}`.toLowerCase();
+  return text.includes("user") || text.includes("confirm") || text.includes("control");
+}
+
+function isCompletedLoop(loop: AssistantProtocolLoop) {
+  const rawText = `${loop.status ?? ""} ${loop.stopReason ?? ""}`;
+  const text = rawText.toLowerCase();
+  return text.includes("completed")
+    || text.includes("complete")
+    || text.includes("finished")
+    || text.includes("final")
+    || text.includes("answer_complete")
+    || text.includes("no_more_action")
+    || text.includes("no more action")
+    || text.includes("answered")
+    || /完成|结束/.test(rawText);
+}
+
+function firstLoopText(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value == null) {
+      continue;
+    }
+    const text = String(value).trim();
+    if (text) {
+      return text;
+    }
+  }
+  return "";
 }
 
 function isLikelyActionControl(value: unknown): value is AssistantActionControl {
@@ -1107,35 +1605,10 @@ function isLikelyActionControl(value: unknown): value is AssistantActionControl 
   return Boolean(item.title && (item.paramKey || item.options?.length || item.placeholder));
 }
 
-function appendLooseAssistantActionPayloads(
-  content: string,
-  toolCalls: AssistantToolCall[],
-  uiControls: AssistantActionControl[],
-) {
-  const text = String(content ?? "");
-  let searchIndex = 0;
-  while (searchIndex >= 0 && searchIndex < text.length) {
-    const marker = firstActionJsonMarker(text, searchIndex);
-    if (marker < 0) {
-      break;
-    }
-    const jsonStart = findLooseActionJsonStart(text, marker);
-    if (jsonStart < 0) {
-      searchIndex = marker + 1;
-      continue;
-    }
-    const jsonEnd = findJsonValueEnd(text, jsonStart);
-    if (jsonEnd < 0) {
-      break;
-    }
-    appendAssistantActionPayload(text.slice(jsonStart, jsonEnd + 1), toolCalls, uiControls);
-    searchIndex = jsonEnd + 1;
-  }
-}
-
 function stripAssistantActionBlocks(content: string) {
-  const withoutCompleteBlocks = String(content ?? "").replace(/```assistant[-_]action\s*[\s\S]*?```/gi, "");
-  const partialBlockStart = withoutCompleteBlocks.search(/```assistant[-_]action/iu);
+  const withoutProtocolBlocks = String(content ?? "").replace(/```studio[-_]assistant[-_]protocol\s*[\s\S]*?```/gi, "");
+  const withoutCompleteBlocks = withoutProtocolBlocks.replace(/```assistant[-_]action\s*[\s\S]*?```/gi, "");
+  const partialBlockStart = withoutCompleteBlocks.search(/```(?:studio[-_]assistant[-_]protocol|assistant[-_]action)/iu);
   if (partialBlockStart >= 0) {
     return withoutCompleteBlocks.slice(0, partialBlockStart).trim();
   }
@@ -1156,8 +1629,91 @@ function stripLooseAssistantActionJson(content: string) {
   return text.slice(0, removeStart);
 }
 
+function hasLooseAssistantActionPayload(content: string) {
+  const parsed = parseLooseAssistantActionPayload(content);
+  return parsed != null && isAssistantActionPayloadShape(parsed);
+}
+
+function parseLooseAssistantActionPayload(content: string): unknown | undefined {
+  const text = String(content ?? "");
+  let fromIndex = 0;
+  while (fromIndex < text.length) {
+    const markerIndex = firstActionJsonMarker(text, fromIndex);
+    if (markerIndex < 0) {
+      return undefined;
+    }
+    const jsonStart = findLooseActionJsonStart(text, markerIndex);
+    if (jsonStart < 0) {
+      fromIndex = markerIndex + 1;
+      continue;
+    }
+    const jsonEnd = findLooseActionJsonEnd(text, jsonStart);
+    if (jsonEnd < 0) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(text.slice(jsonStart, jsonEnd));
+    } catch {
+      fromIndex = markerIndex + 1;
+    }
+  }
+  return undefined;
+}
+
+function findLooseActionJsonEnd(text: string, start: number) {
+  const first = text[start];
+  if (first !== "{" && first !== "[") {
+    return -1;
+  }
+  const stack: string[] = [first === "{" ? "}" : "]"];
+  let inString = false;
+  let escaped = false;
+  for (let index = start + 1; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{" || char === "[") {
+      stack.push(char === "{" ? "}" : "]");
+      continue;
+    }
+    if (char === "}" || char === "]") {
+      if (stack.pop() !== char) {
+        return -1;
+      }
+      if (!stack.length) {
+        return index + 1;
+      }
+    }
+  }
+  return -1;
+}
+
+function isAssistantActionPayloadShape(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(isAssistantActionPayloadShape);
+  }
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  return ["protocol", "actions", "controls", "toolCalls", "backendToolCalls", "uiControls"]
+    .some((key) => Object.prototype.hasOwnProperty.call(value, key))
+    || isLikelyActionControl(value);
+}
+
 function firstActionJsonMarker(text: string, fromIndex = 0) {
-  const markers = ['"toolCalls"', '"backendToolCalls"', '"uiControls"', '"paramKey"'];
+  const markers = ['"toolCalls"', '"backendToolCalls"', '"uiControls"', '"paramKey"', '"actions"', '"controls"', '"protocol"', '"plan"'];
   const indexes = markers
     .map((marker) => text.indexOf(marker, fromIndex))
     .filter((index) => index >= 0)
@@ -1183,47 +1739,6 @@ function findLooseActionJsonStart(text: string, marker: number) {
     }
   }
   return objectStart >= 0 ? objectStart : arrayStart;
-}
-
-function findJsonValueEnd(text: string, start: number) {
-  let inString = false;
-  let escaped = false;
-  let objectDepth = 0;
-  let arrayDepth = 0;
-  for (let index = start; index < text.length; index += 1) {
-    const value = text[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (value === "\\" && inString) {
-      escaped = true;
-      continue;
-    }
-    if (value === "\"") {
-      inString = !inString;
-      continue;
-    }
-    if (inString) {
-      continue;
-    }
-    if (value === "{") {
-      objectDepth += 1;
-    } else if (value === "[") {
-      arrayDepth += 1;
-    } else if (value === "}") {
-      objectDepth -= 1;
-      if (objectDepth === 0 && arrayDepth === 0) {
-        return index;
-      }
-    } else if (value === "]") {
-      arrayDepth -= 1;
-      if (objectDepth === 0 && arrayDepth === 0) {
-        return index;
-      }
-    }
-  }
-  return -1;
 }
 
 function trimLooseActionPrefix(text: string, jsonStart: number) {
@@ -1337,91 +1852,135 @@ function resolveToolParams(call: AssistantToolCall): { ok: true; value: Record<s
   if (!isFrontendToolAvailable(code)) {
     return { ok: false, error: `当前用户不可调用或未注册的助手工具：${code}` };
   }
+  const frontendToolDefinition = findFrontendToolDefinition(code);
+  if (frontendToolDefinition && isAssistantLocalContextTool(code)) {
+    const declaredParamError = validateDeclaredFrontendToolParams(code, params, frontendToolDefinition);
+    if (declaredParamError) {
+      return { ok: false, error: declaredParamError };
+    }
+  }
+  if (code === "assistant.context.observe") {
+    return {
+      ok: true,
+      value: cleanObject({
+        path: normalizeRoutePath(firstText(params, ["path"])),
+      }),
+    };
+  }
+  if (code === "assistant.context.read") {
+    return {
+      ok: true,
+      value: cleanObject({
+        path: normalizeMemoryEntityPath(firstText(params, ["path"])),
+        kind: firstText(params, ["kind"]),
+        limit: readOptionalNumberParam(params, "limit", 1, 50),
+      }),
+    };
+  }
+  if (code === "assistant.context.search") {
+    const path = normalizeMemoryEntityPath(firstText(params, ["path"]));
+    if (!path) {
+      return { ok: false, error: "搜索当前上下文对象前需要提供 path。" };
+    }
+    return {
+      ok: true,
+      value: cleanObject({
+        path,
+        keyword: firstText(params, ["keyword"]),
+        kind: firstText(params, ["kind"]),
+        limit: readOptionalNumberParam(params, "limit", 1, 50),
+      }),
+    };
+  }
+  if (code === "assistant.memory.select") {
+    const path = normalizeMemoryEntityPath(firstText(params, ["path"]));
+    if (!path) {
+      return { ok: false, error: "更新助手记忆前需要提供 path。" };
+    }
+    const id = firstText(params, ["id"]);
+    const name = firstText(params, ["name"]);
+    const physicalLocator = firstText(params, ["physicalLocator"]);
+    const ordinal = readOptionalNumberParam(params, "ordinal", 1, 1000);
+    if (!id && !name && !physicalLocator && ordinal == null) {
+      return { ok: false, error: "更新助手记忆前需要提供 id、name、physicalLocator 或 ordinal。" };
+    }
+    return {
+      ok: true,
+      value: cleanObject({
+        path,
+        id,
+        name,
+        physicalLocator,
+        ordinal,
+      }),
+    };
+  }
   if (code === "studio.navigation.open") {
-    const path = normalizeRoutePath(firstText(params, ["path", "route", "targetPath"]));
+    const path = normalizeRoutePath(firstText(params, ["path"]));
     if (!path) {
       return { ok: false, error: "导航前需要提供 path。" };
     }
-    if (!findAccessibleFeature(path)) {
+    if (!findAssistantFeature(path)) {
       return { ok: false, error: `当前用户没有进入 ${path} 的可见功能权限。` };
     }
     return { ok: true, value: { path } };
   }
   if (code === "studio.feature.list") {
-    const path = normalizeRoutePath(firstText(params, ["path", "featurePath", "route"]));
-    const feature = findAccessibleFeature(path);
+    const path = normalizeRoutePath(firstText(params, ["path"]));
+    const feature = findAssistantFeature(path);
     if (!path || !feature) {
       return { ok: false, error: "读取功能数据前需要提供当前用户可见的 path。" };
     }
-    const spec = ASSISTANT_FEATURE_TOOL_SPECS[normalizeRoutePath(feature.path)];
+    const spec = assistantFeatureToolSpecs.value[normalizeRoutePath(feature.path)];
     if (!spec?.list) {
       return { ok: false, error: `${feature.label} 暂未开放可自动读取的列表或概览工具。` };
+    }
+    const declaredParamError = validateDeclaredFeatureToolParams("studio.feature.list", feature.label, params, spec.list);
+    if (declaredParamError) {
+      return { ok: false, error: declaredParamError };
     }
     return { ok: true, value: normalizeFeatureToolParams(params, path) };
   }
   if (code === "studio.feature.get") {
-    const path = normalizeRoutePath(firstText(params, ["path", "featurePath", "route"]));
-    const feature = findAccessibleFeature(path);
+    const path = normalizeRoutePath(firstText(params, ["path"]));
+    const feature = findAssistantFeature(path);
     if (!path || !feature) {
       return { ok: false, error: "读取详情前需要提供当前用户可见的 path。" };
     }
-    const spec = ASSISTANT_FEATURE_TOOL_SPECS[normalizeRoutePath(feature.path)];
+    const spec = assistantFeatureToolSpecs.value[normalizeRoutePath(feature.path)];
     if (!spec?.get) {
       return { ok: false, error: `${feature.label} 暂未开放可自动读取的详情工具。` };
     }
-    const id = firstText(params, ["id", "recordId", "entityId", "taskId", "modelId", "serviceId", "runId", "scriptId"]);
+    const id = firstText(params, ["id"]);
     if (!id) {
       return { ok: false, error: `读取 ${feature.label} 详情前需要提供 id。` };
+    }
+    const declaredParamError = validateDeclaredFeatureToolParams("studio.feature.get", feature.label, params, spec.get);
+    if (declaredParamError) {
+      return { ok: false, error: declaredParamError };
     }
     return { ok: true, value: normalizeFeatureToolParams({ ...params, id }, path) };
   }
   if (code === "studio.feature.action") {
     return resolveFeatureActionParams(params);
   }
-  if (code === "catalog.capabilities" || code === "datasources.options") {
-    return { ok: true, value: {} };
-  }
-  if (code === "models.datasourceOptions") {
-    const datasourceId = firstText(params, ["datasourceId", "sourceDatasourceId", "targetDatasourceId", "source.datasourceId", "target.datasourceId"]);
-    if (!datasourceId) {
-      return { ok: false, error: "调用模型候选接口前需要先明确 datasourceId。" };
+  if (code === "assistant.script.execute") {
+    const entrypointId = firstText(params, ["entrypointId"]);
+    const input = params.input;
+    if (!entrypointId) {
+      return { ok: false, error: "执行助手脚本前需要提供 entrypointId。" };
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      return { ok: false, error: "执行助手脚本前需要提供 input 对象。" };
     }
     return {
       ok: true,
       value: {
-        datasourceId,
-        keyword: firstText(params, ["keyword", "modelKeyword", "tableKeyword"]),
+        entrypointId,
+        input,
+        skillId: firstText(params, ["skillId"]),
       },
     };
-  }
-  if (code === "models.get") {
-    const modelId = firstText(params, ["modelId", "sourceModelId", "targetModelId", "source.modelId", "target.modelId"]);
-    if (!modelId) {
-      return { ok: false, error: "读取模型详情前需要先明确 modelId。" };
-    }
-    return { ok: true, value: { modelId } };
-  }
-  if (code === "catalog.runtimeOptionSchema") {
-    const role = firstText(params, ["role"]);
-    const datasourceType = firstText(params, ["datasourceType", "typeCode"]);
-    if (!role || !datasourceType) {
-      return { ok: false, error: "读取运行参数元模型前需要 role 和 datasourceType。" };
-    }
-    return {
-      ok: true,
-      value: {
-        role,
-        datasourceType,
-        protocolMode: firstText(params, ["protocolMode"]),
-      },
-    };
-  }
-  if (code === "collectionTasks.preview") {
-    const payload = params.collectionTaskPayload ?? params.payload;
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      return { ok: false, error: "预览采集任务前需要提供 collectionTaskPayload 对象。" };
-    }
-    return { ok: true, value: { collectionTaskPayload: payload } };
   }
   return { ok: false, error: `未注册或不允许自动执行的接口工具：${code}` };
 }
@@ -1436,8 +1995,9 @@ async function executeAssistantTool(interfaceCode: string, params: Record<string
   });
 
   try {
-    const data = await callAssistantTool(interfaceCode, params);
-    toolResults.value.push(createToolResult(interfaceCode, params, data));
+    const output = await callAssistantTool(interfaceCode, params);
+    const data = output.data;
+    toolResults.value.push(createToolResult(interfaceCode, params, data, true, undefined, output.execution));
     applyToolData(interfaceCode, params, data);
     markProcessDone(`tool.${interfaceCode}`, "接口调用完成", describeToolResult(interfaceCode, data));
     return { ok: true as const, data };
@@ -1514,9 +2074,12 @@ async function handlePendingToolConfirmation(value: string) {
     return;
   }
   messages.value.push(createAssistantMessage("assistant", `已确认，开始执行：${pending.detail}`));
-  const result = await executeAssistantTool(pending.interfaceCode, pending.params);
+  const confirmedParams = pending.interfaceCode === "studio.feature.action"
+    ? { ...pending.params, confirmed: true }
+    : pending.params;
+  const result = await executeAssistantTool(pending.interfaceCode, confirmedParams);
   if (result.ok) {
-    appendToolResultMessage(pending.interfaceCode, pending.params, result.data);
+    appendToolResultMessage(pending.interfaceCode, confirmedParams, result.data);
     await continueAfterToolResults(1);
   } else {
     await continueAfterToolFailure(1);
@@ -1525,7 +2088,7 @@ async function handlePendingToolConfirmation(value: string) {
 
 function describeToolConfirmation(interfaceCode: string, params: Record<string, unknown>) {
   if (interfaceCode === "studio.feature.action") {
-    const feature = findAccessibleFeature(String(params.path ?? ""));
+    const feature = findAssistantFeature(String(params.path ?? ""));
     const resource = firstText(params, ["resource"]);
     const id = firstText(params, ["id"]);
     const action = firstText(params, ["action"]);
@@ -1534,59 +2097,327 @@ function describeToolConfirmation(interfaceCode: string, params: Record<string, 
   return `${interfaceCode}。`;
 }
 
+function observeAssistantContext(params: Record<string, unknown>) {
+  const requestedPath = normalizeRoutePath(firstText(params, ["path"]));
+  const currentRoutePath = normalizeRoutePath(route.path || String(route.fullPath ?? "").split("?")[0]);
+  const currentFeature = findAssistantFeature(requestedPath || currentRoutePath);
+  return cleanObject({
+    route: route.fullPath,
+    routePath: currentRoutePath,
+    requestedPath,
+    tenantId: authStore.currentTenantId,
+    projectId: authStore.currentProjectId,
+    currentFeature: currentFeature ? {
+      path: normalizeRoutePath(currentFeature.path),
+      label: currentFeature.label,
+      group: currentFeature.group,
+      caption: currentFeature.caption,
+    } : undefined,
+    assistantMode: assistantMode.value,
+    responseLanguage: responseLanguage.value,
+    assistantMemory: summarizeAssistantMemory(),
+    pageContext: assistantPageContext.value,
+    activeControls: activeComposerControls.value.map((control) => ({
+      type: control.type,
+      title: control.title,
+      paramKey: control.paramKey,
+      optionCount: control.options?.length ?? 0,
+    })),
+  });
+}
+
+function readAssistantBusinessContext(params: Record<string, unknown>) {
+  const requestedPath = normalizeMemoryEntityPath(firstText(params, ["path"]));
+  const currentRoutePath = normalizeMemoryEntityPath(route.path || String(route.fullPath ?? "").split("?")[0]);
+  const contextPath = normalizeMemoryEntityPath(assistantPageContext.value?.path || "");
+  const path = requestedPath || contextPath || currentRoutePath || assistantMemory.lastEntityListPath || "";
+  const normalizedKind = normalizeMemoryText(firstText(params, ["kind"]));
+  const limit = readOptionalNumberParam(params, "limit", 1, 50) ?? 10;
+  const pageEntities = path ? pageContextEntitiesForPath(path) : [];
+  const knownEntities = path ? knownEntitiesForPath(path) : [];
+  const filteredKnownEntities = normalizedKind
+    ? knownEntities.filter((entity) => normalizeMemoryText(entity.kind) === normalizedKind)
+    : knownEntities;
+  const selectedEntity = selectedMemoryEntityForPath(path);
+  return cleanObject({
+    path,
+    label: path ? memoryPathLabel(path) : undefined,
+    route: route.fullPath,
+    routePath: currentRoutePath,
+    pageContextSource: assistantPageContext.value?.source,
+    pageContextSummary: assistantPageContext.value?.summary,
+    filters: assistantPageContext.value?.filters,
+    pagination: assistantPageContext.value?.pagination,
+    activeObject: pageEntities[0] ? summarizeMemoryEntity(pageEntities[0]) : undefined,
+    selectedEntity: selectedEntity ? summarizeMemoryEntity(selectedEntity) : undefined,
+    selectedDatasource: assistantMemory.selectedDatasource ? summarizeMemoryEntity(assistantMemory.selectedDatasource) : undefined,
+    pageObjectCount: pageEntities.length,
+    candidateCount: filteredKnownEntities.length,
+    pageObjects: pageEntities.slice(0, limit).map(summarizeMemoryEntity),
+    recentCandidates: filteredKnownEntities.slice(0, limit).map(summarizeMemoryEntity),
+  });
+}
+
+function searchAssistantContextObjects(params: Record<string, unknown>) {
+  const path = normalizeMemoryEntityPath(firstText(params, ["path"]));
+  if (!path) {
+    throw new Error("搜索当前上下文对象前需要提供 path。");
+  }
+  const keyword = firstText(params, ["keyword"]);
+  const normalizedKeyword = normalizeMemoryText(keyword);
+  const kind = firstText(params, ["kind"]);
+  const normalizedKind = normalizeMemoryText(kind);
+  const limit = readOptionalNumberParam(params, "limit", 1, 50) ?? 10;
+  const candidates = knownEntitiesForPath(path);
+  const matches = candidates.filter((entity) => {
+    if (normalizedKind && normalizeMemoryText(entity.kind) !== normalizedKind) {
+      return false;
+    }
+    if (!normalizedKeyword) {
+      return true;
+    }
+    return [
+      entity.id,
+      entity.name,
+      entity.typeCode,
+      entity.physicalLocator,
+      entity.modelKind,
+      entity.sourcePath,
+    ].some((value) => normalizeMemoryText(value).includes(normalizedKeyword));
+  });
+  const ranked = matches.sort((left, right) => entitySearchRank(right, normalizedKeyword) - entitySearchRank(left, normalizedKeyword));
+  return cleanObject({
+    path,
+    label: memoryPathLabel(path),
+    keyword,
+    kind,
+    candidateCount: candidates.length,
+    matchedCount: ranked.length,
+    items: ranked.slice(0, limit).map(summarizeMemoryEntity),
+  });
+}
+
+function entitySearchRank(entity: AssistantMemoryEntity, normalizedKeyword: string) {
+  if (!normalizedKeyword) {
+    return 0;
+  }
+  const id = normalizeMemoryText(entity.id);
+  const name = normalizeMemoryText(entity.name);
+  const locator = normalizeMemoryText(entity.physicalLocator);
+  if (id === normalizedKeyword || name === normalizedKeyword || locator === normalizedKeyword) {
+    return 100;
+  }
+  if (name.startsWith(normalizedKeyword) || locator.startsWith(normalizedKeyword)) {
+    return 60;
+  }
+  if (name.includes(normalizedKeyword) || locator.includes(normalizedKeyword)) {
+    return 30;
+  }
+  return 1;
+}
+
+function selectAssistantMemoryFromTool(params: Record<string, unknown>) {
+  const path = normalizeMemoryEntityPath(firstText(params, ["path"]));
+  const candidates = knownEntitiesForPath(path);
+  const entity = resolveMemoryToolSelection(candidates, params);
+  if (!entity) {
+    throw new Error(`没有在最近的${memoryPathLabel(path)}候选中找到匹配对象。请先读取候选列表，或让用户选择。`);
+  }
+  selectGenericMemoryEntity(path, entity, "assistant.memory.select");
+  return {
+    selected: true,
+    path,
+    label: memoryPathLabel(path),
+    entity: summarizeMemoryEntity(entity),
+    candidateCount: candidates.length,
+  };
+}
+
+function resolveMemoryToolSelection(candidates: AssistantMemoryEntity[], params: Record<string, unknown>) {
+  const ordinal = readOptionalNumberParam(params, "ordinal", 1, 1000);
+  if (ordinal != null && candidates[ordinal - 1]) {
+    return candidates[ordinal - 1];
+  }
+  const id = firstText(params, ["id"]);
+  if (id) {
+    const match = candidates.find((item) => String(item.id ?? "") === String(id));
+    if (match) {
+      return match;
+    }
+  }
+  const physicalLocator = normalizeMemoryText(firstText(params, ["physicalLocator"]));
+  if (physicalLocator) {
+    const match = candidates.find((item) => normalizeMemoryText(item.physicalLocator || item.name) === physicalLocator);
+    if (match) {
+      return match;
+    }
+  }
+  const name = normalizeMemoryText(firstText(params, ["name"]));
+  if (name) {
+    const exact = candidates.find((item) => normalizeMemoryText(item.name) === name);
+    if (exact) {
+      return exact;
+    }
+    const fuzzy = candidates.filter((item) => normalizeMemoryText(item.name).includes(name));
+    if (fuzzy.length === 1) {
+      return fuzzy[0];
+    }
+  }
+  return undefined;
+}
+
 async function callAssistantTool(interfaceCode: string, params: Record<string, unknown>) {
   switch (interfaceCode) {
+    case "assistant.context.observe":
+      return toolOutput(observeAssistantContext(params));
+    case "assistant.context.read":
+      return toolOutput(readAssistantBusinessContext(params));
+    case "assistant.context.search":
+      return toolOutput(searchAssistantContextObjects(params));
+    case "assistant.memory.select":
+      return toolOutput(selectAssistantMemoryFromTool(params));
     case "studio.navigation.open": {
-      const feature = findAccessibleFeature(String(params.path));
+      const feature = findAssistantFeature(String(params.path));
       if (!feature) {
         throw new Error(`当前用户没有进入 ${String(params.path)} 的可见功能权限。`);
       }
       await router.push(feature.path);
-      return {
+      return toolOutput({
         path: feature.path,
         label: feature.label,
         navigated: true,
-      };
+      });
     }
     case "studio.feature.list":
-      return callFeatureListTool(String(params.path), params);
+      return callBackendStudioReadTool(interfaceCode, params);
     case "studio.feature.get":
-      return callFeatureGetTool(String(params.path), params);
+      return callBackendStudioReadTool(interfaceCode, params);
     case "studio.feature.action":
-      return callFeatureActionTool(params);
-    case "catalog.capabilities":
-      return studioApi.catalog.capabilities();
-    case "datasources.options":
-      return studioApi.datasources.options();
-    case "models.datasourceOptions":
-      return studioApi.models.listDatasourceOptions(String(params.datasourceId), {
-        keyword: String(params.keyword ?? "").trim() || undefined,
-        pageNo: 1,
-        pageSize: 100,
-      });
-    case "models.get":
-      return studioApi.models.get(String(params.modelId));
-    case "catalog.runtimeOptionSchema":
-      return studioApi.catalog.runtimeOptionSchema({
-        role: String(params.role),
-        datasourceType: String(params.datasourceType),
-        protocolMode: params.protocolMode ? String(params.protocolMode) : undefined,
-      });
-    case "collectionTasks.preview":
-      return studioApi.collectionTasks.preview(params.collectionTaskPayload as CollectionTaskSaveRequest);
+      return callBackendStudioActionTool(params);
+    case "assistant.script.execute":
+      return callBackendAssistantScriptTool(params);
     default:
       throw new Error(`未注册前端接口工具：${interfaceCode}`);
   }
 }
 
+function toolOutput(data: unknown, execution?: Record<string, unknown>): AssistantToolExecutionOutput {
+  return {
+    data,
+    execution,
+  };
+}
+
+function backendToolOutput(result: AssistantToolExecutionResult): AssistantToolExecutionOutput {
+  return toolOutput(result.data, {
+    schema: result.schema,
+    interfaceCode: result.interfaceCode,
+    path: result.path,
+    action: result.action,
+    resource: result.resource,
+    entrypointId: result.entrypointId,
+    executedBy: result.executedBy,
+    mutation: result.mutation,
+    requiresConfirmation: result.requiresConfirmation,
+    params: result.params,
+    effectiveParams: result.effectiveParams,
+    defaultedParams: result.defaultedParams,
+  });
+}
+
+async function callBackendStudioReadTool(
+  interfaceCode: string,
+  params: Record<string, unknown>,
+) {
+  try {
+    const result = await studioApi.assistant.executeTool({ interfaceCode, params });
+    if (result?.executedBy === "backend") {
+      pushProcessEvent({
+        stage: `tool.backend.${interfaceCode}.${Date.now()}`,
+        title: "后端工具网关",
+        detail: `${interfaceCode} 已由后端受控执行。`,
+        status: "done",
+      });
+      return backendToolOutput(result);
+    }
+    throw new Error("后端工具网关没有返回受控执行结果。");
+  } catch (error) {
+    pushProcessEvent({
+      stage: `tool.backend-rejected.${interfaceCode}.${Date.now()}`,
+      title: "后端工具网关拒绝",
+      detail: `${resolveErrorMessage(error, "后端工具网关拒绝执行")}；本轮不执行该 Studio 操作。`,
+      status: "warning",
+    });
+    throw error;
+  }
+}
+
+async function callBackendStudioActionTool(
+  params: Record<string, unknown>,
+) {
+  try {
+    const result = await studioApi.assistant.executeTool({ interfaceCode: "studio.feature.action", params });
+    if (result?.executedBy === "backend") {
+      if (result.requiresConfirmation) {
+        const error = new Error("后端要求确认后执行该 Studio 操作。") as Error & { backendRequiresConfirmation?: boolean };
+        error.backendRequiresConfirmation = true;
+        throw error;
+      }
+      pushProcessEvent({
+        stage: `tool.backend.studio.feature.action.${Date.now()}`,
+        title: "后端动作网关",
+        detail: `${describeToolConfirmation("studio.feature.action", params)} 已由后端受控执行。`,
+        status: "done",
+      });
+      return backendToolOutput(result);
+    }
+    throw new Error("后端动作网关没有返回受控执行结果。");
+  } catch (error) {
+    if ((error as Error & { backendRequiresConfirmation?: boolean }).backendRequiresConfirmation) {
+      throw error;
+    }
+    pushProcessEvent({
+      stage: `tool.backend-rejected.studio.feature.action.${Date.now()}`,
+      title: "后端动作网关拒绝",
+      detail: `${resolveErrorMessage(error, "后端动作网关拒绝执行")}；本轮不执行该 Studio 操作。`,
+      status: "warning",
+    });
+    throw error;
+  }
+}
+
+async function callBackendAssistantScriptTool(params: Record<string, unknown>) {
+  try {
+    const result = await studioApi.assistant.executeTool({ interfaceCode: "assistant.script.execute", params });
+    if (result?.executedBy === "backend") {
+      pushProcessEvent({
+        stage: `tool.backend.assistant.script.execute.${Date.now()}`,
+        title: "后端脚本工具",
+        detail: `助手脚本 ${String(params.entrypointId ?? "")} 已由后端登记入口执行。`,
+        status: "done",
+      });
+      return backendToolOutput(result);
+    }
+  } catch (error) {
+    pushProcessEvent({
+      stage: `tool.backend-rejected.assistant.script.execute.${Date.now()}`,
+      title: "后端脚本工具拒绝",
+      detail: resolveErrorMessage(error, "后端脚本工具拒绝执行"),
+      status: "warning",
+    });
+    throw error;
+  }
+  throw new Error("后端脚本工具没有返回受控执行结果。");
+}
+
 function resolveFeatureActionParams(params: Record<string, unknown>): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
-  const path = normalizeRoutePath(firstText(params, ["path", "featurePath", "route"]));
-  const feature = findAccessibleFeature(path);
+  const path = normalizeRoutePath(firstText(params, ["path"]));
+  const feature = findAssistantFeature(path);
   if (!path || !feature) {
     return { ok: false, error: "执行功能动作前需要提供当前用户可见的 path。" };
   }
 
-  const rawAction = firstText(params, ["action", "operation", "command"]);
+  const rawAction = firstText(params, ["action"]);
   if (!rawAction) {
     return { ok: false, error: `执行 ${feature.label} 动作前需要提供 action。` };
   }
@@ -1594,63 +2425,47 @@ function resolveFeatureActionParams(params: Record<string, unknown>): { ok: true
     return { ok: false, error: "助手不开放删除、移除、清空、取消或类似破坏性动作。" };
   }
 
-  const resource = normalizeFeatureResource(firstText(params, ["resource", "resourceType", "target", "subresource"]));
+  const resource = normalizeFeatureResource(firstText(params, ["resource"]));
   const resolved = resolveFeatureActionDefinition(path, rawAction, resource);
   if (!resolved.definition) {
     return { ok: false, error: resolved.error || `当前功能暂未开放动作：${rawAction}` };
   }
 
-  const payload = firstRecordParam(params, [
-    "payload",
-    "data",
-    "body",
-    "request",
-    "form",
-    "collectionTaskPayload",
-    "qualityTaskPayload",
-    "workflowPayload",
-    "servicePayload",
-    "scriptPayload",
-    "directoryPayload",
-    "schedule",
-    "debugPayload",
-    "reviewPayload",
-  ]);
+  const payload = firstRecordParam(params, ["payload"]);
   const normalizedPayload = normalizeFeatureActionPayload(
     path,
     resolved.definition.action,
     resolved.definition.resource || resource,
     payload,
-    params,
   );
   const normalizedParams = {
     ...params,
     path,
     action: resolved.definition.action,
     resource: resolved.definition.resource || resource || undefined,
-    id: firstText(params, ["id", "recordId", "entityId", "taskId", "modelId", "serviceId", "workflowId", "scriptId", "schemaId", "requestId"]),
-    datasourceId: firstText(params, ["datasourceId", "sourceDatasourceId", "targetDatasourceId", "typeDatasourceId"]),
-    typeCode: firstText(params, ["typeCode", "datasourceType", "sourceType", "targetType"]),
-    subscriptionId: firstText(params, ["subscriptionId", "credentialId", "tokenId"]),
-    subscriptionName: firstText(params, ["subscriptionName", "name"]),
+    id: firstText(params, ["id"]),
+    datasourceId: firstText(params, ["datasourceId"]),
+    physicalLocators: readParamValue(params, "physicalLocators"),
+    typeCode: firstText(params, ["typeCode"]),
+    subscriptionId: firstText(params, ["subscriptionId"]),
+    subscriptionName: firstText(params, ["subscriptionName"]),
     sourceAlias: firstText(params, ["sourceAlias"]),
     incrColumn: firstText(params, ["incrColumn"]),
     incrModel: firstText(params, ["incrModel"]),
-    keyword: firstText(params, ["keyword", "name", "search"]),
+    keyword: firstText(params, ["keyword"]),
     payload: normalizedPayload,
   } as Record<string, unknown>;
 
   const missing = (resolved.definition.requiredValues ?? [])
     .filter((key) => !hasFeatureActionValue(normalizedParams, key));
-  if (missing.length) {
-    return {
-      ok: false,
-      error: `${feature.label} 的 ${resolved.definition.action} 动作缺少必要参数：${missing.join(", ")}。`,
-    };
-  }
+  const missingError = missing.length
+    ? `${feature.label} 的 ${resolved.definition.action} 动作缺少必要参数：${missing.join(", ")}。`
+    : "";
+  const declaredParamError = validateDeclaredFeatureActionParams(feature.label, params, resolved.definition);
   const payloadError = validateFeatureActionPayload(path, resolved.definition.action, resolved.definition.resource || resource, normalizedPayload);
-  if (payloadError) {
-    return { ok: false, error: payloadError };
+  const errors = [missingError, declaredParamError, payloadError].filter(Boolean);
+  if (errors.length) {
+    return { ok: false, error: errors.join(" ") };
   }
 
   return { ok: true, value: cleanObject(normalizedParams) };
@@ -1661,10 +2476,9 @@ function normalizeFeatureActionPayload(
   action: string,
   resource: string,
   payload: Record<string, unknown> | undefined,
-  params: Record<string, unknown>,
 ) {
   if (path === "/data-development") {
-    return normalizeDataDevelopmentActionPayload(action, resource, payload, params);
+    return normalizeDataDevelopmentActionPayload(action, resource, payload);
   }
   return payload;
 }
@@ -1673,63 +2487,44 @@ function normalizeDataDevelopmentActionPayload(
   action: string,
   resource: string,
   payload: Record<string, unknown> | undefined,
-  params: Record<string, unknown>,
 ) {
   const raw = isPlainRecord(payload) ? payload : {};
-  const sources = [raw, params];
   if (resource === "sql" && action === "executeSql") {
-    const scriptType = normalizeScriptTypeValue(firstTextFromSources(sources, ["scriptType", "type", "language"]))
-      || "SQL";
+    const scriptType = normalizeScriptTypeValue(firstText(raw, ["scriptType"]));
     return cleanObject({
-      datasourceId: firstTextFromSources(sources, [
-        "datasourceId",
-        "dataSourceId",
-        "sourceDatasourceId",
-        "targetDatasourceId",
-        "datasource.id",
-        "source.datasourceId",
-        "target.datasourceId",
-      ]),
+      ...raw,
+      datasourceId: firstText(raw, ["datasourceId"]),
       scriptType,
-      content: normalizeScriptContent(firstTextFromSources(sources, ["content", "sql", "script", "query", "statement", "text"])),
-      maxRows: readNumberFromSources(sources, "maxRows", 100, 1, 10000),
+      content: normalizeScriptContent(firstText(raw, ["content"])),
+      maxRows: readOptionalNumberParam(raw, "maxRows", 1, 10000),
     });
   }
   if (resource === "scripts" && action === "saveScript") {
-    const content = normalizeScriptContent(firstTextFromSources(sources, ["content", "sql", "script", "query", "statement", "text"]));
-    const scriptType = normalizeScriptTypeValue(firstTextFromSources(sources, ["scriptType", "type", "language"]))
-      || inferScriptTypeFromPayload(content, firstTextFromSources(sources, ["fileName", "filename", "name", "scriptName", "title"]));
+    const content = normalizeScriptContent(firstText(raw, ["content"]));
+    const scriptType = normalizeScriptTypeValue(firstText(raw, ["scriptType"]));
     return cleanObject({
-      id: firstTextFromSources(sources, ["id", "scriptId", "recordId"]),
-      directoryId: firstTextFromSources(sources, ["directoryId", "folderId", "parentId"]),
-      fileName: normalizeScriptFileName(
-        firstTextFromSources(sources, ["fileName", "filename", "name", "scriptName", "title"]),
-        scriptType,
-      ),
+      ...raw,
+      id: firstText(raw, ["id"]),
+      directoryId: firstText(raw, ["directoryId"]),
+      fileName: normalizeScriptFileName(firstText(raw, ["fileName"])),
       scriptType,
-      datasourceId: firstTextFromSources(sources, [
-        "datasourceId",
-        "dataSourceId",
-        "sourceDatasourceId",
-        "targetDatasourceId",
-        "datasource.id",
-      ]),
-      environmentId: firstTextFromSources(sources, ["environmentId", "runtimeEnvironmentId"]),
-      description: firstTextFromSources(sources, ["description", "remark", "comment"]),
+      datasourceId: firstText(raw, ["datasourceId"]),
+      environmentId: firstText(raw, ["environmentId"]),
+      description: firstText(raw, ["description"]),
       content,
     });
   }
   if (resource === "scripts" && action === "executeScript") {
-    const content = normalizeScriptContent(firstTextFromSources(sources, ["content", "sql", "script", "query", "statement", "text"]));
-    const scriptType = normalizeScriptTypeValue(firstTextFromSources(sources, ["scriptType", "type", "language"]))
-      || inferScriptTypeFromPayload(content, firstTextFromSources(sources, ["fileName", "filename", "name", "scriptName", "title"]));
+    const content = normalizeScriptContent(firstText(raw, ["content"]));
+    const scriptType = normalizeScriptTypeValue(firstText(raw, ["scriptType"]));
     return cleanObject({
+      ...raw,
       scriptType,
-      datasourceId: firstTextFromSources(sources, ["datasourceId", "dataSourceId", "datasource.id"]),
-      environmentId: firstTextFromSources(sources, ["environmentId", "runtimeEnvironmentId"]),
+      datasourceId: firstText(raw, ["datasourceId"]),
+      environmentId: firstText(raw, ["environmentId"]),
       content,
-      arguments: firstRecordFromSources(sources, ["arguments", "args", "params"]),
-      maxRows: readNumberFromSources(sources, "maxRows", 100, 1, 10000),
+      arguments: firstRecordParam(raw, ["arguments"]),
+      maxRows: readOptionalNumberParam(raw, "maxRows", 1, 10000),
     });
   }
   return payload;
@@ -1776,754 +2571,127 @@ function validateFeatureActionPayload(
     }
   }
   return missing.length
-    ? `数据开发 ${resource || "-"} / ${action} 动作缺少接口必填字段：${missing.join(", ")}。请根据上下文补齐，不能推断时用 uiControls 询问用户。`
+    ? `数据开发 ${resource || "-"} / ${action} 动作缺少接口必填字段：${missing.join(", ")}。请根据上下文补齐，不能推断时用 controls 询问用户。`
     : "";
 }
 
-async function callFeatureActionTool(params: Record<string, unknown>) {
-  const path = normalizeRoutePath(params.path);
-  const action = normalizeFeatureActionName(params.action);
-  const resource = normalizeFeatureResource(params.resource);
-  const id = firstText(params, ["id"]);
-  const datasourceId = firstText(params, ["datasourceId", "id"]);
-  const typeCode = firstText(params, ["typeCode", "datasourceType", "id"]);
-  const payload = params.payload as any;
-  switch (path) {
-    case "/access-center":
-      if (action === "apply") {
-        return studioApi.access.apply(payload);
-      }
-      break;
-    case "/metadata":
-      if (action === "saveDraft") {
-        return studioApi.metaSchemas.saveDraft(payload);
-      }
-      if (action === "publish") {
-        return studioApi.metaSchemas.publish(id);
-      }
-      if (action === "syncTechnical") {
-        return studioApi.metaSchemas.syncTechnical(typeCode);
-      }
-      if (action === "syncAllTechnical") {
-        return studioApi.metaSchemas.syncAllTechnical();
-      }
-      if (action === "syncStandardRuntimeOptions") {
-        return studioApi.metaSchemas.syncStandardRuntimeOptions();
-      }
-      break;
-    case "/datasources":
-      if (action === "save") {
-        return studioApi.datasources.save(payload);
-      }
-      if (action === "test") {
-        return studioApi.datasources.test(id);
-      }
-      if (action === "testCurrent") {
-        return studioApi.datasources.testCurrent(payload);
-      }
-      if (action === "discover") {
-        return studioApi.datasources.discover(id, cleanObject({
-          keyword: firstText(params, ["keyword"]),
-          pageNo: readNumberParam(params, "pageNo", 1, 1, 10000),
-          pageSize: readNumberParam(params, "pageSize", DEFAULT_FEATURE_PAGE_SIZE, 1, MAX_FEATURE_PAGE_SIZE),
-        }));
-      }
-      break;
-    case "/models":
-      if (action === "save") {
-        return studioApi.models.save(payload);
-      }
-      if (action === "sync") {
-        return studioApi.models.sync(datasourceId);
-      }
-      if (action === "syncSelected") {
-        return studioApi.models.syncSelected(datasourceId, payload);
-      }
-      if (action === "rebuildIndex") {
-        return studioApi.models.rebuildIndex(datasourceId || undefined);
-      }
-      break;
-    case "/field-mapping-rules":
-      if (action === "save") {
-        return studioApi.fieldMappingRules.save(payload);
-      }
-      break;
-    case "/collection-tasks":
-      if (action === "preview") {
-        return studioApi.collectionTasks.preview(payload);
-      }
-      if (action === "save") {
-        return studioApi.collectionTasks.save(payload);
-      }
-      if (action === "publish") {
-        return studioApi.collectionTasks.publish(id);
-      }
-      if (action === "trigger") {
-        return studioApi.collectionTasks.trigger(id);
-      }
-      if (action === "schedule") {
-        return studioApi.collectionTasks.saveSchedule(id, payload);
-      }
-      if (action === "resetIncrementalCursor") {
-        return studioApi.collectionTasks.resetIncrementalCursor(id, firstText(params, ["sourceAlias"]) || undefined, cleanObject({
-          incrColumn: firstText(params, ["incrColumn"]),
-          incrModel: firstText(params, ["incrModel"]),
-        }));
-      }
-      break;
-    case "/data-development":
-      return callDataDevelopmentActionTool(action, resource, id, payload);
-    case "/workflows":
-      if (action === "save") {
-        return studioApi.workflows.save(payload);
-      }
-      if (action === "publish") {
-        return studioApi.workflows.publish(id);
-      }
-      if (action === "trigger") {
-        return studioApi.workflows.trigger(id);
-      }
-      if (action === "schedule") {
-        return saveWorkflowSchedule(id, payload);
-      }
-      break;
-    case "/data-services":
-      return callDataServiceActionTool(action, resource, id, payload, params);
-    case "/data-ingestion-services":
-      return callDataIngestionServiceActionTool(action, resource, id, payload, params);
-    case "/protocol-conversions":
-      return callProtocolConversionActionTool(action, resource, id, payload, params);
-    case "/quality-rules":
-      if (action === "save") {
-        return studioApi.qualityRules.save(payload);
-      }
-      if (action === "enable") {
-        return studioApi.qualityRules.enable(id);
-      }
-      if (action === "disable") {
-        return studioApi.qualityRules.disable(id);
-      }
-      if (action === "parse") {
-        return studioApi.qualityRules.parse(payload);
-      }
-      if (action === "validate") {
-        return studioApi.qualityRules.validate(payload);
-      }
-      break;
-    case "/quality-tasks":
-      if (action === "preview") {
-        return studioApi.qualityTasks.preview(payload);
-      }
-      if (action === "validate") {
-        return studioApi.qualityTasks.validate(payload);
-      }
-      if (action === "save") {
-        return studioApi.qualityTasks.save(payload);
-      }
-      if (action === "publish") {
-        return studioApi.qualityTasks.publish(id);
-      }
-      if (action === "trigger") {
-        return studioApi.qualityTasks.trigger(id);
-      }
-      if (action === "schedule") {
-        return studioApi.qualityTasks.saveSchedule(id, payload);
-      }
-      break;
-    case "/quality-metrics":
-      if (resource === "issues" && action === "assignIssue") {
-        return studioApi.qualityMetrics.assignIssue(id, payload);
-      }
-      if (resource === "issues" && action === "updateIssueStatus") {
-        return studioApi.qualityMetrics.updateIssueStatus(id, payload);
-      }
-      if (resource === "issues" && action === "updateIssueSeverity") {
-        return studioApi.qualityMetrics.updateIssueSeverity(id, payload);
-      }
-      if (resource === "issues" && action === "addIssueComment") {
-        return studioApi.qualityMetrics.addIssueComment(id, payload);
-      }
-      break;
-    case "/script-environments":
-      if (action === "save") {
-        return studioApi.scriptEnvironments.saveOrUpdateCheck(payload);
-      }
-      if (action === "enable") {
-        return studioApi.scriptEnvironments.enable(id);
-      }
-      if (action === "disable") {
-        return studioApi.scriptEnvironments.disable(id);
-      }
-      if (action === "refresh") {
-        return studioApi.scriptEnvironments.refresh(id);
-      }
-      break;
-    case "/system":
-      return callSystemActionTool(action, resource, id, payload);
-    default:
-      break;
-  }
-  throw new Error(`当前功能暂未注册动作接口：${path} / ${action}`);
-}
-
-async function saveWorkflowSchedule(id: string, schedule: Record<string, unknown> | undefined) {
-  if (!schedule) {
-    throw new Error("保存工作流调度前需要提供 schedule payload。");
-  }
-  const workflow = await studioApi.workflows.get(id);
-  const payload: WorkflowSaveRequest = {
-    definitionId: workflow.id,
-    code: workflow.code,
-    name: workflow.name,
-    schedule: {
-      enabled: readBooleanParam(schedule, "enabled"),
-      cronExpression: firstText(schedule, ["cronExpression", "cron", "expression"]) || undefined,
-      timezone: firstText(schedule, ["timezone", "timeZone", "zone"]) || undefined,
-    },
-    nodes: workflow.nodes ?? [],
-    edges: workflow.edges ?? [],
-  };
-  return studioApi.workflows.save(payload);
-}
-
-function callDataDevelopmentActionTool(action: string, resource: string, id: string, payload: any) {
-  if (resource === "directories" && action === "saveDirectory") {
-    return studioApi.dataDevelopment.saveDirectory(payload);
-  }
-  if (resource === "directories" && action === "moveDirectory") {
-    return studioApi.dataDevelopment.moveDirectory(id, payload);
-  }
-  if (resource === "scripts" && action === "saveScript") {
-    return studioApi.dataDevelopment.saveScript(payload);
-  }
-  if (resource === "scripts" && action === "moveScript") {
-    return studioApi.dataDevelopment.moveScript(id, payload);
-  }
-  if (resource === "sql" && action === "executeSql") {
-    return studioApi.dataDevelopment.executeSql(payload);
-  }
-  if (resource === "scripts" && action === "executeScript") {
-    return studioApi.dataDevelopment.executeScript(payload);
-  }
-  if (resource === "scripts" && action === "executeSavedScript") {
-    return studioApi.dataDevelopment.executeSavedScript(id, payload);
-  }
-  throw new Error(`数据开发暂未注册动作接口：${resource} / ${action}`);
-}
-
-function callDataServiceActionTool(action: string, resource: string, id: string, payload: any, params: Record<string, unknown>) {
-  if (action === "save") {
-    return studioApi.dataServices.save(payload);
-  }
-  if (action === "publish") {
-    return studioApi.dataServices.publish(id);
-  }
-  if (action === "offline") {
-    return studioApi.dataServices.offline(id);
-  }
-  if (action === "resolveFields") {
-    return studioApi.dataServices.resolveFields(payload);
-  }
-  if (resource === "webservice" && action === "debugWebService") {
-    return studioApi.dataServices.debugWebService(id, payload);
-  }
-  if (action === "debug") {
-    return studioApi.dataServices.debug(id, payload);
-  }
-  if (resource === "subscriptions") {
-    return callSubscriptionActionTool(studioApi.dataServices, action, id, params);
-  }
-  throw new Error(`数据服务暂未注册动作接口：${resource || "-"} / ${action}`);
-}
-
-function callDataIngestionServiceActionTool(action: string, resource: string, id: string, payload: any, params: Record<string, unknown>) {
-  if (action === "save") {
-    return studioApi.dataIngestionServices.save(payload);
-  }
-  if (action === "publish") {
-    return studioApi.dataIngestionServices.publish(id);
-  }
-  if (action === "offline") {
-    return studioApi.dataIngestionServices.offline(id);
-  }
-  if (action === "resolveFields") {
-    return studioApi.dataIngestionServices.resolveFields(payload);
-  }
-  if (resource === "webservice" && action === "debugWebService") {
-    return studioApi.dataIngestionServices.debugWebService(id, payload);
-  }
-  if (action === "debug") {
-    return studioApi.dataIngestionServices.debug(id, payload);
-  }
-  if (resource === "subscriptions") {
-    return callSubscriptionActionTool(studioApi.dataIngestionServices, action, id, params);
-  }
-  throw new Error(`数据接入服务暂未注册动作接口：${resource || "-"} / ${action}`);
-}
-
-function callProtocolConversionActionTool(action: string, resource: string, id: string, payload: any, params: Record<string, unknown>) {
-  if (action === "save") {
-    return studioApi.protocolConversions.save(payload);
-  }
-  if (action === "publish") {
-    return studioApi.protocolConversions.publish(id);
-  }
-  if (action === "offline") {
-    return studioApi.protocolConversions.offline(id);
-  }
-  if (action === "debug") {
-    return studioApi.protocolConversions.debug(id, payload);
-  }
-  if (resource === "subscriptions") {
-    return callSubscriptionActionTool(studioApi.protocolConversions, action, id, params);
-  }
-  throw new Error(`协议转换暂未注册动作接口：${resource || "-"} / ${action}`);
-}
-
-function callSubscriptionActionTool(
-  api: {
-    createSubscription: (id: string, subscriptionName: string) => Promise<unknown>;
-    enableSubscription: (id: string, subscriptionId: string) => Promise<unknown>;
-    disableSubscription: (id: string, subscriptionId: string) => Promise<unknown>;
-    rotateSubscription: (id: string, subscriptionId: string) => Promise<unknown>;
-  },
-  action: string,
-  id: string,
-  params: Record<string, unknown>,
-) {
-  const subscriptionId = firstText(params, ["subscriptionId"]);
-  const subscriptionName = firstText(params, ["subscriptionName", "name"]);
-  if (action === "createSubscription") {
-    return api.createSubscription(id, subscriptionName);
-  }
-  if (action === "enableSubscription") {
-    return api.enableSubscription(id, subscriptionId);
-  }
-  if (action === "disableSubscription") {
-    return api.disableSubscription(id, subscriptionId);
-  }
-  if (action === "rotateSubscription") {
-    return api.rotateSubscription(id, subscriptionId);
-  }
-  throw new Error(`订阅暂未注册动作接口：${action}`);
-}
-
-function callSystemActionTool(action: string, resource: string, id: string, payload: any) {
-  if (action === "save") {
-    switch (resource) {
-      case "tenants":
-        return studioApi.system.tenants.save(payload);
-      case "projects":
-        return studioApi.system.projects.save(payload);
-      case "tenantMembers":
-        return studioApi.system.tenantMembers.save(payload);
-      case "projectMembers":
-        return studioApi.system.projectMembers.save(payload);
-      case "projectMemberRequests":
-        return studioApi.system.projectMemberRequests.save(payload);
-      case "projectWorkers":
-        return studioApi.system.projectWorkers.save(payload);
-      case "resourceShares":
-        return studioApi.system.resourceShares.save(payload);
-      case "users":
-        return studioApi.users.save(payload);
-      case "roles":
-        return studioApi.roles.save(payload);
-      case "permissions":
-        return studioApi.permissions.save(payload);
-      default:
-        break;
-    }
-  }
-  if (resource === "userRegistrationRequests" && action === "approve") {
-    return studioApi.system.userRegistrationRequests.approve(id, payload);
-  }
-  if (resource === "userRegistrationRequests" && action === "reject") {
-    return studioApi.system.userRegistrationRequests.reject(id, payload);
-  }
-  throw new Error(`系统管理暂未注册动作接口：${resource || "-"} / ${action}`);
-}
-
-async function callFeatureListTool(path: string, params: Record<string, unknown>) {
-  const normalizedPath = normalizeRoutePath(path);
-  const pageParams = readPageParams(params);
-  const keyword = firstText(params, ["keyword", "name", "search"]);
-  const status = firstText(params, ["status"]);
-  const view = normalizeFeatureView(params.view);
-  switch (normalizedPath) {
-    case "/dashboard":
-      return studioApi.dashboard.overview();
-    case "/access-center":
-      return studioApi.access.overview();
-    case "/catalog":
-      if (view === "datasourceTypes") {
-        return studioApi.catalog.datasourceTypes();
-      }
-      return studioApi.catalog.capabilities();
-    case "/metadata":
-      return studioApi.metaSchemas.list({
-        includeFields: readBooleanParam(params, "includeFields"),
-      });
-    case "/datasources":
-      return studioApi.datasources.listPage(pageParams);
-    case "/models": {
-      const datasourceId = firstText(params, ["datasourceId"]);
-      const modelKeyword = firstText(params, ["keyword", "name", "search", "modelName", "tableName", "physicalLocator"]);
-      if (modelKeyword) {
-        if (datasourceId) {
-          return studioApi.models.listDatasourceOptions(datasourceId, {
-            ...pageParams,
-            keyword: modelKeyword,
-          });
-        }
-        return studioApi.models.listOptions({
-          ...pageParams,
-          keyword: modelKeyword,
-        });
-      }
-      if (datasourceId) {
-        return studioApi.models.listSummaryByDatasourcePage(datasourceId, pageParams);
-      }
-      return studioApi.models.listSummaryPage({
-        ...pageParams,
-        datasourceType: firstText(params, ["datasourceType", "typeCode"]) || undefined,
-        sortField: firstText(params, ["sortField"]) || undefined,
-        sortOrder: firstText(params, ["sortOrder"]) || undefined,
-      });
-    }
-    case "/statistics":
-      return studioApi.statistics.options(cleanObject<DataModelStatisticsOptionsRequest>({
-        datasourceId: firstText(params, ["datasourceId"]),
-        datasourceType: firstText(params, ["datasourceType", "typeCode"]),
-        targetScope: firstText(params, ["targetScope", "scope"]),
-      }));
-    case "/field-mapping-rules":
-      return studioApi.fieldMappingRules.list(cleanObject({
-        ...pageParams,
-        keyword,
-        mappingType: firstText(params, ["mappingType"]),
-        enabled: readOptionalBooleanParam(params, "enabled"),
-      }));
-    case "/collection-tasks":
-      return studioApi.collectionTasks.listPage(cleanObject({
-        ...pageParams,
-        name: firstText(params, ["name", "keyword"]),
-        targetDatasource: firstText(params, ["targetDatasource", "targetDatasourceName"]),
-        targetModel: firstText(params, ["targetModel", "targetModelName"]),
-      }));
-    case "/collection-task-runs":
-      return studioApi.runs.listPage(cleanObject({
-        ...pageParams,
-        collectionTaskOnly: true,
-        collectionTaskId: firstText(params, ["collectionTaskId", "taskId"]),
-        status,
-        startTime: firstText(params, ["startTime"]),
-        endTime: firstText(params, ["endTime"]),
-      }));
-    case "/run-metrics":
-      if (view === "options") {
-        return studioApi.runMetrics.options();
-      }
-      return studioApi.runMetrics.query(buildTimeRangeQuery(params));
-    case "/data-development":
-      if (view === "scripts") {
-        return studioApi.dataDevelopment.listScripts(resolveScriptTypeParam(params));
-      }
-      if (view === "datasources") {
-        return studioApi.dataDevelopment.listSqlDatasourceOptions();
-      }
-      if (view === "datasourceTypes") {
-        return studioApi.dataDevelopment.listSqlDatasourceTypes();
-      }
-      return studioApi.dataDevelopment.tree();
-    case "/workflows":
-      return studioApi.workflows.listPage(pageParams);
-    case "/runs":
-      return studioApi.runs.listPage(cleanObject({
-        ...pageParams,
-        collectionTaskId: firstText(params, ["collectionTaskId"]),
-        qualityTaskId: firstText(params, ["qualityTaskId"]),
-        workflowDefinitionId: firstText(params, ["workflowDefinitionId", "workflowId"]),
-        status,
-        startTime: firstText(params, ["startTime"]),
-        endTime: firstText(params, ["endTime"]),
-      }));
-    case "/data-services":
-      return studioApi.dataServices.list(cleanObject({
-        ...pageParams,
-        keyword,
-        status,
-        serviceType: firstText(params, ["serviceType"]),
-      }));
-    case "/data-ingestion-services":
-      return studioApi.dataIngestionServices.list(cleanObject({
-        ...pageParams,
-        keyword,
-        status,
-        targetType: firstText(params, ["targetType"]),
-      }));
-    case "/protocol-conversions":
-      return studioApi.protocolConversions.list(cleanObject({
-        ...pageParams,
-        keyword,
-        status,
-      }));
-    case "/data-ingestion-metrics":
-      return callDataIngestionMetricListTool(view, params);
-    case "/data-service-metrics":
-      return callDataServiceMetricListTool(view, params);
-    case "/quality-rules":
-      return studioApi.qualityRules.list(cleanObject({
-        ...pageParams,
-        keyword,
-        ruleDimension: firstText(params, ["ruleDimension"]),
-        scopeType: firstText(params, ["scopeType"]),
-        enabled: readOptionalBooleanParam(params, "enabled"),
-      }));
-    case "/quality-tasks":
-      return studioApi.qualityTasks.listPage(cleanObject({
-        ...pageParams,
-        keyword,
-        status,
-        ruleDimension: firstText(params, ["ruleDimension"]),
-        granularity: firstText(params, ["granularity"]),
-      }));
-    case "/quality-task-runs":
-      return studioApi.runs.listPage(cleanObject({
-        ...pageParams,
-        qualityTaskOnly: true,
-        qualityTaskId: firstText(params, ["qualityTaskId", "taskId"]),
-        status,
-        startTime: firstText(params, ["startTime"]),
-        endTime: firstText(params, ["endTime"]),
-      }));
-    case "/quality-metrics":
-      return callQualityMetricListTool(view, params);
-    case "/system":
-      return callSystemListTool(view || firstText(params, ["resource", "resourceType"]), params);
-    case "/script-environments":
-      return studioApi.scriptEnvironments.queryPage(cleanObject({
-        pageNum: pageParams.pageNo,
-        pageSize: pageParams.pageSize,
-        keyword,
-        enabled: readOptionalBooleanParam(params, "enabled"),
-      }));
-    case "/ops-center":
-      return callOpsCenterListTool(view, params);
-    default:
-      throw new Error(`当前功能暂未开放自动读取工具：${normalizedPath}`);
-  }
-}
-
-async function callFeatureGetTool(path: string, params: Record<string, unknown>) {
-  const normalizedPath = normalizeRoutePath(path);
-  const id = firstText(params, ["id", "recordId", "entityId", "taskId", "modelId", "serviceId", "runId", "scriptId"]);
-  const view = normalizeFeatureView(params.view);
-  switch (normalizedPath) {
-    case "/metadata":
-      return studioApi.metaSchemas.get(id);
-    case "/datasources":
-      if (view === "history" || view === "connectionHistory") {
-        return studioApi.datasources.connectionHistory(id, {
-          days: readNumberParam(params, "days", 7, 1, 90),
-          limit: readNumberParam(params, "limit", 20, 1, 200),
-        });
-      }
-      return studioApi.datasources.get(id);
-    case "/models":
-      if (view === "lineage") {
-        return studioApi.models.lineage(id, firstText(params, ["lineageLevel", "level"]) || "ONE");
-      }
-      if (view === "preview" || readBooleanParam(params, "preview")) {
-        const limit = readNumberParam(params, "limit", 20, 1, 100);
-        const [detail, previewRows] = await Promise.all([
-          studioApi.models.get(id),
-          studioApi.models.preview(id, limit),
-        ]);
-        return {
-          ...detail,
-          previewRows,
-          sampleRows: previewRows,
-          previewRowCount: previewRows.length,
-          previewLimit: limit,
-        };
-      }
-      return studioApi.models.get(id);
-    case "/field-mapping-rules":
-      return studioApi.fieldMappingRules.get(id);
-    case "/collection-tasks":
-      return studioApi.collectionTasks.get(id);
-    case "/collection-task-runs":
-    case "/runs":
-    case "/quality-task-runs":
-      if (view === "log" || readBooleanParam(params, "log")) {
-        return studioApi.runs.getLog(id);
-      }
-      return studioApi.runs.get(id);
-    case "/data-development":
-      return studioApi.dataDevelopment.getScript(id);
-    case "/workflows":
-      return studioApi.workflows.get(id);
-    case "/data-services":
-      if (view === "subscriptions") {
-        return studioApi.dataServices.listSubscriptions(id);
-      }
-      if (view === "webservicePreview" || view === "preview") {
-        return studioApi.dataServices.previewWebService(id);
-      }
-      return studioApi.dataServices.get(id);
-    case "/data-ingestion-services":
-      if (view === "subscriptions") {
-        return studioApi.dataIngestionServices.listSubscriptions(id);
-      }
-      if (view === "webservicePreview" || view === "preview") {
-        return studioApi.dataIngestionServices.previewWebService(id);
-      }
-      return studioApi.dataIngestionServices.get(id);
-    case "/protocol-conversions":
-      if (view === "subscriptions") {
-        return studioApi.protocolConversions.listSubscriptions(id);
-      }
-      return studioApi.protocolConversions.get(id);
-    case "/quality-rules":
-      return studioApi.qualityRules.get(id);
-    case "/quality-tasks":
-      return studioApi.qualityTasks.get(id);
-    case "/quality-metrics":
-      if (view === "asset" || firstText(params, ["resource"]) === "asset") {
-        return studioApi.qualityMetrics.getAsset(id, cleanObject({
-          startTime: firstText(params, ["startTime"]),
-          endTime: firstText(params, ["endTime"]),
-        }));
-      }
-      return studioApi.qualityMetrics.getIssue(id);
-    case "/script-environments":
-      return studioApi.scriptEnvironments.get(id);
-    default:
-      throw new Error(`当前功能暂未开放自动读取详情工具：${normalizedPath}`);
-  }
-}
-
-function callDataServiceMetricListTool(view: string, params: Record<string, unknown>) {
-  if (view === "apiStats" || view === "api") {
-    return studioApi.dataServiceMetrics.queryApiStats(buildMetricPageQuery(params));
-  }
-  if (view === "accessLogs" || view === "logs") {
-    return studioApi.dataServiceMetrics.queryAccessLogs(buildMetricPageQuery(params));
-  }
-  if (view === "options") {
-    return studioApi.dataServiceMetrics.options();
-  }
-  return studioApi.dataServiceMetrics.queryDashboard(buildMetricQuery(params));
-}
-
-function callDataIngestionMetricListTool(view: string, params: Record<string, unknown>) {
-  if (view === "apiStats" || view === "api") {
-    return studioApi.dataIngestionMetrics.queryApiStats(buildMetricPageQuery(params));
-  }
-  if (view === "accessLogs" || view === "logs") {
-    return studioApi.dataIngestionMetrics.queryAccessLogs(buildMetricPageQuery(params));
-  }
-  if (view === "options") {
-    return studioApi.dataIngestionMetrics.options();
-  }
-  return studioApi.dataIngestionMetrics.queryDashboard(buildMetricQuery(params));
-}
-
-function callQualityMetricListTool(view: string, params: Record<string, unknown>) {
-  if (view === "assets") {
-    return studioApi.qualityMetrics.queryAssets(buildMetricPageQuery(params));
-  }
-  if (view === "issues") {
-    return studioApi.qualityMetrics.queryIssuesPage(buildMetricPageQuery(params));
-  }
-  if (view === "options") {
-    return studioApi.qualityMetrics.options();
-  }
-  return studioApi.qualityMetrics.queryDashboard(buildMetricQuery(params));
-}
-
-function callOpsCenterListTool(view: string, params: Record<string, unknown>) {
-  if (view === "options") {
-    return studioApi.opsCenter.options();
-  }
-  if (view === "runs") {
-    return studioApi.opsCenter.queryRuns(buildOpsCenterQuery(params));
-  }
-  if (view === "queue") {
-    return studioApi.opsCenter.queryQueue(buildOpsCenterQuery(params));
-  }
-  if (view === "workers") {
-    return studioApi.opsCenter.queryWorkers(buildOpsCenterQuery(params));
-  }
-  if (view === "serviceEvents") {
-    return studioApi.opsCenter.queryServiceEvents(buildOpsCenterQuery(params));
-  }
-  if (view === "ingestionEvents") {
-    return studioApi.opsCenter.queryIngestionEvents(buildOpsCenterQuery(params));
-  }
-  if (view === "logEvents") {
-    return studioApi.opsCenter.queryLogEvents(buildOpsCenterQuery(params));
-  }
-  return studioApi.opsCenter.queryOverview(buildOpsCenterQuery(params));
-}
-
-function callSystemListTool(resource: string, params: Record<string, unknown>) {
-  const pageParams = readPageParams(params);
-  const normalizedResource = normalizeFeatureView(resource || "projects");
-  switch (normalizedResource) {
-    case "tenants":
-      return studioApi.system.tenants.listPage(pageParams);
-    case "tenantMembers":
-      return studioApi.system.tenantMembers.listPage(pageParams);
-    case "projectMembers":
-      return studioApi.system.projectMembers.listPage(cleanObject({
-        ...pageParams,
-        projectId: firstText(params, ["projectId"]),
-      }));
-    case "projectMemberRequests":
-      return studioApi.system.projectMemberRequests.listPage(cleanObject({
-        ...pageParams,
-        projectId: firstText(params, ["projectId"]),
-      }));
-    case "projectWorkers":
-      return studioApi.system.projectWorkers.listPage(cleanObject({
-        ...pageParams,
-        projectId: firstText(params, ["projectId"]),
-      }));
-    case "resourceShares":
-      return studioApi.system.resourceShares.listPage(cleanObject({
-        ...pageParams,
-        projectId: firstText(params, ["projectId"]),
-        resourceType: firstText(params, ["resourceType"]),
-      }));
-    case "userRegistrationRequests":
-      return studioApi.system.userRegistrationRequests.listPage(pageParams);
-    case "users":
-      return studioApi.users.listPage(pageParams);
-    case "roles":
-      return studioApi.roles.list();
-    case "permissions":
-      return studioApi.permissions.list();
-    case "projects":
-    default:
-      return studioApi.system.projects.listPage(pageParams);
-  }
-}
-
 function normalizeFeatureToolParams(params: Record<string, unknown>, path: string) {
-  return {
+  const normalizedPath = normalizeRoutePath(path);
+  const optionalValues = assistantFeatureToolSpecs.value[normalizedPath]?.list?.optionalValues ?? [];
+  const normalizedParams: Record<string, unknown> = {
     ...params,
-    path: normalizeRoutePath(path),
-    pageNo: readNumberParam(params, "pageNo", DEFAULT_FEATURE_PAGE_SIZE / DEFAULT_FEATURE_PAGE_SIZE, 1, 10000),
-    pageSize: readNumberParam(params, "pageSize", DEFAULT_FEATURE_PAGE_SIZE, 1, MAX_FEATURE_PAGE_SIZE),
+    path: normalizedPath,
   };
+  if (optionalValues.includes("pageNo")) {
+    const pageNo = readOptionalNumberParam(params, "pageNo", 1, 10000);
+    if (pageNo == null) {
+      delete normalizedParams.pageNo;
+    } else {
+      normalizedParams.pageNo = pageNo;
+    }
+  }
+  if (optionalValues.includes("pageSize")) {
+    const pageSize = readOptionalNumberParam(params, "pageSize", 1, 100);
+    if (pageSize == null) {
+      delete normalizedParams.pageSize;
+    } else {
+      normalizedParams.pageSize = pageSize;
+    }
+  }
+  return normalizedParams;
+}
+
+function isAssistantLocalContextTool(interfaceCode: string) {
+  return interfaceCode === "assistant.context.observe"
+    || interfaceCode === "assistant.context.read"
+    || interfaceCode === "assistant.context.search"
+    || interfaceCode === "assistant.memory.select";
+}
+
+function validateDeclaredFrontendToolParams(
+  interfaceCode: string,
+  params: Record<string, unknown>,
+  definition: AssistantFrontendToolDefinition,
+) {
+  const allowed = new Set<string>();
+  addDeclaredFeatureParamKeys(allowed, definition.requiredValues ?? []);
+  addDeclaredFeatureParamKeys(allowed, definition.optionalValues ?? []);
+  const missing = (definition.requiredValues ?? [])
+    .filter((key) => !hasDeclaredFrontendToolParamValue(params, key));
+  const undeclared = Object.keys(params).filter((key) => !allowed.has(key));
+  const errors: string[] = [];
+  if (missing.length) {
+    errors.push(`${interfaceCode} 缺少必需参数：${missing.join(", ")}。`);
+  }
+  if (undeclared.length) {
+    errors.push(`${interfaceCode} 未声明参数：${undeclared.join(", ")}。请让 LLM 使用 frontendTools 中的规范参数，浏览器不能推断或改写。`);
+  }
+  return errors.join(" ");
+}
+
+function hasDeclaredFrontendToolParamValue(params: Record<string, unknown>, key: string) {
+  const value = readParamValue(params, key);
+  if (isPlainRecord(value)) {
+    return Object.keys(value).length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  return value != null && String(value).trim() !== "";
+}
+
+function validateDeclaredFeatureToolParams(
+  interfaceCode: "studio.feature.list" | "studio.feature.get",
+  featureLabel: string,
+  params: Record<string, unknown>,
+  definition: { requiredValues?: string[]; optionalValues?: string[] } | undefined,
+) {
+  const allowed = new Set(["path"]);
+  addDeclaredFeatureParamKeys(allowed, definition?.requiredValues ?? []);
+  addDeclaredFeatureParamKeys(allowed, definition?.optionalValues ?? []);
+  const undeclared = Object.keys(params).filter((key) => !allowed.has(key));
+  return undeclared.length
+    ? `${featureLabel} 的 ${interfaceCode} 未声明参数：${undeclared.join(", ")}。请让 LLM 根据 operation catalog 使用规范参数，不能在前端推断或改写。`
+    : "";
+}
+
+function validateDeclaredFeatureActionParams(
+  featureLabel: string,
+  params: Record<string, unknown>,
+  definition: AssistantFeatureActionDefinition,
+) {
+  const allowed = new Set([
+    "path",
+    "action",
+    "resource",
+    "confirmed",
+  ]);
+  addDeclaredFeatureParamKeys(allowed, definition.requiredValues ?? []);
+  addDeclaredFeatureParamKeys(allowed, definition.optionalValues ?? []);
+  const undeclared = Object.keys(params).filter((key) => !allowed.has(key));
+  return undeclared.length
+    ? `${featureLabel} 的 studio.feature.action ${definition.action} 未声明参数：${undeclared.join(", ")}。请让 LLM 根据 operation catalog 使用规范参数，不能在前端推断或改写。`
+    : "";
+}
+
+function addDeclaredFeatureParamKeys(allowed: Set<string>, keys: string[]) {
+  for (const key of keys) {
+    const normalized = String(key ?? "").trim();
+    if (!normalized) {
+      continue;
+    }
+    allowed.add(normalized);
+    const topLevel = normalized.split(".")[0];
+    if (topLevel) {
+      allowed.add(topLevel);
+    }
+  }
 }
 
 function resolveFeatureActionDefinition(path: string, action: unknown, resource?: string) {
   const normalizedPath = normalizeRoutePath(path);
   const normalizedResource = normalizeFeatureResource(resource);
-  const actionCandidates = ASSISTANT_FEATURE_ACTION_DEFINITIONS
+  const actionCandidates = assistantFeatureActionDefinitions.value
     .filter((item) => normalizeRoutePath(item.path) === normalizedPath && featureActionMatches(item, action));
   if (!actionCandidates.length) {
     return {
@@ -2567,7 +2735,7 @@ function featureActionMatches(definition: AssistantFeatureActionDefinition, acti
 }
 
 function describeSupportedFeatureActions(path: string) {
-  const actions = ASSISTANT_FEATURE_ACTION_DEFINITIONS
+  const actions = assistantFeatureActionDefinitions.value
     .filter((item) => normalizeRoutePath(item.path) === normalizeRoutePath(path))
     .map((item) => item.resource ? `${item.action}(${item.resource})` : item.action);
   return actions.length ? actions.join(", ") : "无";
@@ -2601,17 +2769,22 @@ function firstRecordParam(params: Record<string, unknown>, keys: string[]) {
 
 function hasFeatureActionValue(params: Record<string, unknown>, key: string) {
   if (key === "payload") {
-    return isPlainRecord(params.payload);
+    return isPlainRecord(params.payload) && Object.keys(params.payload).length > 0;
   }
   const aliases: Record<string, string[]> = {
     id: ["id"],
-    datasourceId: ["datasourceId", "id"],
-    typeCode: ["typeCode", "datasourceType", "id"],
+    datasourceId: ["datasourceId"],
+    typeCode: ["typeCode"],
+    physicalLocators: ["physicalLocators"],
     subscriptionId: ["subscriptionId"],
-    subscriptionName: ["subscriptionName", "name", "payload.subscriptionName"],
+    subscriptionName: ["subscriptionName"],
   };
   if (aliases[key]) {
-    return Boolean(firstText(params, aliases[key]));
+    const value = firstText(params, aliases[key]);
+    if (value) {
+      return true;
+    }
+    return aliases[key].some((alias) => Array.isArray(readParamValue(params, alias)) && (readParamValue(params, alias) as unknown[]).length > 0);
   }
   const value = readParamValue(params, key);
   if (isPlainRecord(value)) {
@@ -2620,73 +2793,20 @@ function hasFeatureActionValue(params: Record<string, unknown>, key: string) {
   return value != null && String(value).trim() !== "";
 }
 
-function buildMetricQuery(params: Record<string, unknown>) {
-  return cleanObject({
-    startTime: firstText(params, ["startTime"]),
-    endTime: firstText(params, ["endTime"]),
-    serviceId: firstText(params, ["serviceId"]),
-    datasourceId: firstText(params, ["datasourceId"]),
-    modelId: firstText(params, ["modelId"]),
-    status: firstText(params, ["status"]),
-    keyword: firstText(params, ["keyword"]),
-  });
-}
-
-function buildMetricPageQuery(params: Record<string, unknown>) {
-  return cleanObject({
-    ...buildMetricQuery(params),
-    ...readPageParams(params),
-  });
-}
-
-function buildTimeRangeQuery(params: Record<string, unknown>) {
-  return cleanObject({
-    startTime: firstText(params, ["startTime"]),
-    endTime: firstText(params, ["endTime"]),
-    executionType: firstText(params, ["executionType"]),
-    status: firstText(params, ["status"]),
-  });
-}
-
-function buildOpsCenterQuery(params: Record<string, unknown>) {
-  return cleanObject({
-    ...readPageParams(params),
-    startTime: firstText(params, ["startTime"]),
-    endTime: firstText(params, ["endTime"]),
-    executionType: firstText(params, ["executionType"]),
-    status: firstText(params, ["status"]),
-    workerGroupCode: firstText(params, ["workerGroupCode"]),
-  });
-}
-
-function readPageParams(params: Record<string, unknown>) {
-  return {
-    pageNo: readNumberParam(params, "pageNo", 1, 1, 10000),
-    pageSize: readNumberParam(params, "pageSize", DEFAULT_FEATURE_PAGE_SIZE, 1, MAX_FEATURE_PAGE_SIZE),
-  };
-}
-
-function readNumberParam(params: Record<string, unknown>, key: string, fallback: number, min: number, max: number) {
-  const parsed = Number(params[key]);
+function readOptionalNumberParam(params: Record<string, unknown>, key: string, min: number, max: number) {
+  const value = params[key];
+  if (value == null || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    return fallback;
+    return undefined;
   }
   return Math.min(max, Math.max(min, Math.floor(parsed)));
 }
 
-function readBooleanParam(params: Record<string, unknown>, key: string) {
-  return params[key] === true || String(params[key] ?? "").toLowerCase() === "true";
-}
-
-function readOptionalBooleanParam(params: Record<string, unknown>, key: string) {
-  if (params[key] == null || params[key] === "") {
-    return undefined;
-  }
-  return readBooleanParam(params, key);
-}
-
 function resolveScriptTypeParam(params: Record<string, unknown>): ScriptType | undefined {
-  return normalizeScriptTypeValue(firstText(params, ["scriptType", "type"]));
+  return normalizeScriptTypeValue(firstText(params, ["scriptType"]));
 }
 
 function normalizeScriptTypeValue(value: string): ScriptType | undefined {
@@ -2700,90 +2820,15 @@ function normalizeScriptTypeValue(value: string): ScriptType | undefined {
   return undefined;
 }
 
-function firstTextFromSources(sources: Array<Record<string, unknown>>, keys: string[]) {
-  for (const source of sources) {
-    const value = firstText(source, keys);
-    if (value) {
-      return value;
-    }
-  }
-  return "";
-}
-
-function firstRecordFromSources(sources: Array<Record<string, unknown>>, keys: string[]) {
-  for (const source of sources) {
-    const value = firstRecordParam(source, keys);
-    if (value) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function readNumberFromSources(
-  sources: Array<Record<string, unknown>>,
-  key: string,
-  fallback: number,
-  min: number,
-  max: number,
-) {
-  for (const source of sources) {
-    const value = readParamValue(source, key);
-    if (value == null || value === "") {
-      continue;
-    }
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return Math.min(max, Math.max(min, Math.floor(parsed)));
-    }
-  }
-  return fallback;
-}
-
 function normalizeScriptContent(value: string) {
   const text = String(value ?? "").trim();
   const fenced = /^```[a-zA-Z0-9_-]*\s*([\s\S]*?)\s*```$/.exec(text);
   return fenced?.[1]?.trim() || text;
 }
 
-function inferScriptTypeFromPayload(content: string, fileName: string): ScriptType | undefined {
-  const name = String(fileName ?? "").trim().toLowerCase();
-  if (name.endsWith(".sql")) {
-    return "SQL";
-  }
-  if (name.endsWith(".java")) {
-    return "JAVA";
-  }
-  if (name.endsWith(".py") || name.endsWith(".python")) {
-    return "PYTHON";
-  }
-  const text = String(content ?? "").trim();
-  if (/^(select|with|insert|update|delete|merge|create|alter|drop|truncate|show|desc|describe|explain)\b/i.test(text)) {
-    return "SQL";
-  }
-  if (/\b(public\s+class|class\s+\w+|import\s+java\.|System\.out\.)\b/.test(text)) {
-    return "JAVA";
-  }
-  if (/^(from\s+\w+\s+import|import\s+\w+|def\s+\w+\(|print\(|#\!.*python)/i.test(text)) {
-    return "PYTHON";
-  }
-  return undefined;
-}
-
-function normalizeScriptFileName(value: string, scriptType: ScriptType | undefined) {
+function normalizeScriptFileName(value: string) {
   const name = String(value ?? "").trim();
-  if (!name) {
-    return "";
-  }
-  if (/\.[a-z0-9]+$/i.test(name) || !scriptType) {
-    return name;
-  }
-  const extensionMap: Record<ScriptType, string> = {
-    SQL: ".sql",
-    JAVA: ".java",
-    PYTHON: ".py",
-  };
-  return `${name}${extensionMap[scriptType]}`;
+  return name;
 }
 
 function normalizeFeatureView(value: unknown) {
@@ -2803,30 +2848,537 @@ function cleanObject<T extends object>(value: T): Partial<T> {
   return cleaned as Partial<T>;
 }
 
+function summarizeAssistantMemory() {
+  const recentBusinessObjects = Object.entries(assistantMemory.recentEntitiesByPath)
+    .slice(0, 16)
+    .map(([path, entities]) => ({
+      path,
+      label: memoryPathLabel(path),
+      count: entities.length,
+      items: entities.slice(0, 8).map(summarizeMemoryEntity),
+    }));
+  const selectedBusinessObjects = Object.entries(assistantMemory.selectedEntitiesByPath)
+    .filter(([, entity]) => Boolean(entity))
+    .map(([path, entity]) => ({
+      path,
+      label: memoryPathLabel(path),
+      entity: entity ? summarizeMemoryEntity(entity) : undefined,
+    }));
+  return {
+    selectedDatasource: assistantMemory.selectedDatasource ? summarizeMemoryEntity(assistantMemory.selectedDatasource) : undefined,
+    selectedPhysicalTable: assistantMemory.selectedPhysicalTable ? summarizeMemoryEntity(assistantMemory.selectedPhysicalTable) : undefined,
+    selectedModel: assistantMemory.selectedModel ? summarizeMemoryEntity(assistantMemory.selectedModel) : undefined,
+    selectedEntity: assistantMemory.selectedEntity ? summarizeMemoryEntity(assistantMemory.selectedEntity) : undefined,
+    selectedBusinessObjects,
+    lastEntityListPath: assistantMemory.lastEntityListPath,
+    recentDatasources: assistantMemory.lastDatasourceList.slice(0, 10).map(summarizeMemoryEntity),
+    recentPhysicalTables: assistantMemory.lastPhysicalTableList.slice(0, 20).map(summarizeMemoryEntity),
+    recentModels: assistantMemory.lastModelList.slice(0, 20).map(summarizeMemoryEntity),
+    recentBusinessObjects,
+  };
+}
+
+function summarizeMemoryEntity(entity: AssistantMemoryEntity) {
+  return cleanObject({
+    kind: entity.kind,
+    id: entity.id,
+    name: entity.name,
+    typeCode: entity.typeCode,
+    physicalLocator: entity.physicalLocator,
+    modelKind: entity.modelKind,
+    selectedAt: entity.selectedAt,
+    sourcePath: entity.sourcePath,
+  });
+}
+
+function knownDatasourceEntities() {
+  const byId = new Map<string, AssistantMemoryEntity>();
+  const add = (entity?: AssistantMemoryEntity) => {
+    const key = memoryEntityKey(entity);
+    if (key && !byId.has(key)) {
+      byId.set(key, entity as AssistantMemoryEntity);
+    }
+  };
+  for (const entity of assistantMemory.lastDatasourceList) {
+    add(entity);
+  }
+  for (const item of toolCache.datasources) {
+    const entity = toDatasourceMemoryEntity(item as unknown as Record<string, unknown>, "/datasources");
+    add(entity);
+  }
+  for (const entity of pageContextEntitiesForPath("/datasources")) {
+    add(entity);
+  }
+  add(assistantMemory.selectedDatasource);
+  return Array.from(byId.values());
+}
+
+function knownEntitiesForPath(path: string) {
+  const normalizedPath = normalizeMemoryEntityPath(path);
+  if (!normalizedPath) {
+    return [];
+  }
+  if (normalizedPath === "/datasources") {
+    return knownDatasourceEntities();
+  }
+  const byId = new Map<string, AssistantMemoryEntity>();
+  const add = (entity?: AssistantMemoryEntity) => {
+    const key = memoryEntityKey(entity);
+    if (key && !byId.has(key)) {
+      byId.set(key, entity as AssistantMemoryEntity);
+    }
+  };
+  for (const entity of pageContextEntitiesForPath(normalizedPath)) {
+    add(entity);
+  }
+  for (const entity of assistantMemory.recentEntitiesByPath[normalizedPath] ?? []) {
+    add(entity);
+  }
+  if (normalizedPath === "/models") {
+    for (const entity of assistantMemory.lastModelList) {
+      add(entity);
+    }
+  }
+  add(assistantMemory.selectedEntitiesByPath[normalizedPath]);
+  return Array.from(byId.values());
+}
+
+function selectedMemoryEntityForPath(path: string) {
+  const normalizedPath = normalizeMemoryEntityPath(path);
+  if (!normalizedPath) {
+    return undefined;
+  }
+  if (assistantMemory.selectedEntitiesByPath[normalizedPath]) {
+    return assistantMemory.selectedEntitiesByPath[normalizedPath];
+  }
+  if (normalizedPath === "/datasources") {
+    return assistantMemory.selectedDatasource;
+  }
+  if (normalizedPath === "/datasources:discover") {
+    return assistantMemory.selectedPhysicalTable;
+  }
+  if (normalizedPath === "/models") {
+    return assistantMemory.selectedModel;
+  }
+  return assistantMemory.selectedEntity?.sourcePath === normalizedPath
+    ? assistantMemory.selectedEntity
+    : undefined;
+}
+
+function pageContextEntitiesForPath(path: string) {
+  const normalizedPath = normalizeMemoryEntityPath(path);
+  const context = assistantPageContext.value;
+  if (!context || !normalizedPath) {
+    return [];
+  }
+  const objects: AssistantPageBusinessObject[] = [];
+  const addObject = (object?: AssistantPageBusinessObject) => {
+    if (object) {
+      objects.push(object);
+    }
+  };
+  addObject(context.activeObject);
+  for (const object of context.selectedObjects ?? []) {
+    addObject(object);
+  }
+  for (const object of context.visibleObjects ?? []) {
+    addObject(object);
+  }
+  for (const object of context.relatedObjects ?? []) {
+    addObject(object);
+  }
+  return objects
+    .map((object) => pageBusinessObjectToMemoryEntity(object, context.path))
+    .filter((entity): entity is AssistantMemoryEntity =>
+      Boolean(entity && normalizeMemoryEntityPath(entity.sourcePath || "") === normalizedPath),
+    );
+}
+
+function pageBusinessObjectToMemoryEntity(
+  object: AssistantPageBusinessObject,
+  fallbackPath: string,
+): AssistantMemoryEntity | undefined {
+  const sourcePath = normalizeMemoryEntityPath(object.path || fallbackPath);
+  if (!sourcePath) {
+    return undefined;
+  }
+  const raw = cleanObject({
+    ...object.metadata,
+    id: object.id,
+    name: object.name,
+    label: object.label,
+    type: object.type,
+    typeCode: object.typeCode,
+    physicalLocator: object.physicalLocator,
+    status: object.status,
+    description: object.description,
+  });
+  const entity = toGenericMemoryEntity(raw, sourcePath);
+  const kindFromPageObject = pageBusinessObjectKind(object.type);
+  return {
+    ...entity,
+    kind: kindFromPageObject || entity.kind,
+    id: firstText(raw, ["id"]) || entity.id,
+    name: firstText(raw, ["name", "label", "physicalLocator", "id"]) || entity.name,
+    typeCode: object.typeCode || entity.typeCode || object.status,
+    physicalLocator: object.physicalLocator || entity.physicalLocator,
+    sourcePath,
+    raw,
+  };
+}
+
+function pageBusinessObjectKind(type: string): AssistantMemoryEntityKind | undefined {
+  const normalized = normalizeMemoryText(type);
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.includes("datasource")) {
+    return "datasource";
+  }
+  if (normalized.includes("physicaltable") || normalized.includes("table") || normalized.includes("view")) {
+    return "physicalTable";
+  }
+  if (normalized.includes("model")) {
+    return "model";
+  }
+  if (normalized.includes("task")) {
+    return "task";
+  }
+  if (normalized.includes("service")) {
+    return "service";
+  }
+  if (normalized.includes("rule")) {
+    return "rule";
+  }
+  if (normalized.includes("run") || normalized.includes("log")) {
+    return "run";
+  }
+  if (normalized.includes("workflow")) {
+    return "workflow";
+  }
+  if (normalized.includes("script")) {
+    return "script";
+  }
+  if (normalized.includes("notification")) {
+    return "notification";
+  }
+  return undefined;
+}
+
+function memoryEntityKey(entity?: AssistantMemoryEntity) {
+  if (!entity) {
+    return "";
+  }
+  if (entity.id) {
+    return String(entity.id);
+  }
+  return `${entity.kind}:${normalizeMemoryText(entity.sourcePath || "")}:${normalizeMemoryText(entity.name)}:${normalizeMemoryText(entity.physicalLocator || "")}`;
+}
+
+function updateAssistantMemoryFromToolData(interfaceCode: string, params: Record<string, unknown>, data: unknown) {
+  const featurePath = normalizeRoutePath(String(params.path ?? ""));
+  if (interfaceCode === "studio.feature.list" && featurePath) {
+    recordGenericMemoryEntities(
+      featurePath,
+      extractResultItems(data)
+        .map((item) => toGenericMemoryEntity(item, featurePath))
+        .filter((item) => item.id || item.name),
+    );
+  }
+  if (interfaceCode === "studio.feature.get" && featurePath && isPlainRecord(data)) {
+    const entity = toGenericMemoryEntity(data as Record<string, unknown>, featurePath);
+    if (entity.id || entity.name) {
+      selectGenericMemoryEntity(featurePath, entity, "studio.feature.get");
+    }
+  }
+  if (interfaceCode === "studio.feature.list" && normalizeRoutePath(String(params.path ?? "")) === "/datasources") {
+    assistantMemory.lastDatasourceList = extractResultItems(data)
+      .map((item) => toDatasourceMemoryEntity(item, "/datasources"))
+      .filter((item) => item.id || item.name);
+    return;
+  }
+  if (interfaceCode === "studio.feature.list" && normalizeRoutePath(String(params.path ?? "")) === "/models") {
+    assistantMemory.lastModelList = extractResultItems(data)
+      .map((item) => toModelMemoryEntity(item, "/models"))
+      .filter((item) => item.id || item.name);
+    return;
+  }
+  if (interfaceCode === "studio.feature.action"
+      && normalizeRoutePath(String(params.path ?? "")) === "/datasources"
+      && normalizeFeatureActionName(params.action) === "discover") {
+    const datasourceId = String(params.id ?? params.datasourceId ?? assistantMemory.selectedDatasource?.id ?? "");
+    assistantMemory.lastPhysicalTableList = extractResultItems(data)
+      .map((item) => toPhysicalTableMemoryEntity({ ...item, datasourceId }, "/datasources:discover"))
+      .filter((item) => item.name || item.physicalLocator);
+    return;
+  }
+  if (interfaceCode === "studio.feature.get" && normalizeRoutePath(String(params.path ?? "")) === "/models") {
+    const entity = toModelMemoryEntity(data as Record<string, unknown>, interfaceCode);
+    if (entity.id || entity.name) {
+      assistantMemory.selectedModel = entity;
+    }
+  }
+}
+
+function recordGenericMemoryEntities(path: string, entities: AssistantMemoryEntity[]) {
+  const normalizedPath = normalizeMemoryEntityPath(path);
+  if (!normalizedPath) {
+    return;
+  }
+  const deduped = dedupeMemoryEntities(entities).slice(0, 50);
+  assistantMemory.recentEntitiesByPath[normalizedPath] = deduped;
+  assistantMemory.lastEntityListPath = normalizedPath;
+}
+
+function dedupeMemoryEntities(entities: AssistantMemoryEntity[]) {
+  const byKey = new Map<string, AssistantMemoryEntity>();
+  for (const entity of entities) {
+    const key = entity.id || `${entity.kind}:${normalizeMemoryText(entity.name)}:${normalizeMemoryText(entity.physicalLocator || "")}`;
+    if (key && !byKey.has(key)) {
+      byKey.set(key, entity);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+function selectGenericMemoryEntity(path: string, entity: AssistantMemoryEntity, source: string) {
+  const normalizedPath = normalizeMemoryEntityPath(path || entity.sourcePath || "");
+  const selected = {
+    ...entity,
+    selectedAt: new Date().toISOString(),
+    sourcePath: normalizedPath || entity.sourcePath || source,
+  };
+  assistantMemory.selectedEntity = selected;
+  if (normalizedPath) {
+    assistantMemory.selectedEntitiesByPath[normalizedPath] = selected;
+  }
+  if (selected.kind === "datasource") {
+    assistantMemory.selectedDatasource = selected;
+  } else if (selected.kind === "model") {
+    assistantMemory.selectedModel = selected;
+  } else if (selected.kind === "physicalTable") {
+    assistantMemory.selectedPhysicalTable = selected;
+  }
+}
+
+function toDatasourceMemoryEntity(item: Record<string, unknown>, sourcePath: string): AssistantMemoryEntity {
+  return {
+    kind: "datasource",
+    id: firstText(item, ["id", "datasourceId"]),
+    name: firstText(item, ["name", "datasourceName", "label"]) || firstText(item, ["id", "datasourceId"]) || "未命名数据源",
+    typeCode: firstText(item, ["typeCode", "datasourceType", "type"]),
+    sourcePath,
+    raw: item,
+  };
+}
+
+function toGenericMemoryEntity(item: Record<string, unknown>, sourcePath: string): AssistantMemoryEntity {
+  const normalizedPath = normalizeMemoryEntityPath(sourcePath);
+  if (normalizedPath === "/datasources") {
+    return toDatasourceMemoryEntity(item, normalizedPath);
+  }
+  if (normalizedPath === "/models") {
+    return toModelMemoryEntity(item, normalizedPath);
+  }
+  return {
+    kind: inferMemoryEntityKind(normalizedPath, item),
+    id: firstText(item, ["id", "entityId", "recordId", "taskId", "serviceId", "ruleId", "runId", "workflowId", "scriptId", "notificationId"]),
+    name: firstText(item, [
+      "name",
+      "label",
+      "title",
+      "taskName",
+      "serviceName",
+      "ruleName",
+      "workflowName",
+      "scriptName",
+      "modelName",
+      "runName",
+      "code",
+      "taskCode",
+      "serviceCode",
+      "ruleCode",
+      "workflowCode",
+      "executionId",
+      "traceId",
+      "id",
+    ]) || "未命名对象",
+    typeCode: firstText(item, ["typeCode", "type", "status", "state", "sourceType"]),
+    physicalLocator: firstText(item, ["physicalLocator", "tableName"]),
+    modelKind: firstText(item, ["modelKind", "granularity", "taskType", "serviceType", "runType"]),
+    sourcePath: normalizedPath,
+    raw: item,
+  };
+}
+
+function toPhysicalTableMemoryEntity(item: Record<string, unknown>, sourcePath: string): AssistantMemoryEntity {
+  const physicalLocator = firstText(item, ["physicalLocator", "physicalName", "tableName", "name"]);
+  return {
+    kind: "physicalTable",
+    id: firstText(item, ["id", "modelId"]),
+    name: firstText(item, ["name", "tableName", "physicalName"]) || physicalLocator || "未命名表",
+    physicalLocator,
+    modelKind: firstText(item, ["modelKind", "type", "tableType"]),
+    sourcePath,
+    raw: item,
+  };
+}
+
+function toModelMemoryEntity(item: Record<string, unknown>, sourcePath: string): AssistantMemoryEntity {
+  return {
+    kind: "model",
+    id: firstText(item, ["id", "modelId"]),
+    name: firstText(item, ["name", "modelName", "label"]) || firstText(item, ["physicalLocator"]) || "未命名模型",
+    physicalLocator: firstText(item, ["physicalLocator", "tableName"]),
+    modelKind: firstText(item, ["modelKind", "type"]),
+    sourcePath,
+    raw: item,
+  };
+}
+
+function inferMemoryEntityKind(path: string, item: Record<string, unknown>): AssistantMemoryEntityKind {
+  const normalizedPath = normalizeMemoryEntityPath(path);
+  const text = normalizeMemoryText(`${normalizedPath} ${firstText(item, ["type", "kind", "modelKind", "taskType", "serviceType", "ruleCode", "status"])}`);
+  if (normalizedPath === "/datasources") {
+    return "datasource";
+  }
+  if (normalizedPath === "/models") {
+    return "model";
+  }
+  if (/qualityrules|rules|规则/.test(text) || normalizedPath === "/quality-rules") {
+    return "rule";
+  }
+  if (/task|tasks|任务/.test(text) || ["/collection-tasks", "/quality-tasks"].includes(normalizedPath)) {
+    return "task";
+  }
+  if (/service|services|服务/.test(text) || ["/data-services", "/data-ingestion-services", "/protocol-conversions"].includes(normalizedPath)) {
+    return "service";
+  }
+  if (/run|runs|log|日志|运行/.test(text) || ["/runs", "/collection-task-runs", "/quality-task-runs"].includes(normalizedPath)) {
+    return "run";
+  }
+  if (/workflow|工作流/.test(text) || normalizedPath === "/workflows") {
+    return "workflow";
+  }
+  if (/script|sql|脚本/.test(text) || normalizedPath === "/data-development") {
+    return "script";
+  }
+  if (/notification|通知|消息/.test(text) || normalizedPath === "/notifications") {
+    return "notification";
+  }
+  return "unknown";
+}
+
+function resolveMemoryEntityPathFromText(text: string) {
+  const normalized = normalizeMemoryText(text);
+  if (!normalized) {
+    return assistantMemory.lastEntityListPath || "";
+  }
+  if (/真实表|物理表|库表|表发现/.test(normalized)) {
+    return "/datasources:discover";
+  }
+  if (/数据源|datasource|连接/.test(normalized)) {
+    return "/datasources";
+  }
+  if (/已登记模型|数据模型|模型|model/.test(normalized)) {
+    return "/models";
+  }
+  if (/质量规则|校验规则|规则/.test(normalized)) {
+    return "/quality-rules";
+  }
+  if (/质量任务|质量方案/.test(normalized)) {
+    return "/quality-tasks";
+  }
+  if (/采集任务|采集计划/.test(normalized)) {
+    return "/collection-tasks";
+  }
+  if (/质量运行|质量日志/.test(normalized)) {
+    return "/quality-task-runs";
+  }
+  if (/采集运行|采集日志/.test(normalized)) {
+    return "/collection-task-runs";
+  }
+  if (/运行记录|运行日志|执行记录/.test(normalized)) {
+    return "/runs";
+  }
+  if (/工作流|流程/.test(normalized)) {
+    return "/workflows";
+  }
+  if (/数据接入服务|接入服务/.test(normalized)) {
+    return "/data-ingestion-services";
+  }
+  if (/协议转换/.test(normalized)) {
+    return "/protocol-conversions";
+  }
+  if (/数据服务|共享服务|服务/.test(normalized)) {
+    return "/data-services";
+  }
+  if (/脚本|sql|数据开发/.test(normalized)) {
+    return "/data-development";
+  }
+  if (/通知|消息/.test(normalized)) {
+    return "/notifications";
+  }
+  return assistantMemory.lastEntityListPath || "";
+}
+
+function normalizeMemoryEntityPath(path: string) {
+  const normalized = normalizeRoutePath(path);
+  if (normalized === "/datasources:discover") {
+    return normalized;
+  }
+  return normalized;
+}
+
+function memoryPathLabel(path: string) {
+  const normalizedPath = normalizeMemoryEntityPath(path);
+  const labels: Record<string, string> = {
+    "/datasources": "数据源",
+    "/datasources:discover": "物理表/视图",
+    "/models": "模型",
+    "/quality-rules": "质量规则",
+    "/quality-tasks": "质量任务",
+    "/collection-tasks": "采集任务",
+    "/collection-task-runs": "采集运行记录",
+    "/quality-task-runs": "质量运行记录",
+    "/runs": "运行记录",
+    "/workflows": "工作流",
+    "/data-services": "数据服务",
+    "/data-ingestion-services": "数据接入服务",
+    "/protocol-conversions": "协议转换",
+    "/data-development": "脚本",
+    "/notifications": "通知",
+  };
+  return labels[normalizedPath] || findAssistantFeature(normalizedPath)?.label || "业务对象";
+}
+
+function extractResultItems(data: unknown): Record<string, unknown>[] {
+  if (Array.isArray(data)) {
+    return data.filter(isPlainRecord) as Record<string, unknown>[];
+  }
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+  const record = data as Record<string, unknown>;
+  for (const key of ["items", "records", "list", "models", "rows", "data"]) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value.filter(isPlainRecord) as Record<string, unknown>[];
+    }
+  }
+  return [];
+}
+
+function normalizeMemoryText(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[，。；;：:、,.!?？（）()[\]{}"'`]/g, "");
+}
+
 function applyToolData(interfaceCode: string, params: Record<string, unknown>, data: unknown) {
-  if (interfaceCode === "catalog.capabilities") {
-    toolCache.capabilityMatrix = data as CapabilityMatrix;
-  }
-  if (interfaceCode === "datasources.options") {
-    toolCache.datasources = Array.isArray(data) ? data as DataSourceOptionView[] : [];
-  }
-  if (interfaceCode === "models.datasourceOptions") {
-    const datasourceId = String(params.datasourceId ?? "");
-    const page = data as { items?: DataModelDatasourceOptionView[] };
-    if (datasourceId) {
-      toolCache.modelOptions[datasourceId] = page.items ?? [];
-    }
-  }
-  if (interfaceCode === "models.get") {
-    const detail = data as DataModelDefinition;
-    if (detail?.id != null) {
-      toolCache.modelDetails[String(detail.id)] = detail;
-    }
-  }
-  if (interfaceCode === "catalog.runtimeOptionSchema") {
-    const key = `${String(params.role ?? "")}:${String(params.datasourceType ?? "")}:${String(params.protocolMode ?? "")}`;
-    toolCache.runtimeSchemas[key] = data as PluginRuntimeOptionSchemaView;
-  }
+  updateAssistantMemoryFromToolData(interfaceCode, params, data);
 }
 
 function handleChatControlClick(control: AssistantChatControl, value: string) {
@@ -2852,9 +3404,17 @@ async function handleChatControlSelect(control: AssistantChatControl) {
     await handleAssistantRecoveryAction(value, option);
     return;
   }
+  if (control.paramKey === "assistantMemory.selectedDatasourceId") {
+    await handleAssistantMemoryControl(control, value, option);
+    return;
+  }
+  if (control.paramKey?.startsWith("assistantMemory.selectedEntity:")) {
+    await handleGenericMemoryControl(control, value, option);
+    return;
+  }
   prompt.value = buildControlAnswerMessage(control, value, option);
   await nextTick();
-  await submitPrompt();
+  await submitPrompt({ preserveToolResults: true });
 }
 
 async function handleAssistantRecoveryAction(value: string, option?: AssistantChatControlOption) {
@@ -2863,7 +3423,7 @@ async function handleAssistantRecoveryAction(value: string, option?: AssistantCh
   await nextTick(scrollThreadToBottom);
   const instruction = value === "retry"
     ? "上一轮助手回复没有完整返回。请根据已有对话、currentContext 和 toolResults 重新生成上一轮回复；不要重复已经成功完成的接口读取，除非确实缺少必要上下文。"
-    : "上一轮助手回复没有完整返回。请根据已有对话、currentContext 和 toolResults 继续处理后续步骤；不要重复已经成功完成的接口读取，必要时输出下一步工具调用或 uiControls。";
+    : "上一轮助手回复没有完整返回。请根据已有对话、currentContext 和 toolResults 继续处理后续步骤；不要重复已经成功完成的接口读取，必要时输出下一步 studio-assistant-protocol 或 controls。";
   const assistantMessage = await streamAssistantReply(instruction, conversationForRequest(instruction));
   await handleAssistantActions(assistantMessage, 0);
 }
@@ -2902,12 +3462,43 @@ function buildRuntimeContext(mode: string) {
     route: route.fullPath,
     tenantId: authStore.currentTenantId,
     projectId: authStore.currentProjectId,
+    assistantMode: assistantMode.value,
+    responseLanguage: responseLanguage.value,
+    protocolVersion: "studio-assistant.v1",
     mode,
-    accessibleFeatures: accessibleFeatures.value,
-    accessibleCapabilities: accessibleCapabilities.value,
+    operationCatalogSource: assistantOperationCatalog.value.length ? "backend" : "unavailable",
+    operationCatalogSize: assistantOperationCatalog.value.length,
+    operationCatalog: summarizeAssistantOperationCatalog(),
+    assistantFeatures: assistantFeatures.value,
+    assistantCapabilities: assistantCapabilities.value,
     frontendTools: availableFrontendTools.value,
     frontendActionRegistry: availableFeatureActions.value,
+    assistantMemory: summarizeAssistantMemory(),
+    pageContext: assistantPageContext.value,
   };
+}
+
+function summarizeAssistantOperationCatalog() {
+  return assistantOperationCatalog.value.map((operation) => ({
+    schema: operation.schema,
+    path: normalizeRoutePath(operation.path),
+    label: operation.label,
+    capabilityCode: operation.capabilityCode,
+    group: operation.group,
+    description: operation.description,
+    writePolicy: operation.writePolicy,
+    readTools: operation.readTools,
+    defaultFrontendActions: operation.defaultFrontendActions,
+    featureActions: normalizeAssistantOperationFeatureActions(operation).map((action) => ({
+      action: action.action,
+      resource: action.resource,
+      purpose: action.purpose,
+      mutation: action.mutation,
+      requiredValues: action.requiredValues,
+      optionalValues: action.optionalValues,
+      aliases: action.aliases,
+    })),
+  }));
 }
 
 function collectCurrentInputs() {
@@ -2916,37 +3507,17 @@ function collectCurrentInputs() {
     cachedDatasourceModelGroups: Object.keys(toolCache.modelOptions).length,
     cachedModelDetails: Object.keys(toolCache.modelDetails).length,
     cachedRuntimeSchemas: Object.keys(toolCache.runtimeSchemas).length,
+    selectedDatasourceId: assistantMemory.selectedDatasource?.id,
+    selectedDatasourceName: assistantMemory.selectedDatasource?.name,
+    selectedPhysicalTable: assistantMemory.selectedPhysicalTable?.physicalLocator || assistantMemory.selectedPhysicalTable?.name,
+    selectedModelId: assistantMemory.selectedModel?.id,
+    selectedEntityPath: assistantMemory.selectedEntity?.sourcePath,
+    selectedEntityId: assistantMemory.selectedEntity?.id,
+    selectedEntityName: assistantMemory.selectedEntity?.name,
+    lastEntityListPath: assistantMemory.lastEntityListPath,
+    pageContextSource: assistantPageContext.value?.source,
+    pageContextActiveObject: assistantPageContext.value?.activeObject,
   };
-}
-
-async function maybePersistLocalLearning(message: string, assistantContent: string) {
-  if (!message.trim() || assistantContent.trim().length < 80) {
-    return;
-  }
-  pushProcessEvent({
-    stage: "skills.learn",
-    title: "沉淀助手技能",
-    detail: "正在判断本次问答是否值得写入技能记忆。",
-    status: "running",
-  });
-  try {
-    const response = await studioApi.assistant.learn({
-      message,
-      messages: conversationForRequest(),
-      context: buildRuntimeContext("assistant_learning"),
-      collectedInputs: collectCurrentInputs(),
-      toolResults: toolResults.value.map(summarizeToolResultForPlanner),
-      assistantContent,
-    });
-    markProcessDone(
-      "skills.learn",
-      response.accepted ? "技能记忆已更新" : "技能记忆未更新",
-      response.accepted ? "本次结论已保存，后续问答会优先参考。" : "本次内容未达到沉淀条件。",
-      response.accepted ? "done" : "warning",
-    );
-  } catch {
-    markProcessDone("skills.learn", "技能记忆暂不可用", "学习接口失败，本次对话不受影响。", "warning");
-  }
 }
 
 function resolveFieldSummaryRows(record: Record<string, unknown>) {
@@ -2971,37 +3542,22 @@ function resolveFieldSummaryRows(record: Record<string, unknown>) {
 
 function describeToolStart(interfaceCode: string, params: Record<string, unknown>) {
   if (interfaceCode === "studio.navigation.open") {
-    const feature = findAccessibleFeature(String(params.path ?? ""));
+    const feature = findAssistantFeature(String(params.path ?? ""));
     return `正在打开 ${feature?.label ?? String(params.path ?? "")}。`;
   }
   if (interfaceCode === "studio.feature.list") {
-    const feature = findAccessibleFeature(String(params.path ?? ""));
+    const feature = findAssistantFeature(String(params.path ?? ""));
     return `正在读取 ${feature?.label ?? String(params.path ?? "")} 的数据。`;
   }
   if (interfaceCode === "studio.feature.get") {
-    const feature = findAccessibleFeature(String(params.path ?? ""));
+    const feature = findAssistantFeature(String(params.path ?? ""));
     return `正在读取 ${feature?.label ?? String(params.path ?? "")} 的详情。`;
   }
   if (interfaceCode === "studio.feature.action") {
     return `正在执行 ${describeToolConfirmation(interfaceCode, params)}`;
   }
-  if (interfaceCode === "catalog.capabilities") {
-    return "正在读取数据源读写能力矩阵。";
-  }
-  if (interfaceCode === "datasources.options") {
-    return "正在查询当前项目可用数据源候选。";
-  }
-  if (interfaceCode === "models.datasourceOptions") {
-    return `正在查询数据源 ${String(params.datasourceId ?? "")} 下的模型/表候选。`;
-  }
-  if (interfaceCode === "models.get") {
-    return `正在读取模型 ${String(params.modelId ?? "")} 字段元数据。`;
-  }
-  if (interfaceCode === "catalog.runtimeOptionSchema") {
-    return `正在读取 ${String(params.role ?? "")} 运行参数元模型。`;
-  }
-  if (interfaceCode === "collectionTasks.preview") {
-    return "正在预览采集任务配置。";
+  if (interfaceCode === "assistant.script.execute") {
+    return `正在执行助手脚本 ${String(params.entrypointId ?? "")}。`;
   }
   return `正在调用 ${interfaceCode}。`;
 }
@@ -3020,6 +3576,17 @@ function describeToolResult(interfaceCode: string, data: unknown) {
   if (interfaceCode === "studio.feature.action") {
     return "动作接口已返回结果。";
   }
+  if (interfaceCode === "assistant.context.read" && data && typeof data === "object") {
+    const record = data as Record<string, unknown>;
+    return `已读取 ${String(record.label ?? record.path ?? "当前业务上下文")}，候选 ${String(record.candidateCount ?? 0)} 个。`;
+  }
+  if (interfaceCode === "assistant.script.execute" && data && typeof data === "object") {
+    const summary = ((data as Record<string, unknown>).data as Record<string, unknown> | undefined)?.summary;
+    if (summary && typeof summary === "object") {
+      return `脚本已返回结果，映射 ${String((summary as Record<string, unknown>).mappedCount ?? 0)} 项。`;
+    }
+    return "助手脚本已返回结果。";
+  }
   if (Array.isArray(data)) {
     return `返回 ${data.length} 条记录。`;
   }
@@ -3033,9 +3600,6 @@ function describeToolResult(interfaceCode: string, data: unknown) {
       return `读取到 ${fields.length} 个字段。`;
     }
   }
-  if (interfaceCode === "collectionTasks.preview") {
-    return "预览接口已返回。";
-  }
   return "接口已返回结果。";
 }
 
@@ -3045,38 +3609,24 @@ function describeToolChatResult(interfaceCode: string, params: Record<string, un
     return `已为你打开 ${String(record.label ?? params.path ?? "目标功能")}。`;
   }
   if (interfaceCode === "studio.feature.list") {
-    const feature = findAccessibleFeature(String(params.path ?? ""));
+    const feature = findAssistantFeature(String(params.path ?? ""));
     return `我已读取 ${feature?.label ?? params.path ?? "目标功能"} 的数据，会基于返回结果继续判断。`;
   }
   if (interfaceCode === "studio.feature.get") {
-    const feature = findAccessibleFeature(String(params.path ?? ""));
+    const feature = findAssistantFeature(String(params.path ?? ""));
     return `我已读取 ${feature?.label ?? params.path ?? "目标功能"} 的详情，会基于返回结果继续判断。`;
   }
   if (interfaceCode === "studio.feature.action") {
     return `我已完成 ${describeToolConfirmation(interfaceCode, params)} 会基于接口返回结果继续判断。`;
   }
-  if (interfaceCode === "datasources.options" && Array.isArray(data) && data.length === 0) {
-    return "我查询了当前项目的数据源候选，但暂时没有可选数据源。需要先在数据源中心注册源端和目标端数据源。";
+  if (interfaceCode === "assistant.context.search") {
+    return "我已搜索当前页面上下文、最近候选和助手记忆，结果会作为工具上下文继续回灌给下一轮回答。";
   }
-  if (interfaceCode === "models.datasourceOptions" && data && typeof data === "object") {
-    const page = data as { items?: unknown[]; total?: number };
-    if (!(page.items ?? []).length) {
-      return `我查询了数据源 ${String(params.datasourceId ?? "")} 下的模型/表候选，但没有返回可选项。`;
-    }
+  if (interfaceCode === "assistant.context.read") {
+    return "我已读取当前业务上下文，结果会作为工具上下文继续回灌给下一轮回答。";
   }
-  if (interfaceCode === "models.get" && data && typeof data === "object") {
-    const record = data as Record<string, unknown>;
-    const fields = resolveFieldSummaryRows(record);
-    return `模型 ${String(record.name ?? params.modelId ?? "")} 的字段元数据已读取，字段数 ${fields.length}。`;
-  }
-  if (interfaceCode === "catalog.capabilities") {
-    return "我已读取 Studio 当前支持的数据源读写能力矩阵。";
-  }
-  if (interfaceCode === "catalog.runtimeOptionSchema") {
-    return "我已读取运行参数元模型，可以继续用于拼接预览请求。";
-  }
-  if (interfaceCode === "collectionTasks.preview") {
-    return "采集任务配置预览已生成；如果要保存草稿，需要你明确确认后再开放写接口。";
+  if (interfaceCode === "assistant.script.execute") {
+    return "助手脚本已通过后端登记入口执行，结果会作为工具上下文继续回灌给下一轮回答。";
   }
   return "";
 }
@@ -3365,33 +3915,154 @@ function normalizeMarkdownInput(content: string) {
     .replace(/(^|\n)([^#\n|]{1,48}?)(\|[^\n]+\|)(?=\s*\n\s*\|?\s*:?-{3,})/g, "$1$2\n$3");
 }
 
-function resolveAccessibleFeatures(): AccessibleAssistantFeature[] {
-  const menus = resolveStudioMenus(t, {
-    systemRoleCodes: authStore.systemRoleCodes,
-    effectiveRoleCodes: authStore.effectiveRoleCodes,
-    hasProject: Boolean(authStore.currentProjectId),
-  });
-  const features: AccessibleAssistantFeature[] = [];
-  for (const group of menus) {
-    for (const child of group.children ?? []) {
-      if (!child.path) {
+function resolveAssistantFeatureToolSpecs(): Record<string, AssistantFeatureToolSpec> {
+  if (!assistantOperationCatalog.value.length) {
+    return {};
+  }
+  const specs: Record<string, AssistantFeatureToolSpec> = {};
+  for (const operation of assistantOperationCatalog.value) {
+    const path = normalizeRoutePath(operation.path);
+    if (!path) {
+      continue;
+    }
+    const label = String(operation.label ?? featureLabelFromPath(path));
+    const listReadTool = findAssistantOperationReadTool(operation, "studio.feature.list");
+    const getReadTool = findAssistantOperationReadTool(operation, "studio.feature.get");
+    const supportsList = operation.supportsList !== false
+      && (operation.supportsList === true || Boolean(listReadTool));
+    const supportsGet = operation.supportsGet !== false
+      && (operation.supportsGet === true || Boolean(getReadTool));
+    const listRequiredValues = toStringArray(listReadTool?.requiredValues);
+    const listOptionalValues = toStringArray(listReadTool?.optionalValues);
+    const listDefaultParams = toPlainRecordOrUndefined(listReadTool?.defaultParams ?? listReadTool?.params);
+    const getRequiredValues = toStringArray(getReadTool?.requiredValues);
+    const getOptionalValues = toStringArray(getReadTool?.optionalValues);
+    specs[path] = {
+      capabilityCode: String(operation.capabilityCode ?? `studio.navigation.${path.replace(/[^a-zA-Z0-9]+/g, ".").replace(/^\.+|\.+$/g, "")}`),
+      description: String(operation.description ?? label),
+      list: supportsList
+        ? {
+            purpose: String(listReadTool?.purpose ?? `读取${label}列表或概览。`),
+            requiredValues: listRequiredValues.length ? listRequiredValues : ["path"],
+            optionalValues: listOptionalValues.length ? listOptionalValues : undefined,
+            defaultParams: listDefaultParams,
+          }
+        : undefined,
+      get: supportsGet
+        ? {
+            purpose: String(getReadTool?.purpose ?? `读取${label}详情。`),
+            requiredValues: getRequiredValues.length ? getRequiredValues : ["id"],
+            optionalValues: getOptionalValues.length ? getOptionalValues : undefined,
+          }
+        : undefined,
+      writePolicy: String(operation.writePolicy ?? "写操作、配置变更和执行类动作必须由用户明确确认后才可开放。"),
+    };
+  }
+  return specs;
+}
+
+function findAssistantOperationReadTool(operation: AssistantStudioOperation, tool: string) {
+  return (operation.readTools ?? []).find((item) => String(item.tool ?? "") === tool);
+}
+
+function resolveAssistantFeatureActionDefinitions(): AssistantFeatureActionDefinition[] {
+  if (!assistantOperationCatalog.value.length) {
+    return [];
+  }
+  const definitions: AssistantFeatureActionDefinition[] = [];
+  const seen = new Set<string>();
+  const addDefinition = (definition: AssistantFeatureActionDefinition) => {
+    const path = normalizeRoutePath(definition.path);
+    const action = normalizeFeatureActionName(definition.action).toLowerCase();
+    const resource = normalizeFeatureResource(definition.resource).toLowerCase();
+    const key = `${path}|${resource}|${action}`;
+    if (!path || !action || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    definitions.push({
+      ...definition,
+      path,
+      action: definition.action,
+      resource: definition.resource ? normalizeFeatureResource(definition.resource) : undefined,
+    });
+  };
+  for (const operation of assistantOperationCatalog.value) {
+    for (const definition of normalizeAssistantOperationFeatureActions(operation)) {
+      addDefinition(definition);
+    }
+  }
+  return definitions;
+}
+
+function normalizeAssistantOperationFeatureActions(operation: AssistantStudioOperation): AssistantFeatureActionDefinition[] {
+  const path = normalizeRoutePath(operation.path);
+  if (!path) {
+    return [];
+  }
+  return (operation.featureActions ?? [])
+    .map((item) => normalizeAssistantFeatureActionDefinition(path, item))
+    .filter((item): item is AssistantFeatureActionDefinition => Boolean(item));
+}
+
+function normalizeAssistantFeatureActionDefinition(path: string, item: Record<string, unknown>): AssistantFeatureActionDefinition | null {
+  const action = normalizeFeatureActionName(item.action);
+  if (!action || isForbiddenFeatureAction(action)) {
+    return null;
+  }
+  const requiredValues = toStringArray(item.requiredValues);
+  const optionalValues = toStringArray(item.optionalValues);
+  const aliases = toStringArray(item.aliases).filter((alias) => !isForbiddenFeatureAction(alias));
+  const resource = normalizeFeatureResource(item.resource);
+  return {
+    path,
+    action,
+    purpose: String(item.purpose ?? `${action} ${path}`),
+    mutation: item.mutation === false ? false : true,
+    ...(requiredValues.length ? { requiredValues } : {}),
+    ...(optionalValues.length ? { optionalValues } : {}),
+    ...(resource ? { resource } : {}),
+    ...(aliases.length ? { aliases } : {}),
+  };
+}
+
+function resolveAssistantFeatures(): AssistantFeature[] {
+  const features: AssistantFeature[] = [];
+  const seen = new Set<string>();
+  if (assistantOperationCatalog.value.length) {
+    for (const operation of assistantOperationCatalog.value) {
+      const path = normalizeRoutePath(operation.path);
+      if (!path || seen.has(path)) {
         continue;
       }
+      seen.add(path);
       features.push({
-        group: group.label,
-        path: child.path,
-        label: child.label,
-        caption: child.caption,
+        group: String(operation.group ?? "Studio"),
+        path,
+        label: String(operation.label ?? featureLabelFromPath(path)),
+        caption: operation.description,
       });
     }
   }
   return features;
 }
 
-function resolveAccessibleCapabilities(): AccessibleAssistantCapability[] {
-  return accessibleFeatures.value.map((feature) => {
+function featureLabelFromPath(path: string) {
+  const key = normalizeRoutePath(path).replace(/^\//, "");
+  if (!key) {
+    return "Studio";
+  }
+  return key
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function resolveAssistantCapabilities(): AssistantCapability[] {
+  return assistantFeatures.value.map((feature) => {
     const path = normalizeRoutePath(feature.path);
-    const spec = ASSISTANT_FEATURE_TOOL_SPECS[path];
+    const spec = assistantFeatureToolSpecs.value[path];
     const operations: AssistantFeatureOperation[] = [
       {
         operation: "open",
@@ -3437,7 +4108,7 @@ function resolveAccessibleCapabilities(): AccessibleAssistantCapability[] {
 }
 
 function resolveFeatureActionOperations(path: string): AssistantFeatureOperation[] {
-  return ASSISTANT_FEATURE_ACTION_DEFINITIONS
+  return assistantFeatureActionDefinitions.value
     .filter((item) => normalizeRoutePath(item.path) === normalizeRoutePath(path))
     .map((item) => ({
       operation: "action" as const,
@@ -3454,8 +4125,8 @@ function resolveFeatureActionOperations(path: string): AssistantFeatureOperation
 }
 
 function resolveAvailableFeatureActions() {
-  const pathSet = new Set(accessibleFeatures.value.map((feature) => normalizeRoutePath(feature.path)));
-  return ASSISTANT_FEATURE_ACTION_DEFINITIONS
+  const pathSet = new Set(assistantFeatures.value.map((feature) => normalizeRoutePath(feature.path)));
+  return assistantFeatureActionDefinitions.value
     .filter((item) => pathSet.has(normalizeRoutePath(item.path)))
     .map((item) => ({
       path: normalizeRoutePath(item.path),
@@ -3470,10 +4141,16 @@ function resolveAvailableFeatureActions() {
 }
 
 function resolveAvailableFrontendTools(): AssistantFrontendToolDefinition[] {
-  const pathSet = new Set(accessibleFeatures.value.map((feature) => normalizeRoutePath(feature.path)));
+  const pathSet = new Set(assistantFeatures.value.map((feature) => normalizeRoutePath(feature.path)));
   return ASSISTANT_FRONTEND_TOOL_DEFINITIONS.filter((tool) => {
+    if (tool.interfaceCode === "assistant.context.observe"
+      || tool.interfaceCode === "assistant.context.read"
+      || tool.interfaceCode === "assistant.context.search"
+      || tool.interfaceCode === "assistant.memory.select") {
+      return true;
+    }
     if (!tool.featurePaths?.length) {
-      return accessibleCapabilities.value.length > 0 || tool.interfaceCode === "studio.navigation.open";
+      return assistantCapabilities.value.length > 0;
     }
     return tool.featurePaths.some((path) => pathSet.has(normalizeRoutePath(path)));
   });
@@ -3487,9 +4164,9 @@ function isFrontendToolAvailable(interfaceCode: string) {
   return Boolean(findFrontendToolDefinition(interfaceCode));
 }
 
-function findAccessibleFeature(path: string) {
+function findAssistantFeature(path: string) {
   const normalized = normalizeRoutePath(path);
-  return accessibleFeatures.value.find((feature) => normalizeRoutePath(feature.path) === normalized);
+  return assistantFeatures.value.find((feature) => normalizeRoutePath(feature.path) === normalized);
 }
 
 function normalizeRoutePath(path: unknown) {
@@ -3559,8 +4236,24 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function resolveErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
+function toPlainRecordOrUndefined(value: unknown) {
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+  return Object.keys(value).length ? { ...value } : undefined;
+}
+
+function resolveErrorMessage(error: unknown, defaultMessage: string) {
+  return error instanceof Error && error.message ? error.message : defaultMessage;
 }
 </script>
 
@@ -3590,6 +4283,20 @@ function resolveErrorMessage(error: unknown, fallback: string) {
   margin-top: 4px;
   color: var(--studio-text-soft);
   font-size: 12px;
+}
+
+.assistant-header__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.assistant-header__radio {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .assistant-root {

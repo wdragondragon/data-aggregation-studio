@@ -13,7 +13,7 @@
 
     <SectionCard :title="t('web.datasources.tableTitle')" :description="t('web.datasources.tableDescription')">
       <StudioTableShell min-width="1460px">
-        <el-table :data="datasources" border>
+        <el-table :data="datasources" border highlight-current-row @row-click="setActiveDatasource">
           <el-table-column :label="t('common.sequence')" width="72" align="center" header-align="center">
             <template #default="{ $index }">
               {{ getPaginatedRowNumber(datasourcePagination, $index) }}
@@ -299,7 +299,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElInput, ElInputNumber, ElMessage, ElMessageBox, ElSelect, ElSwitch } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
@@ -317,6 +317,7 @@ import type {
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { clearAssistantPageContext, setAssistantPageContext, type AssistantPageBusinessObject } from "@/components/assistant/assistantPageContext";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import {
@@ -362,6 +363,7 @@ const drawerOpen = ref(false);
 const saving = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
 const testingDatasourceIds = ref<string[]>([]);
+const activeDatasource = ref<DataSourceListView | null>(null);
 const discoverDialogOpen = ref(false);
 const discoveredModels = ref<ModelDiscoveryOptionResult["models"]>([]);
 const connectionHistoryDialogOpen = ref(false);
@@ -455,6 +457,79 @@ const connectionHistoryDialogTitle = computed(() =>
     ? `${historyDatasource.value.name} / ${t("web.datasources.connectionHistoryTitle")}`
     : t("web.datasources.connectionHistoryTitle"),
 );
+
+function datasourceToAssistantObject(datasource: DataSourceListView): AssistantPageBusinessObject {
+  return {
+    type: "datasource",
+    path: "/datasources",
+    id: datasource.id,
+    name: datasource.name,
+    label: datasource.name,
+    typeCode: datasource.typeCode,
+    status: datasource.connectionStatus,
+    metadata: {
+      enabled: datasource.enabled,
+      executable: datasource.executable,
+      projectId: datasource.projectId,
+      connectionStale: datasource.connectionStale,
+    },
+  };
+}
+
+function discoveredModelToAssistantObject(model: ModelDiscoveryOptionResult["models"][number]): AssistantPageBusinessObject {
+  const record = model as unknown as Record<string, unknown>;
+  const physicalLocator = String(model.physicalLocator ?? record.physicalName ?? record.tableName ?? model.name ?? "");
+  return {
+    type: "physicalTable",
+    path: "/datasources:discover",
+    id: model.id,
+    name: model.name || physicalLocator,
+    label: model.name || physicalLocator,
+    physicalLocator,
+    status: String(model.modelKind ?? record.tableType ?? ""),
+    metadata: {
+      datasourceId: activeDatasource.value?.id,
+      datasourceName: activeDatasource.value?.name,
+      tableType: record.tableType,
+      comment: record.comment,
+    },
+  };
+}
+
+function updateAssistantPageContext() {
+  setAssistantPageContext({
+    source: "datasources-view",
+    path: "/datasources",
+    label: t("web.datasources.heading"),
+    summary: activeDatasource.value
+      ? `当前数据源页，最近选中或操作的数据源是 ${activeDatasource.value.name}。`
+      : "当前数据源页，尚未在页面中选中具体数据源。",
+    activeObject: activeDatasource.value ? datasourceToAssistantObject(activeDatasource.value) : undefined,
+    selectedObjects: activeDatasource.value ? [datasourceToAssistantObject(activeDatasource.value)] : [],
+    visibleObjects: datasources.value.slice(0, 20).map(datasourceToAssistantObject),
+    relatedObjects: discoverDialogOpen.value ? discoveredModels.value.slice(0, 50).map(discoveredModelToAssistantObject) : [],
+    pagination: {
+      pageNo: datasourcePagination.page,
+      pageSize: datasourcePagination.pageSize,
+      total: datasourceTotal.value,
+    },
+  });
+}
+
+function setActiveDatasource(datasource: DataSourceListView) {
+  activeDatasource.value = datasource;
+  updateAssistantPageContext();
+}
+
+function refreshActiveDatasourceFromVisibleRows() {
+  if (activeDatasource.value?.id != null) {
+    const matched = datasources.value.find((item) => sameEntityId(item.id, activeDatasource.value?.id));
+    if (matched) {
+      activeDatasource.value = matched;
+    }
+  }
+  updateAssistantPageContext();
+}
 
 function buildDatasourceActions(datasource: DataSourceListView) {
   const shared = isSharedDatasource(datasource);
@@ -648,6 +723,7 @@ async function editDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
+  setActiveDatasource(item);
   try {
     const detail = await studioApi.datasources.get(item.id);
     Object.assign(form, cloneDeep(detail));
@@ -908,6 +984,7 @@ async function loadDatasources() {
   }
   datasources.value = page.items;
   datasourceTotal.value = page.total;
+  refreshActiveDatasourceFromVisibleRows();
 }
 
 async function loadPage() {
@@ -922,6 +999,7 @@ async function loadPage() {
     ]);
     datasources.value = datasourceData.items;
     datasourceTotal.value = datasourceData.total;
+    refreshActiveDatasourceFromVisibleRows();
     schemas.value = schemaData.map(toSchemaSummary);
     schemaDetails.value = {};
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
@@ -1016,6 +1094,7 @@ async function testDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
+  setActiveDatasource(item);
   setDatasourceTesting(item, true);
   try {
     const result = await studioApi.datasources.test(item.id);
@@ -1104,10 +1183,12 @@ async function discoverModels(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
+  setActiveDatasource(item);
   try {
     const result = await studioApi.datasources.discoverOptions(item.id);
     discoveredModels.value = result.models;
     discoverDialogOpen.value = true;
+    updateAssistantPageContext();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.discoverFailed"));
   }
@@ -1117,6 +1198,7 @@ async function openConnectionHistory(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
+  setActiveDatasource(item);
   historyDatasource.value = item;
   connectionHistoryDialogOpen.value = true;
   connectionHistoryLoading.value = true;
@@ -1134,6 +1216,7 @@ async function deleteDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
+  setActiveDatasource(item);
   try {
     await ElMessageBox.confirm(
       t("web.datasources.deleteConfirmMessage", { name: item.name }),
@@ -1147,6 +1230,10 @@ async function deleteDatasource(item: DataSourceListView) {
     }
     ElMessage.success(t("web.datasources.deleteSuccess"));
     removeDatasourceRow(item);
+    if (sameEntityId(activeDatasource.value?.id, item.id)) {
+      activeDatasource.value = null;
+      updateAssistantPageContext();
+    }
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(error instanceof Error ? error.message : t("web.datasources.deleteFailed"));
@@ -1155,6 +1242,22 @@ async function deleteDatasource(item: DataSourceListView) {
 }
 
 onMounted(loadPage);
+
+onBeforeUnmount(() => clearAssistantPageContext("datasources-view"));
+
+watch(
+  [
+    datasources,
+    activeDatasource,
+    discoveredModels,
+    discoverDialogOpen,
+    () => datasourcePagination.page,
+    () => datasourcePagination.pageSize,
+    () => datasourceTotal.value,
+  ],
+  updateAssistantPageContext,
+  { deep: true, immediate: true },
+);
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   if (authStore.isAuthenticated) {

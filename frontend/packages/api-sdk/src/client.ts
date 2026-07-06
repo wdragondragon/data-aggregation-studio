@@ -1,11 +1,14 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import { beginStudioApiRequest, endStudioApiRequest } from "./loading";
 import type {
+  AssistantConfigResponse,
   AssistantKnowledgeCapability,
   AssistantLearnRequest,
   AssistantLearnResponse,
-  AssistantPlanRequest,
-  AssistantPlanResponse,
+  AssistantPortableSkill,
+  AssistantStudioOperation,
+  AssistantToolExecuteRequest,
+  AssistantToolExecutionResult,
   AuthProfile,
   CapabilityMatrix,
   CollectionTaskDefinitionView,
@@ -432,11 +435,20 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
     },
     assistant: {
+      config() {
+        return request<AssistantConfigResponse>({ url: "/assistant/config", method: "GET", studioSkipGlobalLoading: true });
+      },
       capabilities() {
         return request<AssistantKnowledgeCapability[]>({ url: "/assistant/capabilities", method: "GET" });
       },
-      plan(payload: AssistantPlanRequest) {
-        return request<AssistantPlanResponse>({ url: "/assistant/plan", method: "POST", data: payload, timeout: 60000 });
+      operations() {
+        return request<AssistantStudioOperation[]>({ url: "/assistant/operations", method: "GET", studioSkipGlobalLoading: true });
+      },
+      skills() {
+        return request<AssistantPortableSkill[]>({ url: "/assistant/skills", method: "GET", studioSkipGlobalLoading: true });
+      },
+      executeTool(payload: AssistantToolExecuteRequest) {
+        return request<AssistantToolExecutionResult>({ url: "/assistant/tools/execute", method: "POST", data: payload, studioSkipGlobalLoading: true });
       },
       learn(payload: AssistantLearnRequest) {
         return request<AssistantLearnResponse>({ url: "/assistant/learn", method: "POST", data: payload, studioSkipGlobalLoading: true });

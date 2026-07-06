@@ -1761,6 +1761,73 @@ export interface AssistantKnowledgeCapability {
   confirmationPolicy: string[];
 }
 
+export interface AssistantPortableSkill {
+  schema?: "studio.skill.v1" | string;
+  portable?: boolean;
+  kind?: string;
+  id?: string;
+  title?: string;
+  tags?: string[];
+  path?: string;
+  content?: string;
+  instruction?: string;
+  agentUsage?: string;
+  protocolVersion?: string;
+  protocolFence?: string;
+  protocolSchema?: Record<string, unknown>;
+  examples?: Array<Record<string, unknown>>;
+  providerPortability?: string[];
+  scriptEntrypoints?: Array<Record<string, unknown>>;
+  safetyPolicy?: string[];
+  operation?: Record<string, unknown>;
+  readTools?: Array<Record<string, unknown>>;
+  writePolicy?: string;
+}
+
+export interface AssistantStudioOperation {
+  schema?: "studio.operation.v1" | string;
+  portable?: boolean;
+  label?: string;
+  capabilityCode?: string;
+  group?: string;
+  path?: string;
+  description?: string;
+  supportsList?: boolean;
+  supportsGet?: boolean;
+  writePolicy?: string;
+  tags?: string[];
+  readTools?: Array<Record<string, unknown>>;
+  defaultFrontendActions?: Array<Record<string, unknown>>;
+  featureActions?: Array<Record<string, unknown>>;
+  agentUsage?: string;
+}
+
+export interface AssistantConfigResponse {
+  enabled: boolean;
+  reason?: string;
+}
+
+export interface AssistantToolExecuteRequest {
+  interfaceCode: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AssistantToolExecutionResult<T = unknown> {
+  schema?: "studio.tool-result.v1" | string;
+  interfaceCode?: string;
+  path?: string;
+  action?: string;
+  resource?: string;
+  entrypointId?: string;
+  executedBy?: "backend" | string;
+  mutation?: boolean;
+  requiresConfirmation?: boolean;
+  params?: Record<string, unknown>;
+  effectiveParams?: Record<string, unknown>;
+  defaultedParams?: string[];
+  data?: T;
+}
+
 export interface AssistantChatMessage {
   role: "user" | "assistant" | "system" | string;
   content: string;
@@ -1768,6 +1835,9 @@ export interface AssistantChatMessage {
 
 export interface AssistantPlanRequest {
   message?: string;
+  assistantMode?: "chat" | "plan" | "goal" | string;
+  responseLanguage?: "zh" | "en" | string;
+  protocolVersion?: string;
   messages?: AssistantChatMessage[];
   context?: Record<string, unknown>;
   collectedInputs?: Record<string, unknown>;

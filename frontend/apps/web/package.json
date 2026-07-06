@@ -5,7 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build"
+    "build": "vue-tsc --noEmit && vite build",
+    "mock:assistant-ui": "node ./scripts/assistant-ui-mock-server.mjs",
+    "test:assistant-coverage": "node ./scripts/assistant-coverage-audit.mjs",
+    "test:assistant-ui": "node ./scripts/assistant-coverage-audit.mjs && node ./scripts/assistant-ui-smoke.mjs",
+    "test:assistant-ui-real": "node ./scripts/assistant-ui-real-assistive-coverage.mjs",
+    "test:assistant-ui-web-server": "node ./scripts/assistant-ui-web-server-smoke.mjs",
+    "test:assistant-assistive-coverage": "node ./scripts/assistant-ui-real-assistive-coverage.mjs",
+    "test:assistant-ui-desktop-runtime": "node ./scripts/assistant-ui-real-smoke.mjs"
   },
   "dependencies": {
     "@studio/api-sdk": "0.1.0",
