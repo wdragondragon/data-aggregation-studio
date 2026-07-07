@@ -18,9 +18,23 @@ class FilePluginSourceStrategy implements AggregationSourceStrategy {
             String path = resolveFilePath(runtime);
             String fileType = resolveFileType(runtime, path);
             fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, row), runtime.getExtConfig());
-        } catch (StopSourceScanException stop) {
+        } catch (Exception ex) {
+            if (!isStopSourceScan(ex)) {
+                throw ex;
+            }
             // stop requested by Flink reader limit
         }
+    }
+
+    private boolean isStopSourceScan(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof StopSourceScanException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private void emitOrStop(AggregationRowEmitter emitter, Map<String, Object> row) {
