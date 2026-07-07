@@ -1,4 +1,4 @@
-package com.jdragon.studio.server.bootstrap;
+package com.jdragon.studio.flink.bootstrap;
 
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import org.mybatis.spring.annotation.MapperScan;
@@ -6,21 +6,17 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
-import org.springframework.cloud.openfeign.EnableFeignClients;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = {
-        "com.jdragon.studio.infra",
-        "com.jdragon.studio.server.web"
+        "com.jdragon.studio.flink",
+        "com.jdragon.studio.infra"
 })
 @MapperScan("com.jdragon.studio.infra.mapper")
 @EnableConfigurationProperties(StudioPlatformProperties.class)
-@EnableScheduling
 @EnableDiscoveryClient
-@EnableFeignClients(basePackages = "com.jdragon.studio.server.web.client")
-public class StudioServerApplication {
+public class StudioFlinkApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(StudioServerApplication.class, args);
+        SpringApplication.run(StudioFlinkApplication.class, args);
     }
 }

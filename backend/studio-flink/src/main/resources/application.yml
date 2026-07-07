@@ -1,9 +1,9 @@
 server:
-  port: 18080
+  port: 18084
 
 spring:
   application:
-    name: studio-server
+    name: studio-flink
   profiles:
     active: ${APP_ACTIVE:prod}
   config:
@@ -63,6 +63,8 @@ springdoc:
 
 knife4j:
   enable: true
+  setting:
+    language: zh_cn
 
 management:
   endpoints:
@@ -77,11 +79,9 @@ studio:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
   aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
   encryption-secret: studio-secret-key
-  instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-server-local}}}
-  pod-name: ${POD_NAME:${HOSTNAME:studio-server-local}}
+  instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-flink-local}}}
+  pod-name: ${POD_NAME:${HOSTNAME:studio-flink-local}}
   node-name: ${NODE_NAME:}
-  worker-group-code: ${STUDIO_WORKER_GROUP_CODE:${STUDIO_WORKER_CODE:studio-server-worker}}
-  worker-code: studio-server-worker
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
   gateway:
     trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:true}
@@ -96,16 +96,6 @@ studio:
       timeout-seconds: ${STUDIO_ASSISTANT_LLM_TIMEOUT_SECONDS:60}
       temperature: ${STUDIO_ASSISTANT_LLM_TEMPERATURE:0.1}
       max-tokens: ${STUDIO_ASSISTANT_LLM_MAX_TOKENS:1200}
-    skill-memory:
-      enabled: ${STUDIO_ASSISTANT_SKILL_MEMORY_ENABLED:true}
-      local-dir: ${STUDIO_ASSISTANT_SKILL_MEMORY_LOCAL_DIR:./runtime/assistant-skills}
-      object-prefix: ${STUDIO_ASSISTANT_SKILL_MEMORY_OBJECT_PREFIX:studio/assistant-skills}
-      max-context-skills: ${STUDIO_ASSISTANT_SKILL_MEMORY_MAX_CONTEXT_SKILLS:6}
-  model-sync-task:
-    max-concurrency: ${STUDIO_MODEL_SYNC_TASK_MAX_CONCURRENCY:1}
-  dispatch:
-    scheduler-batch-size: ${STUDIO_SCHEDULER_BATCH_SIZE:500}
-    cluster-lock-lease-seconds: ${STUDIO_CLUSTER_LOCK_LEASE_SECONDS:120}
   object-storage:
     provider: ${STUDIO_OBJECT_PROVIDER:${STUDIO_RUN_LOG_OBJECT_PROVIDER:MINIO}}
     endpoint: ${STUDIO_OBJECT_ENDPOINT:${STUDIO_RUN_LOG_OBJECT_ENDPOINT:}}
@@ -133,11 +123,9 @@ studio:
     max-log-chars: ${STUDIO_INVOCATION_LOG_MAX_LOG_CHARS:1048576}
     max-body-chars: ${STUDIO_INVOCATION_LOG_MAX_BODY_CHARS:65536}
   flink:
-    client:
-      service-name: ${STUDIO_FLINK_SERVICE_NAME:studio-flink}
-      base-url: ${STUDIO_FLINK_BASE_URL:http://127.0.0.1:18084}
-      path: ${STUDIO_FLINK_CONTEXT_PATH:}
-  python:
-    executable: ${STUDIO_PYTHON_EXECUTABLE:}
-    execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}
-    temp-dir: ${STUDIO_PYTHON_TEMP_DIR:}
+    enabled: ${STUDIO_FLINK_ENABLED:true}
+    execution-mode: ${STUDIO_FLINK_EXECUTION_MODE:embedded}
+    default-parallelism: ${STUDIO_FLINK_DEFAULT_PARALLELISM:1}
+    max-rows: ${STUDIO_FLINK_MAX_ROWS:500}
+    query-timeout-seconds: ${STUDIO_FLINK_QUERY_TIMEOUT_SECONDS:30}
+    runtime-registry-ttl-seconds: ${STUDIO_FLINK_RUNTIME_REGISTRY_TTL_SECONDS:300}

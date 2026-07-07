@@ -33,6 +33,7 @@ public class StudioPlatformProperties {
     private InvocationLogProperties invocationLog = new InvocationLogProperties();
     private DatasourceHealthProperties datasourceHealth = new DatasourceHealthProperties();
     private AssistantProperties assistant = new AssistantProperties();
+    private FlinkProperties flink = new FlinkProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -112,6 +113,16 @@ public class StudioPlatformProperties {
     public static class AssistantProperties {
         private LlmProperties llm = new LlmProperties();
         private SkillMemoryProperties skillMemory = new SkillMemoryProperties();
+    }
+
+    @Data
+    public static class FlinkProperties {
+        private boolean enabled = true;
+        private String executionMode = "embedded";
+        private Integer defaultParallelism = 1;
+        private Integer maxRows = 500;
+        private Integer queryTimeoutSeconds = 30;
+        private Integer runtimeRegistryTtlSeconds = 300;
     }
 
     @Data

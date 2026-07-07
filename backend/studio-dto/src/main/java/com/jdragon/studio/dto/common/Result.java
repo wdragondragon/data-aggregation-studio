@@ -1,5 +1,7 @@
 package com.jdragon.studio.dto.common;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -29,6 +31,19 @@ public class Result<T> implements Serializable {
         this.message = message;
         this.data = data;
         this.timestamp = LocalDateTime.now();
+    }
+
+    @JsonCreator
+    private Result(@JsonProperty("success") boolean success,
+                   @JsonProperty("code") String code,
+                   @JsonProperty("message") String message,
+                   @JsonProperty("data") T data,
+                   @JsonProperty("timestamp") LocalDateTime timestamp) {
+        this.success = success;
+        this.code = code;
+        this.message = message;
+        this.data = data;
+        this.timestamp = timestamp == null ? LocalDateTime.now() : timestamp;
     }
 
     public static <T> Result<T> success(T data) {
