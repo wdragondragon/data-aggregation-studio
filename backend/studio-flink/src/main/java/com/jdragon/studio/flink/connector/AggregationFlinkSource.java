@@ -11,18 +11,18 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
 
 public class AggregationFlinkSource implements Source<RowData, AggregationSourceSplit, AggregationEnumeratorState> {
-    private final String runtimeRef;
+    private final AggregationRuntimeHandle runtimeHandle;
     private final String pluginName;
     private final String scanMode;
     private final Integer maxRows;
     private final DataType producedDataType;
 
-    public AggregationFlinkSource(String runtimeRef,
+    public AggregationFlinkSource(AggregationRuntimeHandle runtimeHandle,
                                   String pluginName,
                                   String scanMode,
                                   Integer maxRows,
                                   DataType producedDataType) {
-        this.runtimeRef = runtimeRef;
+        this.runtimeHandle = runtimeHandle;
         this.pluginName = pluginName;
         this.scanMode = scanMode;
         this.maxRows = maxRows;
@@ -38,7 +38,7 @@ public class AggregationFlinkSource implements Source<RowData, AggregationSource
 
     @Override
     public SourceReader<RowData, AggregationSourceSplit> createReader(SourceReaderContext readerContext) {
-        return new AggregationSourceReader(runtimeRef, maxRows, producedDataType, getBoundedness());
+        return new AggregationSourceReader(runtimeHandle, maxRows, producedDataType, getBoundedness());
     }
 
     @Override

@@ -8,18 +8,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AggregationLookupFunction extends TableFunction<RowData> {
-    private final String runtimeRef;
+    private final AggregationRuntimeHandle runtimeHandle;
     private final int[][] lookupKeys;
     private final DataType producedDataType;
 
-    public AggregationLookupFunction(String runtimeRef, int[][] lookupKeys, DataType producedDataType) {
-        this.runtimeRef = runtimeRef;
+    public AggregationLookupFunction(AggregationRuntimeHandle runtimeHandle, int[][] lookupKeys, DataType producedDataType) {
+        this.runtimeHandle = runtimeHandle;
         this.lookupKeys = lookupKeys;
         this.producedDataType = producedDataType;
     }
 
     public void eval(Object... values) throws Exception {
-        AggregationFlinkTableRuntime runtime = AggregationFlinkRuntimeRegistry.required(runtimeRef);
+        AggregationFlinkTableRuntime runtime = AggregationRuntimeResolver.resolve(runtimeHandle);
         List<String> fieldNames = DataType.getFieldNames(producedDataType);
         List<String> keyNames = new ArrayList<String>();
         if (lookupKeys != null) {
@@ -36,6 +36,7 @@ public class AggregationLookupFunction extends TableFunction<RowData> {
             collect(converter.convert(row));
             return true;
         });
+        AggregationRuntimeResolver.updateAudit(runtimeHandle, lookupRuntime);
     }
 
     private AggregationFlinkTableRuntime copyForLookup(AggregationFlinkTableRuntime source, String lookupSql) {

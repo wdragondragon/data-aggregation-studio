@@ -46,7 +46,7 @@ class AggregationFlinkRuntimeBuilder {
 
     AggregationFlinkTableRuntime build(DataSourceDefinition datasource,
                                        DataModelDefinition model,
-                                       Integer maxRows) {
+                                       Integer scanMaxRows) {
         Map<String, Object> datasourceMetadata = normalizePluginMetadata(datasource.getTypeCode(),
                 decryptMetadata(datasource.getTechnicalMetadata()));
         Map<String, Object> modelMetadata = model.getTechnicalMetadata() == null
@@ -62,7 +62,7 @@ class AggregationFlinkRuntimeBuilder {
         runtime.setPhysicalLocator(resolvePhysicalLocator(model));
         runtime.setScanSql(firstText(modelMetadata.get("scanSql"), modelMetadata.get("querySql")));
         runtime.setScanMode(isQueue(datasource.getTypeCode()) ? "unbounded" : "bounded");
-        runtime.setMaxRows(maxRows);
+        runtime.setMaxRows(scanMaxRows);
         runtime.setProducedDataType(rowType);
         runtime.setFieldNames(DataType.getFieldNames(rowType));
         runtime.setModelMetadata(modelMetadata);

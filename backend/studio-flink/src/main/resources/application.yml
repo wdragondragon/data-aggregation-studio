@@ -125,7 +125,15 @@ studio:
   flink:
     enabled: ${STUDIO_FLINK_ENABLED:true}
     execution-mode: ${STUDIO_FLINK_EXECUTION_MODE:embedded}
+    runtime-endpoint: ${STUDIO_FLINK_RUNTIME_ENDPOINT:http://127.0.0.1:18084}
     default-parallelism: ${STUDIO_FLINK_DEFAULT_PARALLELISM:1}
     max-rows: ${STUDIO_FLINK_MAX_ROWS:500}
     query-timeout-seconds: ${STUDIO_FLINK_QUERY_TIMEOUT_SECONDS:30}
     runtime-registry-ttl-seconds: ${STUDIO_FLINK_RUNTIME_REGISTRY_TTL_SECONDS:300}
+    gateway:
+      base-url: ${STUDIO_FLINK_GATEWAY_BASE_URL:http://127.0.0.1:8083}
+      rest-address: ${STUDIO_FLINK_GATEWAY_REST_ADDRESS:}
+      rest-port: ${STUDIO_FLINK_GATEWAY_REST_PORT:}
+      connect-timeout-seconds: ${STUDIO_FLINK_GATEWAY_CONNECT_TIMEOUT_SECONDS:10}
+      fetch-timeout-seconds: ${STUDIO_FLINK_GATEWAY_FETCH_TIMEOUT_SECONDS:30}
+      max-result-pages: ${STUDIO_FLINK_GATEWAY_MAX_RESULT_PAGES:1000}

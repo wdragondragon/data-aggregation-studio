@@ -26,6 +26,11 @@ public class AggregationFlinkTableRuntime implements Serializable {
     private Configuration connectionConfig = Configuration.newDefault();
     private Configuration extConfig = Configuration.newDefault();
     private Map<String, Object> modelMetadata = new LinkedHashMap<String, Object>();
+    private List<String> pushedFilters = new ArrayList<String>();
+    private List<String> remainingFilters = new ArrayList<String>();
+    private List<FilePathPushdownFilter> pathContextFilters = new ArrayList<FilePathPushdownFilter>();
+    private List<String> resolvedSourceSql = new ArrayList<String>();
+    private List<String> resolvedFilePaths = new ArrayList<String>();
 
     public String getRuntimeRef() {
         return runtimeRef;
@@ -145,5 +150,59 @@ public class AggregationFlinkTableRuntime implements Serializable {
 
     public void setModelMetadata(Map<String, Object> modelMetadata) {
         this.modelMetadata = modelMetadata == null ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(modelMetadata);
+    }
+
+    public List<String> getPushedFilters() {
+        return pushedFilters;
+    }
+
+    public void setPushedFilters(List<String> pushedFilters) {
+        this.pushedFilters = pushedFilters == null ? new ArrayList<String>() : new ArrayList<String>(pushedFilters);
+    }
+
+    public List<String> getRemainingFilters() {
+        return remainingFilters;
+    }
+
+    public void setRemainingFilters(List<String> remainingFilters) {
+        this.remainingFilters = remainingFilters == null ? new ArrayList<String>() : new ArrayList<String>(remainingFilters);
+    }
+
+    public List<FilePathPushdownFilter> getPathContextFilters() {
+        return pathContextFilters;
+    }
+
+    public void setPathContextFilters(List<FilePathPushdownFilter> pathContextFilters) {
+        this.pathContextFilters = pathContextFilters == null
+                ? new ArrayList<FilePathPushdownFilter>()
+                : new ArrayList<FilePathPushdownFilter>(pathContextFilters);
+    }
+
+    public List<String> getResolvedSourceSql() {
+        return resolvedSourceSql;
+    }
+
+    public void setResolvedSourceSql(List<String> resolvedSourceSql) {
+        this.resolvedSourceSql = resolvedSourceSql == null ? new ArrayList<String>() : new ArrayList<String>(resolvedSourceSql);
+    }
+
+    public void addResolvedSourceSql(String sql) {
+        if (sql != null && !sql.trim().isEmpty()) {
+            this.resolvedSourceSql.add(sql);
+        }
+    }
+
+    public List<String> getResolvedFilePaths() {
+        return resolvedFilePaths;
+    }
+
+    public void setResolvedFilePaths(List<String> resolvedFilePaths) {
+        this.resolvedFilePaths = resolvedFilePaths == null ? new ArrayList<String>() : new ArrayList<String>(resolvedFilePaths);
+    }
+
+    public void addResolvedFilePath(String path) {
+        if (path != null && !path.trim().isEmpty()) {
+            this.resolvedFilePaths.add(path);
+        }
     }
 }

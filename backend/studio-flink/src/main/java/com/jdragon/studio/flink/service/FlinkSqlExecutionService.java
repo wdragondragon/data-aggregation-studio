@@ -9,16 +9,15 @@ import com.jdragon.studio.dto.model.FlinkQuestionResultView;
 import com.jdragon.studio.dto.model.request.FlinkSqlExecuteRequest;
 import com.jdragon.studio.flink.connector.AggregationFlinkRuntimeRegistry;
 import com.jdragon.studio.flink.connector.AggregationFlinkTableRuntime;
+import com.jdragon.studio.flink.execution.FlinkExecutionClient;
+import com.jdragon.studio.flink.execution.FlinkExecutionClientRouter;
+import com.jdragon.studio.flink.execution.FlinkExecutionRequest;
+import com.jdragon.studio.flink.execution.FlinkExecutionResult;
+import com.jdragon.studio.flink.execution.FlinkRuntimeConnectorAccess;
+import com.jdragon.studio.flink.execution.FlinkTableDdlBuilder;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
-import org.apache.flink.configuration.CoreOptions;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.table.api.EnvironmentSettings;
-import org.apache.flink.table.api.TableEnvironment;
-import org.apache.flink.table.api.TableResult;
-import org.apache.flink.types.Row;
-import org.apache.flink.util.CloseableIterator;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -33,17 +32,20 @@ public class FlinkSqlExecutionService {
     private final AggregationFlinkRuntimeBuilder runtimeBuilder;
     private final FlinkSqlGuard sqlGuard;
     private final StudioPlatformProperties properties;
+    private final FlinkExecutionClientRouter executionClientRouter;
 
     public FlinkSqlExecutionService(DataModelService dataModelService,
                                     DataSourceService dataSourceService,
                                     AggregationFlinkRuntimeBuilder runtimeBuilder,
                                     FlinkSqlGuard sqlGuard,
-                                    StudioPlatformProperties properties) {
+                                    StudioPlatformProperties properties,
+                                    FlinkExecutionClientRouter executionClientRouter) {
         this.dataModelService = dataModelService;
         this.dataSourceService = dataSourceService;
         this.runtimeBuilder = runtimeBuilder;
         this.sqlGuard = sqlGuard;
         this.properties = properties;
+        this.executionClientRouter = executionClientRouter;
     }
 
     public FlinkQuestionResultView execute(FlinkSqlExecuteRequest request) {
@@ -54,17 +56,21 @@ public class FlinkSqlExecutionService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "modelIds are required for Flink SQL execution");
         }
         int maxRows = normalizeMaxRows(request.getMaxRows());
+        Integer scanMaxRows = normalizeScanMaxRows(request.getScanMaxRows());
         String guardedSql = sqlGuard.guardSelectSql(request.getSql(), maxRows);
         long startedAt = System.currentTimeMillis();
         List<String> runtimeRefs = new ArrayList<String>();
+        List<String> createTableDdls = new ArrayList<String>();
         List<FlinkModelRefView> modelRefs = new ArrayList<FlinkModelRefView>();
         try {
             List<AggregationFlinkTableRuntime> runtimes = new ArrayList<AggregationFlinkTableRuntime>();
             List<String> flinkTableNames = new ArrayList<String>();
+            String executionMode = normalizedExecutionMode();
+            FlinkExecutionClient executionClient = executionClientRouter.select(executionMode);
             for (Long modelId : request.getModelIds()) {
                 DataModelDefinition model = dataModelService.get(modelId);
                 DataSourceDefinition datasource = dataSourceService.getInternal(model.getDatasourceId());
-                AggregationFlinkTableRuntime runtime = runtimeBuilder.build(datasource, model, maxRows);
+                AggregationFlinkTableRuntime runtime = runtimeBuilder.build(datasource, model, scanMaxRows);
                 runtimes.add(runtime);
                 String flinkTableName = tableNameFor(model);
                 flinkTableNames.add(flinkTableName);
@@ -72,24 +78,32 @@ public class FlinkSqlExecutionService {
             }
             boolean streamingMode = runtimes.stream()
                     .anyMatch(runtime -> "unbounded".equalsIgnoreCase(runtime.getScanMode()));
-            TableEnvironment tableEnvironment = createTableEnvironment(streamingMode);
             for (int i = 0; i < runtimes.size(); i++) {
                 AggregationFlinkTableRuntime runtime = runtimes.get(i);
                 String runtimeRef = AggregationFlinkRuntimeRegistry.register(runtime,
                         properties.getFlink().getRuntimeRegistryTtlSeconds());
                 runtimeRefs.add(runtimeRef);
                 String flinkTableName = flinkTableNames.get(i);
-                tableEnvironment.executeSql(buildCreateTemporaryTableDdl(flinkTableName, runtimeRef, runtime));
+                FlinkRuntimeConnectorAccess access = "gateway".equals(executionMode)
+                        ? FlinkRuntimeConnectorAccess.remote(requiredRuntimeEndpoint(), runtimeRef)
+                        : FlinkRuntimeConnectorAccess.local(runtimeRef);
+                createTableDdls.add(FlinkTableDdlBuilder.buildCreateTemporaryTableDdl(flinkTableName, runtime, access));
             }
-            tableEnvironment.explainSql(guardedSql);
-            TableResult tableResult = tableEnvironment.executeSql(guardedSql);
-            FlinkQuestionResultView view = collectResult(tableResult, maxRows);
+            FlinkExecutionResult result = executionClient.execute(new FlinkExecutionRequest(
+                    guardedSql,
+                    createTableDdls,
+                    streamingMode,
+                    maxRows));
+            FlinkQuestionResultView view = toView(result);
             view.setSql(guardedSql);
             view.setModelRefs(modelRefs);
             view.setExecutionMs(System.currentTimeMillis() - startedAt);
             view.getSummary().put("modelCount", modelRefs.size());
-            view.getSummary().put("executionMode", properties.getFlink().getExecutionMode());
+            view.getSummary().put("executionMode", executionMode);
             view.getSummary().put("runtimeMode", streamingMode ? "streaming" : "batch");
+            view.getSummary().put("maxRows", maxRows);
+            view.getSummary().put("scanMaxRows", scanMaxRows);
+            appendPushdownSummary(view, runtimes, flinkTableNames);
             return view;
         } catch (StudioException ex) {
             throw ex;
@@ -106,71 +120,11 @@ public class FlinkSqlExecutionService {
         return "m_" + model.getId();
     }
 
-    private TableEnvironment createTableEnvironment(boolean streamingMode) {
-        Configuration configuration = new Configuration();
-        configuration.set(CoreOptions.DEFAULT_PARALLELISM, Math.max(1, properties.getFlink().getDefaultParallelism()));
-        EnvironmentSettings.Builder settingsBuilder = EnvironmentSettings.newInstance()
-                .withConfiguration(configuration)
-                .withBuiltInCatalogName("default_catalog")
-                .withBuiltInDatabaseName("default_database");
-        if (streamingMode) {
-            settingsBuilder.inStreamingMode();
-        } else {
-            settingsBuilder.inBatchMode();
-        }
-        return TableEnvironment.create(settingsBuilder.build());
-    }
-
-    private String buildCreateTemporaryTableDdl(String flinkTableName, String runtimeRef, AggregationFlinkTableRuntime runtime) {
-        StringBuilder ddl = new StringBuilder();
-        ddl.append("CREATE TEMPORARY TABLE ").append(quoteIdentifier(flinkTableName)).append(" (");
-        List<String> fields = runtime.getFieldNames();
-        List<org.apache.flink.table.types.DataType> fieldTypes =
-                org.apache.flink.table.types.DataType.getFieldDataTypes(runtime.getProducedDataType());
-        for (int i = 0; i < fields.size(); i++) {
-            if (i > 0) {
-                ddl.append(", ");
-            }
-            ddl.append(quoteIdentifier(fields.get(i))).append(" ").append(fieldTypes.get(i).getLogicalType().asSerializableString());
-        }
-        ddl.append(") WITH (");
-        appendOption(ddl, "connector", "dataaggregation", true);
-        appendOption(ddl, "runtime.ref", runtimeRef, false);
-        appendOption(ddl, "datasource.id", String.valueOf(runtime.getDatasourceId()), false);
-        appendOption(ddl, "model.id", String.valueOf(runtime.getModelId()), false);
-        appendOption(ddl, "plugin.name", runtime.getPluginName(), false);
-        appendOption(ddl, "scan.mode", runtime.getScanMode(), false);
-        if (runtime.getMaxRows() != null && runtime.getMaxRows() > 0) {
-            appendOption(ddl, "scan.max-rows", String.valueOf(runtime.getMaxRows()), false);
-        }
-        ddl.append(")");
-        return ddl.toString();
-    }
-
-    private void appendOption(StringBuilder ddl, String key, String value, boolean first) {
-        if (!first) {
-            ddl.append(", ");
-        }
-        ddl.append("'").append(key).append("' = '").append(value == null ? "" : value.replace("'", "''")).append("'");
-    }
-
-    private FlinkQuestionResultView collectResult(TableResult tableResult, int maxRows) throws Exception {
+    private FlinkQuestionResultView toView(FlinkExecutionResult result) {
         FlinkQuestionResultView view = new FlinkQuestionResultView();
-        List<String> columns = tableResult.getResolvedSchema().getColumnNames();
-        view.setColumns(new ArrayList<String>(columns));
-        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-        try (CloseableIterator<Row> iterator = tableResult.collect()) {
-            while (iterator.hasNext() && (maxRows <= 0 || rows.size() < maxRows)) {
-                Row row = iterator.next();
-                Map<String, Object> item = new LinkedHashMap<String, Object>();
-                for (int i = 0; i < columns.size(); i++) {
-                    item.put(columns.get(i), row.getField(i));
-                }
-                rows.add(item);
-            }
-        }
-        view.setRows(rows);
-        view.getSummary().put("rowCount", rows.size());
+        view.setColumns(result.getColumns());
+        view.setRows(result.getRows());
+        view.getSummary().put("rowCount", result.getRows().size());
         return view;
     }
 
@@ -194,7 +148,76 @@ public class FlinkSqlExecutionService {
         return Math.min(requested, configured);
     }
 
-    private String quoteIdentifier(String value) {
-        return "`" + value.replace("`", "``") + "`";
+    private Integer normalizeScanMaxRows(Integer requested) {
+        if (requested == null || requested <= 0) {
+            return null;
+        }
+        return requested;
+    }
+
+    private String normalizedExecutionMode() {
+        String mode = properties.getFlink().getExecutionMode();
+        return mode == null || mode.trim().isEmpty() ? "embedded" : mode.trim().toLowerCase();
+    }
+
+    private String requiredRuntimeEndpoint() {
+        String endpoint = properties.getFlink().getRuntimeEndpoint();
+        if (endpoint == null || endpoint.trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "studio.flink.runtime-endpoint is required when execution-mode=gateway");
+        }
+        return endpoint.trim();
+    }
+
+    private void appendPushdownSummary(FlinkQuestionResultView view,
+                                       List<AggregationFlinkTableRuntime> runtimes,
+                                       List<String> flinkTableNames) {
+        List<Map<String, Object>> pushedFilters = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> remainingFilters = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> sourceSql = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> filePaths = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> pathContextFilters = new ArrayList<Map<String, Object>>();
+        for (int i = 0; i < runtimes.size(); i++) {
+            AggregationFlinkTableRuntime runtime = runtimes.get(i);
+            String tableName = flinkTableNames.get(i);
+            addSummaryItem(pushedFilters, runtime, tableName, "filters", runtime.getPushedFilters());
+            addSummaryItem(remainingFilters, runtime, tableName, "filters", runtime.getRemainingFilters());
+            addSummaryItem(sourceSql, runtime, tableName, "sql", runtime.getResolvedSourceSql());
+            addSummaryItem(filePaths, runtime, tableName, "paths", runtime.getResolvedFilePaths());
+            if (!runtime.getPathContextFilters().isEmpty()) {
+                Map<String, Object> item = baseSummaryItem(runtime, tableName);
+                List<Map<String, Object>> filters = new ArrayList<Map<String, Object>>();
+                runtime.getPathContextFilters().forEach(filter -> filters.add(filter.asMap()));
+                item.put("filters", filters);
+                pathContextFilters.add(item);
+            }
+        }
+        view.getSummary().put("pushedFilters", pushedFilters);
+        view.getSummary().put("remainingFilters", remainingFilters);
+        view.getSummary().put("resolvedSourceSql", sourceSql);
+        view.getSummary().put("resolvedFilePaths", filePaths);
+        view.getSummary().put("pathContextFilters", pathContextFilters);
+    }
+
+    private void addSummaryItem(List<Map<String, Object>> target,
+                                AggregationFlinkTableRuntime runtime,
+                                String tableName,
+                                String valueKey,
+                                List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        Map<String, Object> item = baseSummaryItem(runtime, tableName);
+        item.put(valueKey, new ArrayList<String>(values));
+        target.add(item);
+    }
+
+    private Map<String, Object> baseSummaryItem(AggregationFlinkTableRuntime runtime, String tableName) {
+        Map<String, Object> item = new LinkedHashMap<String, Object>();
+        item.put("datasourceId", runtime.getDatasourceId());
+        item.put("modelId", runtime.getModelId());
+        item.put("flinkTableName", tableName);
+        item.put("pluginName", runtime.getPluginName());
+        return item;
     }
 }

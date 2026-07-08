@@ -1,5 +1,6 @@
 package com.jdragon.studio.flink.service;
 
+import com.jdragon.studio.flink.connector.FilePathPushdownConfig;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
 
@@ -17,9 +18,9 @@ final class AggregationFlinkDataTypeMapper {
 
     static DataType rowType(Map<String, Object> technicalMetadata, String pluginName) {
         List<DataTypes.Field> fields = new ArrayList<DataTypes.Field>();
+        Set<String> seen = new LinkedHashSet<String>();
         Object columns = technicalMetadata == null ? null : technicalMetadata.get("columns");
         if (columns instanceof List<?>) {
-            Set<String> seen = new LinkedHashSet<String>();
             for (Object item : (List<?>) columns) {
                 if (!(item instanceof Map<?, ?>)) {
                     continue;
@@ -34,6 +35,15 @@ final class AggregationFlinkDataTypeMapper {
         }
         if (fields.isEmpty()) {
             fields.add(DataTypes.FIELD("payload", DataTypes.STRING()));
+            seen.add("payload");
+        }
+        FilePathPushdownConfig pathConfig = FilePathPushdownConfig.from(technicalMetadata);
+        if (pathConfig.isEnabled()) {
+            for (FilePathPushdownConfig.Context context : pathConfig.getContexts()) {
+                if (seen.add(context.getField())) {
+                    fields.add(DataTypes.FIELD(context.getField(), context.toDataType()));
+                }
+            }
         }
         return DataTypes.ROW(fields);
     }

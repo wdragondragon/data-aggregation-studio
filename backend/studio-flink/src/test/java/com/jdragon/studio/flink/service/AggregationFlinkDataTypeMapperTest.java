@@ -43,6 +43,27 @@ class AggregationFlinkDataTypeMapperTest {
                 DataType.getFieldDataTypes(rowType).get(0).getLogicalType().asSerializableString());
     }
 
+    @Test
+    void addsVirtualFilePathContextFieldsOutsideRowColumns() {
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("columns", Arrays.asList(column("update_time", Types.DATE, null, null, null)));
+        Map<String, Object> context = new LinkedHashMap<String, Object>();
+        context.put("field", "__path_inbound_date");
+        context.put("displayName", "入库时间");
+        context.put("type", "DATE");
+        context.put("pathExpressions", Arrays.asList("wbsj/events/$getCurrentTime('yyyy','-1d')"));
+        Map<String, Object> pushdown = new LinkedHashMap<String, Object>();
+        pushdown.put("enabled", true);
+        pushdown.put("required", true);
+        pushdown.put("contexts", Arrays.asList(context));
+        metadata.put("filePathPushdown", pushdown);
+
+        DataType rowType = AggregationFlinkDataTypeMapper.rowType(metadata, "sftp");
+
+        assertEquals(Arrays.asList("update_time", "__path_inbound_date"), DataType.getFieldNames(rowType));
+        assertEquals("DATE", DataType.getFieldDataTypes(rowType).get(1).getLogicalType().asSerializableString());
+    }
+
     private Map<String, Object> column(String name, Integer dataType, String typeName, Integer size, Integer scale) {
         Map<String, Object> column = new LinkedHashMap<String, Object>();
         column.put("name", name);

@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class AggregationSourceReader implements SourceReader<RowData, AggregationSourceSplit> {
-    private final String runtimeRef;
+    private final AggregationRuntimeHandle runtimeHandle;
     private final Integer maxRows;
     private final DataType producedDataType;
     private final Boundedness boundedness;
@@ -29,8 +29,8 @@ public class AggregationSourceReader implements SourceReader<RowData, Aggregatio
     private volatile Throwable error;
     private Thread worker;
 
-    public AggregationSourceReader(String runtimeRef, Integer maxRows, DataType producedDataType, Boundedness boundedness) {
-        this.runtimeRef = runtimeRef;
+    public AggregationSourceReader(AggregationRuntimeHandle runtimeHandle, Integer maxRows, DataType producedDataType, Boundedness boundedness) {
+        this.runtimeHandle = runtimeHandle;
         this.maxRows = maxRows;
         this.producedDataType = producedDataType;
         this.boundedness = boundedness;
@@ -76,7 +76,7 @@ public class AggregationSourceReader implements SourceReader<RowData, Aggregatio
             return;
         }
         if (started.compareAndSet(false, true)) {
-            worker = new Thread(this::runSource, "dataaggregation-flink-source-" + runtimeRef);
+            worker = new Thread(this::runSource, "dataaggregation-flink-source-" + runtimeHandle.summary());
             worker.setDaemon(true);
             worker.start();
         }
@@ -104,16 +104,20 @@ public class AggregationSourceReader implements SourceReader<RowData, Aggregatio
     }
 
     private void runSource() {
+        AggregationFlinkTableRuntime runtime = null;
         try {
-            AggregationFlinkTableRuntime runtime = AggregationFlinkRuntimeRegistry.required(runtimeRef);
+            runtime = AggregationRuntimeResolver.resolve(runtimeHandle);
             runtime.setMaxRows(maxRows == null ? runtime.getMaxRows() : maxRows);
+            runtime.setProducedDataType(producedDataType);
+            runtime.setFieldNames(DataType.getFieldNames(producedDataType));
+            final AggregationFlinkTableRuntime activeRuntime = runtime;
             AggregationSourceStrategy strategy = AggregationSourceStrategyFactory.create(runtime.getPluginName());
             AggregationRowDataConverter converter = new AggregationRowDataConverter(producedDataType);
-            strategy.readRows(runtime, row -> {
+            strategy.readRows(activeRuntime, row -> {
                 if (closed.get()) {
                     return false;
                 }
-                int limit = runtime.getMaxRows() == null ? 0 : runtime.getMaxRows();
+                int limit = activeRuntime.getMaxRows() == null ? 0 : activeRuntime.getMaxRows();
                 if (limit > 0 && emitted.get() >= limit) {
                     return false;
                 }
@@ -126,6 +130,13 @@ public class AggregationSourceReader implements SourceReader<RowData, Aggregatio
         } catch (Throwable t) {
             error = t;
         } finally {
+            if (runtime != null) {
+                try {
+                    AggregationRuntimeResolver.updateAudit(runtimeHandle, runtime);
+                } catch (Throwable ignored) {
+                    // query results should not be discarded only because audit write-back failed
+                }
+            }
             finished = true;
             completeAvailable();
         }

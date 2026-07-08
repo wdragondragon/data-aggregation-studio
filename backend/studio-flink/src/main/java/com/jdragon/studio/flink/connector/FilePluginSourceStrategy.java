@@ -4,20 +4,30 @@ import com.jdragon.aggregation.datasource.SourcePluginType;
 import com.jdragon.aggregation.datasource.file.FileHelper;
 import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
 
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 class FilePluginSourceStrategy implements AggregationSourceStrategy {
     @Override
     public void readRows(AggregationFlinkTableRuntime runtime, AggregationRowEmitter emitter) throws Exception {
+        ConnectorPluginRuntimeBootstrap.ensureReady(runtime.getPluginName());
         try (PluginClassLoaderCloseable loader =
                      PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
             FileHelper fileHelper = loader.loadPlugin();
             if (!fileHelper.connect(runtime.getConnectionConfig())) {
                 throw new IllegalStateException("Failed to connect file source: " + runtime.getPluginName());
             }
-            String path = resolveFilePath(runtime);
-            String fileType = resolveFileType(runtime, path);
-            fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, row), runtime.getExtConfig());
+            List<ResolvedFilePath> paths = FilePathPushdownResolver.resolve(runtime);
+            for (ResolvedFilePath resolvedPath : paths) {
+                String path = resolvedPath.getPath();
+                runtime.addResolvedFilePath(path);
+                String fileType = resolveFileType(runtime, path);
+                Map<String, LocalDate> contextValues = resolvedPath.getContextValues();
+                fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, enrichPathContext(row, contextValues)),
+                        runtime.getExtConfig());
+            }
         } catch (Exception ex) {
             if (!isStopSourceScan(ex)) {
                 throw ex;
@@ -43,24 +53,16 @@ class FilePluginSourceStrategy implements AggregationSourceStrategy {
         }
     }
 
-    private String resolveFilePath(AggregationFlinkTableRuntime runtime) {
-        Object path = runtime.getModelMetadata().get("path");
-        if (path == null) {
-            path = runtime.getModelMetadata().get("physicalName");
+    private Map<String, Object> enrichPathContext(Map<String, Object> row, Map<String, LocalDate> contextValues) {
+        if (contextValues == null || contextValues.isEmpty()) {
+            return row;
         }
-        if (path == null) {
-            path = runtime.getPhysicalLocator();
+        Map<String, Object> enriched = new LinkedHashMap<String, Object>();
+        if (row != null) {
+            enriched.putAll(row);
         }
-        if (path == null) {
-            path = runtime.getTableName();
-        }
-        String value = String.valueOf(path);
-        Object root = runtime.getModelMetadata().get("rootPath");
-        if (root != null && !value.startsWith("/") && !value.contains(":")) {
-            String rootPath = String.valueOf(root);
-            return rootPath.endsWith("/") ? rootPath + value : rootPath + "/" + value;
-        }
-        return value;
+        enriched.putAll(contextValues);
+        return enriched;
     }
 
     private String resolveFileType(AggregationFlinkTableRuntime runtime, String path) {

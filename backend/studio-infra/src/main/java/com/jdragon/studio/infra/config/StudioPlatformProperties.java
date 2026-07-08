@@ -119,10 +119,22 @@ public class StudioPlatformProperties {
     public static class FlinkProperties {
         private boolean enabled = true;
         private String executionMode = "embedded";
+        private String runtimeEndpoint;
         private Integer defaultParallelism = 1;
         private Integer maxRows = 500;
         private Integer queryTimeoutSeconds = 30;
         private Integer runtimeRegistryTtlSeconds = 300;
+        private FlinkGatewayProperties gateway = new FlinkGatewayProperties();
+    }
+
+    @Data
+    public static class FlinkGatewayProperties {
+        private String baseUrl = "http://127.0.0.1:8083";
+        private String restAddress;
+        private Integer restPort;
+        private Integer connectTimeoutSeconds = 10;
+        private Integer fetchTimeoutSeconds = 30;
+        private Integer maxResultPages = 1000;
     }
 
     @Data

@@ -5,6 +5,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.request.FlinkQuestionAskRequest;
+import com.jdragon.studio.flink.connector.FilePathPushdownConfig;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import org.springframework.stereotype.Service;
@@ -84,10 +85,11 @@ class FlinkQuestionContextService {
                     .append(", physicalLocator: ").append(model.getPhysicalLocator()).append('\n');
             Object columns = model.getTechnicalMetadata() == null ? null : model.getTechnicalMetadata().get("columns");
             if (columns instanceof List<?>) {
+                builder.append("  row fields from source records:\n");
                 for (Object column : (List<?>) columns) {
                     if (column instanceof Map<?, ?>) {
                         Map<?, ?> map = (Map<?, ?>) column;
-                        builder.append("  - ").append(map.get("name"))
+                        builder.append("    - ").append(map.get("name"))
                                 .append(" ").append(map.get("type"));
                         Object remarks = map.get("remarks");
                         if (remarks != null) {
@@ -97,7 +99,19 @@ class FlinkQuestionContextService {
                     }
                 }
             } else {
-                builder.append("  - payload STRING\n");
+                builder.append("  row fields from source records:\n");
+                builder.append("    - payload STRING\n");
+            }
+            FilePathPushdownConfig pathConfig = FilePathPushdownConfig.from(model.getTechnicalMetadata());
+            if (pathConfig.isEnabled() && !pathConfig.getContexts().isEmpty()) {
+                builder.append("  virtual path context fields, used only for file path pruning and not present in file rows:\n");
+                for (FilePathPushdownConfig.Context context : pathConfig.getContexts()) {
+                    builder.append("    - ").append(context.getField())
+                            .append(" ").append(context.getType())
+                            .append(" # ").append(context.getDisplayName())
+                            .append("; aliases=").append(context.getAliases())
+                            .append("; use this field for path/file-directory time filters\n");
+                }
             }
         }
         return builder.toString();

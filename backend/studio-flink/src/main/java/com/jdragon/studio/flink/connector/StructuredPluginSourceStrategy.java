@@ -10,6 +10,7 @@ import java.util.Map;
 class StructuredPluginSourceStrategy implements AggregationSourceStrategy {
     @Override
     public void readRows(AggregationFlinkTableRuntime runtime, AggregationRowEmitter emitter) throws Exception {
+        ConnectorPluginRuntimeBootstrap.ensureReady(runtime.getPluginName());
         try (PluginClassLoaderCloseable loader =
                      PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
             AbstractDataSourcePlugin plugin = loader.loadPlugin();

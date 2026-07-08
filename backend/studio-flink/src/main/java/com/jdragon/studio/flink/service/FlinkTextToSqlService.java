@@ -51,7 +51,10 @@ class FlinkTextToSqlService {
                                      int maxRows) throws Exception {
         List<Map<String, String>> messages = new ArrayList<Map<String, String>>();
         messages.add(message("system", "You generate Apache Flink SQL only. Return JSON: {\"sql\":\"...\",\"explanation\":\"...\"}. "
-                + "Only SELECT or WITH SELECT is allowed. Use only provided table names. Add LIMIT " + maxRows + " unless already limited."));
+                + "Only SELECT or WITH SELECT is allowed. Use only provided table names. Add LIMIT " + maxRows + " unless already limited. "
+                + "Fields starting with __path_ are virtual file path context fields, not file content fields. "
+                + "Use __path_ fields only when the user clearly asks for path/file directory/inbound/file-date time; "
+                + "use row fields such as update_time only when the user asks for record/content/business update time."));
         messages.add(message("user", "Question:\n" + question + "\n\nContext:\n" + context.getPromptContext()));
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("model", llm.getModel());

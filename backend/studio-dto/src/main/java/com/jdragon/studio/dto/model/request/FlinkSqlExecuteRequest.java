@@ -19,4 +19,7 @@ public class FlinkSqlExecuteRequest {
 
     @Schema(description = "Maximum rows returned to frontend")
     private Integer maxRows;
+
+    @Schema(description = "Optional maximum rows scanned from each source; maxRows only limits returned rows")
+    private Integer scanMaxRows;
 }

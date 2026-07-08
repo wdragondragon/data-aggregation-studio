@@ -7,6 +7,8 @@ final class AggregationConnectorOptions {
     static final String IDENTIFIER = "dataaggregation";
 
     static final ConfigOption<String> RUNTIME_REF = ConfigOptions.key("runtime.ref").stringType().noDefaultValue();
+    static final ConfigOption<String> RUNTIME_ENDPOINT = ConfigOptions.key("runtime.endpoint").stringType().noDefaultValue();
+    static final ConfigOption<String> RUNTIME_TOKEN = ConfigOptions.key("runtime.token").stringType().noDefaultValue();
     static final ConfigOption<String> DATASOURCE_ID = ConfigOptions.key("datasource.id").stringType().noDefaultValue();
     static final ConfigOption<String> MODEL_ID = ConfigOptions.key("model.id").stringType().noDefaultValue();
     static final ConfigOption<String> PLUGIN_NAME = ConfigOptions.key("plugin.name").stringType().noDefaultValue();

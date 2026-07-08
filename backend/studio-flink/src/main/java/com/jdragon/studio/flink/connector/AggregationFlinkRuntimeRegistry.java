@@ -28,6 +28,17 @@ public final class AggregationFlinkRuntimeRegistry {
         return entry.runtime;
     }
 
+    public static AggregationFlinkTableRuntimePayload resolvePayload(String ref) {
+        return AggregationFlinkTableRuntimePayload.fromRuntime(required(ref));
+    }
+
+    public static void updateAudit(String ref, AggregationFlinkTableRuntimePayload payload) {
+        if (payload == null) {
+            return;
+        }
+        payload.mergeAuditInto(required(ref));
+    }
+
     public static void remove(String ref) {
         if (ref != null) {
             ENTRIES.remove(ref);

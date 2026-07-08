@@ -4,27 +4,29 @@ import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.source.LookupTableSource;
 import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.connector.source.SourceProvider;
-import org.apache.flink.table.connector.source.abilities.SupportsLimitPushDown;
+import org.apache.flink.table.connector.source.abilities.SupportsFilterPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsProjectionPushDown;
+import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.legacy.connector.source.TableFunctionProvider;
 import org.apache.flink.table.types.DataType;
 
+import java.util.List;
 import java.util.Locale;
 
 public class AggregationDynamicTableSource implements ScanTableSource, LookupTableSource,
-        SupportsProjectionPushDown, SupportsLimitPushDown {
-    private final String runtimeRef;
+        SupportsProjectionPushDown, SupportsFilterPushDown {
+    private final AggregationRuntimeHandle runtimeHandle;
     private final String pluginName;
     private final String scanMode;
     private Integer maxRows;
     private DataType producedDataType;
 
-    public AggregationDynamicTableSource(String runtimeRef,
+    public AggregationDynamicTableSource(AggregationRuntimeHandle runtimeHandle,
                                          String pluginName,
                                          String scanMode,
                                          Integer maxRows,
                                          DataType producedDataType) {
-        this.runtimeRef = runtimeRef;
+        this.runtimeHandle = runtimeHandle;
         this.pluginName = pluginName;
         this.scanMode = scanMode;
         this.maxRows = maxRows;
@@ -38,7 +40,7 @@ public class AggregationDynamicTableSource implements ScanTableSource, LookupTab
 
     @Override
     public ScanRuntimeProvider getScanRuntimeProvider(ScanContext runtimeProviderContext) {
-        return SourceProvider.of(new AggregationFlinkSource(runtimeRef, pluginName, scanMode, maxRows, producedDataType));
+        return SourceProvider.of(new AggregationFlinkSource(runtimeHandle, pluginName, scanMode, maxRows, producedDataType));
     }
 
     @Override
@@ -46,12 +48,12 @@ public class AggregationDynamicTableSource implements ScanTableSource, LookupTab
         if (AggregationPluginClassifier.classify(pluginName) != AggregationPluginKind.STRUCTURED) {
             throw new UnsupportedOperationException("Lookup source only supports structured DataAggregation plugins");
         }
-        return TableFunctionProvider.of(new AggregationLookupFunction(runtimeRef, context.getKeys(), producedDataType));
+        return TableFunctionProvider.of(new AggregationLookupFunction(runtimeHandle, context.getKeys(), producedDataType));
     }
 
     @Override
     public ScanTableSource copy() {
-        return new AggregationDynamicTableSource(runtimeRef, pluginName, scanMode, maxRows, producedDataType);
+        return new AggregationDynamicTableSource(runtimeHandle, pluginName, scanMode, maxRows, producedDataType);
     }
 
     @Override
@@ -70,11 +72,16 @@ public class AggregationDynamicTableSource implements ScanTableSource, LookupTab
     }
 
     @Override
-    public void applyLimit(long limit) {
-        if (limit > 0 && limit < Integer.MAX_VALUE) {
-            this.maxRows = (int) limit;
-            AggregationFlinkRuntimeRegistry.required(runtimeRef).setMaxRows(this.maxRows);
-        }
+    public Result applyFilters(List<ResolvedExpression> filters) {
+        AggregationFlinkTableRuntime runtime = AggregationRuntimeResolver.resolve(runtimeHandle);
+        AggregationFilterPushDownTranslator.Translation translation =
+                AggregationFilterPushDownTranslator.translate(filters, runtime,
+                        AggregationPluginClassifier.classify(pluginName));
+        runtime.setPushedFilters(translation.getPushedFilterSql());
+        runtime.setRemainingFilters(translation.getRemainingFilterSql());
+        runtime.setPathContextFilters(translation.getPathContextFilters());
+        AggregationRuntimeResolver.updateAudit(runtimeHandle, runtime);
+        return Result.of(translation.getAcceptedFilters(), translation.getRemainingFilters());
     }
 
     private boolean isUnbounded() {

@@ -35,6 +35,7 @@ public class FlinkQuestionService {
         FlinkSqlExecuteRequest executeRequest = new FlinkSqlExecuteRequest();
         executeRequest.setSql(sql);
         executeRequest.setMaxRows(maxRows);
+        executeRequest.setScanMaxRows(request.getScanMaxRows());
         List<Long> modelIds = new ArrayList<Long>();
         for (DataModelDefinition model : context.getModels()) {
             modelIds.add(model.getId());

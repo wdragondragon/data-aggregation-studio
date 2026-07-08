@@ -50,7 +50,9 @@ public class FlinkSecurityConfig {
                                 "/swagger-resources/**",
                                 "/webjars/**",
                                 "/doc.html",
-                                "/favicon.ico")
+                                "/favicon.ico",
+                                "/api/flink/runtime/resolve",
+                                "/api/flink/runtime/audit")
                         .permitAll()
                         .anyRequest()
                         .authenticated());
