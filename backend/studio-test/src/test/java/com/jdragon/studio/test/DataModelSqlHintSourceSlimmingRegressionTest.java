@@ -75,6 +75,29 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
     }
 
     @Test
+    void selectedModelSqlHintsShouldSelectOnlyColumnsNeededByFlinkQuestionCompletion() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        List<DataModelSqlHintView> hints = service.listSqlHintsByModelIds(Arrays.asList(21L, 21L, null, -1L));
+
+        assertThat(hints).hasSize(1);
+        assertThat(hints.get(0).getId()).isEqualTo(21L);
+        assertThat(hints.get(0).getColumns()).containsExactly("customer_id", "customer_name");
+
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataSourceService, never()).assertReadableIfPresent(11L);
+        verify(dataModelMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "datasource_id", "name", "physical_locator", "technical_metadata")
+                .doesNotContain("business_metadata", "schema_version_id", "created_at", "updated_at");
+        assertThat(captor.getValue().getTargetSql().toLowerCase())
+                .contains("id in");
+    }
+
+    @Test
     void modelOptionsShouldSelectOnlyFieldsNeededByLineageManualRelationPicker() {
         DataModelMapper dataModelMapper = mock(DataModelMapper.class);
         DataSourceService dataSourceService = mock(DataSourceService.class);
@@ -135,6 +158,43 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
                         "technical_metadata",
                         "business_metadata");
         assertThat(captor.getValue().getTargetSql().toLowerCase())
+                .contains("limit 100 offset 0");
+    }
+
+    @Test
+    void modelSelectorOptionsShouldFilterByDatasourceTypeDatasourceAndKeyword() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        when(dataSourceService.listAccessibleIdsByType("mysql8")).thenReturn(Collections.singleton(11L));
+        when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(300L);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
+
+        PageView<DataModelDatasourceOptionView> page = service.listSelectorOptions("mysql8", 11L, "profile", 1, 5000);
+
+        assertThat(page.getItems()).hasSize(1);
+        assertThat(page.getPageSize()).isEqualTo(100);
+        assertThat(page.getItems().get(0).getId()).isEqualTo(21L);
+        assertThat(page.getItems().get(0).getDatasourceId()).isEqualTo(11L);
+        verify(dataSourceService).assertReadableIfPresent(11L);
+        verify(dataSourceService).listAccessibleIdsByType("mysql8");
+        verify(dataSourceService, never()).get(11L);
+
+        ArgumentCaptor<LambdaQueryWrapper<DataModelEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dataModelMapper).selectList(captor.capture());
+        assertThat(captor.getValue().getSqlSelect())
+                .contains("id", "datasource_id", "name", "model_kind", "physical_locator")
+                .doesNotContain("tenant_id",
+                        "project_id",
+                        "deleted",
+                        "created_at",
+                        "updated_at",
+                        "schema_version_id",
+                        "technical_metadata",
+                        "business_metadata");
+        assertThat(captor.getValue().getTargetSql().toLowerCase())
+                .contains("datasource_id")
+                .contains("physical_locator")
                 .contains("limit 100 offset 0");
     }
 

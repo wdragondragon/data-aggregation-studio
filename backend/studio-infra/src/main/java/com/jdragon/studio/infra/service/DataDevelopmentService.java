@@ -263,6 +263,7 @@ public class DataDevelopmentService {
         entity.setEnvironmentId(resolveScriptEnvironmentId(request.getScriptType(), request.getEnvironmentId()));
         entity.setDescription(blankToNull(request.getDescription()));
         entity.setContent(request.getContent());
+        entity.setExecutionConfigJson(resolveScriptExecutionConfig(request.getScriptType(), request.getExecutionConfig()));
         if (entity.getId() == null) {
             scriptMapper.insert(entity);
         } else {
@@ -300,7 +301,7 @@ public class DataDevelopmentService {
     public DataScriptExecutionResultView execute(DataScriptExecutionRequest request) {
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         validateScriptType(request.getScriptType());
-        if (request.getScriptType() != ScriptType.SQL) {
+        if (request.getScriptType() != ScriptType.SQL && request.getScriptType() != ScriptType.FLINK_QUESTION_SQL) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Non-SQL scripts must be saved before execution");
         }
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
@@ -313,6 +314,7 @@ public class DataDevelopmentService {
         context.setTenantId(securityService.currentTenantId());
         context.setUsername(securityService.currentUsername());
         context.setArguments(request.getArguments());
+        context.setExecutionConfig(resolveScriptExecutionConfig(request.getScriptType(), request.getExecutionConfig()));
         Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
         runtimeContext.put("tenantId", context.getTenantId());
         runtimeContext.put("projectId", projectId);
@@ -334,11 +336,20 @@ public class DataDevelopmentService {
         return workerExecutionService.executeSavedScript(script,
                 scriptType,
                 effectiveRequest.getArguments(),
+                effectiveRequest.getExecutionConfig(),
                 effectiveRequest.getMaxRows(),
                 effectiveRequest.getWaitTimeoutSeconds());
     }
 
     public DataScriptExecutionResultView executeScript(Long scriptId, Integer maxRows, Map<String, Object> arguments, Map<String, Object> runtimeContext) {
+        return executeScript(scriptId, maxRows, arguments, runtimeContext, null);
+    }
+
+    public DataScriptExecutionResultView executeScript(Long scriptId,
+                                                       Integer maxRows,
+                                                       Map<String, Object> arguments,
+                                                       Map<String, Object> runtimeContext,
+                                                       Map<String, Object> executionConfigOverride) {
         DataDevelopmentScriptEntity script = requireReadableScript(scriptId);
         ScriptType scriptType = ScriptType.valueOf(script.getScriptType());
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
@@ -353,6 +364,8 @@ public class DataDevelopmentService {
         context.setTenantId(script.getTenantId());
         context.setUsername(resolveExecutionUsername(runtimeContext));
         context.setArguments(arguments);
+        context.setExecutionConfig(resolveExecutionConfigForRun(scriptType,
+                script.getExecutionConfigJson(), executionConfigOverride));
         context.setRuntimeContext(buildRuntimeContext(script, runtimeContext));
         return requireExecutor(scriptType).execute(context);
     }
@@ -398,10 +411,34 @@ public class DataDevelopmentService {
         if (scriptType == ScriptType.SQL) {
             return requireSqlDatasource(datasourceId);
         }
+        if (scriptType == ScriptType.FLINK_QUESTION_SQL) {
+            return null;
+        }
         if (datasourceId == null) {
             return null;
         }
         return dataSourceService.getInternal(datasourceId);
+    }
+
+    private Map<String, Object> resolveScriptExecutionConfig(ScriptType scriptType, Map<String, Object> executionConfig) {
+        if (scriptType != ScriptType.FLINK_QUESTION_SQL) {
+            return new LinkedHashMap<String, Object>();
+        }
+        return executionConfig == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(executionConfig);
+    }
+
+    private Map<String, Object> resolveExecutionConfigForRun(ScriptType scriptType,
+                                                             Map<String, Object> savedConfig,
+                                                             Map<String, Object> overrideConfig) {
+        Map<String, Object> result = resolveScriptExecutionConfig(scriptType, savedConfig);
+        if (scriptType == ScriptType.FLINK_QUESTION_SQL
+                && overrideConfig != null
+                && !overrideConfig.isEmpty()) {
+            result.putAll(resolveScriptExecutionConfig(scriptType, overrideConfig));
+        }
+        return result;
     }
 
     private List<DataDevelopmentDirectoryEntity> listDirectoryEntities(String tenantId, Long projectId) {
@@ -562,8 +599,12 @@ public class DataDevelopmentService {
         if (scriptType == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Script type is required");
         }
-        if (scriptType != ScriptType.SQL && scriptType != ScriptType.JAVA && scriptType != ScriptType.PYTHON) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL, Java and Python scripts are currently supported");
+        if (scriptType != ScriptType.SQL
+                && scriptType != ScriptType.FLINK_QUESTION_SQL
+                && scriptType != ScriptType.JAVA
+                && scriptType != ScriptType.PYTHON) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Only SQL, 模型 Flink SQL, Java and Python scripts are currently supported");
         }
     }
 
@@ -649,6 +690,8 @@ public class DataDevelopmentService {
         }
         view.setDescription(entity.getDescription());
         view.setContent(entity.getContent());
+        view.setExecutionConfig(new LinkedHashMap<String, Object>(resolveScriptExecutionConfig(
+                view.getScriptType(), entity.getExecutionConfigJson())));
         return view;
     }
 

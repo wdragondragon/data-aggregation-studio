@@ -88,7 +88,7 @@ class DataDevelopmentWorkerExecutionServiceTest {
 
         Map<String, Object> arguments = new LinkedHashMap<String, Object>();
         arguments.put("batchSize", 100);
-        DataScriptExecutionResultView result = service.executeSavedScript(script, ScriptType.JAVA, arguments, 50, 1);
+        DataScriptExecutionResultView result = service.executeSavedScript(script, ScriptType.JAVA, arguments, null, 50, 1);
 
         verify(workerAuthorizationService).assertProjectHasAvailableWorker("default", 10L);
         ArgumentCaptor<DispatchTaskEntity> taskCaptor = ArgumentCaptor.forClass(DispatchTaskEntity.class);

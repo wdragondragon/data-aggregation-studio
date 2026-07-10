@@ -1394,6 +1394,7 @@ create table if not exists data_dev_script (
     datasource_id integer,
     environment_id integer,
     description text,
+    execution_config_json text,
     content text
 );
 

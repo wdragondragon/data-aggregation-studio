@@ -217,6 +217,60 @@ class DataDevelopmentApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andExpect(jsonPath("$.message").value("Non-SQL scripts must be saved before execution"));
     }
 
+    @Test
+    void shouldSaveFlinkQuestionSqlScriptWithExecutionConfig() throws Exception {
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+
+        Map<String, Object> scriptPayload = new LinkedHashMap<String, Object>();
+        scriptPayload.put("fileName", "orders_question.flink.sql");
+        scriptPayload.put("scriptType", "FLINK_QUESTION_SQL");
+        scriptPayload.put("description", "Model Flink SQL");
+        scriptPayload.put("content", "select count(*) as total_count from m_1001");
+        Map<String, Object> executionConfig = new LinkedHashMap<String, Object>();
+        executionConfig.put("modelIds", java.util.Arrays.asList(1001L, 1002L));
+        scriptPayload.put("executionConfig", executionConfig);
+
+        MvcResult saveResult = mockMvc.perform(post("/api/v1/data-development/scripts")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(scriptPayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.fileName").value("orders_question.flink.sql"))
+                .andExpect(jsonPath("$.data.scriptType").value("FLINK_QUESTION_SQL"))
+                .andExpect(jsonPath("$.data.executionConfig.modelIds[0]").value(1001))
+                .andReturn();
+
+        String scriptId = readBody(saveResult).path("data").path("id").asText();
+        mockMvc.perform(get("/api/v1/data-development/scripts/" + scriptId)
+                        .header("Authorization", authorization)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.executionConfig.modelIds[1]").value(1002));
+    }
+
+    @Test
+    void shouldRejectFlinkQuestionSqlExecutionWithoutModels() throws Exception {
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+
+        Map<String, Object> executionPayload = new LinkedHashMap<String, Object>();
+        executionPayload.put("scriptType", "FLINK_QUESTION_SQL");
+        executionPayload.put("content", "select count(*) as total_count from m_1001");
+        executionPayload.put("maxRows", 100);
+
+        mockMvc.perform(post("/api/v1/data-development/scripts/execute")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(executionPayload)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("modelIds are required for 模型 Flink SQL execution"));
+    }
+
     private Map<String, Object> minimalSqlMetadata() {
         Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
         technicalMetadata.put("host", "127.0.0.1");

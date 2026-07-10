@@ -130,8 +130,8 @@ public class AssistantBuiltInSkillRegistry implements AssistantSkillProvider {
                 "data-development",
                 "Data development assistant",
                 tags("data-development", "sql", "script"),
-                "Data development can list directories/scripts, read script detail, execute SQL, execute unsaved script content, execute saved scripts, and save scripts. Execution and save operations require explicit confirmation.",
-                "For SQL execution, require datasourceId, scriptType SQL, content, and maxRows."));
+                "Data development can list directories/scripts, read script detail, execute SQL, execute model Flink SQL, execute unsaved script content, execute saved scripts, and save scripts. Execution and save operations require explicit confirmation.",
+                "For SQL execution, require datasourceId, scriptType SQL, content, and maxRows. For model Flink SQL, require scriptType FLINK_QUESTION_SQL, content, and executionConfig.modelIds."));
         result.add(skill(
                 "service-and-protocol",
                 "Service and protocol conversion assistant",

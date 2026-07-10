@@ -1323,6 +1323,7 @@ create table if not exists data_dev_script (
     datasource_id bigint,
     environment_id bigint,
     description varchar(1000),
+    execution_config_json json,
     content longtext,
     key idx_data_dev_script_project_directory (project_id, directory_id),
     key idx_data_dev_script_directory (directory_id),

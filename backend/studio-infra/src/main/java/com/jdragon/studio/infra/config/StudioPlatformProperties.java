@@ -124,7 +124,17 @@ public class StudioPlatformProperties {
         private Integer maxRows = 500;
         private Integer queryTimeoutSeconds = 30;
         private Integer runtimeRegistryTtlSeconds = 300;
+        private FlinkClientProperties client = new FlinkClientProperties();
         private FlinkGatewayProperties gateway = new FlinkGatewayProperties();
+    }
+
+    @Data
+    public static class FlinkClientProperties {
+        private String serviceName = "studio-flink";
+        private String baseUrl = "http://127.0.0.1:18084";
+        private String path = "";
+        private Integer connectTimeoutSeconds = 10;
+        private Integer requestTimeoutSeconds = 120;
     }
 
     @Data

@@ -189,12 +189,31 @@ public class DataModelService {
                                                                          Integer pageSize) {
         dataSourceService.assertReadableIfPresent(datasourceId);
         LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(datasourceId, null, null, "name", "asc");
-        if (keyword != null && !keyword.trim().isEmpty()) {
-            String normalizedKeyword = keyword.trim();
-            queryWrapper.and(query -> query.like(DataModelEntity::getName, normalizedKeyword)
-                    .or()
-                    .like(DataModelEntity::getPhysicalLocator, normalizedKeyword));
+        applyModelOptionKeyword(queryWrapper, keyword);
+        return datasourceOptionPageQuery(queryWrapper, pageNo, pageSize);
+    }
+
+    public PageView<DataModelDatasourceOptionView> listSelectorOptions(String datasourceType,
+                                                                       Long datasourceId,
+                                                                       String keyword,
+                                                                       Integer pageNo,
+                                                                       Integer pageSize) {
+        if (datasourceId != null) {
+            dataSourceService.assertReadableIfPresent(datasourceId);
         }
+        LambdaQueryWrapper<DataModelEntity> queryWrapper = buildBaseQuery(
+                datasourceId,
+                datasourceId == null ? datasourceType : null,
+                null,
+                "name",
+                "asc");
+        if (datasourceId != null && datasourceType != null && !datasourceType.trim().isEmpty()) {
+            Set<Long> datasourceIds = resolveDatasourceIdsByType(datasourceType.trim());
+            if (!datasourceIds.contains(datasourceId)) {
+                queryWrapper.in(DataModelEntity::getId, Collections.singleton(Long.valueOf(-1L)));
+            }
+        }
+        applyModelOptionKeyword(queryWrapper, keyword);
         return datasourceOptionPageQuery(queryWrapper, pageNo, pageSize);
     }
 
@@ -207,6 +226,22 @@ public class DataModelService {
                         DataModelEntity::getPhysicalLocator,
                         DataModelEntity::getTechnicalMetadata)
                 .last("limit " + MAX_PAGE_SIZE));
+        return toSqlHintViews(entities);
+    }
+
+    public List<DataModelSqlHintView> listSqlHintsByModelIds(List<Long> modelIds) {
+        List<Long> normalizedModelIds = normalizeModelIds(modelIds);
+        if (normalizedModelIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<DataModelEntity> entities = dataModelMapper.selectList(buildAccessibleQuery()
+                .in(DataModelEntity::getId, normalizedModelIds)
+                .select(DataModelEntity::getId,
+                        DataModelEntity::getDatasourceId,
+                        DataModelEntity::getName,
+                        DataModelEntity::getPhysicalLocator,
+                        DataModelEntity::getTechnicalMetadata)
+                .last("limit " + Math.min(normalizedModelIds.size(), MAX_PAGE_SIZE)));
         return toSqlHintViews(entities);
     }
 
@@ -593,6 +628,32 @@ public class DataModelService {
                         DataModelEntity::getPhysicalLocator)
                 .last("limit " + resolvedPageSize + " offset " + offset));
         return PageView.of(resolvedPageNo, resolvedPageSize, total, toMetricFilterOptionViews(entities));
+    }
+
+    private void applyModelOptionKeyword(LambdaQueryWrapper<DataModelEntity> queryWrapper, String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return;
+        }
+        String normalizedKeyword = keyword.trim();
+        queryWrapper.and(query -> query.like(DataModelEntity::getName, normalizedKeyword)
+                .or()
+                .like(DataModelEntity::getPhysicalLocator, normalizedKeyword));
+    }
+
+    private List<Long> normalizeModelIds(List<Long> modelIds) {
+        if (modelIds == null || modelIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<Long> normalized = new LinkedHashSet<Long>();
+        for (Long modelId : modelIds) {
+            if (modelId != null && modelId.longValue() > 0L) {
+                normalized.add(modelId);
+            }
+            if (normalized.size() >= MAX_PAGE_SIZE) {
+                break;
+            }
+        }
+        return new ArrayList<Long>(normalized);
     }
 
     private long safeCount(LambdaQueryWrapper<DataModelEntity> queryWrapper) {

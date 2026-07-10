@@ -18,6 +18,7 @@ public class DataDevelopmentExecutionContext {
     private String tenantId;
     private String username;
     private Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+    private Map<String, Object> executionConfig = new LinkedHashMap<String, Object>();
     private Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
 
     public Long getScriptId() {
@@ -108,6 +109,16 @@ public class DataDevelopmentExecutionContext {
         this.arguments = arguments == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(arguments);
+    }
+
+    public Map<String, Object> getExecutionConfig() {
+        return executionConfig;
+    }
+
+    public void setExecutionConfig(Map<String, Object> executionConfig) {
+        this.executionConfig = executionConfig == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(executionConfig);
     }
 
     public Map<String, Object> getRuntimeContext() {

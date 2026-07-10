@@ -31,5 +31,8 @@ public class DataScriptExecutionRequest {
 
     @Schema(description = "Maximum rows for SQL query")
     private Integer maxRows;
+
+    @Schema(description = "Execution config, for example modelIds for FLINK_QUESTION_SQL")
+    private Map<String, Object> executionConfig = new LinkedHashMap<String, Object>();
 }
 

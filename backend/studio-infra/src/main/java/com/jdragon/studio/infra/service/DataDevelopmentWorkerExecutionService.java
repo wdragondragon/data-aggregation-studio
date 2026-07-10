@@ -45,6 +45,7 @@ public class DataDevelopmentWorkerExecutionService {
     public DataScriptExecutionResultView executeSavedScript(DataDevelopmentScriptEntity script,
                                                             ScriptType scriptType,
                                                             Map<String, Object> arguments,
+                                                            Map<String, Object> executionConfig,
                                                             Integer maxRows,
                                                             Integer waitTimeoutSeconds) {
         Long runtimeProjectId = securityService.currentProjectId();
@@ -62,7 +63,7 @@ public class DataDevelopmentWorkerExecutionService {
         task.setAttempts(0);
         task.setMaxRetries(0);
         task.setTriggeredByUserId(securityService.currentUserId());
-        task.setPayloadJson(buildPayload(script, scriptType, arguments, maxRows, runtimeProjectId));
+        task.setPayloadJson(buildPayload(script, scriptType, arguments, executionConfig, maxRows, runtimeProjectId));
         dispatchTaskMapper.insert(task);
 
         return waitForCompletion(task, scriptType, waitTimeoutSeconds);
@@ -71,6 +72,7 @@ public class DataDevelopmentWorkerExecutionService {
     private Map<String, Object> buildPayload(DataDevelopmentScriptEntity script,
                                              ScriptType scriptType,
                                              Map<String, Object> arguments,
+                                             Map<String, Object> executionConfig,
                                              Integer maxRows,
                                              Long runtimeProjectId) {
         LinkedHashMap<String, Object> config = new LinkedHashMap<String, Object>();
@@ -78,6 +80,9 @@ public class DataDevelopmentWorkerExecutionService {
         config.put("scriptName", script.getFileName());
         config.put("scriptType", scriptType.name());
         config.put("arguments", arguments == null ? new LinkedHashMap<String, Object>() : arguments);
+        if (executionConfig != null && !executionConfig.isEmpty()) {
+            config.put("executionConfig", new LinkedHashMap<String, Object>(executionConfig));
+        }
         config.put("maxRows", maxRows);
 
         LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();

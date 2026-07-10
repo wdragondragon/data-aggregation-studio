@@ -85,6 +85,17 @@ public class ModelController {
         return Result.success(dataModelService.listOptions(keyword, pageNo, pageSize));
     }
 
+    @Operation(summary = "List model selector options")
+    @GetMapping("/selector-options")
+    public Result<PageView<DataModelDatasourceOptionView>> listSelectorOptions(
+            @RequestParam(value = "datasourceType", required = false) String datasourceType,
+            @RequestParam(value = "datasourceId", required = false) Long datasourceId,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(dataModelService.listSelectorOptions(datasourceType, datasourceId, keyword, pageNo, pageSize));
+    }
+
     @Operation(summary = "List models by datasource")
     @GetMapping("/datasource/{datasourceId}")
     public Result<PageView<DataModelDefinition>> listByDatasource(@PathVariable("datasourceId") Long datasourceId,
@@ -118,6 +129,13 @@ public class ModelController {
     @GetMapping("/datasource/{datasourceId}/sql-hints")
     public Result<List<DataModelSqlHintView>> listSqlHintsByDatasource(@PathVariable("datasourceId") Long datasourceId) {
         return Result.success(dataModelService.listSqlHintsByDatasource(datasourceId));
+    }
+
+    @Operation(summary = "List SQL editor model hints by selected models")
+    @GetMapping("/sql-hints")
+    public Result<List<DataModelSqlHintView>> listSqlHintsByModelIds(
+            @RequestParam(value = "modelIds", required = false) List<Long> modelIds) {
+        return Result.success(dataModelService.listSqlHintsByModelIds(modelIds));
     }
 
     @Operation(summary = "Get datasource model detail")

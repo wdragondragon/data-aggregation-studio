@@ -201,6 +201,7 @@ public class WorkerLifecycleRunner {
                 runtimeContext.put("workerInstanceId", clusterInstanceIdentity.instanceId());
                 runtimeContext.put("workerPodName", clusterInstanceIdentity.podName());
                 runtimeContext.put("workerNodeName", clusterInstanceIdentity.nodeName());
+                runtimeContext.put("triggeredByUserId", task.getTriggeredByUserId());
                 Map<String, Object> result = executeWithTaskContext(task, node, runtimeContext);
                 String resultStatus = resolveExecutionStatus(result);
                 LocalDateTime endedAt = LocalDateTime.now();

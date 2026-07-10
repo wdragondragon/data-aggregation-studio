@@ -71,6 +71,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id bigint");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id bigint");
         ensureColumn("data_dev_script", "environment_id", "alter table data_dev_script add column environment_id bigint");
+        ensureColumn("data_dev_script", "execution_config_json", "alter table data_dev_script add column execution_config_json json");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type varchar(64)");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id bigint");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
@@ -402,6 +403,7 @@ public class StudioSchemaUpgradeService {
                     "datasource_id bigint," +
                     "environment_id bigint," +
                     "description varchar(1000)," +
+                    "execution_config_json json," +
                     "content longtext" +
                     ")");
         }
@@ -711,6 +713,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("data_dev_directory", "project_id", "alter table data_dev_directory add column project_id integer");
         ensureColumn("data_dev_script", "project_id", "alter table data_dev_script add column project_id integer");
         ensureColumn("data_dev_script", "environment_id", "alter table data_dev_script add column environment_id integer");
+        ensureColumn("data_dev_script", "execution_config_json", "alter table data_dev_script add column execution_config_json text");
         ensureColumn("dispatch_task", "execution_type", "alter table dispatch_task add column execution_type text");
         ensureColumn("dispatch_task", "workflow_run_id", "alter table dispatch_task add column workflow_run_id integer");
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
@@ -1001,6 +1004,7 @@ public class StudioSchemaUpgradeService {
                 "datasource_id integer," +
                 "environment_id integer," +
                 "description text," +
+                "execution_config_json text," +
                 "content text" +
                 ")");
         jdbcTemplate.execute("create index if not exists idx_data_dev_directory_project_parent on data_dev_directory(project_id, parent_id)");

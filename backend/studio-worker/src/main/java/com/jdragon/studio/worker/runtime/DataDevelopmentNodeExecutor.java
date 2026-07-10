@@ -40,7 +40,9 @@ public class DataDevelopmentNodeExecutor implements NodeExecutor {
         long startedAt = System.currentTimeMillis();
         log.info("Executing data script node {} with scriptId={}", definition.getNodeCode(), scriptId);
         Map<String, Object> arguments = resolveArguments(config.get("arguments"));
-        DataScriptExecutionResultView executionResult = dataDevelopmentService.executeScript(scriptId, maxRows, arguments, runtimeContext);
+        Map<String, Object> executionConfig = resolveArguments(config.get("executionConfig"));
+        DataScriptExecutionResultView executionResult = dataDevelopmentService.executeScript(
+                scriptId, maxRows, arguments, runtimeContext, executionConfig);
         long endedAt = System.currentTimeMillis();
         emitExecutionLogs(definition, executionResult);
         if (!Boolean.TRUE.equals(executionResult.getSuccess())) {

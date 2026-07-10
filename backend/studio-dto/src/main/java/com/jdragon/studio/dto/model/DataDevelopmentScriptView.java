@@ -4,6 +4,9 @@ import com.jdragon.studio.dto.enums.ScriptType;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataDevelopmentScriptView extends BaseDefinition {
@@ -17,4 +20,5 @@ public class DataDevelopmentScriptView extends BaseDefinition {
     private String environmentName;
     private String description;
     private String content;
+    private Map<String, Object> executionConfig = new LinkedHashMap<String, Object>();
 }

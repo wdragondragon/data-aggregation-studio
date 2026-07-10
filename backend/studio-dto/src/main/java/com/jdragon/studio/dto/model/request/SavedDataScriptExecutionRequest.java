@@ -15,6 +15,9 @@ public class SavedDataScriptExecutionRequest {
     @Schema(description = "Execution arguments for non-SQL scripts")
     private Map<String, Object> arguments = new LinkedHashMap<String, Object>();
 
+    @Schema(description = "Optional execution config override")
+    private Map<String, Object> executionConfig = new LinkedHashMap<String, Object>();
+
     @Schema(description = "Maximum rows for script execution")
     private Integer maxRows;
 

@@ -6,6 +6,8 @@ import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Data
 @Schema(description = "Data development script save request")
@@ -36,5 +38,8 @@ public class DataDevelopmentScriptSaveRequest {
     @NotBlank(message = "Script content is required")
     @Schema(description = "Script content", required = true)
     private String content;
+
+    @Schema(description = "Execution config, for example modelIds for FLINK_QUESTION_SQL")
+    private Map<String, Object> executionConfig = new LinkedHashMap<String, Object>();
 }
 
