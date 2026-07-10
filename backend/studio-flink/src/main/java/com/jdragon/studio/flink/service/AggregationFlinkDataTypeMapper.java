@@ -54,12 +54,16 @@ final class AggregationFlinkDataTypeMapper {
         Integer size = asInteger(firstNonNull(column.get("size"), column.get("columnSize")));
         Integer scale = asInteger(firstNonNull(column.get("scale"), column.get("decimalDigits")));
         if (dataType != null) {
-            return mapSqlType(dataType, size, scale);
+            return mapSqlType(dataType, typeName, size, scale);
         }
         return mapTypeName(typeName, size, scale);
     }
 
-    private static DataType mapSqlType(int dataType, Integer size, Integer scale) {
+    private static DataType mapSqlType(int dataType, String typeName, Integer size, Integer scale) {
+        String normalizedTypeName = normalize(typeName);
+        if ("year".equals(normalizedTypeName)) {
+            return DataTypes.INT();
+        }
         switch (dataType) {
             case Types.BIT:
             case Types.BOOLEAN:
@@ -124,10 +128,16 @@ final class AggregationFlinkDataTypeMapper {
         if (type.contains("decimal") || type.contains("numeric")) {
             return DataTypes.DECIMAL(safePrecision(size), safeScale(scale));
         }
+        if (type.equals("year")) {
+            return DataTypes.INT();
+        }
         if (type.equals("date")) {
             return DataTypes.DATE();
         }
-        if (type.contains("time")) {
+        if (type.equals("time")) {
+            return DataTypes.TIME();
+        }
+        if (type.contains("timestamp") || type.contains("datetime")) {
             return DataTypes.TIMESTAMP(3);
         }
         if (type.contains("binary") || type.contains("blob")) {
@@ -172,5 +182,9 @@ final class AggregationFlinkDataTypeMapper {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
     }
 }

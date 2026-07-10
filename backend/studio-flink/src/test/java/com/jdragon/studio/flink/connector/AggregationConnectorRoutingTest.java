@@ -1,5 +1,7 @@
 package com.jdragon.studio.flink.connector;
 
+import com.jdragon.aggregation.commons.util.Configuration;
+import com.jdragon.aggregation.datasource.file.FileHelper;
 import org.apache.flink.api.common.eventtime.Watermark;
 import org.apache.flink.api.connector.source.ReaderOutput;
 import org.apache.flink.api.connector.source.SourceOutput;
@@ -17,9 +19,13 @@ import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
 import org.apache.flink.table.types.DataType;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -186,6 +192,40 @@ class AggregationConnectorRoutingTest {
         assertThrows(IllegalArgumentException.class, () -> FilePathPushdownResolver.resolve(runtime));
     }
 
+    @Test
+    void expandsFileModelRootPartitionGlobToConcretePaths() throws Exception {
+        AggregationFlinkTableRuntime runtime = new AggregationFlinkTableRuntime();
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("rootPath", "/contacts");
+        metadata.put("partitionType", "glob");
+        metadata.put("partition", "iq_ftp_contacts_multi_*_20260709.csv");
+        runtime.setModelMetadata(metadata);
+        FakeFileHelper fileHelper = new FakeFileHelper();
+        fileHelper.add("/contacts", "iq_ftp_contacts_multi_a_20260709.csv");
+        fileHelper.add("/contacts", "iq_ftp_contacts_multi_b_20260709.csv");
+        fileHelper.add("/contacts", "other.csv");
+
+        List<ResolvedFilePath> requested = FilePathPushdownResolver.resolve(runtime);
+        List<ResolvedFilePath> expanded = FilePathExpansion.expand(fileHelper, runtime, requested.get(0));
+
+        assertEquals(1, requested.size());
+        assertEquals("/contacts/iq_ftp_contacts_multi_*_20260709.csv", requested.get(0).getPath());
+        assertEquals(Arrays.asList("/contacts/iq_ftp_contacts_multi_a_20260709.csv",
+                "/contacts/iq_ftp_contacts_multi_b_20260709.csv"),
+                expanded.stream().map(ResolvedFilePath::getPath).collect(Collectors.toList()));
+    }
+
+    @Test
+    void skipsExactFilePathWhenSourceReportsMissing() throws Exception {
+        AggregationFlinkTableRuntime runtime = new AggregationFlinkTableRuntime();
+        runtime.setModelMetadata(new LinkedHashMap<String, Object>());
+
+        List<ResolvedFilePath> expanded = FilePathExpansion.expand(new FakeFileHelper(), runtime,
+                new ResolvedFilePath("/oss/events/2026-07-08.csv", Collections.<String, LocalDate>emptyMap()));
+
+        assertTrue(expanded.isEmpty());
+    }
+
     private void assertStructured(String... names) {
         for (String name : names) {
             assertEquals(AggregationPluginKind.STRUCTURED, AggregationPluginClassifier.classify(name), name);
@@ -275,6 +315,77 @@ class AggregationConnectorRoutingTest {
 
         @Override
         public void releaseOutputForSplit(String splitId) {
+        }
+    }
+
+    private static class FakeFileHelper implements FileHelper {
+        private final Map<String, Set<String>> files = new LinkedHashMap<String, Set<String>>();
+
+        void add(String dir, String name) {
+            files.computeIfAbsent(dir, key -> new HashSet<String>()).add(name);
+        }
+
+        @Override
+        public boolean exists(String path, String name) {
+            Set<String> names = files.get(path);
+            return names != null && names.contains(name);
+        }
+
+        @Override
+        public Set<String> listFile(String dir, String regex) {
+            Set<String> result = new HashSet<String>();
+            Set<String> names = files.get(dir);
+            if (names == null) {
+                return result;
+            }
+            for (String name : names) {
+                if (name.matches(regex)) {
+                    result.add(name);
+                }
+            }
+            return result;
+        }
+
+        @Override
+        public boolean isFile(String dir, String fileName) {
+            return exists(dir, fileName);
+        }
+
+        @Override
+        public void mkdir(String filePath) {
+        }
+
+        @Override
+        public void rm(String path) {
+        }
+
+        @Override
+        public boolean connect(Configuration configuration) {
+            return true;
+        }
+
+        @Override
+        public boolean isConnected() {
+            return true;
+        }
+
+        @Override
+        public boolean mv(String from, String to) {
+            return true;
+        }
+
+        @Override
+        public InputStream getInputStream(String path, String name) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public OutputStream getOutputStream(String path, String name) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
         }
     }
 }

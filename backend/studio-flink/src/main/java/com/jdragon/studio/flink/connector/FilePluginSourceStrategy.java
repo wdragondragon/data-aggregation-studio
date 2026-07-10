@@ -21,12 +21,20 @@ class FilePluginSourceStrategy implements AggregationSourceStrategy {
             }
             List<ResolvedFilePath> paths = FilePathPushdownResolver.resolve(runtime);
             for (ResolvedFilePath resolvedPath : paths) {
-                String path = resolvedPath.getPath();
-                runtime.addResolvedFilePath(path);
-                String fileType = resolveFileType(runtime, path);
-                Map<String, LocalDate> contextValues = resolvedPath.getContextValues();
-                fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, enrichPathContext(row, contextValues)),
-                        runtime.getExtConfig());
+                for (ResolvedFilePath concretePath : FilePathExpansion.expand(fileHelper, runtime, resolvedPath)) {
+                    String path = concretePath.getPath();
+                    runtime.addResolvedFilePath(path);
+                    String fileType = resolveFileType(runtime, path);
+                    Map<String, LocalDate> contextValues = concretePath.getContextValues();
+                    try {
+                        fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, enrichPathContext(row, contextValues)),
+                                runtime.getExtConfig());
+                    } catch (Exception ex) {
+                        if (!FilePathExpansion.isMissingFile(ex)) {
+                            throw ex;
+                        }
+                    }
+                }
             }
         } catch (Exception ex) {
             if (!isStopSourceScan(ex)) {

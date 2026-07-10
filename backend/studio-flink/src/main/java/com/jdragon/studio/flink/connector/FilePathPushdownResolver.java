@@ -127,9 +127,19 @@ final class FilePathPushdownResolver {
     }
 
     private static String resolveDefaultPathExpression(AggregationFlinkTableRuntime runtime) {
-        Object path = runtime.getModelMetadata().get("path");
+        Map<String, Object> metadata = runtime.getModelMetadata();
+        Object path = metadata.get("path");
         if (path == null) {
-            path = runtime.getModelMetadata().get("physicalName");
+            Object rootPath = metadata.get("rootPath");
+            Object partition = firstText(metadata.get("partition"), metadata.get("pattern"));
+            if (hasText(rootPath) && hasText(partition)) {
+                return joinPath(String.valueOf(rootPath), String.valueOf(partition));
+            }
+            Object fileName = firstText(metadata.get("fileName"), metadata.get("physicalName"));
+            if (hasText(rootPath) && hasText(fileName)) {
+                return joinPath(String.valueOf(rootPath), String.valueOf(fileName));
+            }
+            path = fileName;
         }
         if (path == null) {
             path = runtime.getPhysicalLocator();
@@ -148,6 +158,32 @@ final class FilePathPushdownResolver {
             return rootPath.endsWith("/") ? rootPath + value : rootPath + "/" + value;
         }
         return value;
+    }
+
+    private static boolean hasText(Object value) {
+        return value != null && !String.valueOf(value).trim().isEmpty();
+    }
+
+    private static Object firstText(Object first, Object second) {
+        return hasText(first) ? first : second;
+    }
+
+    private static String joinPath(String root, String name) {
+        String normalizedRoot = root == null ? "" : root.trim().replace('\\', '/');
+        String normalizedName = name == null ? "" : name.trim().replace('\\', '/');
+        if (normalizedName.startsWith("/") || normalizedName.contains("://")) {
+            return normalizedName;
+        }
+        while (normalizedRoot.endsWith("/") && normalizedRoot.length() > 1) {
+            normalizedRoot = normalizedRoot.substring(0, normalizedRoot.length() - 1);
+        }
+        while (normalizedName.startsWith("/")) {
+            normalizedName = normalizedName.substring(1);
+        }
+        if (normalizedRoot.isEmpty() || "/".equals(normalizedRoot)) {
+            return "/" + normalizedName;
+        }
+        return normalizedRoot + "/" + normalizedName;
     }
 
     private static final class DateWindow {

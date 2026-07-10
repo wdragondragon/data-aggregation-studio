@@ -20,6 +20,8 @@ class AggregationFlinkDataTypeMapperTest {
                 column("id", Types.INTEGER, null, null, null),
                 column("amount", Types.DECIMAL, null, 18, 2),
                 column("created_at", Types.TIMESTAMP, null, null, null),
+                column("ship_year", Types.DATE, "YEAR", null, null),
+                column("expire_time", null, "TIME", null, null),
                 column("payload", null, "json", null, null)
         ));
 
@@ -27,11 +29,13 @@ class AggregationFlinkDataTypeMapperTest {
         List<String> names = DataType.getFieldNames(rowType);
         List<DataType> types = DataType.getFieldDataTypes(rowType);
 
-        assertEquals(Arrays.asList("id", "amount", "created_at", "payload"), names);
+        assertEquals(Arrays.asList("id", "amount", "created_at", "ship_year", "expire_time", "payload"), names);
         assertEquals("INT", types.get(0).getLogicalType().asSerializableString());
         assertEquals("DECIMAL(18, 2)", types.get(1).getLogicalType().asSerializableString());
         assertEquals("TIMESTAMP(3)", types.get(2).getLogicalType().asSerializableString());
-        assertEquals("VARCHAR(2147483647)", types.get(3).getLogicalType().asSerializableString());
+        assertEquals("INT", types.get(3).getLogicalType().asSerializableString());
+        assertEquals("TIME(0)", types.get(4).getLogicalType().asSerializableString());
+        assertEquals("VARCHAR(2147483647)", types.get(5).getLogicalType().asSerializableString());
     }
 
     @Test

@@ -5,15 +5,17 @@ import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 
@@ -61,7 +63,10 @@ class AggregationRowDataConverter {
                     return value instanceof Number ? ((Number) value).doubleValue() : Double.parseDouble(String.valueOf(value));
                 case DECIMAL:
                     BigDecimal decimal = value instanceof BigDecimal ? (BigDecimal) value : new BigDecimal(String.valueOf(value));
-                    return DecimalData.fromBigDecimal(decimal, 38, Math.max(0, decimal.scale()));
+                    DecimalType decimalType = (DecimalType) type.getLogicalType();
+                    return DecimalData.fromBigDecimal(decimal.setScale(decimalType.getScale(), RoundingMode.HALF_UP),
+                            decimalType.getPrecision(),
+                            decimalType.getScale());
                 case DATE:
                     if (value instanceof Date) {
                         return (int) ((Date) value).toLocalDate().toEpochDay();
@@ -72,9 +77,15 @@ class AggregationRowDataConverter {
                     return (int) LocalDate.parse(String.valueOf(value).substring(0, 10)).toEpochDay();
                 case TIME_WITHOUT_TIME_ZONE:
                     if (value instanceof Time) {
-                        return (int) ((Time) value).toLocalTime().toNanoOfDay() / 1000000;
+                        return millisOfDay(((Time) value).toLocalTime());
                     }
-                    return (int) (Time.valueOf(String.valueOf(value)).toLocalTime().toNanoOfDay() / 1000000);
+                    if (value instanceof LocalTime) {
+                        return millisOfDay((LocalTime) value);
+                    }
+                    if (value instanceof Number) {
+                        return ((Number) value).intValue();
+                    }
+                    return millisOfDay(LocalTime.parse(String.valueOf(value)));
                 case TIMESTAMP_WITHOUT_TIME_ZONE:
                 case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                     if (value instanceof Timestamp) {
@@ -90,8 +101,13 @@ class AggregationRowDataConverter {
                 default:
                     return StringData.fromString(String.valueOf(value));
             }
-        } catch (Exception ignored) {
-            return StringData.fromString(String.valueOf(value));
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Failed to convert value '" + value + "' to Flink type "
+                    + type.getLogicalType().asSerializableString(), ex);
         }
+    }
+
+    private int millisOfDay(LocalTime time) {
+        return (int) (time.toNanoOfDay() / 1000000L);
     }
 }
