@@ -189,6 +189,7 @@
           <div class="dashboard-script-mix">
             <div class="dashboard-script-mix__legend">
               <StatusPill :label="`${t('web.dataDevelopment.scriptTypeSql')} · ${scriptTypeCounts.SQL}`" tone="primary" />
+              <StatusPill :label="`${t('web.dataDevelopment.scriptTypeFlinkQuestionSql')} · ${scriptTypeCounts.FLINK_QUESTION_SQL}`" tone="neutral" />
               <StatusPill :label="`${t('web.dataDevelopment.scriptTypeJava')} · ${scriptTypeCounts.JAVA}`" tone="success" />
               <StatusPill :label="`${t('web.dataDevelopment.scriptTypePython')} · ${scriptTypeCounts.PYTHON}`" tone="warning" />
             </div>
@@ -243,13 +244,15 @@ let dashboardLoadToken = 0;
 
 const scriptTypeCounts = reactive({
   SQL: 0,
+  FLINK_QUESTION_SQL: 0,
   JAVA: 0,
   PYTHON: 0,
 });
 
 const runningWorkflowRunCount = computed(() => recentWorkflowRuns.value.filter((item) => String(item.status ?? "").toUpperCase() === "RUNNING").length);
 const failedWorkflowRunCount = computed(() => recentWorkflowRuns.value.filter((item) => ["FAILED", "ERROR"].includes(String(item.status ?? "").toUpperCase())).length);
-const scriptTotalCount = computed(() => scriptTypeCounts.SQL + scriptTypeCounts.JAVA + scriptTypeCounts.PYTHON);
+const scriptTotalCount = computed(() =>
+  scriptTypeCounts.SQL + scriptTypeCounts.FLINK_QUESTION_SQL + scriptTypeCounts.JAVA + scriptTypeCounts.PYTHON);
 
 const workspaceLinks = computed(() => [
   {
@@ -291,6 +294,7 @@ async function loadDashboard() {
     onlineCollectionTaskCount.value = toCount(overview.onlineCollectionTaskCount);
     queuedTaskCount.value = toCount(overview.queuedTaskCount);
     scriptTypeCounts.SQL = toCount(overview.scriptTypeCounts?.SQL);
+    scriptTypeCounts.FLINK_QUESTION_SQL = toCount(overview.scriptTypeCounts?.FLINK_QUESTION_SQL);
     scriptTypeCounts.JAVA = toCount(overview.scriptTypeCounts?.JAVA);
     scriptTypeCounts.PYTHON = toCount(overview.scriptTypeCounts?.PYTHON);
     executableDatasourceTypes.value = overview.executableDatasourceTypes ?? [];
@@ -343,6 +347,9 @@ function scriptTone(scriptType?: string) {
   }
   if (scriptType === "PYTHON") {
     return "warning";
+  }
+  if (scriptType === "FLINK_QUESTION_SQL") {
+    return "neutral";
   }
   return "primary";
 }

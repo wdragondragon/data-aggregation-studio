@@ -157,7 +157,7 @@ export type StatisticsChartType = "TREND" | "BAR" | "PIE" | "TOPN";
 export type DataModelLineageLevel = "DATABASE" | "TABLE" | "FIELD";
 export type CollectionTaskType = "SINGLE_TABLE" | "FUSION";
 export type CollectionTaskStatus = "DRAFT" | "ONLINE";
-export type ScriptType = "SQL" | "JAVA" | "PYTHON";
+export type ScriptType = "SQL" | "FLINK_QUESTION_SQL" | "JAVA" | "PYTHON";
 export type DataServiceType = "MODEL_PUBLISH" | "SERVICE_PROXY";
 export type DataServiceStatus = "DRAFT" | "ONLINE" | "OFFLINE";
 export type DataServiceSourceType = "TABLE" | "SQL";
@@ -2344,6 +2344,7 @@ export interface DataDevelopmentScript extends BaseRecord {
   environmentName?: string;
   description?: string;
   content: string;
+  executionConfig?: Record<string, unknown>;
 }
 
 export interface DataDevelopmentScriptListView extends BaseRecord {
@@ -2391,6 +2392,7 @@ export interface DataDevelopmentScriptSaveRequest {
   environmentId?: EntityId;
   description?: string;
   content: string;
+  executionConfig?: Record<string, unknown>;
 }
 
 export interface DataDevelopmentMoveRequest {
@@ -2411,10 +2413,12 @@ export interface DataScriptExecutionRequest {
   content: string;
   arguments?: Record<string, unknown>;
   maxRows?: number;
+  executionConfig?: Record<string, unknown>;
 }
 
 export interface SavedDataScriptExecutionRequest {
   arguments?: Record<string, unknown>;
+  executionConfig?: Record<string, unknown>;
   maxRows?: number;
   waitTimeoutSeconds?: number;
 }

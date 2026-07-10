@@ -57,7 +57,7 @@
           <p>{{ selectedBoundScript.datasourceName || t("common.none") }} · {{ formatScriptType(t, selectedBoundScript.scriptType) }}</p>
           <p>{{ t("web.workflows.dataScriptSummary") }}</p>
         </div>
-        <el-form-item v-if="selectedBoundScript && selectedBoundScript.scriptType !== 'SQL'" :label="t('web.workflows.dataScriptArguments')">
+        <el-form-item v-if="selectedBoundScript && dataScriptUsesArguments(selectedBoundScript.scriptType)" :label="t('web.workflows.dataScriptArguments')">
           <el-input
             v-model="dataScriptArgumentsTextModel"
             type="textarea"
@@ -313,6 +313,11 @@ const httpBodyTextModel = computed({
     emit("update:httpBodyText", value);
   },
 });
+
+function dataScriptUsesArguments(scriptType?: string | null) {
+  const normalized = String(scriptType ?? "").toUpperCase();
+  return normalized === "JAVA" || normalized === "PYTHON";
+}
 </script>
 
 <style scoped>

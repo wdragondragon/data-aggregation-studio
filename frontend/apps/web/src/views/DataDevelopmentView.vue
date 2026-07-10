@@ -93,6 +93,41 @@
                 />
               </el-select>
             </el-form-item>
+            <el-form-item
+              v-if="isFlinkQuestionSqlType"
+              :label="t('web.dataDevelopment.flinkQuestionModels')"
+              class="span-2 flink-model-form-item"
+            >
+              <div class="flink-model-picker">
+                <div class="flink-model-picker__toolbar">
+                  <span>{{ t("web.dataDevelopment.flinkQuestionSelectedModels") }}：{{ flinkQuestionSelectedModels.length }}</span>
+                  <el-button type="primary" plain @click="openFlinkModelSelector">
+                    {{ t("web.dataDevelopment.flinkQuestionAddModel") }}
+                  </el-button>
+                </div>
+                <div v-if="flinkQuestionSelectedModels.length" class="flink-selected-models">
+                  <div
+                    v-for="model in flinkQuestionSelectedModels"
+                    :key="String(model.id)"
+                    class="flink-selected-model"
+                  >
+                    <div class="flink-selected-model__copy">
+                      <strong>{{ t("web.dataDevelopment.flinkQuestionModelName") }}：{{ model.name }}</strong>
+                      <span>
+                        {{ t("web.dataDevelopment.flinkQuestionModelTableName") }}：{{ flinkQuestionTableName(model.id) }}
+                        · {{ t("web.dataDevelopment.flinkQuestionDatasource") }}：{{ resolveFlinkQuestionModelDatasourceLabel(model) }}
+                      </span>
+                    </div>
+                    <el-button text type="danger" @click="removeFlinkQuestionModel(model.id)">
+                      {{ t("web.dataDevelopment.flinkQuestionRemoveModel") }}
+                    </el-button>
+                  </div>
+                </div>
+                <div v-else class="flink-model-empty">
+                  {{ t("web.dataDevelopment.flinkQuestionNoSelectedModels") }}
+                </div>
+              </div>
+            </el-form-item>
             <el-form-item v-if="isJavaScriptType" :label="t('web.dataDevelopment.scriptEnvironment')">
               <el-select v-model="scriptForm.environmentId" filterable :placeholder="t('web.dataDevelopment.scriptEnvironmentPlaceholder')">
                 <el-option
@@ -122,7 +157,7 @@
               v-model="scriptForm.content"
               :script-type="scriptForm.scriptType"
               :placeholder="t('web.dataDevelopment.contentPlaceholder')"
-              :sql-hints="currentSqlHints"
+              :sql-hints="currentEditorSqlHints"
               :java-hint-source="javaHintSource"
               :java-hint-key="javaHintKey"
             />
@@ -235,6 +270,103 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="flinkModelSelectorVisible"
+      :title="t('web.dataDevelopment.flinkQuestionModelSelectorTitle')"
+      width="860px"
+      @open="prepareFlinkModelSelector"
+    >
+      <div class="studio-form-grid flink-model-selector-filters">
+        <el-form-item :label="t('web.dataDevelopment.flinkQuestionDatasourceType')">
+          <el-select
+            v-model="flinkModelSelectorFilter.datasourceType"
+            clearable
+            filterable
+            :placeholder="t('web.dataDevelopment.flinkQuestionDatasourceTypePlaceholder')"
+            @change="handleFlinkModelSelectorDatasourceTypeChange"
+          >
+            <el-option
+              v-for="type in datasourceTypeOptions"
+              :key="type.typeCode"
+              :label="`${type.typeName || type.typeCode} (${type.typeCode})`"
+              :value="type.typeCode"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('web.dataDevelopment.flinkQuestionDatasource')">
+          <el-select
+            v-model="flinkModelSelectorFilter.datasourceId"
+            clearable
+            filterable
+            :placeholder="t('web.dataDevelopment.flinkQuestionDatasourcePlaceholder')"
+            @change="searchFlinkModelSelectorFirstPage"
+          >
+            <el-option
+              v-for="datasource in flinkModelSelectorDatasourceOptions"
+              :key="datasource.id"
+              :label="`${datasource.name} (${datasource.typeCode})`"
+              :value="String(datasource.id)"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('web.dataDevelopment.flinkQuestionModelKeyword')">
+          <el-input
+            v-model="flinkModelSelectorFilter.keyword"
+            clearable
+            :placeholder="t('web.dataDevelopment.flinkQuestionModelKeywordPlaceholder')"
+            @keyup.enter="searchFlinkModelSelectorFirstPage"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="searchFlinkModelSelectorFirstPage">
+            {{ t("common.search") }}
+          </el-button>
+        </el-form-item>
+      </div>
+
+      <el-table
+        v-loading="flinkModelSelectorLoading"
+        :data="flinkModelSelectorRows"
+        row-key="id"
+        border
+        max-height="420"
+        @selection-change="handleFlinkModelSelectorSelectionChange"
+      >
+        <el-table-column type="selection" width="48" :selectable="isFlinkModelSelectorRowSelectable" />
+        <el-table-column prop="name" :label="t('web.dataDevelopment.flinkQuestionModelName')" min-width="180" show-overflow-tooltip />
+        <el-table-column :label="t('web.dataDevelopment.flinkQuestionModelTableName')" min-width="130">
+          <template #default="{ row }">
+            <span class="monospace">{{ flinkQuestionTableName(row.id) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="physicalLocator" :label="t('web.dataDevelopment.flinkQuestionPhysicalLocator')" min-width="220" show-overflow-tooltip />
+        <el-table-column :label="t('web.dataDevelopment.flinkQuestionDatasource')" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ resolveFlinkQuestionModelDatasourceLabel(row) }}
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="flink-model-selector-pagination">
+        <el-pagination
+          v-model:current-page="flinkModelSelectorPagination.pageNo"
+          v-model:page-size="flinkModelSelectorPagination.pageSize"
+          :total="flinkModelSelectorPagination.total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          @size-change="searchFlinkModelSelectorFirstPage"
+          @current-change="searchFlinkModelSelector"
+        />
+      </div>
+
+      <template #footer>
+        <el-button @click="flinkModelSelectorVisible = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" @click="confirmFlinkModelSelection">
+          {{ t("web.dataDevelopment.flinkQuestionModelSelectorConfirm") }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="moveDialogVisible" :title="t('web.dataDevelopment.moveToDirectory')" width="460px">
       <el-form-item :label="t('web.dataDevelopment.moveToDirectory')">
         <el-select v-model="moveTargetDirectoryId" clearable :placeholder="t('web.dataDevelopment.moveToDirectoryPlaceholder')">
@@ -264,7 +396,9 @@ import type {
   DataDevelopmentDirectorySaveRequest,
   DataScriptExecutionResult,
   DataDevelopmentScript,
+  DataModelDatasourceOptionView,
   DataModelSqlHintView,
+  DatasourceTypeCapabilityView,
   SqlStatementExecutionResult,
   DataDevelopmentTreeNode,
   DataSourceOptionView,
@@ -289,6 +423,8 @@ const EXECUTION_LOG_PREVIEW_SIZE_BYTES = 64 * 1024;
 const treeData = ref<DataDevelopmentTreeNode[]>([]);
 const directories = ref<DataDevelopmentDirectory[]>([]);
 const sqlDatasources = ref<DataSourceOptionView[]>([]);
+const datasourceOptions = ref<DataSourceOptionView[]>([]);
+const datasourceTypeOptions = ref<DatasourceTypeCapabilityView[]>([]);
 const scriptEnvironments = ref<ScriptEnvironmentOption[]>([]);
 const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
@@ -300,10 +436,29 @@ const directoryDialogVisible = ref(false);
 const moveDialogVisible = ref(false);
 const moveTargetDirectoryId = ref<string>("");
 const sqlHintCache = ref<Record<string, SqlEditorHintSource>>({});
+const flinkQuestionModelMap = ref<Record<string, DataModelDatasourceOptionView>>({});
+const flinkQuestionSqlHintCache = ref<Record<string, DataModelSqlHintView>>({});
 const scriptExecutionArgumentsText = ref("{\n  \n}");
+const flinkQuestionModelIds = ref<string[]>([]);
+const flinkModelSelectorVisible = ref(false);
+const flinkModelSelectorLoading = ref(false);
+const flinkModelSelectorRows = ref<DataModelDatasourceOptionView[]>([]);
+const flinkModelSelectorSelection = ref<DataModelDatasourceOptionView[]>([]);
 const refreshToken = ref(0);
 const sqlDatasourceOptionsLoaded = ref(false);
+const datasourceOptionsLoaded = ref(false);
+const datasourceTypeOptionsLoaded = ref(false);
 const scriptEnvironmentOptionsLoaded = ref(false);
+const flinkModelSelectorFilter = reactive({
+  datasourceType: "",
+  datasourceId: "",
+  keyword: "",
+});
+const flinkModelSelectorPagination = reactive({
+  pageNo: 1,
+  pageSize: 10,
+  total: 0,
+});
 
 const directoryForm = reactive<DataDevelopmentDirectorySaveRequest>({
   id: undefined,
@@ -341,10 +496,12 @@ const isCurrentScriptShared = computed(() => Boolean(
 ));
 const isJavaScriptType = computed(() => scriptForm.scriptType === "JAVA");
 const isPythonScriptType = computed(() => scriptForm.scriptType === "PYTHON");
+const isFlinkQuestionSqlType = computed(() => scriptForm.scriptType === "FLINK_QUESTION_SQL");
 const isStructuredScriptType = computed(() => isJavaScriptType.value || isPythonScriptType.value);
 const supportsExecutionArguments = computed(() => isStructuredScriptType.value);
 const scriptTypeOptions = computed(() => [
   { value: "SQL", label: t("web.dataDevelopment.scriptTypeSql"), disabled: false },
+  { value: "FLINK_QUESTION_SQL", label: t("web.dataDevelopment.scriptTypeFlinkQuestionSql"), disabled: false },
   { value: "JAVA", label: t("web.dataDevelopment.scriptTypeJava"), disabled: false },
   { value: "PYTHON", label: t("web.dataDevelopment.scriptTypePython"), disabled: false },
 ]);
@@ -367,6 +524,49 @@ const currentSqlHints = computed<SqlEditorHintSource | undefined>(() => {
   }
   return sqlHintCache.value[String(scriptForm.datasourceId)];
 });
+const flinkQuestionModelIdSet = computed(() => new Set(flinkQuestionModelIds.value.map((item) => String(item))));
+const flinkQuestionSelectedModels = computed<DataModelDatasourceOptionView[]>(() =>
+  flinkQuestionModelIds.value.map((modelId) => {
+    const cacheKey = String(modelId);
+    const cached = flinkQuestionModelMap.value[cacheKey];
+    if (cached) {
+      return cached;
+    }
+    return {
+      id: modelId,
+      name: flinkQuestionTableName(modelId),
+      physicalLocator: "",
+    };
+  }),
+);
+const flinkModelSelectorDatasourceOptions = computed(() => {
+  const expectedType = flinkModelSelectorFilter.datasourceType.trim().toLowerCase();
+  if (!expectedType) {
+    return datasourceOptions.value;
+  }
+  return datasourceOptions.value.filter((item) => String(item.typeCode ?? "").toLowerCase() === expectedType);
+});
+const currentFlinkQuestionSqlHints = computed<SqlEditorHintSource | undefined>(() => {
+  if (!isFlinkQuestionSqlType.value) {
+    return undefined;
+  }
+  return {
+    datasourceName: t("web.dataDevelopment.scriptTypeFlinkQuestionSql"),
+    datasourceTypeCode: "FLINK_QUESTION_SQL",
+    tables: flinkQuestionSelectedModels.value.map((model) => {
+      const modelId = model.id == null ? "" : String(model.id);
+      const hint = flinkQuestionSqlHintCache.value[modelId];
+      return {
+        name: flinkQuestionTableName(model.id),
+        modelName: model.name,
+        columns: [...(hint?.columns ?? [])].sort((left, right) => left.localeCompare(right)),
+      };
+    }),
+  };
+});
+const currentEditorSqlHints = computed<SqlEditorHintSource | undefined>(() =>
+  isFlinkQuestionSqlType.value ? currentFlinkQuestionSqlHints.value : currentSqlHints.value,
+);
 const DEFAULT_SCRIPT_ENVIRONMENT_CODE = "default-application";
 const defaultScriptEnvironmentId = computed(() => {
   const enabledEnvironments = scriptEnvironments.value.filter((item) => item.enabled !== false);
@@ -483,10 +683,20 @@ function resetProjectScopedState() {
   treeData.value = [];
   directories.value = [];
   sqlDatasources.value = [];
+  datasourceOptions.value = [];
+  datasourceTypeOptions.value = [];
   scriptEnvironments.value = [];
   sqlDatasourceOptionsLoaded.value = false;
+  datasourceOptionsLoaded.value = false;
+  datasourceTypeOptionsLoaded.value = false;
   scriptEnvironmentOptionsLoaded.value = false;
   sqlHintCache.value = {};
+  flinkQuestionModelMap.value = {};
+  flinkQuestionSqlHintCache.value = {};
+  flinkModelSelectorRows.value = [];
+  flinkModelSelectorSelection.value = [];
+  flinkModelSelectorVisible.value = false;
+  flinkModelSelectorLoading.value = false;
   selectedTreeNode.value = null;
   selectedDirectory.value = null;
   executionResult.value = null;
@@ -508,6 +718,13 @@ function resetProjectScopedState() {
   scriptForm.description = "";
   scriptForm.content = "";
   scriptExecutionArgumentsText.value = "{\n  \n}";
+  flinkQuestionModelIds.value = [];
+  flinkModelSelectorFilter.datasourceType = "";
+  flinkModelSelectorFilter.datasourceId = "";
+  flinkModelSelectorFilter.keyword = "";
+  flinkModelSelectorPagination.pageNo = 1;
+  flinkModelSelectorPagination.pageSize = 10;
+  flinkModelSelectorPagination.total = 0;
   moveTargetDirectoryId.value = "";
 }
 
@@ -522,6 +739,32 @@ async function loadSqlDatasourceOptions(force = false) {
   }
   sqlDatasources.value = await studioApi.dataDevelopment.listSqlDatasourceOptions();
   sqlDatasourceOptionsLoaded.value = true;
+}
+
+async function loadDatasourceOptions(force = false) {
+  if (!hasCurrentProject.value) {
+    datasourceOptions.value = [];
+    datasourceOptionsLoaded.value = false;
+    return;
+  }
+  if (datasourceOptionsLoaded.value && !force) {
+    return;
+  }
+  datasourceOptions.value = await studioApi.datasources.options(LOCAL_LOADING_REQUEST);
+  datasourceOptionsLoaded.value = true;
+}
+
+async function loadDatasourceTypeOptions(force = false) {
+  if (!hasCurrentProject.value) {
+    datasourceTypeOptions.value = [];
+    datasourceTypeOptionsLoaded.value = false;
+    return;
+  }
+  if (datasourceTypeOptionsLoaded.value && !force) {
+    return;
+  }
+  datasourceTypeOptions.value = await studioApi.catalog.datasourceTypes();
+  datasourceTypeOptionsLoaded.value = true;
 }
 
 async function loadScriptEnvironmentOptions(force = false) {
@@ -549,11 +792,18 @@ async function ensureEditorReferenceData(scriptType = scriptForm.scriptType, for
   if (scriptType === "JAVA") {
     loaders.push(loadScriptEnvironmentOptions(force));
   }
+  if (scriptType === "FLINK_QUESTION_SQL") {
+    loaders.push(loadDatasourceOptions(force));
+    loaders.push(loadDatasourceTypeOptions(force));
+  }
   if (loaders.length) {
     await Promise.all(loaders);
   }
   if (scriptType === "JAVA") {
     ensureJavaEnvironmentSelected();
+  }
+  if (scriptType === "FLINK_QUESTION_SQL") {
+    await ensureFlinkQuestionModelHintsLoaded(flinkQuestionModelIds.value);
   }
 }
 
@@ -619,6 +869,7 @@ async function loadScript(scriptId: string | number | undefined) {
   scriptForm.environmentName = script.environmentName;
   scriptForm.description = script.description;
   scriptForm.content = script.content;
+  flinkQuestionModelIds.value = resolveFlinkQuestionModelIds(script.executionConfig);
   scriptExecutionArgumentsText.value = "{\n  \n}";
   await ensureEditorReferenceData(script.scriptType);
   await ensureSqlHintsLoaded(script.datasourceId);
@@ -640,6 +891,7 @@ function createNewScript() {
   scriptForm.description = "";
   scriptForm.content = "";
   scriptExecutionArgumentsText.value = "{\n  \n}";
+  flinkQuestionModelIds.value = [];
   executionResult.value = null;
   executionLogContent.value = "";
   activeExecutionTab.value = "1";
@@ -692,6 +944,7 @@ async function persistCurrentScript(showSuccessMessage: boolean) {
     environmentId: isJavaScriptType.value ? resolveJavaEnvironmentId() : undefined,
     description: scriptForm.description,
     content: scriptForm.content,
+    executionConfig: buildCurrentExecutionConfig(false),
   });
   applySavedScript(saved);
   if (showSuccessMessage) {
@@ -713,6 +966,7 @@ function applySavedScript(saved: DataDevelopmentScript) {
   scriptForm.environmentName = saved.environmentName;
   scriptForm.description = saved.description;
   scriptForm.content = saved.content;
+  flinkQuestionModelIds.value = resolveFlinkQuestionModelIds(saved.executionConfig);
   const treeNode = upsertSavedScriptTreeNode(saved);
   selectedTreeNode.value = treeNode ?? selectedTreeNode.value;
   selectedDirectory.value = saved.directoryId
@@ -802,7 +1056,7 @@ async function executeCurrentScript() {
   }
   try {
     executionLogContent.value = "";
-    if (scriptForm.scriptType === "SQL") {
+    if (scriptForm.scriptType === "SQL" || scriptForm.scriptType === "FLINK_QUESTION_SQL") {
       executionResult.value = await studioApi.dataDevelopment.executeScript({
         scriptType: scriptForm.scriptType,
         datasourceId: currentScriptRegistryEntry.value.requiresDatasource
@@ -812,6 +1066,7 @@ async function executeCurrentScript() {
         content: scriptForm.content,
         arguments: undefined,
         maxRows: 100,
+        executionConfig: buildCurrentExecutionConfig(true),
       });
     } else {
       const savedScriptId = await ensureSavedScriptForExecution();
@@ -872,6 +1127,187 @@ function parseScriptExecutionArguments() {
     throw new Error(t("web.dataDevelopment.scriptArgumentsInvalid"));
   }
   return parsed as Record<string, unknown>;
+}
+
+function buildCurrentExecutionConfig(requireModels: boolean) {
+  if (!isFlinkQuestionSqlType.value) {
+    return undefined;
+  }
+  const modelIds = flinkQuestionModelIds.value
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  if (requireModels && modelIds.length === 0) {
+    throw new Error(t("web.dataDevelopment.flinkQuestionModelsRequired"));
+  }
+  return { modelIds };
+}
+
+function resolveFlinkQuestionModelIds(config?: Record<string, unknown>) {
+  const value = config?.modelIds;
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return [String(value)];
+  }
+  return [];
+}
+
+function flinkQuestionTableName(modelId?: EntityId | null) {
+  const value = modelId == null ? "" : String(modelId).trim();
+  return value ? `m_${value}` : "m_";
+}
+
+function cacheFlinkQuestionModels(models: DataModelDatasourceOptionView[]) {
+  if (!models.length) {
+    return;
+  }
+  const next = { ...flinkQuestionModelMap.value };
+  for (const model of models) {
+    if (model.id == null) {
+      continue;
+    }
+    next[String(model.id)] = model;
+  }
+  flinkQuestionModelMap.value = next;
+}
+
+function cacheFlinkQuestionSqlHints(hints: DataModelSqlHintView[]) {
+  if (!hints.length) {
+    return;
+  }
+  const nextHints = { ...flinkQuestionSqlHintCache.value };
+  const nextModels = { ...flinkQuestionModelMap.value };
+  for (const hint of hints) {
+    if (hint.id == null) {
+      continue;
+    }
+    const cacheKey = String(hint.id);
+    nextHints[cacheKey] = hint;
+    if (!nextModels[cacheKey]) {
+      nextModels[cacheKey] = {
+        id: hint.id,
+        datasourceId: hint.datasourceId,
+        name: hint.name || flinkQuestionTableName(hint.id),
+        physicalLocator: hint.physicalLocator,
+      };
+    }
+  }
+  flinkQuestionSqlHintCache.value = nextHints;
+  flinkQuestionModelMap.value = nextModels;
+}
+
+async function ensureFlinkQuestionModelHintsLoaded(modelIds: EntityId[] = flinkQuestionModelIds.value) {
+  const missingModelIds = Array.from(new Set(modelIds.map((item) => String(item).trim()).filter(Boolean)))
+    .filter((modelId) => !flinkQuestionSqlHintCache.value[modelId]);
+  if (!missingModelIds.length) {
+    return;
+  }
+  try {
+    const hints = await studioApi.models.listSqlHintsByIds(missingModelIds, LOCAL_LOADING_REQUEST);
+    cacheFlinkQuestionSqlHints(hints);
+  } catch (error) {
+    // Hint loading must not block script editing; execution still validates modelIds on the backend.
+  }
+}
+
+function resolveFlinkQuestionModelDatasourceLabel(model: DataModelDatasourceOptionView) {
+  const datasourceId = model.datasourceId == null ? "" : String(model.datasourceId);
+  if (!datasourceId) {
+    return t("common.none");
+  }
+  const datasource = datasourceOptions.value.find((item) => String(item.id) === datasourceId)
+    ?? sqlDatasources.value.find((item) => String(item.id) === datasourceId);
+  return datasource ? `${datasource.name} (${datasource.typeCode})` : datasourceId;
+}
+
+function removeFlinkQuestionModel(modelId?: EntityId | null) {
+  const cacheKey = modelId == null ? "" : String(modelId);
+  flinkQuestionModelIds.value = flinkQuestionModelIds.value.filter((item) => String(item) !== cacheKey);
+}
+
+function openFlinkModelSelector() {
+  flinkModelSelectorVisible.value = true;
+}
+
+async function prepareFlinkModelSelector() {
+  flinkModelSelectorSelection.value = [];
+  await Promise.all([
+    loadDatasourceOptions(),
+    loadDatasourceTypeOptions(),
+  ]);
+  await searchFlinkModelSelectorFirstPage();
+}
+
+function handleFlinkModelSelectorDatasourceTypeChange() {
+  const datasourceId = flinkModelSelectorFilter.datasourceId;
+  if (datasourceId && !flinkModelSelectorDatasourceOptions.value.some((item) => String(item.id) === String(datasourceId))) {
+    flinkModelSelectorFilter.datasourceId = "";
+  }
+  void searchFlinkModelSelectorFirstPage();
+}
+
+async function searchFlinkModelSelectorFirstPage() {
+  flinkModelSelectorPagination.pageNo = 1;
+  await searchFlinkModelSelector();
+}
+
+async function searchFlinkModelSelector() {
+  if (!hasCurrentProject.value) {
+    flinkModelSelectorRows.value = [];
+    flinkModelSelectorPagination.total = 0;
+    return;
+  }
+  flinkModelSelectorLoading.value = true;
+  try {
+    const page = await studioApi.models.listSelectorOptions({
+      datasourceType: flinkModelSelectorFilter.datasourceType || undefined,
+      datasourceId: normalizeEntityId(flinkModelSelectorFilter.datasourceId),
+      keyword: flinkModelSelectorFilter.keyword.trim() || undefined,
+      pageNo: flinkModelSelectorPagination.pageNo,
+      pageSize: flinkModelSelectorPagination.pageSize,
+    }, LOCAL_LOADING_REQUEST);
+    flinkModelSelectorRows.value = page.items ?? [];
+    flinkModelSelectorPagination.pageNo = page.pageNo;
+    flinkModelSelectorPagination.pageSize = page.pageSize;
+    flinkModelSelectorPagination.total = page.total;
+    cacheFlinkQuestionModels(page.items ?? []);
+  } catch (error) {
+    flinkModelSelectorRows.value = [];
+    flinkModelSelectorPagination.total = 0;
+    ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.flinkQuestionModelSelectorLoadFailed"));
+  } finally {
+    flinkModelSelectorLoading.value = false;
+  }
+}
+
+function handleFlinkModelSelectorSelectionChange(rows: DataModelDatasourceOptionView[]) {
+  flinkModelSelectorSelection.value = rows;
+}
+
+function isFlinkModelSelectorRowSelectable(row: DataModelDatasourceOptionView) {
+  return row.id != null && !flinkQuestionModelIdSet.value.has(String(row.id));
+}
+
+function confirmFlinkModelSelection() {
+  const selectedRows = flinkModelSelectorSelection.value.filter((item) => item.id != null);
+  if (!selectedRows.length) {
+    ElMessage.warning(t("web.dataDevelopment.flinkQuestionModelSelectorEmptySelection"));
+    return;
+  }
+  cacheFlinkQuestionModels(selectedRows);
+  const nextIds = new Set(flinkQuestionModelIds.value.map((item) => String(item)));
+  for (const row of selectedRows) {
+    if (row.id != null) {
+      nextIds.add(String(row.id));
+    }
+  }
+  flinkQuestionModelIds.value = Array.from(nextIds);
+  flinkModelSelectorVisible.value = false;
+  void ensureFlinkQuestionModelHintsLoaded(flinkQuestionModelIds.value);
 }
 
 async function ensureSqlHintsLoaded(datasourceId: EntityId | undefined) {
@@ -1115,6 +1551,9 @@ watch(
       scriptForm.environmentId = undefined;
       scriptForm.environmentName = undefined;
     }
+    if (scriptType !== "FLINK_QUESTION_SQL") {
+      flinkQuestionModelIds.value = [];
+    }
     if (scriptType === "JAVA" && (!scriptForm.content || scriptForm.content.trim().length === 0)) {
       scriptForm.content = defaultJavaTemplate();
     }
@@ -1138,6 +1577,16 @@ watch(
   async ([datasourceId, scriptType]) => {
     if (scriptType === "SQL" && datasourceId) {
       await ensureSqlHintsLoaded(datasourceId);
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => [scriptForm.scriptType, flinkQuestionModelIds.value.join(",")] as const,
+  ([scriptType]) => {
+    if (scriptType === "FLINK_QUESTION_SQL") {
+      void ensureFlinkQuestionModelHintsLoaded(flinkQuestionModelIds.value);
     }
   },
   { immediate: true },
@@ -1210,6 +1659,81 @@ p {
 
 .java-script-hint p {
   margin-top: 6px;
+}
+
+.flink-model-form-item :deep(.el-form-item__content) {
+  align-items: stretch;
+}
+
+.flink-model-picker {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+
+.flink-model-picker__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.flink-model-picker__toolbar span,
+.flink-model-empty,
+.flink-selected-model__copy span {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.flink-selected-models {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.flink-selected-model {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.flink-selected-model__copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.flink-selected-model__copy strong,
+.flink-selected-model__copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flink-model-empty {
+  padding: 8px 10px;
+  border: 1px dashed var(--studio-border);
+  border-radius: 8px;
+}
+
+.flink-model-selector-filters {
+  margin-bottom: 12px;
+}
+
+.flink-model-selector-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.monospace {
+  font-family: "Cascadia Code", "Consolas", monospace;
 }
 
 .shared-script-note {

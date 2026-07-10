@@ -18,6 +18,14 @@ export const SCRIPT_EDITOR_REGISTRY: Record<ScriptType, ScriptEditorRegistryEntr
     enableSqlHints: true,
     requiresDatasource: true,
   },
+  FLINK_QUESTION_SQL: {
+    scriptType: "FLINK_QUESTION_SQL",
+    languageId: "sql",
+    supportsExecution: true,
+    supportsSave: true,
+    enableSqlHints: true,
+    requiresDatasource: false,
+  },
   JAVA: {
     scriptType: "JAVA",
     languageId: "java",

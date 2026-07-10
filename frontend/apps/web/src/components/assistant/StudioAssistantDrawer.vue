@@ -2814,7 +2814,10 @@ function normalizeScriptTypeValue(value: string): ScriptType | undefined {
   if (normalized === "PY") {
     return "PYTHON";
   }
-  if (normalized === "SQL" || normalized === "JAVA" || normalized === "PYTHON") {
+  if (normalized === "FLINK QUESTION SQL" || normalized === "SMART_FLINK_SQL") {
+    return "FLINK_QUESTION_SQL";
+  }
+  if (normalized === "SQL" || normalized === "FLINK_QUESTION_SQL" || normalized === "JAVA" || normalized === "PYTHON") {
     return normalized;
   }
   return undefined;

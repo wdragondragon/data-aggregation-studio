@@ -36,6 +36,8 @@ const typeLabel = computed(() => {
       return t("web.dataDevelopment.scriptTypeJava");
     case "PYTHON":
       return t("web.dataDevelopment.scriptTypePython");
+    case "FLINK_QUESTION_SQL":
+      return t("web.dataDevelopment.scriptTypeFlinkQuestionSql");
     default:
       return props.scriptType;
   }

@@ -5,9 +5,15 @@
         <strong>{{ metaTitle }}</strong>
         <span>{{ metaDescription }}</span>
       </div>
-      <span v-if="registryEntry.enableSqlHints" class="monaco-script-editor__shortcut">
-        {{ t("web.dataDevelopment.applyHintShortcut") }}
-      </span>
+      <div class="monaco-script-editor__actions">
+        <span v-if="registryEntry.enableSqlHints" class="monaco-script-editor__shortcut">
+          {{ t("web.dataDevelopment.applyHintShortcut") }}
+        </span>
+        <el-button size="small" plain :disabled="readonly" @click="formatEditorContent">
+          <el-icon><MagicStick /></el-icon>
+          {{ t("web.dataDevelopment.formatScript") }}
+        </el-button>
+      </div>
     </div>
 
     <div class="monaco-script-editor__surface">
@@ -21,11 +27,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { ElMessage } from "element-plus";
+import { MagicStick } from "@element-plus/icons-vue";
 import { useI18n } from "vue-i18n";
 import type { ScriptType } from "@studio/api-sdk";
 import type * as MonacoType from "monaco-editor";
 import { ensureMonacoSetup, bindJavaHintSource, bindSqlHintSource } from "./monacoSetup";
 import { resolveScriptEditorEntry } from "./scriptEditorRegistry";
+import { formatScriptContent } from "./scriptFormatters";
 import type { JavaEditorHintSource, SqlEditorHintSource } from "./editorTypes";
 
 const props = defineProps<{
@@ -54,6 +63,9 @@ const isInternalUpdate = ref(false);
 const registryEntry = computed(() => resolveScriptEditorEntry(props.scriptType));
 const showPlaceholder = computed(() => !hasFocus.value && !modelValue.value);
 const metaTitle = computed(() => {
+  if (props.scriptType === "FLINK_QUESTION_SQL") {
+    return t("web.dataDevelopment.scriptTypeFlinkQuestionSql");
+  }
   if (registryEntry.value.enableSqlHints) {
     return t("web.dataDevelopment.sqlHintsTitle");
   }
@@ -66,6 +78,9 @@ const metaTitle = computed(() => {
   return t("web.dataDevelopment.scriptType");
 });
 const metaDescription = computed(() => {
+  if (props.scriptType === "FLINK_QUESTION_SQL") {
+    return t("web.dataDevelopment.flinkQuestionSqlHintsDescription");
+  }
   if (registryEntry.value.enableSqlHints) {
     return t("web.dataDevelopment.sqlHintsDescription", {
       datasource: props.sqlHints?.datasourceName || t("web.dataDevelopment.datasourcePlaceholder"),
@@ -142,6 +157,13 @@ function createEditor() {
     nextTick(() => {
       isInternalUpdate.value = false;
     });
+  });
+  editor.addAction({
+    id: "studio.formatScript",
+    label: t("web.dataDevelopment.formatScript"),
+    run: () => {
+      formatEditorContent();
+    },
   });
   editor.onDidFocusEditorText(() => {
     hasFocus.value = true;
@@ -255,6 +277,66 @@ function destroySuggestPositionGuard() {
   }
 }
 
+function formatEditorContent() {
+  if (props.readonly) {
+    return;
+  }
+  const editor = editorRef.value;
+  const model = textModelRef.value;
+  const monaco = monacoRef.value;
+  if (!editor || !model || !monaco) {
+    return;
+  }
+  const selection = editor.getSelection();
+  const hasSelection = Boolean(selection && !selection.isEmpty());
+  const range = hasSelection && selection ? selection : model.getFullModelRange();
+  const original = model.getValueInRange(range);
+  if (!original.trim()) {
+    ElMessage.info(t("web.dataDevelopment.formatScriptEmpty"));
+    return;
+  }
+  const result = formatScriptContent(props.scriptType, original, hasSelection);
+  if (!result.supported) {
+    ElMessage.warning(t("web.dataDevelopment.formatScriptUnsupported"));
+    return;
+  }
+  if (result.value !== original) {
+    editor.pushUndoStop();
+    editor.executeEdits("studio-format-script", [{
+      range,
+      text: result.value,
+      forceMoveMarkers: true,
+    }]);
+    editor.pushUndoStop();
+    const endPosition = resolveEditEndPosition(range, result.value);
+    editor.setSelection(new monaco.Range(
+      range.startLineNumber,
+      range.startColumn,
+      endPosition.lineNumber,
+      endPosition.column,
+    ));
+    editor.revealLineInCenterIfOutsideViewport(range.startLineNumber);
+  }
+  editor.focus();
+  ElMessage.success(t(hasSelection
+    ? "web.dataDevelopment.formatScriptSelectionSuccess"
+    : "web.dataDevelopment.formatScriptDocumentSuccess"));
+}
+
+function resolveEditEndPosition(range: MonacoType.IRange, text: string) {
+  const lines = text.split("\n");
+  if (lines.length === 1) {
+    return {
+      lineNumber: range.startLineNumber,
+      column: range.startColumn + (lines[0]?.length ?? 0),
+    };
+  }
+  return {
+    lineNumber: range.startLineNumber + lines.length - 1,
+    column: (lines[lines.length - 1]?.length ?? 0) + 1,
+  };
+}
+
 watch(
   () => modelValue.value,
   (value) => {
@@ -342,6 +424,14 @@ onBeforeUnmount(() => {
 .monaco-script-editor__shortcut {
   font-size: 12px;
   color: var(--studio-text-soft);
+}
+
+.monaco-script-editor__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .monaco-script-editor__surface {

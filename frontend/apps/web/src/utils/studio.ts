@@ -143,6 +143,7 @@ export function formatScriptType(t: TranslateFn, scriptType?: string | null) {
   const value = normalizeEnumValue(scriptType);
   const mapping: Record<string, string> = {
     SQL: "web.dataDevelopment.scriptTypeSql",
+    FLINK_QUESTION_SQL: "web.dataDevelopment.scriptTypeFlinkQuestionSql",
     JAVA: "web.dataDevelopment.scriptTypeJava",
     PYTHON: "web.dataDevelopment.scriptTypePython",
   };

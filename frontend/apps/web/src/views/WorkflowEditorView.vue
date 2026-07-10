@@ -784,7 +784,7 @@ function bindScript(value?: string) {
   } else {
     delete nextConfig.datasourceName;
   }
-  if (script.scriptType !== "SQL") {
+  if (dataScriptUsesArguments(script.scriptType)) {
     delete nextConfig.maxRows;
     if (nextConfig.arguments == null) {
       nextConfig.arguments = {};
@@ -814,7 +814,7 @@ function updateSelectedDataScriptMaxRows(value: number | undefined) {
 }
 
 function applySelectedDataScriptArguments() {
-  if (!selectedBoundScript.value || selectedBoundScript.value.scriptType === "SQL") {
+  if (!selectedBoundScript.value || !dataScriptUsesArguments(selectedBoundScript.value.scriptType)) {
     return;
   }
   try {
@@ -938,7 +938,7 @@ watch(
 watch(
   () => [selectedNodeCode.value, selectedBoundScript.value?.id, selectedNode.value?.config?.arguments] as const,
   () => {
-    if (selectedBoundScript.value && selectedBoundScript.value.scriptType !== "SQL") {
+    if (selectedBoundScript.value && dataScriptUsesArguments(selectedBoundScript.value.scriptType)) {
       dataScriptArgumentsText.value = prettyJson(selectedNode.value?.config?.arguments ?? {});
       return;
     }
@@ -986,7 +986,7 @@ function buildWorkflowPayload() {
       return node;
     }
     const scriptType = String(node.config?.scriptType ?? "").toUpperCase();
-    if (scriptType !== "SQL") {
+    if (dataScriptUsesArguments(scriptType)) {
       return {
         ...node,
         config: {
@@ -999,11 +999,17 @@ function buildWorkflowPayload() {
       ...node,
       config: {
         ...(node.config ?? {}),
+        arguments: undefined,
         maxRows: normalizeMaxRows(node.config?.maxRows),
       },
     };
   });
   return payload;
+}
+
+function dataScriptUsesArguments(scriptType?: string | null) {
+  const normalized = String(scriptType ?? "").toUpperCase();
+  return normalized === "JAVA" || normalized === "PYTHON";
 }
 
 const selectedNodePanelActions = {

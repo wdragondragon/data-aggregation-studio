@@ -945,6 +945,17 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           normalizePageResult<DataModelOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
+      listSelectorOptions(params?: {
+        datasourceType?: string;
+        datasourceId?: EntityId;
+        keyword?: string;
+        pageNo?: number;
+        pageSize?: number;
+      }, config?: StudioRequestConfig) {
+        return request<unknown>({ ...config, url: "/models/selector-options", method: "GET", params }).then((payload) =>
+          normalizePageResult<DataModelDatasourceOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
       async list(params?: {
         datasourceType?: string;
         pageNo?: number;
@@ -1064,6 +1075,18 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       listSqlHintsByDatasource(datasourceId: EntityId, config?: StudioRequestConfig) {
         return request<DataModelSqlHintView[]>({ ...config, url: `/models/datasource/${datasourceId}/sql-hints`, method: "GET" });
+      },
+      listSqlHintsByIds(modelIds: EntityId[], config?: StudioRequestConfig) {
+        const normalizedModelIds = modelIds.map((item) => String(item).trim()).filter(Boolean);
+        if (normalizedModelIds.length === 0) {
+          return Promise.resolve([] as DataModelSqlHintView[]);
+        }
+        return request<DataModelSqlHintView[]>({
+          ...config,
+          url: "/models/sql-hints",
+          method: "GET",
+          params: { modelIds: normalizedModelIds.join(",") },
+        });
       },
       get(modelId: EntityId, config?: StudioRequestConfig) {
         return request<DataModelDefinition>({ ...config, url: `/models/${modelId}`, method: "GET" });
