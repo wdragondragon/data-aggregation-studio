@@ -8,6 +8,7 @@
   - 面向业务使用者的系统使用说明、操作白皮书和正式分发版本。
   - 当前包含：
     - [功能模块文档](./使用/功能模块/README.md)：按业务能力拆分的模块使用说明。
+    - [Studio 界面接口文档](./使用/接口/README.md)：按界面模块拆分的接口、DTO、Controller 对照和 cURL 调用链模板。
     - [studio-user-whitepaper.md](./使用/studio-user-whitepaper.md)
     - [studio-user-whitepaper.docx](./使用/studio-user-whitepaper.docx)
 
@@ -57,6 +58,22 @@
   - 文档规范、归档约定、模板和团队协作标准。
   - 当前包含：
     - [document-naming-and-archiving.md](./规范/document-naming-and-archiving.md)
+
+## Studio 界面接口文档
+
+| 模块 | 文档 |
+|---|---|
+| 公共约定、认证与 cURL 模板 | [00-common-auth-and-conventions.md](./使用/接口/00-common-auth-and-conventions.md) |
+| 工作台与目录能力 | [01-dashboard-catalog.md](./使用/接口/01-dashboard-catalog.md) |
+| 数据资产、数据源、元模型与模型中心 | [02-assets-datasources-models.md](./使用/接口/02-assets-datasources-models.md) |
+| 字段映射规则、采集任务和采集运行 | [03-collection-and-field-mapping.md](./使用/接口/03-collection-and-field-mapping.md) |
+| 数据开发、工作流与运行日志 | [04-data-development-workflows-runs.md](./使用/接口/04-data-development-workflows-runs.md) |
+| 数据服务开放 | [05-open-data-services.md](./使用/接口/05-open-data-services.md) |
+| 数据接入服务 | [06-data-ingestion-services.md](./使用/接口/06-data-ingestion-services.md) |
+| 协议转换服务 | [07-protocol-conversions.md](./使用/接口/07-protocol-conversions.md) |
+| 数据质量规则、任务、指标和问题 | [08-quality.md](./使用/接口/08-quality.md) |
+| 系统管理、权限、访问申请、通知和关注 | [09-system-access-notifications.md](./使用/接口/09-system-access-notifications.md) |
+| 运维中心、运行时、导入导出和 AI 助手 | [10-ops-center-runtime-import-export-assistant.md](./使用/接口/10-ops-center-runtime-import-export-assistant.md) |
 
 ## 功能模块文档
 
