@@ -98,6 +98,8 @@ class AggregationRowDataConverter {
                 case BINARY:
                 case VARBINARY:
                     return value instanceof byte[] ? value : String.valueOf(value).getBytes();
+                case ROW:
+                    return convertRowValue(value, type);
                 default:
                     return StringData.fromString(String.valueOf(value));
             }
@@ -105,6 +107,30 @@ class AggregationRowDataConverter {
             throw new IllegalArgumentException("Failed to convert value '" + value + "' to Flink type "
                     + type.getLogicalType().asSerializableString(), ex);
         }
+    }
+
+    private Object convertRowValue(Object value, DataType type) {
+        if (value instanceof GenericRowData) {
+            return value;
+        }
+        List<String> nestedNames = DataType.getFieldNames(type);
+        List<DataType> nestedTypes = DataType.getFieldDataTypes(type);
+        GenericRowData rowData = new GenericRowData(nestedNames.size());
+        if (value instanceof Map<?, ?>) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            for (int i = 0; i < nestedNames.size(); i++) {
+                rowData.setField(i, convertValue(map.get(nestedNames.get(i)), nestedTypes.get(i)));
+            }
+            return rowData;
+        }
+        if (value instanceof List<?>) {
+            List<?> list = (List<?>) value;
+            for (int i = 0; i < nestedNames.size() && i < list.size(); i++) {
+                rowData.setField(i, convertValue(list.get(i), nestedTypes.get(i)));
+            }
+            return rowData;
+        }
+        return null;
     }
 
     private int millisOfDay(LocalTime time) {

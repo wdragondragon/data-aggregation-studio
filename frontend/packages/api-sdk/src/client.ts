@@ -220,6 +220,8 @@ export interface StudioRequestConfig extends AxiosRequestConfig {
   studioSkipGlobalLoading?: boolean;
 }
 
+const DATA_DEVELOPMENT_EXECUTION_TIMEOUT_MS = 120_000;
+
 function shouldUseGlobalLoading(config?: unknown) {
   return !(config && typeof config === "object" && (config as StudioRequestConfig).studioSkipGlobalLoading);
 }
@@ -1604,13 +1606,28 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         return request<string[]>({ url: "/data-development/datasource-types", method: "GET" });
       },
       executeSql(payload: SqlExecutionRequest) {
-        return request<SqlExecutionResult>({ url: "/data-development/sql/execute", method: "POST", data: payload });
+        return request<SqlExecutionResult>({
+          url: "/data-development/sql/execute",
+          method: "POST",
+          data: payload,
+          timeout: DATA_DEVELOPMENT_EXECUTION_TIMEOUT_MS,
+        });
       },
       executeScript(payload: DataScriptExecutionRequest) {
-        return request<DataScriptExecutionResult>({ url: "/data-development/scripts/execute", method: "POST", data: payload });
+        return request<DataScriptExecutionResult>({
+          url: "/data-development/scripts/execute",
+          method: "POST",
+          data: payload,
+          timeout: DATA_DEVELOPMENT_EXECUTION_TIMEOUT_MS,
+        });
       },
       executeSavedScript(id: EntityId, payload?: SavedDataScriptExecutionRequest) {
-        return request<DataScriptExecutionResult>({ url: `/data-development/scripts/${id}/execute`, method: "POST", data: payload ?? {} });
+        return request<DataScriptExecutionResult>({
+          url: `/data-development/scripts/${id}/execute`,
+          method: "POST",
+          data: payload ?? {},
+          timeout: DATA_DEVELOPMENT_EXECUTION_TIMEOUT_MS,
+        });
       },
       javaImportHints(params?: { environmentId?: EntityId; keyword?: string; limit?: number }, config?: StudioRequestConfig) {
         return request<JavaImportHintResponse>({ ...config, url: "/data-development/java/import-hints", method: "GET", params });

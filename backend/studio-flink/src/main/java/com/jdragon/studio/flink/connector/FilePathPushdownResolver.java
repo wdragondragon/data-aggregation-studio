@@ -155,9 +155,30 @@ final class FilePathPushdownResolver {
         Object root = runtime.getModelMetadata().get("rootPath");
         if (root != null && !value.startsWith("/") && !value.contains(":")) {
             String rootPath = String.valueOf(root);
+            if (isAlreadyUnderRoot(rootPath, value)) {
+                return value;
+            }
             return rootPath.endsWith("/") ? rootPath + value : rootPath + "/" + value;
         }
         return value;
+    }
+
+    private static boolean isAlreadyUnderRoot(String rootPath, String value) {
+        String normalizedRoot = normalizeComparablePath(rootPath);
+        String normalizedValue = normalizeComparablePath(value);
+        return hasText(normalizedRoot)
+                && (normalizedValue.equals(normalizedRoot) || normalizedValue.startsWith(normalizedRoot + "/"));
+    }
+
+    private static String normalizeComparablePath(String value) {
+        String normalized = value == null ? "" : value.trim().replace('\\', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        while (normalized.endsWith("/") && normalized.length() > 1) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     private static boolean hasText(Object value) {

@@ -1,5 +1,6 @@
 package com.jdragon.studio.flink.connector;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.datasource.BaseDataSourceDTO;
 
@@ -8,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AggregationFlinkTableRuntimePayload {
     private String runtimeRef;
     private Long datasourceId;
@@ -26,6 +28,8 @@ public class AggregationFlinkTableRuntimePayload {
     private List<String> pushedFilters = new ArrayList<String>();
     private List<String> remainingFilters = new ArrayList<String>();
     private List<Map<String, Object>> pathContextFilters = new ArrayList<Map<String, Object>>();
+    private List<Map<String, Object>> httpPushdownFilters = new ArrayList<Map<String, Object>>();
+    private boolean httpFilterAlwaysFalse;
     private List<String> resolvedSourceSql = new ArrayList<String>();
     private List<String> resolvedFilePaths = new ArrayList<String>();
 
@@ -57,6 +61,30 @@ public class AggregationFlinkTableRuntimePayload {
             }
         }
         payload.setPathContextFilters(pathFilters);
+        payload.setHttpPushdownFilters(runtime.getHttpPushdownFilters());
+        payload.setHttpFilterAlwaysFalse(runtime.isHttpFilterAlwaysFalse());
+        payload.setResolvedSourceSql(runtime.getResolvedSourceSql());
+        payload.setResolvedFilePaths(runtime.getResolvedFilePaths());
+        return payload;
+    }
+
+    static AggregationFlinkTableRuntimePayload auditFromRuntime(AggregationFlinkTableRuntime runtime) {
+        AggregationFlinkTableRuntimePayload payload = new AggregationFlinkTableRuntimePayload();
+        if (runtime == null) {
+            return payload;
+        }
+        payload.setRuntimeRef(runtime.getRuntimeRef());
+        payload.setPushedFilters(runtime.getPushedFilters());
+        payload.setRemainingFilters(runtime.getRemainingFilters());
+        List<Map<String, Object>> pathFilters = new ArrayList<Map<String, Object>>();
+        if (runtime.getPathContextFilters() != null) {
+            for (FilePathPushdownFilter filter : runtime.getPathContextFilters()) {
+                pathFilters.add(filter.asMap());
+            }
+        }
+        payload.setPathContextFilters(pathFilters);
+        payload.setHttpPushdownFilters(runtime.getHttpPushdownFilters());
+        payload.setHttpFilterAlwaysFalse(runtime.isHttpFilterAlwaysFalse());
         payload.setResolvedSourceSql(runtime.getResolvedSourceSql());
         payload.setResolvedFilePaths(runtime.getResolvedFilePaths());
         return payload;
@@ -81,6 +109,8 @@ public class AggregationFlinkTableRuntimePayload {
         runtime.setPushedFilters(pushedFilters);
         runtime.setRemainingFilters(remainingFilters);
         runtime.setPathContextFilters(toPathFilters(pathContextFilters));
+        runtime.setHttpPushdownFilters(httpPushdownFilters);
+        runtime.setHttpFilterAlwaysFalse(httpFilterAlwaysFalse);
         runtime.setResolvedSourceSql(resolvedSourceSql);
         runtime.setResolvedFilePaths(resolvedFilePaths);
         return runtime;
@@ -93,6 +123,8 @@ public class AggregationFlinkTableRuntimePayload {
         runtime.setPushedFilters(pushedFilters);
         runtime.setRemainingFilters(remainingFilters);
         runtime.setPathContextFilters(toPathFilters(pathContextFilters));
+        runtime.setHttpPushdownFilters(httpPushdownFilters);
+        runtime.setHttpFilterAlwaysFalse(httpFilterAlwaysFalse);
         runtime.setResolvedSourceSql(resolvedSourceSql);
         runtime.setResolvedFilePaths(resolvedFilePaths);
     }
@@ -274,6 +306,24 @@ public class AggregationFlinkTableRuntimePayload {
         this.pathContextFilters = pathContextFilters == null
                 ? new ArrayList<Map<String, Object>>()
                 : new ArrayList<Map<String, Object>>(pathContextFilters);
+    }
+
+    public List<Map<String, Object>> getHttpPushdownFilters() {
+        return httpPushdownFilters;
+    }
+
+    public void setHttpPushdownFilters(List<Map<String, Object>> httpPushdownFilters) {
+        this.httpPushdownFilters = httpPushdownFilters == null
+                ? new ArrayList<Map<String, Object>>()
+                : new ArrayList<Map<String, Object>>(httpPushdownFilters);
+    }
+
+    public boolean isHttpFilterAlwaysFalse() {
+        return httpFilterAlwaysFalse;
+    }
+
+    public void setHttpFilterAlwaysFalse(boolean httpFilterAlwaysFalse) {
+        this.httpFilterAlwaysFalse = httpFilterAlwaysFalse;
     }
 
     public List<String> getResolvedSourceSql() {

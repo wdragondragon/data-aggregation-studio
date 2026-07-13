@@ -185,6 +185,7 @@
                                 <bundle-source-plugin module="data-source-handler-file-ftp" plugin="ftp"/>
                                 <bundle-source-plugin module="data-source-handler-file-s3-minio" plugin="minio"/>
                                 <bundle-source-plugin module="data-source-handler-file-sftp" plugin="sftp"/>
+                                <bundle-source-plugin module="data-source-handler-http" plugin="http"/>
                                 <bundle-source-plugin module="data-source-handler-file-tbds-hdfs" plugin="tbds-hdfs"/>
                                 <bundle-source-plugin module="data-source-handler-file-tbds-hdfs3" plugin="tbds-hdfs3"/>
                                 <bundle-source-plugin module="data-source-handler-influxdb" plugin="influxdb"/>

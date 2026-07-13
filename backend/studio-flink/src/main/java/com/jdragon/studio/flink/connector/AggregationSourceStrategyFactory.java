@@ -12,6 +12,9 @@ final class AggregationSourceStrategyFactory {
         if (kind == AggregationPluginKind.QUEUE) {
             return new QueuePluginSourceStrategy();
         }
+        if (kind == AggregationPluginKind.HTTP) {
+            return new StructuredPluginSourceStrategy();
+        }
         return new StructuredPluginSourceStrategy();
     }
 }

@@ -29,6 +29,8 @@ public class AggregationFlinkTableRuntime implements Serializable {
     private List<String> pushedFilters = new ArrayList<String>();
     private List<String> remainingFilters = new ArrayList<String>();
     private List<FilePathPushdownFilter> pathContextFilters = new ArrayList<FilePathPushdownFilter>();
+    private List<Map<String, Object>> httpPushdownFilters = new ArrayList<Map<String, Object>>();
+    private boolean httpFilterAlwaysFalse;
     private List<String> resolvedSourceSql = new ArrayList<String>();
     private List<String> resolvedFilePaths = new ArrayList<String>();
 
@@ -176,6 +178,24 @@ public class AggregationFlinkTableRuntime implements Serializable {
         this.pathContextFilters = pathContextFilters == null
                 ? new ArrayList<FilePathPushdownFilter>()
                 : new ArrayList<FilePathPushdownFilter>(pathContextFilters);
+    }
+
+    public List<Map<String, Object>> getHttpPushdownFilters() {
+        return httpPushdownFilters;
+    }
+
+    public void setHttpPushdownFilters(List<Map<String, Object>> httpPushdownFilters) {
+        this.httpPushdownFilters = httpPushdownFilters == null
+                ? new ArrayList<Map<String, Object>>()
+                : new ArrayList<Map<String, Object>>(httpPushdownFilters);
+    }
+
+    public boolean isHttpFilterAlwaysFalse() {
+        return httpFilterAlwaysFalse;
+    }
+
+    public void setHttpFilterAlwaysFalse(boolean httpFilterAlwaysFalse) {
+        this.httpFilterAlwaysFalse = httpFilterAlwaysFalse;
     }
 
     public List<String> getResolvedSourceSql() {

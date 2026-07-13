@@ -11,7 +11,10 @@ final class AggregationSourceUtil {
     }
 
     static String buildQuery(AggregationFlinkTableRuntime runtime, DataType producedDataType) {
-        String query = applyLimit(appendWhere(buildBaseQuery(runtime, producedDataType), runtime.getPushedFilters()),
+        List<String> sourceFilters = "http".equalsIgnoreCase(runtime.getPluginName())
+                ? new ArrayList<String>()
+                : runtime.getPushedFilters();
+        String query = applyLimit(appendWhere(buildBaseQuery(runtime, producedDataType), sourceFilters),
                 runtime.getMaxRows());
         runtime.addResolvedSourceSql(query);
         return query;

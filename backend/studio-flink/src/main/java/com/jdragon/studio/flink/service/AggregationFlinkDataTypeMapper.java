@@ -1,11 +1,13 @@
 package com.jdragon.studio.flink.service;
 
 import com.jdragon.studio.flink.connector.FilePathPushdownConfig;
+import com.jdragon.studio.flink.connector.HttpPushdownMappingConfig;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
 
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -17,8 +19,15 @@ final class AggregationFlinkDataTypeMapper {
     }
 
     static DataType rowType(Map<String, Object> technicalMetadata, String pluginName) {
+        return rowType(technicalMetadata, pluginName, null);
+    }
+
+    static DataType rowType(Map<String, Object> technicalMetadata,
+                            String pluginName,
+                            String physicalLocator) {
         List<DataTypes.Field> fields = new ArrayList<DataTypes.Field>();
         Set<String> seen = new LinkedHashSet<String>();
+        Map<String, DataType> physicalFieldTypes = new LinkedHashMap<String, DataType>();
         Object columns = technicalMetadata == null ? null : technicalMetadata.get("columns");
         if (columns instanceof List<?>) {
             for (Object item : (List<?>) columns) {
@@ -30,12 +39,16 @@ final class AggregationFlinkDataTypeMapper {
                 if (name == null || !seen.add(name)) {
                     continue;
                 }
-                fields.add(DataTypes.FIELD(name, mapType(column)));
+                DataType type = mapType(column);
+                physicalFieldTypes.put(name, type);
+                fields.add(DataTypes.FIELD(name, type));
             }
         }
         if (fields.isEmpty()) {
-            fields.add(DataTypes.FIELD("payload", DataTypes.STRING()));
+            DataType payloadType = DataTypes.STRING();
+            fields.add(DataTypes.FIELD("payload", payloadType));
             seen.add("payload");
+            physicalFieldTypes.put("payload", payloadType);
         }
         FilePathPushdownConfig pathConfig = FilePathPushdownConfig.from(technicalMetadata);
         if (pathConfig.isEnabled()) {
@@ -45,7 +58,122 @@ final class AggregationFlinkDataTypeMapper {
                 }
             }
         }
+        if ("http".equalsIgnoreCase(pluginName)) {
+            assertNoHttpNamespaceConflicts(physicalFieldTypes.keySet());
+            addHttpPushdownFields(fields, seen, physicalFieldTypes, technicalMetadata, physicalLocator);
+        }
         return DataTypes.ROW(fields);
+    }
+
+    private static void assertNoHttpNamespaceConflicts(Set<String> physicalFields) {
+        List<String> conflicts = new ArrayList<String>();
+        for (String physicalField : physicalFields) {
+            String normalizedField = physicalField == null ? "" : physicalField.trim().toLowerCase(Locale.ENGLISH);
+            String namespace = normalizedField.contains(".")
+                    ? normalizedField.substring(0, normalizedField.indexOf('.'))
+                    : normalizedField;
+            if (HttpPushdownMappingConfig.isHttpLocation(namespace)) {
+                conflicts.add(physicalField);
+            }
+        }
+        if (!conflicts.isEmpty()) {
+            throw new IllegalArgumentException("HTTP 模型物理字段 " + String.join(", ", conflicts)
+                    + " 与保留参数命名空间 param/query/body/header/path 冲突，"
+                    + "请在建模时重命名物理字段后再规划 SQL");
+        }
+    }
+
+    private static void addHttpPushdownFields(List<DataTypes.Field> fields,
+                                              Set<String> seen,
+                                              Map<String, DataType> physicalFieldTypes,
+                                              Map<String, Object> technicalMetadata,
+                                              String physicalLocator) {
+        HttpPushdownMappingConfig config = HttpPushdownMappingConfig.from(technicalMetadata, physicalLocator);
+        Map<String, Set<String>> configuredFieldsByLocation = config.fieldsByLocation();
+        for (String location : HttpPushdownMappingConfig.httpLocations()) {
+            Set<String> locationFields = new LinkedHashSet<String>();
+            Set<String> configuredFields = configuredFieldsByLocation.get(location);
+            if (configuredFields != null) {
+                locationFields.addAll(configuredFields);
+            }
+            if ("query".equals(location)) {
+                Set<String> paramFields = configuredFieldsByLocation.get("param");
+                if (paramFields != null) {
+                    locationFields.addAll(paramFields);
+                }
+            }
+            for (String physicalField : physicalFieldTypes.keySet()) {
+                if (!HttpPushdownMappingConfig.isSensitiveRequestField(physicalField)) {
+                    locationFields.add(physicalField);
+                }
+            }
+            List<DataTypes.Field> nestedFields = "body".equals(location)
+                    ? nestedPathFields(locationFields, physicalFieldTypes)
+                    : flatNestedFields(locationFields, physicalFieldTypes);
+            if (!nestedFields.isEmpty() && seen.add(location)) {
+                fields.add(DataTypes.FIELD(location, DataTypes.ROW(nestedFields)));
+            }
+        }
+        for (String field : config.mappedFields()) {
+            if (field != null && !field.trim().isEmpty() && seen.add(field)) {
+                fields.add(DataTypes.FIELD(field, physicalFieldTypes.getOrDefault(field, DataTypes.STRING())));
+            }
+        }
+    }
+
+    private static List<DataTypes.Field> flatNestedFields(Set<String> fieldNames,
+                                                           Map<String, DataType> physicalFieldTypes) {
+        List<DataTypes.Field> fields = new ArrayList<DataTypes.Field>();
+        Set<String> seen = new LinkedHashSet<String>();
+        for (String field : fieldNames) {
+            if (field == null || field.trim().isEmpty() || !seen.add(field)) {
+                continue;
+            }
+            fields.add(DataTypes.FIELD(field, physicalFieldTypes.getOrDefault(field, DataTypes.STRING())));
+        }
+        return fields;
+    }
+
+    private static List<DataTypes.Field> nestedPathFields(Set<String> paths,
+                                                           Map<String, DataType> physicalFieldTypes) {
+        FieldNode root = new FieldNode();
+        for (String rawPath : paths) {
+            String path = rawPath == null ? "" : rawPath.trim();
+            if (path.isEmpty()) {
+                continue;
+            }
+            List<String> parts = HttpPushdownMappingConfig.splitBodyPath(path);
+            FieldNode current = root;
+            for (int index = 0; index < parts.size(); index++) {
+                String part = parts.get(index).trim();
+                if (part.isEmpty()) {
+                    continue;
+                }
+                current = current.children.computeIfAbsent(part, ignored -> new FieldNode());
+                if (index == parts.size() - 1) {
+                    current.type = physicalFieldTypes.getOrDefault(part,
+                            physicalFieldTypes.getOrDefault(path, DataTypes.STRING()));
+                }
+            }
+        }
+        return root.toFields();
+    }
+
+    private static final class FieldNode {
+        private final Map<String, FieldNode> children = new LinkedHashMap<String, FieldNode>();
+        private DataType type;
+
+        private List<DataTypes.Field> toFields() {
+            List<DataTypes.Field> fields = new ArrayList<DataTypes.Field>();
+            for (Map.Entry<String, FieldNode> entry : children.entrySet()) {
+                FieldNode child = entry.getValue();
+                DataType fieldType = child.children.isEmpty()
+                        ? (child.type == null ? DataTypes.STRING() : child.type)
+                        : DataTypes.ROW(child.toFields());
+                fields.add(DataTypes.FIELD(entry.getKey(), fieldType));
+            }
+            return fields;
+        }
     }
 
     private static DataType mapType(Map<?, ?> column) {

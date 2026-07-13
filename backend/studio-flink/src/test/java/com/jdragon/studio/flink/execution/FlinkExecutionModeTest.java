@@ -1,6 +1,7 @@
 package com.jdragon.studio.flink.execution;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.flink.connector.AggregationFlinkTableRuntime;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.sun.net.httpserver.HttpExchange;
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlinkExecutionModeTest {
@@ -137,6 +139,30 @@ class FlinkExecutionModeTest {
         }
     }
 
+    @Test
+    void gatewayClientExtractsHttpPushdownBusinessErrorFromHttpFailure() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", this::handleGatewayHttpErrorRequest);
+        server.start();
+        try {
+            StudioPlatformProperties properties = new StudioPlatformProperties();
+            properties.getFlink().getGateway().setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.getFlink().getGateway().setFetchTimeoutSeconds(5);
+            GatewayFlinkExecutionClient client = new GatewayFlinkExecutionClient(properties, new ObjectMapper());
+
+            StudioException error = assertThrows(StudioException.class, () -> client.execute(new FlinkExecutionRequest(
+                    "SELECT * FROM `m_10` WHERE customer_id > 'C001'",
+                    Collections.emptyList(),
+                    false,
+                    10)));
+
+            assertTrue(error.getMessage().contains("HTTP 下推字段 customer_id 不支持操作符 >"));
+            assertFalse(error.getMessage().contains("org.apache.flink"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private AggregationFlinkTableRuntime runtime() {
         AggregationFlinkTableRuntime runtime = new AggregationFlinkTableRuntime();
         runtime.setDatasourceId(1L);
@@ -242,6 +268,30 @@ class FlinkExecutionModeTest {
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.sendResponseHeaders(200, bytes.length);
+        exchange.getResponseBody().write(bytes);
+        exchange.close();
+    }
+
+    private void handleGatewayHttpErrorRequest(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        String method = exchange.getRequestMethod();
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        String response;
+        int status = 200;
+        if ("POST".equals(method) && "/v1/sessions".equals(path)) {
+            response = "{\"sessionHandle\":\"s1\"}";
+        } else if ("POST".equals(method) && path.endsWith("/statements")) {
+            status = 500;
+            response = "{\"errors\":[\"java.lang.IllegalArgumentException: HTTP 下推字段 customer_id 不支持操作符 >，模型当前支持: =\\n\\tat org.apache.flink.table.planner.plan.nodes.exec.ExecNode\"]}";
+        } else if ("DELETE".equals(method)) {
+            response = "{}";
+        } else {
+            status = 404;
+            response = "{}";
+        }
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
     }

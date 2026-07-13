@@ -16,6 +16,9 @@ public final class AggregationPluginClassifier {
         if (QUEUE_TYPES.contains(type)) {
             return AggregationPluginKind.QUEUE;
         }
+        if ("http".equals(type)) {
+            return AggregationPluginKind.HTTP;
+        }
         if (type.contains("ftp") || type.contains("sftp") || type.contains("hdfs")
                 || type.contains("minio") || type.contains("s3") || type.contains("oss")
                 || type.equals("local") || type.equals("localfile")) {

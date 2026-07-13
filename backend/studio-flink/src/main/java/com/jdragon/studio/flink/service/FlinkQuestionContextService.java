@@ -6,10 +6,13 @@ import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.request.FlinkQuestionAskRequest;
 import com.jdragon.studio.flink.connector.FilePathPushdownConfig;
+import com.jdragon.studio.flink.connector.HttpPushdownMappingConfig;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -82,7 +85,8 @@ class FlinkQuestionContextService {
             builder.append("- table: ").append(FlinkSqlExecutionService.tableNameFor(model))
                     .append(", modelName: ").append(model.getName())
                     .append(", datasourceType: ").append(datasource.getTypeCode())
-                    .append(", physicalLocator: ").append(model.getPhysicalLocator()).append('\n');
+                    .append(", physicalLocator: ")
+                    .append(promptPhysicalLocator(model, datasource)).append('\n');
             Object columns = model.getTechnicalMetadata() == null ? null : model.getTechnicalMetadata().get("columns");
             if (columns instanceof List<?>) {
                 builder.append("  row fields from source records:\n");
@@ -113,7 +117,73 @@ class FlinkQuestionContextService {
                             .append("; use this field for path/file-directory time filters\n");
                 }
             }
+            if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
+                builder.append("  HTTP pushdown convention, no extra model-page pushdown mapping is required:\n");
+                builder.append("    - param.<field> or query.<field> writes an HTTP query parameter named <field>\n");
+                builder.append("    - header.<field> writes an HTTP header, body.<field> writes a JSON body path, path.<field> writes a URL path variable\n");
+                builder.append("    - unprefixed field is pushed only when it uniquely matches model reader params/header/body/path keys\n");
+                builder.append("    - once a predicate is pushed, do not also keep it as a residual row filter; unmapped predicates remain normal row filters\n");
+                HttpPushdownMappingConfig httpConfig = HttpPushdownMappingConfig.from(
+                        model.getTechnicalMetadata(), model.getPhysicalLocator());
+                for (HttpPushdownMappingConfig.Mapping mapping : httpConfig.getMappings()) {
+                    builder.append("    - ")
+                            .append(mapping.getLocation()).append('.').append(mapping.getField())
+                            .append(" operators=").append(mapping.getSupportedOperators())
+                            .append("; inferred from model reader options\n");
+                }
+            }
         }
         return builder.toString();
+    }
+
+    private String promptPhysicalLocator(DataModelDefinition model, DataSourceDefinition datasource) {
+        String physicalLocator = model.getPhysicalLocator();
+        if (!"http".equalsIgnoreCase(datasource.getTypeCode()) || physicalLocator == null) {
+            return physicalLocator;
+        }
+        String trimmed = physicalLocator.trim();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        try {
+            String encoded = trimmed.replace("{", "%7B").replace("}", "%7D");
+            URI uri = new URI(encoded);
+            if (("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && uri.getHost() != null) {
+                URI sanitized = new URI(uri.getScheme(), null, uri.getHost(), uri.getPort(),
+                        uri.getPath(), null, null);
+                return sanitized.toASCIIString().replace("%7B", "{").replace("%7D", "}");
+            }
+        } catch (URISyntaxException parseFailure) {
+            // Fall through to conservative string sanitization for legacy or templated locators.
+        }
+        return stripHttpLocatorSecrets(trimmed);
+    }
+
+    private String stripHttpLocatorSecrets(String locator) {
+        int end = locator.length();
+        int queryIndex = locator.indexOf('?');
+        int fragmentIndex = locator.indexOf('#');
+        if (queryIndex >= 0) {
+            end = Math.min(end, queryIndex);
+        }
+        if (fragmentIndex >= 0) {
+            end = Math.min(end, fragmentIndex);
+        }
+        String sanitized = locator.substring(0, end);
+        int schemeIndex = sanitized.indexOf("://");
+        if (schemeIndex < 0) {
+            return sanitized;
+        }
+        int authorityStart = schemeIndex + 3;
+        int authorityEnd = sanitized.indexOf('/', authorityStart);
+        if (authorityEnd < 0) {
+            authorityEnd = sanitized.length();
+        }
+        int userInfoEnd = sanitized.lastIndexOf('@', authorityEnd);
+        if (userInfoEnd < authorityStart) {
+            return sanitized;
+        }
+        return sanitized.substring(0, authorityStart) + sanitized.substring(userInfoEnd + 1);
     }
 }

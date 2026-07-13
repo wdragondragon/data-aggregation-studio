@@ -40,7 +40,7 @@ final class AggregationRemoteRuntimeClient {
         try {
             Map<String, Object> body = new LinkedHashMap<String, Object>();
             body.put("token", token);
-            body.put("runtime", AggregationFlinkTableRuntimePayload.fromRuntime(runtime));
+            body.put("runtime", AggregationFlinkTableRuntimePayload.auditFromRuntime(runtime));
             post(endpoint, "/api/flink/runtime/audit", body);
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to update DataAggregation Flink runtime audit: "

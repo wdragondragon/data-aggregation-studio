@@ -1,11 +1,13 @@
 package com.jdragon.studio.flink.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.datasource.BaseDataSourceDTO;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.flink.connector.AggregationFlinkTableRuntime;
 import com.jdragon.studio.infra.service.EncryptionService;
+import com.jdragon.studio.infra.service.HttpReaderOptionNormalizer;
 import org.apache.flink.table.types.DataType;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +19,8 @@ import java.util.Set;
 
 @Component
 class AggregationFlinkRuntimeBuilder {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String HTTP_READER_CONFIG_KEY = "__studio_http_reader_config";
     private static final Set<String> RESERVED_KEYS = new LinkedHashSet<String>();
 
     static {
@@ -36,6 +40,7 @@ class AggregationFlinkRuntimeBuilder {
         RESERVED_KEYS.add("jdbcUrl");
         RESERVED_KEYS.add("driverClassName");
         RESERVED_KEYS.add("extraParams");
+
     }
 
     private final EncryptionService encryptionService;
@@ -52,14 +57,18 @@ class AggregationFlinkRuntimeBuilder {
         Map<String, Object> modelMetadata = model.getTechnicalMetadata() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(model.getTechnicalMetadata());
-        DataType rowType = AggregationFlinkDataTypeMapper.rowType(modelMetadata, datasource.getTypeCode());
+        String physicalLocator = "http".equalsIgnoreCase(datasource.getTypeCode())
+                ? resolveHttpRequestPath(model, modelMetadata)
+                : resolvePhysicalLocator(model);
+        DataType rowType = AggregationFlinkDataTypeMapper.rowType(
+                modelMetadata, datasource.getTypeCode(), physicalLocator);
 
         AggregationFlinkTableRuntime runtime = new AggregationFlinkTableRuntime();
         runtime.setDatasourceId(datasource.getId());
         runtime.setModelId(model.getId());
         runtime.setPluginName(datasource.getTypeCode());
         runtime.setTableName(model.getName());
-        runtime.setPhysicalLocator(resolvePhysicalLocator(model));
+        runtime.setPhysicalLocator(physicalLocator);
         runtime.setScanSql(firstText(modelMetadata.get("scanSql"), modelMetadata.get("querySql")));
         runtime.setScanMode(isQueue(datasource.getTypeCode()) ? "unbounded" : "bounded");
         runtime.setMaxRows(scanMaxRows);
@@ -68,8 +77,48 @@ class AggregationFlinkRuntimeBuilder {
         runtime.setModelMetadata(modelMetadata);
         runtime.setConnectionConfig(Configuration.from(datasourceMetadata));
         runtime.setExtConfig(Configuration.from(modelMetadata));
-        runtime.setDataSourceDTO(toBaseDataSource(datasource, datasourceMetadata));
+        BaseDataSourceDTO dataSourceDTO = toBaseDataSource(datasource, datasourceMetadata);
+        if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
+            attachHttpReaderConfig(dataSourceDTO, datasourceMetadata, model, modelMetadata);
+        }
+        runtime.setDataSourceDTO(dataSourceDTO);
         return runtime;
+    }
+
+    private void attachHttpReaderConfig(BaseDataSourceDTO dto,
+                                        Map<String, Object> datasourceMetadata,
+                                        DataModelDefinition model,
+                                        Map<String, Object> modelMetadata) {
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("url", resolveHttpUrl(datasourceMetadata, model, modelMetadata));
+        boolean soap = isSoapProtocol(modelMetadata);
+        config.put("mode", soap ? "POST" : firstText(modelMetadata.get("mode"), "GET").toUpperCase(Locale.ENGLISH));
+        String protocolMode = soap ? "SOAP" : resolveProtocolMode(modelMetadata);
+        config.put("protocolMode", protocolMode);
+        config.put("soapVersion", firstText(modelMetadata.get("soapVersion"), "SOAP_11"));
+        putIfPresent(config, "soapAction", modelMetadata.get("soapAction"));
+        config.put("soapFaultFail", Boolean.TRUE);
+        config.put("contentType", resolveHttpContentType(protocolMode, String.valueOf(config.get("soapVersion"))));
+        config.put("header", "{}");
+        config.put("params", "{}");
+        config.put("requestBody", "");
+        config.put("resultType", resolveHttpResultType(modelMetadata, protocolMode));
+        putIfPresent(config, "totalCodePath", modelMetadata.get("totalCodePath"));
+        Map<String, Object> responseStatus = resolveHttpResponseStatus(modelMetadata);
+        if (!responseStatus.isEmpty()) {
+            config.put("responseStatus", responseStatus);
+        }
+        config.put("pageRead", Boolean.FALSE);
+        config.put("pageSize", Integer.valueOf(500));
+        Object columns = modelMetadata.get("columns");
+        config.put("columns", columns);
+        HttpReaderOptionNormalizer.mergeInto(config, modelMetadata.get("readerOptions"));
+        HttpReaderOptionNormalizer.enforceProtocolContract(config);
+        Map<String, String> extraParams = dto.getExtraParams() == null
+                ? new LinkedHashMap<String, String>()
+                : new LinkedHashMap<String, String>(dto.getExtraParams());
+        extraParams.put(HTTP_READER_CONFIG_KEY, toJson(config));
+        dto.setExtraParams(extraParams);
     }
 
     private BaseDataSourceDTO toBaseDataSource(DataSourceDefinition definition, Map<String, Object> metadata) {
@@ -164,6 +213,129 @@ class AggregationFlinkRuntimeBuilder {
             return String.valueOf(physicalName).trim();
         }
         return model.getName();
+    }
+
+    private String resolveHttpRequestPath(DataModelDefinition model, Map<String, Object> modelMetadata) {
+        if (model.getPhysicalLocator() != null && !model.getPhysicalLocator().trim().isEmpty()) {
+            return model.getPhysicalLocator().trim();
+        }
+        Object requestPath = modelMetadata == null ? null : modelMetadata.get("requestPath");
+        if (hasText(requestPath)) {
+            return String.valueOf(requestPath).trim();
+        }
+        Object physicalName = modelMetadata == null ? null : modelMetadata.get("physicalName");
+        if (hasText(physicalName)) {
+            return String.valueOf(physicalName).trim();
+        }
+        return null;
+    }
+
+    private String resolveHttpUrl(Map<String, Object> datasourceMetadata,
+                                  DataModelDefinition model,
+                                  Map<String, Object> modelMetadata) {
+        String requestPath = resolveHttpRequestPath(model, modelMetadata);
+        String baseUrl = firstText(datasourceMetadata.get("url"), datasourceMetadata.get("endpoint"));
+        if (requestPath != null && isAbsoluteHttpUrl(requestPath)) {
+            return requestPath;
+        }
+        if (!hasText(baseUrl)) {
+            throw new IllegalArgumentException("HTTP datasource url is required");
+        }
+        if (!hasText(requestPath)) {
+            return baseUrl;
+        }
+        boolean baseEndsWithSlash = baseUrl.endsWith("/");
+        boolean pathStartsWithSlash = requestPath.startsWith("/");
+        if (baseEndsWithSlash && pathStartsWithSlash) {
+            return baseUrl + requestPath.substring(1);
+        }
+        if (!baseEndsWithSlash && !pathStartsWithSlash) {
+            return baseUrl + "/" + requestPath;
+        }
+        return baseUrl + requestPath;
+    }
+
+    private boolean isAbsoluteHttpUrl(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
+    private boolean isSoapProtocol(Map<String, Object> metadata) {
+        return "SOAP".equalsIgnoreCase(resolveProtocolMode(metadata));
+    }
+
+    private String resolveProtocolMode(Map<String, Object> metadata) {
+        String protocolMode = firstText(metadata.get("protocolMode"), null);
+        if (hasText(protocolMode)) {
+            return protocolMode.toUpperCase(Locale.ENGLISH);
+        }
+        String resultType = firstText(metadata.get("resultType"), "json");
+        if ("soap".equalsIgnoreCase(resultType)) {
+            return "SOAP";
+        }
+        if ("xml".equalsIgnoreCase(resultType)) {
+            return "REST_XML";
+        }
+        return "REST_JSON";
+    }
+
+    private String resolveSoapContentType(String soapVersion) {
+        return "SOAP_12".equalsIgnoreCase(soapVersion)
+                ? "application/soap+xml;charset=UTF-8"
+                : "text/xml;charset=UTF-8";
+    }
+
+    private String resolveHttpContentType(String protocolMode, String soapVersion) {
+        if ("SOAP".equalsIgnoreCase(protocolMode)) {
+            return resolveSoapContentType(soapVersion);
+        }
+        return "REST_XML".equalsIgnoreCase(protocolMode)
+                ? "application/xml;charset=UTF-8"
+                : "application/json;charset=utf-8";
+    }
+
+    private String resolveHttpResultType(Map<String, Object> metadata, String protocolMode) {
+        if ("SOAP".equalsIgnoreCase(protocolMode)) {
+            return "soap";
+        }
+        if ("REST_XML".equalsIgnoreCase(protocolMode)) {
+            return "xml";
+        }
+        if ("REST_JSON".equalsIgnoreCase(protocolMode)) {
+            return "json";
+        }
+        return firstText(metadata.get("resultType"), "json").toLowerCase(Locale.ENGLISH);
+    }
+
+    private Map<String, Object> resolveHttpResponseStatus(Map<String, Object> metadata) {
+        Object statusPath = metadata.get("businessStatusPath");
+        Object statusCode = metadata.get("businessStatusCode");
+        boolean hasPath = hasText(statusPath);
+        boolean hasCode = hasText(statusCode);
+        if (!hasPath && !hasCode) {
+            return new LinkedHashMap<String, Object>();
+        }
+        if (!hasPath || !hasCode) {
+            throw new IllegalArgumentException("HTTP business status path and code must be configured together");
+        }
+        Map<String, Object> responseStatus = new LinkedHashMap<String, Object>();
+        responseStatus.put("path", String.valueOf(statusPath).trim());
+        responseStatus.put("code", String.valueOf(statusCode).trim());
+        return responseStatus;
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (hasText(value)) {
+            target.put(key, value);
+        }
+    }
+
+    private String toJson(Map<String, Object> config) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(config);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Failed to serialize HTTP reader config", ex);
+        }
     }
 
     private void copyIfMissing(Map<String, Object> target, String targetKey, String sourceKey) {

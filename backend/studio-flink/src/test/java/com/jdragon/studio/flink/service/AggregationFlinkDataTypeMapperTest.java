@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AggregationFlinkDataTypeMapperTest {
 
@@ -66,6 +68,91 @@ class AggregationFlinkDataTypeMapperTest {
 
         assertEquals(Arrays.asList("update_time", "__path_inbound_date"), DataType.getFieldNames(rowType));
         assertEquals("DATE", DataType.getFieldDataTypes(rowType).get(1).getLogicalType().asSerializableString());
+    }
+
+    @Test
+    void addsHttpPushdownConventionPrefixAndReaderOptionFields() {
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("columns", Arrays.asList(column("status", Types.VARCHAR, null, null, null)));
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("params", "{\"filter_customer\":\"\"}");
+        readerOptions.put("header", "{\"trace_id\":\"\"}");
+        readerOptions.put("requestBody", "{\"filter\":{\"request_id\":\"\"}}");
+        readerOptions.put("url", "http://api.example.com/customers/{customer_key}/risk");
+        metadata.put("readerOptions", readerOptions);
+
+        DataType rowType = AggregationFlinkDataTypeMapper.rowType(metadata, "http");
+        List<String> names = DataType.getFieldNames(rowType);
+        List<DataType> types = DataType.getFieldDataTypes(rowType);
+
+        assertEquals(Arrays.asList("status", "param", "query", "body", "header", "path",
+                "filter_customer", "trace_id", "request_id", "customer_key"), names);
+        assertEquals("ROW<`filter_customer` VARCHAR(2147483647), `status` VARCHAR(2147483647)>",
+                types.get(1).getLogicalType().asSerializableString());
+        assertEquals("ROW<`filter_customer` VARCHAR(2147483647), `status` VARCHAR(2147483647)>",
+                types.get(2).getLogicalType().asSerializableString());
+        assertEquals("ROW<`filter` ROW<`request_id` VARCHAR(2147483647)>, `status` VARCHAR(2147483647)>",
+                types.get(3).getLogicalType().asSerializableString());
+        assertEquals("ROW<`trace_id` VARCHAR(2147483647), `status` VARCHAR(2147483647)>",
+                types.get(4).getLogicalType().asSerializableString());
+        assertEquals("ROW<`customer_key` VARCHAR(2147483647), `status` VARCHAR(2147483647)>",
+                types.get(5).getLogicalType().asSerializableString());
+        assertEquals("VARCHAR(2147483647)", types.get(6).getLogicalType().asSerializableString());
+    }
+
+    @Test
+    void keepsDottedHttpParamAndHeaderNamesFlatWhileNestingBodyPaths() {
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("columns", Arrays.asList(column("status", Types.VARCHAR, null, null, null)));
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("params", "{\"customer.id\":\"\"}");
+        readerOptions.put("header", "{\"X.Trace.Id\":\"\"}");
+        readerOptions.put("requestBody", "{\"filter\":{\"customer_id\":\"\"}}");
+        metadata.put("readerOptions", readerOptions);
+
+        DataType rowType = AggregationFlinkDataTypeMapper.rowType(metadata, "http");
+        List<String> names = DataType.getFieldNames(rowType);
+        List<DataType> types = DataType.getFieldDataTypes(rowType);
+        DataType paramType = types.get(names.indexOf("param"));
+        DataType queryType = types.get(names.indexOf("query"));
+        DataType headerType = types.get(names.indexOf("header"));
+        DataType bodyType = types.get(names.indexOf("body"));
+
+        assertEquals(Arrays.asList("customer.id", "status"), DataType.getFieldNames(paramType));
+        assertEquals(Arrays.asList("customer.id", "status"), DataType.getFieldNames(queryType));
+        assertEquals(Arrays.asList("X.Trace.Id", "status"), DataType.getFieldNames(headerType));
+        DataType filterType = DataType.getFieldDataTypes(bodyType)
+                .get(DataType.getFieldNames(bodyType).indexOf("filter"));
+        assertEquals(Arrays.asList("customer_id"), DataType.getFieldNames(filterType));
+    }
+
+    @Test
+    void addsHttpPathFieldsFromPhysicalLocator() {
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("columns", Arrays.asList(column("status", Types.VARCHAR, null, null, null)));
+
+        DataType rowType = AggregationFlinkDataTypeMapper.rowType(
+                metadata, "http", "/customers/{customer_id}/risk");
+
+        assertEquals(Arrays.asList("status", "param", "query", "body", "header", "path", "customer_id"),
+                DataType.getFieldNames(rowType));
+        assertEquals("ROW<`customer_id` VARCHAR(2147483647), `status` VARCHAR(2147483647)>",
+                DataType.getFieldDataTypes(rowType).get(5).getLogicalType().asSerializableString());
+    }
+
+    @Test
+    void rejectsPhysicalFieldsThatConflictWithHttpNamespaces() {
+        for (String reservedField : Arrays.asList(
+                "param", "query", "body", "header", "path", "param.id", "body.customer_id")) {
+            Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+            metadata.put("columns", Arrays.asList(column(reservedField, Types.VARCHAR, null, null, null)));
+
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                    () -> AggregationFlinkDataTypeMapper.rowType(metadata, "http"));
+
+            assertTrue(error.getMessage().contains(reservedField));
+            assertTrue(error.getMessage().contains("保留参数命名空间"));
+        }
     }
 
     private Map<String, Object> column(String name, Integer dataType, String typeName, Integer size, Integer scale) {

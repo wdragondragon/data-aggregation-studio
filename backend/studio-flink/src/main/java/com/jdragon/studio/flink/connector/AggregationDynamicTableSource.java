@@ -45,15 +45,17 @@ public class AggregationDynamicTableSource implements ScanTableSource, LookupTab
 
     @Override
     public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
-        if (AggregationPluginClassifier.classify(pluginName) != AggregationPluginKind.STRUCTURED) {
-            throw new UnsupportedOperationException("Lookup source only supports structured DataAggregation plugins");
+        AggregationPluginKind pluginKind = AggregationPluginClassifier.classify(pluginName);
+        if (pluginKind != AggregationPluginKind.STRUCTURED && pluginKind != AggregationPluginKind.HTTP) {
+            throw new UnsupportedOperationException(
+                    "Lookup source only supports structured and HTTP DataAggregation plugins");
         }
         return TableFunctionProvider.of(new AggregationLookupFunction(runtimeHandle, context.getKeys(), producedDataType));
     }
 
     @Override
     public ScanTableSource copy() {
-        return new AggregationDynamicTableSource(runtimeHandle, pluginName, scanMode, maxRows, producedDataType);
+        return new AggregationDynamicTableSource(runtimeHandle.copy(), pluginName, scanMode, maxRows, producedDataType);
     }
 
     @Override
@@ -80,6 +82,9 @@ public class AggregationDynamicTableSource implements ScanTableSource, LookupTab
         runtime.setPushedFilters(translation.getPushedFilterSql());
         runtime.setRemainingFilters(translation.getRemainingFilterSql());
         runtime.setPathContextFilters(translation.getPathContextFilters());
+        runtime.setHttpPushdownFilters(translation.getHttpPushdownFilters());
+        runtime.setHttpFilterAlwaysFalse(translation.isHttpFilterAlwaysFalse());
+        AggregationRuntimeResolver.captureRuntimeState(runtimeHandle, runtime);
         AggregationRuntimeResolver.updateAudit(runtimeHandle, runtime);
         return Result.of(translation.getAcceptedFilters(), translation.getRemainingFilters());
     }

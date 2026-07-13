@@ -18,6 +18,7 @@ import com.jdragon.studio.flink.execution.FlinkTableDdlBuilder;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.HttpReaderOptionSecurityService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ import java.util.Map;
 public class FlinkSqlExecutionService {
     private final DataModelService dataModelService;
     private final DataSourceService dataSourceService;
+    private final HttpReaderOptionSecurityService httpReaderOptionSecurityService;
     private final AggregationFlinkRuntimeBuilder runtimeBuilder;
     private final FlinkSqlGuard sqlGuard;
     private final StudioPlatformProperties properties;
@@ -36,12 +38,14 @@ public class FlinkSqlExecutionService {
 
     public FlinkSqlExecutionService(DataModelService dataModelService,
                                     DataSourceService dataSourceService,
+                                    HttpReaderOptionSecurityService httpReaderOptionSecurityService,
                                     AggregationFlinkRuntimeBuilder runtimeBuilder,
                                     FlinkSqlGuard sqlGuard,
                                     StudioPlatformProperties properties,
                                     FlinkExecutionClientRouter executionClientRouter) {
         this.dataModelService = dataModelService;
         this.dataSourceService = dataSourceService;
+        this.httpReaderOptionSecurityService = httpReaderOptionSecurityService;
         this.runtimeBuilder = runtimeBuilder;
         this.sqlGuard = sqlGuard;
         this.properties = properties;
@@ -135,7 +139,9 @@ public class FlinkSqlExecutionService {
         ref.setDatasourceType(datasource.getTypeCode());
         ref.setModelId(model.getId());
         ref.setModelName(model.getName());
-        ref.setPhysicalLocator(model.getPhysicalLocator());
+        ref.setPhysicalLocator("http".equalsIgnoreCase(datasource.getTypeCode())
+                ? httpReaderOptionSecurityService.maskSensitiveUrl(model.getPhysicalLocator())
+                : model.getPhysicalLocator());
         ref.setFlinkTableName(flinkTableName);
         return ref;
     }
@@ -177,6 +183,7 @@ public class FlinkSqlExecutionService {
         List<Map<String, Object>> sourceSql = new ArrayList<Map<String, Object>>();
         List<Map<String, Object>> filePaths = new ArrayList<Map<String, Object>>();
         List<Map<String, Object>> pathContextFilters = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> httpPushdownFilters = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < runtimes.size(); i++) {
             AggregationFlinkTableRuntime runtime = runtimes.get(i);
             String tableName = flinkTableNames.get(i);
@@ -191,12 +198,18 @@ public class FlinkSqlExecutionService {
                 item.put("filters", filters);
                 pathContextFilters.add(item);
             }
+            if (!runtime.getHttpPushdownFilters().isEmpty()) {
+                Map<String, Object> item = baseSummaryItem(runtime, tableName);
+                item.put("filters", new ArrayList<Map<String, Object>>(runtime.getHttpPushdownFilters()));
+                httpPushdownFilters.add(item);
+            }
         }
         view.getSummary().put("pushedFilters", pushedFilters);
         view.getSummary().put("remainingFilters", remainingFilters);
         view.getSummary().put("resolvedSourceSql", sourceSql);
         view.getSummary().put("resolvedFilePaths", filePaths);
         view.getSummary().put("pathContextFilters", pathContextFilters);
+        view.getSummary().put("httpPushdownFilters", httpPushdownFilters);
     }
 
     private void addSummaryItem(List<Map<String, Object>> target,

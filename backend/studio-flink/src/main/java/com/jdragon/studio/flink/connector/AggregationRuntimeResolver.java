@@ -8,13 +8,23 @@ final class AggregationRuntimeResolver {
         if (handle == null) {
             throw new IllegalStateException("DataAggregation Flink runtime handle is required");
         }
+        AggregationFlinkTableRuntime runtime;
         if (handle.isLocal()) {
-            return AggregationFlinkRuntimeRegistry.required(handle.getRuntimeRef());
+            runtime = copyWithoutRuntimeState(AggregationFlinkRuntimeRegistry.required(handle.getRuntimeRef()));
+        } else if (handle.isRemote()) {
+            runtime = copyWithoutRuntimeState(
+                    AggregationRemoteRuntimeClient.resolve(handle.getRuntimeEndpoint(), handle.getRuntimeToken()));
+        } else {
+            throw new IllegalStateException("DataAggregation Flink runtime ref or endpoint/token is required");
         }
-        if (handle.isRemote()) {
-            return AggregationRemoteRuntimeClient.resolve(handle.getRuntimeEndpoint(), handle.getRuntimeToken());
+        handle.applyRuntimeState(runtime);
+        return runtime;
+    }
+
+    static void captureRuntimeState(AggregationRuntimeHandle handle, AggregationFlinkTableRuntime runtime) {
+        if (handle != null && runtime != null) {
+            handle.captureRuntimeState(runtime);
         }
-        throw new IllegalStateException("DataAggregation Flink runtime ref or endpoint/token is required");
     }
 
     static void updateAudit(AggregationRuntimeHandle handle, AggregationFlinkTableRuntime runtime) {
@@ -29,5 +39,17 @@ final class AggregationRuntimeResolver {
         if (handle.isRemote()) {
             AggregationRemoteRuntimeClient.updateAudit(handle.getRuntimeEndpoint(), handle.getRuntimeToken(), runtime);
         }
+    }
+
+    private static AggregationFlinkTableRuntime copyWithoutRuntimeState(AggregationFlinkTableRuntime source) {
+        AggregationFlinkTableRuntime runtime = AggregationFlinkTableRuntimePayload.fromRuntime(source).toRuntime();
+        runtime.setPushedFilters(null);
+        runtime.setRemainingFilters(null);
+        runtime.setPathContextFilters(null);
+        runtime.setHttpPushdownFilters(null);
+        runtime.setHttpFilterAlwaysFalse(false);
+        runtime.setResolvedSourceSql(null);
+        runtime.setResolvedFilePaths(null);
+        return runtime;
     }
 }

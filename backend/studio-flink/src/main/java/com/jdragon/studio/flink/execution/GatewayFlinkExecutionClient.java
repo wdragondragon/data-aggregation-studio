@@ -316,7 +316,7 @@ public class GatewayFlinkExecutionClient implements FlinkExecutionClient {
         HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
-                    "Flink SQL Gateway HTTP " + response.statusCode() + ": " + safeBody(response.body()));
+                    "Flink SQL Gateway HTTP " + response.statusCode() + ": " + gatewayErrorMessage(response.body()));
         }
         if (!hasText(response.body())) {
             return objectMapper.createObjectNode();
@@ -396,6 +396,63 @@ public class GatewayFlinkExecutionClient implements FlinkExecutionClient {
             return "";
         }
         return body.length() > 1000 ? body.substring(0, 1000) : body;
+    }
+
+    private String gatewayErrorMessage(String body) {
+        String message = extractGatewayErrorText(body);
+        String businessMessage = extractHttpPushdownMessage(message);
+        if (hasText(businessMessage)) {
+            return businessMessage;
+        }
+        return safeBody(message);
+    }
+
+    private String extractGatewayErrorText(String body) {
+        if (!hasText(body)) {
+            return "";
+        }
+        String text = body.trim();
+        try {
+            JsonNode node = objectMapper.readTree(text);
+            JsonNode errors = node.get("errors");
+            if (errors != null && !errors.isNull()) {
+                if (errors.isArray() && errors.size() > 0) {
+                    return errors.get(0).asText(text);
+                }
+                return errors.asText(text);
+            }
+            String message = firstText(node, "message", "error", "detail");
+            if (hasText(message)) {
+                return message;
+            }
+        } catch (Exception ignored) {
+        }
+        return text;
+    }
+
+    private String extractHttpPushdownMessage(String message) {
+        if (!hasText(message)) {
+            return null;
+        }
+        String normalized = message.replace("\\r", "\n")
+                .replace("\\n", "\n")
+                .replace("\\t", " ");
+        int start = normalized.indexOf("HTTP 下推字段");
+        if (start < 0) {
+            return null;
+        }
+        int end = normalized.length();
+        for (String delimiter : new String[]{"\n", "\r", " at ", "Caused by", "org.apache.flink"}) {
+            int index = normalized.indexOf(delimiter, start);
+            if (index > start && index < end) {
+                end = index;
+            }
+        }
+        String result = normalized.substring(start, end).trim();
+        while (result.endsWith("\"") || result.endsWith("'") || result.endsWith(";")) {
+            result = result.substring(0, result.length() - 1).trim();
+        }
+        return result;
     }
 
     private void sleepQuietly(long millis) {
