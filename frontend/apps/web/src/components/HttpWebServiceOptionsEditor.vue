@@ -6,6 +6,7 @@
       :model-value="modelValue"
       :dynamic-function-fields="baseDynamicFunctionFields"
       @update:model-value="emitMergedValue($event)"
+      @field-change="emit('dirty-key', $event)"
     />
 
     <HttpRequestOptionsEditor
@@ -14,6 +15,7 @@
       :model-value="modelValue"
       :dynamic-function-fields="queryDynamicFunctionFields"
       @update:model-value="emitMergedValue($event)"
+      @dirty-key="emit('dirty-key', $event)"
     />
 
     <OpenServiceSoapRequestBuilder
@@ -124,6 +126,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, unknown>];
+  "dirty-key": [fieldKey: string];
 }>();
 
 const httpObjectKeys = new Set(["header", "params"]);
@@ -311,9 +314,8 @@ watch(
     syncInferredArrayDataNodePath();
     syncConfiguredSoapFieldDefaults();
     if (
-      props.soapTemplateMode
-      || (!envelopeText.value.trim() && !initializedEnvelope.value)
-      || (envelopeText.value.trim() && !effectiveEnvelopeError.value)
+      (!envelopeText.value.trim() && !initializedEnvelope.value)
+      || (initializedEnvelope.value && !effectiveEnvelopeError.value)
     ) {
       rebuildEnvelopeFromFields();
     }
@@ -328,7 +330,7 @@ watch(
     () => props.soapContract?.namespaceUri,
   ],
   () => {
-    if (envelopeText.value.trim() && !effectiveEnvelopeError.value) {
+    if (initializedEnvelope.value && envelopeText.value.trim() && !effectiveEnvelopeError.value) {
       rebuildEnvelopeFromFields();
     }
   },
@@ -370,6 +372,7 @@ function syncHttpHeadersFromModel(value: unknown) {
 }
 
 function updateHttpHeadersRaw(value: string) {
+  emit("dirty-key", "header");
   httpHeadersRaw.value = value;
   const parsed = parseJsonObjectText(value, "HTTP Headers");
   if (!parsed.ok) {
@@ -383,6 +386,7 @@ function updateHttpHeadersRaw(value: string) {
 }
 
 function setHttpHeaderValue(key: string, value: DebugFieldValue) {
+  emit("dirty-key", "header");
   httpHeaders[key] = value ?? "";
   httpHeadersRaw.value = prettyJsonValue(httpHeaders);
   httpHeadersError.value = "";
@@ -401,20 +405,21 @@ function syncEnvelopeFromModel(value: unknown) {
     return;
   }
   envelopeText.value = text;
+  initializedEnvelope.value = false;
   validateAndParseEnvelope(text);
-  if (!text.trim()) {
-    initializedEnvelope.value = false;
-  }
 }
 
 function updateEnvelope(value: string) {
+  emit("dirty-key", "requestBody");
   envelopeText.value = value;
+  initializedEnvelope.value = false;
   validateAndParseEnvelope(value);
   pendingEnvelopeText.value = value;
   emitRuntimeValue("requestBody", value);
 }
 
 function setSoapFieldValue(key: string, value: DebugFieldValue) {
+  emit("dirty-key", "requestBody");
   soapFieldValues[key] = value;
   rebuildEnvelopeFromFields();
 }
@@ -423,6 +428,7 @@ function validateAndParseEnvelope(value: string) {
   const text = value.trim();
   if (!text) {
     xmlError.value = "";
+    replaceParsedSoapValues({}, {});
     return;
   }
   if (isArrayPayloadMode.value) {
@@ -443,12 +449,15 @@ function validateAndParseEnvelope(value: string) {
   }
   xmlError.value = "";
   const bodyValues = normalizeParsedBodyValues(parsed.values);
-  discoveredBodyNames.value = uniqueNames([...Object.keys(bodyValues), ...discoveredBodyNames.value]);
-  discoveredSoapHeaderNames.value = uniqueNames([...Object.keys(parsed.headerValues), ...discoveredSoapHeaderNames.value]);
-  syncSoapValuesFromEnvelope(bodyValues, parsed.headerValues);
+  replaceParsedSoapValues(bodyValues, parsed.headerValues);
 }
 
-function syncSoapValuesFromEnvelope(bodyValues: DebugObject, headerValues: DebugObject) {
+function replaceParsedSoapValues(bodyValues: DebugObject, headerValues: DebugObject) {
+  discoveredBodyNames.value = uniqueNames(Object.keys(bodyValues));
+  discoveredSoapHeaderNames.value = uniqueNames(Object.keys(headerValues));
+  Object.keys(soapFieldValues).forEach((key) => {
+    delete soapFieldValues[key];
+  });
   for (const [name, value] of Object.entries(headerValues)) {
     soapFieldValues[soapValueKey("HEADER", name)] = toDebugFieldValue(value);
   }

@@ -1,6 +1,7 @@
 package com.jdragon.studio.test;
 
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
@@ -41,11 +42,14 @@ class AggregationSourceCapabilityProviderRegressionTest {
             AggregationSourceCapabilityProvider provider = httpProvider();
 
             ConnectionTestResult success = provider.testConnection(httpDatasource(baseUrl + "/ok"));
+            ConnectionTestResult legacyEndpointSuccess = provider.testConnection(
+                    httpDatasource("endpoint", baseUrl + "/ok"));
             ConnectionTestResult failure = provider.testConnection(httpDatasource(baseUrl + "/missing"));
             ConnectionTestResult serverError = provider.testConnection(httpDatasource(baseUrl + "/error"));
 
             assertThat(success.isSuccess()).isTrue();
             assertThat(success.getMessage()).isEqualTo("HTTP status 200");
+            assertThat(legacyEndpointSuccess.isSuccess()).isTrue();
             assertThat(failure.isSuccess()).isFalse();
             assertThat(failure.getMessage()).isEqualTo("HTTP status 404");
             assertThat(serverError.isSuccess()).isFalse();
@@ -53,6 +57,24 @@ class AggregationSourceCapabilityProviderRegressionTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void httpModelPreviewShouldPreferRequestPathOverLegacyPhysicalName() throws Exception {
+        AggregationSourceCapabilityProvider provider = httpProvider();
+        Method method = AggregationSourceCapabilityProvider.class.getDeclaredMethod(
+                "resolveHttpUrl", Map.class, DataModelDefinition.class, Map.class);
+        method.setAccessible(true);
+        Map<String, Object> datasourceMetadata = new LinkedHashMap<String, Object>();
+        datasourceMetadata.put("endpoint", "http://api.example.com/base");
+        Map<String, Object> modelMetadata = new LinkedHashMap<String, Object>();
+        modelMetadata.put("requestPath", "/request-path");
+        modelMetadata.put("physicalName", "/legacy-physical-name");
+        DataModelDefinition model = new DataModelDefinition();
+
+        Object url = method.invoke(provider, datasourceMetadata, model, modelMetadata);
+
+        assertThat(url).isEqualTo("http://api.example.com/base/request-path");
     }
 
     @Test
@@ -96,10 +118,14 @@ class AggregationSourceCapabilityProviderRegressionTest {
     }
 
     private DataSourceDefinition httpDatasource(String url) {
+        return httpDatasource("url", url);
+    }
+
+    private DataSourceDefinition httpDatasource(String key, String url) {
         DataSourceDefinition definition = new DataSourceDefinition();
         definition.setTypeCode("http");
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        metadata.put("url", url);
+        metadata.put(key, url);
         definition.setTechnicalMetadata(metadata);
         return definition;
     }

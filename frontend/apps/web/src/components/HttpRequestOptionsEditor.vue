@@ -4,6 +4,7 @@
     :model-value="modelValue"
     :dynamic-function-fields="dynamicFunctionFields"
     @update:model-value="emit('update:modelValue', $event)"
+    @dirty-key="emit('dirty-key', $event)"
   />
 </template>
 
@@ -23,5 +24,6 @@ withDefaults(defineProps<{
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, unknown>];
+  "dirty-key": [fieldKey: string];
 }>();
 </script>

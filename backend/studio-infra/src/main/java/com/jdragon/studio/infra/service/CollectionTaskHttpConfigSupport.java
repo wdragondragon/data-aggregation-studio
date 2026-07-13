@@ -43,11 +43,12 @@ final class CollectionTaskHttpConfigSupport {
         readerConfig.put("url", resolveHttpUrl(datasourceConnect, model, metadata));
         boolean soap = isSoapProtocol(metadata);
         readerConfig.put("mode", soap ? "POST" : resolveHttpMode(metadata));
-        readerConfig.put("protocolMode", soap ? "SOAP" : resolveProtocolMode(metadata));
+        String protocolMode = soap ? "SOAP" : resolveProtocolMode(metadata);
+        readerConfig.put("protocolMode", protocolMode);
         readerConfig.put("soapVersion", resolveSoapVersion(metadata));
         putIfPresent(readerConfig, "soapAction", metadata.get("soapAction"), null);
         readerConfig.put("soapFaultFail", Boolean.TRUE);
-        readerConfig.put("contentType", soap ? resolveSoapContentType(resolveSoapVersion(metadata)) : "application/json;charset=utf-8");
+        readerConfig.put("contentType", resolveHttpContentType(protocolMode, resolveSoapVersion(metadata)));
         readerConfig.put("header", "{}");
         readerConfig.put("params", "{}");
         readerConfig.put("requestBody", "");
@@ -97,7 +98,7 @@ final class CollectionTaskHttpConfigSupport {
     }
 
     void normalizeReaderRuntimeConfig(Map<String, Object> config) {
-        boolean soap = isSoapConfig(config);
+        boolean soap = isSoapReaderConfig(config);
         normalizeHttpStringOption(config, "contentType", soap ? resolveSoapContentType(resolveSoapVersion(config)) : "application/json;charset=utf-8");
         normalizeHttpJsonObjectString(config, "header", "HTTP reader");
         normalizeHttpJsonObjectString(config, "params", "HTTP reader");
@@ -115,6 +116,15 @@ final class CollectionTaskHttpConfigSupport {
             validateSoapEnvelope(String.valueOf(config.get("requestBody")), "HTTP SOAP reader requestBody");
             ensureSoapActionHeader(config);
         }
+        HttpReaderOptionNormalizer.enforceProtocolContract(config);
+    }
+
+    private boolean isSoapReaderConfig(Map<String, Object> config) {
+        Object protocolMode = config == null ? null : config.get("protocolMode");
+        if (!isBlankValue(protocolMode)) {
+            return "SOAP".equalsIgnoreCase(String.valueOf(protocolMode).trim());
+        }
+        return isSoapConfig(config);
     }
 
     void normalizeWriterRuntimeConfig(Map<String, Object> config) {
@@ -171,7 +181,7 @@ final class CollectionTaskHttpConfigSupport {
     private String resolveHttpUrl(Map<String, Object> datasourceConnect,
                                   DataModelDefinition model,
                                   Map<String, Object> metadata) {
-        Object requestPathValue = firstPresent(metadata, "physicalName", "requestPath");
+        Object requestPathValue = firstPresent(metadata, "requestPath", "physicalName");
         String requestPath = model == null ? null : model.getPhysicalLocator();
         if (isBlank(requestPath) && !isBlankValue(requestPathValue)) {
             requestPath = String.valueOf(requestPathValue).trim();
@@ -179,9 +189,8 @@ final class CollectionTaskHttpConfigSupport {
         if (!isBlank(requestPath) && isAbsoluteHttpUrl(requestPath)) {
             return requestPath.trim();
         }
-        String baseUrl = datasourceConnect == null || datasourceConnect.get("url") == null
-                ? null
-                : String.valueOf(datasourceConnect.get("url")).trim();
+        Object baseUrlValue = firstPresent(datasourceConnect, "url", "endpoint");
+        String baseUrl = baseUrlValue == null ? null : String.valueOf(baseUrlValue).trim();
         if (isBlank(baseUrl)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP datasource url is required");
         }
@@ -254,12 +263,34 @@ final class CollectionTaskHttpConfigSupport {
                 : "text/xml;charset=UTF-8";
     }
 
+    private String resolveHttpContentType(String protocolMode, String soapVersion) {
+        if ("SOAP".equalsIgnoreCase(protocolMode)) {
+            return resolveSoapContentType(soapVersion);
+        }
+        return "REST_XML".equalsIgnoreCase(protocolMode)
+                ? "application/xml;charset=UTF-8"
+                : "application/json;charset=utf-8";
+    }
+
     private String resolveHttpWriterMode(Map<String, Object> metadata) {
         Object mode = metadata == null ? null : metadata.get("mode");
         return isBlankValue(mode) ? "POST" : String.valueOf(mode).trim().toUpperCase(Locale.ENGLISH);
     }
 
     private String resolveHttpResultType(Map<String, Object> metadata) {
+        Object protocolMode = metadata == null ? null : metadata.get("protocolMode");
+        if (!isBlankValue(protocolMode)) {
+            String normalizedProtocol = String.valueOf(protocolMode).trim().toUpperCase(Locale.ENGLISH);
+            if ("SOAP".equals(normalizedProtocol)) {
+                return "soap";
+            }
+            if ("REST_XML".equals(normalizedProtocol)) {
+                return "xml";
+            }
+            if ("REST_JSON".equals(normalizedProtocol)) {
+                return "json";
+            }
+        }
         Object resultType = metadata == null ? null : metadata.get("resultType");
         return isBlankValue(resultType) ? "json" : String.valueOf(resultType).trim().toLowerCase(Locale.ENGLISH);
     }

@@ -11,9 +11,11 @@ import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.EncryptionService;
+import com.jdragon.studio.infra.service.HttpReaderOptionSecurityService;
 import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import org.junit.jupiter.api.Test;
 
@@ -171,6 +173,12 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("{\"rewriteBatchedStatements\":\"true\"}", connect.get("other"));
     }
 
+    private EncryptionService testEncryptionService() {
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setEncryptionSecret("collection-task-assembler-regression-test");
+        return new EncryptionService(properties);
+    }
+
     @Test
     void mysqlWriterShouldKeepExistingBatchRewriteOption() {
         DataSourceService dataSourceService = mockDataSourceService();
@@ -290,6 +298,78 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         @SuppressWarnings("unchecked")
         Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
         assertIterableEquals(Arrays.asList("order_amount", "payment_amount"), (List<?>) writerConfig.get("columns"));
+    }
+
+    @Test
+    void fusionHttpSourceShouldMergeModelReaderOptionsBeforeTaskOptions() {
+        DataModelService dataModelService = mock(DataModelService.class);
+        when(dataModelService.get(10L)).thenReturn(buildModelWithColumns(10L, "customer_table", "id", "source_col"));
+        DataModelDefinition httpModel = buildHttpModel(false);
+        Map<String, Object> modelReaderOptions = new LinkedHashMap<String, Object>();
+        modelReaderOptions.put("url", "http://evil.example.com/model");
+        modelReaderOptions.put("mode", "POST");
+        modelReaderOptions.put("header", "{\"X-Model\":\"model\"}");
+        modelReaderOptions.put("params", "{\"customer\":\"{dyn_page}\"}");
+        modelReaderOptions.put("pageRead", Boolean.TRUE);
+        modelReaderOptions.put("pageSize", Integer.valueOf(100));
+        httpModel.getTechnicalMetadata().put("readerOptions", modelReaderOptions);
+        when(dataModelService.get(40L)).thenReturn(httpModel);
+        when(dataModelService.get(20L)).thenReturn(buildModelWithColumns(20L, "target_table", "target_col", "name"));
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                dataModelService,
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.FUSION);
+        CollectionTaskSourceBinding mysqlSource = new CollectionTaskSourceBinding();
+        mysqlSource.setDatasourceId(1L);
+        mysqlSource.setModelId(10L);
+        mysqlSource.setSourceAlias("mysql_customer");
+        CollectionTaskSourceBinding httpSource = new CollectionTaskSourceBinding();
+        httpSource.setDatasourceId(4L);
+        httpSource.setModelId(40L);
+        httpSource.setSourceAlias("http_risk");
+        Map<String, Object> taskReaderOptions = new LinkedHashMap<String, Object>();
+        taskReaderOptions.put("header", "{\"X-Task\":\"task\"}");
+        taskReaderOptions.put("pageSize", Integer.valueOf(50));
+        httpSource.setReaderOptions(taskReaderOptions);
+        definition.setSourceBindings(Arrays.asList(mysqlSource, httpSource));
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(2L);
+        targetBinding.setModelId(20L);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition targetId = new FieldMappingDefinition();
+        targetId.setSourceAlias("http_risk");
+        targetId.setSourceField("id");
+        targetId.setTargetField("target_col");
+        FieldMappingDefinition targetName = new FieldMappingDefinition();
+        targetName.setSourceAlias("http_risk");
+        targetName.setSourceField("name");
+        targetName.setTargetField("name");
+        definition.setFieldMappings(Arrays.asList(targetId, targetName));
+        Map<String, Object> executionOptions = new LinkedHashMap<String, Object>();
+        executionOptions.put("joinKeys", Collections.singletonList("id"));
+        definition.setExecutionOptions(executionOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> sources = (List<Map<String, Object>>) readerConfig.get("sources");
+        Map<String, Object> httpSourceConfig = sources.get(1);
+        assertEquals("http", httpSourceConfig.get("type"));
+        assertEquals("http://api.example.com/base/users", httpSourceConfig.get("url"));
+        assertEquals("GET", httpSourceConfig.get("mode"));
+        assertEquals("{\"X-Task\":\"task\",\"X-Model\":\"model\"}", httpSourceConfig.get("header"));
+        assertEquals("{\"customer\":\"{dyn_page}\"}", httpSourceConfig.get("params"));
+        assertEquals(Boolean.TRUE, httpSourceConfig.get("pageRead"));
+        assertEquals(Integer.valueOf(50), httpSourceConfig.get("pageSize"));
     }
 
     @Test
@@ -572,7 +652,7 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
                 mockDataSourceService(),
                 mockDataModelService(),
-                mock(EncryptionService.class),
+                testEncryptionService(),
                 mockRuntimeOptionSchemaService());
 
         CollectionTaskDefinitionView definition = buildHttpDefinition(40L);
@@ -624,6 +704,203 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("data.items", columns.get(0).get("parentNode"));
         assertEquals("id", columns.get(0).get("name"));
         assertEquals("STRING", columns.get(0).get("type"));
+    }
+
+    @Test
+    void httpReaderConfigShouldMergeModelReaderOptionsBeforeTaskOptions() {
+        DataModelService dataModelService = mockDataModelService();
+        DataModelDefinition httpModel = buildHttpModel(false);
+        Map<String, Object> modelReaderOptions = new LinkedHashMap<String, Object>();
+        modelReaderOptions.put("url", "http://evil.example.com/model");
+        modelReaderOptions.put("mode", "POST");
+        modelReaderOptions.put("header", "{\"X-Model\":\"model\"}");
+        modelReaderOptions.put("params", "{\"page\":\"{dyn_page}\"}");
+        modelReaderOptions.put("pageRead", Boolean.TRUE);
+        modelReaderOptions.put("pageSize", Integer.valueOf(100));
+        httpModel.getTechnicalMetadata().put("readerOptions", modelReaderOptions);
+        when(dataModelService.get(40L)).thenReturn(httpModel);
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                dataModelService,
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpDefinition(40L);
+        Map<String, Object> taskReaderOptions = new LinkedHashMap<String, Object>();
+        taskReaderOptions.put("header", "{\"X-Task\":\"task\"}");
+        taskReaderOptions.put("pageSize", Integer.valueOf(50));
+        definition.getSourceBindings().get(0).setReaderOptions(taskReaderOptions);
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        assertEquals("http://api.example.com/base/users", readerConfig.get("url"));
+        assertEquals("GET", readerConfig.get("mode"));
+        assertEquals("{\"X-Task\":\"task\",\"X-Model\":\"model\"}", readerConfig.get("header"));
+        assertEquals("{\"page\":\"{dyn_page}\"}", readerConfig.get("params"));
+        assertEquals(Boolean.TRUE, readerConfig.get("pageRead"));
+        assertEquals(Integer.valueOf(50), readerConfig.get("pageSize"));
+    }
+
+    @Test
+    void httpReaderConfigShouldPreferRequestPathAndSupportLegacyEndpointBaseUrl() {
+        DataSourceService dataSourceService = mockDataSourceService();
+        DataSourceDefinition httpDatasource = new DataSourceDefinition();
+        httpDatasource.setId(4L);
+        httpDatasource.setTypeCode("http");
+        Map<String, Object> datasourceMetadata = new LinkedHashMap<String, Object>();
+        datasourceMetadata.put("endpoint", "http://api.example.com/base");
+        httpDatasource.setTechnicalMetadata(datasourceMetadata);
+        when(dataSourceService.getInternal(4L)).thenReturn(httpDatasource);
+
+        DataModelService dataModelService = mockDataModelService();
+        DataModelDefinition httpModel = buildHttpModel(false);
+        httpModel.setPhysicalLocator(null);
+        httpModel.getTechnicalMetadata().put("requestPath", "/request-path");
+        httpModel.getTechnicalMetadata().put("physicalName", "/legacy-physical-name");
+        when(dataModelService.get(47L)).thenReturn(httpModel);
+
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                dataSourceService,
+                dataModelService,
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        Map<String, Object> config = assemblerService.assemble(buildHttpDefinition(47L));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reader = (Map<String, Object>) config.get("reader");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readerConfig = (Map<String, Object>) reader.get("config");
+        assertEquals("http://api.example.com/base/request-path", readerConfig.get("url"));
+    }
+
+    @Test
+    void httpPreviewShouldMaskModelAndTaskCredentialsWhileExecutionKeepsPlainValues() {
+        DataModelService dataModelService = mockDataModelService();
+        DataModelDefinition httpModel = buildHttpModel(false);
+        Map<String, Object> modelReaderOptions = new LinkedHashMap<String, Object>();
+        modelReaderOptions.put("header", "{\"Authorization\":\"Bearer model-secret\"}");
+        modelReaderOptions.put("params", "{\"api_token\":\"model-query-secret\"}");
+        modelReaderOptions.put("requestBody", "{\"password\":\"model-body-secret\"}");
+        httpModel.getTechnicalMetadata().put("readerOptions", modelReaderOptions);
+        when(dataModelService.get(40L)).thenReturn(httpModel);
+        EncryptionService encryptionService = testEncryptionService();
+        HttpReaderOptionSecurityService securityService = new HttpReaderOptionSecurityService(encryptionService);
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(), dataModelService, encryptionService, mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpDefinition(40L);
+        Map<String, Object> submittedTaskOptions = new LinkedHashMap<String, Object>();
+        submittedTaskOptions.put("header", "{\"Authorization\":\"Bearer task-secret\"}");
+        submittedTaskOptions.put("params", "{\"api_token\":\"task-query-secret\"}");
+        submittedTaskOptions.put("requestBody", "{\"password\":\"task-body-secret\"}");
+        definition.getSourceBindings().get(0).setReaderOptions(
+                securityService.prepareReaderOptionOverrides(submittedTaskOptions, httpModel.getTechnicalMetadata()));
+
+        Map<String, Object> executionConfig = castMap(
+                castMap(assemblerService.assemble(definition).get("reader")).get("config"));
+        Map<String, Object> previewConfig = castMap(
+                castMap(assemblerService.assemblePreview(definition).get("reader")).get("config"));
+
+        assertTrue(String.valueOf(executionConfig.get("header")).contains("task-secret"));
+        assertTrue(String.valueOf(executionConfig.get("params")).contains("task-query-secret"));
+        assertTrue(String.valueOf(executionConfig.get("requestBody")).contains("task-body-secret"));
+        assertFalse(String.valueOf(previewConfig).contains("task-secret"));
+        assertFalse(String.valueOf(previewConfig).contains("task-query-secret"));
+        assertFalse(String.valueOf(previewConfig).contains("task-body-secret"));
+        assertTrue(String.valueOf(previewConfig.get("header")).contains("****"));
+        assertTrue(String.valueOf(previewConfig.get("params")).contains("****"));
+        assertTrue(String.valueOf(previewConfig.get("requestBody")).contains("****"));
+    }
+
+    @Test
+    void httpReaderConfigShouldDeriveRestXmlRuntimeDefaultsFromProtocol() {
+        DataModelService dataModelService = mockDataModelService();
+        DataModelDefinition httpModel = buildHttpModel(false);
+        httpModel.getTechnicalMetadata().put("protocolMode", "REST_XML");
+        httpModel.getTechnicalMetadata().put("resultType", "json");
+        Map<String, Object> staleReaderOptions = new LinkedHashMap<String, Object>();
+        staleReaderOptions.put("contentType", "application/json;charset=utf-8");
+        httpModel.getTechnicalMetadata().put("readerOptions", staleReaderOptions);
+        when(dataModelService.get(40L)).thenReturn(httpModel);
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                dataModelService,
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        Map<String, Object> config = assemblerService.assemble(buildHttpDefinition(40L));
+
+        Map<String, Object> readerConfig = castMap(castMap(config.get("reader")).get("config"));
+        assertEquals("REST_XML", readerConfig.get("protocolMode"));
+        assertEquals("xml", readerConfig.get("resultType"));
+        assertEquals("application/xml;charset=UTF-8", readerConfig.get("contentType"));
+    }
+
+    @Test
+    void httpReaderConfigShouldIgnoreUnmodifiedInheritedMaskedOptionsButKeepExplicitOverrides() {
+        DataModelService dataModelService = mockDataModelService();
+        DataModelDefinition httpModel = buildHttpModel(false);
+        Map<String, Object> modelReaderOptions = new LinkedHashMap<String, Object>();
+        String inheritedHeader = "{\"Authorization\":\"Bearer model-secret\",\"X-Model\":\"model\"}";
+        modelReaderOptions.put("header", inheritedHeader);
+        httpModel.getTechnicalMetadata().put("readerOptions", modelReaderOptions);
+        when(dataModelService.get(40L)).thenReturn(httpModel);
+
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setEncryptionSecret("collection-task-http-inheritance-test");
+        EncryptionService encryptionService = new EncryptionService(properties);
+        HttpReaderOptionSecurityService securityService = new HttpReaderOptionSecurityService(encryptionService);
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                dataModelService,
+                encryptionService,
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = buildHttpDefinition(40L);
+        Map<String, Object> maskedMetadata = securityService.maskTechnicalMetadata(httpModel.getTechnicalMetadata());
+        Map<String, Object> maskedReaderOptions = castMap(maskedMetadata.get("readerOptions"));
+        Map<String, Object> taskReaderOptions = new LinkedHashMap<String, Object>();
+        taskReaderOptions.put("header", maskedReaderOptions.get("header"));
+        taskReaderOptions = securityService.prepareReaderOptionOverrides(
+                taskReaderOptions, httpModel.getTechnicalMetadata());
+        definition.getSourceBindings().get(0).setReaderOptions(taskReaderOptions);
+
+        Map<String, Object> inheritedConfig = castMap(castMap(assemblerService.assemble(definition).get("reader")).get("config"));
+        assertEquals(inheritedHeader, inheritedConfig.get("header"));
+
+        String siblingChangedHeader = String.valueOf(maskedReaderOptions.get("header"))
+                .replace("\"model\"", "\"task\"");
+        taskReaderOptions.put("header", siblingChangedHeader);
+        taskReaderOptions = securityService.prepareReaderOptionOverrides(
+                taskReaderOptions, httpModel.getTechnicalMetadata());
+        definition.getSourceBindings().get(0).setReaderOptions(taskReaderOptions);
+        Map<String, Object> siblingChangedConfig = castMap(
+                castMap(assemblerService.assemble(definition).get("reader")).get("config"));
+        assertEquals(Map.of("Authorization", "Bearer model-secret", "X-Model", "task"),
+                com.alibaba.fastjson.JSONObject.parseObject(String.valueOf(siblingChangedConfig.get("header")), Map.class));
+
+        String explicitHeader = "{\"Authorization\":\"Bearer task-secret\",\"X-Model\":\"task\"}";
+        taskReaderOptions.put("header", explicitHeader);
+        taskReaderOptions = securityService.prepareReaderOptionOverrides(
+                taskReaderOptions, httpModel.getTechnicalMetadata());
+        definition.getSourceBindings().get(0).setReaderOptions(taskReaderOptions);
+        Map<String, Object> overriddenConfig = castMap(castMap(assemblerService.assemble(definition).get("reader")).get("config"));
+        assertEquals(explicitHeader, overriddenConfig.get("header"));
+
+        String removedHeader = "{\"Authorization\":\""
+                + HttpReaderOptionSecurityService.REMOVED_VALUE_MARKER + "\",\"X-Model\":\"task\"}";
+        taskReaderOptions.put("header", removedHeader);
+        taskReaderOptions = securityService.prepareReaderOptionOverrides(
+                taskReaderOptions, httpModel.getTechnicalMetadata());
+        definition.getSourceBindings().get(0).setReaderOptions(taskReaderOptions);
+        Map<String, Object> removedConfig = castMap(castMap(assemblerService.assemble(definition).get("reader")).get("config"));
+        assertEquals(Map.of("X-Model", "task"),
+                com.alibaba.fastjson.JSONObject.parseObject(String.valueOf(removedConfig.get("header")), Map.class));
     }
 
     @Test
@@ -732,6 +1009,7 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("soap", readerConfig.get("resultType"));
         assertEquals("text/xml;charset=UTF-8", readerConfig.get("contentType"));
         assertTrue(String.valueOf(readerConfig.get("header")).contains("SOAPAction"));
+        assertTrue(String.valueOf(readerConfig.get("header")).contains("urn:studio/QueryRows"));
         assertTrue(String.valueOf(readerConfig.get("requestBody")).contains("QueryRows"));
 
         @SuppressWarnings("unchecked")

@@ -251,6 +251,7 @@ class AssistantStudioToolExecutionServiceTest {
         model.setId(Long.valueOf(7L));
         model.setName("ods_order");
         when(dataModelService.get(Long.valueOf(7L))).thenReturn(model);
+        when(dataModelService.maskSensitiveReaderOptions(model)).thenReturn(model);
         AssistantStudioToolExecutionService service = service(dataModelService);
 
         Map<String, Object> result = service.execute(request("studio.feature.get", params(
@@ -259,6 +260,7 @@ class AssistantStudioToolExecutionServiceTest {
 
         assertThat(result.get("data")).isSameAs(model);
         verify(dataModelService).get(Long.valueOf(7L));
+        verify(dataModelService).maskSensitiveReaderOptions(model);
     }
 
     @Test
@@ -963,8 +965,10 @@ class AssistantStudioToolExecutionServiceTest {
     @Test
     void executeShouldRouteConfirmedModelSaveActionThroughBackendTool() {
         DataModelService dataModelService = mock(DataModelService.class);
-        DataModelDefinition definition = new DataModelDefinition();
-        when(dataModelService.save(org.mockito.ArgumentMatchers.any(DataModelSaveRequest.class))).thenReturn(definition);
+        DataModelDefinition savedDefinition = new DataModelDefinition();
+        DataModelDefinition maskedDefinition = new DataModelDefinition();
+        when(dataModelService.save(org.mockito.ArgumentMatchers.any(DataModelSaveRequest.class))).thenReturn(savedDefinition);
+        when(dataModelService.maskSensitiveReaderOptions(savedDefinition)).thenReturn(maskedDefinition);
         AssistantStudioToolExecutionService service = service(dataModelService);
 
         Map<String, Object> result = service.execute(request("studio.feature.action", params(
@@ -976,19 +980,43 @@ class AssistantStudioToolExecutionServiceTest {
                         "physicalLocator", "ods_order"),
                 "confirmed", Boolean.TRUE)));
 
-        assertThat(result.get("data")).isSameAs(definition);
+        assertThat(result.get("data")).isSameAs(maskedDefinition);
         verify(dataModelService).save(org.mockito.ArgumentMatchers.argThat(request ->
                 Long.valueOf(71L).equals(request.getDatasourceId())
                         && "ods_order".equals(request.getName())
                         && "ods_order".equals(request.getPhysicalLocator())));
+        verify(dataModelService).maskSensitiveReaderOptions(savedDefinition);
+    }
+
+    @Test
+    void executeShouldReturnMaskedModelsForConfirmedModelSyncAction() {
+        DataModelService dataModelService = mock(DataModelService.class);
+        List<DataModelDefinition> syncedDefinitions = Collections.singletonList(new DataModelDefinition());
+        List<DataModelDefinition> maskedDefinitions = Collections.singletonList(new DataModelDefinition());
+        when(dataModelService.syncFromDatasource(Long.valueOf(71L))).thenReturn(syncedDefinitions);
+        when(dataModelService.maskSensitiveReaderOptions(syncedDefinitions)).thenReturn(maskedDefinitions);
+        AssistantStudioToolExecutionService service = service(dataModelService);
+
+        Map<String, Object> result = service.execute(request("studio.feature.action", params(
+                "path", "/models",
+                "datasourceId", 71L,
+                "action", "sync",
+                "confirmed", Boolean.TRUE)));
+
+        assertThat(result.get("data")).isSameAs(maskedDefinitions);
+        verify(dataModelService).syncFromDatasource(Long.valueOf(71L));
+        verify(dataModelService).maskSensitiveReaderOptions(syncedDefinitions);
     }
 
     @Test
     void executeShouldRouteConfirmedModelSyncSelectedActionThroughBackendTool() {
         DataModelService dataModelService = mock(DataModelService.class);
         DataModelDefinition definition = new DataModelDefinition();
+        List<DataModelDefinition> syncedDefinitions = Collections.singletonList(definition);
+        List<DataModelDefinition> maskedDefinitions = Collections.singletonList(new DataModelDefinition());
         when(dataModelService.syncFromDatasource(org.mockito.ArgumentMatchers.eq(Long.valueOf(71L)),
-                org.mockito.ArgumentMatchers.anyList())).thenReturn(Collections.singletonList(definition));
+                org.mockito.ArgumentMatchers.anyList())).thenReturn(syncedDefinitions);
+        when(dataModelService.maskSensitiveReaderOptions(syncedDefinitions)).thenReturn(maskedDefinitions);
         AssistantStudioToolExecutionService service = service(dataModelService);
 
         Map<String, Object> result = service.execute(request("studio.feature.action", params(
@@ -998,10 +1026,11 @@ class AssistantStudioToolExecutionServiceTest {
                 "physicalLocators", Collections.singletonList("ods_order"),
                 "confirmed", Boolean.TRUE)));
 
-        assertThat(result.get("data")).isEqualTo(Collections.singletonList(definition));
+        assertThat(result.get("data")).isSameAs(maskedDefinitions);
         verify(dataModelService).syncFromDatasource(org.mockito.ArgumentMatchers.eq(Long.valueOf(71L)),
                 org.mockito.ArgumentMatchers.argThat(locators ->
                         locators.size() == 1 && "ods_order".equals(locators.get(0))));
+        verify(dataModelService).maskSensitiveReaderOptions(syncedDefinitions);
     }
 
     @Test

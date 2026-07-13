@@ -3,13 +3,17 @@ package com.jdragon.studio.test;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.dto.model.DataModelDatasourceOptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataModelListView;
 import com.jdragon.studio.dto.model.DataModelOptionView;
 import com.jdragon.studio.dto.model.DataModelSqlHintView;
+import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
+import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
@@ -17,6 +21,8 @@ import com.jdragon.studio.infra.service.DataModelAccessScopeService;
 import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.DataModelSearchIndexService;
 import com.jdragon.studio.infra.service.DataModelService;
+import com.jdragon.studio.infra.service.EncryptionService;
+import com.jdragon.studio.infra.service.HttpReaderOptionSecurityService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
@@ -35,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -310,12 +317,194 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         verify(dataSourceService, never()).get(11L);
     }
 
+    @Test
+    void saveHttpModelShouldDropLegacyPushdownMappingMetadata() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(11L);
+        datasource.setTypeCode("http");
+        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.<DataModelEntity>emptyList());
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+
+        Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("params", "{\"customer_id\":\"\"}");
+        readerOptions.put("header", "{\"Authorization\":\"Bearer model-secret\",\"X-Trace\":\"trace-1\"}");
+        readerOptions.put("soapVersion", "SOAP_11");
+        readerOptions.put("soapAction", "urn:legacy-reader-action");
+        technicalMetadata.put("readerOptions", readerOptions);
+        technicalMetadata.put("httpPushdownMappings", Collections.singletonList(Collections.singletonMap("field", "customer_id")));
+        DataModelSaveRequest request = new DataModelSaveRequest();
+        request.setDatasourceId(11L);
+        request.setName("HTTP 客户风险模型");
+        request.setPhysicalLocator("/risk");
+        request.setModelKind(ModelKind.TABLE);
+        request.setTechnicalMetadata(technicalMetadata);
+        request.setBusinessMetadata(new LinkedHashMap<String, Object>());
+
+        DataModelDefinition saved = service.save(request);
+
+        assertThat(saved.getTechnicalMetadata())
+                .containsKey("readerOptions")
+                .doesNotContainKey("httpPushdownMappings");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> savedReaderOptions =
+                (Map<String, Object>) saved.getTechnicalMetadata().get("readerOptions");
+        assertThat(savedReaderOptions)
+                .containsKeys("params", "header")
+                .doesNotContainKeys("soapVersion", "soapAction");
+        assertThat(String.valueOf(savedReaderOptions.get("header")))
+                .contains("Bearer model-secret")
+                .contains("trace-1");
+        ArgumentCaptor<DataModelEntity> captor = ArgumentCaptor.forClass(DataModelEntity.class);
+        verify(dataModelMapper).insert(captor.capture());
+        assertThat(captor.getValue().getTechnicalMetadata())
+                .containsKey("readerOptions")
+                .doesNotContainKey("httpPushdownMappings");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> persistedReaderOptions =
+                (Map<String, Object>) captor.getValue().getTechnicalMetadata().get("readerOptions");
+        assertThat(persistedReaderOptions)
+                .containsKeys("params", "header")
+                .doesNotContainKeys("soapVersion", "soapAction");
+        assertThat(String.valueOf(persistedReaderOptions.get("header")))
+                .contains("ENC(")
+                .doesNotContain("model-secret")
+                .contains("trace-1");
+        DataModelDefinition masked = service.maskSensitiveReaderOptions(saved);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> maskedReaderOptions =
+                (Map<String, Object>) masked.getTechnicalMetadata().get("readerOptions");
+        assertThat(String.valueOf(maskedReaderOptions.get("header")))
+                .contains("Be****et")
+                .doesNotContain("model-secret")
+                .contains("trace-1");
+    }
+
+    @Test
+    void httpModelShouldRejectCredentialsEmbeddedInPhysicalLocator() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(11L);
+        datasource.setTypeCode("http");
+        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.<DataModelEntity>emptyList());
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        DataModelSaveRequest request = new DataModelSaveRequest();
+        request.setDatasourceId(11L);
+        request.setName("HTTP secret URL model");
+        request.setPhysicalLocator("https://user:password@example.test/customers?access_token=secret");
+        request.setModelKind(ModelKind.TABLE);
+        request.setTechnicalMetadata(new LinkedHashMap<String, Object>());
+        request.setBusinessMetadata(new LinkedHashMap<String, Object>());
+
+        assertThatThrownBy(() -> service.save(request))
+                .hasMessageContaining("Reader default parameters");
+
+        verify(dataModelMapper, never()).insert(any(DataModelEntity.class));
+    }
+
+    @Test
+    void httpModelShouldRejectCredentialsEmbeddedInTechnicalMetadataUrls() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(11L);
+        datasource.setTypeCode("http");
+        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.<DataModelEntity>emptyList());
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        DataModelSaveRequest request = new DataModelSaveRequest();
+        request.setDatasourceId(11L);
+        request.setName("HTTP metadata secret URL model");
+        request.setPhysicalLocator("/customers");
+        request.setModelKind(ModelKind.TABLE);
+        request.setTechnicalMetadata(new LinkedHashMap<String, Object>());
+        request.getTechnicalMetadata().put("requestPath",
+                "https://user:password@example.test/customers?sig=actual-secret");
+        request.setBusinessMetadata(new LinkedHashMap<String, Object>());
+
+        assertThatThrownBy(() -> service.save(request))
+                .hasMessageContaining("Reader default parameters");
+
+        verify(dataModelMapper, never()).insert(any(DataModelEntity.class));
+    }
+
+    @Test
+    void switchingNonHttpModelToHttpShouldNotTrustHistoricalLocator() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataSourceDefinition httpDatasource = new DataSourceDefinition();
+        httpDatasource.setId(11L);
+        httpDatasource.setTypeCode("http");
+        DataSourceDefinition mysqlDatasource = new DataSourceDefinition();
+        mysqlDatasource.setId(12L);
+        mysqlDatasource.setTypeCode("mysql8");
+        when(dataSourceService.getInternal(11L)).thenReturn(httpDatasource);
+        when(dataSourceService.getInternal(12L)).thenReturn(mysqlDatasource);
+        DataModelEntity existing = model();
+        existing.setDatasourceId(12L);
+        existing.setPhysicalLocator("https://user:password@example.test/customers?access_token=secret");
+        when(dataModelMapper.selectById(existing.getId())).thenReturn(existing);
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.<DataModelEntity>emptyList());
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        DataModelSaveRequest request = new DataModelSaveRequest();
+        request.setId(existing.getId());
+        request.setDatasourceId(11L);
+        request.setName(existing.getName());
+        request.setPhysicalLocator(existing.getPhysicalLocator());
+        request.setModelKind(ModelKind.TABLE);
+        request.setTechnicalMetadata(new LinkedHashMap<String, Object>());
+        request.setBusinessMetadata(new LinkedHashMap<String, Object>());
+
+        assertThatThrownBy(() -> service.save(request))
+                .hasMessageContaining("Reader default parameters");
+
+        verify(dataModelMapper, never()).updateById(any(DataModelEntity.class));
+    }
+
+    @Test
+    void publicModelViewsShouldMaskCredentialsEmbeddedInHistoricalPhysicalLocator() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService service = dataModelService(dataModelMapper, dataSourceService);
+        DataModelEntity entity = model();
+        entity.setPhysicalLocator("https://user:password@example.test/customers?access_token=secret#debug");
+        when(dataModelMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(Collections.singletonList(entity));
+
+        List<DataModelSqlHintView> hints = service.listSqlHintsByDatasource(11L);
+        DataModelDefinition definition = new DataModelDefinition();
+        definition.setPhysicalLocator(entity.getPhysicalLocator());
+        definition.setTechnicalMetadata(new LinkedHashMap<String, Object>());
+        definition.getTechnicalMetadata().put("requestPath", entity.getPhysicalLocator());
+        definition.getTechnicalMetadata().put("wsdlUrl",
+                "https://example.test/service?subscription-key=historical-secret");
+        service.maskSensitiveReaderOptions(definition);
+
+        assertThat(hints.get(0).getPhysicalLocator())
+                .isEqualTo("https://****@example.test/customers?access_token=****#****");
+        assertThat(definition.getPhysicalLocator())
+                .isEqualTo("https://****@example.test/customers?access_token=****#****");
+        assertThat(definition.getTechnicalMetadata().get("requestPath"))
+                .isEqualTo("https://****@example.test/customers?access_token=****#****");
+        assertThat(definition.getTechnicalMetadata().get("wsdlUrl"))
+                .isEqualTo("https://example.test/service?subscription-key=****");
+    }
+
     private DataModelService dataModelService(DataModelMapper dataModelMapper,
                                               DataSourceService dataSourceService) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
+        when(accessService.requireCurrentProjectId()).thenReturn(100L);
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
         DataModelAccessScopeService scopeService = new DataModelAccessScopeService(dataModelMapper, securityService, accessService);
         return new DataModelService(
@@ -329,7 +518,14 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
                 securityService,
                 accessService,
                 scopeService,
-                mock(DatasourceTypeCapabilityService.class));
+                mock(DatasourceTypeCapabilityService.class),
+                httpReaderOptionSecurityService());
+    }
+
+    private HttpReaderOptionSecurityService httpReaderOptionSecurityService() {
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setEncryptionSecret("http-model-reader-option-test-secret");
+        return new HttpReaderOptionSecurityService(new EncryptionService(properties));
     }
 
     private DataModelEntity model() {

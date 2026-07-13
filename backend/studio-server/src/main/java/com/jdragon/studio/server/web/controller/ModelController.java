@@ -64,7 +64,8 @@ public class ModelController {
                                                       @RequestParam(value = "pageSize", required = false) Integer pageSize,
                                                       @RequestParam(value = "sortField", required = false) String sortField,
                                                       @RequestParam(value = "sortOrder", required = false) String sortOrder) {
-        return Result.success(dataModelService.listPage(datasourceType, pageNo, pageSize, sortField, sortOrder));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(
+                dataModelService.listPage(datasourceType, pageNo, pageSize, sortField, sortOrder)));
     }
 
     @Operation(summary = "List datasource model summaries")
@@ -103,7 +104,8 @@ public class ModelController {
                                                                   @RequestParam(value = "pageSize", required = false) Integer pageSize,
                                                                   @RequestParam(value = "sortField", required = false) String sortField,
                                                                   @RequestParam(value = "sortOrder", required = false) String sortOrder) {
-        return Result.success(dataModelService.listByDatasourcePage(datasourceId, pageNo, pageSize, sortField, sortOrder));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(
+                dataModelService.listByDatasourcePage(datasourceId, pageNo, pageSize, sortField, sortOrder)));
     }
 
     @Operation(summary = "List model summaries by datasource")
@@ -141,7 +143,7 @@ public class ModelController {
     @Operation(summary = "Get datasource model detail")
     @GetMapping("/{modelId}")
     public Result<DataModelDefinition> get(@PathVariable("modelId") Long modelId) {
-        return Result.success(dataModelService.get(modelId));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(dataModelService.get(modelId)));
     }
 
     @Operation(summary = "Query models by dynamic metadata conditions")
@@ -149,7 +151,8 @@ public class ModelController {
     public Result<PageView<DataModelDefinition>> query(@RequestBody(required = false) DataModelQueryRequest request,
                                                        @RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                        @RequestParam(value = "pageSize", required = false) Integer pageSize) {
-        return Result.success(dataModelService.queryPage(request, pageNo, pageSize));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(
+                dataModelService.queryPage(request, pageNo, pageSize)));
     }
 
     @Operation(summary = "Query model summaries by dynamic metadata conditions")
@@ -169,20 +172,23 @@ public class ModelController {
     @Operation(summary = "Sync models from datasource")
     @PostMapping("/datasource/{datasourceId}/sync")
     public Result<List<DataModelDefinition>> sync(@PathVariable("datasourceId") Long datasourceId) {
-        return Result.success(dataModelService.syncFromDatasource(datasourceId));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(
+                dataModelService.syncFromDatasource(datasourceId)));
     }
 
     @Operation(summary = "Sync selected models from datasource")
     @PostMapping("/datasource/{datasourceId}/sync-selected")
     public Result<List<DataModelDefinition>> syncSelected(@PathVariable("datasourceId") Long datasourceId,
                                                           @RequestBody(required = false) ModelSyncRequest request) {
-        return Result.success(dataModelService.syncFromDatasource(datasourceId, request == null ? null : request.getPhysicalLocators()));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(
+                dataModelService.syncFromDatasource(datasourceId,
+                        request == null ? null : request.getPhysicalLocators())));
     }
 
     @Operation(summary = "Create or update datasource model")
     @PostMapping
     public Result<DataModelDefinition> save(@Valid @RequestBody DataModelSaveRequest request) {
-        return Result.success(dataModelService.save(request));
+        return Result.success(dataModelService.maskSensitiveReaderOptions(dataModelService.save(request)));
     }
 
     @Operation(summary = "Preview datasource model")

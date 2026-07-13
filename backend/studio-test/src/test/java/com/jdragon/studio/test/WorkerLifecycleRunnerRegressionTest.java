@@ -55,7 +55,7 @@ class WorkerLifecycleRunnerRegressionTest {
         Map<String, Object> assembledConfig = new LinkedHashMap<String, Object>();
         assembledConfig.put("reader", Collections.singletonMap("type", "mysql8"));
 
-        when(collectionTaskService.requireOnline(eq(2040396020474507266L))).thenReturn(onlineTask);
+        when(collectionTaskService.requireOnlineForExecution(eq(2040396020474507266L))).thenReturn(onlineTask);
         when(assemblerService.assemble(eq(onlineTask))).thenReturn(assembledConfig);
 
         WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
@@ -92,6 +92,8 @@ class WorkerLifecycleRunnerRegressionTest {
         assertNotNull(node);
         assertEquals("test", node.getNodeName());
         assertEquals(assembledConfig, node.getConfig());
+        verify(collectionTaskService).requireOnlineForExecution(2040396020474507266L);
+        verify(collectionTaskService, never()).requireOnline(2040396020474507266L);
     }
 
     @Test

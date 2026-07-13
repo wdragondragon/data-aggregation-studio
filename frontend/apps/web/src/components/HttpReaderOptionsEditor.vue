@@ -6,6 +6,7 @@
       :model-value="modelValue"
       :dynamic-function-fields="baseDynamicFunctionFields"
       @update:model-value="emitMergedValue($event)"
+      @field-change="emit('dirty-key', $event)"
     />
 
     <div v-if="httpFields.length" class="http-reader-options">
@@ -117,6 +118,9 @@ type DynamicFunctionTarget =
 interface KeyValueRow {
   name: string;
   value: string;
+  hasOriginalValue?: boolean;
+  originalText?: string;
+  originalValue?: unknown;
 }
 
 interface DynamicInputRef {
@@ -149,6 +153,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, unknown>];
+  "dirty-key": [fieldKey: string];
 }>();
 
 const { t } = useI18n();
@@ -225,6 +230,7 @@ function emitMergedValue(value: Record<string, unknown>) {
 
 function emitOptionValue(key: HttpOptionKey, value: string) {
   pendingEmittedValues[key] = value;
+  emit("dirty-key", key);
   emit("update:modelValue", {
     ...(props.modelValue ?? {}),
     [key]: value,
@@ -283,10 +289,16 @@ function parseObjectText(value: string): { ok: true; value: Record<string, unkno
 }
 
 function toRows(value: Record<string, unknown>): KeyValueRow[] {
-  return Object.entries(value).map(([name, rowValue]) => ({
-    name,
-    value: stringifyRowValue(rowValue),
-  }));
+  return Object.entries(value).map(([name, rowValue]) => {
+    const text = stringifyRowValue(rowValue);
+    return {
+      name,
+      value: text,
+      hasOriginalValue: true,
+      originalText: text,
+      originalValue: rowValue,
+    };
+  });
 }
 
 function stringifyRowValue(value: unknown) {
@@ -331,18 +343,35 @@ function removeRow(key: HttpOptionKey, index: number) {
 }
 
 function commitRows(key: HttpOptionKey) {
-  const objectValue: Record<string, string> = {};
+  const objectValue: Record<string, unknown> = {};
   for (const row of optionRows[key]) {
     const name = row.name.trim();
     if (!name) {
       continue;
     }
-    objectValue[name] = row.value;
+    objectValue[name] = resolveRowValue(key, row);
   }
   const nextValue = JSON.stringify(objectValue);
   rawText[key] = objectStringKeys.has(key) || Object.keys(objectValue).length > 0 ? nextValue : "";
   parseErrors[key] = "";
   emitOptionValue(key, rawText[key]);
+}
+
+function resolveRowValue(key: HttpOptionKey, row: KeyValueRow): unknown {
+  if (key !== "requestBody" || !row.hasOriginalValue) {
+    return row.value;
+  }
+  if (row.value === row.originalText) {
+    return row.originalValue;
+  }
+  if (row.originalValue === null || typeof row.originalValue !== "string") {
+    try {
+      return JSON.parse(row.value);
+    } catch {
+      return row.value;
+    }
+  }
+  return row.value;
 }
 
 function updateRawText(key: HttpOptionKey, value: string | number) {

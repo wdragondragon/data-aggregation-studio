@@ -162,6 +162,8 @@ const activeStep = ref(1);
 const datasources = ref<DataSourceOptionView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
 const MODEL_OPTION_PAGE_SIZE = 100;
+const HTTP_READER_REMOVED_VALUE = "__STUDIO_HTTP_READER_REMOVED_VALUE__";
+const HTTP_STRUCTURED_READER_KEYS = new Set(["header", "params", "requestBody"]);
 const modelCache = ref<Record<string, DataModelDatasourceOptionView[]>>({});
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const runtimeSchemaCache = ref<Record<string, PluginRuntimeOptionSchemaView>>({});
@@ -175,6 +177,7 @@ const detailLoadError = ref("");
 const resettingIncrementalCursor = ref<Record<string, boolean>>({});
 const customSqlFieldCache = ref<Record<string, { datasourceId: string; sql: string; fields: string[]; loading: boolean; error?: string }>>({});
 const customSqlResolveTimers = new Map<string, number>();
+const httpReaderDirtyKeys = new WeakMap<object, Set<string>>();
 
 const form = reactive(createDefaultCollectionTaskForm());
 
@@ -303,6 +306,7 @@ const bindingSectionActions = {
   readerSoapFieldNames,
   readerDynamicFunctionFields,
   updateSourceReaderOptions,
+  markSourceReaderOptionDirty,
   handleTargetDatasourceChange,
   handleTargetModelChange,
   isHttpWriterTarget,
@@ -549,6 +553,10 @@ function buildRequestPayload(): CollectionTaskSaveRequest {
     if (!sourceIncrementalSupported(normalized)) {
       normalized.incremental = normalizeIncremental(normalized.incremental, "FULL");
     }
+    normalized.readerOptions = removeUnmodifiedInheritedReaderOptions(
+      normalized,
+      httpReaderDirtyKeys.get(form.sourceBindings[index]) ?? new Set<string>(),
+    );
     return normalized;
   });
   payload.sourceBindings.forEach((source) => {
@@ -683,6 +691,16 @@ function readerDynamicFunctionFields(source: CollectionTaskSourceBinding) {
 
 function isHttpReaderSource(source: CollectionTaskSourceBinding) {
   return resolveDatasourceTypeCode(source.datasourceId) === "http";
+}
+
+function markSourceReaderOptionDirty(source: CollectionTaskSourceBinding, fieldKey: string) {
+  const normalizedKey = String(fieldKey ?? "").trim();
+  if (!normalizedKey || !isHttpReaderSource(source)) {
+    return;
+  }
+  const keys = httpReaderDirtyKeys.get(source) ?? new Set<string>();
+  keys.add(normalizedKey);
+  httpReaderDirtyKeys.set(source, keys);
 }
 
 function isHttpSoapReaderSource(source: CollectionTaskSourceBinding) {
@@ -915,6 +933,7 @@ function resolveDatasourceTypeCode(datasourceId: unknown) {
 }
 
 async function handleSourceDatasourceChange(row: CollectionTaskSourceBinding, value: string) {
+  httpReaderDirtyKeys.delete(row);
   row.datasourceId = value;
   row.modelId = "";
   row.readerOptions = {};
@@ -926,6 +945,7 @@ async function handleSourceDatasourceChange(row: CollectionTaskSourceBinding, va
 }
 
 async function handleSourceModelChange(row: CollectionTaskSourceBinding, value: string) {
+  httpReaderDirtyKeys.delete(row);
   row.modelId = value;
   row.readerOptions = {};
   await ensureModelDetail(value, row.datasourceId);
@@ -1191,10 +1211,141 @@ function applyRuntimeDefaults() {
 
 function applyRuntimeDefaultsForSource(source: CollectionTaskSourceBinding) {
   const fields = readerAdvancedFields(source);
-  if (!fields.length) {
+  if (!isHttpReaderSource(source)) {
+    source.readerOptions = mergeRuntimeDefaults(source.readerOptions, fields);
     return;
   }
-  source.readerOptions = mergeRuntimeDefaults(source.readerOptions, fields);
+
+  if (!httpReaderDirtyKeys.has(source)) {
+    httpReaderDirtyKeys.set(source, new Set<string>());
+  }
+  const effectiveDefaults = {
+    ...mergeRuntimeDefaults({}, fields),
+    ...modelReaderOptions(source),
+  };
+  source.readerOptions = mergeHttpReaderEditorOptions(
+    effectiveDefaults,
+    source.readerOptions ?? {},
+  );
+}
+
+function mergeHttpReaderEditorOptions(
+  defaults: Record<string, unknown>,
+  current: Record<string, unknown>,
+) {
+  return {
+    ...defaults,
+    ...current,
+  };
+}
+
+function modelReaderOptions(source: CollectionTaskSourceBinding) {
+  if (String(resolveDatasourceTypeCode(source.datasourceId)).trim().toLowerCase() !== "http") {
+    return {};
+  }
+  const value = resolveModelById(source.modelId)?.technicalMetadata?.readerOptions;
+  if (!isPlainRecord(value)) {
+    return {};
+  }
+  const options = { ...value };
+  delete options.soapVersion;
+  delete options.soapAction;
+  return options;
+}
+
+function removeUnmodifiedInheritedReaderOptions(
+  source: CollectionTaskSourceBinding,
+  dirtyKeys: ReadonlySet<string> = new Set<string>(),
+) {
+  const overrides = { ...(source.readerOptions ?? {}) };
+  if (!isHttpReaderSource(source)) {
+    return overrides;
+  }
+  const inherited = modelReaderOptions(source);
+  const runtimeDefaults = mergeRuntimeDefaults({}, readerAdvancedFields(source));
+  const effectiveDefaults = {
+    ...runtimeDefaults,
+    ...inherited,
+  };
+  Object.entries(overrides).forEach(([key, value]) => {
+    if (
+      Object.prototype.hasOwnProperty.call(effectiveDefaults, key)
+      && optionValuesEqual(value, effectiveDefaults[key])
+      && !dirtyKeys.has(key)
+    ) {
+      delete overrides[key];
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(inherited, key) && HTTP_STRUCTURED_READER_KEYS.has(key)) {
+      overrides[key] = addHttpReaderRemovalMarkers(value, inherited[key]);
+    }
+  });
+  return overrides;
+}
+
+function addHttpReaderRemovalMarkers(value: unknown, inheritedValue: unknown): unknown {
+  const current = parseHttpReaderObject(value);
+  const inherited = parseHttpReaderObject(inheritedValue);
+  if (!current || !inherited) {
+    return value;
+  }
+  const marked = addObjectRemovalMarkers(current, inherited);
+  return typeof value === "string" ? JSON.stringify(marked) : marked;
+}
+
+function addObjectRemovalMarkers(
+  current: Record<string, unknown>,
+  inherited: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...current };
+  Object.entries(inherited).forEach(([key, inheritedValue]) => {
+    if (!Object.prototype.hasOwnProperty.call(current, key)) {
+      result[key] = HTTP_READER_REMOVED_VALUE;
+      return;
+    }
+    if (isPlainRecord(current[key]) && isPlainRecord(inheritedValue)) {
+      result[key] = addObjectRemovalMarkers(current[key], inheritedValue);
+    }
+  });
+  return result;
+}
+
+function parseHttpReaderObject(value: unknown): Record<string, unknown> | undefined {
+  if (isPlainRecord(value)) {
+    return { ...value };
+  }
+  if (typeof value !== "string" || !value.trim().startsWith("{")) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return isPlainRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function optionValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((item, index) => optionValuesEqual(item, right[index]));
+  }
+  if (isPlainRecord(left) || isPlainRecord(right)) {
+    if (!isPlainRecord(left) || !isPlainRecord(right)) {
+      return false;
+    }
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key)
+        && optionValuesEqual(left[key], right[key]));
+  }
+  return false;
 }
 
 function applyRuntimeDefaultsForTarget() {

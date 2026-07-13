@@ -77,27 +77,27 @@ const restKeys = new Set(["mode", "resultType", "businessStatusPath", "businessS
 const soapContractKeys = new Set(["mode", "resultType", "soapVersion", "namespaceUri", "operationName", "soapAction", "requestRootName", "responseRootName", "wsdlUrl"]);
 const responseKeys = new Set(["businessStatusPath", "businessStatusCode", "totalCodePath"]);
 
-const isSoapMode = computed(() => String(props.modelValue?.protocolMode ?? "").trim().toUpperCase() === "SOAP");
+const protocolMode = computed(() => String(props.modelValue?.protocolMode ?? "").trim().toUpperCase());
+const resultType = computed(() => String(props.modelValue?.resultType ?? "").trim().toLowerCase());
+const isSoapMode = computed(() => protocolMode.value === "SOAP");
 const commonFields = computed(() => filterFields(commonKeys));
 const restFields = computed(() => filterFields(restKeys));
 const soapContractFields = computed(() => filterFields(soapContractKeys));
 const responseFields = computed(() => filterFields(responseKeys));
 
 watch(
-  isSoapMode,
-  (soap) => {
-    if (!soap) {
-      return;
-    }
+  () => [protocolMode.value, resultType.value],
+  ([mode]) => {
     const current = props.modelValue ?? {};
     const patch: Record<string, unknown> = {};
-    if (String(current.mode ?? "").trim().toUpperCase() !== "POST") {
+    const expectedResultType = mode === "SOAP" ? "soap" : mode === "REST_XML" ? "xml" : "json";
+    if (String(current.resultType ?? "").trim().toLowerCase() !== expectedResultType) {
+      patch.resultType = expectedResultType;
+    }
+    if (mode === "SOAP" && String(current.mode ?? "").trim().toUpperCase() !== "POST") {
       patch.mode = "POST";
     }
-    if (!String(current.resultType ?? "").trim() || String(current.resultType ?? "").trim().toLowerCase() !== "soap") {
-      patch.resultType = "soap";
-    }
-    if (!String(current.soapVersion ?? "").trim()) {
+    if (mode === "SOAP" && !String(current.soapVersion ?? "").trim()) {
       patch.soapVersion = "SOAP_11";
     }
     if (Object.keys(patch).length) {

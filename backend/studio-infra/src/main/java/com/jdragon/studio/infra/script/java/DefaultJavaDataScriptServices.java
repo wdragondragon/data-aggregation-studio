@@ -35,7 +35,8 @@ public class DefaultJavaDataScriptServices implements JavaDataScriptServices {
 
     @Override
     public List<DataModelDefinition> listModels(Long datasourceId) {
-        return dataModelService.listByDatasource(datasourceId);
+        return dataModelService.maskSensitiveReaderOptions(
+                dataModelService.listByDatasource(datasourceId));
     }
 
     @Override

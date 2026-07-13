@@ -43,6 +43,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.Locale;
 
@@ -334,7 +335,7 @@ public class CollectionTaskService {
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
         }
-        return toView(entity);
+        return toView(entity, true);
     }
 
     public CollectionTaskDefinitionView requireOnline(Long id) {
@@ -345,8 +346,24 @@ public class CollectionTaskService {
         return view;
     }
 
+    public CollectionTaskDefinitionView requireOnlineForExecution(Long id) {
+        CollectionTaskDefinitionEntity entity = findAccessibleEntity(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
+        }
+        CollectionTaskDefinitionView view = toView(entity, false);
+        if (view.getStatus() != CollectionTaskStatus.ONLINE) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task is not online");
+        }
+        return view;
+    }
+
     public Map<String, Object> preview(CollectionTaskSaveRequest request) {
-        return collectionTaskAssemblerService.assemble(toDefinitionView(request));
+        return previewForView(request);
+    }
+
+    public Map<String, Object> previewForView(CollectionTaskSaveRequest request) {
+        return collectionTaskAssemblerService.assemblePreview(toDefinitionView(request));
     }
 
     @Transactional
@@ -360,7 +377,8 @@ public class CollectionTaskService {
             entity = new CollectionTaskDefinitionEntity();
         }
         Map<String, Object> executionOptions = copyExecutionOptions(request.getExecutionOptions());
-        List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(request.getSourceBindings());
+        List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(
+                request.getSourceBindings(), storedSourceBindings(entity));
         incrementalCursorSupport.protectSystemIncrementalCursors(entity.getId() == null ? null : entity, sourceBindings);
         CollectionTaskTargetBinding targetBinding = enrichTargetBinding(request.getTargetBinding(), executionOptions);
         List<FieldMappingDefinition> fieldMappings = request.getFieldMappings() == null
@@ -489,6 +507,10 @@ public class CollectionTaskService {
     }
 
     private CollectionTaskDefinitionView toView(CollectionTaskDefinitionEntity entity) {
+        return toView(entity, true);
+    }
+
+    private CollectionTaskDefinitionView toView(CollectionTaskDefinitionEntity entity, boolean maskSensitiveOptions) {
         CollectionTaskDefinitionView view = new CollectionTaskDefinitionView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
@@ -501,10 +523,14 @@ public class CollectionTaskService {
         view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
         view.setSourceCount(entity.getSourceCount());
         List<CollectionTaskSourceBinding> sourceBindings = convertList(entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class);
-        sanitizeSourceReaderOptionsForView(sourceBindings);
+        sanitizeSourceReaderOptions(sourceBindings, maskSensitiveOptions);
         incrementalCursorSupport.normalizeSourceBindingsForView(sourceBindings);
         view.setSourceBindings(sourceBindings);
         CollectionTaskTargetBinding targetBinding = convertMap(entity.getTargetBindingJson(), CollectionTaskTargetBinding.class);
+        if (maskSensitiveOptions && targetBinding != null) {
+            targetBinding.setModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
+                    targetBinding.getDatasourceTypeCode(), targetBinding.getModelPhysicalLocator()));
+        }
         Map<String, Object> executionOptions = entity.getExecutionOptionsJson() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(entity.getExecutionOptionsJson());
@@ -540,7 +566,8 @@ public class CollectionTaskService {
         view.setTargetDatasourceName(entity.getTargetDatasourceNameSnapshot());
         view.setTargetDatasourceTypeCode(entity.getTargetDatasourceTypeCodeSnapshot());
         view.setTargetModelName(entity.getTargetModelNameSnapshot());
-        view.setTargetModelPhysicalLocator(entity.getTargetModelPhysicalLocatorSnapshot());
+        view.setTargetModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
+                entity.getTargetDatasourceTypeCodeSnapshot(), entity.getTargetModelPhysicalLocatorSnapshot()));
         view.setSchedule(schedule);
         return view;
     }
@@ -660,7 +687,8 @@ public class CollectionTaskService {
         sourceBinding.setDatasourceTypeCode(entity.getDatasourceTypeCode());
         sourceBinding.setModelId(entity.getModelId());
         sourceBinding.setModelName(entity.getModelName());
-        sourceBinding.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        sourceBinding.setModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
+                entity.getDatasourceTypeCode(), entity.getModelPhysicalLocator()));
         return sourceBinding;
     }
 
@@ -671,7 +699,8 @@ public class CollectionTaskService {
         targetBinding.setDatasourceTypeCode(entity.getDatasourceTypeCode());
         targetBinding.setModelId(entity.getModelId());
         targetBinding.setModelName(entity.getModelName());
-        targetBinding.setModelPhysicalLocator(entity.getModelPhysicalLocator());
+        targetBinding.setModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
+                entity.getDatasourceTypeCode(), entity.getModelPhysicalLocator()));
         return targetBinding;
     }
 
@@ -783,8 +812,9 @@ public class CollectionTaskService {
     private CollectionTaskDefinitionView toDefinitionView(CollectionTaskSaveRequest request) {
         validateRequest(request);
         Map<String, Object> executionOptions = copyExecutionOptions(request.getExecutionOptions());
-        List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(request.getSourceBindings());
         CollectionTaskDefinitionEntity existingEntity = request.getId() == null ? null : findAccessibleEntity(request.getId());
+        List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(
+                request.getSourceBindings(), storedSourceBindings(existingEntity));
         incrementalCursorSupport.protectSystemIncrementalCursors(existingEntity, sourceBindings);
         CollectionTaskTargetBinding targetBinding = enrichTargetBinding(request.getTargetBinding(), executionOptions);
         CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
@@ -952,7 +982,8 @@ public class CollectionTaskService {
         }
     }
 
-    private List<CollectionTaskSourceBinding> enrichSourceBindings(List<CollectionTaskSourceBinding> bindings) {
+    private List<CollectionTaskSourceBinding> enrichSourceBindings(List<CollectionTaskSourceBinding> bindings,
+                                                                    List<CollectionTaskSourceBinding> existingBindings) {
         List<CollectionTaskSourceBinding> result = new ArrayList<CollectionTaskSourceBinding>();
         for (CollectionTaskSourceBinding binding : bindings) {
             DataSourceDefinition datasource = dataSourceService.get(binding.getDatasourceId());
@@ -967,7 +998,12 @@ public class CollectionTaskService {
             enriched.setModelId(model.getId());
             enriched.setModelName(model.getName());
             enriched.setModelPhysicalLocator(model.getPhysicalLocator());
-            enriched.setReaderOptions(sanitizeFileReaderOptions(datasource.getTypeCode(), binding.getReaderOptions()));
+            Map<String, Object> readerOptions = sanitizeFileReaderOptions(datasource.getTypeCode(), binding.getReaderOptions());
+            CollectionTaskSourceBinding existingBinding = findExistingSourceBinding(
+                    binding, existingBindings, datasource.getTypeCode());
+            enriched.setReaderOptions(collectionTaskAssemblerService.prepareReaderOptionOverrides(
+                    datasource.getTypeCode(), model, readerOptions,
+                    existingBinding == null ? null : existingBinding.getReaderOptions()));
             enriched.setIncremental(binding.getIncremental());
             result.add(enriched);
         }
@@ -1032,7 +1068,8 @@ public class CollectionTaskService {
         return result;
     }
 
-    private void sanitizeSourceReaderOptionsForView(List<CollectionTaskSourceBinding> sourceBindings) {
+    private void sanitizeSourceReaderOptions(List<CollectionTaskSourceBinding> sourceBindings,
+                                             boolean maskSensitiveOptions) {
         if (sourceBindings == null) {
             return;
         }
@@ -1040,8 +1077,94 @@ public class CollectionTaskService {
             if (sourceBinding == null) {
                 continue;
             }
-            sourceBinding.setReaderOptions(sanitizeFileReaderOptions(sourceBinding.getDatasourceTypeCode(), sourceBinding.getReaderOptions()));
+            Map<String, Object> readerOptions = sanitizeFileReaderOptions(
+                    sourceBinding.getDatasourceTypeCode(), sourceBinding.getReaderOptions());
+            if (maskSensitiveOptions
+                    && "http".equalsIgnoreCase(sourceBinding.getDatasourceTypeCode())
+                    && sourceBinding.getModelId() != null) {
+                DataModelDefinition model = null;
+                try {
+                    model = dataModelService.get(sourceBinding.getModelId());
+                } catch (StudioException exception) {
+                    if (!StudioErrorCode.NOT_FOUND.equals(exception.getCode())) {
+                        throw exception;
+                    }
+                }
+                readerOptions = collectionTaskAssemblerService.maskReaderOptionOverridesForView(
+                        sourceBinding.getDatasourceTypeCode(), model, readerOptions);
+            }
+            if (maskSensitiveOptions) {
+                sourceBinding.setModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
+                        sourceBinding.getDatasourceTypeCode(), sourceBinding.getModelPhysicalLocator()));
+            }
+            sourceBinding.setReaderOptions(readerOptions);
         }
+    }
+
+    private List<CollectionTaskSourceBinding> storedSourceBindings(CollectionTaskDefinitionEntity entity) {
+        if (entity == null) {
+            return new ArrayList<CollectionTaskSourceBinding>();
+        }
+        return convertList(entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class);
+    }
+
+    private CollectionTaskSourceBinding findExistingSourceBinding(CollectionTaskSourceBinding binding,
+                                                                  List<CollectionTaskSourceBinding> existingBindings,
+                                                                  String datasourceTypeCode) {
+        if (binding == null || existingBindings == null || existingBindings.isEmpty()) {
+            return null;
+        }
+        boolean existingAliasMatched = false;
+        if (hasText(binding.getSourceAlias())) {
+            for (CollectionTaskSourceBinding existing : existingBindings) {
+                if (existing != null && hasText(existing.getSourceAlias())
+                        && binding.getSourceAlias().trim().equalsIgnoreCase(existing.getSourceAlias().trim())) {
+                    existingAliasMatched = true;
+                    if (Objects.equals(binding.getDatasourceId(), existing.getDatasourceId())
+                            && Objects.equals(binding.getModelId(), existing.getModelId())) {
+                        return existing;
+                    }
+                }
+            }
+        }
+        if (existingAliasMatched) {
+            return null;
+        }
+        CollectionTaskSourceBinding matched = null;
+        for (CollectionTaskSourceBinding existing : existingBindings) {
+            if (existing == null
+                    || !Objects.equals(binding.getDatasourceId(), existing.getDatasourceId())
+                    || !Objects.equals(binding.getModelId(), existing.getModelId())) {
+                continue;
+            }
+            if (matched != null) {
+                if ("http".equalsIgnoreCase(datasourceTypeCode)
+                        && containsMaskedHttpReaderOption(binding.getReaderOptions())) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Cannot preserve masked HTTP reader credentials for source alias '"
+                                    + binding.getSourceAlias()
+                                    + "': multiple existing sources use datasourceId "
+                                    + binding.getDatasourceId() + " and modelId " + binding.getModelId()
+                                    + ". Restore the original alias or re-enter the sensitive HTTP options.");
+                }
+                return null;
+            }
+            matched = existing;
+        }
+        return matched;
+    }
+
+    private boolean containsMaskedHttpReaderOption(Map<String, Object> readerOptions) {
+        if (readerOptions == null || readerOptions.isEmpty()) {
+            return false;
+        }
+        for (String key : new String[]{"header", "params", "requestBody"}) {
+            Object value = readerOptions.get(key);
+            if (value != null && String.valueOf(value).contains("****")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Map<String, Object> sanitizeFileWriterOptions(String datasourceTypeCode, Map<String, Object> options) {

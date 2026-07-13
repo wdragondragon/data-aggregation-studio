@@ -36,6 +36,7 @@ public class CollectionTaskAssemblerService {
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
     private final EncryptionService encryptionService;
+    private final HttpReaderOptionSecurityService httpReaderOptionSecurityService;
     private final PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService;
     private final CollectionTaskFieldMappingResolver fieldMappingResolver;
     private final CollectionTaskFileConfigSupport fileConfigSupport;
@@ -49,7 +50,8 @@ public class CollectionTaskAssemblerService {
                 dataModelService,
                 encryptionService,
                 pluginRuntimeOptionSchemaService,
-                new StudioTransformerSupport(new ObjectMapper()));
+                new StudioTransformerSupport(new ObjectMapper()),
+                new HttpReaderOptionSecurityService(encryptionService));
     }
 
     @Autowired
@@ -57,10 +59,12 @@ public class CollectionTaskAssemblerService {
                                           DataModelService dataModelService,
                                           EncryptionService encryptionService,
                                           PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService,
-                                          StudioTransformerSupport transformerSupport) {
+                                          StudioTransformerSupport transformerSupport,
+                                          HttpReaderOptionSecurityService httpReaderOptionSecurityService) {
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.encryptionService = encryptionService;
+        this.httpReaderOptionSecurityService = httpReaderOptionSecurityService;
         this.pluginRuntimeOptionSchemaService = pluginRuntimeOptionSchemaService;
         this.fieldMappingResolver = new CollectionTaskFieldMappingResolver(transformerSupport);
         this.fileConfigSupport = new CollectionTaskFileConfigSupport(fieldMappingResolver);
@@ -75,6 +79,12 @@ public class CollectionTaskAssemblerService {
             return assembleFusion(definition);
         }
         return assembleSingle(definition);
+    }
+
+    public Map<String, Object> assemblePreview(CollectionTaskDefinitionView definition) {
+        Map<String, Object> config = assemble(definition);
+        maskPreviewReader(config);
+        return config;
     }
 
     public Map<String, Object> assembleWriter(Long datasourceId,
@@ -131,7 +141,9 @@ public class CollectionTaskAssemblerService {
             item.put("id", sourceBinding.getSourceAlias());
             item.put("type", pluginType);
             item.putAll(buildReaderConfig(sourceBinding, sourceDatasource, sourceModel, sourceFields, pluginType));
-            mergeRuntimeOptions(item, sourceBinding.getReaderOptions(), "reader", runtimeStringKeys(sourceDatasource.getTypeCode(), pluginType));
+            mergeModelReaderOptions(item, sourceModel, sourceDatasource.getTypeCode(), pluginType);
+            mergeRuntimeOptions(item, readerOptionOverrides(sourceBinding, sourceModel, sourceDatasource.getTypeCode(), pluginType),
+                    "reader", runtimeStringKeys(sourceDatasource.getTypeCode(), pluginType));
             normalizeReaderRuntimeConfig(item, sourceDatasource.getTypeCode(), pluginType);
             if (!isFileReader(sourceDatasource.getTypeCode(), pluginType) && !isHttpReader(sourceDatasource.getTypeCode(), pluginType)) {
                 applyIncrementalOptions(item, sourceBinding, executionOptions);
@@ -188,7 +200,9 @@ public class CollectionTaskAssemblerService {
         String pluginType = resolvePluginType(datasource.getTypeCode(), "reader");
         reader.put("type", pluginType);
         Map<String, Object> readerConfig = buildReaderConfig(binding, datasource, model, sourceFields, pluginType);
-        mergeRuntimeOptions(readerConfig, binding.getReaderOptions(), "reader", runtimeStringKeys(datasource.getTypeCode(), pluginType));
+        mergeModelReaderOptions(readerConfig, model, datasource.getTypeCode(), pluginType);
+        mergeRuntimeOptions(readerConfig, readerOptionOverrides(binding, model, datasource.getTypeCode(), pluginType),
+                "reader", runtimeStringKeys(datasource.getTypeCode(), pluginType));
         normalizeReaderRuntimeConfig(readerConfig, datasource.getTypeCode(), pluginType);
         if (!isFileReader(datasource.getTypeCode(), pluginType) && !isHttpReader(datasource.getTypeCode(), pluginType)) {
             applyIncrementalOptions(readerConfig, binding, executionOptions);
@@ -336,6 +350,128 @@ public class CollectionTaskAssemblerService {
         RUNTIME_OPTION_MERGER.merge(config, runtimeOptions, role, preserveStringKeys, reservedKeys(role));
     }
 
+    private void mergeModelReaderOptions(Map<String, Object> config,
+                                         DataModelDefinition model,
+                                         String datasourceTypeCode,
+                                         String pluginType) {
+        if (!isHttpReader(datasourceTypeCode, pluginType) || model == null || model.getTechnicalMetadata() == null) {
+            return;
+        }
+        Map<String, Object> modelReaderOptions =
+                RUNTIME_OPTION_MERGER.toMap(model.getTechnicalMetadata().get("readerOptions"));
+        modelReaderOptions.remove("soapVersion");
+        modelReaderOptions.remove("soapAction");
+        mergeRuntimeOptions(config, modelReaderOptions, "reader", runtimeStringKeys(datasourceTypeCode, pluginType));
+    }
+
+    Map<String, Object> prepareReaderOptionOverrides(String datasourceTypeCode,
+                                                      DataModelDefinition model,
+                                                      Map<String, Object> readerOptions) {
+        return prepareReaderOptionOverrides(datasourceTypeCode, model, readerOptions, null);
+    }
+
+    Map<String, Object> prepareReaderOptionOverrides(String datasourceTypeCode,
+                                                      DataModelDefinition model,
+                                                      Map<String, Object> readerOptions,
+                                                      Map<String, Object> existingReaderOptions) {
+        if (!"http".equalsIgnoreCase(datasourceTypeCode) || model == null) {
+            return readerOptions == null
+                    ? new LinkedHashMap<String, Object>()
+                    : new LinkedHashMap<String, Object>(readerOptions);
+        }
+        return httpReaderOptionSecurityService.prepareReaderOptionOverrides(
+                readerOptions, model.getTechnicalMetadata(), existingReaderOptions);
+    }
+
+    Map<String, Object> maskReaderOptionOverridesForView(String datasourceTypeCode,
+                                                          DataModelDefinition model,
+                                                          Map<String, Object> readerOptions) {
+        if (!"http".equalsIgnoreCase(datasourceTypeCode)) {
+            return readerOptions == null
+                    ? new LinkedHashMap<String, Object>()
+                    : new LinkedHashMap<String, Object>(readerOptions);
+        }
+        return httpReaderOptionSecurityService.maskReaderOptionOverridesForView(
+                readerOptions,
+                model == null ? Collections.<String, Object>emptyMap() : model.getTechnicalMetadata());
+    }
+
+    String maskHttpPhysicalLocator(String datasourceTypeCode, String physicalLocator) {
+        return "http".equalsIgnoreCase(datasourceTypeCode)
+                ? httpReaderOptionSecurityService.maskSensitiveUrl(physicalLocator)
+                : physicalLocator;
+    }
+
+    private Map<String, Object> readerOptionOverrides(CollectionTaskSourceBinding binding,
+                                                       DataModelDefinition model,
+                                                       String datasourceTypeCode,
+                                                       String pluginType) {
+        if (!isHttpReader(datasourceTypeCode, pluginType)) {
+            return binding.getReaderOptions();
+        }
+        return httpReaderOptionSecurityService.resolveReaderOptionOverrides(
+                binding.getReaderOptions(), model.getTechnicalMetadata());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void maskPreviewReader(Map<String, Object> assembledConfig) {
+        Object readerValue = assembledConfig.get("reader");
+        if (!(readerValue instanceof Map<?, ?>)) {
+            return;
+        }
+        Map<String, Object> reader = (Map<String, Object>) readerValue;
+        String readerType = String.valueOf(reader.get("type"));
+        if ("fusion".equalsIgnoreCase(readerType)) {
+            Object configValue = reader.get("config");
+            if (!(configValue instanceof Map<?, ?>)) {
+                return;
+            }
+            Object sourcesValue = ((Map<?, ?>) configValue).get("sources");
+            if (!(sourcesValue instanceof List<?>)) {
+                return;
+            }
+            for (Object sourceValue : (List<?>) sourcesValue) {
+                if (sourceValue instanceof Map<?, ?>) {
+                    Map<String, Object> source = (Map<String, Object>) sourceValue;
+                    if (isHttpReader(null, String.valueOf(source.get("type")))) {
+                        maskHttpReaderConfig(source);
+                    }
+                }
+            }
+            return;
+        }
+        if (!isHttpReader(null, readerType)) {
+            return;
+        }
+        Object configValue = reader.get("config");
+        if (configValue instanceof Map<?, ?>) {
+            maskHttpReaderConfig((Map<String, Object>) configValue);
+        }
+    }
+
+    private void maskHttpReaderConfig(Map<String, Object> readerConfig) {
+        if (readerConfig.containsKey("url")) {
+            readerConfig.put("url", httpReaderOptionSecurityService.maskSensitiveUrl(
+                    String.valueOf(readerConfig.get("url"))));
+        }
+        Map<String, Object> sensitiveOptions = new LinkedHashMap<String, Object>();
+        for (String key : new String[]{"header", "params", "requestBody"}) {
+            if (readerConfig.containsKey(key)) {
+                sensitiveOptions.put(key, readerConfig.get(key));
+            }
+        }
+        if (sensitiveOptions.isEmpty()) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("readerOptions", sensitiveOptions);
+        Map<String, Object> maskedMetadata = httpReaderOptionSecurityService.maskTechnicalMetadata(metadata);
+        Map<String, Object> maskedOptions = RUNTIME_OPTION_MERGER.toMap(maskedMetadata.get("readerOptions"));
+        for (Map.Entry<String, Object> entry : maskedOptions.entrySet()) {
+            readerConfig.put(entry.getKey(), entry.getValue());
+        }
+    }
+
     private void applyDefaultWriteMode(Map<String, Object> writerConfig, String pluginType) {
         if (!isRdbmsWriter(pluginType) || !isBlankValue(writerConfig.get("writeMode"))) {
             return;
@@ -439,7 +575,9 @@ public class CollectionTaskAssemblerService {
     }
 
     private boolean isHttpReader(String datasourceTypeCode, String pluginType) {
-        return "http".equalsIgnoreCase(pluginType) || "http".equalsIgnoreCase(datasourceTypeCode);
+        return "http".equalsIgnoreCase(pluginType)
+                || "httpreader".equalsIgnoreCase(pluginType)
+                || "http".equalsIgnoreCase(datasourceTypeCode);
     }
 
     private boolean isHttpWriter(String datasourceTypeCode, String pluginType) {

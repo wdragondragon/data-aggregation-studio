@@ -16,6 +16,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.EncryptionService;
+import com.jdragon.studio.infra.service.HttpReaderOptionNormalizer;
 import com.jdragon.aggregation.commons.pagination.Table;
 import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.datasource.AbstractDataSourcePlugin;
@@ -25,6 +26,7 @@ import com.jdragon.aggregation.datasource.SourcePluginType;
 import com.jdragon.aggregation.datasource.TableInfo;
 import com.jdragon.aggregation.datasource.file.FileHelper;
 import com.jdragon.aggregation.datasource.queue.QueueAbstract;
+import com.jdragon.aggregation.pluginloader.LoadUtil;
 import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
 import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.aggregation.pluginloader.spi.AbstractPlugin;
@@ -43,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildFileMetadata;
@@ -53,6 +56,8 @@ import static com.jdragon.studio.infra.service.execution.AggregationModelMetadat
 @Service
 @Slf4j
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
+    private static final String HTTP_READER_CONFIG_KEY = "__studio_http_reader_config";
+
 
     public static class HydrationResult {
         private final String physicalLocator;
@@ -105,6 +110,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         SystemConstants.HOME = normalizedHome;
         SystemConstants.PLUGIN_HOME = new File(normalizedHome, "plugin").getPath();
         SystemConstants.CORE_CONFIG = new File(new File(normalizedHome, "conf"), "core.json").getPath();
+        LoadUtil.updateJarLoader();
     }
 
     @Override
@@ -499,7 +505,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
     public List<Map<String, Object>> preview(DataSourceDefinition datasource, DataModelDefinition model, int limit) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         if (isHttpDatasource(datasource)) {
-            return rows;
+            return previewHttp(datasource, model, limit);
         }
         try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
             AbstractPlugin plugin = loader.loadPlugin();
@@ -537,6 +543,193 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             }
         }
         return rows;
+    }
+
+    private List<Map<String, Object>> previewHttp(DataSourceDefinition datasource,
+                                                  DataModelDefinition model,
+                                                  int limit) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        requireHttpSourcePlugin(datasource == null ? null : datasource.getTypeCode());
+        try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
+            AbstractPlugin plugin = loader.loadPlugin();
+            if (!(plugin instanceof AbstractDataSourcePlugin)) {
+                return rows;
+            }
+            Map<String, Object> datasourceMetadata = normalizePluginMetadata(datasource.getTypeCode(),
+                    decryptMetadata(datasource.getTechnicalMetadata()));
+            Map<String, Object> modelMetadata = model == null || model.getTechnicalMetadata() == null
+                    ? new LinkedHashMap<String, Object>()
+                    : new LinkedHashMap<String, Object>(model.getTechnicalMetadata());
+            BaseDataSourceDTO dataSourceDTO = toBaseDataSource(datasource);
+            attachHttpReaderConfig(dataSourceDTO, datasourceMetadata, model, modelMetadata);
+            Table<Map<String, Object>> table = ((AbstractDataSourcePlugin) plugin)
+                    .dataModelPreview(dataSourceDTO, model == null ? null : model.getPhysicalLocator(), String.valueOf(limit));
+            if (table != null && table.getBodies() != null) {
+                int safeLimit = limit <= 0 ? table.getBodies().size() : limit;
+                for (Map<String, Object> row : table.getBodies()) {
+                    if (rows.size() >= safeLimit) {
+                        break;
+                    }
+                    rows.add(row);
+                }
+            }
+            return rows;
+        } catch (Exception e) {
+            log.warn("Failed to preview HTTP datasource model. datasourceId={}, modelId={}, exception={}",
+                    datasource == null ? null : datasource.getId(),
+                    model == null ? null : model.getId(),
+                    e.getClass().getSimpleName());
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "HTTP样例数据预览失败: " + userFriendlyErrorMessage(e));
+        }
+    }
+
+    private void requireHttpSourcePlugin(String pluginName) {
+        String name = isBlank(pluginName) ? "http" : pluginName.trim();
+        File pluginDirectory = new File(new File(SystemConstants.PLUGIN_HOME, SourcePluginType.SOURCE.getName()), name);
+        if (!pluginDirectory.isDirectory()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "HTTP source plugin directory does not exist: " + pluginDirectory.getAbsolutePath());
+        }
+        LoadUtil.updateJarLoader(SourcePluginType.SOURCE, name);
+    }
+
+    private void attachHttpReaderConfig(BaseDataSourceDTO dto,
+                                        Map<String, Object> datasourceMetadata,
+                                        DataModelDefinition model,
+                                        Map<String, Object> modelMetadata) {
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("url", resolveHttpUrl(datasourceMetadata, model, modelMetadata));
+        boolean soap = isSoapProtocol(modelMetadata);
+        config.put("mode", soap ? "POST" : firstText(modelMetadata.get("mode"), "GET").toUpperCase(Locale.ENGLISH));
+        String protocolMode = soap ? "SOAP" : resolveProtocolMode(modelMetadata);
+        config.put("protocolMode", protocolMode);
+        config.put("soapVersion", firstText(modelMetadata.get("soapVersion"), "SOAP_11"));
+        putIfPresent(config, "soapAction", modelMetadata.get("soapAction"));
+        config.put("soapFaultFail", Boolean.TRUE);
+        config.put("contentType", resolveHttpContentType(protocolMode, String.valueOf(config.get("soapVersion"))));
+        config.put("header", "{}");
+        config.put("params", "{}");
+        config.put("requestBody", "");
+        config.put("resultType", resolveHttpResultType(modelMetadata, protocolMode));
+        putIfPresent(config, "totalCodePath", modelMetadata.get("totalCodePath"));
+        Map<String, Object> responseStatus = resolveHttpResponseStatus(modelMetadata);
+        if (!responseStatus.isEmpty()) {
+            config.put("responseStatus", responseStatus);
+        }
+        config.put("pageRead", Boolean.FALSE);
+        config.put("pageSize", Integer.valueOf(500));
+        config.put("columns", modelMetadata.get("columns"));
+        HttpReaderOptionNormalizer.mergeInto(config, modelMetadata.get("readerOptions"));
+        HttpReaderOptionNormalizer.enforceProtocolContract(config);
+        Map<String, String> extraParams = dto.getExtraParams() == null
+                ? new LinkedHashMap<String, String>()
+                : new LinkedHashMap<String, String>(dto.getExtraParams());
+        extraParams.put(HTTP_READER_CONFIG_KEY, JSONObject.toJSONString(config));
+        dto.setExtraParams(extraParams);
+    }
+
+    private String resolveHttpUrl(Map<String, Object> datasourceMetadata,
+                                  DataModelDefinition model,
+                                  Map<String, Object> modelMetadata) {
+        String requestPath = model == null ? null : model.getPhysicalLocator();
+        if (isBlank(requestPath)) {
+            requestPath = firstText(modelMetadata.get("requestPath"), modelMetadata.get("physicalName"));
+        }
+        if (!isBlank(requestPath) && isAbsoluteHttpUrl(requestPath)) {
+            return requestPath.trim();
+        }
+        String baseUrl = firstText(datasourceMetadata == null ? null : datasourceMetadata.get("url"),
+                datasourceMetadata == null ? null : datasourceMetadata.get("endpoint"));
+        if (isBlank(baseUrl)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP datasource url is required");
+        }
+        if (isBlank(requestPath)) {
+            return baseUrl;
+        }
+        return joinHttpUrl(baseUrl, requestPath.trim());
+    }
+
+    private String joinHttpUrl(String baseUrl, String requestPath) {
+        boolean baseEndsWithSlash = baseUrl.endsWith("/");
+        boolean pathStartsWithSlash = requestPath.startsWith("/");
+        if (baseEndsWithSlash && pathStartsWithSlash) {
+            return baseUrl + requestPath.substring(1);
+        }
+        if (!baseEndsWithSlash && !pathStartsWithSlash) {
+            return baseUrl + "/" + requestPath;
+        }
+        return baseUrl + requestPath;
+    }
+
+    private boolean isAbsoluteHttpUrl(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
+    private boolean isSoapProtocol(Map<String, Object> metadata) {
+        return "SOAP".equalsIgnoreCase(resolveProtocolMode(metadata));
+    }
+
+    private String resolveProtocolMode(Map<String, Object> metadata) {
+        Object protocolMode = metadata == null ? null : metadata.get("protocolMode");
+        if (!isBlankValue(protocolMode)) {
+            return String.valueOf(protocolMode).trim().toUpperCase(Locale.ENGLISH);
+        }
+        String resultType = firstText(metadata == null ? null : metadata.get("resultType"), "json");
+        if ("xml".equalsIgnoreCase(resultType)) {
+            return "REST_XML";
+        }
+        if ("soap".equalsIgnoreCase(resultType)) {
+            return "SOAP";
+        }
+        return "REST_JSON";
+    }
+
+    private String resolveSoapContentType(String soapVersion) {
+        return "SOAP_12".equalsIgnoreCase(soapVersion)
+                ? "application/soap+xml;charset=UTF-8"
+                : "text/xml;charset=UTF-8";
+    }
+
+    private String resolveHttpContentType(String protocolMode, String soapVersion) {
+        if ("SOAP".equalsIgnoreCase(protocolMode)) {
+            return resolveSoapContentType(soapVersion);
+        }
+        return "REST_XML".equalsIgnoreCase(protocolMode)
+                ? "application/xml;charset=UTF-8"
+                : "application/json;charset=utf-8";
+    }
+
+    private String resolveHttpResultType(Map<String, Object> metadata, String protocolMode) {
+        if ("SOAP".equalsIgnoreCase(protocolMode)) {
+            return "soap";
+        }
+        if ("REST_XML".equalsIgnoreCase(protocolMode)) {
+            return "xml";
+        }
+        if ("REST_JSON".equalsIgnoreCase(protocolMode)) {
+            return "json";
+        }
+        return firstText(metadata == null ? null : metadata.get("resultType"), "json")
+                .toLowerCase(Locale.ENGLISH);
+    }
+
+    private Map<String, Object> resolveHttpResponseStatus(Map<String, Object> metadata) {
+        Object statusPath = metadata == null ? null : metadata.get("businessStatusPath");
+        Object statusCode = metadata == null ? null : metadata.get("businessStatusCode");
+        boolean hasPath = !isBlankValue(statusPath);
+        boolean hasCode = !isBlankValue(statusCode);
+        if (!hasPath && !hasCode) {
+            return Collections.emptyMap();
+        }
+        if (!hasPath || !hasCode) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP business status path and code must be configured together");
+        }
+        Map<String, Object> responseStatus = new LinkedHashMap<String, Object>();
+        responseStatus.put("path", String.valueOf(statusPath).trim());
+        responseStatus.put("code", String.valueOf(statusCode).trim());
+        return responseStatus;
     }
 
     private ConnectionTestResult testHttpConnection(DataSourceDefinition definition) {
@@ -578,7 +771,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             return null;
         }
         Map<String, Object> metadata = decryptMetadata(definition.getTechnicalMetadata());
-        return asString(metadata.get("url"));
+        return firstText(metadata.get("url"), metadata.get("endpoint"));
     }
 
     private boolean isHttpDatasource(DataSourceDefinition definition) {
@@ -925,6 +1118,33 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             return;
         }
         target.put(key, aliasValue);
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (target == null || key == null || isBlankValue(value)) {
+            return;
+        }
+        target.put(key, value);
+    }
+
+    private String firstText(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            if (!isBlankValue(value)) {
+                return String.valueOf(value).trim();
+            }
+        }
+        return null;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private boolean isBlankValue(Object value) {
+        return value == null || String.valueOf(value).trim().isEmpty();
     }
 
     private String asJsonString(Object candidate) {

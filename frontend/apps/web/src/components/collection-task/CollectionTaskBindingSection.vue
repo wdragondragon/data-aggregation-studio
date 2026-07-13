@@ -143,19 +143,23 @@
 
         <HttpWebServiceOptionsEditor
           v-if="bindingActions.readerAdvancedFields(source).length && bindingActions.isHttpSoapReaderSource(source)"
+          :key="readerOptionsEditorKey(source, 'soap')"
           :fields="bindingActions.readerAdvancedFields(source)"
           :model-value="source.readerOptions ?? {}"
           :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
           :soap-contract="bindingActions.readerSoapContract(source)"
           :soap-field-names="bindingActions.readerSoapFieldNames(source)"
           @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
+          @dirty-key="bindingActions.markSourceReaderOptionDirty(source, $event)"
         />
         <HttpRequestOptionsEditor
           v-else-if="bindingActions.readerAdvancedFields(source).length && bindingActions.isHttpReaderSource(source)"
+          :key="readerOptionsEditorKey(source, 'http')"
           :fields="bindingActions.readerAdvancedFields(source)"
           :model-value="source.readerOptions ?? {}"
           :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
           @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
+          @dirty-key="bindingActions.markSourceReaderOptionDirty(source, $event)"
         />
         <MetaFormRenderer
           v-else-if="bindingActions.readerAdvancedFields(source).length"
@@ -227,6 +231,7 @@
         </div>
         <HttpWebServiceOptionsEditor
           v-if="writerAdvancedFields.length && bindingActions.isHttpSoapWriterTarget()"
+          :key="targetOptionsEditorKey('soap')"
           :fields="writerAdvancedFields"
           :model-value="form.targetBinding.writerOptions ?? {}"
           :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
@@ -241,6 +246,7 @@
         />
         <HttpRequestOptionsEditor
           v-else-if="writerAdvancedFields.length && bindingActions.isHttpWriterTarget()"
+          :key="targetOptionsEditorKey('http')"
           :fields="writerAdvancedFields"
           :model-value="form.targetBinding.writerOptions ?? {}"
           :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
@@ -323,6 +329,7 @@ interface CollectionTaskBindingActions {
   readerSoapContract: (source: CollectionTaskSourceBinding) => Record<string, unknown>;
   readerSoapFieldNames: (source: CollectionTaskSourceBinding) => string[];
   updateSourceReaderOptions: (source: CollectionTaskSourceBinding, value: Record<string, unknown>) => void;
+  markSourceReaderOptionDirty: (source: CollectionTaskSourceBinding, fieldKey: string) => void;
   handleTargetDatasourceChange: (value: string) => void | Promise<void>;
   handleTargetModelChange: (value: string) => void | Promise<void>;
   isHttpWriterTarget: () => boolean;
@@ -366,6 +373,24 @@ function targetModelRemoteMethod(keyword: string) {
 
 function targetModelVisibleChange(visible: boolean) {
   props.bindingActions.handleModelDropdownVisible(props.form.targetBinding.datasourceId, visible);
+}
+
+function readerOptionsEditorKey(source: CollectionTaskSourceBinding, editorType: "http" | "soap") {
+  return [
+    "reader",
+    editorType,
+    String(source.datasourceId ?? ""),
+    String(source.modelId ?? ""),
+  ].join(":");
+}
+
+function targetOptionsEditorKey(editorType: "http" | "soap") {
+  return [
+    "writer",
+    editorType,
+    String(props.form.targetBinding.datasourceId ?? ""),
+    String(props.form.targetBinding.modelId ?? ""),
+  ].join(":");
 }
 
 const collectionModeModel = computed({

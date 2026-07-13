@@ -456,7 +456,8 @@ public class WorkerLifecycleRunner {
         }
         if (node.getNodeType() == com.jdragon.studio.dto.enums.NodeType.COLLECTION_TASK) {
             Long collectionTaskId = resolveCollectionTaskId(dispatchTask, payload, node.getConfig());
-            com.jdragon.studio.dto.model.CollectionTaskDefinitionView task = collectionTaskService.requireOnline(collectionTaskId);
+            com.jdragon.studio.dto.model.CollectionTaskDefinitionView task =
+                    collectionTaskService.requireOnlineForExecution(collectionTaskId);
             node.setNodeName(task.getName());
             node.setConfig(collectionTaskAssemblerService.assemble(task));
         } else if (node.getNodeType() == com.jdragon.studio.dto.enums.NodeType.QUALITY_TASK) {

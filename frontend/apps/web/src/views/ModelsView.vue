@@ -522,7 +522,7 @@ async function editModel(model: DataModelDefinition) {
   modelForm.physicalLocator = model.physicalLocator;
   modelForm.modelKind = model.modelKind;
   modelForm.schemaVersionId = model.schemaVersionId;
-  modelForm.technicalMetadata = cloneDeep(model.technicalMetadata ?? {});
+  modelForm.technicalMetadata = sanitizeModelTechnicalMetadata(cloneDeep(model.technicalMetadata ?? {}));
   modelForm.businessMetadata = cloneDeep(model.businessMetadata ?? {});
   await ensureModelSchemaDetails(editorDatasource.value?.typeCode);
   applyModelSchemaContext({ resetMetadata: false, forceKind: false });
@@ -966,7 +966,7 @@ async function saveModel() {
       physicalLocator: modelForm.physicalLocator,
       modelKind: modelForm.modelKind,
       schemaVersionId: modelForm.schemaVersionId,
-      technicalMetadata: cloneDeep(modelForm.technicalMetadata),
+      technicalMetadata: sanitizeModelTechnicalMetadata(cloneDeep(modelForm.technicalMetadata)),
       businessMetadata: cloneDeep(modelForm.businessMetadata),
     };
     const saved = await studioApi.models.save(payload);
@@ -988,6 +988,19 @@ async function saveModel() {
   } finally {
     saving.value = false;
   }
+}
+
+function sanitizeModelTechnicalMetadata(metadata: Record<string, unknown>) {
+  if (normalizeTypeCode(editorDatasource.value?.typeCode) === "http") {
+    delete metadata.httpPushdownMappings;
+    if (metadata.readerOptions && typeof metadata.readerOptions === "object" && !Array.isArray(metadata.readerOptions)) {
+      const readerOptions = { ...(metadata.readerOptions as Record<string, unknown>) };
+      delete readerOptions.soapVersion;
+      delete readerOptions.soapAction;
+      metadata.readerOptions = readerOptions;
+    }
+  }
+  return metadata;
 }
 
 async function submitSync() {

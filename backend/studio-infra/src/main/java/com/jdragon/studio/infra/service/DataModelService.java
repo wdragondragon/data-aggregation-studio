@@ -32,16 +32,20 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
 public class DataModelService {
+    private static final List<String> HTTP_URL_METADATA_KEYS = Arrays.asList(
+            "url", "endpoint", "requestPath", "requestUrl", "physicalName", "wsdlUrl");
 
     private static final Logger log = LoggerFactory.getLogger(DataModelService.class);
     private static final int DEFAULT_PAGE_NO = 1;
@@ -60,6 +64,7 @@ public class DataModelService {
     private final ProjectResourceAccessService projectResourceAccessService;
     private final DataModelAccessScopeService dataModelAccessScopeService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+    private final HttpReaderOptionSecurityService httpReaderOptionSecurityService;
     private final DataModelDefaultValueSupport defaultValueSupport = new DataModelDefaultValueSupport();
 
     public DataModelService(DataModelMapper dataModelMapper,
@@ -70,9 +75,10 @@ public class DataModelService {
                             DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                             BusinessMetaModelMetadataService businessMetaModelMetadataService,
                             StudioSecurityService securityService,
-                            ProjectResourceAccessService projectResourceAccessService,
-                            DataModelAccessScopeService dataModelAccessScopeService,
-                            DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+                             ProjectResourceAccessService projectResourceAccessService,
+                             DataModelAccessScopeService dataModelAccessScopeService,
+                             DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                             HttpReaderOptionSecurityService httpReaderOptionSecurityService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
         this.modelDiscoveryProvider = modelDiscoveryProvider;
@@ -84,6 +90,7 @@ public class DataModelService {
         this.projectResourceAccessService = projectResourceAccessService;
         this.dataModelAccessScopeService = dataModelAccessScopeService;
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
+        this.httpReaderOptionSecurityService = httpReaderOptionSecurityService;
     }
 
     public List<DataModelDefinition> list() {
@@ -351,6 +358,7 @@ public class DataModelService {
         if (entity == null) {
             entity = new DataModelEntity();
         }
+        boolean existingHttpModel = isHttpDatasource(entity.getDatasourceId());
         DataSourceDefinition datasource = dataSourceService.getInternal(request.getDatasourceId());
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
@@ -360,16 +368,31 @@ public class DataModelService {
         entity.setProjectId(currentProjectId);
         entity.setDatasourceId(request.getDatasourceId());
         entity.setName(request.getName());
-        entity.setPhysicalLocator(request.getPhysicalLocator());
+        String existingPhysicalLocator = entity.getPhysicalLocator();
+        String physicalLocator = request.getPhysicalLocator();
+        if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
+            physicalLocator = prepareHttpPhysicalLocator(
+                    existingPhysicalLocator, physicalLocator, existingHttpModel);
+        }
+        entity.setPhysicalLocator(physicalLocator);
         entity.setModelKind(resolveModelKind(request, entity));
         Long schemaVersionId = resolveSchemaVersionId(request, datasource, entity);
         entity.setSchemaVersionId(schemaVersionId);
         MetadataSchemaDefinition technicalSchema = metadataSchemaService.findSchemaByVersionId(schemaVersionId);
         Map<String, Object> technicalMetadata = enrichTechnicalMetadata(entity.getTechnicalMetadata(), request, datasource);
-        entity.setTechnicalMetadata(normalizeTechnicalMetadata(
+        if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
+            technicalMetadata = prepareHttpTechnicalMetadata(
+                    entity.getTechnicalMetadata(), technicalMetadata, existingHttpModel);
+            synchronizeHttpLocatorMetadata(existingPhysicalLocator, physicalLocator, technicalMetadata);
+        }
+        Map<String, Object> normalizedTechnicalMetadata = normalizeTechnicalMetadata(
                 applyDefaults(technicalMetadata, technicalSchema, MetadataScope.TECHNICAL),
                 datasource == null ? null : datasource.getTypeCode(),
-                schemaVersionId));
+                schemaVersionId);
+        entity.setTechnicalMetadata("http".equalsIgnoreCase(datasource.getTypeCode())
+                ? httpReaderOptionSecurityService.encryptTechnicalMetadata(
+                normalizedTechnicalMetadata, entity.getTechnicalMetadata())
+                : normalizedTechnicalMetadata);
         Map<String, Object> businessMetadata = request.getBusinessMetadata() == null
                 ? entity.getBusinessMetadata()
                 : request.getBusinessMetadata();
@@ -470,12 +493,30 @@ public class DataModelService {
         entity.setDatasourceId(datasourceId);
         entity.setName(hydratedDefinition.getName());
         entity.setModelKind(hydratedDefinition.getModelKind() == null ? ModelKind.DATASET.name() : hydratedDefinition.getModelKind().name());
-        entity.setPhysicalLocator(hydratedDefinition.getPhysicalLocator());
+        String physicalLocator = hydratedDefinition.getPhysicalLocator();
+        if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
+            physicalLocator = prepareHttpPhysicalLocator(
+                    existing == null ? null : existing.getPhysicalLocator(),
+                    physicalLocator,
+                    existing != null);
+        }
+        entity.setPhysicalLocator(physicalLocator);
         Long schemaVersionId = resolveSchemaVersionId(hydratedDefinition, datasource.getTypeCode(), existing);
         entity.setSchemaVersionId(schemaVersionId);
         Map<String, Object> technicalMetadata = mergeTechnicalMetadata(existing == null ? null : existing.getTechnicalMetadata(),
                 hydratedDefinition.getTechnicalMetadata());
-        entity.setTechnicalMetadata(normalizeTechnicalMetadata(technicalMetadata, datasource.getTypeCode(), schemaVersionId));
+        if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
+            technicalMetadata = prepareHttpTechnicalMetadata(
+                    existing == null ? null : existing.getTechnicalMetadata(),
+                    technicalMetadata,
+                    existing != null);
+        }
+        Map<String, Object> normalizedTechnicalMetadata = normalizeTechnicalMetadata(
+                technicalMetadata, datasource.getTypeCode(), schemaVersionId);
+        entity.setTechnicalMetadata("http".equalsIgnoreCase(datasource.getTypeCode())
+                ? httpReaderOptionSecurityService.encryptTechnicalMetadata(
+                normalizedTechnicalMetadata, existing == null ? null : existing.getTechnicalMetadata())
+                : normalizedTechnicalMetadata);
         entity.setBusinessMetadata(businessMetaModelMetadataService.normalizeForModel(
                 existing == null ? null : existing.getBusinessMetadata(),
                 resolveAllowedBusinessMetaModelCodes(datasource.getTypeCode(), schemaVersionId)));
@@ -499,12 +540,42 @@ public class DataModelService {
         definition.setName(entity.getName());
         definition.setPhysicalLocator(entity.getPhysicalLocator());
         definition.setSchemaVersionId(entity.getSchemaVersionId());
-        definition.setTechnicalMetadata(entity.getTechnicalMetadata() == null ? new LinkedHashMap<String, Object>() : entity.getTechnicalMetadata());
+        definition.setTechnicalMetadata(httpReaderOptionSecurityService.decryptTechnicalMetadata(
+                entity.getTechnicalMetadata() == null
+                        ? new LinkedHashMap<String, Object>()
+                        : entity.getTechnicalMetadata()));
         definition.setBusinessMetadata(entity.getBusinessMetadata() == null ? new LinkedHashMap<String, Object>() : entity.getBusinessMetadata());
         if (entity.getModelKind() != null) {
             definition.setModelKind(ModelKind.valueOf(entity.getModelKind()));
         }
         return definition;
+    }
+
+    public DataModelDefinition maskSensitiveReaderOptions(DataModelDefinition definition) {
+        if (definition != null) {
+            definition.setPhysicalLocator(httpReaderOptionSecurityService.maskSensitiveUrl(
+                    definition.getPhysicalLocator()));
+            definition.setTechnicalMetadata(httpReaderOptionSecurityService.maskTechnicalMetadataUrls(
+                    httpReaderOptionSecurityService.maskTechnicalMetadata(definition.getTechnicalMetadata())));
+        }
+        return definition;
+    }
+
+    public List<DataModelDefinition> maskSensitiveReaderOptions(List<DataModelDefinition> definitions) {
+        if (definitions == null) {
+            return new ArrayList<DataModelDefinition>();
+        }
+        for (DataModelDefinition definition : definitions) {
+            maskSensitiveReaderOptions(definition);
+        }
+        return definitions;
+    }
+
+    public PageView<DataModelDefinition> maskSensitiveReaderOptions(PageView<DataModelDefinition> page) {
+        if (page != null) {
+            maskSensitiveReaderOptions(page.getItems());
+        }
+        return page;
     }
 
     private DataModelListView toListView(DataModelEntity entity) {
@@ -517,7 +588,7 @@ public class DataModelService {
         view.setUpdatedAt(entity.getUpdatedAt());
         view.setDatasourceId(entity.getDatasourceId());
         view.setName(entity.getName());
-        view.setPhysicalLocator(entity.getPhysicalLocator());
+        view.setPhysicalLocator(httpReaderOptionSecurityService.maskSensitiveUrl(entity.getPhysicalLocator()));
         view.setSchemaVersionId(entity.getSchemaVersionId());
         if (entity.getModelKind() != null) {
             view.setModelKind(ModelKind.valueOf(entity.getModelKind()));
@@ -851,7 +922,8 @@ public class DataModelService {
         if (entity.getPhysicalLocator() == null || entity.getPhysicalLocator().trim().isEmpty()) {
             return entity.getName();
         }
-        return entity.getName() + " / " + entity.getPhysicalLocator();
+        return entity.getName() + " / "
+                + httpReaderOptionSecurityService.maskSensitiveUrl(entity.getPhysicalLocator());
     }
 
     private DataModelOptionView toOptionView(DataModelEntity entity) {
@@ -871,7 +943,7 @@ public class DataModelService {
         view.setId(entity.getId());
         view.setDatasourceId(entity.getDatasourceId());
         view.setName(entity.getName());
-        view.setPhysicalLocator(entity.getPhysicalLocator());
+        view.setPhysicalLocator(httpReaderOptionSecurityService.maskSensitiveUrl(entity.getPhysicalLocator()));
         if (entity.getModelKind() != null) {
             view.setModelKind(ModelKind.valueOf(entity.getModelKind()));
         }
@@ -891,7 +963,7 @@ public class DataModelService {
         view.setId(entity.getId());
         view.setDatasourceId(entity.getDatasourceId());
         view.setName(entity.getName());
-        view.setPhysicalLocator(entity.getPhysicalLocator());
+        view.setPhysicalLocator(httpReaderOptionSecurityService.maskSensitiveUrl(entity.getPhysicalLocator()));
         view.setColumns(extractSqlHintColumns(entity.getTechnicalMetadata()));
         return view;
     }
@@ -915,6 +987,73 @@ public class DataModelService {
             }
         }
         return new ArrayList<String>(result);
+    }
+
+    private String prepareHttpPhysicalLocator(String existingPhysicalLocator,
+                                              String requestedPhysicalLocator,
+                                              boolean allowHistoricalValue) {
+        if (allowHistoricalValue && existingPhysicalLocator != null
+                && (Objects.equals(existingPhysicalLocator, requestedPhysicalLocator)
+                || Objects.equals(httpReaderOptionSecurityService.maskSensitiveUrl(existingPhysicalLocator),
+                requestedPhysicalLocator))) {
+            return existingPhysicalLocator;
+        }
+        httpReaderOptionSecurityService.validatePhysicalLocator(requestedPhysicalLocator);
+        return requestedPhysicalLocator;
+    }
+
+    private Map<String, Object> prepareHttpTechnicalMetadata(Map<String, Object> existingMetadata,
+                                                              Map<String, Object> requestedMetadata,
+                                                              boolean allowHistoricalValues) {
+        Map<String, Object> result = requestedMetadata == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(requestedMetadata);
+        Map<String, Object> existing = existingMetadata == null
+                ? Collections.<String, Object>emptyMap()
+                : existingMetadata;
+        for (String key : HTTP_URL_METADATA_KEYS) {
+            Object requestedValue = result.get(key);
+            Object existingValue = existing.get(key);
+            boolean unchangedHistoricalValue = allowHistoricalValues
+                    && existingValue instanceof String
+                    && requestedValue instanceof String
+                    && (Objects.equals(existingValue, requestedValue)
+                    || Objects.equals(httpReaderOptionSecurityService.maskSensitiveUrl((String) existingValue),
+                    requestedValue));
+            if (unchangedHistoricalValue) {
+                result.put(key, existingValue);
+                continue;
+            }
+            if (requestedValue instanceof String) {
+                httpReaderOptionSecurityService.validatePhysicalLocator((String) requestedValue);
+            }
+        }
+        return result;
+    }
+
+    private boolean isHttpDatasource(Long datasourceId) {
+        if (datasourceId == null) {
+            return false;
+        }
+        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        return datasource != null && "http".equalsIgnoreCase(datasource.getTypeCode());
+    }
+
+    private void synchronizeHttpLocatorMetadata(String previousPhysicalLocator,
+                                                String physicalLocator,
+                                                Map<String, Object> metadata) {
+        if (metadata == null || Objects.equals(previousPhysicalLocator, physicalLocator)) {
+            return;
+        }
+        String maskedPrevious = httpReaderOptionSecurityService.maskSensitiveUrl(previousPhysicalLocator);
+        for (String key : Arrays.asList("physicalName", "requestPath")) {
+            Object value = metadata.get(key);
+            if (value instanceof String
+                    && (Objects.equals(previousPhysicalLocator, value)
+                    || Objects.equals(maskedPrevious, value))) {
+                metadata.put(key, physicalLocator);
+            }
+        }
     }
 
     private List<Long> extractModelIds(List<DataModelEntity> entities) {
@@ -1097,12 +1236,30 @@ public class DataModelService {
                                                            Long schemaVersionId) {
         MetadataSchemaDefinition tableSchema = metadataSchemaService.findSchemaByVersionId(schemaVersionId);
         Map<String, Object> normalized = applyDefaults(metadata, tableSchema, MetadataScope.TECHNICAL);
+        if ("http".equalsIgnoreCase(datasourceTypeCode)) {
+            normalized.remove("httpPushdownMappings");
+            removeHttpContractFieldsFromReaderOptions(normalized);
+        }
         MetadataSchemaDefinition fieldSchema = metadataSchemaService.findTechnicalMetaModel(datasourceTypeCode, "field");
         Object columns = normalized.get("columns");
         if (columns instanceof List) {
             normalized.put("columns", normalizeColumnMetadata((List<?>) columns, fieldSchema));
         }
         return normalized;
+    }
+
+    private void removeHttpContractFieldsFromReaderOptions(Map<String, Object> metadata) {
+        Object value = metadata.get("readerOptions");
+        if (!(value instanceof Map<?, ?>)) {
+            return;
+        }
+        Map<String, Object> readerOptions = copyObjectMap(value);
+        if (readerOptions == null) {
+            return;
+        }
+        readerOptions.remove("soapVersion");
+        readerOptions.remove("soapAction");
+        metadata.put("readerOptions", readerOptions);
     }
 
     private List<Map<String, Object>> normalizeColumnMetadata(List<?> columns,

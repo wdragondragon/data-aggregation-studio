@@ -223,6 +223,10 @@ abstract class CollectionTaskAssemblerTestSupport {
         technicalMetadata.put("operationName", "QueryRows");
         technicalMetadata.put("soapAction", "urn:studio/QueryRows");
         technicalMetadata.put("resultType", "soap");
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("soapVersion", "SOAP_12");
+        readerOptions.put("soapAction", "urn:stale-reader-action");
+        technicalMetadata.put("readerOptions", readerOptions);
         List<Map<String, Object>> columns = new ArrayList<Map<String, Object>>();
         Map<String, Object> id = column("id");
         id.put("parentNode", "QueryRowsResponse.items");

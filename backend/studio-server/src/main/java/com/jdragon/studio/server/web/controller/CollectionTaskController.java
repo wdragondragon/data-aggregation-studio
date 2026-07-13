@@ -92,7 +92,7 @@ public class CollectionTaskController {
     @Operation(summary = "Preview collection task JobContainer config")
     @PostMapping("/preview")
     public Result<Map<String, Object>> preview(@RequestBody CollectionTaskSaveRequest request) {
-        return Result.success(collectionTaskService.preview(request));
+        return Result.success(collectionTaskService.previewForView(request));
     }
 
     @Operation(summary = "Publish collection task")

@@ -194,6 +194,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, unknown>];
+  "field-change": [fieldKey: string];
 }>();
 
 const { t } = useI18n();
@@ -397,6 +398,7 @@ const selectedDynamicFunction = computed(() =>
 const dynamicFunctionPreview = computed(() => buildDynamicFunctionExpression());
 
 function updateField(fieldKey: string, value: unknown) {
+  emit("field-change", fieldKey);
   emit("update:modelValue", {
     ...localValue.value,
     [fieldKey]: value,

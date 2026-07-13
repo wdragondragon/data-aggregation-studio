@@ -567,7 +567,7 @@ public class AssistantStudioToolExecutionService {
         if ("/models".equals(path)) {
             if ("preview".equals(view) || booleanParam(params, "preview", false)) {
                 Map<String, Object> result = new LinkedHashMap<String, Object>();
-                result.put("detail", dataModelService.get(id));
+                result.put("detail", dataModelService.maskSensitiveReaderOptions(dataModelService.get(id)));
                 List<Map<String, Object>> previewRows = dataModelService.preview(id, intParam(params, "limit", 20, 1, 100));
                 result.put("previewRows", previewRows);
                 result.put("sampleRows", previewRows);
@@ -577,7 +577,7 @@ public class AssistantStudioToolExecutionService {
             if ("lineage".equals(view)) {
                 return dataModelLineageService.getModelLineage(id, lineageLevel(params));
             }
-            return dataModelService.get(id);
+            return dataModelService.maskSensitiveReaderOptions(dataModelService.get(id));
         }
         if ("/field-mapping-rules".equals(path)) {
             return fieldMappingRuleService.get(id);
@@ -790,17 +790,19 @@ public class AssistantStudioToolExecutionService {
 
     private Object executeModelAction(String action, Map<String, Object> params) {
         if ("save".equals(action)) {
-            return dataModelService.save(requiredPayload(params, DataModelSaveRequest.class));
+            return dataModelService.maskSensitiveReaderOptions(
+                    dataModelService.save(requiredPayload(params, DataModelSaveRequest.class)));
         }
         if ("rebuildIndex".equals(action)) {
             return Integer.valueOf(dataModelService.rebuildSearchIndex(optionalLongParam(params, "datasourceId")));
         }
         Long datasourceId = longParam(params, "datasourceId");
         if ("sync".equals(action)) {
-            return dataModelService.syncFromDatasource(datasourceId);
+            return dataModelService.maskSensitiveReaderOptions(dataModelService.syncFromDatasource(datasourceId));
         }
         if ("syncSelected".equals(action)) {
-            return dataModelService.syncFromDatasource(datasourceId, stringListParam(params, "physicalLocators"));
+            return dataModelService.maskSensitiveReaderOptions(
+                    dataModelService.syncFromDatasource(datasourceId, stringListParam(params, "physicalLocators")));
         }
         throw new IllegalArgumentException("assistant backend action tool does not support model action: " + action);
     }
@@ -938,7 +940,7 @@ public class AssistantStudioToolExecutionService {
 
     private Object executeCollectionTaskAction(String action, Map<String, Object> params) {
         if ("preview".equals(action)) {
-            return collectionTaskService.preview(requiredPayload(params, CollectionTaskSaveRequest.class));
+            return collectionTaskService.previewForView(requiredPayload(params, CollectionTaskSaveRequest.class));
         }
         if ("save".equals(action)) {
             return collectionTaskService.save(requiredPayload(params, CollectionTaskSaveRequest.class));
