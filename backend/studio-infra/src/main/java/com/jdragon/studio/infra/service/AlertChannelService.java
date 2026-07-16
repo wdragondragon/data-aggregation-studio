@@ -11,10 +11,12 @@ import com.jdragon.studio.dto.model.AlertChannelView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.AlertChannelQueryRequest;
 import com.jdragon.studio.dto.model.request.AlertChannelSaveRequest;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.AlertChannelEntity;
 import com.jdragon.studio.infra.entity.AlertRuleEntity;
 import com.jdragon.studio.infra.mapper.AlertChannelMapper;
 import com.jdragon.studio.infra.mapper.AlertRuleMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +32,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.TreeSet;
 
 @Service
@@ -59,6 +63,7 @@ public class AlertChannelService {
     private final EncryptionService encryptionService;
     private final AlertWebhookSecurityService webhookSecurityService;
     private final ObjectMapper objectMapper;
+    private StudioPlatformProperties properties;
 
     public AlertChannelService(AlertChannelMapper alertChannelMapper,
                                AlertRuleMapper alertRuleMapper,
@@ -76,6 +81,11 @@ public class AlertChannelService {
         this.encryptionService = encryptionService;
         this.webhookSecurityService = webhookSecurityService;
         this.objectMapper = objectMapper;
+    }
+
+    @Autowired
+    void setStudioPlatformProperties(StudioPlatformProperties properties) {
+        this.properties = properties;
     }
 
     public PageView<AlertChannelView> query(AlertChannelQueryRequest request) {
@@ -113,49 +123,28 @@ public class AlertChannelService {
         if (request == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Alert channel payload is required");
         }
-        String name = requireText(request.getName(), "Webhook channel name is required");
+        String name = requireText(request.getName(), "Alert channel name is required");
         if (name.length() > MAX_NAME_LENGTH) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook channel name is too long");
-        }
-        if (request.getId() == null && !StringUtils.hasText(request.getEndpointUrl())) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook endpoint URL is required");
-        }
-        URI endpoint = null;
-        if (StringUtils.hasText(request.getEndpointUrl())) {
-            if (request.getEndpointUrl().trim().length() > MAX_ENDPOINT_URL_LENGTH) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook endpoint URL is too long");
-            }
-            endpoint = webhookSecurityService.validate(request.getEndpointUrl());
-        }
-        Map<String, String> normalizedHeaders = request.getHeaders() == null ? null : normalizeHeaders(request.getHeaders());
-        if (Boolean.TRUE.equals(request.getClearSigningSecret()) && StringUtils.hasText(request.getSigningSecret())) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST,
-                    "Signing secret cannot be supplied while requesting it to be cleared");
-        }
-        if (request.getSigningSecret() != null && request.getSigningSecret().length() > MAX_SIGNING_SECRET_LENGTH) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook signing secret is too long");
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Alert channel name is too long");
         }
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         String tenantId = securityService.currentTenantId();
         assertUniqueName(name, request.getId(), tenantId, projectId);
         AlertChannelEntity entity = request.getId() == null ? new AlertChannelEntity() : requireCurrentProjectChannel(request.getId());
-        if (endpoint != null) {
-            entity.setEndpointCiphertext(encryptionService.encrypt(endpoint.toString()));
+        String channelType = resolveChannelType(request.getChannelType(), entity);
+        if (entity.getId() != null && StringUtils.hasText(entity.getChannelType())
+                && !channelType.equalsIgnoreCase(entity.getChannelType())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Alert channel type cannot be changed");
         }
-        if (normalizedHeaders != null) {
-            entity.setHeadersCiphertext(encryptionService.encrypt(writeJson(normalizedHeaders)));
-        } else if (entity.getId() == null) {
-            entity.setHeadersCiphertext(encryptionService.encrypt("{}"));
-        }
-        if (Boolean.TRUE.equals(request.getClearSigningSecret())) {
-            entity.setSigningSecretCiphertext(null);
-        } else if (StringUtils.hasText(request.getSigningSecret())) {
-            entity.setSigningSecretCiphertext(encryptionService.encrypt(request.getSigningSecret()));
+        if (AlertChannelType.WEBHOOK.name().equals(channelType)) {
+            applyWebhookConfig(request, entity);
+        } else {
+            applyElinkConfig(request, entity);
         }
         entity.setTenantId(tenantId);
         entity.setProjectId(projectId);
         entity.setName(name);
-        entity.setChannelType(AlertChannelType.WEBHOOK.name());
+        entity.setChannelType(channelType);
         boolean enabled = request.getEnabled() == null
                 ? entity.getId() == null || Integer.valueOf(1).equals(entity.getEnabled())
                 : Boolean.TRUE.equals(request.getEnabled());
@@ -170,9 +159,12 @@ public class AlertChannelService {
                 alertChannelMapper.insert(entity);
             } else {
                 alertChannelMapper.updateById(entity);
+                if (AlertChannelType.ELINK.name().equals(channelType)) {
+                    clearLegacyElinkTransportFields(entity.getId());
+                }
             }
         } catch (DuplicateKeyException ex) {
-            throw new StudioException(StudioErrorCode.BUSINESS_ERROR, "Webhook 通道名称已存在");
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR, "通知通道名称已存在");
         }
         return toView(entity);
     }
@@ -259,6 +251,18 @@ public class AlertChannelService {
                 ? null : encryptionService.decrypt(channel.getSigningSecretCiphertext());
     }
 
+    public String elinkTargetType(AlertChannelEntity channel) {
+        return configText(channel == null ? null : channel.getConfigJson(), "targetType");
+    }
+
+    public List<String> elinkUserIds(AlertChannelEntity channel) {
+        return configStrings(channel == null ? null : channel.getConfigJson(), "userIds");
+    }
+
+    public Long elinkGroupId(AlertChannelEntity channel) {
+        return configLong(channel == null ? null : channel.getConfigJson(), "groupId").orElse(null);
+    }
+
     public void markTestResult(Long channelId, String status, String message) {
         if (channelId == null) {
             return;
@@ -275,9 +279,20 @@ public class AlertChannelService {
         view.setId(entity.getId());
         view.setName(entity.getName());
         view.setChannelType(entity.getChannelType());
-        view.setEndpointMasked(maskEndpoint(endpoint(entity)));
-        view.setHeaderNames(new ArrayList<String>(headers(entity).keySet()));
-        view.setHasSigningSecret(StringUtils.hasText(entity.getSigningSecretCiphertext()));
+        if (AlertChannelType.ELINK.name().equals(entity.getChannelType())) {
+            // Legacy eLink rows may still contain fields from the discarded SLB design.
+            view.setEndpointMasked(null);
+            view.setHeaderNames(new ArrayList<String>());
+            view.setHasSigningSecret(false);
+        } else {
+            view.setEndpointMasked(maskEndpoint(endpoint(entity)));
+            view.setHeaderNames(new ArrayList<String>(headers(entity).keySet()));
+            view.setHasSigningSecret(StringUtils.hasText(entity.getSigningSecretCiphertext()));
+        }
+        Map<String, Object> config = entity.getConfigJson();
+        view.setElinkTargetType(configText(config, "targetType"));
+        view.setElinkUserIds(configStrings(config, "userIds"));
+        view.setElinkGroupId(configLong(config, "groupId").orElse(null));
         view.setEnabled(Integer.valueOf(1).equals(entity.getEnabled()));
         view.setLastTestedAt(entity.getLastTestedAt());
         view.setLastTestStatus(entity.getLastTestStatus());
@@ -327,7 +342,152 @@ public class AlertChannelService {
                 .eq(AlertChannelEntity::getName, name)
                 .ne(excludedId != null, AlertChannelEntity::getId, excludedId));
         if (count != null && count.longValue() > 0L) {
-            throw new StudioException(StudioErrorCode.BUSINESS_ERROR, "Webhook 通道名称已存在");
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR, "通知通道名称已存在");
+        }
+    }
+
+    private String resolveChannelType(String requestedType, AlertChannelEntity entity) {
+        String value = StringUtils.hasText(requestedType) ? requestedType.trim().toUpperCase(Locale.ROOT)
+                : entity != null && StringUtils.hasText(entity.getChannelType())
+                ? entity.getChannelType().trim().toUpperCase(Locale.ROOT) : AlertChannelType.WEBHOOK.name();
+        if (!AlertChannelType.WEBHOOK.name().equals(value) && !AlertChannelType.ELINK.name().equals(value)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Unsupported alert channel type: " + value);
+        }
+        return value;
+    }
+
+    private void applyWebhookConfig(AlertChannelSaveRequest request, AlertChannelEntity entity) {
+        if (entity.getId() == null && !StringUtils.hasText(request.getEndpointUrl())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook endpoint URL is required");
+        }
+        URI endpoint = null;
+        if (StringUtils.hasText(request.getEndpointUrl())) {
+            if (request.getEndpointUrl().trim().length() > MAX_ENDPOINT_URL_LENGTH) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook endpoint URL is too long");
+            }
+            endpoint = webhookSecurityService.validate(request.getEndpointUrl());
+        }
+        Map<String, String> normalizedHeaders = request.getHeaders() == null
+                ? null : normalizeHeaders(request.getHeaders());
+        if (Boolean.TRUE.equals(request.getClearSigningSecret()) && StringUtils.hasText(request.getSigningSecret())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Signing secret cannot be supplied while requesting it to be cleared");
+        }
+        if (request.getSigningSecret() != null && request.getSigningSecret().length() > MAX_SIGNING_SECRET_LENGTH) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook signing secret is too long");
+        }
+        if (endpoint != null) {
+            entity.setEndpointCiphertext(encryptionService.encrypt(endpoint.toString()));
+        }
+        if (normalizedHeaders != null) {
+            entity.setHeadersCiphertext(encryptionService.encrypt(writeJson(normalizedHeaders)));
+        } else if (entity.getId() == null) {
+            entity.setHeadersCiphertext(encryptionService.encrypt("{}"));
+        }
+        if (Boolean.TRUE.equals(request.getClearSigningSecret())) {
+            entity.setSigningSecretCiphertext(null);
+        } else if (StringUtils.hasText(request.getSigningSecret())) {
+            entity.setSigningSecretCiphertext(encryptionService.encrypt(request.getSigningSecret()));
+        }
+        entity.setConfigJson(new LinkedHashMap<String, Object>());
+    }
+
+    private void applyElinkConfig(AlertChannelSaveRequest request, AlertChannelEntity entity) {
+        if (!elinkChannelEnabled()) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "eLink alert delivery is not enabled on this Studio runtime");
+        }
+        if (StringUtils.hasText(request.getEndpointUrl()) || request.getHeaders() != null
+                || StringUtils.hasText(request.getSigningSecret()) || Boolean.TRUE.equals(request.getClearSigningSecret())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "eLink channels do not accept Webhook endpoint, Header, or signing settings");
+        }
+        String targetType = requireText(request.getElinkTargetType(), "eLink target type is required")
+                .toUpperCase(Locale.ROOT);
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("targetType", targetType);
+        if ("PERSONAL".equals(targetType)) {
+            List<String> userIds = normalizeElinkUserIds(request.getElinkUserIds());
+            if (userIds.isEmpty()) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "At least one eLink account is required");
+            }
+            config.put("userIds", userIds);
+        } else if ("GROUP".equals(targetType)) {
+            if (request.getElinkGroupId() == null || request.getElinkGroupId().longValue() <= 0L) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "A positive eLink group id is required");
+            }
+            config.put("groupId", request.getElinkGroupId());
+        } else {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Unsupported eLink target type: " + targetType);
+        }
+        entity.setEndpointCiphertext(null);
+        entity.setHeadersCiphertext(null);
+        entity.setSigningSecretCiphertext(null);
+        entity.setConfigJson(config);
+    }
+
+    private boolean elinkChannelEnabled() {
+        return properties == null || properties.getAlert() == null || properties.getAlert().getElink() == null
+                || properties.getAlert().getElink().isEnabled();
+    }
+
+    private void clearLegacyElinkTransportFields(Long channelId) {
+        alertChannelMapper.update(null, new LambdaUpdateWrapper<AlertChannelEntity>()
+                .eq(AlertChannelEntity::getId, channelId)
+                .set(AlertChannelEntity::getEndpointCiphertext, null)
+                .set(AlertChannelEntity::getHeadersCiphertext, null)
+                .set(AlertChannelEntity::getSigningSecretCiphertext, null));
+    }
+
+    private List<String> normalizeElinkUserIds(List<String> values) {
+        LinkedHashSet<String> unique = new LinkedHashSet<String>();
+        if (values != null) {
+            for (String value : values) {
+                String normalized = requireText(value, "eLink account must not be blank");
+                if (normalized.length() > 128 || normalized.indexOf('|') >= 0
+                        || "@all".equalsIgnoreCase(normalized)) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Invalid eLink account: " + normalized);
+                }
+                unique.add(normalized);
+            }
+        }
+        if (unique.size() > 1000) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "eLink accounts must not contain more than 1000 entries");
+        }
+        return new ArrayList<String>(unique);
+    }
+
+    private String configText(Map<String, Object> config, String key) {
+        Object value = config == null ? null : config.get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private List<String> configStrings(Map<String, Object> config, String key) {
+        Object value = config == null ? null : config.get(key);
+        List<String> result = new ArrayList<String>();
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                if (item != null) {
+                    result.add(String.valueOf(item));
+                }
+            }
+        }
+        return result;
+    }
+
+    private Optional<Long> configLong(Map<String, Object> config, String key) {
+        Object value = config == null ? null : config.get(key);
+        if (value instanceof Number number) {
+            return Optional.of(number.longValue());
+        }
+        try {
+            return value == null ? Optional.empty() : Optional.of(Long.valueOf(String.valueOf(value)));
+        } catch (NumberFormatException ex) {
+            return Optional.empty();
         }
     }
 

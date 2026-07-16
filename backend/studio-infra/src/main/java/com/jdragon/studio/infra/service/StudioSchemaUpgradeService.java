@@ -2023,9 +2023,11 @@ public class StudioSchemaUpgradeService {
                     "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint,deleted int default 0," +
                     "created_at datetime default current_timestamp,updated_at datetime default current_timestamp,name varchar(255) not null," +
                     "active_name varchar(255) generated always as (case when deleted = 0 then name else null end) stored," +
-                    "channel_type varchar(32) not null,endpoint_ciphertext text,headers_ciphertext text,signing_secret_ciphertext text," +
+                    "channel_type varchar(32) not null,endpoint_ciphertext text,headers_ciphertext text,signing_secret_ciphertext text,config_json json," +
                     "enabled int default 1,last_tested_at datetime,last_test_status varchar(32),last_test_message varchar(1000),created_by bigint,updated_by bigint)");
         }
+        ensureColumn("studio_alert_channel", "config_json",
+                "alter table studio_alert_channel add column config_json json after signing_secret_ciphertext");
         ensureColumn("studio_alert_channel", "active_name",
                 "alter table studio_alert_channel add column active_name varchar(255) generated always as " +
                         "(case when deleted = 0 then name else null end) stored");
@@ -2088,8 +2090,10 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_alert_event_rule on studio_alert_event(rule_id, event_type, observed_at)");
         jdbcTemplate.execute("create table if not exists studio_alert_channel (" +
                 "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
-                "name text not null,channel_type text not null,endpoint_ciphertext text,headers_ciphertext text,signing_secret_ciphertext text," +
+                "name text not null,channel_type text not null,endpoint_ciphertext text,headers_ciphertext text,signing_secret_ciphertext text,config_json text," +
                 "enabled integer default 1,last_tested_at text,last_test_status text,last_test_message text,created_by integer,updated_by integer)");
+        ensureColumn("studio_alert_channel", "config_json",
+                "alter table studio_alert_channel add column config_json text");
         jdbcTemplate.execute("create index if not exists idx_alert_channel_project_enabled on studio_alert_channel(project_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_alert_channel_project_name on studio_alert_channel(project_id, name)");
         jdbcTemplate.execute("create unique index if not exists uk_alert_channel_active_name on " +

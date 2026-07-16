@@ -169,7 +169,7 @@ final class AlertRuleTargetService {
                     .eq(AlertChannelEntity::getTenantId, tenantId)
                     .eq(AlertChannelEntity::getProjectId, projectId));
             if (count == null || count.longValue() == 0L) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Webhook channel was not found: " + channelId);
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Alert channel was not found: " + channelId);
             }
         }
     }
@@ -179,7 +179,7 @@ final class AlertRuleTargetService {
         if (!hasEffectiveInAppDestination(rule)
                 && !hasEnabledWebhook(channelIds, rule.getTenantId(), rule.getProjectId())) {
             throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
-                    "At least one active in-app recipient or enabled webhook channel is required before enabling this rule");
+                    "At least one active in-app recipient or enabled notification channel is required before enabling this rule");
         }
     }
 

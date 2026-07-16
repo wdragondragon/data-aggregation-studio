@@ -148,6 +148,13 @@ studio:
       connect-timeout-seconds: ${STUDIO_ALERT_WEBHOOK_CONNECT_TIMEOUT_SECONDS:3}
       request-timeout-seconds: ${STUDIO_ALERT_WEBHOOK_REQUEST_TIMEOUT_SECONDS:5}
       max-response-bytes: ${STUDIO_ALERT_WEBHOOK_MAX_RESPONSE_BYTES:16384}
+    elink:
+      enabled: ${STUDIO_ALERT_ELINK_ENABLED:true}
+      service-name: ${STUDIO_ALERT_ELINK_SERVICE_NAME:elink-message-integration}
+      path-prefix: ${STUDIO_ALERT_ELINK_PATH_PREFIX:/elink}
+      connect-timeout-seconds: ${STUDIO_ALERT_ELINK_CONNECT_TIMEOUT_SECONDS:3}
+      request-timeout-seconds: ${STUDIO_ALERT_ELINK_REQUEST_TIMEOUT_SECONDS:10}
+      max-error-response-bytes: ${STUDIO_ALERT_ELINK_MAX_ERROR_RESPONSE_BYTES:16384}
   flink:
     client:
       service-name: ${STUDIO_FLINK_SERVICE_NAME:studio-flink}

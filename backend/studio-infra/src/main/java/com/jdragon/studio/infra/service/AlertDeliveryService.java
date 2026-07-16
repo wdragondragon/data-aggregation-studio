@@ -18,6 +18,7 @@ import com.jdragon.studio.infra.entity.AlertEventEntity;
 import com.jdragon.studio.infra.mapper.AlertDeliveryMapper;
 import com.jdragon.studio.infra.mapper.AlertEventMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -50,20 +51,23 @@ public class AlertDeliveryService {
     private final NotificationService notificationService;
     private final AlertWebhookSecurityService webhookSecurityService;
     private final AlertWebhookHttpClient webhookHttpClient;
+    private final ElinkAlertSender elinkAlertSender;
     private final StudioPlatformProperties properties;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public AlertDeliveryService(AlertDeliveryMapper alertDeliveryMapper,
-                                AlertEventMapper alertEventMapper,
+                                 AlertEventMapper alertEventMapper,
                                 AlertIncidentService alertIncidentService,
                                 AlertChannelService alertChannelService,
                                 AlertRuleService alertRuleService,
                                 NotificationService notificationService,
-                                AlertWebhookSecurityService webhookSecurityService,
-                                AlertWebhookHttpClient webhookHttpClient,
-                                StudioPlatformProperties properties,
+                                 AlertWebhookSecurityService webhookSecurityService,
+                                 AlertWebhookHttpClient webhookHttpClient,
+                                 ElinkAlertSender elinkAlertSender,
+                                 StudioPlatformProperties properties,
                                 StudioSecurityService securityService,
                                 ProjectResourceAccessService projectResourceAccessService,
                                 ObjectMapper objectMapper) {
@@ -75,10 +79,28 @@ public class AlertDeliveryService {
         this.notificationService = notificationService;
         this.webhookSecurityService = webhookSecurityService;
         this.webhookHttpClient = webhookHttpClient;
+        this.elinkAlertSender = elinkAlertSender;
         this.properties = properties;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.objectMapper = objectMapper;
+    }
+
+    AlertDeliveryService(AlertDeliveryMapper alertDeliveryMapper,
+                         AlertEventMapper alertEventMapper,
+                         AlertIncidentService alertIncidentService,
+                         AlertChannelService alertChannelService,
+                         AlertRuleService alertRuleService,
+                         NotificationService notificationService,
+                         AlertWebhookSecurityService webhookSecurityService,
+                         AlertWebhookHttpClient webhookHttpClient,
+                         StudioPlatformProperties properties,
+                         StudioSecurityService securityService,
+                         ProjectResourceAccessService projectResourceAccessService,
+                         ObjectMapper objectMapper) {
+        this(alertDeliveryMapper, alertEventMapper, alertIncidentService, alertChannelService, alertRuleService,
+                notificationService, webhookSecurityService, webhookHttpClient, null, properties, securityService,
+                projectResourceAccessService, objectMapper);
     }
 
     public PageView<AlertDeliveryView> query(AlertDeliveryQueryRequest request) {
@@ -119,11 +141,12 @@ public class AlertDeliveryService {
                 && !AlertDeliveryStatus.SKIPPED.name().equals(entity.getStatus())) {
             throw new StudioException(StudioErrorCode.BUSINESS_ERROR, "Only failed or skipped deliveries can be retried");
         }
-        if (AlertChannelType.WEBHOOK.name().equals(entity.getChannelType())
+        if ((AlertChannelType.WEBHOOK.name().equals(entity.getChannelType())
+                || AlertChannelType.ELINK.name().equals(entity.getChannelType()))
                 && (entity.getChannelId() == null || alertChannelService.findById(
                 entity.getChannelId(), entity.getTenantId(), entity.getProjectId()) == null)) {
             throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
-                    "Webhook channel is missing; this delivery cannot be retried");
+                    "Alert channel is missing; this delivery cannot be retried");
         }
         entity.setStatus(AlertDeliveryStatus.PENDING.name());
         entity.setAttemptCount(0);
@@ -158,9 +181,11 @@ public class AlertDeliveryService {
         int batchSize = properties.getAlert().getBatchSize() == null ? 100 : Math.max(1, properties.getAlert().getBatchSize());
         resetStaleProcessing(now.minusMinutes(5), batchSize);
         boolean webhookEnabled = webhookDeliveryEnabled();
+        boolean elinkEnabled = elinkDeliveryEnabled();
         List<AlertDeliveryEntity> due = alertDeliveryMapper.selectList(new LambdaQueryWrapper<AlertDeliveryEntity>()
                 .in(AlertDeliveryEntity::getStatus, AlertDeliveryStatus.PENDING.name(), AlertDeliveryStatus.RETRY.name())
                 .ne(!webhookEnabled, AlertDeliveryEntity::getChannelType, AlertChannelType.WEBHOOK.name())
+                .ne(!elinkEnabled, AlertDeliveryEntity::getChannelType, AlertChannelType.ELINK.name())
                 .le(AlertDeliveryEntity::getNextAttemptAt, now)
                 .orderByAsc(AlertDeliveryEntity::getNextAttemptAt)
                 .orderByAsc(AlertDeliveryEntity::getId)
@@ -196,6 +221,9 @@ public class AlertDeliveryService {
         if (AlertChannelType.WEBHOOK.name().equals(delivery.getChannelType()) && !webhookDeliveryEnabled()) {
             return;
         }
+        if (AlertChannelType.ELINK.name().equals(delivery.getChannelType()) && !elinkDeliveryEnabled()) {
+            return;
+        }
         if (safe(delivery.getAttemptCount()) >= MAX_ATTEMPTS) {
             markAttemptLimitExceeded(delivery);
             return;
@@ -222,11 +250,14 @@ public class AlertDeliveryService {
                 result = deliverInApp(delivery);
             } else if (AlertChannelType.WEBHOOK.name().equals(delivery.getChannelType())) {
                 result = deliverWebhook(delivery);
+            } else if (AlertChannelType.ELINK.name().equals(delivery.getChannelType())) {
+                result = deliverElink(delivery);
             } else {
                 result = DeliveryResult.dead(null, "Unsupported alert channel type");
             }
         } catch (StudioException ex) {
-            result = AlertChannelType.WEBHOOK.name().equals(delivery.getChannelType())
+            result = (AlertChannelType.WEBHOOK.name().equals(delivery.getChannelType())
+                    || AlertChannelType.ELINK.name().equals(delivery.getChannelType()))
                     ? DeliveryResult.dead(null, sanitize(ex.getMessage()))
                     : DeliveryResult.retry(null, sanitize(ex.getMessage()));
         } catch (JsonProcessingException ex) {
@@ -308,6 +339,33 @@ public class AlertDeliveryService {
         return DeliveryResult.dead(Integer.valueOf(status), "Webhook returned HTTP " + status, excerpt);
     }
 
+    private DeliveryResult deliverElink(AlertDeliveryEntity delivery) {
+        if (elinkAlertSender == null) {
+            return DeliveryResult.dead(null, "eLink delivery adapter is unavailable");
+        }
+        AlertChannelEntity channel = alertChannelService.findById(
+                delivery.getChannelId(), delivery.getTenantId(), delivery.getProjectId());
+        if (channel == null) {
+            return DeliveryResult.dead(null, "eLink channel is missing");
+        }
+        boolean testDelivery = "TEST".equalsIgnoreCase(string(delivery.getPayloadJson() == null
+                ? null : delivery.getPayloadJson().get("eventType")));
+        if (!Integer.valueOf(1).equals(channel.getEnabled()) && !testDelivery) {
+            return DeliveryResult.skipped("eLink channel is disabled");
+        }
+        ElinkAlertSender.SendResult result = elinkAlertSender.send(channel,
+                delivery.getPayloadJson() == null ? new LinkedHashMap<String, Object>() : delivery.getPayloadJson());
+        if (result.isSkipped()) {
+            return DeliveryResult.skipped(result.getErrorMessage());
+        }
+        if (result.isSuccess()) {
+            return DeliveryResult.success(result.getHttpStatus(), result.getResponseExcerpt());
+        }
+        return result.isRetryable()
+                ? DeliveryResult.retry(result.getHttpStatus(), result.getErrorMessage(), result.getResponseExcerpt())
+                : DeliveryResult.dead(result.getHttpStatus(), result.getErrorMessage(), result.getResponseExcerpt());
+    }
+
     private void applyResult(AlertDeliveryEntity delivery, DeliveryResult result) {
         LocalDateTime updatedAt = LocalDateTime.now();
         delivery.setHttpStatus(result.httpStatus);
@@ -345,8 +403,10 @@ public class AlertDeliveryService {
         }
         AlertEventEntity event = alertEventMapper.selectById(delivery.getEventId());
         if (event != null && "TEST".equals(event.getEventType()) && delivery.getChannelId() != null) {
+            String channelName = AlertChannelType.ELINK.name().equals(delivery.getChannelType())
+                    ? "eLink" : "Webhook";
             alertChannelService.markTestResult(delivery.getChannelId(), delivery.getStatus(),
-                    result.success ? "Webhook test succeeded" : delivery.getErrorMessage());
+                    result.success ? channelName + " test succeeded" : delivery.getErrorMessage());
         }
     }
 
@@ -385,6 +445,11 @@ public class AlertDeliveryService {
     private boolean webhookDeliveryEnabled() {
         return properties.getAlert() != null && properties.getAlert().getWebhook() != null
                 && properties.getAlert().getWebhook().isEnabled();
+    }
+
+    private boolean elinkDeliveryEnabled() {
+        return properties.getAlert() != null && properties.getAlert().getElink() != null
+                && properties.getAlert().getElink().isEnabled();
     }
 
     private void markAttemptLimitExceeded(AlertDeliveryEntity delivery) {
@@ -467,6 +532,9 @@ public class AlertDeliveryService {
     private String failureMessage(AlertDeliveryEntity delivery, Exception ex) {
         if (delivery != null && AlertChannelType.WEBHOOK.name().equals(delivery.getChannelType())) {
             return "Webhook request failed (" + ex.getClass().getSimpleName() + ")";
+        }
+        if (delivery != null && AlertChannelType.ELINK.name().equals(delivery.getChannelType())) {
+            return sanitize(ex.getMessage());
         }
         return sanitize(ex.getMessage());
     }

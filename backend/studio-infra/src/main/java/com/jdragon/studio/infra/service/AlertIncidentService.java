@@ -313,13 +313,13 @@ public class AlertIncidentService {
                 .setSubjectKey("CHANNEL_TEST:" + channel.getId())
                 .setSubjectName(channel.getName())
                 .setTargetPath("/alerts?tab=channels")
-                .setSummary("[测试] Webhook 通道 " + channel.getName() + " 连通性测试")
+                .setSummary("[测试] 通知通道 " + channel.getName() + " 连通性测试")
                 .setSourceType("TEST")
                 .setSourceId(String.valueOf(channel.getId()))
                 .setSourceEventKey(uniqueKey("test-channel", channel.getId()))
                 .setObservedAt(now);
         AlertEventEntity event = createStandaloneEvent(null, channel, observation, AlertEventType.TEST);
-        createWebhookDelivery(event, null, channel, payload(null, null, event), false);
+        createChannelDelivery(event, null, channel, payload(null, null, event), false);
         return toEventView(event);
     }
 
@@ -541,22 +541,25 @@ public class AlertIncidentService {
                 if (channel == null) {
                     continue;
                 }
-                createWebhookDelivery(event, incident, channel, payload, true);
+                createChannelDelivery(event, incident, channel, payload, true);
             }
         }
     }
 
-    private AlertDeliveryEntity createWebhookDelivery(AlertEventEntity event, AlertIncidentEntity incident,
+    private AlertDeliveryEntity createChannelDelivery(AlertEventEntity event, AlertIncidentEntity incident,
                                                        AlertChannelEntity channel, Map<String, Object> payload,
                                                        boolean skipDisabledChannel) {
-        AlertDeliveryEntity delivery = baseDelivery(event, incident, AlertChannelType.WEBHOOK.name(),
-                "WEBHOOK:" + channel.getId(), payload);
+        String channelType = AlertChannelType.ELINK.name().equals(channel.getChannelType())
+                ? AlertChannelType.ELINK.name() : AlertChannelType.WEBHOOK.name();
+        AlertDeliveryEntity delivery = baseDelivery(event, incident, channelType,
+                channelType + ":" + channel.getId(), payload);
         delivery.setChannelId(channel.getId());
         delivery.setChannelNameSnapshot(channel.getName());
         if (skipDisabledChannel && !Integer.valueOf(1).equals(channel.getEnabled())) {
             delivery.setStatus(AlertDeliveryStatus.SKIPPED.name());
             delivery.setNextAttemptAt(null);
-            delivery.setErrorMessage("Webhook channel is disabled");
+            String channelLabel = AlertChannelType.ELINK.name().equals(channelType) ? "eLink" : "Webhook";
+            delivery.setErrorMessage(channelLabel + " channel is disabled");
         }
         insertDelivery(delivery);
         return delivery;

@@ -14,6 +14,9 @@ public class AlertChannelView {
     private String endpointMasked;
     private List<String> headerNames = new ArrayList<String>();
     private boolean hasSigningSecret;
+    private String elinkTargetType;
+    private List<String> elinkUserIds = new ArrayList<String>();
+    private Long elinkGroupId;
     private boolean enabled;
     private LocalDateTime lastTestedAt;
     private String lastTestStatus;

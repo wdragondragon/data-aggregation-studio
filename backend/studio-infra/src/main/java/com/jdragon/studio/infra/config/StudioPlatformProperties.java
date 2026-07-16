@@ -121,6 +121,7 @@ public class StudioPlatformProperties {
         private Integer eventRetentionDays = 180;
         private Integer deliveryRetentionDays = 30;
         private WebhookProperties webhook = new WebhookProperties();
+        private ElinkProperties elink = new ElinkProperties();
     }
 
     @Data
@@ -131,6 +132,16 @@ public class StudioPlatformProperties {
         private Integer connectTimeoutSeconds = 3;
         private Integer requestTimeoutSeconds = 5;
         private Integer maxResponseBytes = 16 * 1024;
+    }
+
+    @Data
+    public static class ElinkProperties {
+        private boolean enabled = true;
+        private String serviceName = "elink-message-integration";
+        private String pathPrefix = "/elink";
+        private Integer connectTimeoutSeconds = 3;
+        private Integer requestTimeoutSeconds = 10;
+        private Integer maxErrorResponseBytes = 16 * 1024;
     }
 
     @Data

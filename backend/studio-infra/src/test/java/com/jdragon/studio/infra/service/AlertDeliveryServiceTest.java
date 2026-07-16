@@ -40,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -98,7 +99,7 @@ class AlertDeliveryServiceTest {
 
         StudioException error = assertThrows(StudioException.class, () -> fixture.service.retry(delivery.getId()));
 
-        assertTrue(error.getMessage().contains("Webhook channel is missing"));
+        assertTrue(error.getMessage().contains("Alert channel is missing"));
         verify(fixture.deliveryMapper, never()).update(isNull(), any());
     }
 
@@ -126,6 +127,43 @@ class AlertDeliveryServiceTest {
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(fixture.deliveryMapper, times(2)).selectList(queryCaptor.capture());
         assertTrue(queryCaptor.getAllValues().get(1).getSqlSegment().contains("channel_type"));
+    }
+
+    @Test
+    void shouldApplyElinkManagerResponseToDeliveryStatus() {
+        AlertDeliveryMapper deliveryMapper = mock(AlertDeliveryMapper.class);
+        AlertEventMapper eventMapper = mock(AlertEventMapper.class);
+        AlertChannelService channelService = mock(AlertChannelService.class);
+        ElinkAlertSender elinkSender = mock(ElinkAlertSender.class);
+        AlertDeliveryEntity delivery = delivery("PENDING");
+        delivery.setChannelType("ELINK");
+        delivery.setChannelId(50L);
+        delivery.setAttemptCount(0);
+        delivery.setNextAttemptAt(LocalDateTime.now().minusSeconds(1));
+        delivery.setPayloadJson(new LinkedHashMap<String, Object>(Map.of("summary", "worker offline")));
+        when(deliveryMapper.selectList(any())).thenReturn(Collections.emptyList(), Collections.singletonList(delivery));
+        when(deliveryMapper.selectById(delivery.getId())).thenReturn(delivery);
+        when(deliveryMapper.update(isNull(), any())).thenReturn(1);
+        AlertChannelEntity channel = new AlertChannelEntity();
+        channel.setId(50L);
+        channel.setEnabled(1);
+        when(channelService.findById(50L, "default", 200L)).thenReturn(channel);
+        when(elinkSender.send(same(channel), same(delivery.getPayloadJson())))
+                .thenReturn(ElinkAlertSender.SendResult.success(200,
+                        "{\"errcode\":0,\"errmsg\":\"ok\",\"jobId\":\"job-1\"}"));
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        AlertDeliveryService service = new AlertDeliveryService(deliveryMapper, eventMapper,
+                mock(AlertIncidentService.class), channelService, mock(AlertRuleService.class),
+                mock(NotificationService.class), mock(AlertWebhookSecurityService.class),
+                mock(AlertWebhookHttpClient.class), elinkSender, properties, mock(StudioSecurityService.class),
+                mock(ProjectResourceAccessService.class), new ObjectMapper());
+
+        service.dispatchDue();
+
+        assertEquals("SUCCEEDED", delivery.getStatus());
+        assertEquals(200, delivery.getHttpStatus());
+        assertTrue(delivery.getResponseExcerpt().contains("\"errcode\":0"));
+        verify(elinkSender).send(same(channel), same(delivery.getPayloadJson()));
     }
 
     @Test

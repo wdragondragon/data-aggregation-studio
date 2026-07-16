@@ -15,6 +15,7 @@ import com.jdragon.studio.dto.model.AlertSelectOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.AlertRuleQueryRequest;
 import com.jdragon.studio.dto.model.request.AlertRuleSaveRequest;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.AlertIncidentEntity;
 import com.jdragon.studio.infra.entity.AlertRuleEntity;
 import com.jdragon.studio.infra.mapper.AlertChannelMapper;
@@ -57,6 +58,7 @@ public class AlertRuleService {
     private final ProjectResourceAccessService projectResourceAccessService;
     private final AlertRuleTargetService targetService;
     private AlertSignalPublisher alertSignalPublisher;
+    private StudioPlatformProperties properties;
 
     public AlertRuleService(AlertRuleMapper alertRuleMapper,
                             AlertChannelMapper alertChannelMapper,
@@ -89,6 +91,11 @@ public class AlertRuleService {
         this.alertSignalPublisher = alertSignalPublisher;
     }
 
+    @Autowired
+    void setStudioPlatformProperties(StudioPlatformProperties properties) {
+        this.properties = properties;
+    }
+
     public AlertOptionsView options() {
         AlertOptionsView view = new AlertOptionsView();
         view.setRuleTypes(definitionRegistry.options());
@@ -101,11 +108,17 @@ public class AlertRuleService {
         for (AlertDeliveryStatus value : AlertDeliveryStatus.values()) {
             view.getDeliveryStatuses().add(value.name());
         }
+        view.setElinkChannelEnabled(elinkChannelEnabled());
         view.setCanManage(canManage());
         view.setCanHandleIncidents(projectResourceAccessService.hasProjectContext());
         view.setCanViewTenantSummary(securityService.hasAnyRole(
                 StudioConstants.ROLE_SUPER_ADMIN, StudioConstants.ROLE_TENANT_ADMIN));
         return view;
+    }
+
+    private boolean elinkChannelEnabled() {
+        return properties == null || properties.getAlert() == null || properties.getAlert().getElink() == null
+                || properties.getAlert().getElink().isEnabled();
     }
 
     public PageView<AlertRuleView> query(AlertRuleQueryRequest request) {
@@ -174,7 +187,7 @@ public class AlertRuleService {
         boolean hasInAppDestination = inAppEnabled && targetService.hasEffectiveInAppDestination(subjectType, request.getSubjectId(),
                 recipientUserIds, notifyOwner, notifyAdmins, tenantId, projectId);
         if (!hasInAppDestination && !targetService.hasEnabledWebhook(channelIds, tenantId, projectId)) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one in-app recipient source or webhook channel is required");
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one in-app recipient source or notification channel is required");
         }
         AlertRuleEntity entity = request.getId() == null ? new AlertRuleEntity() : requireCurrentProjectRule(request.getId());
         rejectActiveIncidentRetargeting(entity, ruleType, subjectType, request.getSubjectId());

@@ -35,6 +35,8 @@ class AlertSchemaIntegrationTest {
                     "select count(*) from sqlite_master where type='index' and name='uk_alert_rule_active_name'"));
             assertEquals(1, count(connection,
                     "select count(*) from sqlite_master where type='index' and name='uk_alert_channel_active_name'"));
+            assertEquals(1, count(connection,
+                    "select count(*) from pragma_table_info('studio_alert_channel') where name='config_json'"));
 
             statement.executeUpdate("insert into studio_alert_rule " +
                     "(id, tenant_id, project_id, deleted, name, rule_type, subject_type, severity) " +
@@ -57,6 +59,8 @@ class AlertSchemaIntegrationTest {
     void shouldKeepMysqlInitMigrationAndUpgradeDefinitionsAligned() throws Exception {
         String schema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
         String migration = readBackendFile("studio-server/src/main/resources/update/20260713/20260713-alert-center.sql");
+        String elinkMigration = readBackendFile(
+                "studio-server/src/main/resources/update/20260716/20260716-elink-alert-channel.sql");
         String upgrade = Files.readString(Path.of("src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java"),
                 StandardCharsets.UTF_8);
         for (String source : new String[]{schema, migration, upgrade}) {
@@ -69,7 +73,19 @@ class AlertSchemaIntegrationTest {
         }
         assertTrue(schema.contains("condition_json json"));
         assertTrue(schema.contains("payload_json json"));
+        assertTrue(schema.contains("config_json json"));
+        assertTrue(elinkMigration.contains("config_json json"));
+        assertTrue(elinkMigration.contains("information_schema.columns"));
+        assertTrue(elinkMigration.contains("prepare stmt from @ddl"));
+        assertTrue(upgrade.contains("config_json json"));
         assertTrue(schema.contains("version int default 0"));
+    }
+
+    @Test
+    void shouldAutoUpgradeExistingDesktopSqliteSchema() throws Exception {
+        String application = readBackendFile("studio-desktop-runtime/src/main/resources/application.yml");
+
+        assertTrue(application.contains("auto-upgrade-on-startup: true"));
     }
 
     private String readBackendFile(String relativePath) throws Exception {

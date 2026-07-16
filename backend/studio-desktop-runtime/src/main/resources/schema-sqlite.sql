@@ -544,7 +544,7 @@ create table if not exists studio_alert_channel (
     id integer primary key,
     tenant_id text default 'default', project_id integer, deleted integer default 0,
     created_at text, updated_at text, name text not null, channel_type text not null,
-    endpoint_ciphertext text, headers_ciphertext text, signing_secret_ciphertext text,
+    endpoint_ciphertext text, headers_ciphertext text, signing_secret_ciphertext text, config_json text,
     enabled integer default 1, last_tested_at text, last_test_status text,
     last_test_message text, created_by integer, updated_by integer
 );

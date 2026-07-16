@@ -1682,6 +1682,7 @@ create table if not exists studio_alert_channel (
     endpoint_ciphertext text,
     headers_ciphertext text,
     signing_secret_ciphertext text,
+    config_json json,
     enabled int default 1,
     last_tested_at datetime,
     last_test_status varchar(32),
