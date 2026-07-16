@@ -13,8 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,7 +26,6 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -47,8 +44,7 @@ public class DataModelIndexRebuildQueueService {
     private final Set<Long> queuedModelRebuildIds = Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<Long, Boolean>());
     private final Set<Long> queuedModelDeleteIds = Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<Long, Boolean>());
     private final Set<Long> queuedDatasourceDeleteIds = Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<Long, Boolean>());
-    private final AtomicBoolean workerStarted = new AtomicBoolean(false);
-    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicBoolean workerScheduled = new AtomicBoolean(false);
     private final AtomicInteger activeCommandCount = new AtomicInteger(0);
     private final AtomicInteger activeModelRebuildCount = new AtomicInteger(0);
     private final AtomicInteger activeModelDeleteCount = new AtomicInteger(0);
@@ -62,24 +58,6 @@ public class DataModelIndexRebuildQueueService {
         this.datasourceMapper = datasourceMapper;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
         this.indexRebuildQueueExecutor = indexRebuildQueueExecutor;
-    }
-
-    @PostConstruct
-    public void startWorker() {
-        if (!workerStarted.compareAndSet(false, true)) {
-            return;
-        }
-        indexRebuildQueueExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                runWorkerLoop();
-            }
-        });
-    }
-
-    @PreDestroy
-    public void stopWorker() {
-        running.set(false);
     }
 
     public int enqueueModelRebuild(Long modelId) {
@@ -110,7 +88,7 @@ public class DataModelIndexRebuildQueueService {
         long timeoutMillis = timeout == null ? 0L : timeout.toMillis();
         long deadline = System.currentTimeMillis() + Math.max(0L, timeoutMillis);
         while (System.currentTimeMillis() <= deadline) {
-            if (commandQueue.isEmpty() && activeCommandCount.get() == 0) {
+            if (commandQueue.isEmpty() && activeCommandCount.get() == 0 && !workerScheduled.get()) {
                 return true;
             }
             try {
@@ -120,7 +98,7 @@ public class DataModelIndexRebuildQueueService {
                 return false;
             }
         }
-        return commandQueue.isEmpty() && activeCommandCount.get() == 0;
+        return commandQueue.isEmpty() && activeCommandCount.get() == 0 && !workerScheduled.get();
     }
 
     public DataModelIndexQueueStatusView currentStatus() {
@@ -136,6 +114,7 @@ public class DataModelIndexRebuildQueueService {
         view.setActiveCommandCount(activeCount);
         view.setBusy(queuedCommandCount > 0
                 || activeCount > 0
+                || workerScheduled.get()
                 || activeModelDeleteCount.get() > 0
                 || activeDatasourceDeleteCount.get() > 0);
         return view;
@@ -180,6 +159,9 @@ public class DataModelIndexRebuildQueueService {
         if (queuedCount > 0) {
             log.info("Queued {} index maintenance commands. queueSize={}", queuedCount, commandQueue.size());
         }
+        if (!commandQueue.isEmpty()) {
+            scheduleWorker();
+        }
     }
 
     private List<IndexCommand> buildCommands(IndexCommandType type, Collection<Long> ids) {
@@ -199,13 +181,27 @@ public class DataModelIndexRebuildQueueService {
         return commands;
     }
 
-    private void runWorkerLoop() {
-        while (running.get()) {
-            try {
-                IndexCommand first = commandQueue.poll(1L, TimeUnit.SECONDS);
-                if (first == null) {
-                    continue;
+    private void scheduleWorker() {
+        if (!workerScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            indexRebuildQueueExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    runWorkerLoop();
                 }
+            });
+        } catch (RuntimeException ex) {
+            workerScheduled.set(false);
+            log.warn("Index rebuild queue worker could not be scheduled", ex);
+        }
+    }
+
+    private void runWorkerLoop() {
+        try {
+            IndexCommand first;
+            while ((first = commandQueue.poll()) != null) {
                 List<IndexCommand> commands = new ArrayList<IndexCommand>();
                 commands.add(first);
                 commandQueue.drainTo(commands, MAX_DRAIN_SIZE - 1);
@@ -215,11 +211,13 @@ public class DataModelIndexRebuildQueueService {
                 } finally {
                     activeCommandCount.addAndGet(-commands.size());
                 }
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return;
-            } catch (Throwable ex) {
-                log.error("Index rebuild queue worker failed unexpectedly", ex);
+            }
+        } catch (Throwable ex) {
+            log.error("Index rebuild queue worker failed unexpectedly", ex);
+        } finally {
+            workerScheduled.set(false);
+            if (!commandQueue.isEmpty()) {
+                scheduleWorker();
             }
         }
     }

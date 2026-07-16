@@ -8,11 +8,15 @@ import com.jdragon.studio.infra.service.DataModelSearchIndexService;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -61,6 +65,36 @@ class DataModelIndexRebuildQueueServiceRegressionTest {
         assertThat(queueSize(service)).isEqualTo(1);
     }
 
+    @Test
+    void shouldScheduleFiniteWorkersAndAllowLaterBatches() {
+        DataModelMapper dataModelMapper = mock(DataModelMapper.class);
+        DataModelSearchIndexService searchIndexService = mock(DataModelSearchIndexService.class);
+        RecordingExecutor executor = new RecordingExecutor();
+        DataModelIndexRebuildQueueService service = new DataModelIndexRebuildQueueService(
+                dataModelMapper,
+                mock(DatasourceMapper.class),
+                searchIndexService,
+                executor
+        );
+
+        service.enqueueModelDelete(101L);
+        service.enqueueModelDelete(102L);
+
+        assertThat(executor.pendingTaskCount()).isEqualTo(1);
+        assertThat(service.currentStatus().getBusy()).isTrue();
+
+        executor.runNext();
+
+        assertThat(service.awaitIdle(Duration.ofSeconds(1))).isTrue();
+        assertThat(service.currentStatus().getBusy()).isFalse();
+        verify(searchIndexService).deleteByModelId(101L);
+        verify(searchIndexService).deleteByModelId(102L);
+
+        service.enqueueModelDelete(103L);
+
+        assertThat(executor.pendingTaskCount()).isEqualTo(1);
+    }
+
     private DataModelIndexRebuildQueueService newService(DataModelMapper dataModelMapper) {
         Executor noopExecutor = new Executor() {
             @Override
@@ -81,5 +115,22 @@ class DataModelIndexRebuildQueueServiceRegressionTest {
         field.setAccessible(true);
         BlockingQueue<?> queue = (BlockingQueue<?>) field.get(service);
         return queue.size();
+    }
+
+    private static final class RecordingExecutor implements Executor {
+        private final List<Runnable> tasks = new ArrayList<Runnable>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
+        }
+
+        private int pendingTaskCount() {
+            return tasks.size();
+        }
+
+        private void runNext() {
+            tasks.remove(0).run();
+        }
     }
 }
