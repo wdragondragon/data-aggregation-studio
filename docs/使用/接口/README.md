@@ -7,9 +7,11 @@
 ```bash
 BASE_URL="http://127.0.0.1:18080/api/v1"
 STUDIO_ORIGIN="http://127.0.0.1:18080"
+STUDIO_USERNAME="${STUDIO_USERNAME:?set STUDIO_USERNAME}"
+STUDIO_PASSWORD="${STUDIO_PASSWORD:?set STUDIO_PASSWORD}"
 TOKEN="$(curl -s -X POST "$BASE_URL/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq -r '.data.token')"
+  -d "{\"username\":\"$STUDIO_USERNAME\",\"password\":\"$STUDIO_PASSWORD\"}" | jq -r '.data.token')"
 TENANT_ID="<从 /auth/me 或 /auth/login 的 data.tenants 中选择>"
 PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 ```
@@ -37,6 +39,7 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 | [数据质量规则、任务、指标和问题接口](./08-quality.md) | 46 | 45 |
 | [系统管理、权限、访问申请、通知和关注接口](./09-system-access-notifications.md) | 58 | 59 |
 | [运维中心、运行时、导入导出和 AI 助手接口](./10-ops-center-runtime-import-export-assistant.md) | 17 | 19 |
+| [统一告警中心接口](./11-alert-center.md) | 26 | 26 |
 
 ## 界面路由覆盖
 
@@ -90,12 +93,13 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 - `/runs/:workflowRunId` -> `frontend/apps/web/src/views/WorkflowRunDetailView.vue`
 - `/run-metrics` -> `frontend/apps/web/src/views/RunMetricsView.vue`
 - `/ops-center` -> `frontend/apps/web/src/views/OpsCenterView.vue`
+- `/alerts` -> `frontend/apps/web/src/views/AlertsView.vue`
 - `/notifications` -> `frontend/apps/web/src/views/NotificationsView.vue`
 - `/system` -> `frontend/apps/web/src/views/SystemView.vue`
 
 ## 抽取覆盖说明
 
-- 前端 SDK 接口总数：317
-- 后端 Controller 方法总数：329
+- 前端 SDK 接口总数：343
+- 后端 Controller 方法总数：355
 - 文档覆盖方式：管理端界面优先按前端 SDK 分组，开放访问接口按后端 Controller 路径补充到对应服务模块。
-- 生成日期：2026-07-07
+- 生成日期：2026-07-13

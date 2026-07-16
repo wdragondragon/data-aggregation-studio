@@ -66,6 +66,8 @@
 | 数据质量 | /quality-tasks/:taskId/edit | QualityTaskEditorView.vue | 编辑质量任务 | 需登录且有项目 |
 | 数据质量 | /quality-task-runs | QualityTaskRunsView.vue | 质量任务日志 | 需登录且有项目 |
 | 数据质量 | /quality-metrics | QualityMetricsView.vue | 质量指标 | 需登录且有项目 |
+| 运维 | /ops-center | OpsCenterView.vue | 统一运维中心 | 需登录且有项目 |
+| 运维 | /alerts | AlertsView.vue | 统一告警中心 | 需登录且有项目；规则与通道维护需管理员角色 |
 | 系统 | /notifications | NotificationsView.vue | 消息中心 | 需登录 |
 | 系统 | /system | SystemView.vue | 系统管理 | SUPER_ADMIN / TENANT_ADMIN / PROJECT_ADMIN |
 

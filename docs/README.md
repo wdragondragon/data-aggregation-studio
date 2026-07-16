@@ -8,6 +8,7 @@
   - 面向业务使用者的系统使用说明、操作白皮书和正式分发版本。
   - 当前包含：
     - [功能模块文档](./使用/功能模块/README.md)：按业务能力拆分的模块使用说明。
+    - [统一告警中心使用指南](./使用/功能模块/13-统一告警中心.md)：九类告警、状态流转、通知投递、权限和安全边界的图文操作说明。
     - [Studio 界面接口文档](./使用/接口/README.md)：按界面模块拆分的接口、DTO、Controller 对照和 cURL 调用链模板。
     - [studio-user-whitepaper.md](./使用/studio-user-whitepaper.md)
     - [studio-user-whitepaper.docx](./使用/studio-user-whitepaper.docx)
@@ -34,6 +35,7 @@
     - [环境初始化说明.md](./运维/部署/环境初始化说明.md)
     - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：server/worker、运行日志对象存储、Worker 组和 ODPS 集成配置说明。
     - [data-service-metrics-retention-impact.md](./运维/监控/data-service-metrics-retention-impact.md)
+    - [alert-webhook-security.md](./运维/监控/alert-webhook-security.md)：告警 Webhook 的 SSRF、签名、秘密与投递安全配置。
 
 - `测试/`
   - 测试用例、测试结果和复测报告。
@@ -53,6 +55,7 @@
   - 数据库结构快照、恢复参考和结构校验资料。
   - 当前包含：
     - [MySQL Schema Snapshots](./数据库/结构快照/mysql/README.md)
+    - [alert-center-upgrade.md](./数据库/alert-center-upgrade.md)：统一告警中心增量升级、核验和回滚说明。
 
 - `规范/`
   - 文档规范、归档约定、模板和团队协作标准。
@@ -74,6 +77,7 @@
 | 数据质量规则、任务、指标和问题 | [08-quality.md](./使用/接口/08-quality.md) |
 | 系统管理、权限、访问申请、通知和关注 | [09-system-access-notifications.md](./使用/接口/09-system-access-notifications.md) |
 | 运维中心、运行时、导入导出和 AI 助手 | [10-ops-center-runtime-import-export-assistant.md](./使用/接口/10-ops-center-runtime-import-export-assistant.md) |
+| 统一告警中心 | [11-alert-center.md](./使用/接口/11-alert-center.md) |
 
 ## 功能模块文档
 
@@ -91,6 +95,7 @@
 | 数据质量 | [10-数据质量.md](./使用/功能模块/10-数据质量.md) |
 | 系统管理 | [11-系统管理.md](./使用/功能模块/11-系统管理.md) |
 | 运维中心与日志 | [12-运维中心与日志.md](./使用/功能模块/12-运维中心与日志.md) |
+| 统一告警中心 | [13-统一告警中心.md](./使用/功能模块/13-统一告警中心.md) |
 
 ## 说明
 
