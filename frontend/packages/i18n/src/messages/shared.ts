@@ -24,6 +24,7 @@ export const sharedMessages = {
       delete: "Delete",
       actions: "Actions",
       status: "Status",
+      description: "Description",
       publish: "Publish",
       test: "Test",
       discover: "Discover",
@@ -318,6 +319,11 @@ export const sharedMessages = {
           subtitle: "Observe task runs, dispatch queues, workers, services and run logs in one place.",
           menuCaption: "Runtime health and queue overview",
         },
+        alerts: {
+          title: "Alert Center",
+          subtitle: "Manage alert rules, incidents, notification channels and delivery history.",
+          menuCaption: "Rules, incidents and notifications",
+        },
         notifications: {
           title: "Notifications",
           subtitle: "Review inbox messages, approvals and task state changes in one place.",
@@ -375,6 +381,7 @@ export const sharedMessages = {
       delete: "删除",
       actions: "操作",
       status: "状态",
+      description: "描述",
       publish: "发布",
       test: "测试",
       discover: "发现",
@@ -668,6 +675,11 @@ export const sharedMessages = {
           title: "统一运维中心",
           subtitle: "集中查看任务运行、调度队列、Worker、服务调用与运行日志健康状态。",
           menuCaption: "运行健康与队列总览",
+        },
+        alerts: {
+          title: "告警中心",
+          subtitle: "统一管理告警规则、告警事件、通知通道与投递记录。",
+          menuCaption: "规则、事件与通知闭环",
         },
         notifications: {
           title: "消息中心",

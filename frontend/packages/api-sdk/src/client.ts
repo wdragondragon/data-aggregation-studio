@@ -9,6 +9,21 @@ import type {
   AssistantStudioOperation,
   AssistantToolExecuteRequest,
   AssistantToolExecutionResult,
+  AlertChannelQueryRequest,
+  AlertChannelSaveRequest,
+  AlertChannelView,
+  AlertDeliveryQueryRequest,
+  AlertDeliveryView,
+  AlertEventView,
+  AlertIncidentQueryRequest,
+  AlertIncidentView,
+  AlertOptionsView,
+  AlertRuleQueryRequest,
+  AlertRuleSaveRequest,
+  AlertRuleView,
+  AlertSelectOptionView,
+  AlertSummaryView,
+  AlertTenantProjectSummaryView,
   AuthProfile,
   CapabilityMatrix,
   CollectionTaskDefinitionView,
@@ -1729,6 +1744,86 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       queryLogEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
         return requestPage<OpsCenterLogEventView>({ ...config, url: "/ops-center/log-events/query", method: "POST", data: payload }, payload);
+      },
+    },
+    alerts: {
+      options() {
+        return request<AlertOptionsView>({ url: "/alerts/options", method: "GET" });
+      },
+      subjects(params: { subjectType: string; keyword?: string; pageNo?: number; pageSize?: number }) {
+        return requestPage<AlertSelectOptionView>({ url: "/alerts/subjects", method: "GET", params }, params);
+      },
+      recipientOptions(params?: { keyword?: string; pageNo?: number; pageSize?: number }) {
+        return requestPage<AlertSelectOptionView>({ url: "/alerts/recipient-options", method: "GET", params }, params);
+      },
+      summary() {
+        return request<AlertSummaryView>({ url: "/alerts/summary", method: "GET" });
+      },
+      tenantSummary(payload?: { keyword?: string; pageNo?: number; pageSize?: number }) {
+        return requestPage<AlertTenantProjectSummaryView>({ url: "/alerts/tenant-summary/query", method: "POST", data: payload }, payload);
+      },
+      queryRules(payload?: AlertRuleQueryRequest) {
+        return requestPage<AlertRuleView>({ url: "/alerts/rules/query", method: "POST", data: payload }, payload);
+      },
+      getRule(id: EntityId) {
+        return request<AlertRuleView>({ url: `/alerts/rules/${id}`, method: "GET" });
+      },
+      saveRule(payload: AlertRuleSaveRequest) {
+        return request<AlertRuleView>({ url: "/alerts/rules", method: "POST", data: payload });
+      },
+      deleteRule(id: EntityId) {
+        return request<void>({ url: `/alerts/rules/${id}`, method: "DELETE" });
+      },
+      enableRule(id: EntityId) {
+        return request<AlertRuleView>({ url: `/alerts/rules/${id}/enable`, method: "POST" });
+      },
+      disableRule(id: EntityId) {
+        return request<AlertRuleView>({ url: `/alerts/rules/${id}/disable`, method: "POST" });
+      },
+      testRule(id: EntityId) {
+        return request<AlertEventView>({ url: `/alerts/rules/${id}/test`, method: "POST" });
+      },
+      queryIncidents(payload?: AlertIncidentQueryRequest) {
+        return requestPage<AlertIncidentView>({ url: "/alerts/incidents/query", method: "POST", data: payload }, payload);
+      },
+      getIncident(id: EntityId) {
+        return request<AlertIncidentView>({ url: `/alerts/incidents/${id}`, method: "GET" });
+      },
+      incidentEvents(id: EntityId, params?: { pageNo?: number; pageSize?: number }) {
+        return requestPage<AlertEventView>({ url: `/alerts/incidents/${id}/events`, method: "GET", params }, params);
+      },
+      acknowledgeIncident(id: EntityId, payload?: { comment?: string }) {
+        return request<AlertIncidentView>({ url: `/alerts/incidents/${id}/acknowledge`, method: "POST", data: payload });
+      },
+      closeIncident(id: EntityId, payload?: { comment?: string }) {
+        return request<AlertIncidentView>({ url: `/alerts/incidents/${id}/close`, method: "POST", data: payload });
+      },
+      queryChannels(payload?: AlertChannelQueryRequest) {
+        return requestPage<AlertChannelView>({ url: "/alerts/channels/query", method: "POST", data: payload }, payload);
+      },
+      getChannel(id: EntityId) {
+        return request<AlertChannelView>({ url: `/alerts/channels/${id}`, method: "GET" });
+      },
+      saveChannel(payload: AlertChannelSaveRequest) {
+        return request<AlertChannelView>({ url: "/alerts/channels", method: "POST", data: payload });
+      },
+      deleteChannel(id: EntityId) {
+        return request<void>({ url: `/alerts/channels/${id}`, method: "DELETE" });
+      },
+      enableChannel(id: EntityId) {
+        return request<AlertChannelView>({ url: `/alerts/channels/${id}/enable`, method: "POST" });
+      },
+      disableChannel(id: EntityId) {
+        return request<AlertChannelView>({ url: `/alerts/channels/${id}/disable`, method: "POST" });
+      },
+      testChannel(id: EntityId) {
+        return request<AlertEventView>({ url: `/alerts/channels/${id}/test`, method: "POST" });
+      },
+      queryDeliveries(payload?: AlertDeliveryQueryRequest) {
+        return requestPage<AlertDeliveryView>({ url: "/alerts/deliveries/query", method: "POST", data: payload }, payload);
+      },
+      retryDelivery(id: EntityId) {
+        return request<AlertDeliveryView>({ url: `/alerts/deliveries/${id}/retry`, method: "POST" });
       },
     },
     notifications: {

@@ -1,7 +1,7 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from "vue-router";
 import type { StudioNavItem } from "@studio/ui";
-import { useDesktopAuthStore } from "@/stores/auth";
-import DesktopLayout from "@/layout/DesktopLayout.vue";
+import { useDesktopAuthStore } from "@desktop/stores/auth";
+import DesktopLayout from "@desktop/layout/DesktopLayout.vue";
 
 interface DesktopMenuDescriptor {
   path: string;
@@ -18,6 +18,8 @@ export const desktopMenuDescriptors: DesktopMenuDescriptor[] = [
   { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption" },
   { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
   { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
+  { path: "/ops-center", labelKey: "routes.web.opsCenter.title", captionKey: "routes.web.opsCenter.menuCaption" },
+  { path: "/alerts", labelKey: "routes.web.alerts.title", captionKey: "routes.web.alerts.menuCaption" },
   { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
 ];
 
@@ -33,7 +35,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/login",
     name: "login",
-    component: () => import("@/views/DesktopLoginView.vue"),
+    component: () => import("@desktop/views/DesktopLoginView.vue"),
     meta: {
       public: true,
       titleKey: "routes.desktop.login.title",
@@ -127,12 +129,39 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/collection-task-runs",
+        name: "collection-task-runs",
+        component: () => import("@web/views/CollectionTaskRunsView.vue"),
+        meta: {
+          titleKey: "routes.web.collectionTaskRuns.title",
+          subtitleKey: "routes.web.collectionTaskRuns.subtitle",
+        },
+      },
+      {
+        path: "/quality-task-runs",
+        name: "quality-task-runs",
+        component: () => import("@web/views/QualityTaskRunsView.vue"),
+        meta: {
+          titleKey: "routes.web.qualityTaskRuns.title",
+          subtitleKey: "routes.web.qualityTaskRuns.subtitle",
+        },
+      },
+      {
         path: "/workflows",
         name: "workflows",
         component: () => import("@web/views/WorkflowsView.vue"),
         meta: {
           titleKey: "routes.web.workflows.title",
           subtitleKey: "routes.web.workflows.subtitle",
+        },
+      },
+      {
+        path: "/workflows/:workflowId",
+        name: "workflow-detail",
+        component: () => import("@web/views/WorkflowDetailView.vue"),
+        meta: {
+          titleKey: "routes.web.workflows.detailTitle",
+          subtitleKey: "routes.web.workflows.detailSubtitle",
         },
       },
       {
@@ -160,6 +189,60 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.runs.title",
           subtitleKey: "routes.web.runs.subtitle",
+        },
+      },
+      {
+        path: "/runs/:workflowRunId",
+        name: "workflow-run-detail",
+        component: () => import("@web/views/WorkflowRunDetailView.vue"),
+        meta: {
+          titleKey: "routes.web.runs.detailTitle",
+          subtitleKey: "routes.web.runs.detailSubtitle",
+        },
+      },
+      {
+        path: "/data-service-metrics/access-logs",
+        name: "data-service-access-logs",
+        component: () => import("@web/views/DataServiceAccessLogsView.vue"),
+        meta: {
+          titleKey: "routes.web.dataServiceMetrics.logsTitle",
+          subtitleKey: "routes.web.dataServiceMetrics.logsSubtitle",
+        },
+      },
+      {
+        path: "/data-ingestion-metrics/access-logs",
+        name: "data-ingestion-access-logs",
+        component: () => import("@web/views/DataIngestionAccessLogsView.vue"),
+        meta: {
+          titleKey: "routes.web.dataIngestionMetrics.logsTitle",
+          subtitleKey: "routes.web.dataIngestionMetrics.logsSubtitle",
+        },
+      },
+      {
+        path: "/protocol-conversions/access-logs",
+        name: "protocol-conversion-access-logs",
+        component: () => import("@web/views/ProtocolConversionAccessLogsView.vue"),
+        meta: {
+          titleKey: "routes.web.protocolConversions.logsTitle",
+          subtitleKey: "routes.web.protocolConversions.logsSubtitle",
+        },
+      },
+      {
+        path: "/ops-center",
+        name: "ops-center",
+        component: () => import("@web/views/OpsCenterView.vue"),
+        meta: {
+          titleKey: "routes.web.opsCenter.title",
+          subtitleKey: "routes.web.opsCenter.subtitle",
+        },
+      },
+      {
+        path: "/alerts",
+        name: "alerts",
+        component: () => import("@web/views/AlertsView.vue"),
+        meta: {
+          titleKey: "routes.web.alerts.title",
+          subtitleKey: "routes.web.alerts.subtitle",
         },
       },
       {

@@ -21,7 +21,7 @@ import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { RuntimeModeResponse } from "@studio/api-sdk";
 import { MetricCard, SectionCard } from "@studio/ui";
-import { desktopApi } from "@/api/studio";
+import { desktopApi } from "@desktop/api/studio";
 
 const { t } = useI18n();
 const mode = reactive<Partial<RuntimeModeResponse>>({});

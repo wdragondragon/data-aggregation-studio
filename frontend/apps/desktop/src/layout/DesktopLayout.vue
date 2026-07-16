@@ -23,8 +23,8 @@ import { subscribeStudioApiLoading } from "@studio/api-sdk";
 import { StudioShell } from "@studio/ui";
 import { persistStudioLocale, resolveStudioLocale } from "@studio/i18n";
 import { useI18n } from "vue-i18n";
-import { resolveDesktopMenus } from "@/router";
-import { useDesktopAuthStore } from "@/stores/auth";
+import { resolveDesktopMenus } from "@desktop/router";
+import { useDesktopAuthStore } from "@desktop/stores/auth";
 
 const route = useRoute();
 const router = useRouter();

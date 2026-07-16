@@ -11,7 +11,7 @@ import {
   setStoredToken,
   STUDIO_USERNAME_KEY,
   studioApi,
-} from "@/api/studio";
+} from "@desktop/api/studio";
 
 const useSharedAuthStore = defineStore("studio-desktop-auth", () => {
   const token = ref<string | null>(getStoredToken());

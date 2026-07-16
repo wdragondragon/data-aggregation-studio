@@ -28,7 +28,7 @@ import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import { useDesktopAuthStore } from "@/stores/auth";
+import { useDesktopAuthStore } from "@desktop/stores/auth";
 
 const router = useRouter();
 const authStore = useDesktopAuthStore();

@@ -106,6 +106,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     captionKey: "routes.web.menuGroups.operations.caption",
     items: [
       { path: "/ops-center", labelKey: "routes.web.opsCenter.title", captionKey: "routes.web.opsCenter.menuCaption", requiresProject: true },
+      { path: "/alerts", labelKey: "routes.web.alerts.title", captionKey: "routes.web.alerts.menuCaption", requiresProject: true },
     ],
   },
 ];
@@ -626,6 +627,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.opsCenter.title",
           subtitleKey: "routes.web.opsCenter.subtitle",
+        },
+      },
+      {
+        path: "/alerts",
+        name: "alerts",
+        component: () => import("@/views/AlertsView.vue"),
+        meta: {
+          titleKey: "routes.web.alerts.title",
+          subtitleKey: "routes.web.alerts.subtitle",
         },
       },
       {

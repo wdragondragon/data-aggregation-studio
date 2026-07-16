@@ -3113,6 +3113,253 @@ export interface UserRegistrationRequestView extends BaseRecord {
   reviewedAt?: string;
 }
 
+export type AlertRuleType =
+  | "EXECUTION_FAILED"
+  | "CONSECUTIVE_FAILURES"
+  | "RUN_TIMEOUT"
+  | "SERVICE_FAILURE_RATE"
+  | "INVOCATION_WRITE_FAILED"
+  | "WORKER_OFFLINE"
+  | "QUEUE_BACKLOG"
+  | "SCHEDULE_DELAY"
+  | "LOG_UPLOAD_FAILED";
+
+export type AlertSubjectType =
+  | "COLLECTION_TASK"
+  | "QUALITY_TASK"
+  | "WORKFLOW"
+  | "DATA_SERVICE"
+  | "DATA_INGESTION_SERVICE"
+  | "PROTOCOL_CONVERSION_SERVICE"
+  | "WORKER_GROUP"
+  | "PROJECT_QUEUE"
+  | "LOG_STORAGE";
+
+export type AlertSeverity = "INFO" | "WARNING" | "CRITICAL";
+export type AlertIncidentStatus = "OPEN" | "ACKNOWLEDGED" | "RECOVERED" | "CLOSED";
+export type AlertDeliveryStatus = "PENDING" | "PROCESSING" | "RETRY" | "SUCCEEDED" | "DEAD" | "SKIPPED";
+
+export interface AlertOptionView {
+  code: AlertRuleType | string;
+  label?: string;
+  description?: string;
+  defaultSeverity?: AlertSeverity | string;
+  subjectTypes: AlertSubjectType[];
+  conditionSchema?: { fields?: Array<Record<string, unknown>> };
+  defaults?: Record<string, unknown>;
+}
+
+export interface AlertOptionsView {
+  ruleTypes: AlertOptionView[];
+  severities: AlertSeverity[];
+  incidentStatuses: AlertIncidentStatus[];
+  deliveryStatuses: AlertDeliveryStatus[];
+  canManage: boolean;
+  canHandleIncidents: boolean;
+  canViewTenantSummary: boolean;
+}
+
+export interface AlertSelectOptionView {
+  id?: EntityId;
+  code?: string;
+  name?: string;
+  description?: string;
+}
+
+export interface AlertRuleView extends BaseRecord {
+  name: string;
+  description?: string;
+  ruleType: AlertRuleType | string;
+  subjectType: AlertSubjectType | string;
+  subjectId?: EntityId;
+  subjectName?: string;
+  severity: AlertSeverity | string;
+  enabled: boolean;
+  condition: Record<string, unknown>;
+  silenceMinutes: number;
+  recoveryNotificationEnabled: boolean;
+  inAppEnabled: boolean;
+  recipientUserIds: EntityId[];
+  notifyResourceOwner: boolean;
+  notifyProjectAdmins: boolean;
+  webhookChannelIds: EntityId[];
+  activationAt?: string;
+  lastEvaluatedAt?: string;
+  lastEvaluationStatus?: string;
+  lastEvaluationError?: string;
+  lastTriggeredAt?: string;
+  createdBy?: EntityId;
+  updatedBy?: EntityId;
+}
+
+export interface AlertRuleQueryRequest {
+  keyword?: string;
+  ruleType?: string;
+  subjectType?: string;
+  severity?: string;
+  enabled?: boolean;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface AlertRuleSaveRequest {
+  id?: EntityId;
+  name: string;
+  description?: string;
+  ruleType: string;
+  subjectType: string;
+  subjectId?: EntityId;
+  severity: string;
+  enabled?: boolean;
+  condition?: Record<string, unknown>;
+  silenceMinutes?: number;
+  recoveryNotificationEnabled?: boolean;
+  inAppEnabled?: boolean;
+  recipientUserIds?: EntityId[];
+  notifyResourceOwner?: boolean;
+  notifyProjectAdmins?: boolean;
+  webhookChannelIds?: EntityId[];
+}
+
+export interface AlertEventView extends BaseRecord {
+  incidentId?: EntityId;
+  ruleId?: EntityId;
+  eventType?: string;
+  statusFrom?: string;
+  statusTo?: string;
+  sourceType?: string;
+  sourceId?: string;
+  subjectType?: string;
+  subjectKey?: string;
+  subjectId?: EntityId;
+  subjectName?: string;
+  targetPath?: string;
+  severity?: string;
+  summary?: string;
+  evidence?: Record<string, unknown>;
+  actorUserId?: EntityId;
+  actorName?: string;
+  observedAt?: string;
+}
+
+export interface AlertDeliveryView extends BaseRecord {
+  eventId?: EntityId;
+  incidentId?: EntityId;
+  channelType?: string;
+  channelId?: EntityId;
+  channelName?: string;
+  recipientUserId?: EntityId;
+  status?: AlertDeliveryStatus | string;
+  attemptCount?: number;
+  nextAttemptAt?: string;
+  lastAttemptAt?: string;
+  httpStatus?: number;
+  responseExcerpt?: string;
+  errorMessage?: string;
+}
+
+export interface AlertIncidentView extends BaseRecord {
+  ruleId?: EntityId;
+  ruleName?: string;
+  ruleType?: AlertRuleType | string;
+  subjectType?: AlertSubjectType | string;
+  subjectKey?: string;
+  subjectId?: EntityId;
+  subjectName?: string;
+  targetPath?: string;
+  severity?: AlertSeverity | string;
+  status?: AlertIncidentStatus | string;
+  summary?: string;
+  evidence?: Record<string, unknown>;
+  occurrenceCount?: number;
+  notificationCount?: number;
+  reopenCount?: number;
+  conditionActive?: boolean;
+  closedWhileActive?: boolean;
+  firstTriggeredAt?: string;
+  lastTriggeredAt?: string;
+  lastNotifiedAt?: string;
+  acknowledgedAt?: string;
+  recoveredAt?: string;
+  closedAt?: string;
+  acknowledgedBy?: EntityId;
+  closedBy?: EntityId;
+  recentEvents?: AlertEventView[];
+  recentDeliveries?: AlertDeliveryView[];
+}
+
+export interface AlertIncidentQueryRequest {
+  keyword?: string;
+  status?: string;
+  severity?: string;
+  ruleType?: string;
+  subjectType?: string;
+  activeOnly?: boolean;
+  startTime?: string;
+  endTime?: string;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface AlertChannelView extends BaseRecord {
+  name: string;
+  channelType?: string;
+  endpointMasked?: string;
+  headerNames?: string[];
+  hasSigningSecret?: boolean;
+  enabled?: boolean;
+  lastTestedAt?: string;
+  lastTestStatus?: string;
+  lastTestMessage?: string;
+}
+
+export interface AlertChannelQueryRequest {
+  keyword?: string;
+  enabled?: boolean;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface AlertChannelSaveRequest {
+  id?: EntityId;
+  name: string;
+  endpointUrl?: string;
+  headers?: Record<string, string>;
+  signingSecret?: string;
+  clearSigningSecret?: boolean;
+  enabled?: boolean;
+}
+
+export interface AlertDeliveryQueryRequest {
+  incidentId?: EntityId;
+  eventId?: EntityId;
+  channelId?: EntityId;
+  channelType?: string;
+  status?: string;
+  failedOnly?: boolean;
+  startTime?: string;
+  endTime?: string;
+  pageNo?: number;
+  pageSize?: number;
+}
+
+export interface AlertSummaryView {
+  enabledRuleCount: number;
+  openIncidentCount: number;
+  acknowledgedIncidentCount: number;
+  criticalIncidentCount: number;
+  failedDeliveryCount: number;
+}
+
+export interface AlertTenantProjectSummaryView {
+  projectId?: EntityId;
+  projectName?: string;
+  enabledRuleCount?: number;
+  openIncidentCount?: number;
+  criticalIncidentCount?: number;
+  failedDeliveryCount?: number;
+}
+
 export interface NotificationView {
   id?: EntityId;
   category?: string;

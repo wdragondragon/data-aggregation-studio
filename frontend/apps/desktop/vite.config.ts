@@ -6,10 +6,13 @@ export default defineConfig({
   base: "./",
   plugins: [vue()],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      '@web': path.resolve(__dirname, '../web/src')
-    }
+    alias: [
+      { find: '@/api/studio', replacement: path.resolve(__dirname, './src/api/studio.ts') },
+      { find: '@/stores/auth', replacement: path.resolve(__dirname, './src/stores/auth.ts') },
+      { find: '@desktop', replacement: path.resolve(__dirname, './src') },
+      { find: '@web', replacement: path.resolve(__dirname, '../web/src') },
+      { find: '@', replacement: path.resolve(__dirname, '../web/src') }
+    ]
   },
   server: {
     host: "localhost",

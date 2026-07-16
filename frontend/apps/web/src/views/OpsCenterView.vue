@@ -6,6 +6,7 @@
         <p>{{ t("web.opsCenter.description") }}</p>
       </div>
       <div class="ops-header__actions">
+        <el-button :icon="Bell" @click="router.push('/alerts')">{{ t("web.alerts.openCenter") }}</el-button>
         <span v-if="lastUpdatedAt" class="ops-updated">{{ t("web.opsCenter.lastUpdated", { time: lastUpdatedAt }) }}</span>
         <el-switch v-model="autoRefresh" :active-text="t('web.opsCenter.autoRefresh')" />
         <el-button type="primary" :loading="isLoading" @click="loadAll">{{ t("common.refresh") }}</el-button>
@@ -72,7 +73,7 @@
     </div>
 
     <div class="ops-grid two-columns">
-      <SectionCard v-loading="sectionLoading.queue" :title="t('web.opsCenter.queueTitle')" :description="t('web.opsCenter.queueDescription')">
+      <SectionCard id="ops-section-queue" v-loading="sectionLoading.queue" :title="t('web.opsCenter.queueTitle')" :description="t('web.opsCenter.queueDescription')">
         <template #actions>
           <el-button link type="primary" @click="router.push('/runs')">{{ t("web.opsCenter.openRuns") }}</el-button>
         </template>
@@ -102,7 +103,7 @@
         </el-table>
       </SectionCard>
 
-      <SectionCard v-loading="sectionLoading.workers" :title="t('web.opsCenter.workersTitle')" :description="t('web.opsCenter.workersDescription')">
+      <SectionCard id="ops-section-workers" v-loading="sectionLoading.workers" :title="t('web.opsCenter.workersTitle')" :description="t('web.opsCenter.workersDescription')">
         <template #actions>
           <el-button link type="primary" @click="router.push('/system?tab=workers')">{{ t("web.opsCenter.openWorkers") }}</el-button>
         </template>
@@ -210,7 +211,7 @@
       </SectionCard>
     </div>
 
-    <SectionCard v-loading="sectionLoading.logEvents" :title="t('web.opsCenter.logTitle')" :description="t('web.opsCenter.logDescription')">
+    <SectionCard id="ops-section-logs" v-loading="sectionLoading.logEvents" :title="t('web.opsCenter.logTitle')" :description="t('web.opsCenter.logDescription')">
       <el-table :data="logEvents" size="small" border empty-text="暂无数据">
         <el-table-column prop="executionType" :label="t('web.opsCenter.executionType')" min-width="140">
           <template #default="{ row }">{{ formatExecutionType(row.executionType) }}</template>
@@ -233,7 +234,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { Bell } from "@element-plus/icons-vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { MetricCard, SectionCard } from "@studio/ui";
@@ -250,10 +252,11 @@ import type {
 } from "@studio/api-sdk";
 import { studioApi } from "@/api/studio";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
 const { t } = useI18n();
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const PAGE_SIZE = 8;
@@ -306,10 +309,22 @@ const isLoading = computed(() => Object.values(sectionLoading).some(Boolean));
 let refreshTimer: number | null = null;
 let loadRequestId = 0;
 
+async function focusRequestedSection() {
+  const rawSection = Array.isArray(route.query.section) ? route.query.section[0] : route.query.section;
+  const section = String(rawSection || "");
+  const targetId = section === "queue" ? "ops-section-queue"
+    : section === "workers" ? "ops-section-workers"
+      : section === "logs" ? "ops-section-logs" : "";
+  if (!targetId) return;
+  await nextTick();
+  document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 onMounted(async () => {
   applyTimePreset("24h");
   await loadOptions();
   await loadAll();
+  await focusRequestedSection();
   resetAutoRefresh();
 });
 
@@ -319,6 +334,10 @@ onBeforeUnmount(() => {
 
 watch(autoRefresh, () => {
   resetAutoRefresh();
+});
+
+watch(() => route.query.section, () => {
+  void focusRequestedSection();
 });
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
@@ -700,6 +719,12 @@ function formatDateTime(value: Date) {
 <style scoped>
 .ops-center-page {
   gap: 16px;
+}
+
+#ops-section-queue,
+#ops-section-workers,
+#ops-section-logs {
+  scroll-margin-top: 16px;
 }
 
 .ops-header,

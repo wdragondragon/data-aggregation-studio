@@ -4,7 +4,16 @@
     "composite": true,
     "baseUrl": ".",
     "paths": {
+      "@/api/studio": [
+        "src/api/studio.ts"
+      ],
+      "@/stores/auth": [
+        "src/stores/auth.ts"
+      ],
       "@/*": [
+        "../web/src/*"
+      ],
+      "@desktop/*": [
         "src/*"
       ],
       "@web/*": [
@@ -23,6 +32,7 @@
     "../web/src/components/**/*.vue",
     "../web/src/components/**/*.ts",
     "../web/src/composables/**/*.ts",
+    "../web/src/constants/**/*.ts",
     "../web/src/stores/**/*.ts",
     "../web/src/utils/**/*.ts",
     "../web/src/api/**/*.ts",

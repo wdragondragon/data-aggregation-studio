@@ -220,10 +220,13 @@ const { pagination, resetPage, setPage, setPageSize, ensureValidPage } = usePage
 
 function syncFiltersFromRoute() {
   const collectionTaskId = route.query.collectionTaskId;
+  const runRecordId = route.query.runRecordId;
   const status = route.query.status;
   const startTime = route.query.startTime;
   const endTime = route.query.endTime;
   filters.value.collectionTaskId = Array.isArray(collectionTaskId) ? collectionTaskId[0] || "" : String(collectionTaskId || "");
+  const runRecordValue = Array.isArray(runRecordId) ? runRecordId[0] : runRecordId;
+  activeRunRecordId.value = runRecordValue == null || runRecordValue === "" ? undefined : String(runRecordValue);
   filters.value.status = Array.isArray(status) ? status[0] || "" : String(status || "");
   const startValue = Array.isArray(startTime) ? startTime[0] || "" : String(startTime || "");
   const endValue = Array.isArray(endTime) ? endTime[0] || "" : String(endTime || "");
@@ -350,6 +353,11 @@ watch(activeRunRecordId, (value) => {
 watch(logDrawerVisible, (value) => {
   if (!value) {
     activeRunRecordId.value = undefined;
+    if (route.query.runRecordId != null) {
+      const query = { ...route.query };
+      delete query.runRecordId;
+      void router.replace({ query });
+    }
   }
 });
 

@@ -22,7 +22,7 @@ import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import { SectionCard } from "@studio/ui";
-import { desktopApi } from "@/api/studio";
+import { desktopApi } from "@desktop/api/studio";
 
 const { t } = useI18n();
 const bundle = ref<unknown>({});
