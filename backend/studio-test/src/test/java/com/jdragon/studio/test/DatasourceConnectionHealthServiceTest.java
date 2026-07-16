@@ -77,16 +77,21 @@ class DatasourceConnectionHealthServiceTest {
         verify(healthMapper, atLeast(2)).update(isNull(), captor.capture());
         String timeoutUpdate = captor.getAllValues().stream()
                 .map(LambdaUpdateWrapper::getSqlSet)
-                .filter(sqlSet -> sqlSet != null && sqlSet.contains("connectionStatus"))
+                .map(DatasourceConnectionHealthServiceTest::normalizeSqlSet)
+                .filter(sqlSet -> sqlSet.contains("connectionstatus"))
                 .findFirst()
                 .orElse("");
         assertThat(timeoutUpdate)
-                .contains("connectionStatus", "lastConnectionTestAt", "probeLeaseUntil")
-                .doesNotContain("probeState", "probeRunId", "probeStartedAt");
+                .contains("connectionstatus", "lastconnectiontestat", "probeleaseuntil")
+                .doesNotContain("probestate", "proberunid", "probestartedat");
 
         releaseTask.countDown();
         manualExecutor.shutdown();
         scheduledExecutor.shutdown();
+    }
+
+    private static String normalizeSqlSet(String sqlSet) {
+        return sqlSet == null ? "" : sqlSet.replace("_", "").toLowerCase(java.util.Locale.ROOT);
     }
 
     @Test

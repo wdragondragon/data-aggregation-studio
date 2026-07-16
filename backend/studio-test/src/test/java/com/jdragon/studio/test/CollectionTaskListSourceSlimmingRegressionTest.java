@@ -27,6 +27,8 @@ import com.jdragon.studio.infra.service.DataModelLineageService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
+import com.jdragon.studio.infra.service.EncryptionService;
+import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -265,6 +267,11 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mock(DataSourceService.class),
+                mock(DataModelService.class),
+                mock(EncryptionService.class),
+                mock(PluginRuntimeOptionSchemaService.class));
         return new CollectionTaskService(
                 definitionMapper,
                 metricBindingMapper,
@@ -273,7 +280,7 @@ class CollectionTaskListSourceSlimmingRegressionTest {
                 mock(RunRecordMapper.class),
                 mock(DataSourceService.class),
                 mock(DataModelService.class),
-                mock(CollectionTaskAssemblerService.class),
+                assemblerService,
                 new ObjectMapper(),
                 securityService,
                 accessService,

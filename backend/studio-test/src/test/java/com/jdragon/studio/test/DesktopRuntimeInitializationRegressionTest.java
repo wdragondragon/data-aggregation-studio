@@ -16,9 +16,11 @@ class DesktopRuntimeInitializationRegressionTest extends StudioApiRegressionTest
     void initializeResetShouldBootstrapDefaultProjectWorkerBindingInDesktopMode() {
         boolean originalDesktopRuntime = studioPlatformProperties.isDesktopRuntime();
         String originalWorkerCode = studioPlatformProperties.getWorkerCode();
+        String originalWorkerGroupCode = studioPlatformProperties.getWorkerGroupCode();
         try {
             studioPlatformProperties.setDesktopRuntime(true);
             studioPlatformProperties.setWorkerCode("studio-desktop-worker");
+            studioPlatformProperties.setWorkerGroupCode("studio-desktop-worker");
             studioInitializationService.initialize(true);
 
             Long projectId = jdbcTemplate.queryForObject(
@@ -36,6 +38,7 @@ class DesktopRuntimeInitializationRegressionTest extends StudioApiRegressionTest
         } finally {
             studioPlatformProperties.setDesktopRuntime(originalDesktopRuntime);
             studioPlatformProperties.setWorkerCode(originalWorkerCode);
+            studioPlatformProperties.setWorkerGroupCode(originalWorkerGroupCode);
         }
     }
 }

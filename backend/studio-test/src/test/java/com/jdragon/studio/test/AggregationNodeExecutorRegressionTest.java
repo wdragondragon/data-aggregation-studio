@@ -11,6 +11,9 @@ import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.worker.runtime.AggregationNodeExecutor;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -86,6 +89,8 @@ class AggregationNodeExecutorRegressionTest {
 
     private static class StubJobContainer extends JobContainer {
 
+        private static final Path CORE_CONFIG = createCoreConfig();
+
         private final JobPointReporter reporter;
 
         private StubJobContainer(State state, Throwable throwable) {
@@ -108,12 +113,26 @@ class AggregationNodeExecutorRegressionTest {
         }
 
         private static Configuration prepareConfiguration() {
-            String aggregationHome = "C:\\dev\\ideaProject\\DataAggregation\\package_all\\aggregation";
+            String aggregationHome = CORE_CONFIG.getParent().getParent().toString();
             System.setProperty("aggregation.home", aggregationHome);
             SystemConstants.HOME = aggregationHome;
-            SystemConstants.PLUGIN_HOME = aggregationHome + "\\plugin";
-            SystemConstants.CORE_CONFIG = aggregationHome + "\\conf\\core.json";
+            SystemConstants.PLUGIN_HOME = CORE_CONFIG.getParent().getParent().resolve("plugin").toString();
+            SystemConstants.CORE_CONFIG = CORE_CONFIG.toString();
             return Configuration.newDefault();
+        }
+
+        private static Path createCoreConfig() {
+            try {
+                Path aggregationHome = Files.createTempDirectory("studio-aggregation-node-executor-");
+                Path config = Files.createDirectories(aggregationHome.resolve("conf")).resolve("core.json");
+                Files.writeString(config, "{}");
+                config.toFile().deleteOnExit();
+                config.getParent().toFile().deleteOnExit();
+                aggregationHome.toFile().deleteOnExit();
+                return config;
+            } catch (IOException ex) {
+                throw new IllegalStateException("Failed to prepare aggregation core configuration", ex);
+            }
         }
     }
 }

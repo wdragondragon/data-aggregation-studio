@@ -45,7 +45,7 @@ class DataDevelopmentNodeExecutorRegressionTest {
         executionResult.setLogs("script started\nscript finished");
         executionResult.getResultJson().put("rows", 12);
 
-        when(service.executeScript(eq(101L), eq(null), any(Map.class), any(Map.class))).thenReturn(executionResult);
+        when(service.executeScript(eq(101L), eq(null), any(Map.class), any(Map.class), any(Map.class))).thenReturn(executionResult);
 
         Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
         runtimeContext.put("workflowRunId", 9001L);
@@ -54,7 +54,7 @@ class DataDevelopmentNodeExecutorRegressionTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> argumentsCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(service).executeScript(eq(101L), eq(null), argumentsCaptor.capture(), eq(runtimeContext));
+        verify(service).executeScript(eq(101L), eq(null), argumentsCaptor.capture(), eq(runtimeContext), any(Map.class));
         assertThat(argumentsCaptor.getValue()).containsEntry("batchSize", 100).containsEntry("source", "workflow");
 
         assertThat(result).containsEntry("scriptId", 101L);
@@ -89,7 +89,7 @@ class DataDevelopmentNodeExecutorRegressionTest {
         executionResult.setLogs("python started\npython finished");
         executionResult.getResultJson().put("rows", 5);
 
-        when(service.executeScript(eq(202L), eq(null), any(Map.class), any(Map.class))).thenReturn(executionResult);
+        when(service.executeScript(eq(202L), eq(null), any(Map.class), any(Map.class), any(Map.class))).thenReturn(executionResult);
 
         Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
         runtimeContext.put("workflowRunId", 9002L);
@@ -98,7 +98,7 @@ class DataDevelopmentNodeExecutorRegressionTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> argumentsCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(service).executeScript(eq(202L), eq(null), argumentsCaptor.capture(), eq(runtimeContext));
+        verify(service).executeScript(eq(202L), eq(null), argumentsCaptor.capture(), eq(runtimeContext), any(Map.class));
         assertThat(argumentsCaptor.getValue()).containsEntry("batchSize", 64).containsEntry("mode", "adhoc");
 
         assertThat(result).containsEntry("scriptId", 202L);
