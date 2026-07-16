@@ -112,6 +112,7 @@ Data Aggregation Studio 的目标定位是：
 | 状态 | 含义 |
 | --- | --- |
 | 已完成 | 首版已实现并完成构建、测试或页面验证。 |
+| 实现中（待最终验证） | 已进入实现，但尚未完成全部回归、联调和验收，不能按已完成对外承诺。 |
 | 部分完成 | 已有基础能力，但关键闭环未完成。 |
 | 未开始 | 尚未形成可验收功能。 |
 
@@ -121,7 +122,7 @@ Data Aggregation Studio 的目标定位是：
 
 | 顺序 | 编号 | 规划项 | 当前状态 | 首版核心交付 | 实施复杂度 |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | P0-01 | 统一告警规则中心 | 已完成 | 告警规则、事件、站内信/Webhook、去重和静默。 | 中 |
+| 1 | P0-01 | 统一告警规则中心 | 已完成（含同 Nacos eLink 增量） | 告警规则、事件、站内信/Webhook、去重和静默；最小 eLink 通道增量。 | 中 |
 | 2 | P0-02 | 配置版本、发布与回滚 | 未开始 | 配置快照、版本差异、发布检查、历史版本和回滚。 | 高 |
 | 3 | P0-03 | 审计、细粒度权限与凭据安全 | 部分完成 | 统一审计、资源级授权、敏感日志权限、凭据托管接口。 | 高 |
 | 4 | P0-04 | 首屏性能、状态可信度与数据环境治理 | 部分完成 | 加载态治理、慢查询优化、远程分页、测试数据隔离。 | 中 |
@@ -147,7 +148,7 @@ Data Aggregation Studio 的目标定位是：
 
 - 告警对象：采集任务、质量任务、工作流、数据服务、数据接入服务、协议转换服务、Worker 组、调度队列和日志存储。
 - 告警条件：执行失败、连续失败、运行超时、服务失败率、接入写入失败、Worker 离线、队列积压、调度延迟和日志上传失败。
-- 通知通道：站内信和通用 Webhook。邮件、企业微信、钉钉作为后续通道扩展。
+- 通知通道：首版为站内信和通用 Webhook；同 Nacos eLink 通道作为后续最小增量。邮件、企业微信、钉钉仍属于其他后续扩展。
 - 告警治理：去重、静默时间、恢复通知、最近触发记录和手动关闭。
 - 权限范围：规则按项目隔离，租户管理员可查看租户内规则摘要。
 
@@ -177,7 +178,31 @@ Data Aggregation Studio 的目标定位是：
 - Webhook 响应摘要会脱敏完整地址、短路径、查询参数、自定义 Header、动态签名和签名密钥；证据中的 API Key、Access Key、Private Key 和 Credential 等敏感键也统一脱敏。
 - 已使用最新后端完成真实登录与 HTTP 闭环，验证九类规则元数据、规则创建/启停/测试、站内信投递、租户摘要、固定协议、HMAC 签名、`500` 后人工重试成功、`429` 退避、`400` 终止、超时重试和安全默认配置拒绝本地 HTTP。
 - 已完成 1440×900、390×844 浏览器页面检查，验证规则创建/测试/启停/删除、Webhook 表单、汇总钻取和移动端无横向溢出；控制台无新增错误。
-- P0-01 首版状态更新为“已完成”。现有前端 chunk 体积和 Desktop circular chunk 构建警告不影响功能验收，后续并入 P0-04 性能与工程治理处理。
+- P0-01 站内信/Webhook 首版状态更新为“已完成”。现有前端 chunk 体积和 Desktop circular chunk 构建警告不影响功能验收，后续并入 P0-04 性能与工程治理处理；下述 eLink 增量于 2026-07-17 独立完成验收。
+
+#### 后续增量：同 Nacos eLink 通道（已完成，2026-07-17）
+
+建设目标：告警产生投递时，Studio 通过同一 Nacos 集群发现现有 eLink Manager，并向配置的个人 eLink 账号或本地群组发送固定文本消息。该增量保持 eLink Manager 生产发送程序不变。
+
+最小范围：
+
+- 服务发现：复用 Studio 当前 Nacos `namespace/group`，服务名由服务端统一配置，默认 `elink-message-integration`。
+- Manager 接口：个人账号调用 `POST /elink/messages`；群组调用 `POST /elink/groups/{groupId}/messages`。
+- 通道配置：只保存个人 eLink 账号列表或一个本地群组 ID；数据库仅为 `studio_alert_channel` 增加 `config_json`。
+- 消息格式：固定 `text`，由告警级别、规则、对象、摘要和时间自动组装；覆盖触发、静默期后重复、重开、规则配置的恢复通知和测试事件。
+- 状态判定：兼容官方 `errcode=0, errmsg=ok` 和现有 Manager `success` 字段；投递记录保留 `errmsg/errorMessage` 用于排查。
+- 可靠性：网络异常和无可用实例进入 outbox 重试。Manager 没有幂等发送接口，采用至少一次投递语义，响应超时窗口可能出现重复消息。
+- 验收环境：真实 eLink 当前不可达不阻塞验收；在 eLink 工程中增加不连接数据库、不注册 Nacos 的 `elink-mock-server-boot`，模拟 Manager 使用的 `/cgi-bin/*` 上游接口和响应。
+
+明确不包含：SLB 地址、固定 URL、自定义 Header、手机号、自定义模板、`markdown`、`textcard`、幂等 generation，以及 eLink Manager 生产代码改造。
+
+完成记录：
+
+1. 已在相同 Nacos `namespace/group` 下完成 `Studio -> eLink Manager -> eLink mock` 真实联调，Manager 保持现有生产代码不变。
+2. 个人账号成功响应和群组成功响应均映射为 `SUCCEEDED`；`success=false, errcode=40003` 映射为 `DEAD`，并保真展示 Manager 的 `errmsg/errorMessage`。
+3. Studio 到 Manager 的无实例、网络异常，以及 408、429 和 5xx 的 outbox 重试由专项测试覆盖；文档已明确至少一次投递和超时后可能重复发送的边界。
+4. 已执行 MySQL schema 升级并验证 `config_json`；MySQL/SQLite schema、2026-07-16 幂等增量 SQL、Web/Desktop 构建和告警专项测试通过。
+5. 已在中文模式下完成 1440×900 与 390×844 页面检查；eLink 表单仅展示个人账号或群组 ID，不包含 SLB、Header、模板和其他已取消能力，移动端无页面级横向溢出。
 
 ### 6.2 P0-02 配置版本、发布与回滚
 
