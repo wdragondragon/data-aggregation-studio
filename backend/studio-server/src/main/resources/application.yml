@@ -132,6 +132,22 @@ studio:
     object-prefix: ${STUDIO_INVOCATION_LOG_OBJECT_PREFIX:studio/invocation-logs}
     max-log-chars: ${STUDIO_INVOCATION_LOG_MAX_LOG_CHARS:1048576}
     max-body-chars: ${STUDIO_INVOCATION_LOG_MAX_BODY_CHARS:65536}
+  alert:
+    enabled: ${STUDIO_ALERT_ENABLED:true}
+    evaluation-enabled: ${STUDIO_ALERT_EVALUATION_ENABLED:true}
+    delivery-enabled: ${STUDIO_ALERT_DELIVERY_ENABLED:true}
+    evaluation-delay-millis: ${STUDIO_ALERT_EVALUATION_DELAY_MILLIS:30000}
+    delivery-delay-millis: ${STUDIO_ALERT_DELIVERY_DELAY_MILLIS:5000}
+    batch-size: ${STUDIO_ALERT_BATCH_SIZE:100}
+    event-retention-days: ${STUDIO_ALERT_EVENT_RETENTION_DAYS:180}
+    delivery-retention-days: ${STUDIO_ALERT_DELIVERY_RETENTION_DAYS:30}
+    webhook:
+      enabled: ${STUDIO_ALERT_WEBHOOK_ENABLED:true}
+      allow-http: ${STUDIO_ALERT_WEBHOOK_ALLOW_HTTP:false}
+      allowed-hosts: ${STUDIO_ALERT_WEBHOOK_ALLOWED_HOSTS:}
+      connect-timeout-seconds: ${STUDIO_ALERT_WEBHOOK_CONNECT_TIMEOUT_SECONDS:3}
+      request-timeout-seconds: ${STUDIO_ALERT_WEBHOOK_REQUEST_TIMEOUT_SECONDS:5}
+      max-response-bytes: ${STUDIO_ALERT_WEBHOOK_MAX_RESPONSE_BYTES:16384}
   flink:
     client:
       service-name: ${STUDIO_FLINK_SERVICE_NAME:studio-flink}

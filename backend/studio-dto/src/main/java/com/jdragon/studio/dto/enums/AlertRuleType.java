@@ -1,0 +1,13 @@
+package com.jdragon.studio.dto.enums;
+
+public enum AlertRuleType {
+    EXECUTION_FAILED,
+    CONSECUTIVE_FAILURES,
+    RUN_TIMEOUT,
+    SERVICE_FAILURE_RATE,
+    INVOCATION_WRITE_FAILED,
+    WORKER_OFFLINE,
+    QUEUE_BACKLOG,
+    SCHEDULE_DELAY,
+    LOG_UPLOAD_FAILED
+}

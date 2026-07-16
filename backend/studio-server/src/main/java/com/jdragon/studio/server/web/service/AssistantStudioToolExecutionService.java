@@ -8,6 +8,11 @@ import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowScheduleDefinition;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
+import com.jdragon.studio.dto.model.request.AlertChannelQueryRequest;
+import com.jdragon.studio.dto.model.request.AlertDeliveryQueryRequest;
+import com.jdragon.studio.dto.model.request.AlertIncidentActionRequest;
+import com.jdragon.studio.dto.model.request.AlertIncidentQueryRequest;
+import com.jdragon.studio.dto.model.request.AlertRuleQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsChartRequest;
 import com.jdragon.studio.dto.model.request.DataModelStatisticsOptionsRequest;
@@ -52,6 +57,10 @@ import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.TenantEntity;
 import com.jdragon.studio.infra.entity.TenantMemberEntity;
 import com.jdragon.studio.infra.service.AssistantStudioOperationRegistry;
+import com.jdragon.studio.infra.service.AlertChannelService;
+import com.jdragon.studio.infra.service.AlertDeliveryService;
+import com.jdragon.studio.infra.service.AlertIncidentService;
+import com.jdragon.studio.infra.service.AlertRuleService;
 import com.jdragon.studio.infra.service.AssistantScriptSkillExecutionService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DataIngestionService;
@@ -87,6 +96,7 @@ import com.jdragon.studio.infra.service.UserRegistrationRequestService;
 import com.jdragon.studio.infra.service.WorkspaceAccessService;
 import com.jdragon.studio.infra.service.WorkflowService;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -145,6 +155,10 @@ public class AssistantStudioToolExecutionService {
     private final UserRegistrationRequestService userRegistrationRequestService;
     private final NotificationService notificationService;
     private final OpsCenterService opsCenterService;
+    private AlertRuleService alertRuleService;
+    private AlertIncidentService alertIncidentService;
+    private AlertChannelService alertChannelService;
+    private AlertDeliveryService alertDeliveryService;
 
     public AssistantStudioToolExecutionService(AssistantStudioOperationRegistry operationRegistry,
                                                AssistantScriptSkillExecutionService scriptSkillExecutionService,
@@ -220,6 +234,17 @@ public class AssistantStudioToolExecutionService {
         this.opsCenterService = opsCenterService;
     }
 
+    @Autowired(required = false)
+    void setAlertServices(AlertRuleService alertRuleService,
+                          AlertIncidentService alertIncidentService,
+                          AlertChannelService alertChannelService,
+                          AlertDeliveryService alertDeliveryService) {
+        this.alertRuleService = alertRuleService;
+        this.alertIncidentService = alertIncidentService;
+        this.alertChannelService = alertChannelService;
+        this.alertDeliveryService = alertDeliveryService;
+    }
+
     public Map<String, Object> execute(Map<String, Object> request) {
         String interfaceCode = stringValue(firstValue(request, "interfaceCode", "tool"));
         Map<String, Object> params = objectMap(request == null ? null : request.get("params"));
@@ -246,12 +271,14 @@ public class AssistantStudioToolExecutionService {
             resource = normalizeView(effectiveParams.get("resource"));
             Map<String, Object> actionDefinition = assertActionToolAllowed(path, action, resource);
             validateActionToolDeclaredParameters(path, action, resource, actionDefinition, effectiveParams);
-            validateRequiredValues(path, action, resource, actionDefinition, effectiveParams);
             mutation = booleanValue(actionDefinition.get("mutation"));
             requiresConfirmation = mutation && !confirmed(effectiveParams);
-            data = requiresConfirmation
-                    ? confirmationRequired(path, action, resource, actionDefinition)
-                    : executeAction(path, action, resource, effectiveParams);
+            if (requiresConfirmation) {
+                data = confirmationRequired(path, action, resource, actionDefinition);
+            } else {
+                validateRequiredValues(path, action, resource, actionDefinition, effectiveParams);
+                data = executeAction(path, action, resource, effectiveParams);
+            }
         } else {
             Map<String, Object> readToolDefinition = assertReadToolAllowed(path, interfaceCode);
             validateReadToolRequiredValues(path, interfaceCode, readToolDefinition, effectiveParams);
@@ -447,6 +474,9 @@ public class AssistantStudioToolExecutionService {
         }
         if ("/notifications".equals(path)) {
             return executeNotificationList(view, params);
+        }
+        if ("/alerts".equals(path)) {
+            return executeAlertList(view, params);
         }
         if ("/script-environments".equals(path)) {
             return scriptEnvironmentService.queryPage(pageNo(params), pageSize(params), keyword(params), optionalBooleanParam(params, "enabled"));
@@ -678,6 +708,9 @@ public class AssistantStudioToolExecutionService {
         if ("/notifications".equals(path)) {
             return executeNotificationAction(action, params);
         }
+        if ("/alerts".equals(path)) {
+            return executeAlertAction(action, params);
+        }
         if ("/script-environments".equals(path)) {
             return executeScriptEnvironmentAction(action, params);
         }
@@ -732,6 +765,65 @@ public class AssistantStudioToolExecutionService {
             return null;
         }
         throw new IllegalArgumentException("assistant backend action tool does not support notifications action: " + action);
+    }
+
+    private Object executeAlertList(String view, Map<String, Object> params) {
+        requireAlertServices();
+        if (!StringUtils.hasText(view) || "summary".equals(view)) {
+            return alertIncidentService.summary();
+        }
+        if ("options".equals(view)) {
+            return alertRuleService.options();
+        }
+        if ("rules".equals(view)) {
+            return alertRuleService.query(payloadOrParams(params, AlertRuleQueryRequest.class));
+        }
+        if ("incidents".equals(view)) {
+            return alertIncidentService.query(payloadOrParams(params, AlertIncidentQueryRequest.class));
+        }
+        if ("events".equals(view)) {
+            return alertIncidentService.events(longParam(params, "incidentId", "id"), pageNo(params), pageSize(params));
+        }
+        if ("channels".equals(view)) {
+            return alertChannelService.query(payloadOrParams(params, AlertChannelQueryRequest.class));
+        }
+        if ("deliveries".equals(view)) {
+            return alertDeliveryService.query(payloadOrParams(params, AlertDeliveryQueryRequest.class));
+        }
+        throw new IllegalArgumentException("assistant backend list tool does not support alerts view: " + view);
+    }
+
+    private Object executeAlertAction(String action, Map<String, Object> params) {
+        requireAlertServices();
+        Long id = longParam(params, "id", "ruleId", "incidentId", "channelId", "deliveryId");
+        if ("enableRule".equals(action)) {
+            return alertRuleService.enable(id);
+        }
+        if ("disableRule".equals(action)) {
+            return alertRuleService.disable(id);
+        }
+        if ("testRule".equals(action)) {
+            return alertIncidentService.testRule(id);
+        }
+        if ("acknowledgeIncident".equals(action)) {
+            return alertIncidentService.acknowledge(id, payloadOrParams(params, AlertIncidentActionRequest.class));
+        }
+        if ("closeIncident".equals(action)) {
+            return alertIncidentService.close(id, payloadOrParams(params, AlertIncidentActionRequest.class));
+        }
+        if ("testChannel".equals(action)) {
+            return alertIncidentService.testChannel(id);
+        }
+        if ("retryDelivery".equals(action)) {
+            return alertDeliveryService.retry(id);
+        }
+        throw new IllegalArgumentException("assistant backend action tool does not support alerts action: " + action);
+    }
+
+    private void requireAlertServices() {
+        if (alertRuleService == null || alertIncidentService == null || alertChannelService == null || alertDeliveryService == null) {
+            throw new IllegalStateException("Alert center services are unavailable");
+        }
     }
 
     private Object executeQualityMetricsGet(String view, Map<String, Object> params) {

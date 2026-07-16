@@ -111,6 +111,21 @@ class AssistantStudioOperationRegistryTest {
     }
 
     @Test
+    void alertCenterShouldExposeControlledOperations() {
+        AssistantStudioOperationRegistry registry = new AssistantStudioOperationRegistry();
+
+        Map<String, Object> alerts = registry.allOperations().stream()
+                .filter(item -> "/alerts".equals(item.get("path")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) alerts.get("featureActions");
+        assertTrue(actions.stream().anyMatch(item -> "acknowledgeIncident".equals(item.get("action"))));
+        assertTrue(actions.stream().anyMatch(item -> "retryDelivery".equals(item.get("action"))));
+        assertTrue(actions.stream().allMatch(item -> Boolean.TRUE.equals(item.get("mutation"))));
+    }
+
+    @Test
     void readToolsShouldDescribeStatisticsViews() {
         AssistantStudioOperationRegistry registry = new AssistantStudioOperationRegistry();
 

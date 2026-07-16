@@ -150,7 +150,8 @@ class AssistantHttpIntegrationTest extends StudioHttpIntegrationTestSupport {
                         "/notifications",
                         "/system",
                         "/script-environments",
-                        "/ops-center");
+                        "/ops-center",
+                        "/alerts");
     }
 
     @Test

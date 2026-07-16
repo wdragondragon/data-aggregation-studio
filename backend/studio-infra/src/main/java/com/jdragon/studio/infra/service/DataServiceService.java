@@ -45,6 +45,7 @@ import com.jdragon.studio.infra.mapper.DataServiceResponseParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -108,6 +109,11 @@ public class DataServiceService {
         this.invocationLogSupport = new OpenServiceInvocationLogSupport();
         this.dataServiceParamSupport = new DataServiceParamSupport(requestParamMapper, responseParamMapper, publishParamMapper, dataServiceInvocationSupport, transformerSupport);
         this.dataServiceAccessLogSupport = new DataServiceAccessLogSupport(accessLogMapper, accessCounterMapper, dataServiceInvocationSupport);
+    }
+
+    @Autowired(required = false)
+    void setAlertSignalPublisher(AlertSignalPublisher alertSignalPublisher) {
+        this.dataServiceAccessLogSupport.setAlertSignalPublisher(alertSignalPublisher);
     }
 
     public PageView<DataServiceListView> list(Integer pageNo,

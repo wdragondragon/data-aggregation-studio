@@ -41,6 +41,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionSubscriptionMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -111,6 +112,11 @@ public class DataIngestionService {
         this.fieldSupport = new DataIngestionFieldSupport(sqlExecutor);
         this.invocationLogSupport = new OpenServiceInvocationLogSupport();
         this.invocationLogService = invocationLogService;
+    }
+
+    @Autowired(required = false)
+    void setAlertSignalPublisher(AlertSignalPublisher alertSignalPublisher) {
+        this.accessLogSupport.setAlertSignalPublisher(alertSignalPublisher);
     }
 
     public PageView<DataIngestionServiceListView> list(Integer pageNo,

@@ -264,6 +264,10 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
                 "Read operation center overview, queues, workers, service events, log events, and incidents.",
                 true, false, "Read-only ops inspection.",
                 "ops", "worker", "queue", "incident", "运维", "运行中心"));
+        result.add(operation("Alert center", "studio.alerts.manage", "Operations", "/alerts",
+                "Read alert summaries, rules, incidents, channels, and delivery records; operate existing alert objects.",
+                true, false, "Enable, disable, test, acknowledge, close, and retry actions require explicit confirmation.",
+                "alert", "incident", "webhook", "告警", "告警中心"));
         return result;
     }
 
@@ -421,6 +425,9 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         if ("/notifications".equals(path)) {
             return "Read notifications, notification snapshot, or unread count.";
         }
+        if ("/alerts".equals(path)) {
+            return "Read alert summary, rules, incidents, channels, or delivery records.";
+        }
         if ("/system".equals(path)) {
             return "Page system users, registration requests, tenants, projects, members, worker bindings, or resource shares.";
         }
@@ -525,6 +532,9 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         }
         if ("/notifications".equals(path)) {
             return list("view", "unreadOnly", "pageNo", "pageSize");
+        }
+        if ("/alerts".equals(path)) {
+            return list("view", "keyword", "status", "severity", "ruleType", "subjectType", "enabled", "incidentId", "eventId", "channelId", "pageNo", "pageSize");
         }
         if ("/system".equals(path)) {
             return list("resource", "view", "tab", "projectId", "resourceType", "pageNo", "pageSize");
@@ -658,6 +668,14 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         } else if ("/notifications".equals(path)) {
             result.add(action(path, "markRead", null, "标记通知为已读。", true, list("id"), emptyList(), list("read")));
             result.add(action(path, "markAllRead", null, "标记全部通知为已读。", true, emptyList(), emptyList(), list("readAll")));
+        } else if ("/alerts".equals(path)) {
+            result.add(action(path, "enableRule", "rules", "启用告警规则。", true, list("id"), emptyList(), list("enable")));
+            result.add(action(path, "disableRule", "rules", "停用告警规则。", true, list("id"), emptyList(), list("disable")));
+            result.add(action(path, "testRule", "rules", "测试告警规则通知。", true, list("id"), emptyList(), list("test")));
+            result.add(action(path, "acknowledgeIncident", "incidents", "确认告警事件。", true, list("id"), list("comment"), list("acknowledge")));
+            result.add(action(path, "closeIncident", "incidents", "关闭告警事件。", true, list("id"), list("comment"), list("close")));
+            result.add(action(path, "testChannel", "channels", "测试 Webhook 通道。", true, list("id"), emptyList(), list("testWebhook")));
+            result.add(action(path, "retryDelivery", "deliveries", "重试失败的告警投递。", true, list("id"), emptyList(), list("retry")));
         } else if ("/system".equals(path)) {
             addSystemActions(result, path);
         } else if (isServicePath(path)) {

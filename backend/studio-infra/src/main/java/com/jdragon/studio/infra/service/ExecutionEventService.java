@@ -12,9 +12,15 @@ import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
+import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
+import com.jdragon.studio.infra.model.AlertSignal;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -37,6 +43,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private final QualityIssueService qualityIssueService;
     private final CollectionTaskIncrementalStateService collectionTaskIncrementalStateService;
     private final StaleExecutionRecoveryService staleExecutionRecoveryService;
+    private AlertSignalPublisher alertSignalPublisher;
+    private QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
 
     public ExecutionEventService(RunRecordMapper runRecordMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
@@ -118,6 +126,15 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         qualityIssueService.handleExecutionEvent(event, entity);
         maybeNotifyCollectionTaskRun(entity, event);
         maybeNotifyWorkflowRun(entity, event);
+        maybePublishTaskAlertSignal(entity, event);
+        maybePublishRunLogAlertSignal(entity, event);
+    }
+
+    @Autowired(required = false)
+    void setAlertSignalSupport(AlertSignalPublisher alertSignalPublisher,
+                               QualityTaskDefinitionMapper qualityTaskDefinitionMapper) {
+        this.alertSignalPublisher = alertSignalPublisher;
+        this.qualityTaskDefinitionMapper = qualityTaskDefinitionMapper;
     }
 
     private void maybeUpdateCollectionIncrementalState(RunRecordEntity entity, ExecutionEvent event) {
@@ -153,7 +170,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                 || !isTerminalStatus(entity.getStatus())) {
             return;
         }
-        CollectionTaskDefinitionEntity task = collectionTaskDefinitionMapper.selectById(entity.getCollectionTaskId());
+        CollectionTaskDefinitionEntity task = findCollectionTask(entity);
         if (task == null) {
             return;
         }
@@ -199,12 +216,14 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                 .eq(RunRecordEntity::getTenantId, entity.getTenantId())
                 .eq(RunRecordEntity::getProjectId, entity.getProjectId())
                 .eq(RunRecordEntity::getWorkflowRunId, entity.getWorkflowRunId())
-                .eq(RunRecordEntity::getStatus, "FAILED"));
+                .in(RunRecordEntity::getStatus, "FAILED", "ERROR"));
         String finalStatus = failedRunCount != null && failedRunCount.longValue() > 0L ? "FAILED" : "SUCCESS";
-        WorkflowDefinitionEntity workflow = workflowDefinitionMapper.selectById(entity.getWorkflowDefinitionId());
+        WorkflowDefinitionEntity workflow = findWorkflow(entity);
         if (workflow == null) {
             return;
         }
+        publishExecutionSignal(entity, AlertSubjectTypeName.WORKFLOW, workflow.getId(), workflow.getName(),
+                workflow.getCreatedBy(), finalStatus, entity.getWorkflowRunId());
         Set<Long> recipientUserIds = new LinkedHashSet<Long>();
         addRecipient(recipientUserIds, workflow.getCreatedBy());
         addRecipient(recipientUserIds, entity.getTriggeredByUserId());
@@ -241,6 +260,123 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                 addRecipient(recipientUserIds, entry.getKey());
             }
         }
+    }
+
+    private void maybePublishTaskAlertSignal(RunRecordEntity entity, ExecutionEvent event) {
+        if (alertSignalPublisher == null || entity == null || event == null || !isTerminalStatus(entity.getStatus())) {
+            return;
+        }
+        if (entity.getCollectionTaskId() != null) {
+            CollectionTaskDefinitionEntity task = findCollectionTask(entity);
+            if (task != null) {
+                publishExecutionSignal(entity, AlertSubjectTypeName.COLLECTION_TASK, task.getId(), task.getName(),
+                        task.getCreatedBy(), entity.getStatus(), entity.getId());
+            }
+        } else if (entity.getQualityTaskId() != null && qualityTaskDefinitionMapper != null) {
+            QualityTaskDefinitionEntity task = findQualityTask(entity);
+            if (task != null) {
+                publishExecutionSignal(entity, AlertSubjectTypeName.QUALITY_TASK, task.getId(), task.getTaskName(),
+                        task.getCreatedBy(), entity.getStatus(), entity.getId());
+            }
+        }
+    }
+
+    private void publishExecutionSignal(RunRecordEntity entity, String subjectType, Long subjectId,
+                                        String subjectName, Long ownerUserId, String status, Long targetRunId) {
+        if (alertSignalPublisher == null) {
+            return;
+        }
+        Map<String, Object> evidence = new LinkedHashMap<String, Object>();
+        evidence.put("runRecordId", entity.getId());
+        evidence.put("targetRunId", targetRunId);
+        evidence.put("status", status);
+        evidence.put("message", entity.getMessage());
+        evidence.put("startedAt", entity.getStartedAt());
+        evidence.put("endedAt", entity.getEndedAt());
+        alertSignalPublisher.publish(new AlertSignal()
+                .setTenantId(entity.getTenantId())
+                .setProjectId(entity.getProjectId())
+                .setSignalType("EXECUTION")
+                .setSubjectType(subjectType)
+                .setSubjectId(subjectId)
+                .setSubjectKey(String.valueOf(subjectId))
+                .setSubjectName(subjectName)
+                .setOwnerUserId(ownerUserId)
+                .setSuccess("SUCCESS".equalsIgnoreCase(status))
+                .setStatus(status)
+                .setSourceId(String.valueOf(entity.getId()))
+                .setSourceEventKey("execution:" + subjectType + ":" + targetRunId + ":" + status)
+                .setTargetPath(AlertIncidentService.targetPath(subjectType, subjectId, targetRunId))
+                .setOccurredAt(entity.getEndedAt() == null ? LocalDateTime.now() : entity.getEndedAt())
+                .setEvidence(evidence));
+    }
+
+    private CollectionTaskDefinitionEntity findCollectionTask(RunRecordEntity entity) {
+        if (entity == null || entity.getCollectionTaskId() == null
+                || !StringUtils.hasText(entity.getTenantId()) || entity.getProjectId() == null) {
+            return null;
+        }
+        return collectionTaskDefinitionMapper.selectOne(new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+                .eq(CollectionTaskDefinitionEntity::getId, entity.getCollectionTaskId())
+                .eq(CollectionTaskDefinitionEntity::getTenantId, entity.getTenantId())
+                .eq(CollectionTaskDefinitionEntity::getProjectId, entity.getProjectId())
+                .last("limit 1"));
+    }
+
+    private QualityTaskDefinitionEntity findQualityTask(RunRecordEntity entity) {
+        if (qualityTaskDefinitionMapper == null || entity == null || entity.getQualityTaskId() == null
+                || !StringUtils.hasText(entity.getTenantId()) || entity.getProjectId() == null) {
+            return null;
+        }
+        return qualityTaskDefinitionMapper.selectOne(new LambdaQueryWrapper<QualityTaskDefinitionEntity>()
+                .eq(QualityTaskDefinitionEntity::getId, entity.getQualityTaskId())
+                .eq(QualityTaskDefinitionEntity::getTenantId, entity.getTenantId())
+                .eq(QualityTaskDefinitionEntity::getProjectId, entity.getProjectId())
+                .last("limit 1"));
+    }
+
+    private WorkflowDefinitionEntity findWorkflow(RunRecordEntity entity) {
+        if (entity == null || entity.getWorkflowDefinitionId() == null
+                || !StringUtils.hasText(entity.getTenantId()) || entity.getProjectId() == null) {
+            return null;
+        }
+        return workflowDefinitionMapper.selectOne(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
+                .eq(WorkflowDefinitionEntity::getId, entity.getWorkflowDefinitionId())
+                .eq(WorkflowDefinitionEntity::getTenantId, entity.getTenantId())
+                .eq(WorkflowDefinitionEntity::getProjectId, entity.getProjectId())
+                .last("limit 1"));
+    }
+
+    private void maybePublishRunLogAlertSignal(RunRecordEntity entity, ExecutionEvent event) {
+        if (alertSignalPublisher == null || entity == null || !StringUtils.hasText(entity.getLogStatus())
+                || (!"UPLOAD_FAILED".equalsIgnoreCase(entity.getLogStatus())
+                && !"AVAILABLE".equalsIgnoreCase(entity.getLogStatus()))) {
+            return;
+        }
+        Map<String, Object> evidence = new LinkedHashMap<String, Object>();
+        evidence.put("runRecordId", entity.getId());
+        evidence.put("logStatus", entity.getLogStatus());
+        evidence.put("logErrorSummary", entity.getLogErrorSummary());
+        alertSignalPublisher.publish(new AlertSignal()
+                .setTenantId(entity.getTenantId())
+                .setProjectId(entity.getProjectId())
+                .setSignalType("LOG_ARCHIVE")
+                .setSubjectType("LOG_STORAGE")
+                .setSubjectKey("RUN_LOG")
+                .setSubjectName("任务运行日志")
+                .setStatus(entity.getLogStatus())
+                .setSuccess("AVAILABLE".equalsIgnoreCase(entity.getLogStatus()))
+                .setSourceId(String.valueOf(entity.getId()))
+                .setSourceEventKey("run-log:" + entity.getId() + ":" + entity.getLogStatus())
+                .setTargetPath(AlertIncidentService.targetPath("LOG_STORAGE", null, null))
+                .setOccurredAt(event.getOccurredAt() == null ? LocalDateTime.now() : event.getOccurredAt())
+                .setEvidence(evidence));
+    }
+
+    private static final class AlertSubjectTypeName {
+        private static final String COLLECTION_TASK = "COLLECTION_TASK";
+        private static final String QUALITY_TASK = "QUALITY_TASK";
+        private static final String WORKFLOW = "WORKFLOW";
     }
 
     private void notifySharedWorkflowFollowers(RunRecordEntity entity,
@@ -319,7 +455,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     }
 
     private boolean isTerminalStatus(String status) {
-        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
+        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status)
+                || "ERROR".equalsIgnoreCase(status);
     }
 
     private String safeName(String value, String fallback) {

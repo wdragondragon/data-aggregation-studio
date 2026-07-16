@@ -678,6 +678,8 @@ public class StudioSchemaUpgradeService {
         ensureIndex("studio_resource_share", "idx_studio_resource_share_project",
                 "alter table studio_resource_share add key idx_studio_resource_share_project (target_project_id)");
 
+        ensureAlertTablesMysql();
+
         backfillProjectIdsMysql();
         backfillWorkerGroupColumnsMysql();
         backfillCollectionTaskTargetSnapshots();
@@ -1203,6 +1205,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at)");
 
+        ensureAlertTablesSqlite();
         backfillProjectIdsSqlite();
         backfillWorkerGroupColumnsSqlite();
         backfillCollectionTaskTargetSnapshots();
@@ -1952,6 +1955,154 @@ public class StudioSchemaUpgradeService {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private void ensureAlertTablesMysql() {
+        if (!tableExists("studio_alert_rule")) {
+            jdbcTemplate.execute("create table studio_alert_rule (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "name varchar(255) not null,active_name varchar(255) generated always as " +
+                    "(case when deleted = 0 then name else null end) stored,description text," +
+                    "rule_type varchar(64) not null,subject_type varchar(64) not null," +
+                    "subject_id bigint,subject_name_snapshot varchar(255),severity varchar(32) not null,enabled int default 0," +
+                    "condition_json json,silence_minutes int default 30,recovery_notification_enabled int default 1," +
+                    "in_app_enabled int default 1,recipient_user_ids_json json,notify_resource_owner int default 0," +
+                    "notify_project_admins int default 1,webhook_channel_ids_json json,activation_at datetime,last_evaluated_at datetime," +
+                    "last_evaluation_status varchar(32),last_evaluation_error varchar(1000),last_triggered_at datetime," +
+                    "created_by bigint,updated_by bigint)");
+        }
+        ensureColumn("studio_alert_rule", "active_name",
+                "alter table studio_alert_rule add column active_name varchar(255) generated always as " +
+                        "(case when deleted = 0 then name else null end) stored");
+        ensureIndex("studio_alert_rule", "uk_alert_rule_active_name",
+                "alter table studio_alert_rule add unique key uk_alert_rule_active_name (tenant_id, project_id, active_name)");
+        ensureIndex("studio_alert_rule", "idx_alert_rule_project_enabled",
+                "alter table studio_alert_rule add key idx_alert_rule_project_enabled (project_id, enabled, rule_type)");
+        ensureIndex("studio_alert_rule", "idx_alert_rule_project_name",
+                "alter table studio_alert_rule add key idx_alert_rule_project_name (project_id, name)");
+
+        if (!tableExists("studio_alert_incident")) {
+            jdbcTemplate.execute("create table studio_alert_incident (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp,rule_id bigint not null," +
+                    "rule_name_snapshot varchar(255),rule_type varchar(64),signature varchar(64) not null,subject_type varchar(64)," +
+                    "subject_key varchar(255),subject_id bigint,subject_name_snapshot varchar(255),target_path varchar(1000),severity varchar(32)," +
+                    "status varchar(32),summary varchar(1000),current_evidence_json json,occurrence_count int default 0," +
+                    "notification_count int default 0,reopen_count int default 0,condition_active int default 0,closed_while_active int default 0," +
+                    "first_triggered_at datetime,last_triggered_at datetime,last_notified_at datetime,acknowledged_at datetime,recovered_at datetime," +
+                    "closed_at datetime,acknowledged_by bigint,closed_by bigint,version int default 0)");
+        }
+        ensureIndex("studio_alert_incident", "uk_alert_incident_signature",
+                "alter table studio_alert_incident add unique key uk_alert_incident_signature (tenant_id, project_id, signature)");
+        ensureIndex("studio_alert_incident", "idx_alert_incident_status",
+                "alter table studio_alert_incident add key idx_alert_incident_status (project_id, status, severity, last_triggered_at)");
+        ensureIndex("studio_alert_incident", "idx_alert_incident_rule",
+                "alter table studio_alert_incident add key idx_alert_incident_rule (rule_id, last_triggered_at)");
+        ensureIndex("studio_alert_incident", "idx_alert_incident_subject",
+                "alter table studio_alert_incident add key idx_alert_incident_subject (project_id, subject_type, subject_id)");
+
+        if (!tableExists("studio_alert_event")) {
+            jdbcTemplate.execute("create table studio_alert_event (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp,incident_id bigint,rule_id bigint," +
+                    "event_type varchar(32) not null,status_from varchar(32),status_to varchar(32),source_type varchar(64),source_id varchar(255)," +
+                    "source_event_key varchar(255) not null,subject_type varchar(64),subject_key varchar(255),subject_id bigint," +
+                    "subject_name_snapshot varchar(255),target_path varchar(1000),severity varchar(32),summary varchar(1000),evidence_json json," +
+                    "actor_user_id bigint,actor_name_snapshot varchar(255),observed_at datetime)");
+        }
+        ensureIndex("studio_alert_event", "uk_alert_event_source",
+                "alter table studio_alert_event add unique key uk_alert_event_source (tenant_id, project_id, source_event_key)");
+        ensureIndex("studio_alert_event", "idx_alert_event_incident",
+                "alter table studio_alert_event add key idx_alert_event_incident (incident_id, observed_at)");
+        ensureIndex("studio_alert_event", "idx_alert_event_rule",
+                "alter table studio_alert_event add key idx_alert_event_rule (rule_id, event_type, observed_at)");
+
+        if (!tableExists("studio_alert_channel")) {
+            jdbcTemplate.execute("create table studio_alert_channel (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp,name varchar(255) not null," +
+                    "active_name varchar(255) generated always as (case when deleted = 0 then name else null end) stored," +
+                    "channel_type varchar(32) not null,endpoint_ciphertext text,headers_ciphertext text,signing_secret_ciphertext text," +
+                    "enabled int default 1,last_tested_at datetime,last_test_status varchar(32),last_test_message varchar(1000),created_by bigint,updated_by bigint)");
+        }
+        ensureColumn("studio_alert_channel", "active_name",
+                "alter table studio_alert_channel add column active_name varchar(255) generated always as " +
+                        "(case when deleted = 0 then name else null end) stored");
+        ensureIndex("studio_alert_channel", "uk_alert_channel_active_name",
+                "alter table studio_alert_channel add unique key uk_alert_channel_active_name (tenant_id, project_id, active_name)");
+        ensureIndex("studio_alert_channel", "idx_alert_channel_project_enabled",
+                "alter table studio_alert_channel add key idx_alert_channel_project_enabled (project_id, enabled)");
+        ensureIndex("studio_alert_channel", "idx_alert_channel_project_name",
+                "alter table studio_alert_channel add key idx_alert_channel_project_name (project_id, name)");
+
+        if (!tableExists("studio_alert_delivery")) {
+            jdbcTemplate.execute("create table studio_alert_delivery (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp,event_id bigint not null," +
+                    "incident_id bigint,delivery_key varchar(255) not null,channel_type varchar(32) not null,channel_id bigint," +
+                    "channel_name_snapshot varchar(255),recipient_user_id bigint,status varchar(32) not null,attempt_count int default 0," +
+                    "next_attempt_at datetime,last_attempt_at datetime,http_status int,response_excerpt varchar(2000),error_message varchar(1000),payload_json json)");
+        }
+        ensureIndex("studio_alert_delivery", "uk_alert_delivery_event_key",
+                "alter table studio_alert_delivery add unique key uk_alert_delivery_event_key (event_id, delivery_key)");
+        ensureIndex("studio_alert_delivery", "idx_alert_delivery_due",
+                "alter table studio_alert_delivery add key idx_alert_delivery_due (status, next_attempt_at)");
+        ensureIndex("studio_alert_delivery", "idx_alert_delivery_channel",
+                "alter table studio_alert_delivery add key idx_alert_delivery_channel (channel_id, created_at)");
+        ensureIndex("studio_alert_delivery", "idx_alert_delivery_incident",
+                "alter table studio_alert_delivery add key idx_alert_delivery_incident (incident_id, created_at)");
+    }
+
+    private void ensureAlertTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists studio_alert_rule (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
+                "name text not null,description text,rule_type text not null,subject_type text not null,subject_id integer,subject_name_snapshot text," +
+                "severity text not null,enabled integer default 0,condition_json text,silence_minutes integer default 30," +
+                "recovery_notification_enabled integer default 1,in_app_enabled integer default 1,recipient_user_ids_json text," +
+                "notify_resource_owner integer default 0,notify_project_admins integer default 1,webhook_channel_ids_json text," +
+                "activation_at text,last_evaluated_at text,last_evaluation_status text,last_evaluation_error text,last_triggered_at text," +
+                "created_by integer,updated_by integer)");
+        jdbcTemplate.execute("create index if not exists idx_alert_rule_project_enabled on studio_alert_rule(project_id, enabled, rule_type)");
+        jdbcTemplate.execute("create index if not exists idx_alert_rule_project_name on studio_alert_rule(project_id, name)");
+        jdbcTemplate.execute("create unique index if not exists uk_alert_rule_active_name on " +
+                "studio_alert_rule(tenant_id, project_id, name collate nocase) where deleted = 0");
+        jdbcTemplate.execute("create table if not exists studio_alert_incident (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
+                "rule_id integer not null,rule_name_snapshot text,rule_type text,signature text not null,subject_type text,subject_key text,subject_id integer," +
+                "subject_name_snapshot text,target_path text,severity text,status text,summary text,current_evidence_json text,occurrence_count integer default 0," +
+                "notification_count integer default 0,reopen_count integer default 0,condition_active integer default 0,closed_while_active integer default 0," +
+                "first_triggered_at text,last_triggered_at text,last_notified_at text,acknowledged_at text,recovered_at text,closed_at text," +
+                "acknowledged_by integer,closed_by integer,version integer default 0)");
+        jdbcTemplate.execute("create unique index if not exists uk_alert_incident_signature on studio_alert_incident(tenant_id, project_id, signature)");
+        jdbcTemplate.execute("create index if not exists idx_alert_incident_status on studio_alert_incident(project_id, status, severity, last_triggered_at)");
+        jdbcTemplate.execute("create index if not exists idx_alert_incident_rule on studio_alert_incident(rule_id, last_triggered_at)");
+        jdbcTemplate.execute("create index if not exists idx_alert_incident_subject on studio_alert_incident(project_id, subject_type, subject_id)");
+        jdbcTemplate.execute("create table if not exists studio_alert_event (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
+                "incident_id integer,rule_id integer,event_type text not null,status_from text,status_to text,source_type text,source_id text," +
+                "source_event_key text not null,subject_type text,subject_key text,subject_id integer,subject_name_snapshot text,target_path text," +
+                "severity text,summary text,evidence_json text,actor_user_id integer,actor_name_snapshot text,observed_at text)");
+        jdbcTemplate.execute("create unique index if not exists uk_alert_event_source on studio_alert_event(tenant_id, project_id, source_event_key)");
+        jdbcTemplate.execute("create index if not exists idx_alert_event_incident on studio_alert_event(incident_id, observed_at)");
+        jdbcTemplate.execute("create index if not exists idx_alert_event_rule on studio_alert_event(rule_id, event_type, observed_at)");
+        jdbcTemplate.execute("create table if not exists studio_alert_channel (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
+                "name text not null,channel_type text not null,endpoint_ciphertext text,headers_ciphertext text,signing_secret_ciphertext text," +
+                "enabled integer default 1,last_tested_at text,last_test_status text,last_test_message text,created_by integer,updated_by integer)");
+        jdbcTemplate.execute("create index if not exists idx_alert_channel_project_enabled on studio_alert_channel(project_id, enabled)");
+        jdbcTemplate.execute("create index if not exists idx_alert_channel_project_name on studio_alert_channel(project_id, name)");
+        jdbcTemplate.execute("create unique index if not exists uk_alert_channel_active_name on " +
+                "studio_alert_channel(tenant_id, project_id, name collate nocase) where deleted = 0");
+        jdbcTemplate.execute("create table if not exists studio_alert_delivery (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
+                "event_id integer not null,incident_id integer,delivery_key text not null,channel_type text not null,channel_id integer," +
+                "channel_name_snapshot text,recipient_user_id integer,status text not null,attempt_count integer default 0,next_attempt_at text," +
+                "last_attempt_at text,http_status integer,response_excerpt text,error_message text,payload_json text)");
+        jdbcTemplate.execute("create unique index if not exists uk_alert_delivery_event_key on studio_alert_delivery(event_id, delivery_key)");
+        jdbcTemplate.execute("create index if not exists idx_alert_delivery_due on studio_alert_delivery(status, next_attempt_at)");
+        jdbcTemplate.execute("create index if not exists idx_alert_delivery_channel on studio_alert_delivery(channel_id, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_alert_delivery_incident on studio_alert_delivery(incident_id, created_at)");
     }
 
     private void ensureColumn(String tableName, String columnName, String ddl) {

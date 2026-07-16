@@ -151,7 +151,7 @@ class ExecutionEventServiceRegressionTest {
         workflow.setTenantId(StudioConstants.DEFAULT_TENANT_ID);
         workflow.setProjectId(10L);
         workflow.setName("长期回归-S20共享关注通知可达流程");
-        when(workflowDefinitionMapper.selectById(eq(300L))).thenReturn(workflow);
+        when(workflowDefinitionMapper.selectOne(any())).thenReturn(workflow);
 
         FollowSubscriptionService followSubscriptionService = mock(FollowSubscriptionService.class);
         when(followSubscriptionService.followerUserProjectIds(

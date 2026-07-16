@@ -41,6 +41,7 @@ import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionSubscriptionMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -125,6 +126,11 @@ public class ProtocolConversionService {
         this.accessLogSupport = new ProtocolConversionAccessLogSupport(accessLogMapper, accessCounterMapper);
         this.invocationLogSupport = new OpenServiceInvocationLogSupport();
         this.invocationLogService = invocationLogService;
+    }
+
+    @Autowired(required = false)
+    void setAlertSignalPublisher(AlertSignalPublisher alertSignalPublisher) {
+        this.accessLogSupport.setAlertSignalPublisher(alertSignalPublisher);
     }
 
     public PageView<ProtocolConversionServiceListView> list(Integer pageNo,

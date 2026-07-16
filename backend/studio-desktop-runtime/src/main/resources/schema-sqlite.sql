@@ -491,6 +491,81 @@ create table if not exists studio_cluster_lock (
 create unique index if not exists uk_studio_cluster_lock_name on studio_cluster_lock(lock_name);
 create index if not exists idx_studio_cluster_lock_until on studio_cluster_lock(locked_until);
 
+create table if not exists studio_alert_rule (
+    id integer primary key,
+    tenant_id text default 'default', project_id integer, deleted integer default 0,
+    created_at text, updated_at text, name text not null, description text,
+    rule_type text not null, subject_type text not null, subject_id integer,
+    subject_name_snapshot text, severity text not null, enabled integer default 0,
+    condition_json text, silence_minutes integer default 30,
+    recovery_notification_enabled integer default 1, in_app_enabled integer default 1,
+    recipient_user_ids_json text, notify_resource_owner integer default 0,
+    notify_project_admins integer default 1, webhook_channel_ids_json text,
+    activation_at text, last_evaluated_at text, last_evaluation_status text,
+    last_evaluation_error text, last_triggered_at text, created_by integer, updated_by integer
+);
+create index if not exists idx_alert_rule_project_enabled on studio_alert_rule(project_id, enabled, rule_type);
+create index if not exists idx_alert_rule_project_name on studio_alert_rule(project_id, name);
+create unique index if not exists uk_alert_rule_active_name on studio_alert_rule(tenant_id, project_id, name collate nocase) where deleted = 0;
+
+create table if not exists studio_alert_incident (
+    id integer primary key,
+    tenant_id text default 'default', project_id integer, deleted integer default 0,
+    created_at text, updated_at text, rule_id integer not null, rule_name_snapshot text,
+    rule_type text, signature text not null, subject_type text, subject_key text,
+    subject_id integer, subject_name_snapshot text, target_path text, severity text,
+    status text, summary text, current_evidence_json text, occurrence_count integer default 0,
+    notification_count integer default 0, reopen_count integer default 0,
+    condition_active integer default 0, closed_while_active integer default 0,
+    first_triggered_at text, last_triggered_at text, last_notified_at text,
+    acknowledged_at text, recovered_at text, closed_at text,
+    acknowledged_by integer, closed_by integer, version integer default 0
+);
+create unique index if not exists uk_alert_incident_signature on studio_alert_incident(tenant_id, project_id, signature);
+create index if not exists idx_alert_incident_status on studio_alert_incident(project_id, status, severity, last_triggered_at);
+create index if not exists idx_alert_incident_rule on studio_alert_incident(rule_id, last_triggered_at);
+create index if not exists idx_alert_incident_subject on studio_alert_incident(project_id, subject_type, subject_id);
+
+create table if not exists studio_alert_event (
+    id integer primary key,
+    tenant_id text default 'default', project_id integer, deleted integer default 0,
+    created_at text, updated_at text, incident_id integer, rule_id integer,
+    event_type text not null, status_from text, status_to text, source_type text,
+    source_id text, source_event_key text not null, subject_type text, subject_key text,
+    subject_id integer, subject_name_snapshot text, target_path text, severity text,
+    summary text, evidence_json text, actor_user_id integer, actor_name_snapshot text,
+    observed_at text
+);
+create unique index if not exists uk_alert_event_source on studio_alert_event(tenant_id, project_id, source_event_key);
+create index if not exists idx_alert_event_incident on studio_alert_event(incident_id, observed_at);
+create index if not exists idx_alert_event_rule on studio_alert_event(rule_id, event_type, observed_at);
+
+create table if not exists studio_alert_channel (
+    id integer primary key,
+    tenant_id text default 'default', project_id integer, deleted integer default 0,
+    created_at text, updated_at text, name text not null, channel_type text not null,
+    endpoint_ciphertext text, headers_ciphertext text, signing_secret_ciphertext text,
+    enabled integer default 1, last_tested_at text, last_test_status text,
+    last_test_message text, created_by integer, updated_by integer
+);
+create index if not exists idx_alert_channel_project_enabled on studio_alert_channel(project_id, enabled);
+create index if not exists idx_alert_channel_project_name on studio_alert_channel(project_id, name);
+create unique index if not exists uk_alert_channel_active_name on studio_alert_channel(tenant_id, project_id, name collate nocase) where deleted = 0;
+
+create table if not exists studio_alert_delivery (
+    id integer primary key,
+    tenant_id text default 'default', project_id integer, deleted integer default 0,
+    created_at text, updated_at text, event_id integer not null, incident_id integer,
+    delivery_key text not null, channel_type text not null, channel_id integer,
+    channel_name_snapshot text, recipient_user_id integer, status text not null,
+    attempt_count integer default 0, next_attempt_at text, last_attempt_at text,
+    http_status integer, response_excerpt text, error_message text, payload_json text
+);
+create unique index if not exists uk_alert_delivery_event_key on studio_alert_delivery(event_id, delivery_key);
+create index if not exists idx_alert_delivery_due on studio_alert_delivery(status, next_attempt_at);
+create index if not exists idx_alert_delivery_channel on studio_alert_delivery(channel_id, created_at);
+create index if not exists idx_alert_delivery_incident on studio_alert_delivery(incident_id, created_at);
+
 create table if not exists user_registration_request (
     id integer primary key,
     deleted integer default 0,

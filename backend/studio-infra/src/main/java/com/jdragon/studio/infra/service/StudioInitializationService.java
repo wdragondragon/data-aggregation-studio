@@ -23,6 +23,11 @@ public class StudioInitializationService {
 
     private static final String[] RESET_TABLES = new String[]{
             "studio_resource_share",
+            "studio_alert_delivery",
+            "studio_alert_event",
+            "studio_alert_incident",
+            "studio_alert_channel",
+            "studio_alert_rule",
             "studio_project_worker_binding",
             "studio_external_user_binding",
             "studio_project_member_request",

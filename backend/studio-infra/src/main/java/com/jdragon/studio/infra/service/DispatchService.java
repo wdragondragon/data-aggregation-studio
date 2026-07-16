@@ -562,13 +562,14 @@ public class DispatchService implements WorkflowDispatcher {
             return isTerminalStatus(eventType);
         }
         if (effectiveCondition == EdgeCondition.ON_FAILURE) {
-            return "FAILED".equalsIgnoreCase(eventType);
+            return "FAILED".equalsIgnoreCase(eventType) || "ERROR".equalsIgnoreCase(eventType);
         }
         return "SUCCESS".equalsIgnoreCase(eventType);
     }
 
     private boolean isTerminalStatus(String status) {
-        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
+        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status)
+                || "ERROR".equalsIgnoreCase(status);
     }
 
     private boolean hasActiveWorkflowRun(String tenantId, Long workflowDefinitionId, Long projectId) {

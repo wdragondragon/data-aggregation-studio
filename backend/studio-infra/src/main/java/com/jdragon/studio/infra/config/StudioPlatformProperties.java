@@ -32,6 +32,7 @@ public class StudioPlatformProperties {
     private RunLogProperties runLog = new RunLogProperties();
     private InvocationLogProperties invocationLog = new InvocationLogProperties();
     private DatasourceHealthProperties datasourceHealth = new DatasourceHealthProperties();
+    private AlertProperties alert = new AlertProperties();
     private AssistantProperties assistant = new AssistantProperties();
     private FlinkProperties flink = new FlinkProperties();
 
@@ -107,6 +108,29 @@ public class StudioPlatformProperties {
         private Integer jitterSeconds = 60;
         private Map<String, TypeDefaultProperties> typeDefaults = new LinkedHashMap<String, TypeDefaultProperties>();
         private HistoryProperties history = new HistoryProperties();
+    }
+
+    @Data
+    public static class AlertProperties {
+        private boolean enabled = true;
+        private boolean evaluationEnabled = true;
+        private boolean deliveryEnabled = true;
+        private Integer evaluationDelayMillis = 30000;
+        private Integer deliveryDelayMillis = 5000;
+        private Integer batchSize = 100;
+        private Integer eventRetentionDays = 180;
+        private Integer deliveryRetentionDays = 30;
+        private WebhookProperties webhook = new WebhookProperties();
+    }
+
+    @Data
+    public static class WebhookProperties {
+        private boolean enabled = true;
+        private boolean allowHttp = false;
+        private List<String> allowedHosts = new ArrayList<String>();
+        private Integer connectTimeoutSeconds = 3;
+        private Integer requestTimeoutSeconds = 5;
+        private Integer maxResponseBytes = 16 * 1024;
     }
 
     @Data

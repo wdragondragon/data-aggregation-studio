@@ -81,6 +81,8 @@ public abstract class StudioHttpIntegrationTestSupport {
         registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
         registry.add("spring.datasource.username", () -> "");
         registry.add("spring.datasource.password", () -> "");
+        registry.add("spring.datasource.hikari.connection-init-sql", () -> "PRAGMA busy_timeout=30000");
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
         registry.add("spring.autoconfigure.exclude", () ->
                 "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,"
                         + "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration");
@@ -90,6 +92,7 @@ public abstract class StudioHttpIntegrationTestSupport {
         registry.add("spring.sql.init.schema-locations", () -> SQLITE_SCHEMA.toUri().toString());
         registry.add("studio.aggregation-home", () -> AGGREGATION_HOME.toAbsolutePath().normalize().toString());
         registry.add("studio.scan-plugins-on-startup", () -> "false");
+        registry.add("studio.alert.enabled", () -> "false");
         registry.add("studio.python.executable", () -> JAVA_EXECUTABLE);
         registry.add("studio.python.executable-args[0]", () -> "-cp");
         registry.add("studio.python.executable-args[1]", () -> TEST_CLASSPATH);

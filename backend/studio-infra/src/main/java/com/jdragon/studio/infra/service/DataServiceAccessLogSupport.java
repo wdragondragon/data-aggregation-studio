@@ -8,10 +8,13 @@ import com.jdragon.studio.infra.entity.DataServiceDefinitionEntity;
 import com.jdragon.studio.infra.entity.DataServiceSubscriptionEntity;
 import com.jdragon.studio.infra.mapper.DataServiceAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.DataServiceAccessLogMapper;
+import com.jdragon.studio.infra.model.AlertSignal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Locale;
 
 final class DataServiceAccessLogSupport {
@@ -21,6 +24,7 @@ final class DataServiceAccessLogSupport {
     private final DataServiceAccessLogMapper accessLogMapper;
     private final DataServiceAccessCounterMapper accessCounterMapper;
     private final DataServiceInvocationSupport invocationSupport;
+    private AlertSignalPublisher alertSignalPublisher;
 
     DataServiceAccessLogSupport(DataServiceAccessLogMapper accessLogMapper,
                                 DataServiceAccessCounterMapper accessCounterMapper,
@@ -75,9 +79,39 @@ final class DataServiceAccessLogSupport {
             applyArchiveResult(entity, archiveResult);
             accessLogMapper.insert(entity);
             recordAccessCounter(entity);
+            publishSignals(service, entity);
         } catch (RuntimeException ex) {
             log.warn("Failed to write data service access log", ex);
         }
+    }
+
+    void setAlertSignalPublisher(AlertSignalPublisher alertSignalPublisher) {
+        this.alertSignalPublisher = alertSignalPublisher;
+    }
+
+    private void publishSignals(DataServiceDefinitionEntity service, DataServiceAccessLogEntity entity) {
+        if (alertSignalPublisher == null || service == null || entity.getProjectId() == null) {
+            return;
+        }
+        publishLogSignal(entity, "DATA_SERVICE_LOG", "数据服务调用日志");
+    }
+
+    private void publishLogSignal(DataServiceAccessLogEntity entity, String domain, String name) {
+        if (!"FAILED".equalsIgnoreCase(entity.getLogArchiveStatus()) && !"AVAILABLE".equalsIgnoreCase(entity.getLogArchiveStatus())) {
+            return;
+        }
+        Map<String, Object> evidence = new LinkedHashMap<String, Object>();
+        evidence.put("accessLogId", entity.getId());
+        evidence.put("logArchiveStatus", entity.getLogArchiveStatus());
+        evidence.put("logArchiveError", entity.getLogArchiveError());
+        alertSignalPublisher.publish(new AlertSignal()
+                .setTenantId(entity.getTenantId()).setProjectId(entity.getProjectId())
+                .setSignalType("LOG_ARCHIVE").setSubjectType("LOG_STORAGE")
+                .setSubjectKey(domain).setSubjectName(name).setStatus(entity.getLogArchiveStatus())
+                .setSuccess("AVAILABLE".equalsIgnoreCase(entity.getLogArchiveStatus()))
+                .setSourceId(String.valueOf(entity.getId())).setSourceEventKey("data-service-log:" + entity.getId() + ":" + entity.getLogArchiveStatus())
+                .setTargetPath(AlertIncidentService.targetPath("LOG_STORAGE", null, null))
+                .setOccurredAt(entity.getOccurredAt()).setEvidence(evidence));
     }
 
     private void recordAccessCounter(DataServiceAccessLogEntity logEntity) {

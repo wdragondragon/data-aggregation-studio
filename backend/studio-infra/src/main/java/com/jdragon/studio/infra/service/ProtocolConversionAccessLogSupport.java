@@ -8,10 +8,13 @@ import com.jdragon.studio.infra.entity.ProtocolConversionServiceEntity;
 import com.jdragon.studio.infra.entity.ProtocolConversionSubscriptionEntity;
 import com.jdragon.studio.infra.mapper.ProtocolConversionAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
+import com.jdragon.studio.infra.model.AlertSignal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Locale;
 
 final class ProtocolConversionAccessLogSupport {
@@ -20,6 +23,7 @@ final class ProtocolConversionAccessLogSupport {
 
     private final ProtocolConversionAccessLogMapper accessLogMapper;
     private final ProtocolConversionAccessCounterMapper accessCounterMapper;
+    private AlertSignalPublisher alertSignalPublisher;
 
     ProtocolConversionAccessLogSupport(ProtocolConversionAccessLogMapper accessLogMapper,
                                        ProtocolConversionAccessCounterMapper accessCounterMapper) {
@@ -76,9 +80,58 @@ final class ProtocolConversionAccessLogSupport {
             applyArchiveResult(entity, archiveResult);
             accessLogMapper.insert(entity);
             recordAccessCounter(entity);
+            publishSignals(service, entity);
         } catch (RuntimeException ex) {
             log.warn("Failed to write protocol conversion access log", ex);
         }
+    }
+
+    void setAlertSignalPublisher(AlertSignalPublisher alertSignalPublisher) {
+        this.alertSignalPublisher = alertSignalPublisher;
+    }
+
+    private void publishSignals(ProtocolConversionServiceEntity service, ProtocolConversionAccessLogEntity entity) {
+        if (alertSignalPublisher == null || service == null || entity.getProjectId() == null) {
+            return;
+        }
+        Map<String, Object> evidence = new LinkedHashMap<String, Object>();
+        evidence.put("accessLogId", entity.getId());
+        evidence.put("requestId", entity.getRequestId());
+        evidence.put("httpStatus", entity.getHttpStatus());
+        evidence.put("receivedCount", entity.getReceivedCount());
+        evidence.put("successCount", entity.getSuccessCount());
+        evidence.put("failedCount", entity.getFailedCount());
+        evidence.put("errorCode", entity.getErrorCode());
+        evidence.put("errorMessage", entity.getErrorMessage());
+        alertSignalPublisher.publish(new AlertSignal()
+                .setTenantId(entity.getTenantId()).setProjectId(entity.getProjectId())
+                .setSignalType("INVOCATION").setSubjectType("PROTOCOL_CONVERSION_SERVICE")
+                .setSubjectId(service.getId()).setSubjectKey(String.valueOf(service.getId()))
+                .setSubjectName(service.getServiceName()).setOwnerUserId(service.getCreatedBy())
+                .setSuccess(Integer.valueOf(1).equals(entity.getSuccess())).setFailureCount(entity.getFailedCount())
+                .setStatus(Integer.valueOf(1).equals(entity.getSuccess()) ? "SUCCESS" : "FAILED")
+                .setSourceId(String.valueOf(entity.getId())).setSourceEventKey("protocol-conversion-access:" + entity.getId())
+                .setTargetPath(AlertIncidentService.targetPath("PROTOCOL_CONVERSION_SERVICE", service.getId(), entity.getId()))
+                .setOccurredAt(entity.getOccurredAt()).setEvidence(evidence));
+        publishLogSignal(entity);
+    }
+
+    private void publishLogSignal(ProtocolConversionAccessLogEntity entity) {
+        if (!"FAILED".equalsIgnoreCase(entity.getLogArchiveStatus()) && !"AVAILABLE".equalsIgnoreCase(entity.getLogArchiveStatus())) {
+            return;
+        }
+        Map<String, Object> evidence = new LinkedHashMap<String, Object>();
+        evidence.put("accessLogId", entity.getId());
+        evidence.put("logArchiveStatus", entity.getLogArchiveStatus());
+        evidence.put("logArchiveError", entity.getLogArchiveError());
+        alertSignalPublisher.publish(new AlertSignal()
+                .setTenantId(entity.getTenantId()).setProjectId(entity.getProjectId())
+                .setSignalType("LOG_ARCHIVE").setSubjectType("LOG_STORAGE")
+                .setSubjectKey("PROTOCOL_CONVERSION_LOG").setSubjectName("协议转换调用日志").setStatus(entity.getLogArchiveStatus())
+                .setSuccess("AVAILABLE".equalsIgnoreCase(entity.getLogArchiveStatus()))
+                .setSourceId(String.valueOf(entity.getId())).setSourceEventKey("protocol-conversion-log:" + entity.getId() + ":" + entity.getLogArchiveStatus())
+                .setTargetPath(AlertIncidentService.targetPath("LOG_STORAGE", null, null))
+                .setOccurredAt(entity.getOccurredAt()).setEvidence(evidence));
     }
 
     private void recordAccessCounter(ProtocolConversionAccessLogEntity logEntity) {
