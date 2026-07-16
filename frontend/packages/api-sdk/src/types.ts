@@ -3138,6 +3138,8 @@ export type AlertSubjectType =
 export type AlertSeverity = "INFO" | "WARNING" | "CRITICAL";
 export type AlertIncidentStatus = "OPEN" | "ACKNOWLEDGED" | "RECOVERED" | "CLOSED";
 export type AlertDeliveryStatus = "PENDING" | "PROCESSING" | "RETRY" | "SUCCEEDED" | "DEAD" | "SKIPPED";
+export type AlertChannelType = "WEBHOOK" | "ELINK";
+export type AlertElinkTargetType = "PERSONAL" | "GROUP";
 
 export interface AlertOptionView {
   code: AlertRuleType | string;
@@ -3154,6 +3156,7 @@ export interface AlertOptionsView {
   severities: AlertSeverity[];
   incidentStatuses: AlertIncidentStatus[];
   deliveryStatuses: AlertDeliveryStatus[];
+  elinkChannelEnabled: boolean;
   canManage: boolean;
   canHandleIncidents: boolean;
   canViewTenantSummary: boolean;
@@ -3303,10 +3306,13 @@ export interface AlertIncidentQueryRequest {
 
 export interface AlertChannelView extends BaseRecord {
   name: string;
-  channelType?: string;
+  channelType: AlertChannelType;
   endpointMasked?: string;
   headerNames?: string[];
   hasSigningSecret?: boolean;
+  elinkTargetType?: AlertElinkTargetType;
+  elinkUserIds?: string[];
+  elinkGroupId?: EntityId;
   enabled?: boolean;
   lastTestedAt?: string;
   lastTestStatus?: string;
@@ -3323,10 +3329,14 @@ export interface AlertChannelQueryRequest {
 export interface AlertChannelSaveRequest {
   id?: EntityId;
   name: string;
+  channelType?: AlertChannelType;
   endpointUrl?: string;
   headers?: Record<string, string>;
   signingSecret?: string;
   clearSigningSecret?: boolean;
+  elinkTargetType?: AlertElinkTargetType;
+  elinkUserIds?: string[];
+  elinkGroupId?: EntityId;
   enabled?: boolean;
 }
 

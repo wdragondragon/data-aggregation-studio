@@ -122,15 +122,20 @@
 
         <el-table v-loading="channelLoading" :data="channels" border size="small" class="alert-table">
           <el-table-column prop="name" :label="t('web.alerts.channelName')" min-width="180" />
-          <el-table-column prop="endpointMasked" :label="t('web.alerts.endpoint')" min-width="260" show-overflow-tooltip />
+          <el-table-column prop="channelType" :label="t('web.alerts.channelType')" width="110">
+            <template #default="{ row }"><el-tag type="info">{{ channelTypeLabel(row.channelType) }}</el-tag></template>
+          </el-table-column>
+          <el-table-column :label="t('web.alerts.channelTarget')" min-width="260" show-overflow-tooltip>
+            <template #default="{ row }">{{ channelTargetSummary(row) }}</template>
+          </el-table-column>
           <el-table-column prop="headerNames" :label="t('web.alerts.headers')" min-width="160">
-            <template #default="{ row }">{{ row.headerNames?.join(', ') || '-' }}</template>
+            <template #default="{ row }">{{ row.channelType !== 'ELINK' ? row.headerNames?.join(', ') || '-' : '-' }}</template>
           </el-table-column>
           <el-table-column prop="enabled" :label="t('common.status')" width="100">
             <template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? t("web.alerts.enabled") : t("web.alerts.disabled") }}</el-tag></template>
           </el-table-column>
           <el-table-column prop="lastTestStatus" :label="t('web.alerts.lastTest')" width="120">
-            <template #default="{ row }"><el-tag v-if="row.lastTestStatus" :type="row.lastTestStatus === 'SUCCEEDED' ? 'success' : 'danger'">{{ row.lastTestStatus }}</el-tag><span v-else>-</span></template>
+            <template #default="{ row }"><el-tag v-if="row.lastTestStatus" :type="row.lastTestStatus === 'SUCCEEDED' ? 'success' : 'danger'">{{ deliveryStatusLabel(row.lastTestStatus) }}</el-tag><span v-else>-</span></template>
           </el-table-column>
           <el-table-column prop="lastTestedAt" :label="t('web.alerts.lastTestedAt')" min-width="165" />
           <el-table-column :label="t('common.actions')" width="300" fixed="right">
@@ -150,14 +155,16 @@
           <div class="delivery-section__heading">
             <div><h4>{{ t("web.alerts.deliveryTitle") }}</h4><p>{{ t("web.alerts.deliveryDescription") }}</p></div>
             <el-select v-model="deliveryFilters.status" clearable :placeholder="t('common.status')" @change="searchDeliveries">
-              <el-option v-for="status in options.deliveryStatuses" :key="status" :label="status" :value="status" />
+              <el-option v-for="status in options.deliveryStatuses" :key="status" :label="deliveryStatusLabel(status)" :value="status" />
             </el-select>
           </div>
           <el-table v-loading="deliveryLoading" :data="deliveries" border size="small">
-            <el-table-column prop="channelType" :label="t('web.alerts.channelType')" width="110" />
+            <el-table-column prop="channelType" :label="t('web.alerts.channelType')" width="110">
+              <template #default="{ row }">{{ channelTypeLabel(row.channelType) }}</template>
+            </el-table-column>
             <el-table-column prop="channelName" :label="t('web.alerts.channelName')" min-width="160" />
             <el-table-column prop="status" :label="t('common.status')" width="110">
-              <template #default="{ row }"><el-tag :type="deliveryStatusTag(row.status)">{{ row.status }}</el-tag></template>
+              <template #default="{ row }"><el-tag :type="deliveryStatusTag(row.status)">{{ deliveryStatusLabel(row.status) }}</el-tag></template>
             </el-table-column>
             <el-table-column prop="attemptCount" :label="t('web.alerts.attempts')" width="90" />
             <el-table-column prop="httpStatus" label="HTTP" width="80" />
@@ -198,17 +205,17 @@
         <h5>{{ t("web.alerts.timeline") }}</h5>
         <el-timeline>
           <el-timeline-item v-for="event in selectedIncident.recentEvents || []" :key="String(event.id)" :timestamp="event.observedAt" placement="top">
-            <strong>{{ event.eventType }}</strong>
+            <strong>{{ eventTypeLabel(event.eventType) }}</strong>
             <p>{{ event.summary }}</p>
           </el-timeline-item>
         </el-timeline>
         <h5>{{ t("web.alerts.deliveryTitle") }}</h5>
         <el-table :data="selectedIncident.recentDeliveries || []" border size="small" class="incident-delivery-table">
           <el-table-column prop="channelName" :label="t('web.alerts.channelName')" min-width="145">
-            <template #default="{ row }">{{ row.channelName || row.channelType || '-' }}</template>
+            <template #default="{ row }">{{ row.channelName || channelTypeLabel(row.channelType) }}</template>
           </el-table-column>
           <el-table-column prop="status" :label="t('common.status')" width="105">
-            <template #default="{ row }"><el-tag :type="deliveryStatusTag(row.status)">{{ row.status }}</el-tag></template>
+            <template #default="{ row }"><el-tag :type="deliveryStatusTag(row.status)">{{ deliveryStatusLabel(row.status) }}</el-tag></template>
           </el-table-column>
           <el-table-column prop="attemptCount" :label="t('web.alerts.attempts')" width="88" />
           <el-table-column :label="t('web.alerts.error')" min-width="190" show-overflow-tooltip>
@@ -267,7 +274,7 @@
           <el-form-item :label="t('web.alerts.recipients')" class="alert-form__wide">
             <el-select v-model="ruleForm.recipientUserIds" multiple filterable remote reserve-keyword :remote-method="searchRecipients" :loading="recipientLoading"><el-option v-for="recipient in recipientOptions" :key="String(recipient.id)" :label="recipient.name" :value="recipient.id" /></el-select>
           </el-form-item>
-          <el-form-item :label="t('web.alerts.webhookChannels')" class="alert-form__wide">
+          <el-form-item :label="t('web.alerts.notificationChannels')" class="alert-form__wide">
             <el-select v-model="ruleForm.webhookChannelIds" multiple filterable remote reserve-keyword :remote-method="searchChannelOptions" :loading="channelOptionLoading"><el-option v-for="channel in selectableChannels" :key="String(channel.id)" :label="channel.name" :value="channel.id" /></el-select>
           </el-form-item>
         </div>
@@ -285,10 +292,33 @@
     <el-dialog v-model="channelDialogVisible" class="alert-dialog" :title="channelForm.id ? t('web.alerts.editChannel') : t('web.alerts.createChannel')" width="min(680px, 96vw)" top="5vh" destroy-on-close>
       <el-form label-position="top">
         <el-form-item :label="t('web.alerts.channelName')" required><el-input v-model="channelForm.name" maxlength="255" /></el-form-item>
-        <el-form-item :label="t('web.alerts.endpoint')" :required="!channelForm.id"><el-input v-model="channelForm.endpointUrl" maxlength="2048" :placeholder="channelForm.id ? t('web.alerts.endpointRetainHint') : 'https://hooks.example.com/studio-alert'" /></el-form-item>
-        <el-form-item :label="t('web.alerts.headersJson')"><el-input v-model="channelForm.headersJson" type="textarea" :rows="5" placeholder='{"Authorization":"Bearer ..."}' /></el-form-item>
-        <el-form-item :label="t('web.alerts.signingSecret')"><el-input v-model="channelForm.signingSecret" type="password" maxlength="4096" show-password :placeholder="channelForm.id ? t('web.alerts.secretRetainHint') : ''" /></el-form-item>
-        <el-form-item><el-checkbox v-if="channelForm.id && channelForm.hasSigningSecret" v-model="channelForm.clearSigningSecret">{{ t("web.alerts.clearSigningSecret") }}</el-checkbox><el-switch v-model="channelForm.enabled" class="channel-enabled-switch" :active-text="t('web.alerts.enabled')" /></el-form-item>
+        <el-form-item :label="t('web.alerts.channelType')" required>
+          <el-radio-group v-model="channelForm.channelType" :disabled="Boolean(channelForm.id)">
+            <el-radio-button value="WEBHOOK">{{ t("web.alerts.channelTypeWebhook") }}</el-radio-button>
+            <el-radio-button v-if="options.elinkChannelEnabled || channelForm.channelType === 'ELINK'" value="ELINK">{{ t("web.alerts.channelTypeElink") }}</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="channelForm.channelType === 'WEBHOOK'">
+          <el-form-item :label="t('web.alerts.endpoint')" :required="!channelForm.id"><el-input v-model="channelForm.endpointUrl" maxlength="2048" :placeholder="channelForm.id ? t('web.alerts.endpointRetainHint') : 'https://hooks.example.com/studio-alert'" /></el-form-item>
+          <el-form-item :label="t('web.alerts.headersJson')"><el-input v-model="channelForm.headersJson" type="textarea" :rows="5" placeholder='{"Authorization":"Bearer ..."}' /></el-form-item>
+          <el-form-item :label="t('web.alerts.signingSecret')"><el-input v-model="channelForm.signingSecret" type="password" maxlength="4096" show-password :placeholder="channelForm.id ? t('web.alerts.secretRetainHint') : ''" /></el-form-item>
+          <el-form-item><el-checkbox v-if="channelForm.id && channelForm.hasSigningSecret" v-model="channelForm.clearSigningSecret">{{ t("web.alerts.clearSigningSecret") }}</el-checkbox></el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item :label="t('web.alerts.elinkTargetType')" required>
+            <el-radio-group v-model="channelForm.elinkTargetType">
+              <el-radio-button value="PERSONAL">{{ t("web.alerts.elinkTargetPersonal") }}</el-radio-button>
+              <el-radio-button value="GROUP">{{ t("web.alerts.elinkTargetGroup") }}</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="channelForm.elinkTargetType === 'PERSONAL'" :label="t('web.alerts.elinkUserIds')" required>
+            <el-select v-model="channelForm.elinkUserIds" multiple filterable allow-create default-first-option :placeholder="t('web.alerts.elinkUserIdsPlaceholder')" />
+          </el-form-item>
+          <el-form-item v-else :label="t('web.alerts.elinkGroupId')" required>
+            <el-input v-model="channelForm.elinkGroupId" inputmode="numeric" maxlength="40" :placeholder="t('web.alerts.elinkGroupIdPlaceholder')" />
+          </el-form-item>
+        </template>
+        <el-form-item><el-switch v-model="channelForm.enabled" :active-text="t('web.alerts.enabled')" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="channelDialogVisible = false">{{ t("common.cancel") }}</el-button><el-button type="primary" :loading="channelSaving" @click="saveChannel">{{ t("common.save") }}</el-button></template>
     </el-dialog>
@@ -302,8 +332,10 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Check, Close, Connection, DataAnalysis, Delete, Edit, Plus, Promotion, Refresh, Search, View } from "@element-plus/icons-vue";
 import type {
+  AlertChannelType,
   AlertChannelView,
   AlertDeliveryView,
+  AlertElinkTargetType,
   AlertIncidentView,
   AlertOptionView,
   AlertOptionsView,
@@ -338,7 +370,7 @@ let subjectRequestSequence = 0;
 let recipientRequestSequence = 0;
 let channelOptionRequestSequence = 0;
 
-const options = reactive<AlertOptionsView>({ ruleTypes: [], severities: [], incidentStatuses: [], deliveryStatuses: [], canManage: false, canHandleIncidents: true, canViewTenantSummary: false });
+const options = reactive<AlertOptionsView>({ ruleTypes: [], severities: [], incidentStatuses: [], deliveryStatuses: [], elinkChannelEnabled: false, canManage: false, canHandleIncidents: true, canViewTenantSummary: false });
 const summary = reactive<AlertSummaryView>({ enabledRuleCount: 0, openIncidentCount: 0, acknowledgedIncidentCount: 0, criticalIncidentCount: 0, failedDeliveryCount: 0 });
 const incidents = ref<AlertIncidentView[]>([]);
 const rules = ref<AlertRuleView[]>([]);
@@ -386,7 +418,21 @@ const emptyRuleForm = () => ({
   webhookChannelIds: [] as EntityId[],
 });
 const ruleForm = reactive(emptyRuleForm());
-const emptyChannelForm = () => ({ id: undefined as EntityId | undefined, name: "", endpointUrl: "", headersJson: "", signingSecret: "", clearSigningSecret: false, hasSigningSecret: false, enabled: true });
+const emptyChannelForm = () => ({
+  id: undefined as EntityId | undefined,
+  name: "",
+  channelType: "WEBHOOK" as AlertChannelType,
+  originalChannelType: undefined as AlertChannelType | undefined,
+  endpointUrl: "",
+  headersJson: "",
+  signingSecret: "",
+  clearSigningSecret: false,
+  hasSigningSecret: false,
+  elinkTargetType: "PERSONAL" as AlertElinkTargetType,
+  elinkUserIds: [] as string[],
+  elinkGroupId: "" as EntityId,
+  enabled: true,
+});
 const channelForm = reactive(emptyChannelForm());
 
 const currentRuleDefinition = computed<AlertOptionView | undefined>(() => options.ruleTypes.find((item) => item.code === ruleForm.ruleType));
@@ -592,9 +638,45 @@ async function toggleRule(row: AlertRuleView) { await runAlertAction(async () =>
 async function testRule(row: AlertRuleView) { await runAlertAction(async () => { await studioApi.alerts.testRule(row.id!); await loadDeliveries(); }, "web.alerts.testQueued"); }
 async function deleteRule(row: AlertRuleView) { await runAlertAction(async () => { await ElMessageBox.confirm(t("web.alerts.deleteRuleConfirm", { name: row.name }), t("common.delete"), { type: "warning" }); await studioApi.alerts.deleteRule(row.id!); await Promise.all([loadRules(), loadSummary()]); }, "web.alerts.ruleDeleted"); }
 
-function openChannelDialog(row?: AlertChannelView) { Object.assign(channelForm, emptyChannelForm(), row ? { id: row.id, name: row.name, hasSigningSecret: row.hasSigningSecret, enabled: row.enabled } : {}); channelDialogVisible.value = true; }
+function openChannelDialog(row?: AlertChannelView) {
+  const channelType = row?.channelType || "WEBHOOK";
+  Object.assign(channelForm, emptyChannelForm(), row ? {
+    id: row.id,
+    name: row.name,
+    channelType,
+    originalChannelType: channelType,
+    hasSigningSecret: row.hasSigningSecret,
+    elinkTargetType: row.elinkTargetType || "PERSONAL",
+    elinkUserIds: [...(row.elinkUserIds || [])],
+    elinkGroupId: row.elinkGroupId ?? "",
+    enabled: row.enabled,
+  } : {});
+  channelDialogVisible.value = true;
+}
 async function saveChannel() {
-  if (!channelForm.name.trim() || (!channelForm.id && !channelForm.endpointUrl.trim())) { ElMessage.warning(t("web.alerts.channelRequired")); return; }
+  if (!channelForm.name.trim()) { ElMessage.warning(t("web.alerts.channelNameRequired")); return; }
+  if (channelForm.channelType === "ELINK") {
+    const userIds = normalizeElinkUserIds(channelForm.elinkUserIds);
+    const groupId = String(channelForm.elinkGroupId ?? "").trim();
+    if (channelForm.elinkTargetType === "PERSONAL" && userIds.length === 0) { ElMessage.warning(t("web.alerts.elinkUsersRequired")); return; }
+    if (channelForm.elinkTargetType === "GROUP" && !/^[1-9]\d*$/.test(groupId)) { ElMessage.warning(t("web.alerts.elinkGroupRequired")); return; }
+    channelSaving.value = true;
+    try {
+      await studioApi.alerts.saveChannel({
+        id: channelForm.id,
+        name: channelForm.name.trim(),
+        channelType: "ELINK",
+        elinkTargetType: channelForm.elinkTargetType,
+        elinkUserIds: channelForm.elinkTargetType === "PERSONAL" ? userIds : undefined,
+        elinkGroupId: channelForm.elinkTargetType === "GROUP" ? groupId : undefined,
+        enabled: channelForm.enabled,
+      });
+      ElMessage.success(t("web.alerts.channelSaved")); channelDialogVisible.value = false; await loadChannels();
+    } catch (error) { ElMessage.error(errorMessage(error, t("web.alerts.channelSaveFailed"))); } finally { channelSaving.value = false; }
+    return;
+  }
+  const endpointRequired = !channelForm.id || channelForm.originalChannelType !== "WEBHOOK";
+  if (endpointRequired && !channelForm.endpointUrl.trim()) { ElMessage.warning(t("web.alerts.webhookEndpointRequired")); return; }
   let headers: Record<string, string> | undefined;
   if (channelForm.headersJson.trim()) {
     try {
@@ -606,7 +688,7 @@ async function saveChannel() {
   }
   channelSaving.value = true;
   try {
-    await studioApi.alerts.saveChannel({ id: channelForm.id, name: channelForm.name, endpointUrl: channelForm.endpointUrl || undefined, headers, signingSecret: channelForm.signingSecret || undefined, clearSigningSecret: channelForm.clearSigningSecret, enabled: channelForm.enabled });
+    await studioApi.alerts.saveChannel({ id: channelForm.id, name: channelForm.name.trim(), channelType: "WEBHOOK", endpointUrl: channelForm.endpointUrl.trim() || undefined, headers, signingSecret: channelForm.signingSecret || undefined, clearSigningSecret: channelForm.clearSigningSecret, enabled: channelForm.enabled });
     ElMessage.success(t("web.alerts.channelSaved")); channelDialogVisible.value = false; await loadChannels();
   } catch (error) { ElMessage.error(errorMessage(error, t("web.alerts.channelSaveFailed"))); } finally { channelSaving.value = false; }
 }
@@ -621,6 +703,20 @@ function severityLabel(value?: string) { return t(`web.alerts.severity${titleCas
 function statusLabel(value?: string) { return t(`web.alerts.status${titleCase(value)}`, value || "-"); }
 function subjectTypeLabel(value?: string) { return t(`web.alerts.subject${titleCase(value)}`, value || "-"); }
 function logDomainLabel(value: string) { return t(`web.alerts.domain${titleCase(value)}`, value); }
+function channelTypeLabel(value?: string) {
+  if (value === "ELINK") return t("web.alerts.channelTypeElink");
+  if (value === "WEBHOOK") return t("web.alerts.channelTypeWebhook");
+  if (value === "IN_APP") return t("web.alerts.channelTypeInApp");
+  return value || "-";
+}
+function deliveryStatusLabel(value?: string) { return t(`web.alerts.deliveryStatus${titleCase(value)}`, value || "-"); }
+function eventTypeLabel(value?: string) { return t(`web.alerts.eventType${titleCase(value)}`, value || "-"); }
+function channelTargetSummary(row: AlertChannelView) {
+  if (row.channelType !== "ELINK") return row.endpointMasked || "-";
+  if (row.elinkTargetType === "GROUP") return t("web.alerts.elinkGroupTarget", { id: String(row.elinkGroupId ?? "-") });
+  return t("web.alerts.elinkPersonalTarget", { ids: row.elinkUserIds?.join(", ") || "-" });
+}
+function normalizeElinkUserIds(values: string[]) { return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))); }
 function titleCase(value?: string) { return String(value || "").replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase().split("_").map((item) => item.charAt(0).toUpperCase() + item.slice(1)).join(""); }
 function severityTag(value?: string) { return value === "CRITICAL" ? "danger" : value === "WARNING" ? "warning" : "info"; }
 function incidentStatusTag(value?: string) { return value === "OPEN" ? "danger" : value === "ACKNOWLEDGED" ? "warning" : value === "RECOVERED" ? "success" : "info"; }
