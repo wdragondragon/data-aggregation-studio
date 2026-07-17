@@ -178,23 +178,27 @@ Data Aggregation Studio 的目标定位是：
 - Webhook 响应摘要会脱敏完整地址、短路径、查询参数、自定义 Header、动态签名和签名密钥；证据中的 API Key、Access Key、Private Key 和 Credential 等敏感键也统一脱敏。
 - 已使用最新后端完成真实登录与 HTTP 闭环，验证九类规则元数据、规则创建/启停/测试、站内信投递、租户摘要、固定协议、HMAC 签名、`500` 后人工重试成功、`429` 退避、`400` 终止、超时重试和安全默认配置拒绝本地 HTTP。
 - 已完成 1440×900、390×844 浏览器页面检查，验证规则创建/测试/启停/删除、Webhook 表单、汇总钻取和移动端无横向溢出；控制台无新增错误。
+- 2026-07-17 补齐可解释投递审计：投递列表和详情现在展示规则、事件、对象、实际发送内容、脱敏接收目标、响应与重试进度；站内信/eLink 复用实际发送渲染器，新投递保存不可变审计快照，Webhook 发送时剥离内部审计字段。50 项定向后端测试、Server 打包、Web/Desktop 构建和 1440×900、390×844 浏览器验收通过。
 - P0-01 站内信/Webhook 首版状态更新为“已完成”。现有前端 chunk 体积和 Desktop circular chunk 构建警告不影响功能验收，后续并入 P0-04 性能与工程治理处理；下述 eLink 增量于 2026-07-17 独立完成验收。
 
 #### 后续增量：同 Nacos eLink 通道（已完成，2026-07-17）
 
-建设目标：告警产生投递时，Studio 通过同一 Nacos 集群发现现有 eLink Manager，并向配置的个人 eLink 账号或本地群组发送固定文本消息。该增量保持 eLink Manager 生产发送程序不变。
+建设目标：告警产生投递时，Studio 通过同一 Nacos 集群发现现有 eLink Manager，并向固定个人账号、固定本地群组或规则动态接收人发送固定文本消息。该增量保持 eLink Manager 生产发送程序不变。
 
 最小范围：
 
 - 服务发现：复用 Studio 当前 Nacos `namespace/group`，服务名由服务端统一配置，默认 `elink-message-integration`。
 - Manager 接口：个人账号调用 `POST /elink/messages`；群组调用 `POST /elink/groups/{groupId}/messages`。
-- 通道配置：只保存个人 eLink 账号列表或一个本地群组 ID；数据库仅为 `studio_alert_channel` 增加 `config_json`。
+- 候选查询：个人账号来自 Manager `GET /elink/app/allow-users`，群组来自 `GET /elink/groups`；页面只允许选择，不允许手工输入账号或整数群组 ID。
+- 通道配置：支持 `FIXED` 与 `RULE_RECIPIENTS`。固定模式保存账号/群组标识及名称快照；动态模式复用指定成员、资源创建人和项目管理员。
+- 用户目标：复用 `studio_external_user_binding` 保存 Studio 用户到 eLink `userId` 的映射，并增加可空的 `sys_user.mobile_phone`。网关登录同步可信用户信息中的手机号，本地用户由超级管理员维护。
+- 动态投递：每个规则接收人形成独立 outbox，按“eLink 绑定优先、手机号兜底”保存目标快照；两种目标都缺失时才使对应投递进入 `DEAD`。
 - 消息格式：固定 `text`，由告警级别、规则、对象、摘要和时间自动组装；覆盖触发、静默期后重复、重开、规则配置的恢复通知和测试事件。
 - 状态判定：兼容官方 `errcode=0, errmsg=ok` 和现有 Manager `success` 字段；投递记录保留 `errmsg/errorMessage` 用于排查。
 - 可靠性：网络异常和无可用实例进入 outbox 重试。Manager 没有幂等发送接口，采用至少一次投递语义，响应超时窗口可能出现重复消息。
 - 验收环境：真实 eLink 当前不可达不阻塞验收；在 eLink 工程中增加不连接数据库、不注册 Nacos 的 `elink-mock-server-boot`，模拟 Manager 使用的 `/cgi-bin/*` 上游接口和响应。
 
-明确不包含：SLB 地址、固定 URL、自定义 Header、手机号、自定义模板、`markdown`、`textcard`、幂等 generation，以及 eLink Manager 生产代码改造。
+明确不包含：SLB 地址、固定 URL、自定义 Header、固定通道手工手机号、自定义模板、`markdown`、`textcard`、幂等 generation，以及 eLink Manager 生产代码改造。手机号只作为规则动态接收人的服务端兜底来源。
 
 完成记录：
 
@@ -203,6 +207,7 @@ Data Aggregation Studio 的目标定位是：
 3. Studio 到 Manager 的无实例、网络异常，以及 408、429 和 5xx 的 outbox 重试由专项测试覆盖；文档已明确至少一次投递和超时后可能重复发送的边界。
 4. 已执行 MySQL schema 升级并验证 `config_json`；MySQL/SQLite schema、2026-07-16 幂等增量 SQL、Web/Desktop 构建和告警专项测试通过。
 5. 已在中文模式下完成 1440×900 与 390×844 页面检查；eLink 表单仅展示个人账号或群组 ID，不包含 SLB、Header、模板和其他已取消能力，移动端无页面级横向溢出。
+6. 已增加规则接收人的手机号兜底：不修改 Manager 接口和通道表单，绑定账号优先；未绑定时向 Manager 的 `mobiles` 字段发送 Studio 用户手机号码，Manager 响应继续决定该条 outbox 状态。
 
 ### 6.2 P0-02 配置版本、发布与回滚
 
