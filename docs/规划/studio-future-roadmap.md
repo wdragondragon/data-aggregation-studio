@@ -206,7 +206,7 @@ Data Aggregation Studio 的目标定位是：
 2. 个人账号成功响应和群组成功响应均映射为 `SUCCEEDED`；`success=false, errcode=40003` 映射为 `DEAD`，并保真展示 Manager 的 `errmsg/errorMessage`。
 3. Studio 到 Manager 的无实例、网络异常，以及 408、429 和 5xx 的 outbox 重试由专项测试覆盖；文档已明确至少一次投递和超时后可能重复发送的边界。
 4. 已执行 MySQL schema 升级并验证 `config_json`；MySQL/SQLite schema、2026-07-16 幂等增量 SQL、Web/Desktop 构建和告警专项测试通过。
-5. 已在中文模式下完成 1440×900 与 390×844 页面检查；eLink 表单仅展示个人账号或群组 ID，不包含 SLB、Header、模板和其他已取消能力，移动端无页面级横向溢出。
+5. 已在中文模式下完成 1440×900 与 390×844 页面检查；eLink 表单支持“指定个人账号或群组”和“使用告警规则接收人”两种模式，固定目标通过 eLink Manager 目录下拉选择，不需要手工输入整数 ID；不包含 SLB、Header、模板和其他已取消能力，移动端无页面级横向溢出。
 6. 已增加规则接收人的手机号兜底：不修改 Manager 接口和通道表单，绑定账号优先；未绑定时向 Manager 的 `mobiles` 字段发送 Studio 用户手机号码，Manager 响应继续决定该条 outbox 状态。
 
 ### 6.2 P0-02 配置版本、发布与回滚
