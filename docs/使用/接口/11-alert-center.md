@@ -364,8 +364,9 @@ Manager 响应到投递状态的映射：
 ## 升级与配置
 
 - MySQL 增量 SQL：`backend/studio-server/src/main/resources/update/20260713/20260713-alert-center.sql`
-- eLink 通道增量 SQL：`backend/studio-server/src/main/resources/update/20260716/20260716-elink-alert-channel.sql`，新增 `studio_alert_channel.config_json` 和外部账号绑定唯一索引。
+- eLink 通道增量 SQL：`backend/studio-server/src/main/resources/update/20260716/20260716-elink-alert-channel.sql`，新增 `studio_alert_channel.config_json`。
 - 规则接收人手机号兜底 SQL：`backend/studio-server/src/main/resources/update/20260717/20260717-elink-recipient-mobile.sql`，新增 `sys_user.mobile_phone`。
+- eLink 用户绑定唯一索引 SQL：`backend/studio-server/src/main/resources/update/20260718/20260718-elink-binding-unique-index.sql`，新增 `uk_studio_external_user_binding_provider_user`。
 - 全量 schema 已同步 MySQL 和 SQLite；`StudioSchemaUpgradeService` 也会补建五张告警表、索引、`config_json`、账号绑定约束和用户手机号列。
 - 首次升级不创建默认规则，不扫描历史终态失败。
 - 总开关：`studio.alert.enabled`；评估、投递、Webhook 和 eLink 分别有独立子开关。
