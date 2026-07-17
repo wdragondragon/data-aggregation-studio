@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -63,6 +64,8 @@ class AlertSchemaIntegrationTest {
                 "studio-server/src/main/resources/update/20260716/20260716-elink-alert-channel.sql");
         String mobileMigration = readBackendFile(
                 "studio-server/src/main/resources/update/20260717/20260717-elink-recipient-mobile.sql");
+        String bindingMigration = readBackendFile(
+                "studio-server/src/main/resources/update/20260718/20260718-elink-binding-unique-index.sql");
         String upgrade = Files.readString(Path.of("src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java"),
                 StandardCharsets.UTF_8);
         for (String source : new String[]{schema, migration, upgrade}) {
@@ -79,11 +82,17 @@ class AlertSchemaIntegrationTest {
         assertTrue(elinkMigration.contains("config_json json"));
         assertTrue(elinkMigration.contains("information_schema.columns"));
         assertTrue(elinkMigration.contains("prepare stmt from @ddl"));
+        assertFalse(elinkMigration.contains("uk_studio_external_user_binding_provider_user"));
         assertTrue(upgrade.contains("config_json json"));
         assertTrue(schema.contains("version int default 0"));
         assertTrue(schema.contains("mobile_phone varchar(32)"));
         assertTrue(mobileMigration.contains("mobile_phone varchar(32)"));
         assertTrue(upgrade.contains("sys_user\", \"mobile_phone"));
+        assertTrue(schema.contains("uk_studio_external_user_binding_provider_user"));
+        assertTrue(bindingMigration.contains("uk_studio_external_user_binding_provider_user"));
+        assertTrue(bindingMigration.contains("information_schema.statistics"));
+        assertTrue(bindingMigration.contains("prepare stmt from @ddl"));
+        assertTrue(upgrade.contains("uk_studio_external_user_binding_provider_user"));
     }
 
     @Test
