@@ -95,6 +95,8 @@ import type {
   DataServiceResolveFieldsView,
   DataServiceSaveRequest,
   DataServiceSubscriptionView,
+  ElinkGroupOptionView,
+  ElinkUserOptionView,
   EntityId,
   ExportProjectBundle,
   FieldMappingRuleSaveRequest,
@@ -1824,6 +1826,14 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       retryDelivery(id: EntityId) {
         return request<AlertDeliveryView>({ url: `/alerts/deliveries/${id}/retry`, method: "POST" });
+      },
+    },
+    elink: {
+      queryUsers(params?: { keyword?: string; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+        return requestPage<ElinkUserOptionView>({ ...config, url: "/elink/users", method: "GET", params }, params);
+      },
+      queryGroups(params?: { keyword?: string; pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+        return requestPage<ElinkGroupOptionView>({ ...config, url: "/elink/groups", method: "GET", params }, params);
       },
     },
     notifications: {

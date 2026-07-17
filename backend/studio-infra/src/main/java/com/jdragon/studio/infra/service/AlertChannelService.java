@@ -8,6 +8,8 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.AlertChannelType;
 import com.jdragon.studio.dto.model.AlertChannelView;
+import com.jdragon.studio.dto.model.ElinkGroupOptionView;
+import com.jdragon.studio.dto.model.ElinkUserOptionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.AlertChannelQueryRequest;
 import com.jdragon.studio.dto.model.request.AlertChannelSaveRequest;
@@ -47,6 +49,8 @@ public class AlertChannelService {
     private static final int MAX_HEADER_VALUE_LENGTH = 4000;
     private static final int MAX_HEADER_BYTES = 16 * 1024;
     private static final int MAX_SIGNING_SECRET_LENGTH = 4096;
+    public static final String ELINK_RECIPIENT_MODE_FIXED = "FIXED";
+    public static final String ELINK_RECIPIENT_MODE_RULE_RECIPIENTS = "RULE_RECIPIENTS";
     private static final Set<String> FORBIDDEN_HEADERS = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
 
     static {
@@ -64,6 +68,7 @@ public class AlertChannelService {
     private final AlertWebhookSecurityService webhookSecurityService;
     private final ObjectMapper objectMapper;
     private StudioPlatformProperties properties;
+    private ElinkManagerOptionService elinkManagerOptionService;
 
     public AlertChannelService(AlertChannelMapper alertChannelMapper,
                                AlertRuleMapper alertRuleMapper,
@@ -86,6 +91,11 @@ public class AlertChannelService {
     @Autowired
     void setStudioPlatformProperties(StudioPlatformProperties properties) {
         this.properties = properties;
+    }
+
+    @Autowired(required = false)
+    void setElinkManagerOptionService(ElinkManagerOptionService elinkManagerOptionService) {
+        this.elinkManagerOptionService = elinkManagerOptionService;
     }
 
     public PageView<AlertChannelView> query(AlertChannelQueryRequest request) {
@@ -255,12 +265,25 @@ public class AlertChannelService {
         return configText(channel == null ? null : channel.getConfigJson(), "targetType");
     }
 
+    public String elinkRecipientMode(AlertChannelEntity channel) {
+        String value = configText(channel == null ? null : channel.getConfigJson(), "recipientMode");
+        return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : ELINK_RECIPIENT_MODE_FIXED;
+    }
+
     public List<String> elinkUserIds(AlertChannelEntity channel) {
         return configStrings(channel == null ? null : channel.getConfigJson(), "userIds");
     }
 
+    public List<String> elinkUserNames(AlertChannelEntity channel) {
+        return configStrings(channel == null ? null : channel.getConfigJson(), "userNames");
+    }
+
     public Long elinkGroupId(AlertChannelEntity channel) {
         return configLong(channel == null ? null : channel.getConfigJson(), "groupId").orElse(null);
+    }
+
+    public String elinkGroupName(AlertChannelEntity channel) {
+        return configText(channel == null ? null : channel.getConfigJson(), "groupName");
     }
 
     public void markTestResult(Long channelId, String status, String message) {
@@ -290,9 +313,12 @@ public class AlertChannelService {
             view.setHasSigningSecret(StringUtils.hasText(entity.getSigningSecretCiphertext()));
         }
         Map<String, Object> config = entity.getConfigJson();
+        view.setElinkRecipientMode(elinkRecipientMode(entity));
         view.setElinkTargetType(configText(config, "targetType"));
         view.setElinkUserIds(configStrings(config, "userIds"));
+        view.setElinkUserNames(configStrings(config, "userNames"));
         view.setElinkGroupId(configLong(config, "groupId").orElse(null));
+        view.setElinkGroupName(configText(config, "groupName"));
         view.setEnabled(Integer.valueOf(1).equals(entity.getEnabled()));
         view.setLastTestedAt(entity.getLastTestedAt());
         view.setLastTestStatus(entity.getLastTestStatus());
@@ -402,9 +428,37 @@ public class AlertChannelService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "eLink channels do not accept Webhook endpoint, Header, or signing settings");
         }
+        String recipientMode = StringUtils.hasText(request.getElinkRecipientMode())
+                ? request.getElinkRecipientMode().trim().toUpperCase(Locale.ROOT)
+                : entity.getId() == null ? ELINK_RECIPIENT_MODE_FIXED : elinkRecipientMode(entity);
+        if (!ELINK_RECIPIENT_MODE_FIXED.equals(recipientMode)
+                && !ELINK_RECIPIENT_MODE_RULE_RECIPIENTS.equals(recipientMode)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Unsupported eLink recipient mode: " + recipientMode);
+        }
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("recipientMode", recipientMode);
+        if (ELINK_RECIPIENT_MODE_RULE_RECIPIENTS.equals(recipientMode)) {
+            String targetType = StringUtils.hasText(request.getElinkTargetType())
+                    ? request.getElinkTargetType().trim().toUpperCase(Locale.ROOT) : "PERSONAL";
+            if (!"PERSONAL".equals(targetType)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Rule-recipient eLink channels only support personal messages");
+            }
+            if ((request.getElinkUserIds() != null && !request.getElinkUserIds().isEmpty())
+                    || request.getElinkGroupId() != null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Rule-recipient eLink channels do not accept fixed accounts or groups");
+            }
+            config.put("targetType", "PERSONAL");
+            entity.setEndpointCiphertext(null);
+            entity.setHeadersCiphertext(null);
+            entity.setSigningSecretCiphertext(null);
+            entity.setConfigJson(config);
+            return;
+        }
         String targetType = requireText(request.getElinkTargetType(), "eLink target type is required")
                 .toUpperCase(Locale.ROOT);
-        Map<String, Object> config = new LinkedHashMap<String, Object>();
         config.put("targetType", targetType);
         if ("PERSONAL".equals(targetType)) {
             List<String> userIds = normalizeElinkUserIds(request.getElinkUserIds());
@@ -412,12 +466,24 @@ public class AlertChannelService {
                 throw new StudioException(StudioErrorCode.BAD_REQUEST,
                         "At least one eLink account is required");
             }
+            List<String> userNames = sameStoredPersonalTarget(entity, userIds)
+                    ? storedElinkUserNames(entity, userIds) : loadElinkUserNames(userIds);
             config.put("userIds", userIds);
+            config.put("userNames", userNames);
         } else if ("GROUP".equals(targetType)) {
             if (request.getElinkGroupId() == null || request.getElinkGroupId().longValue() <= 0L) {
                 throw new StudioException(StudioErrorCode.BAD_REQUEST, "A positive eLink group id is required");
             }
             config.put("groupId", request.getElinkGroupId());
+            if (sameStoredGroupTarget(entity, request.getElinkGroupId())) {
+                config.put("groupName", StringUtils.hasText(elinkGroupName(entity))
+                        ? elinkGroupName(entity) : String.valueOf(request.getElinkGroupId()));
+            } else {
+                ElinkGroupOptionView option = elinkManagerOptionService == null
+                        ? null : elinkManagerOptionService.requireGroup(request.getElinkGroupId());
+                config.put("groupName", option == null || !StringUtils.hasText(option.getName())
+                        ? String.valueOf(request.getElinkGroupId()) : option.getName());
+            }
         } else {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "Unsupported eLink target type: " + targetType);
@@ -426,6 +492,41 @@ public class AlertChannelService {
         entity.setHeadersCiphertext(null);
         entity.setSigningSecretCiphertext(null);
         entity.setConfigJson(config);
+    }
+
+    private boolean sameStoredPersonalTarget(AlertChannelEntity entity, List<String> userIds) {
+        return entity.getId() != null
+                && ELINK_RECIPIENT_MODE_FIXED.equals(elinkRecipientMode(entity))
+                && "PERSONAL".equalsIgnoreCase(elinkTargetType(entity))
+                && userIds.equals(elinkUserIds(entity));
+    }
+
+    private boolean sameStoredGroupTarget(AlertChannelEntity entity, Long groupId) {
+        return entity.getId() != null
+                && ELINK_RECIPIENT_MODE_FIXED.equals(elinkRecipientMode(entity))
+                && "GROUP".equalsIgnoreCase(elinkTargetType(entity))
+                && groupId.equals(elinkGroupId(entity));
+    }
+
+    private List<String> loadElinkUserNames(List<String> userIds) {
+        List<String> userNames = new ArrayList<String>();
+        for (String userId : userIds) {
+            ElinkUserOptionView option = elinkManagerOptionService == null
+                    ? null : elinkManagerOptionService.requireUser(userId);
+            userNames.add(option == null || !StringUtils.hasText(option.getName())
+                    ? userId : option.getName());
+        }
+        return userNames;
+    }
+
+    private List<String> storedElinkUserNames(AlertChannelEntity entity, List<String> userIds) {
+        List<String> storedNames = elinkUserNames(entity);
+        List<String> result = new ArrayList<String>();
+        for (int index = 0; index < userIds.size(); index++) {
+            String storedName = index < storedNames.size() ? storedNames.get(index) : null;
+            result.add(StringUtils.hasText(storedName) ? storedName : userIds.get(index));
+        }
+        return result;
     }
 
     private boolean elinkChannelEnabled() {

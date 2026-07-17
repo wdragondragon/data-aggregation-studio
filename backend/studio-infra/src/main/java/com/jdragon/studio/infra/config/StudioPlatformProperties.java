@@ -142,6 +142,7 @@ public class StudioPlatformProperties {
         private Integer connectTimeoutSeconds = 3;
         private Integer requestTimeoutSeconds = 10;
         private Integer maxErrorResponseBytes = 16 * 1024;
+        private Integer maxOptionResponseBytes = 1024 * 1024;
     }
 
     @Data

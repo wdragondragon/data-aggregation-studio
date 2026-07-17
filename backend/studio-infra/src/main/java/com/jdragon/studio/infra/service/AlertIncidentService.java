@@ -67,6 +67,7 @@ public class AlertIncidentService {
     private final AlertIncidentPresentationSupport presentationSupport;
     private final AlertIncidentSummarySupport summarySupport;
     private TransactionTemplate stateTransactionTemplate;
+    private AlertChannelService alertChannelService;
 
     public AlertIncidentService(AlertIncidentMapper alertIncidentMapper,
                                 AlertEventMapper alertEventMapper,
@@ -97,6 +98,11 @@ public class AlertIncidentService {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.stateTransactionTemplate = template;
+    }
+
+    @Autowired(required = false)
+    void setAlertChannelService(AlertChannelService alertChannelService) {
+        this.alertChannelService = alertChannelService;
     }
 
     public PageView<AlertIncidentView> query(AlertIncidentQueryRequest request) {
@@ -305,6 +311,12 @@ public class AlertIncidentService {
                 .last("limit 1"));
         if (channel == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Alert channel was not found");
+        }
+        if (AlertChannelType.ELINK.name().equals(channel.getChannelType())
+                && AlertChannelService.ELINK_RECIPIENT_MODE_RULE_RECIPIENTS.equals(
+                elinkRecipientMode(channel))) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "Rule-recipient eLink channels must be tested from an alert rule");
         }
         LocalDateTime now = LocalDateTime.now();
         AlertObservation observation = new AlertObservation()
@@ -522,12 +534,15 @@ public class AlertIncidentService {
     private void createDeliveries(AlertRuleEntity rule, AlertIncidentEntity incident, AlertEventEntity event,
                                   Long ownerUserId, boolean test) {
         Map<String, Object> payload = payload(rule, incident, event);
+        List<Long> resolvedRecipients = null;
         if (Integer.valueOf(1).equals(rule.getInAppEnabled())) {
-            for (Long userId : recipientResolver.resolve(rule, ownerUserId)) {
+            resolvedRecipients = recipientResolver.resolve(rule, ownerUserId);
+            for (Long userId : resolvedRecipients) {
                 AlertDeliveryEntity delivery = baseDelivery(event, incident, AlertChannelType.IN_APP.name(),
                         "IN_APP:" + userId, payload);
                 delivery.setRecipientUserId(userId);
                 delivery.setChannelNameSnapshot("站内信");
+                setDeliveryRecipientDisplay(delivery, "Studio 用户 " + userId);
                 insertDelivery(delivery);
             }
         }
@@ -541,9 +556,85 @@ public class AlertIncidentService {
                 if (channel == null) {
                     continue;
                 }
-                createChannelDelivery(event, incident, channel, payload, true);
+                if (AlertChannelType.ELINK.name().equals(channel.getChannelType())
+                        && AlertChannelService.ELINK_RECIPIENT_MODE_RULE_RECIPIENTS.equals(
+                        elinkRecipientMode(channel))) {
+                    if (resolvedRecipients == null) {
+                        resolvedRecipients = recipientResolver.resolve(rule, ownerUserId);
+                    }
+                    createRuleRecipientElinkDeliveries(event, incident, channel, payload, resolvedRecipients);
+                } else {
+                    createChannelDelivery(event, incident, channel, payload, true);
+                }
             }
         }
+    }
+
+    private void createRuleRecipientElinkDeliveries(AlertEventEntity event, AlertIncidentEntity incident,
+                                                     AlertChannelEntity channel, Map<String, Object> payload,
+                                                     List<Long> recipientUserIds) {
+        if (!Integer.valueOf(1).equals(channel.getEnabled())) {
+            createChannelDelivery(event, incident, channel, payload, true);
+            return;
+        }
+        if (recipientUserIds == null || recipientUserIds.isEmpty()) {
+            AlertDeliveryEntity delivery = dynamicElinkDelivery(event, incident, channel, payload,
+                    "NO_RECIPIENT", null);
+            markDead(delivery, "The alert rule did not resolve any active recipient");
+            insertDelivery(delivery);
+            return;
+        }
+        Map<Long, String> elinkUserIds = recipientResolver.resolveElinkUserIds(recipientUserIds);
+        Map<Long, String> mobiles = recipientResolver.resolveStudioUserMobiles(recipientUserIds);
+        for (Long studioUserId : recipientUserIds) {
+            AlertDeliveryEntity delivery = dynamicElinkDelivery(event, incident, channel, payload,
+                    String.valueOf(studioUserId), studioUserId);
+            String elinkUserId = elinkUserIds.get(studioUserId);
+            String mobile = mobiles.get(studioUserId);
+            Map<String, Object> deliveryPayload = new LinkedHashMap<String, Object>(delivery.getPayloadJson());
+            if (StringUtils.hasText(elinkUserId)) {
+                deliveryPayload.put("_elinkTargetUserId", elinkUserId);
+                delivery.setPayloadJson(deliveryPayload);
+            } else if (StringUtils.hasText(mobile)) {
+                deliveryPayload.put("_elinkTargetMobile", mobile);
+                delivery.setPayloadJson(deliveryPayload);
+                setDeliveryRecipientDisplay(delivery,
+                        "规则接收人（手机号 " + AlertSensitiveTextSanitizer.sanitize(mobile) + "）");
+            } else {
+                markDead(delivery, "Studio user " + studioUserId
+                        + " is not bound to an eLink account and has no valid mobile");
+            }
+            insertDelivery(delivery);
+        }
+    }
+
+    private AlertDeliveryEntity dynamicElinkDelivery(AlertEventEntity event, AlertIncidentEntity incident,
+                                                      AlertChannelEntity channel, Map<String, Object> payload,
+                                                      String recipientKey, Long studioUserId) {
+        AlertDeliveryEntity delivery = baseDelivery(event, incident, AlertChannelType.ELINK.name(),
+                AlertChannelType.ELINK.name() + ":" + channel.getId() + ":RECIPIENT:" + recipientKey, payload);
+        delivery.setChannelId(channel.getId());
+        delivery.setChannelNameSnapshot(channel.getName());
+        delivery.setRecipientUserId(studioUserId);
+        setDeliveryRecipientDisplay(delivery, studioUserId == null
+                ? "规则接收人" : "规则接收人（Studio 用户 " + studioUserId + "）");
+        return delivery;
+    }
+
+    private void markDead(AlertDeliveryEntity delivery, String message) {
+        delivery.setStatus(AlertDeliveryStatus.DEAD.name());
+        delivery.setNextAttemptAt(null);
+        delivery.setErrorMessage(message);
+    }
+
+    private String elinkRecipientMode(AlertChannelEntity channel) {
+        if (alertChannelService != null) {
+            return alertChannelService.elinkRecipientMode(channel);
+        }
+        Object value = channel == null || channel.getConfigJson() == null
+                ? null : channel.getConfigJson().get("recipientMode");
+        return value == null ? AlertChannelService.ELINK_RECIPIENT_MODE_FIXED
+                : String.valueOf(value).trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     private AlertDeliveryEntity createChannelDelivery(AlertEventEntity event, AlertIncidentEntity incident,
@@ -555,6 +646,7 @@ public class AlertIncidentService {
                 channelType + ":" + channel.getId(), payload);
         delivery.setChannelId(channel.getId());
         delivery.setChannelNameSnapshot(channel.getName());
+        setDeliveryRecipientDisplay(delivery, channelRecipientDisplay(channel, channelType));
         if (skipDisabledChannel && !Integer.valueOf(1).equals(channel.getEnabled())) {
             delivery.setStatus(AlertDeliveryStatus.SKIPPED.name());
             delivery.setNextAttemptAt(null);
@@ -577,8 +669,75 @@ public class AlertIncidentService {
         delivery.setStatus(AlertDeliveryStatus.PENDING.name());
         delivery.setAttemptCount(0);
         delivery.setNextAttemptAt(LocalDateTime.now());
-        delivery.setPayloadJson(new LinkedHashMap<String, Object>(payload));
+        delivery.setPayloadJson(AlertDeliveryMessageRenderer.withDeliveryAudit(payload, channelType));
         return delivery;
+    }
+
+    private void setDeliveryRecipientDisplay(AlertDeliveryEntity delivery, String recipientDisplay) {
+        if (delivery != null) {
+            AlertDeliveryMessageRenderer.setRecipientDisplay(delivery.getPayloadJson(), recipientDisplay);
+        }
+    }
+
+    private String channelRecipientDisplay(AlertChannelEntity channel, String channelType) {
+        if (AlertChannelType.WEBHOOK.name().equals(channelType)) {
+            return "Webhook 通道：" + fallbackText(channel == null ? null : channel.getName(), "未命名通道");
+        }
+        if (!AlertChannelType.ELINK.name().equals(channelType) || channel == null) {
+            return channel == null ? null : channel.getName();
+        }
+        if (AlertChannelService.ELINK_RECIPIENT_MODE_RULE_RECIPIENTS.equals(elinkRecipientMode(channel))) {
+            return "规则接收人";
+        }
+        String targetType = alertChannelService == null
+                ? channelConfigText(channel, "targetType") : alertChannelService.elinkTargetType(channel);
+        if ("GROUP".equalsIgnoreCase(targetType)) {
+            String groupName = alertChannelService == null
+                    ? channelConfigText(channel, "groupName") : alertChannelService.elinkGroupName(channel);
+            Long groupId = alertChannelService == null
+                    ? channelConfigLong(channel, "groupId") : alertChannelService.elinkGroupId(channel);
+            return "群组：" + fallbackText(groupName, groupId == null ? channel.getName() : String.valueOf(groupId));
+        }
+        List<String> userNames = alertChannelService == null
+                ? channelConfigStrings(channel, "userNames") : alertChannelService.elinkUserNames(channel);
+        List<String> userIds = alertChannelService == null
+                ? channelConfigStrings(channel, "userIds") : alertChannelService.elinkUserIds(channel);
+        List<String> targets = userNames == null || userNames.isEmpty() ? userIds : userNames;
+        if (targets != null && !targets.isEmpty()) {
+            return "账号：" + String.join("、", targets);
+        }
+        return "固定通道：" + fallbackText(channel.getName(), "未命名通道");
+    }
+
+    private String channelConfigText(AlertChannelEntity channel, String key) {
+        Object value = channel == null || channel.getConfigJson() == null ? null : channel.getConfigJson().get(key);
+        return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private Long channelConfigLong(AlertChannelEntity channel, String key) {
+        String value = channelConfigText(channel, key);
+        try {
+            return StringUtils.hasText(value) ? Long.valueOf(value) : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private List<String> channelConfigStrings(AlertChannelEntity channel, String key) {
+        Object value = channel == null || channel.getConfigJson() == null ? null : channel.getConfigJson().get(key);
+        List<String> result = new ArrayList<String>();
+        if (value instanceof Iterable<?>) {
+            for (Object item : (Iterable<?>) value) {
+                if (StringUtils.hasText(item == null ? null : String.valueOf(item))) {
+                    result.add(String.valueOf(item).trim());
+                }
+            }
+        }
+        return result;
+    }
+
+    private String fallbackText(String value, String fallback) {
+        return StringUtils.hasText(value) ? value : fallback;
     }
 
     private void insertDelivery(AlertDeliveryEntity delivery) {

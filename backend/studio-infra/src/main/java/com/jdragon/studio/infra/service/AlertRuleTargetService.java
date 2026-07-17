@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.AlertChannelType;
 import com.jdragon.studio.dto.enums.AlertSubjectType;
 import com.jdragon.studio.dto.model.AlertSelectOptionView;
 import com.jdragon.studio.dto.model.PageView;
@@ -34,7 +35,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -121,7 +121,7 @@ final class AlertRuleTargetService {
         String normalizedKeyword = trimToNull(keyword);
         for (StudioUserEntity user : users) {
             String name = StringUtils.hasText(user.getDisplayName()) ? user.getDisplayName() : user.getUsername();
-            if (!Objects.equals(tenantId, user.getTenantId()) || !Integer.valueOf(1).equals(user.getEnabled())
+            if (!Integer.valueOf(1).equals(user.getEnabled())
                     || (normalizedKeyword != null && !containsIgnoreCase(name, normalizedKeyword)
                     && !containsIgnoreCase(user.getUsername(), normalizedKeyword))) {
                 continue;
@@ -153,7 +153,7 @@ final class AlertRuleTargetService {
                         "Alert recipient is not an active project member: " + userId);
             }
         }
-        Set<Long> enabledUserIds = enabledUserIds(userIds, tenantId);
+        Set<Long> enabledUserIds = enabledUserIds(userIds);
         for (Long userId : userIds) {
             if (!enabledUserIds.contains(userId)) {
                 throw new StudioException(StudioErrorCode.BAD_REQUEST,
@@ -176,6 +176,9 @@ final class AlertRuleTargetService {
 
     void validateEffectiveDestinations(AlertRuleEntity rule) {
         List<Long> channelIds = normalizeIds(rule.getWebhookChannelIdsJson());
+        validateRuleRecipientChannels(channelIds, rule.getSubjectType(), rule.getSubjectId(),
+                rule.getRecipientUserIdsJson(), Integer.valueOf(1).equals(rule.getNotifyResourceOwner()),
+                Integer.valueOf(1).equals(rule.getNotifyProjectAdmins()), rule.getTenantId(), rule.getProjectId());
         if (!hasEffectiveInAppDestination(rule)
                 && !hasEnabledWebhook(channelIds, rule.getTenantId(), rule.getProjectId())) {
             throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
@@ -205,6 +208,13 @@ final class AlertRuleTargetService {
     boolean hasEffectiveInAppDestination(String subjectType, Long subjectId, List<Long> recipientUserIds,
                                           boolean notifyOwner, boolean notifyAdmins,
                                           String tenantId, Long projectId) {
+        return hasEffectiveRecipientSource(subjectType, subjectId, recipientUserIds, notifyOwner,
+                notifyAdmins, tenantId, projectId);
+    }
+
+    boolean hasEffectiveRecipientSource(String subjectType, Long subjectId, List<Long> recipientUserIds,
+                                        boolean notifyOwner, boolean notifyAdmins,
+                                        String tenantId, Long projectId) {
         List<ProjectMemberEntity> members = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMemberEntity>()
                 .eq(ProjectMemberEntity::getTenantId, tenantId)
                 .eq(ProjectMemberEntity::getProjectId, projectId)
@@ -215,7 +225,7 @@ final class AlertRuleTargetService {
                 activeUserIds.add(member.getUserId());
             }
         }
-        Set<Long> enabledActiveUserIds = enabledUserIds(activeUserIds, tenantId);
+        Set<Long> enabledActiveUserIds = enabledUserIds(activeUserIds);
         if (notifyAdmins) {
             for (ProjectMemberEntity member : members) {
                 if (StudioConstants.ROLE_PROJECT_ADMIN.equalsIgnoreCase(member.getRoleCode())
@@ -237,6 +247,39 @@ final class AlertRuleTargetService {
         for (SubjectDescriptor descriptor : listSubjects(definitionRegistry.parseSubjectType(subjectType), projectId, null)) {
             if ((subjectId == null || subjectId.equals(descriptor.id))
                     && enabledActiveUserIds.contains(descriptor.ownerUserId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void validateRuleRecipientChannels(List<Long> channelIds, String subjectType, Long subjectId,
+                                       List<Long> recipientUserIds, boolean notifyOwner, boolean notifyAdmins,
+                                       String tenantId, Long projectId) {
+        if (!hasRuleRecipientElinkChannel(channelIds, tenantId, projectId)) {
+            return;
+        }
+        if (!hasEffectiveRecipientSource(subjectType, subjectId, recipientUserIds, notifyOwner,
+                notifyAdmins, tenantId, projectId)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Rule-recipient eLink channels require at least one effective rule recipient source");
+        }
+    }
+
+    private boolean hasRuleRecipientElinkChannel(List<Long> channelIds, String tenantId, Long projectId) {
+        if (channelIds == null || channelIds.isEmpty()) {
+            return false;
+        }
+        List<AlertChannelEntity> channels = alertChannelMapper.selectList(
+                new LambdaQueryWrapper<AlertChannelEntity>()
+                        .eq(AlertChannelEntity::getTenantId, tenantId)
+                        .eq(AlertChannelEntity::getProjectId, projectId)
+                        .eq(AlertChannelEntity::getChannelType, AlertChannelType.ELINK.name())
+                        .in(AlertChannelEntity::getId, channelIds));
+        for (AlertChannelEntity channel : channels) {
+            Object mode = channel.getConfigJson() == null ? null : channel.getConfigJson().get("recipientMode");
+            if (mode != null && AlertChannelService.ELINK_RECIPIENT_MODE_RULE_RECIPIENTS
+                    .equalsIgnoreCase(String.valueOf(mode).trim())) {
                 return true;
             }
         }
@@ -265,7 +308,7 @@ final class AlertRuleTargetService {
         throw new StudioException(StudioErrorCode.NOT_FOUND, "Alert subject was not found in the current project");
     }
 
-    private Set<Long> enabledUserIds(Iterable<Long> userIds, String tenantId) {
+    private Set<Long> enabledUserIds(Iterable<Long> userIds) {
         Set<Long> ids = new LinkedHashSet<Long>();
         if (userIds != null) {
             for (Long userId : userIds) {
@@ -281,8 +324,7 @@ final class AlertRuleTargetService {
         Set<Long> result = new LinkedHashSet<Long>();
         if (users != null) {
             for (StudioUserEntity user : users) {
-                if (user != null && user.getId() != null && Objects.equals(tenantId, user.getTenantId())
-                        && Integer.valueOf(1).equals(user.getEnabled())) {
+                if (user != null && user.getId() != null && Integer.valueOf(1).equals(user.getEnabled())) {
                     result.add(user.getId());
                 }
             }

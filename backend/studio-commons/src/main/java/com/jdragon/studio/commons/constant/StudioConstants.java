@@ -53,6 +53,7 @@ public final class StudioConstants {
     public static final String REQUEST_PROJECT_HEADER = "X-Project-Id";
     public static final String INTERNAL_API_TOKEN_HEADER = "X-Studio-Internal-Token";
     public static final String GATEWAY_PROVIDER_CODE = "GATEWAY";
+    public static final String ELINK_PROVIDER_CODE = "ELINK";
     public static final String GATEWAY_USER_INFO_HEADER = "userInfo";
     public static final String GATEWAY_TIMESTAMP_HEADER = "X-Studio-Gateway-Timestamp";
     public static final String GATEWAY_SIGNATURE_HEADER = "X-Studio-Gateway-Signature";

@@ -13,5 +13,8 @@ public class StudioUserListView {
     private LocalDateTime updatedAt;
     private String username;
     private String displayName;
+    private String mobilePhone;
     private Integer enabled;
+    private String elinkUserId;
+    private String elinkUserName;
 }

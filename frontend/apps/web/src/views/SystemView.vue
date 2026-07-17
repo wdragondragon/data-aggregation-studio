@@ -20,10 +20,19 @@
           <div class="tab-toolbar">
             <el-button type="primary" @click="openUserDialog()">新建用户</el-button>
           </div>
-          <StudioTableShell v-loading="tabLoading.users" min-width="940px">
+          <StudioTableShell v-loading="tabLoading.users" min-width="1160px">
           <el-table :data="users" border size="small">
             <el-table-column prop="username" label="用户名" min-width="160" />
             <el-table-column prop="displayName" label="显示名" min-width="180" />
+            <el-table-column :label="t('web.system.elinkAccount')" min-width="220">
+              <template #default="{ row }">
+                <div v-if="row.elinkUserId" class="stack-cell">
+                  <span>{{ row.elinkUserName || row.elinkUserId }}</span>
+                  <span v-if="row.elinkUserName" class="cell-subtle">{{ row.elinkUserId }}</span>
+                </div>
+                <span v-else class="cell-subtle">{{ t("web.system.elinkUnbound") }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="启用" width="110" align="center">
               <template #default="{ row }">
                 <el-tag :type="toBooleanFlag(row.enabled) ? 'success' : 'info'">{{ toBooleanFlag(row.enabled) ? "开启" : "关闭" }}</el-tag>
@@ -423,7 +432,37 @@
       <el-form label-position="top">
         <el-form-item label="用户名"><el-input v-model="userForm.username" /></el-form-item>
         <el-form-item label="显示名"><el-input v-model="userForm.displayName" /></el-form-item>
+        <el-form-item :label="t('web.system.mobilePhone')">
+          <el-input
+            v-model="userForm.mobilePhone"
+            clearable
+            maxlength="32"
+            :placeholder="t('web.system.mobilePhonePlaceholder')"
+          />
+        </el-form-item>
         <el-form-item label="密码"><el-input v-model="userForm.passwordHash" type="password" show-password /></el-form-item>
+        <el-form-item :label="t('web.system.elinkAccount')">
+          <el-select
+            v-model="userForm.elinkUserId"
+            clearable
+            filterable
+            remote
+            reserve-keyword
+            :loading="elinkUserLoading"
+            :remote-method="searchElinkUsers"
+            :placeholder="t('web.system.elinkAccountPlaceholder')"
+            style="width: 100%"
+            @visible-change="handleElinkUserDropdownVisible"
+          >
+            <el-option
+              v-for="user in elinkUserOptions"
+              :key="user.userId"
+              :label="elinkUserLabel(user)"
+              :value="user.userId"
+              :disabled="user.enabled === false && user.userId !== userForm.elinkUserId"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="启用"><el-switch v-model="userForm.enabled" /></el-form-item>
       </el-form>
       <template #footer>
@@ -607,7 +646,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import type { Ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
@@ -632,6 +671,7 @@ import type {
 } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { useElinkDirectoryOptions } from "@/composables/useElinkDirectoryOptions";
 import {
   buildProjectActions,
   buildProjectMemberActions,
@@ -663,7 +703,17 @@ const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const {
+  userOptions: elinkUserOptions,
+  userLoading: elinkUserLoading,
+  seedUsers: seedElinkUsers,
+  queryUsers: queryElinkUsers,
+  ensureUsers: ensureElinkUsers,
+  cancelUserQuery: cancelElinkUserQuery,
+  userLabel: elinkUserLabel,
+} = useElinkDirectoryOptions();
 const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
+const ELINK_SEARCH_DEBOUNCE_MS = 250;
 const DEFAULT_SHARE_RESOURCE_TYPE = resourceTypeOptions[0].value;
 const SYSTEM_PAGE_SIZES = [10, 20, 50, 100];
 const activeTab = ref<SystemTabName>("tenants");
@@ -727,6 +777,10 @@ const resourceSharePagination = reactive({
 });
 
 const userDialogOpen = ref(false);
+let elinkUserSearchTimer: ReturnType<typeof setTimeout> | undefined;
+let elinkUserSearchKeyword = "";
+const originalElinkUserId = ref("");
+const originalElinkUserName = ref("");
 const tenantDialogOpen = ref(false);
 const projectDialogOpen = ref(false);
 const tenantMemberDialogOpen = ref(false);
@@ -1278,7 +1332,53 @@ function openUserDialog(row?: StudioUserListView) {
   Object.assign(userForm, row ?? {});
   userForm.enabled = toBooleanFlag(userForm.enabled);
   userForm.passwordHash = "";
+  const elinkUserId = normalizeElinkUserId(row?.elinkUserId);
+  originalElinkUserId.value = elinkUserId;
+  originalElinkUserName.value = row?.elinkUserName?.trim() || "";
+  userForm.elinkUserId = elinkUserId || undefined;
+  userForm.elinkUserName = originalElinkUserName.value || undefined;
+  seedElinkUsers(elinkUserId ? [elinkUserId] : [], originalElinkUserName.value ? [originalElinkUserName.value] : []);
   userDialogOpen.value = true;
+}
+
+function normalizeElinkUserId(value?: string | null) {
+  return value?.trim() || "";
+}
+
+function handleElinkUserDropdownVisible(visible: boolean) {
+  if (visible) void loadElinkUsers("", true);
+  else cleanupElinkUserRequest();
+}
+
+function searchElinkUsers(keyword: string) {
+  const normalizedKeyword = keyword.trim();
+  if (!normalizedKeyword && !elinkUserSearchKeyword) return;
+  elinkUserSearchKeyword = normalizedKeyword;
+  if (elinkUserSearchTimer) clearTimeout(elinkUserSearchTimer);
+  elinkUserSearchTimer = setTimeout(() => {
+    void loadElinkUsers(normalizedKeyword, !normalizedKeyword);
+  }, ELINK_SEARCH_DEBOUNCE_MS);
+}
+
+async function loadElinkUsers(keyword = "", preferCache = false) {
+  const selectedUserId = normalizeElinkUserId(userForm.elinkUserId);
+  const selectedOption = elinkUserOptions.value.find((item) => item.userId === selectedUserId);
+  const historicalName = selectedUserId === originalElinkUserId.value ? originalElinkUserName.value : "";
+  try {
+    const selectedIds = selectedUserId ? [selectedUserId] : [];
+    const selectedNames = selectedUserId ? [selectedOption?.name || historicalName] : [];
+    if (preferCache && !keyword.trim()) await ensureElinkUsers(selectedIds, selectedNames);
+    else await queryElinkUsers(keyword, selectedIds, selectedNames);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.system.elinkDirectoryLoadFailed"));
+  }
+}
+
+function cleanupElinkUserRequest() {
+  if (elinkUserSearchTimer) clearTimeout(elinkUserSearchTimer);
+  elinkUserSearchTimer = undefined;
+  elinkUserSearchKeyword = "";
+  cancelElinkUserQuery();
 }
 
 function openProjectDialog(row?: SystemProject) {
@@ -1420,15 +1520,26 @@ async function saveTenant() {
 }
 
 async function saveUser() {
+  const selectedElinkUserId = normalizeElinkUserId(userForm.elinkUserId);
   const payload: Partial<StudioUser> = {
     ...userForm,
     enabled: toIntegerFlag(userForm.enabled),
     passwordHash: userForm.passwordHash?.trim() ? userForm.passwordHash.trim() : undefined,
   };
+  delete payload.elinkUserId;
+  delete payload.elinkUserName;
+  delete payload.clearElinkUserBinding;
+  if (selectedElinkUserId !== originalElinkUserId.value) {
+    if (selectedElinkUserId) {
+      payload.elinkUserId = selectedElinkUserId;
+    } else if (originalElinkUserId.value) {
+      payload.clearElinkUserBinding = true;
+    }
+  }
   try {
     const saved = await studioApi.users.save(payload);
     userOptions.value = [];
-    if (!patchRowById(users, saved.id, saved, ["username", "displayName", "enabled", "updatedAt"])) {
+    if (!patchRowById(users, saved.id, saved, ["username", "displayName", "mobilePhone", "elinkUserId", "elinkUserName", "enabled", "updatedAt"])) {
       await loadUsers();
     }
     userDialogOpen.value = false;
@@ -1873,10 +1984,15 @@ watch(activeTab, (value) => {
   }
 });
 
+watch(userDialogOpen, (visible) => {
+  if (!visible) cleanupElinkUserRequest();
+});
+
 onMounted(() => {
   systemMounted.value = true;
   requestCurrentTabReload();
 });
+onBeforeUnmount(cleanupElinkUserRequest);
 </script>
 
 <style scoped>

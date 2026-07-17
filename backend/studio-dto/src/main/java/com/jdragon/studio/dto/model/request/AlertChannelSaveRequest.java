@@ -17,6 +17,7 @@ public class AlertChannelSaveRequest {
     private Map<String, String> headers;
     private String signingSecret;
     private Boolean clearSigningSecret;
+    private String elinkRecipientMode;
     private String elinkTargetType;
     private List<String> elinkUserIds = new ArrayList<String>();
     private Long elinkGroupId;

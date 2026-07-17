@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jdragon.studio.dto.enums.AlertChannelType;
 import com.jdragon.studio.dto.model.AlertDeliveryView;
 import com.jdragon.studio.dto.model.AlertEventView;
 import com.jdragon.studio.dto.model.AlertIncidentView;
@@ -12,6 +13,8 @@ import com.jdragon.studio.infra.mapper.AlertDeliveryMapper;
 import com.jdragon.studio.infra.mapper.AlertEventMapper;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -102,13 +105,30 @@ final class AlertIncidentPresentationSupport {
 
     AlertDeliveryView toDeliveryView(AlertDeliveryEntity entity) {
         AlertDeliveryView view = new AlertDeliveryView();
+        Map<String, Object> payload = entity.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>() : entity.getPayloadJson();
+        Map<String, Object> rule = AlertDeliveryMessageRenderer.nestedMap(payload, "rule");
+        Map<String, Object> subject = AlertDeliveryMessageRenderer.nestedMap(payload, "subject");
         view.setId(entity.getId());
         view.setEventId(entity.getEventId());
         view.setIncidentId(entity.getIncidentId());
+        view.setRuleId(longValue(rule.get("id")));
+        view.setRuleName(sanitizeText(text(rule.get("name")), 1000));
+        view.setRuleType(sanitizeText(text(rule.get("type")), 100));
+        view.setSeverity(sanitizeText(text(rule.get("severity")), 50));
+        view.setEventType(sanitizeText(text(payload.get("eventType")), 50));
+        view.setOccurredAt(localDateTime(payload.get("occurredAt")));
+        view.setSubjectType(sanitizeText(text(subject.get("type")), 100));
+        view.setSubjectId(longValue(subject.get("id")));
+        view.setSubjectName(sanitizeText(text(subject.get("name")), 1000));
+        view.setTargetPath(sanitizeText(text(subject.get("path")), 2000));
+        view.setSummary(sanitizeText(text(payload.get("summary")), 2000));
         view.setChannelType(entity.getChannelType());
         view.setChannelId(entity.getChannelId());
         view.setChannelName(entity.getChannelNameSnapshot());
         view.setRecipientUserId(entity.getRecipientUserId());
+        view.setRecipientDisplay(recipientDisplay(entity, payload));
+        applyRenderedMessage(view, entity.getChannelType(), payload);
         view.setStatus(entity.getStatus());
         view.setAttemptCount(entity.getAttemptCount());
         view.setNextAttemptAt(entity.getNextAttemptAt());
@@ -119,6 +139,89 @@ final class AlertIncidentPresentationSupport {
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
         return view;
+    }
+
+    private void applyRenderedMessage(AlertDeliveryView view, String channelType, Map<String, Object> payload) {
+        if (AlertChannelType.IN_APP.name().equals(channelType)) {
+            AlertDeliveryMessageRenderer.RenderedMessage message =
+                    AlertDeliveryMessageRenderer.renderInApp(payload);
+            view.setMessageFormat(message.getFormat());
+            view.setMessageTitle(sanitizeText(message.getTitle(), 2000));
+            view.setMessageContent(sanitizeText(message.getContent(), 32000));
+            return;
+        }
+        if (AlertChannelType.ELINK.name().equals(channelType)) {
+            view.setMessageFormat(AlertDeliveryMessageRenderer.FORMAT_TEXT);
+            view.setMessageContent(sanitizeText(AlertDeliveryMessageRenderer.renderElinkText(payload), 32000));
+            return;
+        }
+        if (AlertChannelType.WEBHOOK.name().equals(channelType)) {
+            view.setMessageFormat(AlertDeliveryMessageRenderer.FORMAT_JSON);
+            view.setMessageContent(sanitizeText(AlertDeliveryMessageRenderer.renderWebhookJson(payload), 32000));
+            return;
+        }
+        view.setMessageFormat(AlertDeliveryMessageRenderer.FORMAT_TEXT);
+        view.setMessageContent(sanitizeText(text(payload.get("summary")), 32000));
+    }
+
+    private String recipientDisplay(AlertDeliveryEntity entity, Map<String, Object> payload) {
+        String snapshot = AlertDeliveryMessageRenderer.auditedRecipientDisplay(payload);
+        if (StringUtils.hasText(snapshot)) {
+            return sanitizeText(snapshot, 1000);
+        }
+        if (AlertChannelType.IN_APP.name().equals(entity.getChannelType())) {
+            return entity.getRecipientUserId() == null
+                    ? "规则接收人（历史用户未快照）" : "Studio 用户 " + entity.getRecipientUserId();
+        }
+        if (AlertChannelType.ELINK.name().equals(entity.getChannelType())) {
+            String targetMobile = text(payload.get("_elinkTargetMobile"));
+            if (StringUtils.hasText(targetMobile)) {
+                return sanitizeText("规则接收人（手机号 " + targetMobile + "）", 1000);
+            }
+            if (StringUtils.hasText(text(payload.get("_elinkTargetUserId")))) {
+                return "规则接收人（eLink 账号）";
+            }
+            if (entity.getRecipientUserId() != null) {
+                return "规则接收人（Studio 用户 " + entity.getRecipientUserId() + "）";
+            }
+            return sanitizeText("固定通道：" + fallbackText(entity.getChannelNameSnapshot(), "未命名通道")
+                    + "（历史目标未快照）", 1000);
+        }
+        if (AlertChannelType.WEBHOOK.name().equals(entity.getChannelType())) {
+            return sanitizeText("Webhook 通道：" + fallbackText(entity.getChannelNameSnapshot(), "未命名通道"), 1000);
+        }
+        return entity.getRecipientUserId() == null
+                ? sanitizeText(entity.getChannelNameSnapshot(), 1000) : String.valueOf(entity.getRecipientUserId());
+    }
+
+    private String fallbackText(String value, String fallback) {
+        return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private Long longValue(Object value) {
+        if (value instanceof Number) {
+            return Long.valueOf(((Number) value).longValue());
+        }
+        try {
+            return StringUtils.hasText(text(value)) ? Long.valueOf(text(value)) : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private LocalDateTime localDateTime(Object value) {
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        }
+        try {
+            return StringUtils.hasText(text(value)) ? LocalDateTime.parse(text(value)) : null;
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    private String text(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     Map<String, Object> webhookPayload(AlertRuleEntity rule, AlertIncidentEntity incident, AlertEventEntity event) {

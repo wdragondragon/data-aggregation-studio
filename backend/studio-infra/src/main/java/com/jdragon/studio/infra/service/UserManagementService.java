@@ -1,11 +1,13 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.ElinkUserOptionView;
 import com.jdragon.studio.dto.model.StudioUserListView;
 import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.infra.entity.StudioExternalUserBindingEntity;
@@ -14,12 +16,17 @@ import com.jdragon.studio.infra.entity.UserRoleEntity;
 import com.jdragon.studio.infra.mapper.StudioExternalUserBindingMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.UserRoleMapper;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class UserManagementService {
@@ -33,6 +40,7 @@ public class UserManagementService {
     private final PasswordEncoder passwordEncoder;
     private final StudioSecurityService securityService;
     private final StudioExternalUserBindingMapper externalUserBindingMapper;
+    private ElinkManagerOptionService elinkManagerOptionService;
 
     public UserManagementService(StudioUserMapper userMapper,
                                  UserRoleMapper userRoleMapper,
@@ -46,12 +54,18 @@ public class UserManagementService {
         this.externalUserBindingMapper = externalUserBindingMapper;
     }
 
+    @Autowired(required = false)
+    void setElinkManagerOptionService(ElinkManagerOptionService elinkManagerOptionService) {
+        this.elinkManagerOptionService = elinkManagerOptionService;
+    }
+
     public List<StudioUserListView> list() {
         requireSuperAdmin();
         List<StudioUserEntity> users = userMapper.selectList(userListQuery());
+        Map<Long, StudioExternalUserBindingEntity> elinkBindings = loadElinkBindingMap(users);
         List<StudioUserListView> result = new ArrayList<StudioUserListView>();
         for (StudioUserEntity user : users) {
-            result.add(toListView(user));
+            result.add(toListView(user, elinkBindings.get(user.getId())));
         }
         return result;
     }
@@ -77,9 +91,10 @@ public class UserManagementService {
         int safePageSize = normalizePageSize(pageSize);
         Page<StudioUserEntity> page = new Page<StudioUserEntity>(safePageNo, safePageSize);
         Page<StudioUserEntity> entityPage = userMapper.selectPage(page, userListQuery());
+        Map<Long, StudioExternalUserBindingEntity> elinkBindings = loadElinkBindingMap(entityPage.getRecords());
         List<StudioUserListView> items = new ArrayList<StudioUserListView>();
         for (StudioUserEntity user : entityPage.getRecords()) {
-            items.add(toListView(user));
+            items.add(toListView(user, elinkBindings.get(user.getId())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
@@ -90,6 +105,7 @@ public class UserManagementService {
         if (entity == null || !hasText(entity.getUsername())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Username is required");
         }
+        boolean mobileProvided = entity.getMobilePhone() != null;
         StudioUserEntity target;
         if (entity.getId() == null) {
             target = new StudioUserEntity();
@@ -101,6 +117,13 @@ public class UserManagementService {
         ensureUniqueUsername(entity.getUsername(), target.getId());
         target.setUsername(entity.getUsername().trim());
         target.setDisplayName(hasText(entity.getDisplayName()) ? entity.getDisplayName().trim() : null);
+        if (entity.getMobilePhone() != null) {
+            String mobile = StudioMobileSupport.normalize(entity.getMobilePhone());
+            if (StudioMobileSupport.hasText(entity.getMobilePhone()) && mobile == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Mobile format is invalid");
+            }
+            target.setMobilePhone(mobile);
+        }
         target.setEnabled(entity.getEnabled() == null ? Integer.valueOf(1) : entity.getEnabled());
         if (hasText(entity.getPasswordHash())) {
             if (StudioConstants.AUTH_SOURCE_GATEWAY.equalsIgnoreCase(target.getAuthSource())) {
@@ -113,10 +136,21 @@ public class UserManagementService {
         if (!hasText(target.getAuthSource())) {
             target.setAuthSource(StudioConstants.AUTH_SOURCE_LOCAL);
         }
-        if (target.getId() == null) {
-            userMapper.insert(target);
-        } else {
-            userMapper.updateById(target);
+        try {
+            if (target.getId() == null) {
+                userMapper.insert(target);
+            } else {
+                userMapper.updateById(target);
+                if (mobileProvided) {
+                    userMapper.update(null, new LambdaUpdateWrapper<StudioUserEntity>()
+                            .eq(StudioUserEntity::getId, target.getId())
+                            .set(StudioUserEntity::getMobilePhone, target.getMobilePhone()));
+                }
+            }
+            synchronizeElinkBinding(target, entity);
+        } catch (DuplicateKeyException ex) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "The eLink account is already bound, or the Studio user already has another eLink binding");
         }
         return sanitize(target);
     }
@@ -130,6 +164,8 @@ public class UserManagementService {
         }
         userRoleMapper.delete(new LambdaQueryWrapper<UserRoleEntity>()
                 .eq(UserRoleEntity::getUserId, userId));
+        externalUserBindingMapper.hardDeleteByProviderAndStudioUserId(
+                StudioConstants.ELINK_PROVIDER_CODE, userId);
         externalUserBindingMapper.delete(new LambdaQueryWrapper<StudioExternalUserBindingEntity>()
                 .eq(StudioExternalUserBindingEntity::getStudioUserId, userId));
         userMapper.deleteById(userId);
@@ -176,9 +212,15 @@ public class UserManagementService {
         copy.setUpdatedAt(entity.getUpdatedAt());
         copy.setUsername(entity.getUsername());
         copy.setDisplayName(entity.getDisplayName());
+        copy.setMobilePhone(entity.getMobilePhone());
         copy.setEnabled(entity.getEnabled());
         copy.setAuthSource(entity.getAuthSource());
         copy.setExternalAccount(loadExternalAccount(entity.getId()));
+        StudioExternalUserBindingEntity elinkBinding = loadElinkBinding(entity.getId());
+        if (elinkBinding != null) {
+            copy.setElinkUserId(elinkBinding.getExternalUserId());
+            copy.setElinkUserName(elinkBinding.getExternalAccount());
+        }
         copy.setPasswordHash(null);
         return copy;
     }
@@ -195,7 +237,8 @@ public class UserManagementService {
         return binding == null ? null : binding.getExternalAccount();
     }
 
-    private StudioUserListView toListView(StudioUserEntity entity) {
+    private StudioUserListView toListView(StudioUserEntity entity,
+                                          StudioExternalUserBindingEntity elinkBinding) {
         StudioUserListView view = new StudioUserListView();
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
@@ -204,8 +247,105 @@ public class UserManagementService {
         view.setUpdatedAt(entity.getUpdatedAt());
         view.setUsername(entity.getUsername());
         view.setDisplayName(entity.getDisplayName());
+        view.setMobilePhone(entity.getMobilePhone());
         view.setEnabled(entity.getEnabled());
+        if (elinkBinding != null) {
+            view.setElinkUserId(elinkBinding.getExternalUserId());
+            view.setElinkUserName(elinkBinding.getExternalAccount());
+        }
         return view;
+    }
+
+    private void synchronizeElinkBinding(StudioUserEntity target, StudioUserEntity request) {
+        boolean clear = Boolean.TRUE.equals(request.getClearElinkUserBinding());
+        if (clear && hasText(request.getElinkUserId())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "eLink account cannot be supplied while requesting the binding to be cleared");
+        }
+        if (clear) {
+            externalUserBindingMapper.hardDeleteByProviderAndStudioUserId(
+                    StudioConstants.ELINK_PROVIDER_CODE, target.getId());
+            return;
+        }
+        if (request.getElinkUserId() == null) {
+            return;
+        }
+        String elinkUserId = request.getElinkUserId().trim();
+        if (elinkUserId.isEmpty() || elinkUserId.length() > 128
+                || elinkUserId.indexOf('|') >= 0 || "@all".equalsIgnoreCase(elinkUserId)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Invalid eLink account");
+        }
+        ElinkUserOptionView managerUser = elinkManagerOptionService == null
+                ? null : elinkManagerOptionService.requireUser(elinkUserId);
+        StudioExternalUserBindingEntity duplicate = externalUserBindingMapper.selectOne(
+                new LambdaQueryWrapper<StudioExternalUserBindingEntity>()
+                        .eq(StudioExternalUserBindingEntity::getProviderCode, StudioConstants.ELINK_PROVIDER_CODE)
+                        .eq(StudioExternalUserBindingEntity::getExternalUserId, elinkUserId)
+                        .last("limit 1"));
+        if (duplicate != null && !target.getId().equals(duplicate.getStudioUserId())) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "The eLink account is already bound to another Studio user");
+        }
+        StudioExternalUserBindingEntity binding = loadElinkBinding(target.getId());
+        if (binding == null) {
+            binding = new StudioExternalUserBindingEntity();
+            binding.setTenantId(target.getTenantId());
+            binding.setProviderCode(StudioConstants.ELINK_PROVIDER_CODE);
+            binding.setStudioUserId(target.getId());
+        }
+        binding.setExternalUserId(elinkUserId);
+        String requestedName = managerUser != null ? managerUser.getName() : request.getElinkUserName();
+        if (requestedName != null) {
+            String name = requestedName.trim();
+            if (name.length() > 255) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "eLink user name is too long");
+            }
+            binding.setExternalAccount(name.isEmpty() ? elinkUserId : name);
+        } else if (!hasText(binding.getExternalAccount())) {
+            binding.setExternalAccount(elinkUserId);
+        }
+        if (binding.getId() == null) {
+            externalUserBindingMapper.insert(binding);
+        } else {
+            externalUserBindingMapper.updateById(binding);
+        }
+    }
+
+    private StudioExternalUserBindingEntity loadElinkBinding(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        return externalUserBindingMapper.selectOne(new LambdaQueryWrapper<StudioExternalUserBindingEntity>()
+                .eq(StudioExternalUserBindingEntity::getProviderCode, StudioConstants.ELINK_PROVIDER_CODE)
+                .eq(StudioExternalUserBindingEntity::getStudioUserId, userId)
+                .last("limit 1"));
+    }
+
+    private Map<Long, StudioExternalUserBindingEntity> loadElinkBindingMap(
+            Collection<StudioUserEntity> users) {
+        Map<Long, StudioExternalUserBindingEntity> result =
+                new LinkedHashMap<Long, StudioExternalUserBindingEntity>();
+        List<Long> userIds = new ArrayList<Long>();
+        if (users != null) {
+            for (StudioUserEntity user : users) {
+                if (user != null && user.getId() != null) {
+                    userIds.add(user.getId());
+                }
+            }
+        }
+        if (userIds.isEmpty()) {
+            return result;
+        }
+        List<StudioExternalUserBindingEntity> bindings = externalUserBindingMapper.selectList(
+                new LambdaQueryWrapper<StudioExternalUserBindingEntity>()
+                        .eq(StudioExternalUserBindingEntity::getProviderCode, StudioConstants.ELINK_PROVIDER_CODE)
+                        .in(StudioExternalUserBindingEntity::getStudioUserId, userIds));
+        for (StudioExternalUserBindingEntity binding : bindings) {
+            if (binding != null && binding.getStudioUserId() != null) {
+                result.putIfAbsent(binding.getStudioUserId(), binding);
+            }
+        }
+        return result;
     }
 
     private StudioUserOptionView toOptionView(StudioUserEntity entity) {
@@ -225,6 +365,7 @@ public class UserManagementService {
                         StudioUserEntity::getUpdatedAt,
                         StudioUserEntity::getUsername,
                         StudioUserEntity::getDisplayName,
+                        StudioUserEntity::getMobilePhone,
                         StudioUserEntity::getEnabled)
                 .orderByAsc(StudioUserEntity::getUsername)
                 .orderByAsc(StudioUserEntity::getId);

@@ -136,6 +136,11 @@ class AlertIncidentServiceTest {
         assertEquals("******", ((Map<?, ?>) payload.get("evidence")).get("access_key"));
         assertEquals("******", ((Map<?, ?>) payload.get("evidence")).get("private-key"));
         assertEquals("******", ((Map<?, ?>) payload.get("evidence")).get("credential"));
+        Map<?, ?> deliveryAudit = (Map<?, ?>) payload.get("_deliveryAudit");
+        assertEquals("IN_APP", deliveryAudit.get("channelType"));
+        assertEquals("TEXT", deliveryAudit.get("messageFormat"));
+        assertEquals("Studio 用户 9", deliveryAudit.get("recipientDisplay"));
+        assertEquals(events.get(0).getSummary(), deliveryAudit.get("messageContent"));
         verify(ruleMapper, never()).updateById(any(AlertRuleEntity.class));
 
         service.recordCondition(rule, observation(true, now.plusSeconds(30)));
@@ -392,6 +397,138 @@ class AlertIncidentServiceTest {
         verify(incidentMapper, never()).insert(any(AlertIncidentEntity.class));
         verify(eventMapper, never()).insert(any(AlertEventEntity.class));
         verify(deliveryMapper, never()).insert(any(AlertDeliveryEntity.class));
+    }
+
+    @Test
+    void shouldCreateIndependentRuleRecipientElinkDeliveriesAndKeepUnboundFailureIsolated() {
+        AlertIncidentMapper incidentMapper = mock(AlertIncidentMapper.class);
+        when(incidentMapper.selectOne(any())).thenReturn(null);
+        when(incidentMapper.updateById(any(AlertIncidentEntity.class))).thenReturn(1);
+        doAnswer(invocation -> {
+            AlertIncidentEntity entity = invocation.getArgument(0);
+            entity.setId(501L);
+            return 1;
+        }).when(incidentMapper).insert(any(AlertIncidentEntity.class));
+        AlertEventMapper eventMapper = mock(AlertEventMapper.class);
+        when(eventMapper.selectCount(any())).thenReturn(0L);
+        doAnswer(invocation -> {
+            AlertEventEntity entity = invocation.getArgument(0);
+            entity.setId(502L);
+            return 1;
+        }).when(eventMapper).insert(any(AlertEventEntity.class));
+        List<AlertDeliveryEntity> deliveries = new ArrayList<AlertDeliveryEntity>();
+        AlertDeliveryMapper deliveryMapper = mock(AlertDeliveryMapper.class);
+        doAnswer(invocation -> {
+            deliveries.add(invocation.getArgument(0));
+            return 1;
+        }).when(deliveryMapper).insert(any(AlertDeliveryEntity.class));
+        AlertChannelEntity channel = new AlertChannelEntity();
+        channel.setId(60L);
+        channel.setTenantId("default");
+        channel.setProjectId(20L);
+        channel.setName("follow rule recipients");
+        channel.setChannelType("ELINK");
+        channel.setEnabled(1);
+        channel.setConfigJson(new LinkedHashMap<String, Object>(Map.of(
+                "recipientMode", "RULE_RECIPIENTS", "targetType", "PERSONAL")));
+        AlertChannelMapper channelMapper = mock(AlertChannelMapper.class);
+        when(channelMapper.selectOne(any())).thenReturn(channel);
+        AlertRuleEntity rule = rule();
+        rule.setInAppEnabled(0);
+        rule.setWebhookChannelIdsJson(Collections.singletonList(channel.getId()));
+        AlertRuleMapper ruleMapper = mock(AlertRuleMapper.class);
+        when(ruleMapper.selectOne(any())).thenReturn(rule);
+        AlertRecipientResolver recipientResolver = mock(AlertRecipientResolver.class);
+        when(recipientResolver.resolve(any(), any())).thenReturn(List.of(9L, 10L, 11L));
+        when(recipientResolver.resolveElinkUserIds(any())).thenReturn(Map.of(9L, "elink-alice"));
+        when(recipientResolver.resolveStudioUserMobiles(any())).thenReturn(Map.of(10L, "13800000010"));
+        AlertIncidentService service = new AlertIncidentService(
+                incidentMapper, eventMapper, deliveryMapper, ruleMapper, channelMapper,
+                mock(ProjectMapper.class), mock(AlertRuleService.class), recipientResolver,
+                mock(StudioSecurityService.class), mock(ProjectResourceAccessService.class));
+
+        service.recordCondition(rule, observation(true, LocalDateTime.now()));
+
+        assertEquals(3, deliveries.size());
+        AlertDeliveryEntity bound = deliveries.stream()
+                .filter(item -> Long.valueOf(9L).equals(item.getRecipientUserId())).findFirst().orElseThrow();
+        assertEquals("PENDING", bound.getStatus());
+        assertEquals("elink-alice", bound.getPayloadJson().get("_elinkTargetUserId"));
+        assertEquals("规则接收人（Studio 用户 9）",
+                ((Map<?, ?>) bound.getPayloadJson().get("_deliveryAudit")).get("recipientDisplay"));
+        assertEquals("ELINK:60:RECIPIENT:9", bound.getDeliveryKey());
+        AlertDeliveryEntity mobileFallback = deliveries.stream()
+                .filter(item -> Long.valueOf(10L).equals(item.getRecipientUserId())).findFirst().orElseThrow();
+        assertEquals("PENDING", mobileFallback.getStatus());
+        assertEquals("13800000010", mobileFallback.getPayloadJson().get("_elinkTargetMobile"));
+        assertEquals("规则接收人（手机号 138****0010）",
+                ((Map<?, ?>) mobileFallback.getPayloadJson().get("_deliveryAudit")).get("recipientDisplay"));
+        AlertDeliveryEntity unbound = deliveries.stream()
+                .filter(item -> Long.valueOf(11L).equals(item.getRecipientUserId())).findFirst().orElseThrow();
+        assertEquals("DEAD", unbound.getStatus());
+        assertNull(unbound.getNextAttemptAt());
+        assertEquals("Studio user 11 is not bound to an eLink account and has no valid mobile",
+                unbound.getErrorMessage());
+    }
+
+    @Test
+    void shouldAuditMissingRecipientsAndRejectDirectDynamicChannelTest() {
+        AlertIncidentMapper incidentMapper = mock(AlertIncidentMapper.class);
+        when(incidentMapper.selectOne(any())).thenReturn(null);
+        when(incidentMapper.updateById(any(AlertIncidentEntity.class))).thenReturn(1);
+        doAnswer(invocation -> {
+            AlertIncidentEntity entity = invocation.getArgument(0);
+            entity.setId(601L);
+            return 1;
+        }).when(incidentMapper).insert(any(AlertIncidentEntity.class));
+        AlertEventMapper eventMapper = mock(AlertEventMapper.class);
+        when(eventMapper.selectCount(any())).thenReturn(0L);
+        doAnswer(invocation -> {
+            AlertEventEntity entity = invocation.getArgument(0);
+            entity.setId(602L);
+            return 1;
+        }).when(eventMapper).insert(any(AlertEventEntity.class));
+        List<AlertDeliveryEntity> deliveries = new ArrayList<AlertDeliveryEntity>();
+        AlertDeliveryMapper deliveryMapper = mock(AlertDeliveryMapper.class);
+        doAnswer(invocation -> {
+            deliveries.add(invocation.getArgument(0));
+            return 1;
+        }).when(deliveryMapper).insert(any(AlertDeliveryEntity.class));
+        AlertChannelEntity channel = new AlertChannelEntity();
+        channel.setId(61L);
+        channel.setTenantId("default");
+        channel.setProjectId(20L);
+        channel.setName("follow empty recipients");
+        channel.setChannelType("ELINK");
+        channel.setEnabled(1);
+        channel.setConfigJson(new LinkedHashMap<String, Object>(Map.of(
+                "recipientMode", "RULE_RECIPIENTS", "targetType", "PERSONAL")));
+        AlertChannelMapper channelMapper = mock(AlertChannelMapper.class);
+        when(channelMapper.selectOne(any())).thenReturn(channel);
+        AlertRuleEntity rule = rule();
+        rule.setInAppEnabled(0);
+        rule.setWebhookChannelIdsJson(Collections.singletonList(channel.getId()));
+        AlertRuleMapper ruleMapper = mock(AlertRuleMapper.class);
+        when(ruleMapper.selectOne(any())).thenReturn(rule);
+        AlertRecipientResolver recipientResolver = mock(AlertRecipientResolver.class);
+        when(recipientResolver.resolve(any(), any())).thenReturn(Collections.emptyList());
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        when(accessService.requireCurrentProjectId()).thenReturn(20L);
+        AlertRuleService ruleService = mock(AlertRuleService.class);
+        AlertIncidentService service = new AlertIncidentService(
+                incidentMapper, eventMapper, deliveryMapper, ruleMapper, channelMapper,
+                mock(ProjectMapper.class), ruleService, recipientResolver, securityService, accessService);
+
+        service.recordCondition(rule, observation(true, LocalDateTime.now()));
+
+        assertEquals(1, deliveries.size());
+        assertEquals("DEAD", deliveries.get(0).getStatus());
+        assertEquals("ELINK:61:RECIPIENT:NO_RECIPIENT", deliveries.get(0).getDeliveryKey());
+        assertEquals("The alert rule did not resolve any active recipient", deliveries.get(0).getErrorMessage());
+        StudioException error = assertThrows(StudioException.class, () -> service.testChannel(channel.getId()));
+        assertEquals("Rule-recipient eLink channels must be tested from an alert rule", error.getMessage());
     }
 
     private AlertIncidentEntity activeIncident(int version) {

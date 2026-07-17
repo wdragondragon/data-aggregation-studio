@@ -1,6 +1,8 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
@@ -168,6 +170,11 @@ public class GatewayAuthExchangeService {
             user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
         }
         user.setDisplayName(resolveDisplayName(userInfo));
+        boolean mobileProvided = userInfo.isMobilePhonePresent() || userInfo.isPhoneNumberPresent();
+        String mobile = resolveMobile(userInfo);
+        if (mobileProvided) {
+            user.setMobilePhone(mobile);
+        }
         user.setEnabled(1);
         user.setAuthSource(StudioConstants.AUTH_SOURCE_GATEWAY);
 
@@ -175,6 +182,11 @@ public class GatewayAuthExchangeService {
             userMapper.insert(user);
         } else {
             userMapper.updateById(user);
+            if (mobileProvided && mobile == null) {
+                userMapper.update(null, new LambdaUpdateWrapper<StudioUserEntity>()
+                        .eq(StudioUserEntity::getId, user.getId())
+                        .set(StudioUserEntity::getMobilePhone, null));
+            }
         }
 
         if (binding == null) {
@@ -196,6 +208,13 @@ public class GatewayAuthExchangeService {
         }
         user.setExternalAccount(binding.getExternalAccount());
         return user;
+    }
+
+    private String resolveMobile(GatewayUserInfo userInfo) {
+        String mobile = StudioMobileSupport.normalize(userInfo.getMobilePhone());
+        return mobile == null
+                ? StudioMobileSupport.normalize(userInfo.getPhoneNumber())
+                : mobile;
     }
 
     private boolean isSuperAdminGatewayUser(GatewayUserInfo userInfo) {
@@ -343,5 +362,23 @@ public class GatewayAuthExchangeService {
         private String account;
         private String userName;
         private String name;
+        private String phoneNumber;
+        private String mobilePhone;
+
+        @JsonIgnore
+        private boolean phoneNumberPresent;
+
+        @JsonIgnore
+        private boolean mobilePhonePresent;
+
+        public void setPhoneNumber(String phoneNumber) {
+            this.phoneNumber = phoneNumber;
+            this.phoneNumberPresent = true;
+        }
+
+        public void setMobilePhone(String mobilePhone) {
+            this.mobilePhone = mobilePhone;
+            this.mobilePhonePresent = true;
+        }
     }
 }

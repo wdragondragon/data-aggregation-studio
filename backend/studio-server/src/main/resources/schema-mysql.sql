@@ -7,6 +7,7 @@ create table if not exists sys_user (
     username varchar(128) not null,
     password_hash varchar(255) not null,
     display_name varchar(255),
+    mobile_phone varchar(32),
     enabled int default 1,
     auth_source varchar(32) default 'LOCAL',
     unique key uk_sys_user_username (username)
@@ -24,6 +25,7 @@ create table if not exists studio_external_user_binding (
     studio_user_id bigint not null,
     last_seen_at datetime,
     unique key uk_studio_external_user_binding_external (provider_code, external_user_id),
+    unique key uk_studio_external_user_binding_provider_user (provider_code, studio_user_id),
     key idx_studio_external_user_binding_user (studio_user_id)
 );
 

@@ -80,6 +80,70 @@ class AlertDeliveryServiceTest {
     }
 
     @Test
+    void shouldResolveAndSnapshotNewBindingWhenRetryingPreviouslyUnboundElinkRecipient() {
+        Fixture fixture = fixture();
+        AlertDeliveryEntity delivery = delivery("DEAD");
+        delivery.setChannelType("ELINK");
+        delivery.setChannelId(50L);
+        delivery.setRecipientUserId(9L);
+        when(fixture.deliveryMapper.selectOne(any())).thenReturn(delivery);
+        when(fixture.channelService.findById(50L, "default", 200L)).thenReturn(new AlertChannelEntity());
+        AlertRecipientResolver recipientResolver = mock(AlertRecipientResolver.class);
+        when(recipientResolver.resolveElinkUserIds(Collections.singletonList(9L)))
+                .thenReturn(Map.of(9L, "elink-user-9"));
+        fixture.service.setAlertRecipientResolver(recipientResolver);
+
+        fixture.service.retry(delivery.getId());
+
+        assertEquals("elink-user-9", delivery.getPayloadJson().get("_elinkTargetUserId"));
+        assertTrue(captureUpdate(fixture.deliveryMapper).getSqlSet().contains("payload_json"));
+    }
+
+    @Test
+    void shouldResolveAndSnapshotMobileWhenRetryingRecipientWithoutElinkBinding() {
+        Fixture fixture = fixture();
+        AlertDeliveryEntity delivery = delivery("DEAD");
+        delivery.setChannelType("ELINK");
+        delivery.setChannelId(50L);
+        delivery.setRecipientUserId(9L);
+        when(fixture.deliveryMapper.selectOne(any())).thenReturn(delivery);
+        when(fixture.channelService.findById(50L, "default", 200L)).thenReturn(new AlertChannelEntity());
+        AlertRecipientResolver recipientResolver = mock(AlertRecipientResolver.class);
+        when(recipientResolver.resolveElinkUserIds(Collections.singletonList(9L)))
+                .thenReturn(Collections.emptyMap());
+        when(recipientResolver.resolveStudioUserMobiles(Collections.singletonList(9L)))
+                .thenReturn(Map.of(9L, "13800000009"));
+        fixture.service.setAlertRecipientResolver(recipientResolver);
+
+        fixture.service.retry(delivery.getId());
+
+        assertEquals("13800000009", delivery.getPayloadJson().get("_elinkTargetMobile"));
+        assertTrue(captureUpdate(fixture.deliveryMapper).getSqlSet().contains("payload_json"));
+    }
+
+    @Test
+    void shouldKeepPreviouslyUnboundElinkDeliveryDeadUntilBindingExists() {
+        Fixture fixture = fixture();
+        AlertDeliveryEntity delivery = delivery("DEAD");
+        delivery.setChannelType("ELINK");
+        delivery.setChannelId(50L);
+        delivery.setRecipientUserId(9L);
+        when(fixture.deliveryMapper.selectOne(any())).thenReturn(delivery);
+        when(fixture.channelService.findById(50L, "default", 200L)).thenReturn(new AlertChannelEntity());
+        AlertRecipientResolver recipientResolver = mock(AlertRecipientResolver.class);
+        when(recipientResolver.resolveElinkUserIds(Collections.singletonList(9L)))
+                .thenReturn(Collections.emptyMap());
+        when(recipientResolver.resolveStudioUserMobiles(Collections.singletonList(9L)))
+                .thenReturn(Collections.emptyMap());
+        fixture.service.setAlertRecipientResolver(recipientResolver);
+
+        assertThrows(StudioException.class, () -> fixture.service.retry(delivery.getId()));
+
+        assertEquals("DEAD", delivery.getStatus());
+        verify(fixture.deliveryMapper, never()).update(isNull(), any());
+    }
+
+    @Test
     void shouldRejectRetryWhenDeliveryWasClaimedConcurrently() {
         Fixture fixture = fixture();
         AlertDeliveryEntity delivery = delivery("RETRY");
@@ -140,7 +204,8 @@ class AlertDeliveryServiceTest {
         delivery.setChannelId(50L);
         delivery.setAttemptCount(0);
         delivery.setNextAttemptAt(LocalDateTime.now().minusSeconds(1));
-        delivery.setPayloadJson(new LinkedHashMap<String, Object>(Map.of("summary", "worker offline")));
+        delivery.setPayloadJson(new LinkedHashMap<String, Object>(Map.of(
+                "summary", "worker offline", "_elinkTargetUserId", "elink-owner")));
         when(deliveryMapper.selectList(any())).thenReturn(Collections.emptyList(), Collections.singletonList(delivery));
         when(deliveryMapper.selectById(delivery.getId())).thenReturn(delivery);
         when(deliveryMapper.update(isNull(), any())).thenReturn(1);
@@ -148,7 +213,8 @@ class AlertDeliveryServiceTest {
         channel.setId(50L);
         channel.setEnabled(1);
         when(channelService.findById(50L, "default", 200L)).thenReturn(channel);
-        when(elinkSender.send(same(channel), same(delivery.getPayloadJson())))
+        when(elinkSender.send(same(channel), same(delivery.getPayloadJson()),
+                org.mockito.ArgumentMatchers.eq(Collections.singletonList("elink-owner"))))
                 .thenReturn(ElinkAlertSender.SendResult.success(200,
                         "{\"errcode\":0,\"errmsg\":\"ok\",\"jobId\":\"job-1\"}"));
         StudioPlatformProperties properties = new StudioPlatformProperties();
@@ -163,7 +229,44 @@ class AlertDeliveryServiceTest {
         assertEquals("SUCCEEDED", delivery.getStatus());
         assertEquals(200, delivery.getHttpStatus());
         assertTrue(delivery.getResponseExcerpt().contains("\"errcode\":0"));
-        verify(elinkSender).send(same(channel), same(delivery.getPayloadJson()));
+        verify(elinkSender).send(same(channel), same(delivery.getPayloadJson()),
+                org.mockito.ArgumentMatchers.eq(Collections.singletonList("elink-owner")));
+    }
+
+    @Test
+    void shouldSendElinkDeliveryWithMobileSnapshotWhenBindingIsMissing() {
+        AlertDeliveryMapper deliveryMapper = mock(AlertDeliveryMapper.class);
+        AlertChannelService channelService = mock(AlertChannelService.class);
+        ElinkAlertSender elinkSender = mock(ElinkAlertSender.class);
+        AlertDeliveryEntity delivery = delivery("PENDING");
+        delivery.setChannelType("ELINK");
+        delivery.setChannelId(50L);
+        delivery.setAttemptCount(0);
+        delivery.setNextAttemptAt(LocalDateTime.now().minusSeconds(1));
+        delivery.setPayloadJson(new LinkedHashMap<String, Object>(Map.of(
+                "summary", "worker offline", "_elinkTargetMobile", "13800000009")));
+        when(deliveryMapper.selectList(any())).thenReturn(Collections.emptyList(), Collections.singletonList(delivery));
+        when(deliveryMapper.selectById(delivery.getId())).thenReturn(delivery);
+        when(deliveryMapper.update(isNull(), any())).thenReturn(1);
+        AlertChannelEntity channel = new AlertChannelEntity();
+        channel.setId(50L);
+        channel.setEnabled(1);
+        when(channelService.findById(50L, "default", 200L)).thenReturn(channel);
+        when(elinkSender.send(same(channel), same(delivery.getPayloadJson()), isNull(),
+                org.mockito.ArgumentMatchers.eq(Collections.singletonList("13800000009"))))
+                .thenReturn(ElinkAlertSender.SendResult.success(200, "{\"success\":true}"));
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        AlertDeliveryService service = new AlertDeliveryService(deliveryMapper, mock(AlertEventMapper.class),
+                mock(AlertIncidentService.class), channelService, mock(AlertRuleService.class),
+                mock(NotificationService.class), mock(AlertWebhookSecurityService.class),
+                mock(AlertWebhookHttpClient.class), elinkSender, properties, mock(StudioSecurityService.class),
+                mock(ProjectResourceAccessService.class), new ObjectMapper());
+
+        service.dispatchDue();
+
+        assertEquals("SUCCEEDED", delivery.getStatus());
+        verify(elinkSender).send(same(channel), same(delivery.getPayloadJson()), isNull(),
+                org.mockito.ArgumentMatchers.eq(Collections.singletonList("13800000009")));
     }
 
     @Test
@@ -356,6 +459,9 @@ class AlertDeliveryServiceTest {
         assertFalse(sanitized.contains("bearer-secret"));
         assertFalse(sanitized.contains("cookie-secret"));
         assertTrue(sanitized.contains("******"));
+        assertEquals("Cannot resolve eLink user by mobile: 138****0009",
+                AlertSensitiveTextSanitizer.sanitize(
+                        "Cannot resolve eLink user by mobile: 13800000009"));
     }
 
     @Test
@@ -379,7 +485,11 @@ class AlertDeliveryServiceTest {
             delivery.setChannelType("WEBHOOK");
             delivery.setChannelId(50L);
             delivery.setNextAttemptAt(LocalDateTime.now().minusSeconds(1));
-            delivery.setPayloadJson(new LinkedHashMap<String, Object>(Map.of("schemaVersion", "studio.alert.webhook.v1")));
+            Map<String, Object> payload = new LinkedHashMap<String, Object>();
+            payload.put("schemaVersion", "studio.alert.webhook.v1");
+            payload.put("_deliveryAudit", Map.of("recipientDisplay", "internal audit"));
+            payload.put("_elinkTargetMobile", "13800000009");
+            delivery.setPayloadJson(payload);
             when(deliveryMapper.selectList(any())).thenReturn(Collections.emptyList(), Collections.singletonList(delivery));
             when(deliveryMapper.selectById(delivery.getId())).thenReturn(delivery);
             when(deliveryMapper.update(isNull(), any())).thenReturn(1);
@@ -408,6 +518,9 @@ class AlertDeliveryServiceTest {
             long timestamp = Long.parseLong(timestampHeader.get());
             assertTrue(timestamp >= beforeDispatch && timestamp <= afterDispatch);
             assertEquals(hmacHex("test-secret", timestampHeader.get() + "." + requestBody.get()), signatureHeader.get());
+            assertFalse(requestBody.get().contains("_deliveryAudit"));
+            assertFalse(requestBody.get().contains("_elinkTargetMobile"));
+            assertFalse(requestBody.get().contains("13800000009"));
             assertEquals("SUCCEEDED", delivery.getStatus());
         } finally {
             server.stop(0);

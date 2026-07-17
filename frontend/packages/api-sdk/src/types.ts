@@ -3082,16 +3082,23 @@ export interface WorkflowRunListQuery {
 export interface StudioUser extends BaseRecord {
   username: string;
   displayName?: string;
+  mobilePhone?: string | null;
   passwordHash?: string;
   enabled?: number | boolean;
   authSource?: string;
   externalAccount?: string;
+  elinkUserId?: string | null;
+  elinkUserName?: string;
+  clearElinkUserBinding?: boolean;
 }
 
 export interface StudioUserListView extends BaseRecord {
   username: string;
   displayName?: string;
+  mobilePhone?: string | null;
   enabled?: number | boolean;
+  elinkUserId?: string | null;
+  elinkUserName?: string | null;
 }
 
 export interface StudioUserOption {
@@ -3140,6 +3147,19 @@ export type AlertIncidentStatus = "OPEN" | "ACKNOWLEDGED" | "RECOVERED" | "CLOSE
 export type AlertDeliveryStatus = "PENDING" | "PROCESSING" | "RETRY" | "SUCCEEDED" | "DEAD" | "SKIPPED";
 export type AlertChannelType = "WEBHOOK" | "ELINK";
 export type AlertElinkTargetType = "PERSONAL" | "GROUP";
+export type AlertElinkRecipientMode = "FIXED" | "RULE_RECIPIENTS";
+
+export interface ElinkUserOptionView {
+  userId: string;
+  name?: string;
+  enabled?: boolean;
+}
+
+export interface ElinkGroupOptionView {
+  id: EntityId;
+  name?: string;
+  memberCount?: number;
+}
 
 export interface AlertOptionView {
   code: AlertRuleType | string;
@@ -3248,10 +3268,26 @@ export interface AlertEventView extends BaseRecord {
 export interface AlertDeliveryView extends BaseRecord {
   eventId?: EntityId;
   incidentId?: EntityId;
+  ruleId?: EntityId;
+  ruleName?: string;
+  ruleType?: AlertRuleType | string;
+  severity?: AlertSeverity | string;
+  eventType?: string;
+  occurredAt?: string;
+  subjectType?: AlertSubjectType | string;
+  subjectKey?: string;
+  subjectId?: EntityId;
+  subjectName?: string;
+  targetPath?: string;
+  summary?: string;
+  messageFormat?: string;
+  messageTitle?: string;
+  messageContent?: string;
   channelType?: string;
   channelId?: EntityId;
   channelName?: string;
   recipientUserId?: EntityId;
+  recipientDisplay?: string;
   status?: AlertDeliveryStatus | string;
   attemptCount?: number;
   nextAttemptAt?: string;
@@ -3310,9 +3346,12 @@ export interface AlertChannelView extends BaseRecord {
   endpointMasked?: string;
   headerNames?: string[];
   hasSigningSecret?: boolean;
+  elinkRecipientMode?: AlertElinkRecipientMode;
   elinkTargetType?: AlertElinkTargetType;
   elinkUserIds?: string[];
+  elinkUserNames?: string[];
   elinkGroupId?: EntityId;
+  elinkGroupName?: string;
   enabled?: boolean;
   lastTestedAt?: string;
   lastTestStatus?: string;
@@ -3334,6 +3373,7 @@ export interface AlertChannelSaveRequest {
   headers?: Record<string, string>;
   signingSecret?: string;
   clearSigningSecret?: boolean;
+  elinkRecipientMode?: AlertElinkRecipientMode;
   elinkTargetType?: AlertElinkTargetType;
   elinkUserIds?: string[];
   elinkGroupId?: EntityId;

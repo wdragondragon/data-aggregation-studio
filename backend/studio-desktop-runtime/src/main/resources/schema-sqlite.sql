@@ -7,6 +7,7 @@ create table if not exists sys_user (
     username text not null unique,
     password_hash text not null,
     display_name text,
+    mobile_phone text,
     auth_source text default 'LOCAL',
     enabled integer default 1
 );
@@ -26,6 +27,8 @@ create table if not exists studio_external_user_binding (
 
 create unique index if not exists uk_studio_external_user_binding_external
     on studio_external_user_binding(provider_code, external_user_id);
+create unique index if not exists uk_studio_external_user_binding_provider_user
+    on studio_external_user_binding(provider_code, studio_user_id);
 create index if not exists idx_studio_external_user_binding_user
     on studio_external_user_binding(studio_user_id);
 

@@ -10,6 +10,7 @@ final class AlertSensitiveTextSanitizer {
             "(?i)(\"(?:" + SENSITIVE_NAME_PATTERN + ")\"\\s*:\\s*)(\"(?:\\\\.|[^\"\\\\])*\"|[^,}\\]\\s]+)");
     private static final Pattern SENSITIVE_HEADER_VALUE = Pattern.compile(
             "(?i)(\\b(?:authorization|proxy-authorization|cookie|set-cookie)\\b\\s*[:=]\\s*)[^\\r\\n]+");
+    private static final Pattern MOBILE_VALUE = Pattern.compile("(?<!\\d)(1\\d{2})\\d{4}(\\d{4})(?!\\d)");
 
     private AlertSensitiveTextSanitizer() {
     }
@@ -20,6 +21,7 @@ final class AlertSensitiveTextSanitizer {
         }
         String sanitized = SENSITIVE_JSON_VALUE.matcher(value).replaceAll("$1\"******\"");
         sanitized = SENSITIVE_HEADER_VALUE.matcher(sanitized).replaceAll("$1******");
+        sanitized = MOBILE_VALUE.matcher(sanitized).replaceAll("$1****$2");
         return OpenServiceInvocationLogSupport.sanitizeSensitiveLog(sanitized);
     }
 }

@@ -3,6 +3,8 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.jdragon.studio.dto.model.ElinkGroupOptionView;
+import com.jdragon.studio.dto.model.ElinkUserOptionView;
 import com.jdragon.studio.dto.model.request.AlertChannelSaveRequest;
 import com.jdragon.studio.dto.model.AlertChannelView;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -213,9 +215,21 @@ class AlertChannelServiceTest {
         when(channelMapper.selectCount(any())).thenReturn(0L);
         when(channelMapper.insert(any(AlertChannelEntity.class))).thenReturn(1);
         AlertWebhookSecurityService webhookSecurityService = mock(AlertWebhookSecurityService.class);
+        ElinkManagerOptionService optionService = mock(ElinkManagerOptionService.class);
+        ElinkUserOptionView firstUser = new ElinkUserOptionView();
+        firstUser.setUserId("user-1");
+        firstUser.setName("First User");
+        firstUser.setEnabled(true);
+        ElinkUserOptionView secondUser = new ElinkUserOptionView();
+        secondUser.setUserId("user-2");
+        secondUser.setName("Second User");
+        secondUser.setEnabled(true);
+        when(optionService.requireUser("user-1")).thenReturn(firstUser);
+        when(optionService.requireUser("user-2")).thenReturn(secondUser);
         AlertChannelService service = new AlertChannelService(channelMapper, mock(AlertRuleMapper.class),
                 mock(AlertRuleService.class), securityService, accessService, mock(EncryptionService.class),
                 webhookSecurityService, new com.fasterxml.jackson.databind.ObjectMapper());
+        service.setElinkManagerOptionService(optionService);
         AlertChannelSaveRequest request = new AlertChannelSaveRequest();
         request.setName("eLink operations");
         request.setChannelType("ELINK");
@@ -230,8 +244,50 @@ class AlertChannelServiceTest {
         assertEquals("ELINK", saved.getChannelType());
         assertEquals("PERSONAL", saved.getConfigJson().get("targetType"));
         assertEquals(List.of("user-1", "user-2"), saved.getConfigJson().get("userIds"));
+        assertEquals(List.of("First User", "Second User"), saved.getConfigJson().get("userNames"));
         assertNull(saved.getEndpointCiphertext());
+        verify(optionService).requireUser("user-1");
+        verify(optionService).requireUser("user-2");
         verify(webhookSecurityService, never()).validate(any());
+    }
+
+    @Test
+    void shouldPreserveUnchangedFixedTargetsWithoutCallingManager() {
+        AlertChannelMapper channelMapper = mock(AlertChannelMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentUserId()).thenReturn(7L);
+        when(accessService.requireCurrentProjectId()).thenReturn(20L);
+        when(channelMapper.selectCount(any())).thenReturn(0L);
+        AlertChannelEntity channel = new AlertChannelEntity();
+        channel.setId(30L);
+        channel.setTenantId("default");
+        channel.setProjectId(20L);
+        channel.setName("legacy personal");
+        channel.setChannelType("ELINK");
+        channel.setEnabled(1);
+        channel.setConfigJson(new LinkedHashMap<String, Object>(java.util.Map.of(
+                "targetType", "PERSONAL",
+                "userIds", List.of("user-1"),
+                "userNames", List.of("Historical User"))));
+        when(channelMapper.selectOne(any())).thenReturn(channel);
+        AlertChannelService service = new AlertChannelService(channelMapper, mock(AlertRuleMapper.class),
+                mock(AlertRuleService.class), securityService, accessService, mock(EncryptionService.class),
+                mock(AlertWebhookSecurityService.class), new com.fasterxml.jackson.databind.ObjectMapper());
+        ElinkManagerOptionService optionService = mock(ElinkManagerOptionService.class);
+        service.setElinkManagerOptionService(optionService);
+        AlertChannelSaveRequest request = new AlertChannelSaveRequest();
+        request.setId(30L);
+        request.setName("renamed personal");
+        request.setChannelType("ELINK");
+        request.setElinkTargetType("PERSONAL");
+        request.setElinkUserIds(List.of("user-1"));
+
+        service.save(request);
+
+        assertEquals(List.of("Historical User"), channel.getConfigJson().get("userNames"));
+        verify(optionService, never()).requireUser(any());
     }
 
     @Test
@@ -256,7 +312,64 @@ class AlertChannelServiceTest {
         assertNull(view.getEndpointMasked());
         assertTrue(view.getHeaderNames().isEmpty());
         assertEquals(false, view.isHasSigningSecret());
+        assertEquals("FIXED", view.getElinkRecipientMode());
         verify(encryptionService, never()).decrypt(any());
+    }
+
+    @Test
+    void shouldSaveRuleRecipientElinkChannelWithoutFixedTarget() {
+        AlertChannelMapper channelMapper = mock(AlertChannelMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentUserId()).thenReturn(7L);
+        when(accessService.requireCurrentProjectId()).thenReturn(20L);
+        when(channelMapper.selectCount(any())).thenReturn(0L);
+        when(channelMapper.insert(any(AlertChannelEntity.class))).thenReturn(1);
+        AlertChannelService service = new AlertChannelService(channelMapper, mock(AlertRuleMapper.class),
+                mock(AlertRuleService.class), securityService, accessService, mock(EncryptionService.class),
+                mock(AlertWebhookSecurityService.class), new com.fasterxml.jackson.databind.ObjectMapper());
+        AlertChannelSaveRequest request = new AlertChannelSaveRequest();
+        request.setName("follow rule recipients");
+        request.setChannelType("ELINK");
+        request.setElinkRecipientMode("RULE_RECIPIENTS");
+        request.setElinkTargetType("PERSONAL");
+
+        service.save(request);
+
+        ArgumentCaptor<AlertChannelEntity> captor = ArgumentCaptor.forClass(AlertChannelEntity.class);
+        verify(channelMapper).insert(captor.capture());
+        assertEquals("RULE_RECIPIENTS", captor.getValue().getConfigJson().get("recipientMode"));
+        assertEquals("PERSONAL", captor.getValue().getConfigJson().get("targetType"));
+        assertEquals(false, captor.getValue().getConfigJson().containsKey("userIds"));
+        assertEquals(false, captor.getValue().getConfigJson().containsKey("groupId"));
+    }
+
+    @Test
+    void shouldRejectGroupOrFixedTargetsForRuleRecipientMode() {
+        AlertChannelMapper channelMapper = mock(AlertChannelMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(accessService.requireCurrentProjectId()).thenReturn(20L);
+        when(channelMapper.selectCount(any())).thenReturn(0L);
+        AlertChannelService service = new AlertChannelService(channelMapper, mock(AlertRuleMapper.class),
+                mock(AlertRuleService.class), securityService, accessService, mock(EncryptionService.class),
+                mock(AlertWebhookSecurityService.class), new com.fasterxml.jackson.databind.ObjectMapper());
+        AlertChannelSaveRequest request = new AlertChannelSaveRequest();
+        request.setName("invalid dynamic group");
+        request.setChannelType("ELINK");
+        request.setElinkRecipientMode("RULE_RECIPIENTS");
+        request.setElinkTargetType("GROUP");
+        request.setElinkGroupId(1L);
+
+        assertThrows(StudioException.class, () -> service.save(request));
+
+        request.setElinkTargetType("PERSONAL");
+        request.setElinkGroupId(null);
+        request.setElinkUserIds(List.of("user-1"));
+        assertThrows(StudioException.class, () -> service.save(request));
+        verify(channelMapper, never()).insert(any(AlertChannelEntity.class));
     }
 
     @Test
@@ -319,6 +432,41 @@ class AlertChannelServiceTest {
 
         assertThrows(StudioException.class, () -> service.save(request));
         verify(channelMapper, never()).insert(any(AlertChannelEntity.class));
+    }
+
+    @Test
+    void shouldValidateElinkGroupAndStoreItsNameSnapshot() {
+        AlertChannelMapper channelMapper = mock(AlertChannelMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(securityService.currentUserId()).thenReturn(7L);
+        when(accessService.requireCurrentProjectId()).thenReturn(20L);
+        when(channelMapper.selectCount(any())).thenReturn(0L);
+        when(channelMapper.insert(any(AlertChannelEntity.class))).thenReturn(1);
+        ElinkManagerOptionService optionService = mock(ElinkManagerOptionService.class);
+        ElinkGroupOptionView group = new ElinkGroupOptionView();
+        group.setId(9L);
+        group.setName("Operations Group");
+        group.setMemberCount(2);
+        when(optionService.requireGroup(9L)).thenReturn(group);
+        AlertChannelService service = new AlertChannelService(channelMapper, mock(AlertRuleMapper.class),
+                mock(AlertRuleService.class), securityService, accessService, mock(EncryptionService.class),
+                mock(AlertWebhookSecurityService.class), new com.fasterxml.jackson.databind.ObjectMapper());
+        service.setElinkManagerOptionService(optionService);
+        AlertChannelSaveRequest request = new AlertChannelSaveRequest();
+        request.setName("eLink group");
+        request.setChannelType("ELINK");
+        request.setElinkTargetType("GROUP");
+        request.setElinkGroupId(9L);
+
+        service.save(request);
+
+        ArgumentCaptor<AlertChannelEntity> captor = ArgumentCaptor.forClass(AlertChannelEntity.class);
+        verify(channelMapper).insert(captor.capture());
+        assertEquals(9L, captor.getValue().getConfigJson().get("groupId"));
+        assertEquals("Operations Group", captor.getValue().getConfigJson().get("groupName"));
+        verify(optionService).requireGroup(9L);
     }
 
     @Test

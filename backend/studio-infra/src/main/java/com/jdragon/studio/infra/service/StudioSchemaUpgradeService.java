@@ -44,6 +44,10 @@ public class StudioSchemaUpgradeService {
     }
 
     private void upgradeMysql() {
+        ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
+                "alter table studio_external_user_binding add unique key " +
+                        "uk_studio_external_user_binding_provider_user (provider_code, studio_user_id)");
+        ensureColumn("sys_user", "mobile_phone", "alter table sys_user add column mobile_phone varchar(32)");
         ensureColumn("meta_field_definition", "searchable_flag", "alter table meta_field_definition add column searchable_flag int default 0");
         ensureColumn("meta_field_definition", "sortable_flag", "alter table meta_field_definition add column sortable_flag int default 0");
         ensureColumn("meta_field_definition", "query_operators", "alter table meta_field_definition add column query_operators json");
@@ -687,7 +691,11 @@ public class StudioSchemaUpgradeService {
     }
 
     private void upgradeSqlite() {
+        ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
+                "create unique index if not exists uk_studio_external_user_binding_provider_user " +
+                        "on studio_external_user_binding(provider_code, studio_user_id)");
         ensureColumn("sys_user", "auth_source", "alter table sys_user add column auth_source text default 'LOCAL'");
+        ensureColumn("sys_user", "mobile_phone", "alter table sys_user add column mobile_phone text");
         ensureColumn("meta_field_definition", "searchable_flag", "alter table meta_field_definition add column searchable_flag integer default 0");
         ensureColumn("meta_field_definition", "sortable_flag", "alter table meta_field_definition add column sortable_flag integer default 0");
         ensureColumn("meta_field_definition", "query_operators", "alter table meta_field_definition add column query_operators text");

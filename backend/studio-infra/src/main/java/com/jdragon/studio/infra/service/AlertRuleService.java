@@ -184,6 +184,8 @@ public class AlertRuleService {
         if (notifyOwner && !definitionRegistry.supportsResourceOwner(subjectType)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Resource-owner notification is not supported for " + subjectType);
         }
+        targetService.validateRuleRecipientChannels(channelIds, subjectType, request.getSubjectId(),
+                recipientUserIds, notifyOwner, notifyAdmins, tenantId, projectId);
         boolean hasInAppDestination = inAppEnabled && targetService.hasEffectiveInAppDestination(subjectType, request.getSubjectId(),
                 recipientUserIds, notifyOwner, notifyAdmins, tenantId, projectId);
         if (!hasInAppDestination && !targetService.hasEnabledWebhook(channelIds, tenantId, projectId)) {

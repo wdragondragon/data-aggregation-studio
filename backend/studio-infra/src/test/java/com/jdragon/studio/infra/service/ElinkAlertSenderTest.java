@@ -59,6 +59,8 @@ class ElinkAlertSenderTest {
             JsonNode request = objectMapper.readTree(requestBody.get());
             assertEquals("text", request.path("msgType").asText());
             assertEquals("user-1", request.path("userIds").get(0).asText());
+            assertEquals(AlertDeliveryMessageRenderer.renderElinkText(payload),
+                    request.path("content").asText());
             assertTrue(request.path("content").asText().getBytes(StandardCharsets.UTF_8).length <= 2048);
             assertTrue(result.getResponseExcerpt().contains("\"errcode\":0"));
             assertTrue(result.getResponseExcerpt().contains("\"jobId\":\"job-1\""));
@@ -152,11 +154,57 @@ class ElinkAlertSenderTest {
         }
     }
 
+    @Test
+    void shouldUsePersonalEndpointAndRecipientSnapshotWhenOverrideIsPresent() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<String>();
+        AtomicReference<byte[]> requestBody = new AtomicReference<byte[]>();
+        try (TestServer server = TestServer.start(exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            requestBody.set(exchange.getRequestBody().readAllBytes());
+            respond(exchange, 200, "{\"success\":true,\"errcode\":0,\"errmsg\":\"ok\"}");
+        })) {
+            AlertChannelService channelService = mock(AlertChannelService.class);
+            AlertChannelEntity channel = new AlertChannelEntity();
+
+            ElinkAlertSender.SendResult result = sender(channelService, discovery(server.port()))
+                    .send(channel, payload("failed"), List.of("snapshot-user"));
+
+            assertTrue(result.isSuccess());
+            assertEquals("/elink/messages", requestPath.get());
+            JsonNode request = objectMapper.readTree(requestBody.get());
+            assertEquals(1, request.path("userIds").size());
+            assertEquals("snapshot-user", request.path("userIds").get(0).asText());
+        }
+    }
+
+    @Test
+    void shouldUseMobileRecipientSnapshotWhenElinkBindingIsMissing() throws Exception {
+        AtomicReference<byte[]> requestBody = new AtomicReference<byte[]>();
+        try (TestServer server = TestServer.start(exchange -> {
+            requestBody.set(exchange.getRequestBody().readAllBytes());
+            respond(exchange, 200, "{\"success\":true,\"errcode\":0,\"errmsg\":\"ok\"}");
+        })) {
+            AlertChannelService channelService = mock(AlertChannelService.class);
+            AlertChannelEntity channel = new AlertChannelEntity();
+
+            ElinkAlertSender.SendResult result = sender(channelService, discovery(server.port()))
+                    .send(channel, payload("failed"), null, List.of("13800000009"));
+
+            assertTrue(result.isSuccess());
+            JsonNode request = objectMapper.readTree(requestBody.get());
+            assertEquals(1, request.path("mobiles").size());
+            assertEquals("13800000009", request.path("mobiles").get(0).asText());
+            assertFalse(request.has("userIds"));
+        }
+    }
+
     private ElinkAlertSender sender(AlertChannelService channelService,
                                     ObjectProvider<DiscoveryClient> discoveryProvider) {
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.getAlert().getElink().setRequestTimeoutSeconds(2);
-        return new ElinkAlertSender(channelService, discoveryProvider, properties, objectMapper);
+        ElinkManagerEndpointResolver endpointResolver =
+                new ElinkManagerEndpointResolver(discoveryProvider, properties);
+        return new ElinkAlertSender(channelService, endpointResolver, properties, objectMapper);
     }
 
     private ObjectProvider<DiscoveryClient> discovery(int port) {

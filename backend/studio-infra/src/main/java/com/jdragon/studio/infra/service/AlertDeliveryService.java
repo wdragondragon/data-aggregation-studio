@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -56,6 +57,7 @@ public class AlertDeliveryService {
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final ObjectMapper objectMapper;
+    private AlertRecipientResolver alertRecipientResolver;
 
     @Autowired
     public AlertDeliveryService(AlertDeliveryMapper alertDeliveryMapper,
@@ -84,6 +86,11 @@ public class AlertDeliveryService {
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.objectMapper = objectMapper;
+    }
+
+    @Autowired(required = false)
+    void setAlertRecipientResolver(AlertRecipientResolver alertRecipientResolver) {
+        this.alertRecipientResolver = alertRecipientResolver;
     }
 
     AlertDeliveryService(AlertDeliveryMapper alertDeliveryMapper,
@@ -148,6 +155,7 @@ public class AlertDeliveryService {
             throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
                     "Alert channel is missing; this delivery cannot be retried");
         }
+        resolveMissingElinkTargetForManualRetry(entity);
         entity.setStatus(AlertDeliveryStatus.PENDING.name());
         entity.setAttemptCount(0);
         entity.setNextAttemptAt(LocalDateTime.now());
@@ -165,12 +173,49 @@ public class AlertDeliveryService {
                 .set(AlertDeliveryEntity::getHttpStatus, null)
                 .set(AlertDeliveryEntity::getResponseExcerpt, null)
                 .set(AlertDeliveryEntity::getErrorMessage, null)
+                .set(AlertDeliveryEntity::getPayloadJson, entity.getPayloadJson(),
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
                 .set(AlertDeliveryEntity::getUpdatedAt, entity.getUpdatedAt()));
         if (updated == 0) {
             throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
                     "Alert delivery changed concurrently; refresh and retry");
         }
         return alertIncidentService.toDeliveryView(entity);
+    }
+
+    private void resolveMissingElinkTargetForManualRetry(AlertDeliveryEntity delivery) {
+        if (!AlertChannelType.ELINK.name().equals(delivery.getChannelType())
+                || delivery.getRecipientUserId() == null) {
+            return;
+        }
+        Map<String, Object> payload = delivery.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>() : delivery.getPayloadJson();
+        if (StringUtils.hasText(string(payload.get("_elinkTargetUserId")))
+                || StringUtils.hasText(string(payload.get("_elinkTargetMobile")))) {
+            return;
+        }
+        if (alertRecipientResolver == null) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "The eLink recipient binding cannot be resolved");
+        }
+        String elinkUserId = alertRecipientResolver.resolveElinkUserIds(
+                java.util.Collections.singletonList(delivery.getRecipientUserId()))
+                .get(delivery.getRecipientUserId());
+        Map<String, Object> snapshot = new LinkedHashMap<String, Object>(payload);
+        if (StringUtils.hasText(elinkUserId)) {
+            snapshot.put("_elinkTargetUserId", elinkUserId.trim());
+        } else {
+            String mobile = alertRecipientResolver.resolveStudioUserMobiles(
+                    java.util.Collections.singletonList(delivery.getRecipientUserId()))
+                    .get(delivery.getRecipientUserId());
+            if (!StringUtils.hasText(mobile)) {
+                throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                        "Studio user " + delivery.getRecipientUserId()
+                                + " is not bound to an eLink account and has no valid mobile");
+            }
+            snapshot.put("_elinkTargetMobile", mobile.trim());
+        }
+        delivery.setPayloadJson(snapshot);
     }
 
     public void dispatchDue() {
@@ -275,23 +320,19 @@ public class AlertDeliveryService {
         Map<String, Object> payload = delivery.getPayloadJson() == null
                 ? new LinkedHashMap<String, Object>() : delivery.getPayloadJson();
         Map<String, Object> subject = map(payload.get("subject"));
-        Map<String, Object> rule = map(payload.get("rule"));
-        String eventType = string(payload.get("eventType"));
-        String severity = string(rule.get("severity"));
-        String title = "[" + fallback(severity, "INFO") + "] " + fallback(string(rule.get("name")), "Studio 告警");
-        String content = fallback(string(payload.get("summary")), "告警状态发生变化");
+        AlertDeliveryMessageRenderer.RenderedMessage message = AlertDeliveryMessageRenderer.renderInApp(payload);
         if (notificationService.notifyUsers(java.util.Collections.singletonList(delivery.getRecipientUserId()),
                 new NotificationCommand()
                         .setCategory("ALERT")
-                        .setTitle(title)
-                        .setContent(content)
+                        .setTitle(message.getTitle())
+                        .setContent(message.getContent())
                         .setTargetType(fallback(string(subject.get("type")), "ALERT"))
                         .setTargetId(longValue(subject.get("id")).orElse(null))
                         .setTargetPath(fallback(string(subject.get("path")), "/alerts"))
                         .setTargetTenantId(delivery.getTenantId())
                         .setTargetProjectId(delivery.getProjectId())
                         .setDedupeKey("alert:" + delivery.getEventId() + ":" + delivery.getRecipientUserId())
-                        .setPayloadJson(payload)).isEmpty()) {
+                        .setPayloadJson(AlertDeliveryMessageRenderer.webhookEnvelope(payload))).isEmpty()) {
             return DeliveryResult.skipped("In-app recipient is disabled or missing");
         }
         return DeliveryResult.success(null, null);
@@ -310,7 +351,8 @@ public class AlertDeliveryService {
         }
         String endpoint = alertChannelService.endpoint(channel);
         AlertWebhookSecurityService.ValidatedWebhookTarget target = webhookSecurityService.validateAndResolve(endpoint);
-        byte[] body = objectMapper.writeValueAsBytes(delivery.getPayloadJson());
+        byte[] body = objectMapper.writeValueAsBytes(
+                AlertDeliveryMessageRenderer.webhookEnvelope(delivery.getPayloadJson()));
         int connectTimeout = Math.max(1, properties.getAlert().getWebhook().getConnectTimeoutSeconds());
         int requestTimeout = Math.max(1, properties.getAlert().getWebhook().getRequestTimeoutSeconds());
         Map<String, String> configuredHeaders = alertChannelService.headers(channel);
@@ -353,8 +395,19 @@ public class AlertDeliveryService {
         if (!Integer.valueOf(1).equals(channel.getEnabled()) && !testDelivery) {
             return DeliveryResult.skipped("eLink channel is disabled");
         }
-        ElinkAlertSender.SendResult result = elinkAlertSender.send(channel,
-                delivery.getPayloadJson() == null ? new LinkedHashMap<String, Object>() : delivery.getPayloadJson());
+        Map<String, Object> payload = delivery.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>() : delivery.getPayloadJson();
+        String targetUserId = string(payload.get("_elinkTargetUserId"));
+        List<String> targetOverride = StringUtils.hasText(targetUserId)
+                ? java.util.Collections.singletonList(targetUserId) : null;
+        String targetMobile = string(payload.get("_elinkTargetMobile"));
+        ElinkAlertSender.SendResult result;
+        if (StringUtils.hasText(targetMobile) && !StringUtils.hasText(targetUserId)) {
+            result = elinkAlertSender.send(channel, payload, null,
+                    java.util.Collections.singletonList(targetMobile));
+        } else {
+            result = elinkAlertSender.send(channel, payload, targetOverride);
+        }
         if (result.isSkipped()) {
             return DeliveryResult.skipped(result.getErrorMessage());
         }
