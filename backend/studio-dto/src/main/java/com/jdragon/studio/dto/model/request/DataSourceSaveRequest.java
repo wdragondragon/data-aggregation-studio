@@ -4,7 +4,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -35,6 +38,13 @@ public class DataSourceSaveRequest {
 
     @Schema(description = "Scheduled connection test timeout seconds")
     private Integer scheduledConnectionTestTimeoutSeconds;
+
+    @Schema(description = "Runtime clusters where this datasource is network-applicable")
+    @NotEmpty(message = "At least one applicable runtime cluster is required")
+    private List<Long> applicableClusterIds = new ArrayList<Long>();
+
+    @Schema(description = "Confirm resources made invalid by removing applicable clusters")
+    private Boolean confirmClusterBindingImpact;
 
     @Schema(description = "Technical metadata")
     private Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();

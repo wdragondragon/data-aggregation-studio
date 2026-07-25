@@ -19,6 +19,7 @@ import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SavedDataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.infra.service.DataDevelopmentService;
+import com.jdragon.studio.server.web.service.ScriptEnvironmentHintRuntimeRouter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -39,9 +40,12 @@ import java.util.List;
 public class DataDevelopmentController {
 
     private final DataDevelopmentService dataDevelopmentService;
+    private final ScriptEnvironmentHintRuntimeRouter scriptEnvironmentHintRuntimeRouter;
 
-    public DataDevelopmentController(DataDevelopmentService dataDevelopmentService) {
+    public DataDevelopmentController(DataDevelopmentService dataDevelopmentService,
+                                     ScriptEnvironmentHintRuntimeRouter scriptEnvironmentHintRuntimeRouter) {
         this.dataDevelopmentService = dataDevelopmentService;
+        this.scriptEnvironmentHintRuntimeRouter = scriptEnvironmentHintRuntimeRouter;
     }
 
     @Operation(summary = "Load data development tree")
@@ -112,14 +116,16 @@ public class DataDevelopmentController {
 
     @Operation(summary = "List SQL-capable datasources")
     @GetMapping("/datasources")
-    public Result<List<DataSourceDefinition>> datasources() {
-        return Result.success(dataDevelopmentService.listSqlCapableDatasources());
+    public Result<List<DataSourceDefinition>> datasources(
+            @RequestParam("runtimeClusterId") Long runtimeClusterId) {
+        return Result.success(dataDevelopmentService.listSqlCapableDatasources(runtimeClusterId));
     }
 
     @Operation(summary = "List SQL-capable datasource options")
     @GetMapping("/datasource-options")
-    public Result<List<DataSourceOptionView>> datasourceOptions() {
-        return Result.success(dataDevelopmentService.listSqlCapableDatasourceOptions());
+    public Result<List<DataSourceOptionView>> datasourceOptions(
+            @RequestParam("runtimeClusterId") Long runtimeClusterId) {
+        return Result.success(dataDevelopmentService.listSqlCapableDatasourceOptions(runtimeClusterId));
     }
 
     @Operation(summary = "List SQL-capable datasource types")
@@ -130,20 +136,24 @@ public class DataDevelopmentController {
 
     @Operation(summary = "List Java import hints")
     @GetMapping("/java/import-hints")
-    public Result<JavaImportHintResponse> javaImportHints(@RequestParam(value = "environmentId", required = false) Long environmentId,
+    public Result<JavaImportHintResponse> javaImportHints(@RequestParam("runtimeClusterId") Long runtimeClusterId,
+                                                          @RequestParam(value = "environmentId", required = false) Long environmentId,
                                                           @RequestParam(value = "keyword", required = false) String keyword,
                                                           @RequestParam(value = "limit", required = false) Integer limit) {
-        return Result.success(dataDevelopmentService.javaImportHints(environmentId, keyword, limit));
+        return Result.success(scriptEnvironmentHintRuntimeRouter.importHints(
+                runtimeClusterId, environmentId, keyword, limit));
     }
 
     @Operation(summary = "List Java member hints")
     @GetMapping("/java/member-hints")
-    public Result<JavaMemberHintResponse> javaMemberHints(@RequestParam(value = "environmentId", required = false) Long environmentId,
+    public Result<JavaMemberHintResponse> javaMemberHints(@RequestParam("runtimeClusterId") Long runtimeClusterId,
+                                                          @RequestParam(value = "environmentId", required = false) Long environmentId,
                                                           @RequestParam("className") String className,
                                                           @RequestParam(value = "keyword", required = false) String keyword,
                                                           @RequestParam(value = "staticOnly", required = false) Boolean staticOnly,
                                                           @RequestParam(value = "limit", required = false) Integer limit) {
-        return Result.success(dataDevelopmentService.javaMemberHints(environmentId, className, keyword, staticOnly, limit));
+        return Result.success(scriptEnvironmentHintRuntimeRouter.memberHints(
+                runtimeClusterId, environmentId, className, keyword, staticOnly, limit));
     }
 
     @Operation(summary = "Execute script in editor")

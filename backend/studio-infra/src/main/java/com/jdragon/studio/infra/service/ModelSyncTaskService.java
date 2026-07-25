@@ -52,6 +52,12 @@ public class ModelSyncTaskService {
     private final FollowSubscriptionService followSubscriptionService;
     private final NotificationService notificationService;
     private final Object batchNoLock = new Object();
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) {
+        this.runtimeClusterSelectionService = runtimeClusterSelectionService;
+    }
 
     public ModelSyncTaskService(ModelSyncTaskMapper modelSyncTaskMapper,
                                 ModelSyncTaskItemMapper modelSyncTaskItemMapper,
@@ -80,10 +86,12 @@ public class ModelSyncTaskService {
         }
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         String currentTenantId = securityService.currentTenantId();
-        DataSourceDefinition datasource = dataSourceService.getInternal(request.getDatasourceId());
+        DataSourceDefinition datasource = dataSourceService.get(request.getDatasourceId());
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
         }
+        Long runtimeClusterId = runtimeClusterSelectionService.validateExplicitDatasourceSelection(currentProjectId,
+                request.getRuntimeClusterId(), java.util.Collections.singletonList(datasource.getId()));
         Set<String> locators = normalizeLocators(request.getPhysicalLocators());
         if (locators.isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "At least one table must be selected");
@@ -94,6 +102,7 @@ public class ModelSyncTaskService {
             task = new ModelSyncTaskEntity();
             task.setTenantId(currentTenantId);
             task.setProjectId(currentProjectId);
+            task.setRuntimeClusterId(runtimeClusterId);
             task.setDatasourceId(datasource.getId());
             task.setDatasourceType(datasource.getTypeCode());
             task.setDatasourceNameSnapshot(datasource.getName());
@@ -146,6 +155,7 @@ public class ModelSyncTaskService {
                         ModelSyncTaskEntity::getDeleted,
                         ModelSyncTaskEntity::getCreatedAt,
                         ModelSyncTaskEntity::getUpdatedAt,
+                        ModelSyncTaskEntity::getRuntimeClusterId,
                         ModelSyncTaskEntity::getName,
                         ModelSyncTaskEntity::getStatus,
                         ModelSyncTaskEntity::getTotalCount,
@@ -345,7 +355,8 @@ public class ModelSyncTaskService {
 
         DataModelSyncBatchResult batchResult = dataModelService.syncBatchFromDatasource(
                 task.getDatasourceId(),
-                java.util.Collections.singletonList(item.getPhysicalLocator()));
+                java.util.Collections.singletonList(item.getPhysicalLocator()),
+                task.getRuntimeClusterId());
         DataModelSyncItemResult itemResult = batchResult.getItems().isEmpty() ? null : batchResult.getItems().get(0);
         LocalDateTime finishedAt = itemResult == null || itemResult.getFinishedAt() == null
                 ? LocalDateTime.now()
@@ -554,6 +565,9 @@ public class ModelSyncTaskService {
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setDatasourceId(entity.getDatasourceId());
         view.setDatasourceType(entity.getDatasourceType());
         view.setDatasourceNameSnapshot(entity.getDatasourceNameSnapshot());

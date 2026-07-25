@@ -11,9 +11,19 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema-sqlite.sql
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
 
 mybatis-plus:
   configuration:
@@ -62,6 +72,24 @@ studio:
   schema:
     auto-upgrade-on-startup: true
   aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
-  encryption-secret: studio-secret-key
-  worker-code: studio-desktop-worker
+  encryption-secret: ${STUDIO_ENCRYPTION_SECRET:studio-desktop-encryption-secret-20260721}
+  instance-id: ${STUDIO_INSTANCE_ID:studio-desktop-runtime}
+  runtime-cluster-code: ${STUDIO_CLUSTER_CODE:default-local}
+  worker-group-code: ${STUDIO_WORKER_GROUP_CODE:${STUDIO_WORKER_CODE:studio-desktop-worker}}
+  worker-code: ${STUDIO_WORKER_CODE:studio-desktop-worker}
+  worker-api-base-url: ${STUDIO_WORKER_API_BASE_URL:http://127.0.0.1:${server.port}}
+  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-desktop-internal-token-20260721}
+  runtime-invocation-max-body-bytes: ${STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES:10485760}
+  runtime-invocation-max-concurrency: ${STUDIO_RUNTIME_INVOCATION_MAX_CONCURRENCY:32}
+  runtime-invocation-idempotency:
+    mode: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MODE:OPTIONAL}
+    max-response-bytes: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MAX_RESPONSE_BYTES:10485760}
+    cleanup-enabled: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_ENABLED:true}
+    completed-retention-days: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_COMPLETED_RETENTION_DAYS:7}
+    running-unknown-after-hours: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_RUNNING_UNKNOWN_AFTER_HOURS:24}
+    cleanup-batch-size: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_BATCH_SIZE:1000}
+    cleanup-max-batches: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_MAX_BATCHES:20}
+  runtime-endpoint:
+    allowed-hosts: ${STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS:127.0.0.1}
+    max-response-bytes: ${STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES:10485760}
   desktop-runtime: true

@@ -50,7 +50,6 @@ public abstract class StudioApiRegressionTestSupport {
             .resolve("main")
             .resolve("resources")
             .resolve("schema-sqlite.sql");
-    private static final Path AGGREGATION_HOME = WORKSPACE_ROOT.resolve("package_all").resolve("aggregation");
     private static final String JAVA_EXECUTABLE = locateJavaExecutable();
     private static final String TEST_CLASSPATH = System.getProperty("java.class.path");
 
@@ -87,7 +86,8 @@ public abstract class StudioApiRegressionTestSupport {
         registry.add("spring.cloud.nacos.discovery.enabled", () -> "false");
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.sql.init.schema-locations", () -> SQLITE_SCHEMA.toUri().toString());
-        registry.add("studio.aggregation-home", () -> AGGREGATION_HOME.toAbsolutePath().normalize().toString());
+        registry.add("studio.internal-api-token", () -> "studio-regression-internal-token-20260721");
+        registry.add("studio.encryption-secret", () -> "studio-regression-encryption-secret-20260721");
         registry.add("studio.scan-plugins-on-startup", () -> "false");
         registry.add("studio.alert.enabled", () -> "false");
         registry.add("studio.python.executable", () -> JAVA_EXECUTABLE);
@@ -150,6 +150,64 @@ public abstract class StudioApiRegressionTestSupport {
             throw new IllegalStateException("Admin login did not return currentProjectId");
         }
         return Long.valueOf(projectNode.asText());
+    }
+
+    protected Long createAndAuthorizeTestRuntimeCluster(String authorization, Long projectId) throws Exception {
+        return createAndAuthorizeRuntimeCluster(authorization, projectId,
+                "TEST_" + projectId, "Test Runtime Cluster " + projectId);
+    }
+
+    protected Long createAndAuthorizeDefaultLocalRuntimeCluster(String authorization, Long projectId) throws Exception {
+        return createAndAuthorizeRuntimeCluster(authorization, projectId,
+                "DEFAULT-LOCAL", "Default Local Runtime Cluster");
+    }
+
+    private Long createAndAuthorizeRuntimeCluster(String authorization,
+                                                  Long projectId,
+                                                  String code,
+                                                  String name) throws Exception {
+        Map<String, Object> clusterPayload = new LinkedHashMap<String, Object>();
+        clusterPayload.put("code", code);
+        clusterPayload.put("name", name);
+        clusterPayload.put("enabled", Boolean.TRUE);
+        clusterPayload.put("version", "test");
+
+        MvcResult clusterResult = mockMvc.perform(post("/api/v1/runtime-clusters")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(clusterPayload)))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode clusterBody = readBody(clusterResult);
+        if (!clusterBody.path("success").asBoolean()) {
+            throw new IllegalStateException("Failed to create test runtime cluster: " + clusterBody.path("message").asText());
+        }
+        Long runtimeClusterId = clusterBody.path("data").path("id").asLong();
+
+        authorizeTestRuntimeCluster(authorization, projectId, runtimeClusterId);
+        return runtimeClusterId;
+    }
+
+    protected void authorizeTestRuntimeCluster(String authorization,
+                                               Long projectId,
+                                               Long runtimeClusterId) throws Exception {
+        Map<String, Object> authorizationPayload = new LinkedHashMap<String, Object>();
+        authorizationPayload.put("projectId", projectId);
+        authorizationPayload.put("runtimeClusterId", runtimeClusterId);
+        authorizationPayload.put("enabled", Boolean.TRUE);
+        authorizationPayload.put("preferred", Boolean.TRUE);
+        authorizationPayload.put("allowManualOverride", Boolean.TRUE);
+        MvcResult authorizationResult = mockMvc.perform(post("/api/v1/runtime-clusters/project-authorizations")
+                        .header("Authorization", authorization)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(authorizationPayload)))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode authorizationBody = readBody(authorizationResult);
+        if (!authorizationBody.path("success").asBoolean()) {
+            throw new IllegalStateException("Failed to authorize test runtime cluster: "
+                    + authorizationBody.path("message").asText());
+        }
     }
 
     protected JsonNode readBody(MvcResult result) throws Exception {

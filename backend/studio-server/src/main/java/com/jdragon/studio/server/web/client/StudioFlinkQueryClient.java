@@ -1,9 +1,8 @@
 package com.jdragon.studio.server.web.client;
 
 import com.jdragon.studio.dto.common.Result;
-import com.jdragon.studio.dto.model.FlinkQuestionResultView;
+import com.jdragon.studio.dto.model.FlinkQuestionPlanView;
 import com.jdragon.studio.dto.model.request.FlinkQuestionAskRequest;
-import com.jdragon.studio.dto.model.request.FlinkSqlExecuteRequest;
 import com.jdragon.studio.server.web.config.StudioFlinkFeignConfig;
 import jakarta.validation.Valid;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -19,9 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 )
 public interface StudioFlinkQueryClient {
 
-    @PostMapping("/sql/execute")
-    Result<FlinkQuestionResultView> executeSql(@Valid @RequestBody FlinkSqlExecuteRequest request);
-
-    @PostMapping("/question/ask")
-    Result<FlinkQuestionResultView> ask(@Valid @RequestBody FlinkQuestionAskRequest request);
+    @PostMapping("/question/plan")
+    Result<FlinkQuestionPlanView> plan(@Valid @RequestBody FlinkQuestionAskRequest request);
 }

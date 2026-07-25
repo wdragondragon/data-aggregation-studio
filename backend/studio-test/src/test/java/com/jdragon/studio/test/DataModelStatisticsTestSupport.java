@@ -21,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 abstract class DataModelStatisticsTestSupport extends StudioApiRegressionTestSupport {
 
     private static final AtomicLong INDEX_ID_SEQUENCE = new AtomicLong(900000L);
+    private Long testRuntimeClusterId;
 
     protected Long syncMysqlTechnicalTableSchema(String authorization) throws Exception {
         mockMvc.perform(post("/api/v1/meta-schemas/technical/sync/mysql8")
@@ -196,7 +197,13 @@ abstract class DataModelStatisticsTestSupport extends StudioApiRegressionTestSup
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();
-        return readBody(result).path("data").path("id").asLong();
+        Long projectId = readBody(result).path("data").path("id").asLong();
+        if (testRuntimeClusterId == null) {
+            testRuntimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, projectId);
+        } else {
+            authorizeTestRuntimeCluster(authorization, projectId, testRuntimeClusterId);
+        }
+        return projectId;
     }
 
     protected Long createDatasource(String authorization, Long projectId, String name) throws Exception {
@@ -205,6 +212,7 @@ abstract class DataModelStatisticsTestSupport extends StudioApiRegressionTestSup
         payload.put("typeCode", "mysql8");
         payload.put("enabled", true);
         payload.put("executable", false);
+        payload.put("applicableClusterIds", java.util.Collections.singletonList(requireTestRuntimeClusterId(projectId)));
         payload.put("technicalMetadata", minimalSqlMetadata());
         payload.put("businessMetadata", new LinkedHashMap<String, Object>());
 
@@ -217,6 +225,13 @@ abstract class DataModelStatisticsTestSupport extends StudioApiRegressionTestSup
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();
         return readBody(result).path("data").path("id").asLong();
+    }
+
+    private Long requireTestRuntimeClusterId(Long projectId) {
+        if (testRuntimeClusterId == null) {
+            throw new IllegalStateException("Test runtime cluster was not prepared for project " + projectId);
+        }
+        return testRuntimeClusterId;
     }
 
     protected Long createModel(String authorization,

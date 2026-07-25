@@ -13,6 +13,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "data_dev_script", autoResultMap = true)
 public class DataDevelopmentScriptEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long directoryId;
     private String fileName;
     private String scriptType;

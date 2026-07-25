@@ -158,6 +158,7 @@ class FlinkExecutionModeTest {
 
             assertTrue(error.getMessage().contains("HTTP 下推字段 customer_id 不支持操作符 >"));
             assertFalse(error.getMessage().contains("org.apache.flink"));
+            assertFalse(error.getMessage().contains("gateway-runtime-secret"), error.getMessage());
         } finally {
             server.stop(0);
         }
@@ -282,7 +283,7 @@ class FlinkExecutionModeTest {
             response = "{\"sessionHandle\":\"s1\"}";
         } else if ("POST".equals(method) && path.endsWith("/statements")) {
             status = 500;
-            response = "{\"errors\":[\"java.lang.IllegalArgumentException: HTTP 下推字段 customer_id 不支持操作符 >，模型当前支持: =\\n\\tat org.apache.flink.table.planner.plan.nodes.exec.ExecNode\"]}";
+            response = "{\"errors\":[\"java.lang.IllegalArgumentException: HTTP 下推字段 customer_id 不支持操作符 >，模型当前支持: =; statement 'runtime.token' = 'gateway-runtime-secret' at org.apache.flink.table.planner.plan.nodes.exec.ExecNode\"]}";
         } else if ("DELETE".equals(method)) {
             response = "{}";
         } else {

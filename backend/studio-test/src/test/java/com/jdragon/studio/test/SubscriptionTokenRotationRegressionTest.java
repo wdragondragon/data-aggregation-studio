@@ -32,7 +32,7 @@ import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionSubscriptionMapper;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
-import com.jdragon.studio.infra.service.DataDevelopmentSqlExecutor;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.DataIngestionService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataServiceResponseCacheService;
@@ -415,7 +415,7 @@ class SubscriptionTokenRotationRegressionTest {
                 mock(DataServiceAccessCounterMapper.class),
                 mock(DataSourceService.class),
                 mock(DataModelService.class),
-                mock(DataDevelopmentSqlExecutor.class),
+                mock(DatasourceTypeCapabilityService.class),
                 securityService,
                 accessService,
                 mock(DataServiceResponseCacheService.class),
@@ -435,7 +435,7 @@ class SubscriptionTokenRotationRegressionTest {
                 mock(DataIngestionAccessCounterMapper.class),
                 mock(DataSourceService.class),
                 mock(DataModelService.class),
-                mock(DataDevelopmentSqlExecutor.class),
+                mock(DatasourceTypeCapabilityService.class),
                 securityService,
                 accessService,
                 mock(PluginRuntimeOptionSchemaService.class),

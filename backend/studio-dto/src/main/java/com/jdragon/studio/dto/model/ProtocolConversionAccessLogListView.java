@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 public class ProtocolConversionAccessLogListView {
     private Long id;
     private Long serviceId;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private String serviceCode;
     private String serviceName;
     private String serviceStatus;

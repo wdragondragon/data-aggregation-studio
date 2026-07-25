@@ -639,6 +639,7 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
         JsonNode loginBody = loginAsAdmin();
         String authorization = adminAuthorizationHeader(loginBody);
         Long sourceProjectId = currentProjectId(loginBody);
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, sourceProjectId);
 
         MvcResult targetProjectResult = mockMvc.perform(post("/api/v1/system/projects")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
@@ -650,13 +651,16 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();
         Long targetProjectId = readBody(targetProjectResult).path("data").path("id").asLong();
+        authorizeTestRuntimeCluster(authorization, targetProjectId, runtimeClusterId);
 
         MvcResult workflowResult = mockMvc.perform(post("/api/v1/workflows")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
                         .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(sourceProjectId))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"code\":\"lt_reg_m10_export_source_workflow\",\"name\":\"长期回归-M10源项目共享流程\",\"nodes\":[{\"nodeCode\":\"m10_shell_probe\",\"nodeName\":\"长期回归-M10导出探针节点\",\"nodeType\":\"SHELL\",\"config\":{}}],\"edges\":[]}"))
+                        .content("{\"code\":\"lt_reg_m10_export_source_workflow\",\"name\":\"长期回归-M10源项目共享流程\",\"runtimeClusterId\":\""
+                                + runtimeClusterId
+                                + "\",\"nodes\":[{\"nodeCode\":\"m10_shell_probe\",\"nodeName\":\"长期回归-M10导出探针节点\",\"nodeType\":\"SHELL\",\"config\":{}}],\"edges\":[]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();

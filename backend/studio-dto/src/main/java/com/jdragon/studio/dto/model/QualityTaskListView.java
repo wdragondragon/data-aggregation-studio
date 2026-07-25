@@ -9,6 +9,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class QualityTaskListView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long createdBy;
     private String taskName;
     private String taskCode;

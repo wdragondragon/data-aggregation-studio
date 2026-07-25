@@ -11,11 +11,14 @@ import com.jdragon.studio.dto.model.WebServiceConfig;
 import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
 @Data
 public class DataServiceSaveRequest {
+    @NotNull(message = "Runtime cluster is required")
+    private Long runtimeClusterId;
     private Long id;
 
     @NotBlank

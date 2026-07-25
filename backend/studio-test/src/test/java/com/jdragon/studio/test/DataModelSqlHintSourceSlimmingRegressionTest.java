@@ -28,7 +28,6 @@ import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
-import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -177,7 +176,8 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         when(dataModelMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(300L);
         when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(model()));
 
-        PageView<DataModelDatasourceOptionView> page = service.listSelectorOptions("mysql8", 11L, "profile", 1, 5000);
+        PageView<DataModelDatasourceOptionView> page = service.listSelectorOptions(
+                "mysql8", 11L, null, "profile", 1, 5000);
 
         assertThat(page.getItems()).hasSize(1);
         assertThat(page.getPageSize()).isEqualTo(100);
@@ -324,7 +324,7 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         DataSourceDefinition datasource = new DataSourceDefinition();
         datasource.setId(11L);
         datasource.setTypeCode("http");
-        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataSourceService.get(11L)).thenReturn(datasource);
         when(dataModelMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.<DataModelEntity>emptyList());
         DataModelService service = dataModelService(dataModelMapper, dataSourceService);
 
@@ -390,7 +390,7 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         DataSourceDefinition datasource = new DataSourceDefinition();
         datasource.setId(11L);
         datasource.setTypeCode("http");
-        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataSourceService.get(11L)).thenReturn(datasource);
         when(dataModelMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(Collections.<DataModelEntity>emptyList());
         DataModelService service = dataModelService(dataModelMapper, dataSourceService);
@@ -415,7 +415,7 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         DataSourceDefinition datasource = new DataSourceDefinition();
         datasource.setId(11L);
         datasource.setTypeCode("http");
-        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataSourceService.get(11L)).thenReturn(datasource);
         when(dataModelMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(Collections.<DataModelEntity>emptyList());
         DataModelService service = dataModelService(dataModelMapper, dataSourceService);
@@ -445,8 +445,8 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         DataSourceDefinition mysqlDatasource = new DataSourceDefinition();
         mysqlDatasource.setId(12L);
         mysqlDatasource.setTypeCode("mysql8");
-        when(dataSourceService.getInternal(11L)).thenReturn(httpDatasource);
-        when(dataSourceService.getInternal(12L)).thenReturn(mysqlDatasource);
+        when(dataSourceService.get(11L)).thenReturn(httpDatasource);
+        when(dataSourceService.get(12L)).thenReturn(mysqlDatasource);
         DataModelEntity existing = model();
         existing.setDatasourceId(12L);
         existing.setPhysicalLocator("https://user:password@example.test/customers?access_token=secret");
@@ -510,7 +510,6 @@ class DataModelSqlHintSourceSlimmingRegressionTest {
         return new DataModelService(
                 dataModelMapper,
                 dataSourceService,
-                mock(AggregationSourceCapabilityProvider.class),
                 mock(MetadataSchemaService.class),
                 mock(DataModelSearchIndexService.class),
                 mock(DataModelIndexRebuildQueueService.class),

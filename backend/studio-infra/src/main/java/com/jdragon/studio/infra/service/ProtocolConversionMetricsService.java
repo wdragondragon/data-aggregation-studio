@@ -172,6 +172,8 @@ public class ProtocolConversionMetricsService {
                 .eq(request.getSubscriptionId() != null && !isNoTokenSubscriptionFilter(request.getSubscriptionId()), ProtocolConversionAccessLogEntity::getSubscriptionId, request.getSubscriptionId())
                 .isNull(isNoTokenSubscriptionFilter(request.getSubscriptionId()), ProtocolConversionAccessLogEntity::getSubscriptionId)
                 .eq(request.getSuccess() != null, ProtocolConversionAccessLogEntity::getSuccess, Boolean.TRUE.equals(request.getSuccess()) ? 1 : 0)
+                .eq(request.getRequestedClusterId() != null, ProtocolConversionAccessLogEntity::getRequestedClusterId, request.getRequestedClusterId())
+                .eq(request.getActualClusterId() != null, ProtocolConversionAccessLogEntity::getActualClusterId, request.getActualClusterId())
                 .ge(ProtocolConversionAccessLogEntity::getOccurredAt, range.startTime)
                 .le(ProtocolConversionAccessLogEntity::getOccurredAt, range.endTime)
                 .and(isFocusedLogQuery(request.getLogFocus()), wrapper -> {
@@ -198,6 +200,8 @@ public class ProtocolConversionMetricsService {
         return baseLogQuery(request, projectId, range)
                 .select(ProtocolConversionAccessLogEntity::getId,
                         ProtocolConversionAccessLogEntity::getServiceId,
+                        ProtocolConversionAccessLogEntity::getRequestedClusterId,
+                        ProtocolConversionAccessLogEntity::getActualClusterId,
                         ProtocolConversionAccessLogEntity::getServiceCodeSnapshot,
                         ProtocolConversionAccessLogEntity::getServiceNameSnapshot,
                         ProtocolConversionAccessLogEntity::getServiceStatusSnapshot,
@@ -225,6 +229,8 @@ public class ProtocolConversionMetricsService {
         ProtocolConversionAccessLogListView view = new ProtocolConversionAccessLogListView();
         view.setId(entity.getId());
         view.setServiceId(entity.getServiceId());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
         view.setServiceCode(entity.getServiceCodeSnapshot());
         view.setServiceName(entity.getServiceNameSnapshot());
         view.setServiceStatus(entity.getServiceStatusSnapshot());

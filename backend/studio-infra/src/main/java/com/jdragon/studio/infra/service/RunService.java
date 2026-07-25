@@ -70,6 +70,23 @@ public class RunService {
                                             LocalDateTime endTime,
                                             Integer pageNo,
                                             Integer pageSize) {
+        return listRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId,
+                collectionTaskOnly, qualityTaskOnly, status, null, null,
+                startTime, endTime, pageNo, pageSize);
+    }
+
+    public RunRecordPageView listRunRecords(Long collectionTaskId,
+                                            Long qualityTaskId,
+                                            Long workflowDefinitionId,
+                                            Boolean collectionTaskOnly,
+                                            Boolean qualityTaskOnly,
+                                            String status,
+                                            Long requestedClusterId,
+                                            Long actualClusterId,
+                                            LocalDateTime startTime,
+                                            LocalDateTime endTime,
+                                            Integer pageNo,
+                                            Integer pageSize) {
         int current = normalizePageNo(pageNo);
         int size = normalizePageSize(pageSize);
         String normalizedStatus = normalizeStatus(status);
@@ -81,6 +98,8 @@ public class RunService {
                 collectionTaskOnly,
                 qualityTaskOnly,
                 normalizedStatus,
+                requestedClusterId,
+                actualClusterId,
                 startTime,
                 endTime)
                 .orderByDesc(RunRecordEntity::getCreatedAt)
@@ -99,9 +118,15 @@ public class RunService {
         view.setPageSize(size);
         view.setTotal(entityPage.getTotal());
         view.setItems(items);
-        view.setFailedCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, normalizedStatus, startTime, endTime, "FAILED"));
-        view.setRunningCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, normalizedStatus, startTime, endTime, "RUNNING"));
-        view.setSuccessCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, normalizedStatus, startTime, endTime, "SUCCESS"));
+        view.setFailedCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId,
+                collectionTaskOnly, qualityTaskOnly, normalizedStatus, requestedClusterId, actualClusterId,
+                startTime, endTime, "FAILED"));
+        view.setRunningCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId,
+                collectionTaskOnly, qualityTaskOnly, normalizedStatus, requestedClusterId, actualClusterId,
+                startTime, endTime, "RUNNING"));
+        view.setSuccessCount(countRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId,
+                collectionTaskOnly, qualityTaskOnly, normalizedStatus, requestedClusterId, actualClusterId,
+                startTime, endTime, "SUCCESS"));
         return view;
     }
 
@@ -111,13 +136,26 @@ public class RunService {
                             LocalDateTime startTime,
                             LocalDateTime endTime,
                             Boolean includeRunRecords) {
+        return list(collectionTaskId, qualityTaskId, workflowDefinitionId, null, null,
+                startTime, endTime, includeRunRecords);
+    }
+
+    public RunListView list(Long collectionTaskId,
+                            Long qualityTaskId,
+                            Long workflowDefinitionId,
+                            Long requestedClusterId,
+                            Long actualClusterId,
+                            LocalDateTime startTime,
+                            LocalDateTime endTime,
+                            Boolean includeRunRecords) {
         RunListView view = new RunListView();
         Map<Long, String> collectionTaskNames = collectionTaskNames();
         Map<Long, String> qualityTaskNames = qualityTaskNames();
         Map<Long, String> workflowNames = workflowNames();
         String currentTenantId = securityService.currentTenantId();
         Long currentProjectId = securityService.currentProjectId();
-        List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+        List<DispatchTaskEntity> queued = actualClusterId == null
+                ? dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .select(DispatchTaskEntity::getId,
                         DispatchTaskEntity::getTenantId,
                         DispatchTaskEntity::getProjectId,
@@ -132,6 +170,7 @@ public class RunService {
                         DispatchTaskEntity::getQualityTaskId,
                         DispatchTaskEntity::getNodeCode,
                         DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getTargetClusterId,
                         DispatchTaskEntity::getWorkerGroupCode,
                         DispatchTaskEntity::getLeaseOwner,
                         DispatchTaskEntity::getAttempts,
@@ -140,11 +179,13 @@ public class RunService {
                 .eq(collectionTaskId != null, DispatchTaskEntity::getCollectionTaskId, collectionTaskId)
                 .eq(qualityTaskId != null, DispatchTaskEntity::getQualityTaskId, qualityTaskId)
                 .eq(workflowDefinitionId != null, DispatchTaskEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(requestedClusterId != null, DispatchTaskEntity::getTargetClusterId, requestedClusterId)
                 .eq(currentProjectId != null, DispatchTaskEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, DispatchTaskEntity::getCreatedAt, startTime)
                 .le(endTime != null, DispatchTaskEntity::getCreatedAt, endTime)
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING")
-                .orderByDesc(DispatchTaskEntity::getCreatedAt));
+                .orderByDesc(DispatchTaskEntity::getCreatedAt))
+                : new ArrayList<DispatchTaskEntity>();
         for (DispatchTaskEntity entity : queued) {
             view.getQueuedTasks().add(toQueuedTaskListView(entity, collectionTaskNames, qualityTaskNames, workflowNames));
         }
@@ -165,9 +206,13 @@ public class RunService {
                         RunRecordEntity::getCollectionTaskId,
                         RunRecordEntity::getQualityTaskId,
                         RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getRequestedClusterId,
+                        RunRecordEntity::getActualClusterId,
+                        RunRecordEntity::getActualClusterCode,
                         RunRecordEntity::getWorkerGroupCode,
                         RunRecordEntity::getWorkerCode,
                         RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getWorkerBootId,
                         RunRecordEntity::getWorkerPodName,
                         RunRecordEntity::getWorkerNodeName,
                         RunRecordEntity::getStatus,
@@ -189,6 +234,8 @@ public class RunService {
                 .eq(collectionTaskId != null, RunRecordEntity::getCollectionTaskId, collectionTaskId)
                 .eq(qualityTaskId != null, RunRecordEntity::getQualityTaskId, qualityTaskId)
                 .eq(workflowDefinitionId != null, RunRecordEntity::getWorkflowDefinitionId, workflowDefinitionId)
+                .eq(requestedClusterId != null, RunRecordEntity::getRequestedClusterId, requestedClusterId)
+                .eq(actualClusterId != null, RunRecordEntity::getActualClusterId, actualClusterId)
                 .eq(currentProjectId != null, RunRecordEntity::getProjectId, currentProjectId)
                 .ge(startTime != null, RunRecordEntity::getCreatedAt, startTime)
                 .le(endTime != null, RunRecordEntity::getCreatedAt, endTime)
@@ -268,6 +315,8 @@ public class RunService {
                                  Boolean collectionTaskOnly,
                                  Boolean qualityTaskOnly,
                                  String status,
+                                 Long requestedClusterId,
+                                 Long actualClusterId,
                                  LocalDateTime startTime,
                                  LocalDateTime endTime,
                                  String statusGroup) {
@@ -278,6 +327,8 @@ public class RunService {
                 collectionTaskOnly,
                 qualityTaskOnly,
                 status,
+                requestedClusterId,
+                actualClusterId,
                 startTime,
                 endTime);
         if ("FAILED".equals(statusGroup)) {
@@ -297,6 +348,8 @@ public class RunService {
                                                                    Boolean collectionTaskOnly,
                                                                    Boolean qualityTaskOnly,
                                                                    String status,
+                                                                   Long requestedClusterId,
+                                                                   Long actualClusterId,
                                                                    LocalDateTime startTime,
                                                                    LocalDateTime endTime) {
         return selectRunRecordSummaryColumns(runRecordBaseQuery(
@@ -306,6 +359,8 @@ public class RunService {
                 collectionTaskOnly,
                 qualityTaskOnly,
                 status,
+                requestedClusterId,
+                actualClusterId,
                 startTime,
                 endTime));
     }
@@ -316,6 +371,8 @@ public class RunService {
                                                                    Boolean collectionTaskOnly,
                                                                    Boolean qualityTaskOnly,
                                                                    String status,
+                                                                   Long requestedClusterId,
+                                                                   Long actualClusterId,
                                                                    LocalDateTime startTime,
                                                                    LocalDateTime endTime) {
         return new LambdaQueryWrapper<RunRecordEntity>()
@@ -326,6 +383,8 @@ public class RunService {
                 .isNotNull(Boolean.TRUE.equals(collectionTaskOnly), RunRecordEntity::getCollectionTaskId)
                 .isNotNull(Boolean.TRUE.equals(qualityTaskOnly), RunRecordEntity::getQualityTaskId)
                 .eq(hasText(status), RunRecordEntity::getStatus, status)
+                .eq(requestedClusterId != null, RunRecordEntity::getRequestedClusterId, requestedClusterId)
+                .eq(actualClusterId != null, RunRecordEntity::getActualClusterId, actualClusterId)
                 .eq(securityService.currentProjectId() != null, RunRecordEntity::getProjectId, securityService.currentProjectId())
                 .ge(startTime != null, RunRecordEntity::getCreatedAt, startTime)
                 .le(endTime != null, RunRecordEntity::getCreatedAt, endTime);
@@ -347,9 +406,12 @@ public class RunService {
                         RunRecordEntity::getCreatedAt,
                         RunRecordEntity::getUpdatedAt,
                         RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getActualClusterId,
+                        RunRecordEntity::getActualClusterCode,
                         RunRecordEntity::getWorkerGroupCode,
                         RunRecordEntity::getWorkerCode,
                         RunRecordEntity::getWorkerInstanceId,
+                        RunRecordEntity::getWorkerBootId,
                         RunRecordEntity::getStatus,
                         RunRecordEntity::getMessage,
                         RunRecordEntity::getStartedAt,
@@ -382,9 +444,13 @@ public class RunService {
                 RunRecordEntity::getCollectionTaskId,
                 RunRecordEntity::getQualityTaskId,
                 RunRecordEntity::getNodeCode,
+                RunRecordEntity::getRequestedClusterId,
+                RunRecordEntity::getActualClusterId,
+                RunRecordEntity::getActualClusterCode,
                 RunRecordEntity::getWorkerGroupCode,
                 RunRecordEntity::getWorkerCode,
                 RunRecordEntity::getWorkerInstanceId,
+                RunRecordEntity::getWorkerBootId,
                 RunRecordEntity::getWorkerPodName,
                 RunRecordEntity::getWorkerNodeName,
                 RunRecordEntity::getStatus,
@@ -609,6 +675,7 @@ public class RunService {
         view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
+        view.setTargetClusterId(entity.getTargetClusterId());
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setLeaseOwner(entity.getLeaseOwner());
         view.setAttempts(entity.getAttempts());
@@ -637,9 +704,13 @@ public class RunService {
         view.setQualityTaskId(entity.getQualityTaskId());
         view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
+        view.setActualClusterCode(entity.getActualClusterCode());
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setWorkerCode(entity.getWorkerCode());
         view.setWorkerInstanceId(entity.getWorkerInstanceId());
+        view.setWorkerBootId(entity.getWorkerBootId());
         view.setWorkerPodName(entity.getWorkerPodName());
         view.setWorkerNodeName(entity.getWorkerNodeName());
         view.setStatus(entity.getStatus());
@@ -672,9 +743,13 @@ public class RunService {
         view.setQualityTaskId(entity.getQualityTaskId());
         view.setQualityTaskName(resolveQualityTaskName(entity.getQualityTaskId(), qualityTaskNames));
         view.setNodeCode(entity.getNodeCode());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
+        view.setActualClusterCode(entity.getActualClusterCode());
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setWorkerCode(entity.getWorkerCode());
         view.setWorkerInstanceId(entity.getWorkerInstanceId());
+        view.setWorkerBootId(entity.getWorkerBootId());
         view.setWorkerPodName(entity.getWorkerPodName());
         view.setWorkerNodeName(entity.getWorkerNodeName());
         view.setStatus(entity.getStatus());

@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 @TableName("protocol_conversion_access_log")
 public class ProtocolConversionAccessLogEntity extends BaseProjectTenantEntity {
     private Long serviceId;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private String serviceCodeSnapshot;
     private String serviceNameSnapshot;
     private String serviceStatusSnapshot;

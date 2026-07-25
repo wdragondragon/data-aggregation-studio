@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.entity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -24,6 +25,10 @@ public class DispatchTaskEntity extends BaseProjectTenantEntity {
     private Long runRecordId;
     private String nodeCode;
     private String status;
+    private Long targetClusterId;
+    private String resourceRevision;
+    private String claimToken;
+    private String workerBootId;
     private String workerGroupCode;
     private String leaseOwner;
     private String workerInstanceId;
@@ -31,6 +36,9 @@ public class DispatchTaskEntity extends BaseProjectTenantEntity {
     private LocalDateTime scheduledFireTime;
     private Integer attempts;
     private Integer maxRetries;
+
+    @JsonIgnore
+    private String protectedPayloadCiphertext;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> payloadJson = new LinkedHashMap<String, Object>();

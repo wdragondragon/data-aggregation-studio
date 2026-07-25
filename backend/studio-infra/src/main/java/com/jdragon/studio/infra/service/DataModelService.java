@@ -15,19 +15,22 @@ import com.jdragon.studio.dto.model.DataModelSqlHintView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.DataSourceOptionView;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
+import com.jdragon.studio.dto.model.RuntimeDatasourceHydrationItemView;
+import com.jdragon.studio.dto.model.RuntimeDatasourceHydrationResultView;
 import com.jdragon.studio.dto.model.request.DataModelQueryCondition;
 import com.jdragon.studio.dto.model.request.DataModelQueryGroup;
 import com.jdragon.studio.dto.model.request.DataModelQueryRequest;
 import com.jdragon.studio.dto.model.request.DataModelSaveRequest;
 import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
-import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -55,7 +58,6 @@ public class DataModelService {
 
     private final DataModelMapper dataModelMapper;
     private final DataSourceService dataSourceService;
-    private final AggregationSourceCapabilityProvider modelDiscoveryProvider;
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelSearchIndexService dataModelSearchIndexService;
     private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
@@ -65,11 +67,12 @@ public class DataModelService {
     private final DataModelAccessScopeService dataModelAccessScopeService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final HttpReaderOptionSecurityService httpReaderOptionSecurityService;
+    private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
     private final DataModelDefaultValueSupport defaultValueSupport = new DataModelDefaultValueSupport();
 
     public DataModelService(DataModelMapper dataModelMapper,
                             DataSourceService dataSourceService,
-                            AggregationSourceCapabilityProvider modelDiscoveryProvider,
                             MetadataSchemaService metadataSchemaService,
                             DataModelSearchIndexService dataModelSearchIndexService,
                             DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
@@ -81,7 +84,6 @@ public class DataModelService {
                              HttpReaderOptionSecurityService httpReaderOptionSecurityService) {
         this.dataModelMapper = dataModelMapper;
         this.dataSourceService = dataSourceService;
-        this.modelDiscoveryProvider = modelDiscoveryProvider;
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelSearchIndexService = dataModelSearchIndexService;
         this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
@@ -91,6 +93,13 @@ public class DataModelService {
         this.dataModelAccessScopeService = dataModelAccessScopeService;
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.httpReaderOptionSecurityService = httpReaderOptionSecurityService;
+    }
+
+    @Autowired
+    void setRuntimeDatasourceServices(RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter,
+                                      RuntimeClusterSelectionService runtimeClusterSelectionService) {
+        this.runtimeDatasourceProbeRouter = runtimeDatasourceProbeRouter;
+        this.runtimeClusterSelectionService = runtimeClusterSelectionService;
     }
 
     public List<DataModelDefinition> list() {
@@ -202,6 +211,7 @@ public class DataModelService {
 
     public PageView<DataModelDatasourceOptionView> listSelectorOptions(String datasourceType,
                                                                        Long datasourceId,
+                                                                       Long runtimeClusterId,
                                                                        String keyword,
                                                                        Integer pageNo,
                                                                        Integer pageSize) {
@@ -214,6 +224,22 @@ public class DataModelService {
                 null,
                 "name",
                 "asc");
+        if (runtimeClusterId != null) {
+            Set<Long> applicableDatasourceIds = new LinkedHashSet<Long>();
+            for (DataSourceOptionView datasource : dataSourceService.listBasicOptions(runtimeClusterId)) {
+                if (datasource.getId() != null) {
+                    applicableDatasourceIds.add(datasource.getId());
+                }
+            }
+            if (applicableDatasourceIds.isEmpty()) {
+                queryWrapper.in(DataModelEntity::getId, Collections.singleton(Long.valueOf(-1L)));
+            } else {
+                queryWrapper.in(DataModelEntity::getDatasourceId, applicableDatasourceIds);
+            }
+            if (datasourceId != null && !applicableDatasourceIds.contains(datasourceId)) {
+                queryWrapper.in(DataModelEntity::getId, Collections.singleton(Long.valueOf(-1L)));
+            }
+        }
         if (datasourceId != null && datasourceType != null && !datasourceType.trim().isEmpty()) {
             Set<Long> datasourceIds = resolveDatasourceIdsByType(datasourceType.trim());
             if (!datasourceIds.contains(datasourceId)) {
@@ -276,31 +302,41 @@ public class DataModelService {
 
     @Transactional
     public List<DataModelDefinition> syncFromDatasource(Long datasourceId) {
-        syncFromDatasourceAtomically(datasourceId, null);
+        return syncFromDatasource(datasourceId, null, null);
+    }
+
+    public List<DataModelDefinition> syncFromDatasource(Long datasourceId, Long runtimeClusterId) {
+        return syncFromDatasource(datasourceId, null, runtimeClusterId);
+    }
+
+    @Transactional
+    public List<DataModelDefinition> syncFromDatasource(Long datasourceId, List<String> physicalLocators,
+                                                        Long runtimeClusterId) {
+        syncFromDatasourceAtomically(datasourceId, physicalLocators, runtimeClusterId);
         return listByDatasource(datasourceId);
     }
 
     @Transactional
     public List<DataModelDefinition> syncFromDatasource(Long datasourceId, List<String> physicalLocators) {
-        syncFromDatasourceAtomically(datasourceId, physicalLocators);
-        return listByDatasource(datasourceId);
+        return syncFromDatasource(datasourceId, physicalLocators, null);
     }
 
-    private void syncFromDatasourceAtomically(Long datasourceId, List<String> physicalLocators) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+    private void syncFromDatasourceAtomically(Long datasourceId, List<String> physicalLocators,
+                                              Long runtimeClusterId) {
+        DataSourceDefinition datasource = dataSourceService.get(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
         datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        validateRuntimeCluster(currentProjectId, runtimeClusterId, datasourceId);
         String currentTenantId = securityService.currentTenantId();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
-        List<DataModelDefinition> discovered = buildSyncCandidates(datasource, selectedLocators);
-        List<AggregationSourceCapabilityProvider.HydrationResult> hydratedModels = modelDiscoveryProvider
-                .hydrateDiscoveredModels(datasource, discovered);
+        List<RuntimeDatasourceHydrationItemView> hydratedModels = hydrateModels(
+                datasource, runtimeClusterId, selectedLocators);
         List<DataModelEntity> savedEntities = new ArrayList<DataModelEntity>();
-        for (AggregationSourceCapabilityProvider.HydrationResult hydrated : hydratedModels) {
-            if (!hydrated.isSuccess() || hydrated.getDefinition() == null) {
+        for (RuntimeDatasourceHydrationItemView hydrated : hydratedModels) {
+            if (!Boolean.TRUE.equals(hydrated.getSuccess()) || hydrated.getDefinition() == null) {
                 throw new StudioException(StudioErrorCode.BAD_REQUEST, resolveHydrationFailureMessage(hydrated));
             }
             savedEntities.add(upsertHydratedModel(datasourceId, datasource, currentProjectId, currentTenantId, hydrated.getDefinition()));
@@ -310,26 +346,32 @@ public class DataModelService {
 
     @Transactional
     public DataModelSyncBatchResult syncBatchFromDatasource(Long datasourceId, List<String> physicalLocators) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        return syncBatchFromDatasource(datasourceId, physicalLocators, null);
+    }
+
+    @Transactional
+    public DataModelSyncBatchResult syncBatchFromDatasource(Long datasourceId, List<String> physicalLocators,
+                                                            Long runtimeClusterId) {
+        DataSourceDefinition datasource = dataSourceService.get(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
         datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        validateRuntimeCluster(currentProjectId, runtimeClusterId, datasourceId);
         String currentTenantId = securityService.currentTenantId();
         Set<String> selectedLocators = normalizeLocators(physicalLocators);
-        List<DataModelDefinition> discovered = buildSyncCandidates(datasource, selectedLocators);
-        List<AggregationSourceCapabilityProvider.HydrationResult> hydratedModels = modelDiscoveryProvider
-                .hydrateDiscoveredModels(datasource, discovered);
+        List<RuntimeDatasourceHydrationItemView> hydratedModels = hydrateModels(
+                datasource, runtimeClusterId, selectedLocators);
         DataModelSyncBatchResult result = new DataModelSyncBatchResult();
         List<DataModelEntity> savedEntities = new ArrayList<DataModelEntity>();
-        for (AggregationSourceCapabilityProvider.HydrationResult hydrated : hydratedModels) {
+        for (RuntimeDatasourceHydrationItemView hydrated : hydratedModels) {
             DataModelSyncItemResult itemResult = new DataModelSyncItemResult();
             itemResult.setPhysicalLocator(hydrated.getPhysicalLocator());
             LocalDateTime startedAt = LocalDateTime.now();
             itemResult.setStartedAt(startedAt);
             try {
-                if (!hydrated.isSuccess() || hydrated.getDefinition() == null) {
+                if (!Boolean.TRUE.equals(hydrated.getSuccess()) || hydrated.getDefinition() == null) {
                     throw new StudioException(StudioErrorCode.BAD_REQUEST, resolveHydrationFailureMessage(hydrated));
                 }
                 DataModelEntity entity = upsertHydratedModel(datasourceId, datasource, currentProjectId, currentTenantId, hydrated.getDefinition());
@@ -359,7 +401,7 @@ public class DataModelService {
             entity = new DataModelEntity();
         }
         boolean existingHttpModel = isHttpDatasource(entity.getDatasourceId());
-        DataSourceDefinition datasource = dataSourceService.getInternal(request.getDatasourceId());
+        DataSourceDefinition datasource = dataSourceService.get(request.getDatasourceId());
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
         }
@@ -409,13 +451,47 @@ public class DataModelService {
     }
 
     public List<Map<String, Object>> preview(Long modelId, int limit) {
+        return preview(modelId, limit, null);
+    }
+
+    public List<Map<String, Object>> preview(Long modelId, int limit, Long runtimeClusterId) {
         DataModelEntity model = findAccessibleEntity(modelId);
         if (model == null) {
             return new ArrayList<Map<String, Object>>();
         }
-        DataSourceDefinition datasource = dataSourceService.getInternal(model.getDatasourceId());
+        DataSourceDefinition datasource = dataSourceService.get(model.getDatasourceId());
         datasourceTypeCapabilityService.ensureReadable(datasource.getTypeCode());
-        return modelDiscoveryProvider.preview(datasource, toDefinition(model), limit);
+        validateRuntimeCluster(projectResourceAccessService.requireCurrentProjectId(), runtimeClusterId,
+                datasource.getId());
+        return runtimeDatasourceProbeRouter().preview(datasource, runtimeClusterId, toDefinition(model), limit);
+    }
+
+    private void validateRuntimeCluster(Long projectId, Long runtimeClusterId, Long datasourceId) {
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.validateExplicitDatasourceSelection(projectId, runtimeClusterId,
+                    Collections.singletonList(datasourceId));
+        }
+    }
+
+    private List<RuntimeDatasourceHydrationItemView> hydrateModels(
+            DataSourceDefinition datasource, Long runtimeClusterId, Set<String> selectedLocators) {
+        RuntimeDatasourceHydrationResultView remote = runtimeDatasourceProbeRouter().hydrate(datasource,
+                runtimeClusterId, new ArrayList<String>(selectedLocators));
+        if (remote == null) {
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                    "Runtime datasource hydration returned no result");
+        }
+        if (remote.getItems() == null) {
+            return Collections.emptyList();
+        }
+        return remote.getItems();
+    }
+
+    private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter() {
+        if (runtimeDatasourceProbeRouter == null) {
+            throw new IllegalStateException("Runtime datasource probe router is not configured");
+        }
+        return runtimeDatasourceProbeRouter;
     }
 
     @Transactional
@@ -437,35 +513,12 @@ public class DataModelService {
         return entities.size();
     }
 
-    private List<DataModelDefinition> buildSyncCandidates(DataSourceDefinition datasource,
-                                                          Set<String> selectedLocators) {
-        if (selectedLocators == null || selectedLocators.isEmpty()) {
-            return modelDiscoveryProvider.discoverModels(datasource).getModels();
-        }
-        List<DataModelDefinition> candidates = new ArrayList<DataModelDefinition>();
-        for (String locator : selectedLocators) {
-            DataModelDefinition definition = new DataModelDefinition();
-            definition.setDatasourceId(datasource.getId());
-            definition.setName(locator);
-            definition.setModelKind(ModelKind.TABLE);
-            definition.setPhysicalLocator(locator);
-            Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
-            technicalMetadata.put("sourceType", datasource.getTypeCode());
-            technicalMetadata.put("discoveryMode", "AUTO");
-            technicalMetadata.put("physicalName", locator);
-            definition.setTechnicalMetadata(technicalMetadata);
-            definition.setBusinessMetadata(new LinkedHashMap<String, Object>());
-            candidates.add(definition);
-        }
-        return candidates;
-    }
-
-    private String resolveHydrationFailureMessage(AggregationSourceCapabilityProvider.HydrationResult hydrated) {
+    private String resolveHydrationFailureMessage(RuntimeDatasourceHydrationItemView hydrated) {
         if (hydrated == null) {
             return "Failed to load model metadata";
         }
         String physicalLocator = hydrated.getPhysicalLocator();
-        String message = hydrated.getErrorMessage();
+        String message = hydrated.getMessage();
         if (message == null || message.trim().isEmpty()) {
             message = "Failed to load model metadata";
         }
@@ -1035,7 +1088,7 @@ public class DataModelService {
         if (datasourceId == null) {
             return false;
         }
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        DataSourceDefinition datasource = dataSourceService.get(datasourceId);
         return datasource != null && "http".equalsIgnoreCase(datasource.getTypeCode());
     }
 

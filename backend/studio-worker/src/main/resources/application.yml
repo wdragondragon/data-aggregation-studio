@@ -9,6 +9,10 @@ spring:
   config:
     import:
       - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://192.168.188.129:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:root}
@@ -54,24 +58,50 @@ management:
 studio:
   schema:
     auto-upgrade-on-startup: false
-  aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
-  encryption-secret: studio-secret-key
+  aggregation-home: ${STUDIO_AGGREGATION_HOME:}
+  encryption-secret: ${STUDIO_ENCRYPTION_SECRET:}
   instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-worker-local}}}
   pod-name: ${POD_NAME:${HOSTNAME:studio-worker-local}}
   node-name: ${NODE_NAME:}
+  runtime-cluster-code: ${STUDIO_CLUSTER_CODE:}
+  runtime-version: ${STUDIO_RUNTIME_VERSION:}
+  plugin-fingerprint: ${STUDIO_PLUGIN_FINGERPRINT:}
   worker-group-code: ${STUDIO_WORKER_GROUP_CODE:${STUDIO_WORKER_CODE:${HOSTNAME:studio-online-worker-01}}}
   worker-code: ${STUDIO_WORKER_CODE:${HOSTNAME:studio-online-worker-01}}
   runtime-log-dir: ${STUDIO_RUNTIME_LOG_DIR:./runtime/run-logs}
   worker-api-base-url: ${STUDIO_WORKER_API_BASE_URL:http://127.0.0.1:${server.port}}
-  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
+  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:}
+  flink:
+    enabled: ${STUDIO_FLINK_ENABLED:true}
+    execution-mode: ${STUDIO_FLINK_EXECUTION_MODE:embedded}
+    runtime-endpoint: ${STUDIO_FLINK_RUNTIME_ENDPOINT:${studio.worker-api-base-url}}
+  runtime-invocation-max-body-bytes: ${STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES:10485760}
+  runtime-invocation-max-concurrency: ${STUDIO_RUNTIME_INVOCATION_MAX_CONCURRENCY:32}
+  runtime-invocation-idempotency:
+    mode: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MODE:OPTIONAL}
+    max-response-bytes: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MAX_RESPONSE_BYTES:10485760}
+    cleanup-enabled: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_ENABLED:true}
+    completed-retention-days: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_COMPLETED_RETENTION_DAYS:7}
+    running-unknown-after-hours: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_RUNNING_UNKNOWN_AFTER_HOURS:24}
+    cleanup-batch-size: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_BATCH_SIZE:1000}
+    cleanup-max-batches: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_MAX_BATCHES:20}
+  runtime-endpoint:
+    allowed-hosts: ${STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS:}
+    max-response-bytes: ${STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES:10485760}
   gateway:
-    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:true}
+    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:false}
     shared-secret: ${STUDIO_GATEWAY_SHARED_SECRET:change-me}
     signature-expire-seconds: ${STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS:300}
   python:
     executable: ${STUDIO_PYTHON_EXECUTABLE:}
     execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}
     temp-dir: ${STUDIO_PYTHON_TEMP_DIR:}
+  script-environment:
+    artifact-connect-timeout-seconds: ${STUDIO_SCRIPT_ARTIFACT_CONNECT_TIMEOUT_SECONDS:5}
+    artifact-read-timeout-seconds: ${STUDIO_SCRIPT_ARTIFACT_READ_TIMEOUT_SECONDS:30}
+    max-artifact-bytes: ${STUDIO_SCRIPT_ARTIFACT_MAX_BYTES:67108864}
+    allow-local-files: ${STUDIO_SCRIPT_ARTIFACT_ALLOW_LOCAL_FILES:false}
+    allowed-local-roots: ${STUDIO_SCRIPT_ARTIFACT_ALLOWED_LOCAL_ROOTS:}
   dispatch:
     worker-scheduler-pool-size: ${STUDIO_WORKER_SCHEDULER_POOL_SIZE:4}
     dispatch-lease-minutes: ${STUDIO_DISPATCH_LEASE_MINUTES:10}

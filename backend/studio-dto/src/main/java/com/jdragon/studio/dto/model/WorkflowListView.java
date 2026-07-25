@@ -6,6 +6,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class WorkflowListView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private String code;
     private String name;
     private Long versionId;

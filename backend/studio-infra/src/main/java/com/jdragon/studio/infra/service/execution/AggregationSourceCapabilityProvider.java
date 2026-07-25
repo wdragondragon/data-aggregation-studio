@@ -31,7 +31,6 @@ import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
 import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.aggregation.pluginloader.spi.AbstractPlugin;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
@@ -53,7 +52,6 @@ import static com.jdragon.studio.infra.service.execution.AggregationModelMetadat
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildQueueMetadata;
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildRelationalMetadata;
 
-@Service
 @Slf4j
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
     private static final String HTTP_READER_CONFIG_KEY = "__studio_http_reader_config";

@@ -25,6 +25,8 @@ public class OpsCenterOverviewView {
     private Long serviceSlowCalls;
     private Long ingestionFailures;
     private Long ingestionSlowCalls;
+    private Long protocolConversionFailures;
+    private Long protocolConversionSlowCalls;
     private Long logFailures;
     private Integer onlineWorkerInstances;
     private Integer boundWorkerGroups;

@@ -6,6 +6,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class AggregationFlinkRuntimeRegistry {
+    public static final String CAPABILITY_TOKEN_HEADER = "X-Studio-Flink-Runtime-Token";
     private static final Map<String, Entry> ENTRIES = new ConcurrentHashMap<String, Entry>();
 
     private AggregationFlinkRuntimeRegistry() {
@@ -23,9 +24,24 @@ public final class AggregationFlinkRuntimeRegistry {
         Entry entry = ENTRIES.get(ref);
         if (entry == null || entry.expiresAt < Instant.now().toEpochMilli()) {
             ENTRIES.remove(ref);
-            throw new IllegalStateException("DataAggregation Flink runtime ref expired or missing: " + ref);
+            throw new IllegalStateException("DataAggregation Flink runtime ref expired or missing");
         }
         return entry.runtime;
+    }
+
+    public static boolean isValid(String ref) {
+        if (ref == null || ref.trim().isEmpty()) {
+            return false;
+        }
+        Entry entry = ENTRIES.get(ref);
+        if (entry == null) {
+            return false;
+        }
+        if (entry.expiresAt < Instant.now().toEpochMilli()) {
+            ENTRIES.remove(ref, entry);
+            return false;
+        }
+        return true;
     }
 
     public static AggregationFlinkTableRuntimePayload resolvePayload(String ref) {

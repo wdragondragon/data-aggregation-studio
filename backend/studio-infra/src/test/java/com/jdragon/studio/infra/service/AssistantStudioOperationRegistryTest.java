@@ -170,6 +170,20 @@ class AssistantStudioOperationRegistryTest {
     }
 
     @Test
+    void runtimeClusterOperationShouldExposeAuthorizedOptionsAsReadOnlyCatalog() {
+        AssistantStudioOperationRegistry registry = new AssistantStudioOperationRegistry();
+
+        Map<String, Object> operation = registry.allOperations().stream()
+                .filter(item -> "/runtime-clusters".equals(item.get("path")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+
+        assertEquals(Boolean.TRUE, operation.get("supportsList"));
+        assertEquals(Boolean.FALSE, operation.get("supportsGet"));
+        assertTrue(String.valueOf(operation.get("writePolicy")).contains("Read-only"));
+    }
+
+    @Test
     void readToolsShouldDescribeNotificationsAndMarkReadActions() {
         AssistantStudioOperationRegistry registry = new AssistantStudioOperationRegistry();
 
@@ -308,6 +322,7 @@ class AssistantStudioOperationRegistryTest {
         assertEquals(Boolean.TRUE, syncSelected.get("mutation"));
         assertTrue(((List<?>) syncSelected.get("requiredValues")).contains("datasourceId"));
         assertTrue(((List<?>) syncSelected.get("requiredValues")).contains("physicalLocators"));
+        assertTrue(((List<?>) syncSelected.get("requiredValues")).contains("runtimeClusterId"));
         assertFalse(((List<?>) syncSelected.get("requiredValues")).contains("payload"));
     }
 
@@ -352,10 +367,46 @@ class AssistantStudioOperationRegistryTest {
 
         assertEquals(Boolean.FALSE, discover.get("mutation"));
         assertTrue(((List<?>) discover.get("requiredValues")).contains("id"));
+        assertTrue(((List<?>) discover.get("requiredValues")).contains("runtimeClusterId"));
         assertTrue(((List<?>) discover.get("optionalValues")).contains("keyword"));
         assertTrue(((List<?>) discover.get("aliases")).contains("listPhysicalTables"));
         assertTrue(String.valueOf(discover.get("purpose")).contains("真实物理表/视图"));
         assertTrue(String.valueOf(datasourceOperation.get("description")).contains("real physical tables"));
+    }
+
+    @Test
+    void clusterAwareActionsShouldDeclarePlacementParameters() {
+        AssistantStudioOperationRegistry registry = new AssistantStudioOperationRegistry();
+
+        Map<String, Object> collectionTasks = registry.allOperations().stream()
+                .filter(item -> "/collection-tasks".equals(item.get("path")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> collectionActions = (List<Map<String, Object>>) collectionTasks.get("featureActions");
+        Map<String, Object> save = collectionActions.stream()
+                .filter(item -> "save".equals(item.get("action")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        Map<String, Object> trigger = collectionActions.stream()
+                .filter(item -> "trigger".equals(item.get("action")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+
+        assertTrue(((List<?>) save.get("requiredValues")).contains("payload.runtimeClusterId"));
+        assertTrue(((List<?>) trigger.get("optionalValues")).contains("runtimeClusterId"));
+
+        Map<String, Object> datasources = registry.allOperations().stream()
+                .filter(item -> "/datasources".equals(item.get("path")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> datasourceActions = (List<Map<String, Object>>) datasources.get("featureActions");
+        Map<String, Object> datasourceSave = datasourceActions.stream()
+                .filter(item -> "save".equals(item.get("action")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertTrue(((List<?>) datasourceSave.get("requiredValues")).contains("payload.applicableClusterIds"));
     }
 
     @Test

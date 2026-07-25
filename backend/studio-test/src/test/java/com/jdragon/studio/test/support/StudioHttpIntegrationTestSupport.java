@@ -32,15 +32,15 @@ import java.util.Map;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public abstract class StudioHttpIntegrationTestSupport {
 
-    private static final Path WORKSPACE_ROOT = locateWorkspaceRoot();
-    private static final Path TEST_RUNTIME_DIR = WORKSPACE_ROOT
+    protected static final Path WORKSPACE_ROOT = locateWorkspaceRoot();
+    protected static final Path TEST_RUNTIME_DIR = WORKSPACE_ROOT
             .resolve("data-aggregation-studio")
             .resolve("backend")
             .resolve("studio-test")
             .resolve("target")
             .resolve("http-test-runtime")
             .resolve("run-" + Long.toUnsignedString(System.nanoTime()));
-    private static final Path SQLITE_DB = TEST_RUNTIME_DIR.resolve("studio-http-integration.db");
+    protected static final Path SQLITE_DB = TEST_RUNTIME_DIR.resolve("studio-http-integration.db");
     private static final Path SQLITE_SCHEMA = WORKSPACE_ROOT
             .resolve("data-aggregation-studio")
             .resolve("backend")
@@ -49,9 +49,11 @@ public abstract class StudioHttpIntegrationTestSupport {
             .resolve("main")
             .resolve("resources")
             .resolve("schema-sqlite.sql");
-    private static final Path AGGREGATION_HOME = WORKSPACE_ROOT.resolve("package_all").resolve("aggregation");
-    private static final String JAVA_EXECUTABLE = locateJavaExecutable();
-    private static final String TEST_CLASSPATH = System.getProperty("java.class.path");
+    protected static final Path AGGREGATION_HOME = WORKSPACE_ROOT.resolve("package_all").resolve("aggregation");
+    protected static final String JAVA_EXECUTABLE = locateJavaExecutable();
+    protected static final String TEST_CLASSPATH = System.getProperty("java.class.path");
+    protected static final String TEST_INTERNAL_API_TOKEN = "studio-http-test-internal-token-20260721";
+    protected static final String TEST_ENCRYPTION_SECRET = "studio-http-test-encryption-secret-20260721";
 
     protected final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -90,7 +92,8 @@ public abstract class StudioHttpIntegrationTestSupport {
         registry.add("spring.cloud.nacos.discovery.enabled", () -> "false");
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.sql.init.schema-locations", () -> SQLITE_SCHEMA.toUri().toString());
-        registry.add("studio.aggregation-home", () -> AGGREGATION_HOME.toAbsolutePath().normalize().toString());
+        registry.add("studio.internal-api-token", () -> TEST_INTERNAL_API_TOKEN);
+        registry.add("studio.encryption-secret", () -> TEST_ENCRYPTION_SECRET);
         registry.add("studio.scan-plugins-on-startup", () -> "false");
         registry.add("studio.alert.enabled", () -> "false");
         registry.add("studio.python.executable", () -> JAVA_EXECUTABLE);
@@ -150,10 +153,34 @@ public abstract class StudioHttpIntegrationTestSupport {
     }
 
     protected HttpResponse<String> postJson(String path, String authorization, Long projectId, Object payload) throws Exception {
+        return postJson(path, authorization, projectId, payload, null);
+    }
+
+    protected HttpResponse<String> postJson(String path,
+                                            String authorization,
+                                            Long projectId,
+                                            Object payload,
+                                            Map<String, String> headers) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
                 .timeout(Duration.ofSeconds(60))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .header("Content-Type", "application/json")
+                .header("Accept", "application/json");
+        addAuthHeaders(builder, authorization, projectId);
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    builder.header(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    protected HttpResponse<String> delete(String path, String authorization, Long projectId) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
+                .timeout(Duration.ofSeconds(30))
+                .DELETE()
                 .header("Accept", "application/json");
         addAuthHeaders(builder, authorization, projectId);
         return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());

@@ -167,9 +167,11 @@ public class DataIngestionMetricsService {
         String logFocus = normalizedLogFocus(safeRequest.getLogFocus());
         Long minDurationMs = normalizeMinDurationMs(safeRequest.getMinDurationMs());
         DataIngestionApiMetricView summary = accessLogMapper.selectDashboardSummary(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity);
         List<OpenServiceDashboardBucketSummary> bucketSummaries = accessLogMapper.selectDashboardBuckets(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity);
         Map<String, OpenServiceDashboardBucketSummary> bucketMap = bucketSummaryMap(bucketSummaries);
@@ -186,19 +188,23 @@ public class DataIngestionMetricsService {
         view.setResponseTimeTrend(buildResponseTimeTrend(context, bucketMap));
         view.setSuccessRateTrend(buildSuccessRateTrend(context, bucketMap));
         view.setErrorDistribution(normalizeErrorDistribution(accessLogMapper.selectDashboardErrorDistribution(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, context.topN)));
         List<DataIngestionApiMetricView> topSlowServices = accessLogMapper.selectDashboardApiStats(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, "SLOW", context.topN);
         hydrateApiMetrics(topSlowServices, context.serviceMap);
         view.setTopSlowServices(topSlowServices);
         List<DataIngestionApiMetricView> topFailedServices = accessLogMapper.selectDashboardApiStats(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, "FAILED", context.topN);
         hydrateApiMetrics(topFailedServices, context.serviceMap);
         view.setTopFailedServices(topFailedServices);
         List<DataIngestionApiMetricView> subscriptionRank = accessLogMapper.selectDashboardSubscriptionRank(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, context.topN);
         hydrateApiMetrics(subscriptionRank, context.serviceMap);
@@ -218,11 +224,13 @@ public class DataIngestionMetricsService {
         String logFocus = normalizedLogFocus(safeRequest.getLogFocus());
         Long minDurationMs = normalizeMinDurationMs(safeRequest.getMinDurationMs());
         long total = accessLogMapper.countApiStats(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime);
         List<DataIngestionApiMetricView> metrics = total <= 0L
                 ? new ArrayList<DataIngestionApiMetricView>()
                 : accessLogMapper.selectApiStatsPage(context.tenantId, context.projectId, context.serviceIds,
+                        safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                         subscriptionId, noTokenSubscription, successFilter, logFocus, minDurationMs,
                         context.startTime, context.endTime, context.pageSize, offset(context));
         hydrateApiMetrics(metrics, context.serviceMap);
@@ -348,6 +356,8 @@ public class DataIngestionMetricsService {
                 .eq(DataIngestionAccessLogEntity::getTenantId, context.tenantId)
                 .eq(DataIngestionAccessLogEntity::getProjectId, context.projectId)
                 .in(!context.serviceIds.isEmpty(), DataIngestionAccessLogEntity::getServiceId, context.serviceIds)
+                .eq(request.getRequestedClusterId() != null, DataIngestionAccessLogEntity::getRequestedClusterId, request.getRequestedClusterId())
+                .eq(request.getActualClusterId() != null, DataIngestionAccessLogEntity::getActualClusterId, request.getActualClusterId())
                 .ge(DataIngestionAccessLogEntity::getOccurredAt, context.startTime)
                 .le(DataIngestionAccessLogEntity::getOccurredAt, context.endTime)
                 .eq(request.getSubscriptionId() != null && !isNoTokenSubscriptionFilter(request.getSubscriptionId()), DataIngestionAccessLogEntity::getSubscriptionId, request.getSubscriptionId())
@@ -375,6 +385,8 @@ public class DataIngestionMetricsService {
         return baseLogQuery(request, context)
                 .select(DataIngestionAccessLogEntity::getId,
                         DataIngestionAccessLogEntity::getServiceId,
+                        DataIngestionAccessLogEntity::getRequestedClusterId,
+                        DataIngestionAccessLogEntity::getActualClusterId,
                         DataIngestionAccessLogEntity::getServiceCodeSnapshot,
                         DataIngestionAccessLogEntity::getServiceNameSnapshot,
                         DataIngestionAccessLogEntity::getServiceStatusSnapshot,

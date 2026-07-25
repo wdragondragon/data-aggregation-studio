@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest
 import com.jdragon.studio.dto.model.request.ProtocolConversionDebugRequest;
 import com.jdragon.studio.dto.model.request.ProtocolConversionServiceSaveRequest;
 import com.jdragon.studio.infra.service.ProtocolConversionService;
+import com.jdragon.studio.server.web.service.RuntimeInvocationRouter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 
 @Tag(name = "Protocol Conversion Services", description = "HTTP/WebService protocol conversion APIs")
@@ -30,9 +32,12 @@ import java.util.List;
 public class ProtocolConversionServiceController {
 
     private final ProtocolConversionService protocolConversionService;
+    private final RuntimeInvocationRouter runtimeInvocationRouter;
 
-    public ProtocolConversionServiceController(ProtocolConversionService protocolConversionService) {
+    public ProtocolConversionServiceController(ProtocolConversionService protocolConversionService,
+                                               RuntimeInvocationRouter runtimeInvocationRouter) {
         this.protocolConversionService = protocolConversionService;
+        this.runtimeInvocationRouter = runtimeInvocationRouter;
     }
 
     @Operation(summary = "List protocol conversion services")
@@ -90,8 +95,13 @@ public class ProtocolConversionServiceController {
     @Operation(summary = "Debug protocol conversion service")
     @PostMapping("/{id}/debug")
     public Result<ProtocolConversionDebugResult> debug(@PathVariable("id") Long id,
-                                                       @RequestBody(required = false) ProtocolConversionDebugRequest request) {
-        return Result.success(protocolConversionService.debug(id, request));
+                                                       @RequestBody(required = false) ProtocolConversionDebugRequest request,
+                                                       HttpServletResponse response) {
+        ProtocolConversionServiceView view = protocolConversionService.get(id);
+        RuntimeInvocationRouter.DebugRoute<ProtocolConversionDebugResult> route =
+                runtimeInvocationRouter.routeProtocolConversionDebug(view, request);
+        response.setStatus(route.getStatus());
+        return route.getResult();
     }
 
     @Operation(summary = "List protocol conversion service subscriptions")

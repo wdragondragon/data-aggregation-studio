@@ -3,6 +3,8 @@ package com.jdragon.studio.dto.model;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 public class OpsCenterWorkerGroupView {
@@ -12,6 +14,8 @@ public class OpsCenterWorkerGroupView {
     private Boolean enabled;
     private Integer onlineInstanceCount;
     private Integer recentInstanceCount;
+    private List<Long> runtimeClusterIds = new ArrayList<Long>();
+    private List<String> runtimeClusterCodes = new ArrayList<String>();
     private LocalDateTime latestHeartbeatAt;
     private String latestWorkerCode;
     private String latestWorkerInstanceId;

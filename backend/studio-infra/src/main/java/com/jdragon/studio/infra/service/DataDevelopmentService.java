@@ -13,8 +13,6 @@ import com.jdragon.studio.dto.model.DataDevelopmentTreeNode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.DataSourceOptionView;
-import com.jdragon.studio.dto.model.JavaImportHintResponse;
-import com.jdragon.studio.dto.model.JavaMemberHintResponse;
 import com.jdragon.studio.dto.model.ScriptEnvironmentOptionView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
@@ -25,20 +23,24 @@ import com.jdragon.studio.dto.model.request.SavedDataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.infra.entity.DataDevelopmentDirectoryEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
+import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.mapper.DataDevelopmentDirectoryMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.service.script.DataDevelopmentExecutionContext;
 import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.HashMap;
 
@@ -48,34 +50,38 @@ public class DataDevelopmentService {
     private final DataDevelopmentDirectoryMapper directoryMapper;
     private final DataDevelopmentScriptMapper scriptMapper;
     private final DataSourceService dataSourceService;
-    private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final ScriptEnvironmentService scriptEnvironmentService;
-    private final ScriptEnvironmentRuntimeService scriptEnvironmentRuntimeService;
     private final DataDevelopmentWorkerExecutionService workerExecutionService;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private DataModelMapper dataModelMapper;
+    private RuntimeResourceRevisionService runtimeResourceRevisionService;
     private final Map<ScriptType, DataDevelopmentScriptExecutor> scriptExecutors;
 
     public DataDevelopmentService(DataDevelopmentDirectoryMapper directoryMapper,
                                   DataDevelopmentScriptMapper scriptMapper,
                                   DataSourceService dataSourceService,
-                                  DataDevelopmentSqlExecutor sqlExecutor,
+                                  DatasourceTypeCapabilityService datasourceTypeCapabilityService,
                                   StudioSecurityService securityService,
                                   ProjectResourceAccessService projectResourceAccessService,
                                   ScriptEnvironmentService scriptEnvironmentService,
-                                  ScriptEnvironmentRuntimeService scriptEnvironmentRuntimeService,
-                                  DataDevelopmentWorkerExecutionService workerExecutionService,
-                                  List<DataDevelopmentScriptExecutor> scriptExecutors) {
+                                  DataDevelopmentWorkerExecutionService workerExecutionService) {
         this.directoryMapper = directoryMapper;
         this.scriptMapper = scriptMapper;
         this.dataSourceService = dataSourceService;
-        this.sqlExecutor = sqlExecutor;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.scriptEnvironmentService = scriptEnvironmentService;
-        this.scriptEnvironmentRuntimeService = scriptEnvironmentRuntimeService;
         this.workerExecutionService = workerExecutionService;
         this.scriptExecutors = new HashMap<ScriptType, DataDevelopmentScriptExecutor>();
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setScriptExecutors(List<DataDevelopmentScriptExecutor> scriptExecutors) {
+        this.scriptExecutors.clear();
         if (scriptExecutors != null) {
             for (DataDevelopmentScriptExecutor executor : scriptExecutors) {
                 this.scriptExecutors.put(executor.getScriptType(), executor);
@@ -89,6 +95,17 @@ public class DataDevelopmentService {
         List<DataDevelopmentScriptEntity> scripts = listScriptEntities(tenantId, projectId, null);
         return buildTree(listDirectoryEntities(tenantId, projectId), scripts,
                 listDatasourceSummaries(scripts), listEnvironmentSummaries(scripts));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setDataModelMapper(DataModelMapper dataModelMapper) { this.dataModelMapper = dataModelMapper; }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
+        this.runtimeResourceRevisionService = runtimeResourceRevisionService;
     }
 
     public List<DataDevelopmentDirectoryView> listDirectories() {
@@ -110,6 +127,9 @@ public class DataDevelopmentService {
         List<DataDevelopmentScriptListView> result = new ArrayList<DataDevelopmentScriptListView>();
         for (DataDevelopmentScriptEntity entity : scripts) {
             result.add(toScriptListView(entity, datasourceMap, environmentBundle));
+        }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, result);
         }
         return result;
     }
@@ -139,6 +159,7 @@ public class DataDevelopmentService {
                         DataDevelopmentScriptEntity::getDirectoryId,
                         DataDevelopmentScriptEntity::getFileName,
                         DataDevelopmentScriptEntity::getScriptType,
+                        DataDevelopmentScriptEntity::getRuntimeClusterId,
                         DataDevelopmentScriptEntity::getDatasourceId,
                         DataDevelopmentScriptEntity::getEnvironmentId,
                         DataDevelopmentScriptEntity::getDescription)
@@ -149,39 +170,46 @@ public class DataDevelopmentService {
         for (DataDevelopmentScriptEntity entity : scripts) {
             result.add(toScriptListView(entity, Collections.emptyMap()));
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, result);
+        }
         return result;
     }
 
-    public List<DataSourceDefinition> listSqlCapableDatasources() {
+    public List<DataSourceDefinition> listSqlCapableDatasources(Long runtimeClusterId) {
         projectResourceAccessService.requireCurrentProjectId();
+        runtimeClusterSelectionService.assertExplicitSelection(runtimeClusterId);
+        Set<Long> applicableDatasourceIds = new LinkedHashSet<Long>();
+        for (DataSourceOptionView option : dataSourceService.listBasicOptionsByTypes(
+                new LinkedHashSet<String>(datasourceTypeCapabilityService.sqlExecutableTypes()), runtimeClusterId)) {
+            if (option != null && option.getId() != null) {
+                applicableDatasourceIds.add(option.getId());
+            }
+        }
         List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
         for (DataSourceDefinition datasource : dataSourceService.list()) {
-            if (sqlExecutor.supports(datasource)) {
+            if (datasource != null && applicableDatasourceIds.contains(datasource.getId())) {
                 result.add(datasource);
             }
         }
         return result;
     }
 
-    public List<DataSourceOptionView> listSqlCapableDatasourceOptions() {
+    public List<DataSourceOptionView> listSqlCapableDatasourceOptions(Long runtimeClusterId) {
         projectResourceAccessService.requireCurrentProjectId();
-        return dataSourceService.listBasicOptionsByTypes(sqlExecutor.supportedDatasourceTypes());
+        runtimeClusterSelectionService.assertExplicitSelection(runtimeClusterId);
+        return dataSourceService.listBasicOptionsByTypes(
+                new LinkedHashSet<String>(datasourceTypeCapabilityService.sqlExecutableTypes()), runtimeClusterId);
     }
 
     public List<String> listSqlDatasourceTypes() {
-        return new ArrayList<String>(sqlExecutor.supportedDatasourceTypes());
-    }
-
-    public JavaImportHintResponse javaImportHints(Long environmentId, String keyword, Integer limit) {
-        return scriptEnvironmentRuntimeService.importHints(environmentId, keyword, limit);
-    }
-
-    public JavaMemberHintResponse javaMemberHints(Long environmentId, String className, String keyword, Boolean staticOnly, Integer limit) {
-        return scriptEnvironmentRuntimeService.memberHints(environmentId, className, keyword, staticOnly, limit);
+        return new ArrayList<String>(datasourceTypeCapabilityService.sqlExecutableTypes());
     }
 
     public DataDevelopmentScriptView getScript(Long scriptId) {
-        return toScriptView(requireReadableScript(scriptId));
+        DataDevelopmentScriptView view = toScriptView(requireReadableScript(scriptId));
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, view);
     }
 
     @Transactional
@@ -252,10 +280,23 @@ public class DataDevelopmentService {
         if (request.getDirectoryId() != null) {
             requireDirectory(request.getDirectoryId());
         }
-        DataSourceDefinition datasource = resolveScriptDatasource(request.getScriptType(), request.getDatasourceId());
+        DataSourceDefinition datasource = resolveScriptDatasource(
+                request.getScriptType(), request.getDatasourceId(), false);
+        Set<Long> runtimeDatasourceIds = new LinkedHashSet<Long>();
+        if (datasource != null && datasource.getId() != null) {
+            runtimeDatasourceIds.add(datasource.getId());
+        }
+        if (request.getScriptType() == ScriptType.FLINK_QUESTION_SQL) {
+            collectModelDatasourceIds(requireFlinkQuestionModelIds(
+                    request.getExecutionConfig(), null), runtimeDatasourceIds);
+        }
+        Long runtimeClusterId = runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                projectId, request.getRuntimeClusterId(), entity.getRuntimeClusterId(),
+                entity.getId() != null, runtimeDatasourceIds);
         validateScriptFileName(tenantId, projectId, request.getDirectoryId(), request.getFileName(), entity.getId());
         entity.setTenantId(tenantId);
         entity.setProjectId(projectId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setDirectoryId(request.getDirectoryId());
         entity.setFileName(request.getFileName().trim());
         entity.setScriptType(request.getScriptType().name());
@@ -269,6 +310,7 @@ public class DataDevelopmentService {
         } else {
             scriptMapper.updateById(entity);
         }
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, entity.getId());
         return getScript(entity.getId());
     }
 
@@ -291,11 +333,21 @@ public class DataDevelopmentService {
     }
 
     public SqlExecutionResultView execute(SqlExecutionRequest request) {
-        projectResourceAccessService.requireCurrentProjectId();
         if (request.getScriptType() != ScriptType.SQL) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only SQL scripts can use the SQL execution endpoint");
         }
-        return sqlExecutor.executeSql(requireSqlDatasource(request.getDatasourceId()), request.getContent(), request.getMaxRows());
+        DataScriptExecutionRequest scriptRequest = new DataScriptExecutionRequest();
+        scriptRequest.setRuntimeClusterId(request.getRuntimeClusterId());
+        scriptRequest.setScriptType(request.getScriptType());
+        scriptRequest.setDatasourceId(request.getDatasourceId());
+        scriptRequest.setContent(request.getContent());
+        scriptRequest.setMaxRows(request.getMaxRows());
+        DataScriptExecutionResultView result = execute(scriptRequest);
+        if (result.getSqlResult() == null) {
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                    result.getMessage() == null ? "SQL execution returned no result" : result.getMessage());
+        }
+        return result.getSqlResult();
     }
 
     public DataScriptExecutionResultView execute(DataScriptExecutionRequest request) {
@@ -304,37 +356,161 @@ public class DataDevelopmentService {
         if (request.getScriptType() != ScriptType.SQL && request.getScriptType() != ScriptType.FLINK_QUESTION_SQL) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Non-SQL scripts must be saved before execution");
         }
+        Set<Long> datasourceIds = executionDatasourceIds(request);
+        Long runtimeClusterId = runtimeClusterSelectionService == null
+                ? request.getRuntimeClusterId()
+                : runtimeClusterSelectionService.validateExplicitDatasourceSelection(projectId,
+                request.getRuntimeClusterId(), datasourceIds);
+        if (runtimeClusterId == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Runtime cluster is required");
+        }
+        request.setRuntimeClusterId(runtimeClusterId);
+        return workerExecutionService.executeInlineScript(request, projectId, 120);
+    }
+
+    public DataScriptExecutionResultView executeInlineLocally(DataScriptExecutionRequest request,
+                                                              Map<String, Object> suppliedRuntimeContext) {
+        Long projectId = suppliedRuntimeContext != null && suppliedRuntimeContext.get("projectId") instanceof Number
+                ? Long.valueOf(((Number) suppliedRuntimeContext.get("projectId")).longValue())
+                : projectResourceAccessService.requireCurrentProjectId();
+        validateScriptType(request.getScriptType());
+        if (request.getScriptType() != ScriptType.SQL && request.getScriptType() != ScriptType.FLINK_QUESTION_SQL) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Non-SQL scripts must be saved before execution");
+        }
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
         context.setScriptType(request.getScriptType());
         context.setContent(request.getContent());
         context.setDatasourceId(request.getDatasourceId());
-        context.setDatasource(resolveScriptDatasource(request.getScriptType(), request.getDatasourceId()));
+        context.setDatasource(resolveScriptDatasource(
+                request.getScriptType(), request.getDatasourceId(), true));
         context.setEnvironmentId(resolveScriptEnvironmentId(request.getScriptType(), request.getEnvironmentId()));
         context.setMaxRows(request.getMaxRows());
         context.setTenantId(securityService.currentTenantId());
         context.setUsername(securityService.currentUsername());
         context.setArguments(request.getArguments());
         context.setExecutionConfig(resolveScriptExecutionConfig(request.getScriptType(), request.getExecutionConfig()));
-        Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
+        Map<String, Object> runtimeContext = suppliedRuntimeContext == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(suppliedRuntimeContext);
         runtimeContext.put("tenantId", context.getTenantId());
         runtimeContext.put("projectId", projectId);
         runtimeContext.put("username", context.getUsername());
+        runtimeContext.put("runtimeClusterId", request.getRuntimeClusterId());
         context.setRuntimeContext(runtimeContext);
         return requireExecutor(request.getScriptType()).execute(context);
     }
 
+    private Set<Long> executionDatasourceIds(DataScriptExecutionRequest request) {
+        Set<Long> datasourceIds = new LinkedHashSet<Long>();
+        if (request.getScriptType() == ScriptType.SQL) {
+            DataSourceDefinition datasource = requireSqlDatasource(request.getDatasourceId(), false);
+            datasourceIds.add(datasource.getId());
+            return datasourceIds;
+        }
+        collectModelDatasourceIds(requireFlinkQuestionModelIds(
+                request.getExecutionConfig(), request.getArguments()), datasourceIds);
+        return datasourceIds;
+    }
+
+    private void collectModelDatasourceIds(Map<String, Object> executionConfig, Set<Long> datasourceIds) {
+        collectModelDatasourceIds(toLongIds(
+                executionConfig == null ? null : executionConfig.get("modelIds")), datasourceIds);
+    }
+
+    private void collectModelDatasourceIds(Collection<Long> modelIds, Set<Long> datasourceIds) {
+        for (Long modelId : modelIds) {
+            if (dataModelMapper == null) {
+                throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                        "Runtime model validation is unavailable");
+            }
+            DataModelEntity model = dataModelMapper.selectById(modelId);
+            if (model == null) {
+                throw new StudioException(StudioErrorCode.NOT_FOUND, "Data model not found: " + modelId);
+            }
+            projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATA_MODEL,
+                    model.getProjectId(), model.getId(), "Data model not found: " + modelId);
+            if (model.getDatasourceId() != null) {
+                datasourceIds.add(model.getDatasourceId());
+            }
+        }
+    }
+
+    private Set<Long> requireFlinkQuestionModelIds(Map<String, Object> executionConfig,
+                                                    Map<String, Object> arguments) {
+        Set<Long> modelIds = toLongIds(executionConfig == null ? null : executionConfig.get("modelIds"));
+        if (modelIds.isEmpty()) {
+            modelIds = toLongIds(arguments == null ? null : arguments.get("modelIds"));
+        }
+        if (modelIds.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "modelIds are required for 模型 Flink SQL execution");
+        }
+        return modelIds;
+    }
+
+    private Set<Long> toLongIds(Object value) {
+        Set<Long> result = new LinkedHashSet<Long>();
+        if (value instanceof Iterable<?>) {
+            for (Object item : (Iterable<?>) value) {
+                toLongId(item).ifPresent(result::add);
+            }
+        } else if (value instanceof String) {
+            for (String item : ((String) value).split(",")) {
+                toLongId(item).ifPresent(result::add);
+            }
+        } else {
+            toLongId(value).ifPresent(result::add);
+        }
+        return result;
+    }
+
+    private Optional<Long> toLongId(Object value) {
+        if (value instanceof Number) {
+            return Optional.of(Long.valueOf(((Number) value).longValue()));
+        }
+        if (value instanceof String && !((String) value).trim().isEmpty()) {
+            try {
+                return Optional.of(Long.valueOf(((String) value).trim()));
+            } catch (NumberFormatException ex) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
     public DataScriptExecutionResultView executeSavedScript(Long scriptId, SavedDataScriptExecutionRequest request) {
         DataDevelopmentScriptEntity script = requireReadableScript(scriptId);
+        SavedDataScriptExecutionRequest effectiveRequest = request == null
+                ? new SavedDataScriptExecutionRequest() : request;
+        Set<Long> runtimeDatasourceIds = new LinkedHashSet<Long>();
+        if (script.getDatasourceId() != null) {
+            runtimeDatasourceIds.add(script.getDatasourceId());
+        }
+        if (ScriptType.FLINK_QUESTION_SQL.name().equals(script.getScriptType())) {
+            collectModelDatasourceIds(script.getExecutionConfigJson(), runtimeDatasourceIds);
+            collectModelDatasourceIds(effectiveRequest.getExecutionConfig(), runtimeDatasourceIds);
+        }
+        Long runtimeClusterId = script.getRuntimeClusterId();
+        if (runtimeClusterSelectionService != null) {
+            if (effectiveRequest.getRuntimeClusterId() != null) {
+                runtimeClusterId = runtimeClusterSelectionService.validateManualOverride(
+                        script.getProjectId(), effectiveRequest.getRuntimeClusterId(), runtimeDatasourceIds);
+            } else {
+                runtimeClusterSelectionService.assertResourceValid(
+                        StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, script.getId());
+                runtimeClusterSelectionService.assertExistingResourceRunnable(
+                        script.getProjectId(), runtimeClusterId, runtimeDatasourceIds);
+            }
+        }
         ScriptType scriptType = ScriptType.valueOf(script.getScriptType());
         validateScriptType(scriptType);
         if (scriptType == ScriptType.SQL) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL scripts should use the SQL execution endpoint");
         }
-        requireExecutor(scriptType);
         resolveScriptEnvironmentId(scriptType, script.getEnvironmentId());
-        SavedDataScriptExecutionRequest effectiveRequest = request == null ? new SavedDataScriptExecutionRequest() : request;
         return workerExecutionService.executeSavedScript(script,
                 scriptType,
+                runtimeClusterId,
                 effectiveRequest.getArguments(),
                 effectiveRequest.getExecutionConfig(),
                 effectiveRequest.getMaxRows(),
@@ -351,6 +527,15 @@ public class DataDevelopmentService {
                                                        Map<String, Object> runtimeContext,
                                                        Map<String, Object> executionConfigOverride) {
         DataDevelopmentScriptEntity script = requireReadableScript(scriptId);
+        Object expectedRevision = runtimeContext == null ? null : runtimeContext.get("resourceRevision");
+        String currentRevision = runtimeResourceRevisionService == null
+                ? (script.getUpdatedAt() == null ? null : script.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.scriptRevision(script.getId());
+        if (expectedRevision != null && currentRevision != null
+                && !currentRevision.equals(String.valueOf(expectedRevision))) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "Script configuration changed after dispatch; submit a new run");
+        }
         ScriptType scriptType = ScriptType.valueOf(script.getScriptType());
         DataDevelopmentExecutionContext context = new DataDevelopmentExecutionContext();
         context.setScriptId(script.getId());
@@ -358,7 +543,7 @@ public class DataDevelopmentService {
         context.setScriptType(scriptType);
         context.setContent(script.getContent());
         context.setDatasourceId(script.getDatasourceId());
-        context.setDatasource(resolveScriptDatasource(scriptType, script.getDatasourceId()));
+        context.setDatasource(resolveScriptDatasource(scriptType, script.getDatasourceId(), true));
         context.setEnvironmentId(resolveScriptEnvironmentId(scriptType, script.getEnvironmentId()));
         context.setMaxRows(maxRows);
         context.setTenantId(script.getTenantId());
@@ -396,20 +581,23 @@ public class DataDevelopmentService {
         return entity;
     }
 
-    private DataSourceDefinition requireSqlDatasource(Long datasourceId) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+    private DataSourceDefinition requireSqlDatasource(Long datasourceId, boolean execution) {
+        DataSourceDefinition datasource = execution
+                ? dataSourceService.getInternal(datasourceId)
+                : dataSourceService.get(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
-        if (!sqlExecutor.supports(datasource)) {
+        if (!datasourceTypeCapabilityService.isSqlExecutable(datasource.getTypeCode())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Only database datasources can execute SQL scripts");
         }
         return datasource;
     }
 
-    private DataSourceDefinition resolveScriptDatasource(ScriptType scriptType, Long datasourceId) {
+    private DataSourceDefinition resolveScriptDatasource(ScriptType scriptType, Long datasourceId,
+                                                         boolean execution) {
         if (scriptType == ScriptType.SQL) {
-            return requireSqlDatasource(datasourceId);
+            return requireSqlDatasource(datasourceId, execution);
         }
         if (scriptType == ScriptType.FLINK_QUESTION_SQL) {
             return null;
@@ -417,7 +605,7 @@ public class DataDevelopmentService {
         if (datasourceId == null) {
             return null;
         }
-        return dataSourceService.getInternal(datasourceId);
+        return execution ? dataSourceService.getInternal(datasourceId) : dataSourceService.get(datasourceId);
     }
 
     private Map<String, Object> resolveScriptExecutionConfig(ScriptType scriptType, Map<String, Object> executionConfig) {
@@ -460,6 +648,7 @@ public class DataDevelopmentService {
                         DataDevelopmentScriptEntity::getDirectoryId,
                         DataDevelopmentScriptEntity::getFileName,
                         DataDevelopmentScriptEntity::getScriptType,
+                        DataDevelopmentScriptEntity::getRuntimeClusterId,
                         DataDevelopmentScriptEntity::getDatasourceId,
                         DataDevelopmentScriptEntity::getEnvironmentId,
                         DataDevelopmentScriptEntity::getDescription)
@@ -523,6 +712,7 @@ public class DataDevelopmentService {
             node.setProjectId(entity.getProjectId());
             node.setName(entity.getFileName());
             node.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));
+            node.setRuntimeClusterId(entity.getRuntimeClusterId());
             DataSourceListView datasource = datasourceMap.get(entity.getDatasourceId());
             node.setDatasourceName(datasource == null ? null : datasource.getName());
             if (ScriptType.JAVA.name().equals(entity.getScriptType())) {
@@ -668,6 +858,8 @@ public class DataDevelopmentService {
 
     private DataDevelopmentScriptView toScriptView(DataDevelopmentScriptEntity entity) {
         DataDevelopmentScriptView view = new DataDevelopmentScriptView();
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
@@ -710,6 +902,8 @@ public class DataDevelopmentService {
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setDirectoryId(entity.getDirectoryId());
         view.setFileName(entity.getFileName());
         view.setScriptType(entity.getScriptType() == null ? null : ScriptType.valueOf(entity.getScriptType()));

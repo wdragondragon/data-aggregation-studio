@@ -98,6 +98,38 @@ class WorkflowRunPaginationRegressionTest extends StudioApiRegressionTestSupport
         assertThat(successOnly.path("items").get(1).path("workflowRunId").asLong()).isEqualTo(9101L);
     }
 
+    @Test
+    void shouldFilterWorkflowRunsByRequestedAndActualCluster() throws Exception {
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long projectId = currentProjectId(loginBody);
+        insertWorkflowDefinition(301L, projectId, "wf_301", "Workflow 301");
+        insertWorkflowRunRecord(5001L, 9201L, 301L, projectId, "SUCCESS", LocalDateTime.of(2026, 4, 7, 14, 0, 0));
+        insertWorkflowRunRecord(5002L, 9202L, 301L, projectId, "SUCCESS", LocalDateTime.of(2026, 4, 7, 14, 5, 0));
+        jdbcTemplate.update("update run_record set requested_cluster_id = ?, actual_cluster_id = ?, actual_cluster_code = ? where id = ?",
+                41L, 42L, "cluster-42", 5001L);
+        jdbcTemplate.update("update run_record set requested_cluster_id = ?, actual_cluster_id = ?, actual_cluster_code = ? where id = ?",
+                51L, 52L, "cluster-52", 5002L);
+
+        MvcResult result = mockMvc.perform(get("/api/v1/workflow-runs")
+                        .header("Authorization", authorization)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .param("requestedClusterId", "41")
+                        .param("actualClusterId", "42")
+                        .param("pageNo", "1")
+                        .param("pageSize", "10"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode page = readBody(result).path("data");
+        assertThat(page.path("total").asInt()).isEqualTo(1);
+        assertThat(page.path("items")).hasSize(1);
+        assertThat(page.path("items").get(0).path("workflowRunId").asLong()).isEqualTo(9201L);
+        assertThat(page.path("items").get(0).path("requestedClusterId").asLong()).isEqualTo(41L);
+        assertThat(page.path("items").get(0).path("actualClusterId").asLong()).isEqualTo(42L);
+        assertThat(page.path("items").get(0).path("actualClusterCode").asText()).isEqualTo("cluster-42");
+    }
+
     private void insertWorkflowDefinition(Long definitionId, Long projectId, String code, String name) {
         String timestamp = FORMATTER.format(LocalDateTime.now());
         jdbcTemplate.update("insert into workflow_definition (id, tenant_id, project_id, deleted, created_at, updated_at, code, name, current_version_id, published) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

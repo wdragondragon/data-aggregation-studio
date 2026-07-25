@@ -37,12 +37,15 @@ public class RunController {
     public Result<RunListView> list(@RequestParam(value = "collectionTaskId", required = false) Long collectionTaskId,
                                     @RequestParam(value = "qualityTaskId", required = false) Long qualityTaskId,
                                     @RequestParam(value = "workflowDefinitionId", required = false) Long workflowDefinitionId,
+                                    @RequestParam(value = "requestedClusterId", required = false) Long requestedClusterId,
+                                    @RequestParam(value = "actualClusterId", required = false) Long actualClusterId,
                                     @RequestParam(value = "startTime", required = false)
                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
                                     @RequestParam(value = "endTime", required = false)
                                     @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime,
                                     @RequestParam(value = "includeRunRecords", required = false) Boolean includeRunRecords) {
-        return Result.success(runService.list(collectionTaskId, qualityTaskId, workflowDefinitionId, startTime, endTime, includeRunRecords));
+        return Result.success(runService.list(collectionTaskId, qualityTaskId, workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime, includeRunRecords));
     }
 
     @Operation(summary = "List run records by page")
@@ -53,13 +56,17 @@ public class RunController {
                                               @RequestParam(value = "collectionTaskOnly", required = false) Boolean collectionTaskOnly,
                                               @RequestParam(value = "qualityTaskOnly", required = false) Boolean qualityTaskOnly,
                                               @RequestParam(value = "status", required = false) String status,
+                                              @RequestParam(value = "requestedClusterId", required = false) Long requestedClusterId,
+                                              @RequestParam(value = "actualClusterId", required = false) Long actualClusterId,
                                               @RequestParam(value = "startTime", required = false)
                                               @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
                                               @RequestParam(value = "endTime", required = false)
                                               @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime,
                                               @RequestParam(value = "pageNo", required = false) Integer pageNo,
                                               @RequestParam(value = "pageSize", required = false) Integer pageSize) {
-        return Result.success(runService.listRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId, collectionTaskOnly, qualityTaskOnly, status, startTime, endTime, pageNo, pageSize));
+        return Result.success(runService.listRunRecords(collectionTaskId, qualityTaskId, workflowDefinitionId,
+                collectionTaskOnly, qualityTaskOnly, status, requestedClusterId, actualClusterId,
+                startTime, endTime, pageNo, pageSize));
     }
 
     @Operation(summary = "Get run record detail")

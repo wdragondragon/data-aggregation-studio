@@ -105,6 +105,45 @@ create table if not exists studio_project (
 create unique index if not exists uk_studio_project_code on studio_project(tenant_id, project_code);
 create unique index if not exists uk_studio_project_name on studio_project(tenant_id, project_name);
 
+create table if not exists studio_runtime_cluster (
+    id integer primary key, tenant_id text default 'default', deleted integer default 0,
+    created_at text, updated_at text, code text not null, name text not null,
+    enabled integer default 1, status text default 'UNKNOWN', version text,
+    last_heartbeat_at text, instances_json text
+);
+create unique index if not exists uk_runtime_cluster_tenant_code on studio_runtime_cluster(tenant_id, code);
+create index if not exists idx_runtime_cluster_tenant_enabled on studio_runtime_cluster(tenant_id, enabled);
+
+create table if not exists studio_runtime_endpoint (
+    id integer primary key, tenant_id text default 'default', deleted integer default 0,
+    created_at text, updated_at text, runtime_cluster_id integer not null, mode text not null,
+    endpoint_ciphertext text, headers_ciphertext text, token_ciphertext text,
+    connect_timeout_millis integer default 3000, read_timeout_millis integer default 5000,
+    enabled integer default 1, last_tested_at text, last_test_status text, last_test_message text
+);
+create index if not exists idx_runtime_endpoint_cluster on studio_runtime_endpoint(tenant_id, runtime_cluster_id, enabled);
+
+create table if not exists studio_runtime_idempotency (
+    id integer primary key, tenant_id text default 'default', project_id integer not null,
+    deleted integer default 0, created_at text, updated_at text, runtime_cluster_id integer,
+    resource_type text not null, resource_id integer not null, key_hash text not null,
+    request_fingerprint text not null, status text not null, owner_token_hash text not null,
+    owner_instance_id text not null, owner_boot_id text not null, response_status integer,
+    response_content_type text, response_body_ciphertext text, completed_at text,
+    version integer default 0
+);
+create unique index if not exists uk_runtime_idem_scope_key on studio_runtime_idempotency(
+    tenant_id, project_id, resource_type, resource_id, key_hash);
+create index if not exists idx_runtime_idem_status_updated on studio_runtime_idempotency(status, updated_at);
+
+create table if not exists studio_project_runtime_cluster (
+    id integer primary key, tenant_id text default 'default', project_id integer not null,
+    deleted integer default 0, created_at text, updated_at text, runtime_cluster_id integer not null,
+    enabled integer default 1, preferred integer default 0, allow_manual_override integer default 0
+);
+create unique index if not exists uk_project_runtime_cluster on studio_project_runtime_cluster(tenant_id, project_id, runtime_cluster_id);
+create index if not exists idx_project_runtime_cluster_options on studio_project_runtime_cluster(tenant_id, project_id, enabled, preferred);
+
 create table if not exists studio_tenant_member (
     id integer primary key,
     tenant_id text default 'default',
@@ -313,6 +352,7 @@ create table if not exists quality_task_definition (
     created_at text,
     updated_at text,
     created_by integer,
+    runtime_cluster_id integer,
     task_name text not null,
     task_code text not null,
     status text,
@@ -517,7 +557,8 @@ create table if not exists studio_alert_incident (
     created_at text, updated_at text, rule_id integer not null, rule_name_snapshot text,
     rule_type text, signature text not null, subject_type text, subject_key text,
     subject_id integer, subject_name_snapshot text, target_path text, severity text,
-    status text, summary text, current_evidence_json text, occurrence_count integer default 0,
+    status text, summary text, requested_cluster_id integer, actual_cluster_id integer,
+    current_evidence_json text, occurrence_count integer default 0,
     notification_count integer default 0, reopen_count integer default 0,
     condition_active integer default 0, closed_while_active integer default 0,
     first_triggered_at text, last_triggered_at text, last_notified_at text,
@@ -528,6 +569,7 @@ create unique index if not exists uk_alert_incident_signature on studio_alert_in
 create index if not exists idx_alert_incident_status on studio_alert_incident(project_id, status, severity, last_triggered_at);
 create index if not exists idx_alert_incident_rule on studio_alert_incident(rule_id, last_triggered_at);
 create index if not exists idx_alert_incident_subject on studio_alert_incident(project_id, subject_type, subject_id);
+create index if not exists idx_alert_incident_cluster on studio_alert_incident(project_id, requested_cluster_id, actual_cluster_id, last_triggered_at);
 
 create table if not exists studio_alert_event (
     id integer primary key,
@@ -706,12 +748,30 @@ create unique index if not exists uk_datasource_definition_project_name on datas
 create index if not exists idx_datasource_definition_project on datasource_definition(project_id);
 create index if not exists idx_datasource_definition_connection on datasource_definition(tenant_id, connection_fingerprint);
 
+create table if not exists datasource_cluster_binding (
+    id integer primary key, tenant_id text default 'default', deleted integer default 0,
+    created_at text, updated_at text, datasource_id integer not null,
+    runtime_cluster_id integer not null, enabled integer default 1
+);
+create unique index if not exists uk_datasource_cluster_binding on datasource_cluster_binding(tenant_id, datasource_id, runtime_cluster_id);
+create index if not exists idx_datasource_cluster_options on datasource_cluster_binding(tenant_id, runtime_cluster_id, enabled, datasource_id);
+
+create table if not exists studio_runtime_validation (
+    id integer primary key, tenant_id text default 'default', project_id integer not null,
+    deleted integer default 0, created_at text, updated_at text, resource_type text not null,
+    resource_id integer not null, runtime_cluster_id integer, valid integer default 1,
+    issue_code text, issue_message text, details_json text, validated_at text
+);
+create unique index if not exists uk_runtime_validation_resource on studio_runtime_validation(tenant_id, project_id, resource_type, resource_id);
+create index if not exists idx_runtime_validation_invalid on studio_runtime_validation(tenant_id, project_id, valid, resource_type);
+
 create table if not exists datasource_connection_health (
     id integer primary key,
     tenant_id text default 'default',
     deleted integer default 0,
     created_at text,
     updated_at text,
+    runtime_cluster_id integer,
     connection_fingerprint text not null,
     connection_status text default 'UNKNOWN',
     last_connection_test_at text,
@@ -725,7 +785,9 @@ create table if not exists datasource_connection_health (
     failure_count integer default 0,
     next_probe_at text
 );
-create unique index if not exists uk_ds_conn_health_fp on datasource_connection_health(tenant_id, connection_fingerprint);
+create unique index if not exists uk_ds_conn_health_fp on datasource_connection_health(tenant_id, runtime_cluster_id, connection_fingerprint);
+create unique index if not exists uk_ds_conn_health_legacy_fp
+    on datasource_connection_health(tenant_id, connection_fingerprint) where runtime_cluster_id is null;
 create index if not exists idx_ds_conn_health_next on datasource_connection_health(next_probe_at);
 create index if not exists idx_ds_conn_health_probe on datasource_connection_health(probe_state, probe_lease_until);
 
@@ -735,6 +797,7 @@ create table if not exists datasource_connection_test_record (
     deleted integer default 0,
     created_at text,
     updated_at text,
+    runtime_cluster_id integer,
     connection_fingerprint text not null,
     datasource_id integer,
     datasource_name text,
@@ -750,6 +813,7 @@ create table if not exists datasource_connection_test_record (
 );
 create unique index if not exists uk_ds_conn_record_run on datasource_connection_test_record(tenant_id, probe_run_id);
 create index if not exists idx_ds_conn_record_lookup on datasource_connection_test_record(tenant_id, connection_fingerprint, ended_at);
+create index if not exists idx_ds_conn_record_cluster_lookup on datasource_connection_test_record(tenant_id, runtime_cluster_id, connection_fingerprint, ended_at);
 create index if not exists idx_ds_conn_record_cleanup on datasource_connection_test_record(ended_at);
 
 create table if not exists data_model (
@@ -776,6 +840,7 @@ create table if not exists model_sync_task (
     id integer primary key,
     tenant_id text default 'default',
     project_id integer,
+    runtime_cluster_id integer,
     deleted integer default 0,
     created_at text,
     updated_at text,
@@ -801,6 +866,7 @@ create table if not exists model_sync_task (
 create unique index if not exists uk_model_sync_task_project_datasource_batch on model_sync_task(project_id, datasource_id, batch_no);
 create index if not exists idx_model_sync_task_project_created on model_sync_task(project_id, created_at);
 create index if not exists idx_model_sync_task_project_status on model_sync_task(project_id, status);
+create index if not exists idx_model_sync_task_project_cluster_status on model_sync_task(project_id, runtime_cluster_id, status);
 
 create table if not exists model_sync_task_item (
     id integer primary key,
@@ -862,6 +928,7 @@ create table if not exists workflow_definition (
     created_at text,
     updated_at text,
     created_by integer,
+    runtime_cluster_id integer,
     code text,
     name text,
     current_version_id integer,
@@ -879,6 +946,7 @@ create table if not exists workflow_definition_version (
     created_at text,
     updated_at text,
     definition_id integer,
+    runtime_cluster_id integer,
     version_number integer,
     published integer default 0,
     graph_json text,
@@ -939,6 +1007,7 @@ create table if not exists collection_task_definition (
     created_at text,
     updated_at text,
     created_by integer,
+    runtime_cluster_id integer,
     name text,
     task_type text,
     status text,
@@ -1003,6 +1072,7 @@ create table if not exists data_service_definition (
     created_at text,
     updated_at text,
     created_by integer,
+    runtime_cluster_id integer,
     service_code text not null,
     service_name text not null,
     service_type text not null,
@@ -1111,6 +1181,8 @@ create table if not exists data_service_access_log (
     created_at text,
     updated_at text,
     service_id integer,
+    requested_cluster_id integer,
+    actual_cluster_id integer,
     service_code_snapshot text,
     service_name_snapshot text,
     service_status_snapshot text,
@@ -1172,6 +1244,7 @@ create table if not exists data_ingestion_service (
     created_at text,
     updated_at text,
     created_by integer,
+    runtime_cluster_id integer,
     service_code text not null,
     service_name text not null,
     status text not null,
@@ -1240,6 +1313,8 @@ create table if not exists data_ingestion_access_log (
     created_at text,
     updated_at text,
     service_id integer,
+    requested_cluster_id integer,
+    actual_cluster_id integer,
     service_code_snapshot text,
     service_name_snapshot text,
     service_status_snapshot text,
@@ -1309,6 +1384,7 @@ create table if not exists protocol_conversion_service (
     created_at text,
     updated_at text,
     created_by integer,
+    runtime_cluster_id integer,
     service_code text not null,
     service_name text not null,
     status text not null,
@@ -1382,6 +1458,8 @@ create table if not exists protocol_conversion_access_log (
     created_at text,
     updated_at text,
     service_id integer,
+    requested_cluster_id integer,
+    actual_cluster_id integer,
     service_code_snapshot text,
     service_name_snapshot text,
     service_status_snapshot text,
@@ -1467,6 +1545,7 @@ create table if not exists data_dev_script (
     created_at text,
     updated_at text,
     directory_id integer,
+    runtime_cluster_id integer,
     file_name text,
     script_type text,
     datasource_id integer,
@@ -1568,6 +1647,10 @@ create table if not exists dispatch_task (
     run_record_id integer,
     node_code text,
     status text,
+    target_cluster_id integer,
+    resource_revision text,
+    claim_token text,
+    worker_boot_id text,
     worker_group_code text,
     lease_owner text,
     worker_instance_id text,
@@ -1575,6 +1658,7 @@ create table if not exists dispatch_task (
     scheduled_fire_time text,
     attempts integer default 0,
     max_retries integer default 3,
+    protected_payload_ciphertext text,
     payload_json text
 );
 create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status);
@@ -1582,6 +1666,7 @@ create index if not exists idx_dispatch_task_project_workflow_run on dispatch_ta
 create index if not exists idx_dispatch_task_project_quality_task_status on dispatch_task(project_id, quality_task_id, status);
 create index if not exists idx_dispatch_task_project_status_created on dispatch_task(project_id, status, created_at);
 create index if not exists idx_dispatch_task_group_status_created on dispatch_task(worker_group_code, status, created_at);
+create index if not exists idx_dispatch_task_cluster_status_created on dispatch_task(target_cluster_id, status, created_at);
 
 create table if not exists run_record (
     id integer primary key,
@@ -1599,9 +1684,13 @@ create table if not exists run_record (
     triggered_by_user_id integer,
     node_code text,
     status text,
+    requested_cluster_id integer,
+    actual_cluster_id integer,
+    actual_cluster_code text,
     worker_group_code text,
     worker_code text,
     worker_instance_id text,
+    worker_boot_id text,
     worker_pod_name text,
     worker_node_name text,
     message text,
@@ -1634,6 +1723,7 @@ create index if not exists idx_run_record_project_created on run_record(project_
 create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id);
 create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at);
 create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at);
+create index if not exists idx_run_record_project_cluster_created on run_record(project_id, requested_cluster_id, created_at);
 
 create table if not exists data_model_lineage_relation (
     id integer primary key,
@@ -1686,10 +1776,15 @@ create table if not exists worker_lease (
     deleted integer default 0,
     created_at text,
     updated_at text,
+    runtime_cluster_id integer,
+    runtime_cluster_code text,
     worker_group_code text,
     worker_code text,
     worker_kind text,
     instance_id text,
+    boot_id text,
+    runtime_version text,
+    plugin_fingerprint text,
     host_name text,
     pod_name text,
     node_name text,
@@ -1701,3 +1796,4 @@ create table if not exists worker_lease (
 create index if not exists idx_worker_lease_code_instance on worker_lease(worker_code, instance_id);
 create index if not exists idx_worker_lease_group_instance on worker_lease(worker_group_code, instance_id);
 create index if not exists idx_worker_lease_status_heartbeat on worker_lease(status, last_heartbeat_at);
+create index if not exists idx_worker_lease_cluster_status on worker_lease(runtime_cluster_id, status, last_heartbeat_at);

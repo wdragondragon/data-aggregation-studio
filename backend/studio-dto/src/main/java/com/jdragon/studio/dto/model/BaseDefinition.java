@@ -12,5 +12,8 @@ public class BaseDefinition {
     private Boolean deleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    /** False when the saved runtime cluster no longer matches its datasource bindings. */
+    private Boolean runtimeValid = Boolean.TRUE;
+    private String runtimeValidationMessage;
 }
 

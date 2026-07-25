@@ -12,7 +12,6 @@ import com.jdragon.studio.infra.service.script.DataDevelopmentExecutionContext;
 import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -31,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-@Service
 public class PythonDataDevelopmentExecutor implements DataDevelopmentScriptExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(PythonDataDevelopmentExecutor.class);
@@ -42,17 +40,20 @@ public class PythonDataDevelopmentExecutor implements DataDevelopmentScriptExecu
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final DatasourceClusterBindingService datasourceClusterBindingService;
 
     public PythonDataDevelopmentExecutor(StudioPlatformProperties platformProperties,
                                          ObjectMapper objectMapper,
                                          DataSourceService dataSourceService,
                                          DataModelService dataModelService,
-                                         DataDevelopmentSqlExecutor sqlExecutor) {
+                                         DataDevelopmentSqlExecutor sqlExecutor,
+                                         DatasourceClusterBindingService datasourceClusterBindingService) {
         this.platformProperties = platformProperties;
         this.objectMapper = objectMapper;
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.sqlExecutor = sqlExecutor;
+        this.datasourceClusterBindingService = datasourceClusterBindingService;
     }
 
     @Override
@@ -68,7 +69,7 @@ public class PythonDataDevelopmentExecutor implements DataDevelopmentScriptExecu
 
         String executable = platformProperties.getPython() == null ? null : platformProperties.getPython().getExecutable();
         if (executable == null || executable.trim().isEmpty()) {
-            return failedResult("Python executable is not configured. Please set studio.python.executable on both server and worker.", "", startedAt, null);
+            return failedResult("Python executable is not configured. Please set studio.python.executable on studio-worker.", "", startedAt, null);
         }
 
         Path workingDirectory = null;
@@ -87,7 +88,10 @@ public class PythonDataDevelopmentExecutor implements DataDevelopmentScriptExecu
             DefaultJavaDataScriptServices scriptServices = new DefaultJavaDataScriptServices(
                     dataSourceService,
                     dataModelService,
-                    sqlExecutor
+                    sqlExecutor,
+                    datasourceClusterBindingService,
+                    context.getRuntimeProjectId(),
+                    context.getRuntimeClusterId()
             );
             try (PythonExecutionServiceBridge bridge = new PythonExecutionServiceBridge(objectMapper, scriptServices)) {
                 objectMapper.writeValue(contextFile.toFile(), buildContextPayload(context, bridge));

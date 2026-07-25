@@ -66,12 +66,14 @@ class ModelSyncTaskServiceRegressionTest {
         ModelSyncTaskView item = page.getItems().get(0);
         assertThat(item.getName()).isEqualTo("长期回归-客户模型同步");
         assertThat(item.getStatus()).isEqualTo(ModelSyncTaskStatus.RUNNING);
+        assertThat(item.getRuntimeClusterId()).isEqualTo(46L);
         assertThat(item.getDatasourceNameSnapshot()).isNull();
 
         ArgumentCaptor<LambdaQueryWrapper<ModelSyncTaskEntity>> taskCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(taskMapper).selectPage(any(Page.class), taskCaptor.capture());
         assertThat(taskCaptor.getValue().getSqlSelect())
                 .contains("id", "tenant_id", "project_id", "deleted", "created_at", "updated_at",
+                        "runtime_cluster_id",
                         "name", "status", "total_count", "success_count", "failed_count",
                         "stopped_count", "progress_percent", "stop_requested", "duration_ms")
                 .doesNotContain("datasource_id",
@@ -165,7 +167,8 @@ class ModelSyncTaskServiceRegressionTest {
         result.setDurationMs(Long.valueOf(2L));
         DataModelSyncBatchResult batchResult = new DataModelSyncBatchResult();
         batchResult.addItem(result);
-        when(dataModelService.syncBatchFromDatasource(eq(task.getDatasourceId()), anyList())).thenReturn(batchResult);
+        when(dataModelService.syncBatchFromDatasource(eq(task.getDatasourceId()), anyList(), eq(task.getRuntimeClusterId())))
+                .thenReturn(batchResult);
 
         Method method = ModelSyncTaskService.class
                 .getDeclaredMethod("processSingleItem", ModelSyncTaskEntity.class, ModelSyncTaskItemEntity.class);
@@ -175,7 +178,8 @@ class ModelSyncTaskServiceRegressionTest {
         assertThat(item.getStatus()).isEqualTo(ModelSyncTaskItemStatus.FAILED.name());
         assertThat(item.getDurationMs()).isGreaterThan(1000L);
         assertThat(item.getDurationMs()).isNotEqualTo(2L);
-        verify(dataModelService).syncBatchFromDatasource(task.getDatasourceId(), Collections.singletonList(item.getPhysicalLocator()));
+        verify(dataModelService).syncBatchFromDatasource(task.getDatasourceId(),
+                Collections.singletonList(item.getPhysicalLocator()), task.getRuntimeClusterId());
         verify(itemMapper, atLeastOnce()).updateById(item);
     }
 
@@ -211,6 +215,7 @@ class ModelSyncTaskServiceRegressionTest {
         entity.setId(100L);
         entity.setTenantId("default");
         entity.setProjectId(100L);
+        entity.setRuntimeClusterId(46L);
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 29, 9, 0, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 29, 9, 5, 0));
@@ -238,6 +243,7 @@ class ModelSyncTaskServiceRegressionTest {
         entity.setId(100L);
         entity.setTenantId("default");
         entity.setProjectId(100L);
+        entity.setRuntimeClusterId(46L);
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 29, 9, 0, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 29, 9, 5, 0));

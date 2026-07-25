@@ -17,6 +17,7 @@ public class QueuedTaskListView extends BaseDefinition {
     private String qualityTaskName;
     private String nodeCode;
     private String status;
+    private Long targetClusterId;
     private String workerGroupCode;
     private String leaseOwner;
     private Integer attempts;

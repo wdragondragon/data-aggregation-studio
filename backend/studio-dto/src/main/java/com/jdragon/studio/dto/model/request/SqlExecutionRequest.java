@@ -10,6 +10,10 @@ import jakarta.validation.constraints.NotNull;
 @Data
 @Schema(description = "Ad-hoc SQL execution request")
 public class SqlExecutionRequest {
+    @NotNull(message = "Runtime cluster is required")
+    @Schema(description = "Target runtime cluster id", required = true)
+    private Long runtimeClusterId;
+
     @NotNull(message = "Datasource is required")
     @Schema(description = "Datasource id", required = true)
     private Long datasourceId;

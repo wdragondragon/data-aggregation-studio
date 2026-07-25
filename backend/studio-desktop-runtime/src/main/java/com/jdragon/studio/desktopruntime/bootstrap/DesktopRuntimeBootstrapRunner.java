@@ -18,14 +18,20 @@ public class DesktopRuntimeBootstrapRunner implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DesktopRuntimeBootstrapRunner.class);
 
     private final StudioInitializationService studioInitializationService;
+    private final DesktopRuntimeClusterBootstrapService runtimeClusterBootstrapService;
 
-    public DesktopRuntimeBootstrapRunner(StudioInitializationService studioInitializationService) {
+    public DesktopRuntimeBootstrapRunner(StudioInitializationService studioInitializationService,
+                                         DesktopRuntimeClusterBootstrapService runtimeClusterBootstrapService) {
         this.studioInitializationService = studioInitializationService;
+        this.runtimeClusterBootstrapService = runtimeClusterBootstrapService;
     }
 
     @Override
     public void run(ApplicationArguments args) {
         log.info("Ensuring desktop runtime bootstrap data before serving requests.");
         studioInitializationService.initialize(false);
+        DesktopRuntimeClusterBootstrapService.BootstrapResult result =
+                runtimeClusterBootstrapService.ensureSingleClusterRuntime();
+        log.info("Desktop runtime execution plane is ready: {}", result);
     }
 }

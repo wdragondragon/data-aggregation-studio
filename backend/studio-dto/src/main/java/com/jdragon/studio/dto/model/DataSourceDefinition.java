@@ -29,6 +29,8 @@ public class DataSourceDefinition extends BaseDefinition {
     private LocalDateTime nextConnectionProbeAt;
     private Integer manualConnectionTestTimeoutSeconds;
     private Integer scheduledConnectionTestTimeoutSeconds;
+    private List<Long> applicableClusterIds = new ArrayList<Long>();
+    private List<RuntimeClusterView> applicableClusters = new ArrayList<RuntimeClusterView>();
     private List<DatasourceConnectionTestRecordView> recentConnectionTests = new ArrayList<DatasourceConnectionTestRecordView>();
     private Map<String, Object> technicalMetadata = new LinkedHashMap<String, Object>();
     private Map<String, Object> businessMetadata = new LinkedHashMap<String, Object>();

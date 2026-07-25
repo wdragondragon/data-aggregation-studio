@@ -14,11 +14,10 @@ import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
 import com.jdragon.studio.infra.mapper.DataDevelopmentDirectoryMapper;
 import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
 import com.jdragon.studio.infra.service.DataDevelopmentService;
-import com.jdragon.studio.infra.service.DataDevelopmentSqlExecutor;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.DataDevelopmentWorkerExecutionService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
-import com.jdragon.studio.infra.service.ScriptEnvironmentRuntimeService;
 import com.jdragon.studio.infra.service.ScriptEnvironmentService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -75,11 +74,17 @@ class DataDevelopmentSourceSlimmingRegressionTest {
                 .singleElement()
                 .extracting(DataDevelopmentTreeNode::getEnvironmentName)
                 .isEqualTo("长期回归-Java风控环境");
+        assertThat(tree).extracting(DataDevelopmentTreeNode::getRuntimeClusterId)
+                .containsOnly(46L);
 
         ArgumentCaptor<Set<Long>> captor = ArgumentCaptor.forClass(Set.class);
         verify(scriptEnvironmentService).enabledOptionMapByIds(captor.capture());
         assertThat(captor.getValue()).containsExactlyInAnyOrder(31L, 32L);
         verify(scriptEnvironmentService, never()).requireEnabledEnvironment(any());
+
+        ArgumentCaptor<LambdaQueryWrapper<DataDevelopmentScriptEntity>> scriptCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(scriptMapper).selectList(scriptCaptor.capture());
+        assertThat(scriptCaptor.getValue().getSqlSelect()).contains("runtime_cluster_id");
     }
 
     @Test
@@ -95,11 +100,36 @@ class DataDevelopmentSourceSlimmingRegressionTest {
 
         assertThat(scripts).extracting(DataDevelopmentScriptListView::getEnvironmentName)
                 .contains("长期回归-Java客户画像环境", "长期回归-Java风控环境");
+        assertThat(scripts).extracting(DataDevelopmentScriptListView::getRuntimeClusterId)
+                .containsOnly(46L);
 
         ArgumentCaptor<Set<Long>> captor = ArgumentCaptor.forClass(Set.class);
         verify(scriptEnvironmentService).enabledOptionMapByIds(captor.capture());
         assertThat(captor.getValue()).containsExactlyInAnyOrder(31L, 32L);
         verify(scriptEnvironmentService, never()).requireEnabledEnvironment(any());
+
+        ArgumentCaptor<LambdaQueryWrapper<DataDevelopmentScriptEntity>> scriptCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(scriptMapper).selectList(scriptCaptor.capture());
+        assertThat(scriptCaptor.getValue().getSqlSelect()).contains("runtime_cluster_id");
+    }
+
+    @Test
+    void recentScriptsShouldSelectAndExposeRuntimeClusterId() {
+        DataDevelopmentDirectoryMapper directoryMapper = mock(DataDevelopmentDirectoryMapper.class);
+        DataDevelopmentScriptMapper scriptMapper = mock(DataDevelopmentScriptMapper.class);
+        ScriptEnvironmentService scriptEnvironmentService = mock(ScriptEnvironmentService.class);
+        DataDevelopmentService service = service(directoryMapper, scriptMapper, scriptEnvironmentService);
+        when(scriptMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(
+                script(21L, "长期回归-多集群脚本.py", ScriptType.PYTHON, null)));
+
+        List<DataDevelopmentScriptListView> scripts = service.listRecentScriptSummaries(4);
+
+        assertThat(scripts).singleElement()
+                .extracting(DataDevelopmentScriptListView::getRuntimeClusterId)
+                .isEqualTo(46L);
+        ArgumentCaptor<LambdaQueryWrapper<DataDevelopmentScriptEntity>> scriptCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(scriptMapper).selectList(scriptCaptor.capture());
+        assertThat(scriptCaptor.getValue().getSqlSelect()).contains("runtime_cluster_id");
     }
 
     @Test
@@ -148,13 +178,11 @@ class DataDevelopmentSourceSlimmingRegressionTest {
                 directoryMapper,
                 scriptMapper,
                 effectiveDataSourceService,
-                mock(DataDevelopmentSqlExecutor.class),
+                mock(DatasourceTypeCapabilityService.class),
                 securityService,
                 projectResourceAccessService,
                 scriptEnvironmentService,
-                mock(ScriptEnvironmentRuntimeService.class),
-                mock(DataDevelopmentWorkerExecutionService.class),
-                Collections.emptyList());
+                mock(DataDevelopmentWorkerExecutionService.class));
     }
 
     private List<DataDevelopmentScriptEntity> scripts() {
@@ -172,6 +200,7 @@ class DataDevelopmentSourceSlimmingRegressionTest {
         entity.setProjectId(2068077680446365698L);
         entity.setFileName(fileName);
         entity.setScriptType(scriptType.name());
+        entity.setRuntimeClusterId(46L);
         entity.setEnvironmentId(environmentId);
         return entity;
     }

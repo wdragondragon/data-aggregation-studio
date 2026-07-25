@@ -1,19 +1,14 @@
 package com.jdragon.studio.infra.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.QualityRuleOutputType;
 import com.jdragon.studio.dto.enums.QualityTaskAlertOperator;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
-import com.jdragon.studio.dto.model.QualityRuleView;
 import com.jdragon.studio.dto.model.QualityTaskAlertConfig;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
-import com.jdragon.studio.dto.model.QualityTaskPreviewView;
-import com.jdragon.studio.dto.model.QualityTaskValidationView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -22,61 +17,24 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-@Service
 @Slf4j
 public class QualityTaskExecutionService {
 
     private final DataSourceService dataSourceService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
-    private final QualitySqlTemplateService qualitySqlTemplateService;
-    private final ObjectMapper objectMapper;
+    private final QualityTaskExecutionPlanService executionPlanService;
 
     public QualityTaskExecutionService(DataSourceService dataSourceService,
                                        DataDevelopmentSqlExecutor sqlExecutor,
-                                       QualitySqlTemplateService qualitySqlTemplateService,
-                                       ObjectMapper objectMapper) {
+                                       QualityTaskExecutionPlanService executionPlanService) {
         this.dataSourceService = dataSourceService;
         this.sqlExecutor = sqlExecutor;
-        this.qualitySqlTemplateService = qualitySqlTemplateService;
-        this.objectMapper = objectMapper;
-    }
-
-    public QualityTaskPreviewView preview(QualityTaskDefinitionView definition) {
-        String resolvedSql = buildResolvedSql(definition);
-        QualityTaskPreviewView preview = new QualityTaskPreviewView();
-        preview.setResolvedSql(resolvedSql);
-        if (resolvedSql.contains("${")) {
-            preview.getWarnings().add("当前 SQL 仍包含未替换的占位符，请检查自定义参数赋值。");
-        }
-        return preview;
-    }
-
-    public QualityTaskValidationView validate(QualityTaskDefinitionView definition) {
-        QualityTaskValidationView view = new QualityTaskValidationView();
-        String resolvedSql = buildResolvedSql(definition);
-        view.setResolvedSql(resolvedSql);
-        if (resolvedSql.contains("${")) {
-            view.getWarnings().add("当前 SQL 仍包含未替换的占位符，请检查自定义参数赋值。");
-        }
-        try {
-            DataSourceDefinition datasource = requireSqlDatasource(definition.getDatasourceId());
-            SqlExecutionResultView sqlResult = sqlExecutor.executeSql(datasource, resolvedSql, Integer.valueOf(20));
-            view.setValid(Boolean.TRUE);
-            view.setMessage(sqlResult.getMessage());
-            view.setColumns(sqlResult.getColumns());
-            view.setRows(sqlResult.getRows());
-            view.setSummary(sqlResult.getSummary());
-            view.setOutputParams(qualitySqlTemplateService.resolveOutputParamsFromResult(sqlResult.getColumns(), sqlResult.getRows()));
-        } catch (Exception ex) {
-            view.setValid(Boolean.FALSE);
-            view.setMessage(ex.getMessage());
-        }
-        return view;
+        this.executionPlanService = executionPlanService;
     }
 
     public Map<String, Object> execute(QualityTaskDefinitionView definition) {
         DataSourceDefinition datasource = requireSqlDatasource(definition.getDatasourceId());
-        String resolvedSql = buildResolvedSql(definition);
+        String resolvedSql = executionPlanService.buildResolvedSql(definition);
         SqlExecutionResultView sqlResult = sqlExecutor.executeSql(datasource, resolvedSql, null);
         List<Map<String, Object>> alertDetails = evaluateAlertDetails(definition.getAlertConfigs(), sqlResult.getRows());
         List<String> triggeredAlerts = collectAlertMessages(alertDetails);
@@ -92,27 +50,6 @@ public class QualityTaskExecutionService {
         result.put("alerts", triggeredAlerts);
         result.put("alertDetails", alertDetails);
         return result;
-    }
-
-    public String buildResolvedSql(QualityTaskDefinitionView definition) {
-        QualityRuleView rule = resolveRule(definition);
-        return qualitySqlTemplateService.resolveSql(
-                rule.getLogicSql(),
-                qualitySqlTemplateService.buildRuntimeBindings(
-                        definition.getModelPhysicalLocator(),
-                        definition.getColumnName(),
-                        definition.getParameterBindings()),
-                definition.getWhereClause());
-    }
-
-    private QualityRuleView resolveRule(QualityTaskDefinitionView definition) {
-        if (definition == null) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task definition is required");
-        }
-        if (definition.getRuleSnapshot() == null || definition.getRuleSnapshot().isEmpty()) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task rule snapshot is missing");
-        }
-        return objectMapper.convertValue(definition.getRuleSnapshot(), QualityRuleView.class);
     }
 
     private DataSourceDefinition requireSqlDatasource(Long datasourceId) {

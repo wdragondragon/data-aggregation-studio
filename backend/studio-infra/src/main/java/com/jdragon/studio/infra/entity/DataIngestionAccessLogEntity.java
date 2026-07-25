@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 @TableName("data_ingestion_access_log")
 public class DataIngestionAccessLogEntity extends BaseProjectTenantEntity {
     private Long serviceId;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private String serviceCodeSnapshot;
     private String serviceNameSnapshot;
     private String serviceStatusSnapshot;

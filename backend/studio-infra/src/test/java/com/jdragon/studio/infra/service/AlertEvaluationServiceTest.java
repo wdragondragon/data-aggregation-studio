@@ -366,6 +366,8 @@ class AlertEvaluationServiceTest {
         when(fixture.workerBindingMapper.selectList(any())).thenReturn(Collections.singletonList(binding));
         WorkerLeaseEntity expiredLease = new WorkerLeaseEntity();
         expiredLease.setTenantId("default");
+        expiredLease.setRuntimeClusterId(50L);
+        expiredLease.setRuntimeClusterCode("cluster-50");
         expiredLease.setWorkerGroupCode("default-group");
         expiredLease.setStatus("ONLINE");
         expiredLease.setLastHeartbeatAt(LocalDateTime.now().minusMinutes(5));
@@ -380,6 +382,8 @@ class AlertEvaluationServiceTest {
         assertThat(observation.isActive()).isTrue();
         assertThat(observation.getEvidence()).containsEntry("instanceCount", 0);
         assertThat(observation.getEvidence()).containsEntry("reportedOnlineLeaseCount", 1);
+        assertThat(observation.getEvidence().get("actualClusterIds")).isEqualTo(List.of(50L));
+        assertThat(observation.getEvidence().get("actualClusterCodes")).isEqualTo(List.of("cluster-50"));
     }
 
     @Test
@@ -485,8 +489,10 @@ class AlertEvaluationServiceTest {
                 Map.of("queuedCount", 2, "oldestWaitMinutes", 5));
         LocalDateTime now = LocalDateTime.now();
         DispatchTaskEntity first = queuedTask(101L, now.minusHours(2));
+        first.setTargetClusterId(46L);
         first.setScheduledFireTime(now.minusMinutes(1));
         DispatchTaskEntity second = queuedTask(102L, now.minusHours(1));
+        second.setTargetClusterId(50L);
         second.setScheduledFireTime(now.minusSeconds(30));
         when(fixture.dispatchTaskMapper.selectList(any())).thenReturn(List.of(first, second));
 
@@ -496,6 +502,7 @@ class AlertEvaluationServiceTest {
         verify(fixture.incidentService).recordCondition(eq(rule), captor.capture());
         assertFalse(captor.getValue().isActive());
         assertTrue(((Number) captor.getValue().getEvidence().get("oldestWaitMinutes")).longValue() < 5L);
+        assertThat(captor.getValue().getEvidence().get("targetClusterIds")).isEqualTo(List.of(46L, 50L));
     }
 
     @Test

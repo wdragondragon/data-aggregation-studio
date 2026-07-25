@@ -42,6 +42,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionSubscriptionMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -76,6 +77,8 @@ public class DataIngestionService {
     private final DataModelService dataModelService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter;
     private final PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService;
     private final ObjectMapper objectMapper;
     private final DataServiceTokenSupport tokenSupport = new DataServiceTokenSupport();
@@ -86,19 +89,60 @@ public class DataIngestionService {
     private final OpenServiceInvocationLogService invocationLogService;
     private final WebServiceSupport webServiceSupport = new WebServiceSupport();
 
+    @Autowired
     public DataIngestionService(DataIngestionServiceMapper serviceMapper,
                                 DataIngestionSubscriptionMapper subscriptionMapper,
                                 DataIngestionAccessLogMapper accessLogMapper,
                                 DataIngestionAccessCounterMapper accessCounterMapper,
                                 DataSourceService dataSourceService,
                                 DataModelService dataModelService,
-                                DataDevelopmentSqlExecutor sqlExecutor,
+                                DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                                StudioSecurityService securityService,
+                                ProjectResourceAccessService projectResourceAccessService,
+                                PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService,
+                                CollectionTaskAssemblerService collectionTaskAssemblerService,
+                                ObjectMapper objectMapper,
+                                OpenServiceInvocationLogService invocationLogService,
+                                ObjectProvider<DataIngestionExecutionSupport> executionSupportProvider) {
+        this(serviceMapper, subscriptionMapper, accessLogMapper, accessCounterMapper,
+                dataSourceService, dataModelService, datasourceTypeCapabilityService,
+                securityService, projectResourceAccessService, pluginRuntimeOptionSchemaService,
+                objectMapper, invocationLogService, executionSupportProvider.getIfAvailable());
+    }
+
+    public DataIngestionService(DataIngestionServiceMapper serviceMapper,
+                                DataIngestionSubscriptionMapper subscriptionMapper,
+                                DataIngestionAccessLogMapper accessLogMapper,
+                                DataIngestionAccessCounterMapper accessCounterMapper,
+                                DataSourceService dataSourceService,
+                                DataModelService dataModelService,
+                                DatasourceTypeCapabilityService datasourceTypeCapabilityService,
                                 StudioSecurityService securityService,
                                 ProjectResourceAccessService projectResourceAccessService,
                                 PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService,
                                 CollectionTaskAssemblerService collectionTaskAssemblerService,
                                 ObjectMapper objectMapper,
                                 OpenServiceInvocationLogService invocationLogService) {
+        this(serviceMapper, subscriptionMapper, accessLogMapper, accessCounterMapper,
+                dataSourceService, dataModelService, datasourceTypeCapabilityService,
+                securityService, projectResourceAccessService, pluginRuntimeOptionSchemaService,
+                objectMapper, invocationLogService,
+                new DataIngestionExecutionSupport(collectionTaskAssemblerService, objectMapper));
+    }
+
+    private DataIngestionService(DataIngestionServiceMapper serviceMapper,
+                                 DataIngestionSubscriptionMapper subscriptionMapper,
+                                 DataIngestionAccessLogMapper accessLogMapper,
+                                 DataIngestionAccessCounterMapper accessCounterMapper,
+                                 DataSourceService dataSourceService,
+                                 DataModelService dataModelService,
+                                 DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                                 StudioSecurityService securityService,
+                                 ProjectResourceAccessService projectResourceAccessService,
+                                 PluginRuntimeOptionSchemaService pluginRuntimeOptionSchemaService,
+                                 ObjectMapper objectMapper,
+                                 OpenServiceInvocationLogService invocationLogService,
+                                 DataIngestionExecutionSupport executionSupport) {
         this.serviceMapper = serviceMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.dataSourceService = dataSourceService;
@@ -108,10 +152,18 @@ public class DataIngestionService {
         this.pluginRuntimeOptionSchemaService = pluginRuntimeOptionSchemaService;
         this.objectMapper = objectMapper;
         this.accessLogSupport = new DataIngestionAccessLogSupport(accessLogMapper, accessCounterMapper);
-        this.executionSupport = new DataIngestionExecutionSupport(collectionTaskAssemblerService, objectMapper);
-        this.fieldSupport = new DataIngestionFieldSupport(sqlExecutor);
+        this.executionSupport = executionSupport;
+        this.fieldSupport = new DataIngestionFieldSupport(datasourceTypeCapabilityService);
         this.invocationLogSupport = new OpenServiceInvocationLogSupport();
         this.invocationLogService = invocationLogService;
+    }
+
+    @Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
+
+    @Autowired
+    void setRuntimeDatasourceProbeRouter(RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter) {
+        this.runtimeDatasourceProbeRouter = runtimeDatasourceProbeRouter;
     }
 
     @Autowired(required = false)
@@ -163,11 +215,16 @@ public class DataIngestionService {
         for (DataIngestionServiceEntity entity : entityPage.getRecords()) {
             items.add(toTableListView(entity));
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE, items);
+        }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     public DataIngestionServiceView get(Long id) {
-        return toView(requireAccessibleEntity(id));
+        DataIngestionServiceView view = toView(requireAccessibleEntity(id));
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE, view);
     }
 
     @Transactional
@@ -183,12 +240,18 @@ public class DataIngestionService {
         int maxBatchSize = normalizeMaxBatchSize(request.getMaxBatchSize());
         List<DataIngestionSourceBinding> sourceBindings = normalizeSourceBindings(request);
         DataIngestionSourceBinding primaryBinding = sourceBindings.get(0);
+        List<Long> datasourceIds = new ArrayList<Long>();
+        for (DataIngestionSourceBinding sourceBinding : sourceBindings) datasourceIds.add(sourceBinding.getDatasourceId());
+        Long runtimeClusterId = runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                currentProjectId, request.getRuntimeClusterId(), entity.getRuntimeClusterId(),
+                entity.getId() != null, datasourceIds);
         DataIngestionRequestFormat requestFormat = Boolean.TRUE.equals(request.getWebserviceEnabled())
                 ? DataIngestionRequestFormat.SOAP
                 : deriveRequestFormat(request.getRequestFormat(), fieldMappingsFromBindings(sourceBindings));
 
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setCreatedBy(entity.getId() == null ? securityService.currentUserId() : entity.getCreatedBy());
         entity.setServiceCode(normalizeRequiredText(request.getServiceCode(), "Service code is required"));
         entity.setServiceName(normalizeRequiredText(request.getServiceName(), "Service name is required"));
@@ -222,6 +285,7 @@ public class DataIngestionService {
         } else {
             serviceMapper.updateById(entity);
         }
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE, entity.getId());
         return get(entity.getId());
     }
 
@@ -245,7 +309,9 @@ public class DataIngestionService {
 
     private void publishDefinition(Long id) {
         DataIngestionServiceEntity entity = requireWritableEntity(id);
-        validateExecutable(toView(entity));
+        DataIngestionServiceView view = toView(entity);
+        assertRuntimeRunnable(view);
+        validateExecutable(view);
         LambdaUpdateWrapper<DataIngestionServiceEntity> updateWrapper = new LambdaUpdateWrapper<DataIngestionServiceEntity>()
                 .set(DataIngestionServiceEntity::getStatus, DataIngestionStatus.ONLINE.name())
                 .set(DataIngestionServiceEntity::getUpdatedAt, LocalDateTime.now())
@@ -284,18 +350,25 @@ public class DataIngestionService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource and model are required");
         }
         DataSourceDefinition datasource = requiredDatasource(request.getDatasourceId());
+        runtimeClusterSelectionService.validateExplicitDatasourceSelection(
+                projectResourceAccessService.requireCurrentProjectId(),
+                request.getRuntimeClusterId(),
+                java.util.Collections.singletonList(datasource.getId()));
         DataModelDefinition model = requiredModel(request.getModelId());
         if (model.getDatasourceId() == null || model.getDatasourceId().longValue() != datasource.getId().longValue()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Model does not belong to selected datasource");
         }
         DataIngestionResolveFieldsView view = new DataIngestionResolveFieldsView();
-        view.setFields(fieldSupport.resolveModelFields(datasource, model));
+        view.setFields(fieldSupport.resolveModelFields(
+                datasource, model, runtimeDatasourceProbeRouter, request.getRuntimeClusterId()));
         view.setFieldMappings(fieldSupport.defaultFieldMappings(model));
         return view;
     }
 
     public DataIngestionInvokeResult debug(Long id, DataIngestionDebugRequest request) {
         DataIngestionServiceView view = get(id);
+        runtimeClusterSelectionService.assertExplicitSelection(view.getRuntimeClusterId());
+        assertRuntimeRunnable(view);
         validateExecutable(view);
         return execute(view,
                 request == null ? new LinkedHashMap<String, Object>() : request.getHeaders(),
@@ -306,6 +379,12 @@ public class DataIngestionService {
                 false);
     }
 
+    private void assertRuntimeRunnable(DataIngestionServiceView view) {
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_DATA_INGESTION_SERVICE, view.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(view.getProjectId(), view.getRuntimeClusterId(),
+                java.util.Collections.singletonList(view.getDatasourceId()));
+    }
+
     public WebServicePreviewView previewWebService(Long id) {
         DataIngestionServiceView view = get(id);
         return webServiceSupport.previewForDataIngestion(view, buildWebServiceEndpointPath(view.getServiceCode(), view.getServiceKey()));
@@ -313,6 +392,8 @@ public class DataIngestionService {
 
     public WebServiceDebugResult debugWebService(Long id, WebServiceDebugRequest request) {
         DataIngestionServiceView view = get(id);
+        runtimeClusterSelectionService.assertExplicitSelection(view.getRuntimeClusterId());
+        assertRuntimeRunnable(view);
         ensureWebServiceEnabled(view);
         String envelope = request == null || request.getSoapEnvelope() == null || request.getSoapEnvelope().trim().isEmpty()
                 ? previewWebService(id).getSampleRequest()
@@ -599,13 +680,22 @@ public class DataIngestionService {
                                               boolean enforceStatus) {
         validateExecutable(service);
         List<DataIngestionSourceBinding> sourceBindings = normalizeExecutableSourceBindings(service);
-        return executionSupport.executeBindings(service, sourceBindings, headers, query, form, body, requestId, jobId, logCaptureId, logScope, enforceStatus);
+        return requiredExecutionSupport().executeBindings(service, sourceBindings, headers, query, form, body,
+                requestId, jobId, logCaptureId, logScope, enforceStatus);
     }
 
     private List<Map<String, Object>> parseSourceRows(DataIngestionServiceView service,
                                                       Object body,
                                                       List<DataIngestionFieldMapping> mappings) {
-        return executionSupport.parseSourceRows(service, body, mappings);
+        return requiredExecutionSupport().parseSourceRows(service, body, mappings);
+    }
+
+    private DataIngestionExecutionSupport requiredExecutionSupport() {
+        if (executionSupport == null) {
+            throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                    "Data ingestion execution is only available in studio-worker");
+        }
+        return executionSupport;
     }
 
     private DataIngestionRequestFormat deriveRequestFormat(DataIngestionRequestFormat requested,
@@ -629,6 +719,8 @@ public class DataIngestionService {
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setCreatedBy(entity.getCreatedBy());
         view.setServiceCode(entity.getServiceCode());
         view.setServiceName(entity.getServiceName());
@@ -661,6 +753,7 @@ public class DataIngestionService {
                 DataIngestionServiceEntity::getProjectId,
                 DataIngestionServiceEntity::getCreatedAt,
                 DataIngestionServiceEntity::getUpdatedAt,
+                DataIngestionServiceEntity::getRuntimeClusterId,
                 DataIngestionServiceEntity::getServiceCode,
                 DataIngestionServiceEntity::getServiceName,
                 DataIngestionServiceEntity::getStatus,
@@ -691,6 +784,9 @@ public class DataIngestionService {
         view.setProjectId(entity.getProjectId());
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setServiceCode(entity.getServiceCode());
         view.setServiceName(entity.getServiceName());
         view.setStatus(enumValue(DataIngestionStatus.class, entity.getStatus(), DataIngestionStatus.DRAFT));
@@ -714,6 +810,8 @@ public class DataIngestionService {
         view.setDeleted(listView.getDeleted());
         view.setCreatedAt(listView.getCreatedAt());
         view.setUpdatedAt(listView.getUpdatedAt());
+        view.setRuntimeClusterId(listView.getRuntimeClusterId());
+        view.setRuntimeClusterName(listView.getRuntimeClusterName());
         view.setCreatedBy(listView.getCreatedBy());
         view.setServiceCode(listView.getServiceCode());
         view.setServiceName(listView.getServiceName());
@@ -1468,7 +1566,7 @@ public class DataIngestionService {
     }
 
     private DataSourceDefinition requiredDatasource(Long datasourceId) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        DataSourceDefinition datasource = dataSourceService.get(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }

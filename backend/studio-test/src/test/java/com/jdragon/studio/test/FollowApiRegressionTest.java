@@ -33,15 +33,17 @@ class FollowApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andReturn();
         String authorization = "Bearer " + readBody(loginResult).path("data").path("token").asText();
         Long sourceProjectId = readBody(loginResult).path("data").path("currentProjectId").asLong();
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, sourceProjectId);
 
         Long receiverProjectId = createProject(authorization, sourceProjectId,
                 "lt_reg_s18_follow_receiver", "长期回归-S18关注接收项目");
+        authorizeTestRuntimeCluster(authorization, receiverProjectId, runtimeClusterId);
         Long receiverUserId = createUser(authorization,
                 "lt_reg_s18_follow_member", "长期回归-S18关注普通成员", "LtReg@20260622!");
         addProjectMember(authorization, sourceProjectId, receiverProjectId, receiverUserId);
         String receiverAuthorization = loginAndGetAuthorization("lt_reg_s18_follow_member", "LtReg@20260622!", receiverProjectId);
 
-        Long workflowId = createWorkflow(authorization, sourceProjectId,
+        Long workflowId = createWorkflow(authorization, sourceProjectId, runtimeClusterId,
                 "lt_reg_s18_follow_shared_workflow", "长期回归-S18共享关注流程");
         shareWorkflow(authorization, sourceProjectId, receiverProjectId, workflowId);
 
@@ -117,15 +119,17 @@ class FollowApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andReturn();
         String authorization = "Bearer " + readBody(loginResult).path("data").path("token").asText();
         Long sourceProjectId = readBody(loginResult).path("data").path("currentProjectId").asLong();
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, sourceProjectId);
 
         Long receiverProjectId = createProject(authorization, sourceProjectId,
                 "lt_reg_s20_follow_receiver", "长期回归-S20关注通知接收项目");
+        authorizeTestRuntimeCluster(authorization, receiverProjectId, runtimeClusterId);
         Long receiverUserId = createUser(authorization,
                 "lt_reg_s20_follow_member", "长期回归-S20共享关注通知成员", "LtReg@20260622S20!");
         addProjectMember(authorization, sourceProjectId, receiverProjectId, receiverUserId);
         String receiverAuthorization = loginAndGetAuthorization("lt_reg_s20_follow_member", "LtReg@20260622S20!", receiverProjectId);
 
-        Long workflowId = createWorkflow(authorization, sourceProjectId,
+        Long workflowId = createWorkflow(authorization, sourceProjectId, runtimeClusterId,
                 "lt_reg_s20_shared_follow_workflow", "长期回归-S20共享关注通知流程");
         Long shareId = shareWorkflow(authorization, sourceProjectId, receiverProjectId, workflowId);
 
@@ -204,13 +208,18 @@ class FollowApiRegressionTest extends StudioApiRegressionTestSupport {
         return "Bearer " + readBody(result).path("data").path("token").asText();
     }
 
-    private Long createWorkflow(String authorization, Long projectId, String code, String name) throws Exception {
+    private Long createWorkflow(String authorization,
+                                Long projectId,
+                                Long runtimeClusterId,
+                                String code,
+                                String name) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/workflows")
                         .header(HttpHeaders.AUTHORIZATION, authorization)
                         .header(StudioConstants.REQUEST_TENANT_HEADER, StudioConstants.DEFAULT_TENANT_ID)
                         .header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"code\":\"" + code + "\",\"name\":\"" + name
+                                + "\",\"runtimeClusterId\":\"" + runtimeClusterId
                                 + "\",\"nodes\":[{\"nodeCode\":\"s18_http_probe\",\"nodeName\":\"长期回归-S18健康检查节点\",\"nodeType\":\"HTTP\",\"config\":{\"method\":\"GET\",\"url\":\"http://127.0.0.1:18080/actuator/health\"}}],\"edges\":[]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))

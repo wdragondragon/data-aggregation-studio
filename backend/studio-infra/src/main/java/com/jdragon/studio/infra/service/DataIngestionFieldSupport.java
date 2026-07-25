@@ -23,26 +23,34 @@ final class DataIngestionFieldSupport {
 
     private static final Pattern SIMPLE_IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
-    private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final DataServiceInvocationSupport dataServiceInvocationSupport = new DataServiceInvocationSupport();
     private final CollectionTaskFieldMappingResolver fieldMappingResolver = new CollectionTaskFieldMappingResolver();
 
-    DataIngestionFieldSupport(DataDevelopmentSqlExecutor sqlExecutor) {
-        this.sqlExecutor = sqlExecutor;
+    DataIngestionFieldSupport(DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
-    List<DataServiceFieldView> resolveModelFields(DataSourceDefinition datasource, DataModelDefinition model) {
+    List<DataServiceFieldView> resolveModelFields(DataSourceDefinition datasource,
+                                                  DataModelDefinition model,
+                                                  RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter,
+                                                  Long runtimeClusterId) {
         List<DataServiceFieldView> fromMetadata = fieldsFromModelMetadata(model);
         if (!fromMetadata.isEmpty()) {
             return fromMetadata;
         }
-        if (datasource != null && sqlExecutor.supports(datasource) && hasText(model.getPhysicalLocator())) {
+        if (datasource != null
+                && datasourceTypeCapabilityService.isSqlExecutable(datasource.getTypeCode())
+                && hasText(model.getPhysicalLocator())) {
             String physicalLocator = normalizeRequiredText(model.getPhysicalLocator(), "Model physical locator is empty");
             dataServiceInvocationSupport.validateTableReference(physicalLocator);
-            SqlExecutionResultView result = sqlExecutor.executePreparedQuery(datasource,
-                    "select * from " + physicalLocator + " where 1 = 0",
-                    Collections.<Object>emptyList(),
-                    1);
+            String sql = "select * from " + physicalLocator + " where 1 = 0";
+            if (runtimeDatasourceProbeRouter == null) {
+                throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                        "Runtime datasource probe router is unavailable");
+            }
+            SqlExecutionResultView result = runtimeDatasourceProbeRouter.query(
+                    datasource, runtimeClusterId, sql, Collections.<Object>emptyList(), 1);
             return fieldsFromColumns(result.getColumns());
         }
         List<DataServiceFieldView> result = new ArrayList<DataServiceFieldView>();

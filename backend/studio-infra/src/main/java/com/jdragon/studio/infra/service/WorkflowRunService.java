@@ -73,6 +73,17 @@ public class WorkflowRunService {
                                                  LocalDateTime endTime,
                                                  Integer pageNo,
                                                  Integer pageSize) {
+        return list(workflowDefinitionId, status, null, null, startTime, endTime, pageNo, pageSize);
+    }
+
+    public PageView<WorkflowRunSummaryView> list(Long workflowDefinitionId,
+                                                 String status,
+                                                 Long requestedClusterId,
+                                                 Long actualClusterId,
+                                                 LocalDateTime startTime,
+                                                 LocalDateTime endTime,
+                                                 Integer pageNo,
+                                                 Integer pageSize) {
         int safePageNo = pageNo == null || pageNo.intValue() < 1 ? 1 : pageNo.intValue();
         int safePageSize = pageSize == null ? 20 : pageSize.intValue();
         if (safePageSize < 1) {
@@ -83,15 +94,17 @@ public class WorkflowRunService {
         }
         String normalizedStatus = statusSupport.normalizeSummaryStatus(status);
         if (normalizedStatus != null) {
-            return listBySummaryStatus(workflowDefinitionId, normalizedStatus, startTime, endTime, safePageNo, safePageSize);
+            return listBySummaryStatus(workflowDefinitionId, normalizedStatus, requestedClusterId,
+                    actualClusterId, startTime, endTime, safePageNo, safePageSize);
         }
 
-        long total = countWorkflowRuns(workflowDefinitionId, startTime, endTime);
+        long total = countWorkflowRuns(workflowDefinitionId, requestedClusterId, actualClusterId, startTime, endTime);
         if (total <= 0) {
             return PageView.of(safePageNo, safePageSize, 0L, new ArrayList<WorkflowRunSummaryView>());
         }
 
-        List<Long> workflowRunIds = queryWorkflowRunIds(workflowDefinitionId, startTime, endTime, safePageNo, safePageSize);
+        List<Long> workflowRunIds = queryWorkflowRunIds(workflowDefinitionId, requestedClusterId,
+                actualClusterId, startTime, endTime, safePageNo, safePageSize);
         if (workflowRunIds.isEmpty()) {
             return PageView.of(safePageNo, safePageSize, total, new ArrayList<WorkflowRunSummaryView>());
         }
@@ -101,17 +114,20 @@ public class WorkflowRunService {
 
     private PageView<WorkflowRunSummaryView> listBySummaryStatus(Long workflowDefinitionId,
                                                                  String summaryStatus,
+                                                                 Long requestedClusterId,
+                                                                 Long actualClusterId,
                                                                  LocalDateTime startTime,
                                                                  LocalDateTime endTime,
                                                                  int pageNo,
                                                                  int pageSize) {
-        long total = countWorkflowRunsBySummaryStatus(workflowDefinitionId, startTime, endTime, summaryStatus);
+        long total = countWorkflowRunsBySummaryStatus(workflowDefinitionId, requestedClusterId,
+                actualClusterId, startTime, endTime, summaryStatus);
         if (total <= 0L) {
             return PageView.of(pageNo, pageSize, 0L, new ArrayList<WorkflowRunSummaryView>());
         }
 
-        List<Long> workflowRunIds = queryWorkflowRunIdsBySummaryStatus(workflowDefinitionId, startTime, endTime,
-                summaryStatus, pageNo, pageSize);
+        List<Long> workflowRunIds = queryWorkflowRunIdsBySummaryStatus(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime, summaryStatus, pageNo, pageSize);
         if (workflowRunIds.isEmpty()) {
             return PageView.of(pageNo, pageSize, total, new ArrayList<WorkflowRunSummaryView>());
         }
@@ -502,6 +518,9 @@ public class WorkflowRunService {
         summary.setWorkflowDefinitionId(workflowDefinitionId);
         summary.setWorkflowVersionId(workflowVersionId);
         summary.setWorkflowName(workflowNames.get(workflowDefinitionId));
+        summary.setRequestedClusterId(firstNonNullRequestedClusterId(safeRecords, safeTasks));
+        summary.setActualClusterId(firstNonNullActualClusterId(safeRecords));
+        summary.setActualClusterCode(firstNonNullActualClusterCode(safeRecords));
         summary.setTotalNodes(nodeRuns.size());
         summary.setSuccessNodes(countByStatus(nodeRuns, "SUCCESS"));
         summary.setFailedNodes(countByStatus(nodeRuns, "FAILED"));
@@ -514,6 +533,40 @@ public class WorkflowRunService {
         summary.setDurationMs(resolveDuration(summary.getStartedAt(), summary.getEndedAt()));
         summary.setSummaryMessage(resolveSummaryMessage(summary));
         return summary;
+    }
+
+    private Long firstNonNullRequestedClusterId(List<RunRecordEntity> records,
+                                                List<DispatchTaskEntity> tasks) {
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getRequestedClusterId() != null) {
+                return record.getRequestedClusterId();
+            }
+        }
+        for (DispatchTaskEntity task : tasks) {
+            if (task != null && task.getTargetClusterId() != null) {
+                return task.getTargetClusterId();
+            }
+        }
+        return null;
+    }
+
+    private Long firstNonNullActualClusterId(List<RunRecordEntity> records) {
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getActualClusterId() != null) {
+                return record.getActualClusterId();
+            }
+        }
+        return null;
+    }
+
+    private String firstNonNullActualClusterCode(List<RunRecordEntity> records) {
+        for (RunRecordEntity record : records) {
+            if (record != null && record.getActualClusterCode() != null
+                    && !record.getActualClusterCode().trim().isEmpty()) {
+                return record.getActualClusterCode();
+            }
+        }
+        return null;
     }
 
     private String firstNonNullTenantId(List<RunRecordEntity> records,
@@ -556,6 +609,9 @@ public class WorkflowRunService {
                         RunRecordEntity::getWorkflowDefinitionId,
                         RunRecordEntity::getWorkflowVersionId,
                         RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getRequestedClusterId,
+                        RunRecordEntity::getActualClusterId,
+                        RunRecordEntity::getActualClusterCode,
                         RunRecordEntity::getStatus,
                         RunRecordEntity::getWorkerGroupCode,
                         RunRecordEntity::getWorkerCode,
@@ -579,6 +635,9 @@ public class WorkflowRunService {
                         RunRecordEntity::getWorkflowDefinitionId,
                         RunRecordEntity::getWorkflowVersionId,
                         RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getRequestedClusterId,
+                        RunRecordEntity::getActualClusterId,
+                        RunRecordEntity::getActualClusterCode,
                         RunRecordEntity::getStatus,
                         RunRecordEntity::getWorkerGroupCode,
                         RunRecordEntity::getWorkerCode,
@@ -603,6 +662,7 @@ public class WorkflowRunService {
                         DispatchTaskEntity::getWorkflowDefinitionId,
                         DispatchTaskEntity::getWorkflowVersionId,
                         DispatchTaskEntity::getNodeCode,
+                        DispatchTaskEntity::getTargetClusterId,
                         DispatchTaskEntity::getStatus,
                         DispatchTaskEntity::getWorkerGroupCode,
                         DispatchTaskEntity::getLeaseOwner,
@@ -623,6 +683,7 @@ public class WorkflowRunService {
                         DispatchTaskEntity::getWorkflowDefinitionId,
                         DispatchTaskEntity::getWorkflowVersionId,
                         DispatchTaskEntity::getNodeCode,
+                        DispatchTaskEntity::getTargetClusterId,
                         DispatchTaskEntity::getStatus,
                         DispatchTaskEntity::getWorkerGroupCode,
                         DispatchTaskEntity::getLeaseOwner,
@@ -634,10 +695,14 @@ public class WorkflowRunService {
     }
 
     private long countWorkflowRuns(Long workflowDefinitionId,
+                                   Long requestedClusterId,
+                                   Long actualClusterId,
                                    LocalDateTime startTime,
                                    LocalDateTime endTime) {
-        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
-        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime);
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime);
+        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime);
         String countSql = "select count(*) from (" +
                 "select workflow_run_id from (" + workflowRunEventsSql + ") workflow_events group by workflow_run_id" +
                 ") grouped_runs";
@@ -646,14 +711,18 @@ public class WorkflowRunService {
     }
 
     private List<Long> queryWorkflowRunIds(Long workflowDefinitionId,
+                                           Long requestedClusterId,
+                                           Long actualClusterId,
                                            LocalDateTime startTime,
                                            LocalDateTime endTime,
                                            int pageNo,
                                            int pageSize) {
-        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime);
         params.addValue("limit", Integer.valueOf(pageSize));
         params.addValue("offset", Integer.valueOf((pageNo - 1) * pageSize));
-        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime);
+        String workflowRunEventsSql = buildWorkflowRunEventsSql(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime);
         String idSql = "select workflow_run_id from (" +
                 workflowRunEventsSql +
                 ") workflow_events group by workflow_run_id order by max(occurred_at) desc, workflow_run_id desc limit :limit offset :offset";
@@ -661,28 +730,36 @@ public class WorkflowRunService {
     }
 
     private long countWorkflowRunsBySummaryStatus(Long workflowDefinitionId,
+                                                  Long requestedClusterId,
+                                                  Long actualClusterId,
                                                   LocalDateTime startTime,
                                                   LocalDateTime endTime,
                                                   String summaryStatus) {
-        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime);
         params.addValue("summaryStatus", summaryStatus);
-        String countSql = buildWorkflowRunStatusCte(workflowDefinitionId, startTime, endTime) +
+        String countSql = buildWorkflowRunStatusCte(workflowDefinitionId, requestedClusterId,
+                actualClusterId, startTime, endTime) +
                 " select count(*) from summarized_runs where summary_status = :summaryStatus";
         Long total = namedParameterJdbcTemplate.queryForObject(countSql, params, Long.class);
         return total == null ? 0L : total.longValue();
     }
 
     private List<Long> queryWorkflowRunIdsBySummaryStatus(Long workflowDefinitionId,
+                                                          Long requestedClusterId,
+                                                          Long actualClusterId,
                                                           LocalDateTime startTime,
                                                           LocalDateTime endTime,
                                                           String summaryStatus,
                                                           int pageNo,
                                                           int pageSize) {
-        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId, startTime, endTime);
+        MapSqlParameterSource params = buildWorkflowRunEventParams(workflowDefinitionId,
+                requestedClusterId, actualClusterId, startTime, endTime);
         params.addValue("summaryStatus", summaryStatus);
         params.addValue("limit", Integer.valueOf(pageSize));
         params.addValue("offset", Integer.valueOf((pageNo - 1) * pageSize));
-        String idSql = buildWorkflowRunStatusCte(workflowDefinitionId, startTime, endTime) +
+        String idSql = buildWorkflowRunStatusCte(workflowDefinitionId, requestedClusterId,
+                actualClusterId, startTime, endTime) +
                 " select workflow_run_id from summarized_runs " +
                 "where summary_status = :summaryStatus " +
                 "order by latest_at desc, workflow_run_id desc limit :limit offset :offset";
@@ -690,6 +767,8 @@ public class WorkflowRunService {
     }
 
     private MapSqlParameterSource buildWorkflowRunEventParams(Long workflowDefinitionId,
+                                                              Long requestedClusterId,
+                                                              Long actualClusterId,
                                                               LocalDateTime startTime,
                                                               LocalDateTime endTime) {
         MapSqlParameterSource params = new MapSqlParameterSource();
@@ -699,6 +778,12 @@ public class WorkflowRunService {
         }
         if (workflowDefinitionId != null) {
             params.addValue("workflowDefinitionId", workflowDefinitionId);
+        }
+        if (requestedClusterId != null) {
+            params.addValue("requestedClusterId", requestedClusterId);
+        }
+        if (actualClusterId != null) {
+            params.addValue("actualClusterId", actualClusterId);
         }
         if (startTime != null) {
             params.addValue("startTime", startTime);
@@ -710,6 +795,8 @@ public class WorkflowRunService {
     }
 
     private String buildWorkflowRunEventsSql(Long workflowDefinitionId,
+                                             Long requestedClusterId,
+                                             Long actualClusterId,
                                              LocalDateTime startTime,
                                              LocalDateTime endTime) {
         String tenantId = securityService.currentTenantId();
@@ -718,22 +805,31 @@ public class WorkflowRunService {
         sql.append("select workflow_run_id, workflow_definition_id, coalesce(started_at, created_at) as occurred_at ");
         sql.append("from run_record where workflow_run_id is not null");
         appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
-                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "coalesce(started_at, created_at)");
-        sql.append(" union all ");
-        sql.append("select workflow_run_id, workflow_definition_id, created_at as occurred_at ");
-        sql.append("from dispatch_task where workflow_run_id is not null");
-        appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
-                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "created_at");
+                requestedClusterId, actualClusterId, tenantId, projectId,
+                "tenant_id", "project_id", "workflow_definition_id", "coalesce(started_at, created_at)",
+                "requested_cluster_id", "actual_cluster_id");
+        if (actualClusterId == null) {
+            sql.append(" union all ");
+            sql.append("select workflow_run_id, workflow_definition_id, created_at as occurred_at ");
+            sql.append("from dispatch_task where workflow_run_id is not null");
+            appendWorkflowRunFilters(sql, workflowDefinitionId, startTime, endTime,
+                    requestedClusterId, null, tenantId, projectId,
+                    "tenant_id", "project_id", "workflow_definition_id", "created_at",
+                    "target_cluster_id", null);
+        }
         return sql.toString();
     }
 
     private String buildWorkflowRunStatusCte(Long workflowDefinitionId,
+                                             Long requestedClusterId,
+                                             Long actualClusterId,
                                              LocalDateTime startTime,
                                              LocalDateTime endTime) {
         StringBuilder sql = new StringBuilder();
         sql.append("with candidate_runs as (");
         sql.append("select workflow_run_id, max(occurred_at) as latest_at from (");
-        sql.append(buildWorkflowRunEventsSql(workflowDefinitionId, startTime, endTime));
+        sql.append(buildWorkflowRunEventsSql(workflowDefinitionId, requestedClusterId,
+                actualClusterId, startTime, endTime));
         sql.append(") workflow_events group by workflow_run_id");
         sql.append("), status_events as (");
         sql.append(buildWorkflowRunStatusEventsSql(workflowDefinitionId));
@@ -765,13 +861,16 @@ public class WorkflowRunService {
         sql.append("coalesce(started_at, created_at) as occurred_at, 1 as source_priority ");
         sql.append("from run_record where workflow_run_id is not null and node_code is not null");
         appendWorkflowRunFilters(sql, workflowDefinitionId, null, null,
-                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "coalesce(started_at, created_at)");
+                null, null, tenantId, projectId,
+                "tenant_id", "project_id", "workflow_definition_id", "coalesce(started_at, created_at)",
+                null, null);
         sql.append(" union all ");
         sql.append("select id as event_id, workflow_run_id, node_code, coalesce(upper(status), 'NOT_RUN') as node_status, ");
         sql.append("created_at as occurred_at, 2 as source_priority ");
         sql.append("from dispatch_task where workflow_run_id is not null and node_code is not null");
         appendWorkflowRunFilters(sql, workflowDefinitionId, null, null,
-                tenantId, projectId, "tenant_id", "project_id", "workflow_definition_id", "created_at");
+                null, null, tenantId, projectId,
+                "tenant_id", "project_id", "workflow_definition_id", "created_at", null, null);
         return sql.toString();
     }
 
@@ -779,12 +878,16 @@ public class WorkflowRunService {
                                           Long workflowDefinitionId,
                                           LocalDateTime startTime,
                                           LocalDateTime endTime,
+                                          Long requestedClusterId,
+                                          Long actualClusterId,
                                           String tenantId,
                                           Long projectId,
                                           String tenantColumn,
                                           String projectColumn,
                                           String workflowDefinitionColumn,
-                                          String occurredAtExpression) {
+                                          String occurredAtExpression,
+                                          String requestedClusterColumn,
+                                          String actualClusterColumn) {
         if (tenantId != null) {
             sql.append(" and ").append(tenantColumn).append(" = :tenantId");
         }
@@ -793,6 +896,12 @@ public class WorkflowRunService {
         }
         if (workflowDefinitionId != null) {
             sql.append(" and ").append(workflowDefinitionColumn).append(" = :workflowDefinitionId");
+        }
+        if (requestedClusterId != null && requestedClusterColumn != null) {
+            sql.append(" and ").append(requestedClusterColumn).append(" = :requestedClusterId");
+        }
+        if (actualClusterId != null && actualClusterColumn != null) {
+            sql.append(" and ").append(actualClusterColumn).append(" = :actualClusterId");
         }
         if (startTime != null) {
             sql.append(" and ").append(occurredAtExpression).append(" >= :startTime");
@@ -809,6 +918,9 @@ public class WorkflowRunService {
         target.setWorkflowDefinitionId(source.getWorkflowDefinitionId());
         target.setWorkflowVersionId(source.getWorkflowVersionId());
         target.setWorkflowName(source.getWorkflowName());
+        target.setRequestedClusterId(source.getRequestedClusterId());
+        target.setActualClusterId(source.getActualClusterId());
+        target.setActualClusterCode(source.getActualClusterCode());
         target.setStatus(source.getStatus());
         target.setStartedAt(source.getStartedAt());
         target.setEndedAt(source.getEndedAt());

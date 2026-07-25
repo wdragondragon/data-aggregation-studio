@@ -20,6 +20,7 @@ import com.jdragon.studio.infra.entity.DataServiceAccessLogEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.ProjectWorkerBindingEntity;
+import com.jdragon.studio.infra.entity.ProtocolConversionAccessLogEntity;
 import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
@@ -29,6 +30,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataServiceAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
@@ -61,6 +63,7 @@ class OpsCenterServiceRegressionTest {
         initTableInfo(RunRecordEntity.class);
         initTableInfo(DataServiceAccessLogEntity.class);
         initTableInfo(DataIngestionAccessLogEntity.class);
+        initTableInfo(ProtocolConversionAccessLogEntity.class);
         initTableInfo(ProjectWorkerBindingEntity.class);
         initTableInfo(WorkerLeaseEntity.class);
         initTableInfo(WorkflowDefinitionEntity.class);
@@ -182,6 +185,7 @@ class OpsCenterServiceRegressionTest {
         fixture.withRunRecord(runRecord);
         fixture.withServiceLog(serviceLog(0, 500, 200L));
         fixture.withIngestionLog(ingestionLog(1, 200, 300L, 1L));
+        fixture.withProtocolConversionLog(protocolConversionLog(0, 500, 400L, 1L));
         OpsCenterQueryRequest request = new OpsCenterQueryRequest();
         request.setPageNo(1);
         request.setPageSize(8);
@@ -190,12 +194,14 @@ class OpsCenterServiceRegressionTest {
         fixture.service.queryRuns(request);
         fixture.service.queryServiceEvents(request);
         fixture.service.queryIngestionEvents(request);
+        fixture.service.queryProtocolConversionEvents(request);
         fixture.service.queryLogEvents(request);
 
         verify(fixture.dispatchTaskMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
         verify(fixture.runRecordMapper, times(2)).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
         verify(fixture.dataServiceAccessLogMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
         verify(fixture.dataIngestionAccessLogMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(fixture.protocolConversionAccessLogMapper).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
     }
 
     @Test
@@ -205,6 +211,7 @@ class OpsCenterServiceRegressionTest {
         fixture.withRunRecord(runRecord("FAILED", LocalDateTime.now().minusMinutes(2L), LocalDateTime.now().minusMinutes(1L)));
         fixture.withServiceLog(serviceLog(0, 500, 200L));
         fixture.withIngestionLog(ingestionLog(1, 200, 300L, 1L));
+        fixture.withProtocolConversionLog(protocolConversionLog(0, 500, 400L, 1L));
 
         OpsCenterOverviewView overview = fixture.service.overview(new OpsCenterQueryRequest());
 
@@ -212,6 +219,7 @@ class OpsCenterServiceRegressionTest {
         assertEquals(Long.valueOf(1L), overview.getFailedRuns());
         assertEquals(Long.valueOf(1L), overview.getServiceFailures());
         assertEquals(Long.valueOf(1L), overview.getIngestionFailures());
+        assertEquals(Long.valueOf(1L), overview.getProtocolConversionFailures());
     }
 
     @Test
@@ -243,11 +251,43 @@ class OpsCenterServiceRegressionTest {
     }
 
     @Test
+    void shouldExposeRuntimePlacementAcrossOpsSections() {
+        Fixture fixture = new Fixture();
+        fixture.withOnlineWorker("default-pool");
+        fixture.withDispatchTask(queueTask("QUEUED", LocalDateTime.now().minusMinutes(1L)));
+        fixture.withRunRecord(runRecord("FAILED", LocalDateTime.now().minusMinutes(2L), LocalDateTime.now().minusMinutes(1L)));
+        fixture.withServiceLog(serviceLog(0, 500, 200L));
+        fixture.withIngestionLog(ingestionLog(0, 500, 200L, 1L));
+        fixture.withProtocolConversionLog(protocolConversionLog(0, 500, 200L, 1L));
+
+        assertEquals(Long.valueOf(46L), fixture.service.queryQueue(new OpsCenterQueryRequest())
+                .getItems().get(0).getTargetClusterId());
+        OpsCenterRunIncidentView run = fixture.service.queryRuns(new OpsCenterQueryRequest()).getItems().get(0);
+        assertEquals(Long.valueOf(46L), run.getRequestedClusterId());
+        assertEquals(Long.valueOf(50L), run.getActualClusterId());
+        assertEquals("cluster-50", run.getActualClusterCode());
+        OpsCenterServiceEventView serviceEvent = fixture.service.queryServiceEvents(new OpsCenterQueryRequest()).getItems().get(0);
+        assertEquals(Long.valueOf(46L), serviceEvent.getRequestedClusterId());
+        assertEquals(Long.valueOf(50L), serviceEvent.getActualClusterId());
+        OpsCenterServiceEventView protocolEvent = fixture.service.queryProtocolConversionEvents(new OpsCenterQueryRequest()).getItems().get(0);
+        assertEquals(Long.valueOf(46L), protocolEvent.getRequestedClusterId());
+        assertEquals(Long.valueOf(50L), protocolEvent.getActualClusterId());
+
+        OpsCenterQueryRequest matchingWorkers = new OpsCenterQueryRequest();
+        matchingWorkers.setActualClusterId(50L);
+        assertEquals(1L, fixture.service.queryWorkers(matchingWorkers).getTotal());
+        OpsCenterQueryRequest otherWorkers = new OpsCenterQueryRequest();
+        otherWorkers.setActualClusterId(46L);
+        assertEquals(0L, fixture.service.queryWorkers(otherWorkers).getTotal());
+    }
+
+    @Test
     void shouldIgnoreServiceAndIngestionEventsWhenFilterIsRunScoped() {
         Fixture fixture = new Fixture();
         fixture.withOnlineWorker("default-pool");
         fixture.withServiceLog(serviceLog(0, 500, 200L));
         fixture.withIngestionLog(ingestionLog(1, 200, 300L, 1L));
+        fixture.withProtocolConversionLog(protocolConversionLog(0, 500, 300L, 1L));
         OpsCenterQueryRequest request = new OpsCenterQueryRequest();
         request.setExecutionType("WORKFLOW_NODE");
         request.setStatus("SUCCESS");
@@ -258,8 +298,26 @@ class OpsCenterServiceRegressionTest {
         assertEquals(OpsCenterHealthStatus.HEALTHY, overview.getHealthStatus());
         assertEquals(Long.valueOf(0L), overview.getServiceFailures());
         assertEquals(Long.valueOf(0L), overview.getIngestionFailures());
+        assertEquals(Long.valueOf(0L), overview.getProtocolConversionFailures());
         assertEquals(0L, fixture.service.queryServiceEvents(request).getTotal());
         assertEquals(0L, fixture.service.queryIngestionEvents(request).getTotal());
+        assertEquals(0L, fixture.service.queryProtocolConversionEvents(request).getTotal());
+    }
+
+    @Test
+    void shouldApplyRuntimeClusterFiltersToProtocolConversionEvents() {
+        Fixture fixture = new Fixture();
+        OpsCenterQueryRequest request = new OpsCenterQueryRequest();
+        request.setRequestedClusterId(46L);
+        request.setActualClusterId(50L);
+
+        fixture.service.queryProtocolConversionEvents(request);
+
+        ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionAccessLogEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(fixture.protocolConversionAccessLogMapper).selectPage(any(Page.class), captor.capture());
+        String sqlSegment = captor.getValue().getSqlSegment();
+        assertTrue(sqlSegment.contains("requested_cluster_id"));
+        assertTrue(sqlSegment.contains("actual_cluster_id"));
     }
 
     @Test
@@ -310,6 +368,7 @@ class OpsCenterServiceRegressionTest {
         fillBase(task, 200L, createdAt);
         task.setExecutionType("COLLECTION_TASK");
         task.setStatus(status);
+        task.setTargetClusterId(46L);
         task.setWorkerGroupCode("default-pool");
         task.setScheduledFireTime(createdAt.minusMinutes(1L));
         return task;
@@ -320,6 +379,9 @@ class OpsCenterServiceRegressionTest {
         fillBase(record, 300L, startedAt);
         record.setExecutionType("COLLECTION_TASK");
         record.setStatus(status);
+        record.setRequestedClusterId(46L);
+        record.setActualClusterId(50L);
+        record.setActualClusterCode("cluster-50");
         record.setStartedAt(startedAt);
         record.setEndedAt(endedAt);
         record.setWorkerGroupCode("default-pool");
@@ -331,6 +393,8 @@ class OpsCenterServiceRegressionTest {
         DataServiceAccessLogEntity log = new DataServiceAccessLogEntity();
         fillBase(log, 400L, LocalDateTime.now().minusSeconds(30L));
         log.setServiceId(1L);
+        log.setRequestedClusterId(46L);
+        log.setActualClusterId(50L);
         log.setServiceNameSnapshot("服务失败样例");
         log.setOccurredAt(LocalDateTime.now().minusSeconds(30L));
         log.setSuccess(success);
@@ -343,8 +407,30 @@ class OpsCenterServiceRegressionTest {
         DataIngestionAccessLogEntity log = new DataIngestionAccessLogEntity();
         fillBase(log, 500L, LocalDateTime.now().minusSeconds(20L));
         log.setServiceId(2L);
+        log.setRequestedClusterId(46L);
+        log.setActualClusterId(50L);
         log.setServiceNameSnapshot("接入失败样例");
         log.setOccurredAt(LocalDateTime.now().minusSeconds(20L));
+        log.setSuccess(success);
+        log.setHttpStatus(httpStatus);
+        log.setDurationMs(durationMs);
+        log.setReceivedCount(1L);
+        log.setSuccessCount(0L);
+        log.setFailedCount(failedCount);
+        return log;
+    }
+
+    private static ProtocolConversionAccessLogEntity protocolConversionLog(Integer success,
+                                                                            Integer httpStatus,
+                                                                            Long durationMs,
+                                                                            Long failedCount) {
+        ProtocolConversionAccessLogEntity log = new ProtocolConversionAccessLogEntity();
+        fillBase(log, 600L, LocalDateTime.now().minusSeconds(10L));
+        log.setServiceId(3L);
+        log.setRequestedClusterId(46L);
+        log.setActualClusterId(50L);
+        log.setServiceNameSnapshot("协议转换失败样例");
+        log.setOccurredAt(LocalDateTime.now().minusSeconds(10L));
         log.setSuccess(success);
         log.setHttpStatus(httpStatus);
         log.setDurationMs(durationMs);
@@ -360,6 +446,8 @@ class OpsCenterServiceRegressionTest {
                                            LocalDateTime leaseExpiresAt) {
         WorkerLeaseEntity lease = new WorkerLeaseEntity();
         lease.setTenantId("default");
+        lease.setRuntimeClusterId(50L);
+        lease.setRuntimeClusterCode("cluster-50");
         lease.setWorkerGroupCode(groupCode);
         lease.setWorkerCode("worker-" + groupCode);
         lease.setInstanceId("instance-" + groupCode);
@@ -403,6 +491,7 @@ class OpsCenterServiceRegressionTest {
         private final ProjectWorkerBindingMapper projectWorkerBindingMapper = mock(ProjectWorkerBindingMapper.class);
         private final DataServiceAccessLogMapper dataServiceAccessLogMapper = mock(DataServiceAccessLogMapper.class);
         private final DataIngestionAccessLogMapper dataIngestionAccessLogMapper = mock(DataIngestionAccessLogMapper.class);
+        private final ProtocolConversionAccessLogMapper protocolConversionAccessLogMapper = mock(ProtocolConversionAccessLogMapper.class);
         private final WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
         private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper = mock(CollectionTaskDefinitionMapper.class);
         private final QualityTaskDefinitionMapper qualityTaskDefinitionMapper = mock(QualityTaskDefinitionMapper.class);
@@ -414,6 +503,7 @@ class OpsCenterServiceRegressionTest {
                 projectWorkerBindingMapper,
                 dataServiceAccessLogMapper,
                 dataIngestionAccessLogMapper,
+                protocolConversionAccessLogMapper,
                 workflowDefinitionMapper,
                 collectionTaskDefinitionMapper,
                 qualityTaskDefinitionMapper,
@@ -429,6 +519,7 @@ class OpsCenterServiceRegressionTest {
             when(projectWorkerBindingMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
             when(dataServiceAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
             when(dataIngestionAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
+            when(protocolConversionAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
             when(dispatchTaskMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
                     .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
             when(runRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
@@ -436,6 +527,8 @@ class OpsCenterServiceRegressionTest {
             when(dataServiceAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
                     .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
             when(dataIngestionAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
+            when(protocolConversionAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
                     .thenAnswer(invocation -> emptyPage(invocation.getArgument(0)));
         }
 
@@ -478,6 +571,12 @@ class OpsCenterServiceRegressionTest {
         private void withIngestionLog(DataIngestionAccessLogEntity log) {
             when(dataIngestionAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(log));
             when(dataIngestionAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                    .thenAnswer(invocation -> singleItemPage(invocation.getArgument(0), log));
+        }
+
+        private void withProtocolConversionLog(ProtocolConversionAccessLogEntity log) {
+            when(protocolConversionAccessLogMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(log));
+            when(protocolConversionAccessLogMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
                     .thenAnswer(invocation -> singleItemPage(invocation.getArgument(0), log));
         }
 

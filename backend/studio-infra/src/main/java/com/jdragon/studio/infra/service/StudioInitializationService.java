@@ -22,6 +22,9 @@ public class StudioInitializationService {
     };
 
     private static final String[] RESET_TABLES = new String[]{
+            "studio_runtime_idempotency",
+            "studio_runtime_validation",
+            "datasource_cluster_binding",
             "studio_resource_share",
             "studio_alert_delivery",
             "studio_alert_event",
@@ -48,6 +51,10 @@ public class StudioInitializationService {
             "collection_task_definition",
             "model_sync_task_item",
             "model_sync_task",
+            "protocol_conversion_access_log",
+            "protocol_conversion_access_counter",
+            "protocol_conversion_subscription",
+            "protocol_conversion_service",
             "data_ingestion_access_log",
             "data_ingestion_access_counter",
             "data_ingestion_subscription",
@@ -59,11 +66,10 @@ public class StudioInitializationService {
             "data_service_response_param",
             "data_service_request_param",
             "data_service_definition",
-            "studio_project",
-            "studio_tenant",
-            "worker_lease",
-            "run_record",
+            "studio_project_runtime_cluster",
             "dispatch_task",
+            "run_record",
+            "worker_lease",
             "workflow_schedule",
             "workflow_edge",
             "workflow_node",
@@ -77,7 +83,11 @@ public class StudioInitializationService {
             "data_model_lineage_relation",
             "data_model_attr_index",
             "data_model",
+            "datasource_connection_test_record",
+            "datasource_connection_health",
             "datasource_definition",
+            "studio_runtime_endpoint",
+            "studio_runtime_cluster",
             "quality_rule_output_param",
             "quality_rule_input_param",
             "quality_rule",
@@ -91,7 +101,9 @@ public class StudioInitializationService {
             "sys_user_role",
             "sys_permission",
             "sys_role",
-            "sys_user"
+            "sys_user",
+            "studio_project",
+            "studio_tenant"
     };
 
     private final JdbcTemplate jdbcTemplate;

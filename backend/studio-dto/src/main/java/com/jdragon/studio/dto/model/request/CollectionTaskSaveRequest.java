@@ -17,6 +17,9 @@ import java.util.Map;
 @Data
 @Schema(description = "Collection task save request")
 public class CollectionTaskSaveRequest {
+    @NotNull(message = "Runtime cluster is required")
+    @Schema(description = "Runtime cluster id", required = true)
+    private Long runtimeClusterId;
     @Schema(description = "Task id")
     private Long id;
 

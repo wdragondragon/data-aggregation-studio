@@ -17,6 +17,7 @@ public class OpsCenterQueueItemView extends BaseDefinition {
     private String targetName;
     private String nodeCode;
     private String status;
+    private Long targetClusterId;
     private String workerGroupCode;
     private String leaseOwner;
     private String workerInstanceId;

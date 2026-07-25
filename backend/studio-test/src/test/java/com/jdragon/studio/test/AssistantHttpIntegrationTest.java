@@ -127,6 +127,7 @@ class AssistantHttpIntegrationTest extends StudioHttpIntegrationTestSupport {
                         "/dashboard",
                         "/access-center",
                         "/catalog",
+                        "/runtime-clusters",
                         "/metadata",
                         "/datasources",
                         "/models",

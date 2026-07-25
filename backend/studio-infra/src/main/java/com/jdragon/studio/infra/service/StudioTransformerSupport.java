@@ -2,21 +2,6 @@ package com.jdragon.studio.infra.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jdragon.aggregation.commons.element.BoolColumn;
-import com.jdragon.aggregation.commons.element.Column;
-import com.jdragon.aggregation.commons.element.DoubleColumn;
-import com.jdragon.aggregation.commons.element.LongColumn;
-import com.jdragon.aggregation.commons.element.ObjectColumn;
-import com.jdragon.aggregation.commons.element.Record;
-import com.jdragon.aggregation.commons.element.StringColumn;
-import com.jdragon.aggregation.commons.exception.AggregationException;
-import com.jdragon.aggregation.commons.util.Configuration;
-import com.jdragon.aggregation.core.plugin.TaskPluginCollector;
-import com.jdragon.aggregation.core.statistics.communication.Communication;
-import com.jdragon.aggregation.core.transformer.TransformerExecution;
-import com.jdragon.aggregation.core.transport.exchanger.TransformerExchanger;
-import com.jdragon.aggregation.core.transport.record.DefaultRecord;
-import com.jdragon.aggregation.core.utils.TransformerUtil;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
@@ -24,8 +9,6 @@ import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import com.jdragon.studio.dto.model.TransformerBinding;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -138,46 +121,6 @@ public class StudioTransformerSupport {
         }
     }
 
-    public List<Map<String, Object>> applyOnlineResponseTransformers(List<Map<String, Object>> rows,
-                                                                      List<DataServiceResponseParamView> responseParams) {
-        if (rows == null || rows.isEmpty()) {
-            return rows == null ? new ArrayList<Map<String, Object>>() : rows;
-        }
-        List<String> orderedFields = resolveEnabledResponseParamNames(responseParams);
-        if (orderedFields.isEmpty()) {
-            return rows;
-        }
-        List<Map<String, Object>> transformerConfigs = buildAggregationTransformersForResponses(responseParams, orderedFields, true);
-        if (transformerConfigs.isEmpty()) {
-            return rows;
-        }
-        Configuration config = Configuration.newDefault();
-        config.set("transformer", transformerConfigs);
-        List<TransformerExecution> transformerExecutions;
-        try {
-            transformerExecutions = TransformerUtil.buildTransformerInfo(config, Collections.emptyList());
-        } catch (RuntimeException ex) {
-            throw toStudioException("Data service response transformer initialization failed", ex);
-        }
-        TransformerExchanger exchanger = new TransformerExchanger(transformerExecutions, new Communication(), new NoopTaskPluginCollector()) {
-        };
-        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
-        for (Map<String, Object> row : rows) {
-            Record transformed;
-            try {
-                transformed = exchanger.doTransformer(toRecord(row, orderedFields));
-            } catch (RuntimeException ex) {
-                throw toStudioException("Data service response transformer execution failed", ex);
-            }
-            if (transformed == null) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST,
-                        "Data service response transformer returned null; row filtering is not supported for online services");
-            }
-            result.add(toRow(transformed, orderedFields));
-        }
-        return result;
-    }
-
     public List<Map<String, Object>> toBindingMaps(List<TransformerBinding> bindings) {
         if (bindings == null || bindings.isEmpty()) {
             return new ArrayList<Map<String, Object>>();
@@ -194,7 +137,7 @@ public class StudioTransformerSupport {
         });
     }
 
-    private List<String> resolveEnabledResponseParamNames(List<DataServiceResponseParamView> responseParams) {
+    List<String> resolveEnabledResponseParamNames(List<DataServiceResponseParamView> responseParams) {
         List<String> result = new ArrayList<String>();
         if (responseParams == null) {
             return result;
@@ -206,73 +149,6 @@ public class StudioTransformerSupport {
             result.add(param.getParamName().trim());
         }
         return result;
-    }
-
-    private Record toRecord(Map<String, Object> row, List<String> orderedFields) {
-        DefaultRecord record = new DefaultRecord();
-        for (int index = 0; index < orderedFields.size(); index++) {
-            Object value = row == null ? null : row.get(orderedFields.get(index));
-            record.setColumn(index, toColumn(value));
-        }
-        return record;
-    }
-
-    private Map<String, Object> toRow(Record record, List<String> orderedFields) {
-        Map<String, Object> row = new LinkedHashMap<String, Object>();
-        for (int index = 0; index < orderedFields.size(); index++) {
-            row.put(orderedFields.get(index), toValue(record.getColumn(index)));
-        }
-        return row;
-    }
-
-    private Column toColumn(Object value) {
-        if (value == null) {
-            return new StringColumn(null);
-        }
-        if (value instanceof Boolean) {
-            return new BoolColumn((Boolean) value);
-        }
-        if (value instanceof Integer) {
-            return new LongColumn((Integer) value);
-        }
-        if (value instanceof Long) {
-            return new LongColumn((Long) value);
-        }
-        if (value instanceof Short || value instanceof Byte || value instanceof BigInteger) {
-            return new LongColumn(String.valueOf(value));
-        }
-        if (value instanceof Float) {
-            return new DoubleColumn((Float) value);
-        }
-        if (value instanceof Double) {
-            return new DoubleColumn((Double) value);
-        }
-        if (value instanceof BigDecimal) {
-            return new DoubleColumn(((BigDecimal) value).toPlainString());
-        }
-        if (value instanceof String) {
-            return new StringColumn((String) value);
-        }
-        return new ObjectColumn(value);
-    }
-
-    private Object toValue(Column column) {
-        if (column == null || column.getRawData() == null) {
-            return null;
-        }
-        if (column.getType() == Column.Type.INT || column.getType() == Column.Type.LONG) {
-            return column.asLong();
-        }
-        if (column.getType() == Column.Type.DOUBLE) {
-            return column.asDouble();
-        }
-        if (column.getType() == Column.Type.BOOL) {
-            return column.asBoolean();
-        }
-        if (column.getType() == Column.Type.STRING) {
-            return column.asString();
-        }
-        return column.getRawData();
     }
 
     private List<Object> extractRuntimeParas(TransformerBinding transformer) {
@@ -309,18 +185,6 @@ public class StudioTransformerSupport {
         return false;
     }
 
-    private StudioException toStudioException(String prefix, RuntimeException ex) {
-        Throwable current = ex;
-        while (current.getCause() != null) {
-            current = current.getCause();
-        }
-        String message = current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
-        if (ex instanceof AggregationException) {
-            return new StudioException(StudioErrorCode.BAD_REQUEST, prefix + ": " + message);
-        }
-        return new StudioException(StudioErrorCode.BAD_REQUEST, prefix + ": " + message);
-    }
-
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
     }
@@ -332,16 +196,6 @@ public class StudioTransformerSupport {
         private TransformerTarget(String fieldName, List<TransformerBinding> transformers) {
             this.fieldName = fieldName;
             this.transformers = transformers == null ? Collections.<TransformerBinding>emptyList() : transformers;
-        }
-    }
-
-    private static final class NoopTaskPluginCollector extends TaskPluginCollector {
-        @Override
-        public void collectDirtyRecord(Record dirtyRecord, Throwable t, String errorMessage) {
-        }
-
-        @Override
-        public void collectMessage(String key, String value) {
         }
     }
 }

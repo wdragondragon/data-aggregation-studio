@@ -1,15 +1,21 @@
 package com.jdragon.studio.infra.service;
 
-import com.jdragon.aggregation.commons.util.Configuration;
-import com.jdragon.aggregation.datasource.file.FileHelper;
-import com.jdragon.aggregation.datasource.file.s3.minio.MinioSourcePlugin;
+import com.aliyun.oss.OSS;
+import com.aliyun.oss.OSSClientBuilder;
+import com.aliyun.oss.model.ObjectMetadata;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import io.minio.BucketExistsArgs;
+import io.minio.GetObjectArgs;
+import io.minio.MakeBucketArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import okhttp3.OkHttpClient;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StreamUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -58,13 +64,8 @@ public class CloudObjectStorageService {
 
     public void put(String bucket, String objectKey, byte[] bytes, String contentType) {
         ensureConfigured(bucket, objectKey);
-        try (FileHelper helper = newHelper(bucket)) {
-            byte[] safeBytes = bytes == null ? new byte[0] : bytes;
-            ObjectPath path = splitObjectKey(objectKey);
-            try (OutputStream outputStream = helper.getOutputStream(path.path, path.name);
-                 InputStream inputStream = new ByteArrayInputStream(safeBytes)) {
-                StreamUtils.copy(inputStream, outputStream);
-            }
+        try (ObjectStorageClient client = newClient(bucket)) {
+            client.put(normalizeObjectKey(objectKey), bytes == null ? new byte[0] : bytes, contentType);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to upload object " + objectKey, e);
         }
@@ -72,10 +73,8 @@ public class CloudObjectStorageService {
 
     public byte[] get(String bucket, String objectKey) {
         ensureConfigured(bucket, objectKey);
-        ObjectPath path = splitObjectKey(objectKey);
-        try (FileHelper helper = newHelper(bucket);
-             InputStream inputStream = helper.getInputStream(path.path, path.name)) {
-            return StreamUtils.copyToByteArray(inputStream);
+        try (ObjectStorageClient client = newClient(bucket)) {
+            return client.get(normalizeObjectKey(objectKey));
         } catch (Exception e) {
             throw new IllegalStateException("Failed to read object " + objectKey, e);
         }
@@ -83,8 +82,8 @@ public class CloudObjectStorageService {
 
     public void delete(String bucket, String objectKey) {
         ensureConfigured(bucket, objectKey);
-        try (FileHelper helper = newHelper(bucket)) {
-            helper.rm(trimSlashes(objectKey));
+        try (ObjectStorageClient client = newClient(bucket)) {
+            client.delete(normalizeObjectKey(objectKey));
         } catch (Exception e) {
             throw new IllegalStateException("Failed to delete object " + objectKey, e);
         }
@@ -94,18 +93,13 @@ public class CloudObjectStorageService {
         String bucket = objectStorage.getBucket().trim();
         String objectKey = ".health/cloud-storage-" + System.currentTimeMillis() + "-" + UUID.randomUUID() + ".txt";
         byte[] bytes = "ok".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        ObjectPath path = splitObjectKey(objectKey);
-        try (FileHelper helper = newHelper(bucket)) {
-            try (OutputStream outputStream = helper.getOutputStream(path.path, path.name);
-                 InputStream inputStream = new ByteArrayInputStream(bytes)) {
-                StreamUtils.copy(inputStream, outputStream);
-            }
-            try (InputStream inputStream = helper.getInputStream(path.path, path.name)) {
-                byte[] stored = StreamUtils.copyToByteArray(inputStream);
-                return stored.length == bytes.length;
+        try (ObjectStorageClient client = newClient(bucket)) {
+            client.put(objectKey, bytes, "text/plain");
+            try {
+                return client.get(objectKey).length == bytes.length;
             } finally {
                 try {
-                    helper.rm(objectKey);
+                    client.delete(objectKey);
                 } catch (Exception ignored) {
                     // Readiness only requires that the storage can persist and read content.
                 }
@@ -115,25 +109,16 @@ public class CloudObjectStorageService {
         }
     }
 
-    private FileHelper newHelper(String bucket) throws Exception {
+    private ObjectStorageClient newClient(String bucket) throws Exception {
         StudioPlatformProperties.ObjectStorageProperties objectStorage = objectStorage();
         if (!hasClientConfig(objectStorage)) {
             throw new IllegalStateException("Object storage is not configured");
         }
-        MinioSourcePlugin helper = new MinioSourcePlugin();
-        Configuration configuration = Configuration.newDefault();
-        configuration.set("storageProvider", normalizeProvider(objectStorage.getProvider()));
-        configuration.set("endpoint", objectStorage.getEndpoint());
-        configuration.set("accessKey", objectStorage.getAccessKey());
-        configuration.set("secretKey", objectStorage.getSecretKey());
-        configuration.set("bucket", bucket);
-        configuration.set("region", objectStorage.getRegion());
-        configuration.set("createBucket", objectStorage.isCreateBucket());
-        boolean connected = helper.connect(configuration);
-        if (!connected || !helper.isConnected()) {
-            throw new IllegalStateException("Object storage connection failed");
+        String provider = normalizeProvider(objectStorage.getProvider());
+        if (PROVIDER_MINIO.equals(provider)) {
+            return new MinioObjectStorageClient(objectStorage, bucket);
         }
-        return helper;
+        return new AliyunObjectStorageClient(objectStorage, bucket);
     }
 
     private StudioPlatformProperties.ObjectStorageProperties objectStorage() {
@@ -192,22 +177,137 @@ public class CloudObjectStorageService {
         return result;
     }
 
-    private ObjectPath splitObjectKey(String objectKey) {
+    private String normalizeObjectKey(String objectKey) {
         String normalized = trimSlashes(objectKey);
-        int index = normalized.lastIndexOf('/');
-        if (index < 0) {
-            return new ObjectPath("", normalized);
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("objectKey must not be blank");
         }
-        return new ObjectPath(normalized.substring(0, index), normalized.substring(index + 1));
+        return normalized;
     }
 
-    private static final class ObjectPath {
-        private final String path;
-        private final String name;
+    private interface ObjectStorageClient extends AutoCloseable {
+        void put(String objectKey, byte[] bytes, String contentType) throws Exception;
 
-        private ObjectPath(String path, String name) {
-            this.path = path;
-            this.name = name;
+        byte[] get(String objectKey) throws Exception;
+
+        void delete(String objectKey) throws Exception;
+    }
+
+    private static final class MinioObjectStorageClient implements ObjectStorageClient {
+        private final MinioClient client;
+        private final OkHttpClient httpClient;
+        private final String bucket;
+
+        private MinioObjectStorageClient(StudioPlatformProperties.ObjectStorageProperties properties,
+                                         String bucket) throws Exception {
+            this.httpClient = new OkHttpClient();
+            this.client = MinioClient.builder()
+                    .httpClient(httpClient)
+                    .endpoint(properties.getEndpoint())
+                    .credentials(properties.getAccessKey(), properties.getSecretKey())
+                    .build();
+            this.bucket = bucket;
+            boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
+            if (!exists && properties.isCreateBucket()) {
+                MakeBucketArgs.Builder builder = MakeBucketArgs.builder().bucket(bucket);
+                if (properties.getRegion() != null && !properties.getRegion().trim().isEmpty()) {
+                    builder.region(properties.getRegion().trim());
+                }
+                client.makeBucket(builder.build());
+                exists = true;
+            }
+            if (!exists) {
+                throw new IllegalStateException("Object storage bucket does not exist: " + bucket);
+            }
+        }
+
+        @Override
+        public void put(String objectKey, byte[] bytes, String contentType) throws Exception {
+            byte[] safeBytes = bytes == null ? new byte[0] : bytes;
+            try (InputStream input = new ByteArrayInputStream(safeBytes)) {
+                PutObjectArgs.Builder builder = PutObjectArgs.builder()
+                        .bucket(bucket)
+                        .object(objectKey)
+                        .stream(input, safeBytes.length, -1);
+                if (contentType != null && !contentType.trim().isEmpty()) {
+                    builder.contentType(contentType.trim());
+                }
+                client.putObject(builder.build());
+            }
+        }
+
+        @Override
+        public byte[] get(String objectKey) throws Exception {
+            try (InputStream input = client.getObject(GetObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .build())) {
+                return StreamUtils.copyToByteArray(input);
+            }
+        }
+
+        @Override
+        public void delete(String objectKey) throws Exception {
+            client.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
+        }
+
+        @Override
+        public void close() {
+            httpClient.dispatcher().executorService().shutdown();
+            httpClient.connectionPool().evictAll();
+        }
+    }
+
+    private static final class AliyunObjectStorageClient implements ObjectStorageClient {
+        private final OSS client;
+        private final String bucket;
+
+        private AliyunObjectStorageClient(StudioPlatformProperties.ObjectStorageProperties properties,
+                                          String bucket) {
+            this.client = new OSSClientBuilder().build(
+                    properties.getEndpoint(), properties.getAccessKey(), properties.getSecretKey());
+            this.bucket = bucket;
+            boolean exists = client.doesBucketExist(bucket);
+            if (!exists && properties.isCreateBucket()) {
+                client.createBucket(bucket);
+                exists = true;
+            }
+            if (!exists) {
+                client.shutdown();
+                throw new IllegalStateException("Object storage bucket does not exist: " + bucket);
+            }
+        }
+
+        @Override
+        public void put(String objectKey, byte[] bytes, String contentType) {
+            byte[] safeBytes = bytes == null ? new byte[0] : bytes;
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.setContentLength(safeBytes.length);
+            if (contentType != null && !contentType.trim().isEmpty()) {
+                metadata.setContentType(contentType.trim());
+            }
+            try (InputStream input = new ByteArrayInputStream(safeBytes)) {
+                client.putObject(bucket, objectKey, input, metadata);
+            } catch (java.io.IOException ex) {
+                throw new IllegalStateException("Failed to close object upload stream", ex);
+            }
+        }
+
+        @Override
+        public byte[] get(String objectKey) throws Exception {
+            try (InputStream input = client.getObject(bucket, objectKey).getObjectContent()) {
+                return StreamUtils.copyToByteArray(input);
+            }
+        }
+
+        @Override
+        public void delete(String objectKey) {
+            client.deleteObject(bucket, objectKey);
+        }
+
+        @Override
+        public void close() {
+            client.shutdown();
         }
     }
 }

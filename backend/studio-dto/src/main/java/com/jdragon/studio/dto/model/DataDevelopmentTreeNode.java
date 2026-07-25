@@ -17,6 +17,7 @@ public class DataDevelopmentTreeNode {
     private String name;
     private String permissionCode;
     private ScriptType scriptType;
+    private Long runtimeClusterId;
     private String datasourceName;
     private Long environmentId;
     private String environmentName;

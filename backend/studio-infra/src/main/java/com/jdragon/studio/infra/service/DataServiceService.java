@@ -46,6 +46,7 @@ import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -67,11 +68,15 @@ public class DataServiceService {
     private final DataServiceSubscriptionMapper subscriptionMapper;
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
-    private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+    private DataDevelopmentSqlExecutor sqlExecutor;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter;
     private final DataServiceResponseCacheService responseCacheService;
     private final StudioTransformerSupport transformerSupport;
+    private final StudioTransformerExecutionSupport transformerExecutionSupport;
     private final DataServiceInvocationSupport dataServiceInvocationSupport = new DataServiceInvocationSupport();
     private final DataServiceParamSupport dataServiceParamSupport;
     private final DataServiceAccessLogSupport dataServiceAccessLogSupport;
@@ -80,6 +85,30 @@ public class DataServiceService {
     private final DataServiceTokenSupport dataServiceTokenSupport = new DataServiceTokenSupport();
     private final WebServiceSupport webServiceSupport = new WebServiceSupport();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public DataServiceService(DataServiceDefinitionMapper definitionMapper,
+                              DataServiceRequestParamMapper requestParamMapper,
+                              DataServiceResponseParamMapper responseParamMapper,
+                              DataServicePublishParamMapper publishParamMapper,
+                              DataServiceSubscriptionMapper subscriptionMapper,
+                              DataServiceAccessLogMapper accessLogMapper,
+                              DataServiceAccessCounterMapper accessCounterMapper,
+                              DataSourceService dataSourceService,
+                              DataModelService dataModelService,
+                              DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                              StudioSecurityService securityService,
+                              ProjectResourceAccessService projectResourceAccessService,
+                              DataServiceResponseCacheService responseCacheService,
+                              StudioTransformerSupport transformerSupport,
+                              OpenServiceInvocationLogService invocationLogService,
+                              ObjectProvider<StudioTransformerExecutionSupport> transformerExecutionSupportProvider) {
+        this(definitionMapper, requestParamMapper, responseParamMapper, publishParamMapper,
+                subscriptionMapper, accessLogMapper, accessCounterMapper, dataSourceService,
+                dataModelService, datasourceTypeCapabilityService, securityService,
+                projectResourceAccessService, responseCacheService, transformerSupport,
+                invocationLogService, transformerExecutionSupportProvider.getIfAvailable());
+    }
 
     public DataServiceService(DataServiceDefinitionMapper definitionMapper,
                               DataServiceRequestParamMapper requestParamMapper,
@@ -90,25 +119,62 @@ public class DataServiceService {
                               DataServiceAccessCounterMapper accessCounterMapper,
                               DataSourceService dataSourceService,
                               DataModelService dataModelService,
-                              DataDevelopmentSqlExecutor sqlExecutor,
+                              DatasourceTypeCapabilityService datasourceTypeCapabilityService,
                               StudioSecurityService securityService,
                               ProjectResourceAccessService projectResourceAccessService,
                               DataServiceResponseCacheService responseCacheService,
                               StudioTransformerSupport transformerSupport,
                               OpenServiceInvocationLogService invocationLogService) {
+        this(definitionMapper, requestParamMapper, responseParamMapper, publishParamMapper,
+                subscriptionMapper, accessLogMapper, accessCounterMapper, dataSourceService,
+                dataModelService, datasourceTypeCapabilityService, securityService,
+                projectResourceAccessService, responseCacheService, transformerSupport,
+                invocationLogService, new StudioTransformerExecutionSupport(transformerSupport));
+    }
+
+    private DataServiceService(DataServiceDefinitionMapper definitionMapper,
+                               DataServiceRequestParamMapper requestParamMapper,
+                               DataServiceResponseParamMapper responseParamMapper,
+                               DataServicePublishParamMapper publishParamMapper,
+                               DataServiceSubscriptionMapper subscriptionMapper,
+                               DataServiceAccessLogMapper accessLogMapper,
+                               DataServiceAccessCounterMapper accessCounterMapper,
+                               DataSourceService dataSourceService,
+                               DataModelService dataModelService,
+                               DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                               StudioSecurityService securityService,
+                               ProjectResourceAccessService projectResourceAccessService,
+                               DataServiceResponseCacheService responseCacheService,
+                               StudioTransformerSupport transformerSupport,
+                               OpenServiceInvocationLogService invocationLogService,
+                               StudioTransformerExecutionSupport transformerExecutionSupport) {
         this.definitionMapper = definitionMapper;
         this.subscriptionMapper = subscriptionMapper;
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
-        this.sqlExecutor = sqlExecutor;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.responseCacheService = responseCacheService;
         this.transformerSupport = transformerSupport;
+        this.transformerExecutionSupport = transformerExecutionSupport;
         this.invocationLogService = invocationLogService;
         this.invocationLogSupport = new OpenServiceInvocationLogSupport();
         this.dataServiceParamSupport = new DataServiceParamSupport(requestParamMapper, responseParamMapper, publishParamMapper, dataServiceInvocationSupport, transformerSupport);
         this.dataServiceAccessLogSupport = new DataServiceAccessLogSupport(accessLogMapper, accessCounterMapper, dataServiceInvocationSupport);
+    }
+
+    @Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
+
+    @Autowired
+    void setRuntimeDatasourceProbeRouter(RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter) {
+        this.runtimeDatasourceProbeRouter = runtimeDatasourceProbeRouter;
+    }
+
+    @Autowired(required = false)
+    void setDataDevelopmentSqlExecutor(DataDevelopmentSqlExecutor sqlExecutor) {
+        this.sqlExecutor = sqlExecutor;
     }
 
     @Autowired(required = false)
@@ -160,12 +226,17 @@ public class DataServiceService {
         for (DataServiceDefinitionEntity entity : entityPage.getRecords()) {
             items.add(toTableListView(entity));
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_SERVICE, items);
+        }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     public DataServiceDefinitionView get(Long id) {
         DataServiceDefinitionEntity entity = requireAccessibleEntity(id);
-        return toView(entity, true);
+        DataServiceDefinitionView view = toView(entity, true);
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_DATA_SERVICE, view);
     }
 
     @Transactional
@@ -182,13 +253,16 @@ public class DataServiceService {
         DataServiceRequestMethod requestMethod = request.getRequestMethod() == null ? DataServiceRequestMethod.GET : request.getRequestMethod();
         DataServiceResponseType responseType = request.getResponseType() == null ? DataServiceResponseType.JSON : request.getResponseType();
 
-        DataSourceDefinition datasource = dataSourceService.getInternal(request.getDatasourceId());
+        DataSourceDefinition datasource = dataSourceService.get(request.getDatasourceId());
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
         }
-        if (!sqlExecutor.supports(datasource)) {
+        if (!datasourceTypeCapabilityService.isSqlExecutable(datasource.getTypeCode())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource does not support SQL execution");
         }
+        Long runtimeClusterId = runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                currentProjectId, request.getRuntimeClusterId(), entity.getRuntimeClusterId(),
+                entity.getId() != null, java.util.Collections.singletonList(datasource.getId()));
         DataModelDefinition model = null;
         String physicalLocator = null;
         String normalizedSql = null;
@@ -208,6 +282,7 @@ public class DataServiceService {
 
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setCreatedBy(entity.getId() == null ? securityService.currentUserId() : entity.getCreatedBy());
         entity.setServiceCode(dataServiceInvocationSupport.normalizeRequiredText(request.getServiceCode(), "Service code is required"));
         entity.setServiceName(dataServiceInvocationSupport.normalizeRequiredText(request.getServiceName(), "Service name is required"));
@@ -239,13 +314,15 @@ public class DataServiceService {
             evictServiceCache(entity.getId());
         }
 
-        DataServiceResolveFieldsView resolvedFields = resolveFieldsForDefinition(sourceType, datasource, model, normalizedSql);
+        DataServiceResolveFieldsView resolvedFields = resolveFieldsForDefinition(
+                sourceType, datasource, model, normalizedSql, runtimeClusterId);
         Map<String, String> requestParamAliases = dataServiceParamSupport.requestParamAliases(request.getRequestParams());
         List<DataServiceRequestParamView> requestParams = dataServiceParamSupport.normalizeRequestParams(request.getRequestParams());
         List<DataServiceResponseParamView> responseParams = dataServiceParamSupport.normalizeResponseParams(request.getResponseParams(), resolvedFields.getResponseParams());
         transformerSupport.validateOnlineResponseTransformers(responseParams);
         List<DataServicePublishParamView> publishParams = dataServiceParamSupport.normalizePublishParams(request.getPublishParams(), requestParams, requestMethod, requestParamAliases);
         dataServiceParamSupport.saveChildren(entity.getId(), requestParams, responseParams, publishParams);
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_DATA_SERVICE, entity.getId());
         return get(entity.getId());
     }
 
@@ -272,6 +349,7 @@ public class DataServiceService {
     private void publishDefinition(Long id) {
         DataServiceDefinitionEntity entity = requireWritableEntity(id);
         DataServiceDefinitionView view = toView(entity, true);
+        assertRuntimeRunnable(view);
         validateExecutable(view);
         LambdaUpdateWrapper<DataServiceDefinitionEntity> updateWrapper = new LambdaUpdateWrapper<DataServiceDefinitionEntity>()
                 .set(DataServiceDefinitionEntity::getStatus, DataServiceStatus.ONLINE.name())
@@ -317,13 +395,17 @@ public class DataServiceService {
         if (request.getDatasourceId() == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required");
         }
-        DataSourceDefinition datasource = dataSourceService.getInternal(request.getDatasourceId());
+        DataSourceDefinition datasource = dataSourceService.get(request.getDatasourceId());
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + request.getDatasourceId());
         }
-        if (!sqlExecutor.supports(datasource)) {
+        if (!datasourceTypeCapabilityService.isSqlExecutable(datasource.getTypeCode())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource does not support SQL execution");
         }
+        runtimeClusterSelectionService.validateExplicitDatasourceSelection(
+                projectResourceAccessService.requireCurrentProjectId(),
+                request.getRuntimeClusterId(),
+                java.util.Collections.singletonList(datasource.getId()));
         DataModelDefinition model = null;
         String customSql = null;
         if (sourceType == DataServiceSourceType.TABLE) {
@@ -337,16 +419,24 @@ public class DataServiceService {
         } else {
             customSql = dataServiceInvocationSupport.normalizeSelectSql(request.getCustomSql());
         }
-        return resolveFieldsForDefinition(sourceType, datasource, model, customSql);
+        return resolveFieldsForDefinition(sourceType, datasource, model, customSql, request.getRuntimeClusterId());
     }
 
     public Map<String, Object> debug(Long id, DataServiceDebugRequest request) {
         DataServiceDefinitionView view = get(id);
+        runtimeClusterSelectionService.assertExplicitSelection(view.getRuntimeClusterId());
+        assertRuntimeRunnable(view);
         return execute(view,
                 request == null ? new LinkedHashMap<String, Object>() : request.getHeaders(),
                 request == null ? new LinkedHashMap<String, Object>() : request.getQuery(),
                 request == null ? new LinkedHashMap<String, Object>() : request.getBody(),
                 false).data;
+    }
+
+    private void assertRuntimeRunnable(DataServiceDefinitionView view) {
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_DATA_SERVICE, view.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(view.getProjectId(), view.getRuntimeClusterId(),
+                java.util.Collections.singletonList(view.getDatasourceId()));
     }
 
     public WebServicePreviewView previewWebService(Long id) {
@@ -356,6 +446,8 @@ public class DataServiceService {
 
     public WebServiceDebugResult debugWebService(Long id, WebServiceDebugRequest request) {
         DataServiceDefinitionView view = get(id);
+        runtimeClusterSelectionService.assertExplicitSelection(view.getRuntimeClusterId());
+        assertRuntimeRunnable(view);
         ensureWebServiceEnabled(view);
         String envelope = request == null || request.getSoapEnvelope() == null || request.getSoapEnvelope().trim().isEmpty()
                 ? previewWebService(id).getSampleRequest()
@@ -735,10 +827,14 @@ public class DataServiceService {
             }
         }
         DataSourceDefinition datasource = dataSourceService.getInternal(service.getDatasourceId());
-        SqlExecutionResultView countResult = sqlExecutor.executePreparedQuery(datasource, plan.countSql, plan.countParameters, 1);
+        DataDevelopmentSqlExecutor localSqlExecutor = requireLocalSqlExecutor();
+        SqlExecutionResultView countResult = localSqlExecutor.executePreparedQuery(
+                datasource, plan.countSql, plan.countParameters, 1);
         long total = dataServiceInvocationSupport.extractTotal(countResult);
-        SqlExecutionResultView dataResult = sqlExecutor.executePreparedQuery(datasource, plan.dataSql, plan.dataParameters, plan.pageSize);
-        List<Map<String, Object>> transformedRows = transformerSupport.applyOnlineResponseTransformers(dataResult.getRows(), service.getResponseParams());
+        SqlExecutionResultView dataResult = localSqlExecutor.executePreparedQuery(
+                datasource, plan.dataSql, plan.dataParameters, plan.pageSize);
+        List<Map<String, Object>> transformedRows = requireTransformerExecutionSupport()
+                .applyOnlineResponseTransformers(dataResult.getRows(), service.getResponseParams());
         Map<String, Object> data = dataServiceInvocationSupport.buildInvokeData(plan.pageNum, plan.pageSize, total, transformedRows);
         long rowCount = transformedRows == null ? 0L : transformedRows.size();
         if (cacheKey != null) {
@@ -750,37 +846,66 @@ public class DataServiceService {
     private DataServiceResolveFieldsView resolveFieldsForDefinition(DataServiceSourceType sourceType,
                                                                     DataSourceDefinition datasource,
                                                                     DataModelDefinition model,
-                                                                    String customSql) {
+                                                                    String customSql,
+                                                                    Long runtimeClusterId) {
         DataServiceResolveFieldsView result = new DataServiceResolveFieldsView();
         List<DataServiceFieldView> fields = sourceType == DataServiceSourceType.TABLE
-                ? resolveModelFields(datasource, model)
-                : resolveSqlFields(datasource, customSql);
+                ? resolveModelFields(datasource, model, runtimeClusterId)
+                : resolveSqlFields(datasource, customSql, runtimeClusterId);
         result.setFields(fields);
         result.setRequestParams(dataServiceParamSupport.defaultRequestParams());
         result.setResponseParams(dataServiceParamSupport.defaultResponseParams(fields));
         return result;
     }
 
-    private List<DataServiceFieldView> resolveModelFields(DataSourceDefinition datasource, DataModelDefinition model) {
+    private List<DataServiceFieldView> resolveModelFields(DataSourceDefinition datasource,
+                                                          DataModelDefinition model,
+                                                          Long runtimeClusterId) {
         List<DataServiceFieldView> fields = fieldsFromModelMetadata(model);
         if (!fields.isEmpty()) {
             return fields;
         }
         String physicalLocator = dataServiceInvocationSupport.normalizeRequiredText(model.getPhysicalLocator(), "Model physical locator is empty");
         dataServiceInvocationSupport.validateTableReference(physicalLocator);
-        SqlExecutionResultView result = sqlExecutor.executePreparedQuery(datasource,
+        SqlExecutionResultView result = executeFieldProbe(datasource, runtimeClusterId,
                 "select * from " + physicalLocator + " where 1 = 0",
                 Collections.<Object>emptyList(),
                 1);
         return fieldsFromColumns(result.getColumns());
     }
 
-    private List<DataServiceFieldView> resolveSqlFields(DataSourceDefinition datasource, String customSql) {
-        SqlExecutionResultView result = sqlExecutor.executePreparedQuery(datasource,
+    private List<DataServiceFieldView> resolveSqlFields(DataSourceDefinition datasource,
+                                                        String customSql,
+                                                        Long runtimeClusterId) {
+        SqlExecutionResultView result = executeFieldProbe(datasource, runtimeClusterId,
                 "select * from (" + dataServiceInvocationSupport.normalizeSelectSql(customSql) + ") ds where 1 = 0",
                 Collections.<Object>emptyList(),
                 1);
         return fieldsFromColumns(result.getColumns());
+    }
+
+    private SqlExecutionResultView executeFieldProbe(DataSourceDefinition datasource,
+                                                      Long runtimeClusterId,
+                                                      String sql,
+                                                      List<Object> parameters,
+                                                      Integer maxRows) {
+        return runtimeDatasourceProbeRouter.query(datasource, runtimeClusterId, sql, parameters, maxRows);
+    }
+
+    private DataDevelopmentSqlExecutor requireLocalSqlExecutor() {
+        if (sqlExecutor == null) {
+            throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                    "Local SQL execution is only available in studio-worker");
+        }
+        return sqlExecutor;
+    }
+
+    private StudioTransformerExecutionSupport requireTransformerExecutionSupport() {
+        if (transformerExecutionSupport == null) {
+            throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                    "Data service response transformation is only available in studio-worker");
+        }
+        return transformerExecutionSupport;
     }
 
     private List<DataServiceFieldView> fieldsFromModelMetadata(DataModelDefinition model) {
@@ -831,6 +956,8 @@ public class DataServiceService {
 
     private DataServiceDefinitionView toView(DataServiceDefinitionEntity entity, boolean includeChildren) {
         DataServiceDefinitionView view = new DataServiceDefinitionView();
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
@@ -871,6 +998,8 @@ public class DataServiceService {
 
     private DataServiceListView toListView(DataServiceDefinitionEntity entity) {
         DataServiceListView view = new DataServiceListView();
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
@@ -903,6 +1032,9 @@ public class DataServiceService {
 
     private DataServiceListView toTableListView(DataServiceDefinitionEntity entity) {
         DataServiceListView view = new DataServiceListView();
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setId(entity.getId());
         view.setProjectId(entity.getProjectId());
         view.setCreatedAt(entity.getCreatedAt());
@@ -922,6 +1054,7 @@ public class DataServiceService {
     private LambdaQueryWrapper<DataServiceDefinitionEntity> selectTableListColumns(LambdaQueryWrapper<DataServiceDefinitionEntity> query) {
         return query.select(DataServiceDefinitionEntity::getId,
                 DataServiceDefinitionEntity::getProjectId,
+                DataServiceDefinitionEntity::getRuntimeClusterId,
                 DataServiceDefinitionEntity::getCreatedAt,
                 DataServiceDefinitionEntity::getUpdatedAt,
                 DataServiceDefinitionEntity::getServiceCode,

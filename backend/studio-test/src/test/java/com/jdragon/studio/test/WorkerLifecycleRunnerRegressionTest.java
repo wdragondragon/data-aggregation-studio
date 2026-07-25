@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.service.ClusterInstanceIdentity;
 import com.jdragon.studio.infra.service.QualityTaskService;
@@ -14,11 +15,13 @@ import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.RuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.core.spi.ExecutionEventPublisher;
 import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
+import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -44,7 +47,7 @@ import static org.mockito.Mockito.when;
 class WorkerLifecycleRunnerRegressionTest {
 
     @Test
-    void shouldResolveCollectionTaskIdFromNodeConfigWhenWorkflowPayloadStoresStringId() {
+    void shouldResolveCollectionTaskFromDispatchColumnWithoutPayloadConfig() {
         CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
         CollectionTaskAssemblerService assemblerService = mock(CollectionTaskAssemblerService.class);
 
@@ -57,6 +60,11 @@ class WorkerLifecycleRunnerRegressionTest {
 
         when(collectionTaskService.requireOnlineForExecution(eq(2040396020474507266L))).thenReturn(onlineTask);
         when(assemblerService.assemble(eq(onlineTask))).thenReturn(assembledConfig);
+        WorkflowDispatchNodeResolver nodeResolver = mock(WorkflowDispatchNodeResolver.class);
+        WorkflowNodeDefinition versionedNode = new WorkflowNodeDefinition();
+        versionedNode.setNodeCode("collection_task_1775321775573");
+        versionedNode.setNodeType(NodeType.COLLECTION_TASK);
+        when(nodeResolver.resolve(any())).thenReturn(versionedNode);
 
         WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
                 mock(com.jdragon.studio.infra.mapper.DispatchTaskMapper.class),
@@ -70,22 +78,15 @@ class WorkerLifecycleRunnerRegressionTest {
                 assemblerService,
                 mock(RunLogFileService.class),
                 mock(WorkerAuthorizationService.class),
-                clusterInstanceIdentity("test-instance")
+                clusterInstanceIdentity("test-instance"),
+                nodeResolver
         );
 
         DispatchTaskEntity dispatchTask = new DispatchTaskEntity();
         dispatchTask.setNodeCode("collection_task_1775321775573");
         dispatchTask.setExecutionType("WORKFLOW_NODE");
-
-        Map<String, Object> config = new LinkedHashMap<String, Object>();
-        config.put("collectionTaskId", "2040396020474507266");
-        config.put("collectionTaskName", "test");
-        config.put("collectionTaskType", "SINGLE_TABLE");
-
-        Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("nodeType", NodeType.COLLECTION_TASK.name());
-        payload.put("config", config);
-        dispatchTask.setPayloadJson(payload);
+        dispatchTask.setCollectionTaskId(2040396020474507266L);
+        dispatchTask.setPayloadJson(new LinkedHashMap<String, Object>());
 
         WorkflowNodeDefinition node = (WorkflowNodeDefinition) ReflectionTestUtils.invokeMethod(runner, "toNode", dispatchTask);
 
@@ -108,6 +109,7 @@ class WorkerLifecycleRunnerRegressionTest {
 
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setWorkerCode("studio-online-worker-01");
+        properties.setRuntimeClusterCode("DEFAULT-LOCAL");
         ClusterInstanceIdentity clusterInstanceIdentity = clusterInstanceIdentity("worker-instance-01");
 
         DispatchTaskEntity staleTask = new DispatchTaskEntity();
@@ -115,6 +117,7 @@ class WorkerLifecycleRunnerRegressionTest {
         staleTask.setStatus("RUNNING");
         staleTask.setLeaseOwner("studio-online-worker-01");
         staleTask.setWorkerInstanceId("worker-instance-01");
+        staleTask.setTargetClusterId(10L);
         staleTask.setRunRecordId(2L);
         staleTask.setWorkflowRunId(3L);
         staleTask.setWorkflowDefinitionId(4L);
@@ -139,7 +142,9 @@ class WorkerLifecycleRunnerRegressionTest {
         staleRunRecord.setLogCharset("UTF-8");
 
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(staleTask));
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(1);
         when(runRecordMapper.selectById(eq(2L))).thenReturn(staleRunRecord);
+        when(runRecordMapper.update(any(RunRecordEntity.class), any())).thenReturn(1);
         when(runLogFileService.fileSize(eq("2026-04-05/run-2.log"))).thenReturn(158L);
         doNothing().when(executionEventPublisher).publish(any(ExecutionEvent.class));
 
@@ -155,14 +160,16 @@ class WorkerLifecycleRunnerRegressionTest {
                 assemblerService,
                 runLogFileService,
                 mock(WorkerAuthorizationService.class),
-                clusterInstanceIdentity
+                clusterInstanceIdentity,
+                mock(WorkflowDispatchNodeResolver.class)
         );
+        registerRuntimeCluster(runner, 10L, "default", "DEFAULT-LOCAL");
 
         runner.recoverLeasedRunningTasks();
 
         assertEquals("FAILED", staleTask.getStatus());
         assertEquals(Boolean.TRUE, staleTask.getPayloadJson().get("recovered"));
-        verify(dispatchTaskMapper).update(eq(staleTask), any());
+        verify(dispatchTaskMapper).update(any(DispatchTaskEntity.class), any());
         verify(executionEventPublisher).publish(any(ExecutionEvent.class));
     }
 
@@ -176,11 +183,13 @@ class WorkerLifecycleRunnerRegressionTest {
 
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setWorkerCode("worker-a");
+        properties.setRuntimeClusterCode("DEFAULT-LOCAL");
 
         DispatchTaskEntity queuedTask = queuedTask();
         when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("worker-a", "instance-a"));
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
-        when(workerAuthorizationService.isWorkerAuthorizedForProject("default", 100L, "worker-a")).thenReturn(true);
+        when(workerAuthorizationService.isProjectRuntimeClusterGrantEnabled("default", 100L, 10L)).thenReturn(true);
+        when(workerAuthorizationService.isRuntimeClusterAuthorizedForProject("default", 100L, 10L)).thenReturn(true);
         when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(0);
 
         WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
@@ -195,8 +204,10 @@ class WorkerLifecycleRunnerRegressionTest {
                 mock(CollectionTaskAssemblerService.class),
                 runLogFileService,
                 workerAuthorizationService,
-                clusterInstanceIdentity("instance-a")
+                clusterInstanceIdentity("instance-a"),
+                mock(WorkflowDispatchNodeResolver.class)
         );
+        registerRuntimeCluster(runner, 10L, "default", "DEFAULT-LOCAL");
         ReflectionTestUtils.setField(runner, "acceptingTasks", true);
 
         runner.pollAndExecute();
@@ -211,7 +222,7 @@ class WorkerLifecycleRunnerRegressionTest {
     }
 
     @Test
-    void shouldUseWorkerGroupForAuthorizationAndClaimOwnership() {
+    void shouldUseWorkerGroupForClaimOwnershipWithClusterAuthorization() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
         WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
@@ -219,11 +230,13 @@ class WorkerLifecycleRunnerRegressionTest {
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setWorkerGroupCode("group-a");
         properties.setWorkerCode("pod-a");
+        properties.setRuntimeClusterCode("DEFAULT-LOCAL");
 
         DispatchTaskEntity queuedTask = queuedTask();
         when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("group-a", "pod-a", "instance-a"));
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
-        when(workerAuthorizationService.isWorkerAuthorizedForProject("default", 100L, "group-a")).thenReturn(true);
+        when(workerAuthorizationService.isProjectRuntimeClusterGrantEnabled("default", 100L, 10L)).thenReturn(true);
+        when(workerAuthorizationService.isRuntimeClusterAuthorizedForProject("default", 100L, 10L)).thenReturn(true);
         when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(0);
 
         WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
@@ -238,13 +251,15 @@ class WorkerLifecycleRunnerRegressionTest {
                 mock(CollectionTaskAssemblerService.class),
                 mock(RunLogFileService.class),
                 workerAuthorizationService,
-                clusterInstanceIdentity("instance-a")
+                clusterInstanceIdentity("instance-a"),
+                mock(WorkflowDispatchNodeResolver.class)
         );
+        registerRuntimeCluster(runner, 10L, "default", "DEFAULT-LOCAL");
         ReflectionTestUtils.setField(runner, "acceptingTasks", true);
 
         runner.pollAndExecute();
 
-        verify(workerAuthorizationService).isWorkerAuthorizedForProject("default", 100L, "group-a");
+        verify(workerAuthorizationService).isRuntimeClusterAuthorizedForProject("default", 100L, 10L);
         ArgumentCaptor<DispatchTaskEntity> updateCaptor = ArgumentCaptor.forClass(DispatchTaskEntity.class);
         verify(dispatchTaskMapper).update(updateCaptor.capture(), any());
         assertEquals("group-a", updateCaptor.getValue().getWorkerGroupCode());
@@ -259,6 +274,7 @@ class WorkerLifecycleRunnerRegressionTest {
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setWorkerGroupCode("default-pool");
         properties.setWorkerCode("default-pool-pod-a");
+        properties.setRuntimeClusterCode("DEFAULT-LOCAL");
 
         WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
                 dispatchTaskMapper,
@@ -272,8 +288,10 @@ class WorkerLifecycleRunnerRegressionTest {
                 mock(CollectionTaskAssemblerService.class),
                 mock(RunLogFileService.class),
                 mock(WorkerAuthorizationService.class),
-                clusterInstanceIdentity("pod-uid-a")
+                clusterInstanceIdentity("pod-uid-a"),
+                mock(WorkflowDispatchNodeResolver.class)
         );
+        registerRuntimeCluster(runner, 10L, "default", "DEFAULT-LOCAL");
 
         when(workerLeaseMapper.selectOne(any())).thenReturn(null);
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.<DispatchTaskEntity>emptyList());
@@ -296,11 +314,13 @@ class WorkerLifecycleRunnerRegressionTest {
         WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setWorkerCode("worker-a");
+        properties.setRuntimeClusterCode("DEFAULT-LOCAL");
 
         DispatchTaskEntity queuedTask = queuedTask();
         when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("worker-a", "instance-a"));
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
-        when(workerAuthorizationService.isWorkerAuthorizedForProject("default", 100L, "worker-a")).thenReturn(false);
+        when(workerAuthorizationService.isProjectRuntimeClusterGrantEnabled("default", 100L, 10L)).thenReturn(true);
+        when(workerAuthorizationService.isRuntimeClusterAuthorizedForProject("default", 100L, 10L)).thenReturn(false);
 
         WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
                 dispatchTaskMapper,
@@ -314,8 +334,10 @@ class WorkerLifecycleRunnerRegressionTest {
                 mock(CollectionTaskAssemblerService.class),
                 mock(RunLogFileService.class),
                 workerAuthorizationService,
-                clusterInstanceIdentity("instance-a")
+                clusterInstanceIdentity("instance-a"),
+                mock(WorkflowDispatchNodeResolver.class)
         );
+        registerRuntimeCluster(runner, 10L, "default", "DEFAULT-LOCAL");
         ReflectionTestUtils.setField(runner, "acceptingTasks", true);
 
         runner.pollAndExecute();
@@ -341,7 +363,8 @@ class WorkerLifecycleRunnerRegressionTest {
                 mock(CollectionTaskAssemblerService.class),
                 mock(RunLogFileService.class),
                 mock(WorkerAuthorizationService.class),
-                clusterInstanceIdentity("instance-a")
+                clusterInstanceIdentity("instance-a"),
+                mock(WorkflowDispatchNodeResolver.class)
         );
 
         runner.pollAndExecute();
@@ -364,6 +387,7 @@ class WorkerLifecycleRunnerRegressionTest {
         task.setTenantId("default");
         task.setProjectId(100L);
         task.setStatus("QUEUED");
+        task.setTargetClusterId(10L);
         task.setExecutionType("WORKFLOW_NODE");
         task.setNodeCode("node_a");
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -385,5 +409,17 @@ class WorkerLifecycleRunnerRegressionTest {
         lease.setLastHeartbeatAt(LocalDateTime.now());
         lease.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(1));
         return lease;
+    }
+
+    private void registerRuntimeCluster(WorkerLifecycleRunner runner, Long clusterId,
+                                        String tenantId, String clusterCode) {
+        RuntimeClusterEntity cluster = new RuntimeClusterEntity();
+        cluster.setId(clusterId);
+        cluster.setTenantId(tenantId);
+        cluster.setCode(clusterCode);
+        cluster.setEnabled(1);
+        RuntimeClusterMapper mapper = mock(RuntimeClusterMapper.class);
+        when(mapper.selectList(any())).thenReturn(Collections.singletonList(cluster));
+        ReflectionTestUtils.invokeMethod(runner, "setRuntimeClusterMapper", mapper);
     }
 }

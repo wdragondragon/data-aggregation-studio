@@ -112,12 +112,16 @@ class AlertIncidentServiceTest {
 
         AlertObservation initialObservation = observation(true, now);
         initialObservation.getEvidence().put("runRecordId", 9007199254740993L);
+        initialObservation.getEvidence().put("targetClusterId", "41");
+        initialObservation.getEvidence().put("actualClusterId", 42L);
         initialObservation.getEvidence().put("apiKey", "plain-api-key");
         initialObservation.getEvidence().put("access_key", "plain-access-key");
         initialObservation.getEvidence().put("private-key", "plain-private-key");
         initialObservation.getEvidence().put("credential", "plain-credential");
         AlertIncidentEntity triggered = service.recordCondition(rule, initialObservation);
         assertEquals("OPEN", triggered.getStatus());
+        assertEquals(41L, triggered.getRequestedClusterId());
+        assertEquals(42L, triggered.getActualClusterId());
         assertEquals("TRIGGERED", events.get(0).getEventType());
         assertEquals(1, deliveries.size());
         assertNotNull(triggered.getLastNotifiedAt());

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -22,7 +23,9 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
         String authorization = adminAuthorizationHeader();
         Long ownerProjectId = createProject(authorization, "lt_reg_s17_owner", "长期回归-S17数据源归属项目");
         Long receiverProjectId = createProject(authorization, "lt_reg_s17_receiver", "长期回归-S17数据源越权接收项目");
-        Long datasourceId = createDatasource(authorization, ownerProjectId);
+        Long ownerRuntimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, ownerProjectId);
+        Long receiverRuntimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, receiverProjectId);
+        Long datasourceId = createDatasource(authorization, ownerProjectId, ownerRuntimeClusterId);
 
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("id", datasourceId);
@@ -30,6 +33,7 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
         payload.put("typeCode", "mysql8");
         payload.put("enabled", true);
         payload.put("executable", true);
+        payload.put("applicableClusterIds", Collections.singletonList(receiverRuntimeClusterId));
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("host", "127.0.0.1");
         metadata.put("port", 3306);
@@ -39,6 +43,7 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
         payload.put("businessMetadata", new LinkedHashMap<String, Object>());
 
         mockMvc.perform(post("/api/v1/datasources/test")
+                        .param("runtimeClusterId", receiverRuntimeClusterId.toString())
                         .header("Authorization", authorization)
                         .header("X-Project-Id", receiverProjectId)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -52,9 +57,12 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
     void datasourceOptionsShouldExposeSlimOptionView() throws Exception {
         String authorization = adminAuthorizationHeader();
         Long projectId = createProject(authorization, "lt_reg_s51_options", "长期回归-S51数据源选项项目");
-        Long datasourceId = createDatasource(authorization, projectId, "长期回归-S51数据源选项经营数据库");
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, projectId);
+        Long datasourceId = createDatasource(authorization, projectId, runtimeClusterId,
+                "长期回归-S51数据源选项经营数据库");
 
         MvcResult result = mockMvc.perform(get("/api/v1/datasources/options")
+                        .param("runtimeClusterId", runtimeClusterId.toString())
                         .header("Authorization", authorization)
                         .header("X-Project-Id", projectId))
                 .andExpect(status().isOk())
@@ -94,16 +102,23 @@ class DataSourceApiRegressionTest extends StudioApiRegressionTestSupport {
         return readBody(result).path("data").path("id").asLong();
     }
 
-    private Long createDatasource(String authorization, Long projectId) throws Exception {
-        return createDatasource(authorization, projectId, "长期回归-S17客户经营敏感数据源");
+    private Long createDatasource(String authorization,
+                                  Long projectId,
+                                  Long runtimeClusterId) throws Exception {
+        return createDatasource(authorization, projectId, runtimeClusterId,
+                "长期回归-S17客户经营敏感数据源");
     }
 
-    private Long createDatasource(String authorization, Long projectId, String datasourceName) throws Exception {
+    private Long createDatasource(String authorization,
+                                  Long projectId,
+                                  Long runtimeClusterId,
+                                  String datasourceName) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("name", datasourceName);
         payload.put("typeCode", "mysql8");
         payload.put("enabled", true);
         payload.put("executable", true);
+        payload.put("applicableClusterIds", Collections.singletonList(runtimeClusterId));
         Map<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("host", "127.0.0.1");
         metadata.put("port", 3306);

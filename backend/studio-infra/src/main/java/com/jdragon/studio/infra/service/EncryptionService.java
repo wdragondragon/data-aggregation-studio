@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.service;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Cipher;
@@ -16,8 +17,17 @@ public class EncryptionService {
 
     private final SecretKeySpec secretKeySpec;
 
+    @Autowired
     public EncryptionService(StudioPlatformProperties properties) {
-        this.secretKeySpec = new SecretKeySpec(buildKey(properties.getEncryptionSecret()), "AES");
+        this(properties == null ? null : properties.getEncryptionSecret());
+    }
+
+    private EncryptionService(String secret) {
+        this.secretKeySpec = new SecretKeySpec(buildKey(secret), "AES");
+    }
+
+    static EncryptionService forSecret(String secret) {
+        return new EncryptionService(secret);
     }
 
     public String encrypt(String plainText) {
@@ -57,6 +67,10 @@ public class EncryptionService {
     }
 
     private byte[] buildKey(String secret) {
+        if (secret == null || secret.trim().isEmpty()) {
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                    "Encryption secret must not be blank");
+        }
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));

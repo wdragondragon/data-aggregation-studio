@@ -2,8 +2,10 @@ package com.jdragon.studio.worker.runtime;
 
 import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.dto.enums.NodeType;
+import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
+import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
 import com.jdragon.studio.infra.service.DataDevelopmentService;
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
@@ -33,16 +35,32 @@ public class DataDevelopmentNodeExecutor implements NodeExecutor {
                 ? new LinkedHashMap<String, Object>()
                 : definition.getConfig();
         Long scriptId = parseLong(config.get("scriptId"));
-        if (scriptId == null) {
+        boolean inline = Boolean.TRUE.equals(config.get("inline"))
+                || "true".equalsIgnoreCase(String.valueOf(config.get("inline")));
+        if (scriptId == null && !inline) {
             throw new IllegalStateException("DATA_SCRIPT node is missing scriptId");
         }
         Integer maxRows = parseInteger(config.get("maxRows"));
         long startedAt = System.currentTimeMillis();
-        log.info("Executing data script node {} with scriptId={}", definition.getNodeCode(), scriptId);
+        log.info("Executing data script node {} with scriptId={}, inline={}", definition.getNodeCode(), scriptId, inline);
         Map<String, Object> arguments = resolveArguments(config.get("arguments"));
         Map<String, Object> executionConfig = resolveArguments(config.get("executionConfig"));
-        DataScriptExecutionResultView executionResult = dataDevelopmentService.executeScript(
-                scriptId, maxRows, arguments, runtimeContext, executionConfig);
+        DataScriptExecutionResultView executionResult;
+        if (inline) {
+            DataScriptExecutionRequest request = new DataScriptExecutionRequest();
+            request.setRuntimeClusterId(parseLong(runtimeContext.get("runtimeClusterId")));
+            request.setScriptType(ScriptType.valueOf(String.valueOf(config.get("scriptType"))));
+            request.setDatasourceId(parseLong(config.get("datasourceId")));
+            request.setEnvironmentId(parseLong(config.get("environmentId")));
+            request.setContent(config.get("content") == null ? null : String.valueOf(config.get("content")));
+            request.setArguments(arguments);
+            request.setExecutionConfig(executionConfig);
+            request.setMaxRows(maxRows);
+            executionResult = dataDevelopmentService.executeInlineLocally(request, runtimeContext);
+        } else {
+            executionResult = dataDevelopmentService.executeScript(
+                    scriptId, maxRows, arguments, runtimeContext, executionConfig);
+        }
         long endedAt = System.currentTimeMillis();
         emitExecutionLogs(definition, executionResult);
         if (!Boolean.TRUE.equals(executionResult.getSuccess())) {
@@ -64,6 +82,7 @@ public class DataDevelopmentNodeExecutor implements NodeExecutor {
         result.put("logs", executionResult.getLogs());
         result.put("resultJson", executionResult.getResultJson());
         if (executionResult.getSqlResult() != null) {
+            result.put("sqlResult", executionResult.getSqlResult());
             result.put("query", executionResult.getSqlResult().getQuery());
             result.put("statementCount", executionResult.getSqlResult().getStatementCount());
             result.put("affectedRows", executionResult.getSqlResult().getAffectedRows());

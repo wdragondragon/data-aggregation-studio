@@ -43,6 +43,7 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(
                                 "/api/v1/auth/**",
+                                "/api/v1/runtime-clusters/internal/**",
                                 "/openapi/data-services/**",
                                 "/openapi/data-ingestion-services/**",
                                 "/openapi/protocol-conversions/**",

@@ -74,6 +74,11 @@ class ExecutionEventAlertSignalTest {
         event.setExecutionType(DispatchExecutionType.COLLECTION_TASK);
         event.setCollectionTaskId(30L);
         event.setProjectId(20L);
+        event.setRequestedClusterId(46L);
+        event.setActualClusterId(50L);
+        event.setActualClusterCode("cluster-50");
+        event.setWorkerGroupCode("default-pool");
+        event.setWorkerInstanceId("worker-1");
         event.setOccurredAt(LocalDateTime.now());
         service.publish(event);
 
@@ -81,6 +86,10 @@ class ExecutionEventAlertSignalTest {
         verify(publisher).publish(captor.capture());
         assertEquals("ERROR", captor.getValue().getStatus());
         assertEquals("COLLECTION_TASK", captor.getValue().getSubjectType());
+        assertEquals(46L, captor.getValue().getEvidence().get("targetClusterId"));
+        assertEquals(50L, captor.getValue().getEvidence().get("actualClusterId"));
+        assertEquals("cluster-50", captor.getValue().getEvidence().get("actualClusterCode"));
+        assertEquals("default-pool", captor.getValue().getEvidence().get("workerGroupCode"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<LambdaQueryWrapper<CollectionTaskDefinitionEntity>> queryCaptor =

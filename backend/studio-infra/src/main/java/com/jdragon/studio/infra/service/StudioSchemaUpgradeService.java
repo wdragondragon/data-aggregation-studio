@@ -44,6 +44,8 @@ public class StudioSchemaUpgradeService {
     }
 
     private void upgradeMysql() {
+        ensureRuntimeClusterTablesMysql();
+        ensureRuntimeClusterColumnsMysql();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
                 "alter table studio_external_user_binding add unique key " +
                         "uk_studio_external_user_binding_provider_user (provider_code, studio_user_id)");
@@ -86,6 +88,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "worker_group_code", "alter table dispatch_task add column worker_group_code varchar(255)");
         ensureColumn("dispatch_task", "worker_instance_id", "alter table dispatch_task add column worker_instance_id varchar(255)");
         ensureColumn("dispatch_task", "scheduled_fire_time", "alter table dispatch_task add column scheduled_fire_time datetime");
+        ensureColumn("dispatch_task", "protected_payload_ciphertext",
+                "alter table dispatch_task add column protected_payload_ciphertext mediumtext");
         ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at datetime");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type varchar(64)");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id bigint");
@@ -247,6 +251,7 @@ public class StudioSchemaUpgradeService {
                     "id bigint primary key," +
                     "tenant_id varchar(64) default 'default'," +
                     "project_id bigint," +
+                    "runtime_cluster_id bigint," +
                     "deleted int default 0," +
                     "created_at datetime default current_timestamp," +
                     "updated_at datetime default current_timestamp," +
@@ -551,6 +556,9 @@ public class StudioSchemaUpgradeService {
                 "alter table model_sync_task add key idx_model_sync_task_project_created (project_id, created_at)");
         ensureIndex("model_sync_task", "idx_model_sync_task_project_status",
                 "alter table model_sync_task add key idx_model_sync_task_project_status (project_id, status)");
+        ensureIndex("model_sync_task", "idx_model_sync_task_project_cluster_status",
+                "alter table model_sync_task add key idx_model_sync_task_project_cluster_status " +
+                        "(project_id, runtime_cluster_id, status)");
         ensureIndex("model_sync_task_item", "idx_model_sync_task_item_task_seq",
                 "alter table model_sync_task_item add key idx_model_sync_task_item_task_seq (task_id, seq_no)");
         ensureIndex("model_sync_task_item", "idx_model_sync_task_item_task_status",
@@ -682,6 +690,9 @@ public class StudioSchemaUpgradeService {
         ensureIndex("studio_resource_share", "idx_studio_resource_share_project",
                 "alter table studio_resource_share add key idx_studio_resource_share_project (target_project_id)");
 
+        // Some legacy/bootstrap paths create the base tables during this upgrade.
+        // Re-run the additive cluster DDL after those tables exist.
+        ensureRuntimeClusterColumnsMysql();
         ensureAlertTablesMysql();
 
         backfillProjectIdsMysql();
@@ -691,6 +702,8 @@ public class StudioSchemaUpgradeService {
     }
 
     private void upgradeSqlite() {
+        ensureRuntimeClusterTablesSqlite();
+        ensureRuntimeClusterColumnsSqlite();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
                 "create unique index if not exists uk_studio_external_user_binding_provider_user " +
                         "on studio_external_user_binding(provider_code, studio_user_id)");
@@ -734,6 +747,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "worker_group_code", "alter table dispatch_task add column worker_group_code text");
         ensureColumn("dispatch_task", "worker_instance_id", "alter table dispatch_task add column worker_instance_id text");
         ensureColumn("dispatch_task", "scheduled_fire_time", "alter table dispatch_task add column scheduled_fire_time text");
+        ensureColumn("dispatch_task", "protected_payload_ciphertext",
+                "alter table dispatch_task add column protected_payload_ciphertext text");
         ensureColumn("workflow_schedule", "last_triggered_at", "alter table workflow_schedule add column last_triggered_at text");
         ensureColumn("run_record", "execution_type", "alter table run_record add column execution_type text");
         ensureColumn("run_record", "workflow_run_id", "alter table run_record add column workflow_run_id integer");
@@ -854,6 +869,7 @@ public class StudioSchemaUpgradeService {
                 "id integer primary key," +
                 "tenant_id text default 'default'," +
                 "project_id integer," +
+                "runtime_cluster_id integer," +
                 "deleted integer default 0," +
                 "created_at text," +
                 "updated_at text," +
@@ -879,6 +895,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create unique index if not exists uk_model_sync_task_project_datasource_batch on model_sync_task(project_id, datasource_id, batch_no)");
         jdbcTemplate.execute("create index if not exists idx_model_sync_task_project_created on model_sync_task(project_id, created_at)");
         jdbcTemplate.execute("create index if not exists idx_model_sync_task_project_status on model_sync_task(project_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_model_sync_task_project_cluster_status " +
+                "on model_sync_task(project_id, runtime_cluster_id, status)");
 
         jdbcTemplate.execute("create table if not exists model_sync_task_item (" +
                 "id integer primary key," +
@@ -1213,6 +1231,7 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at)");
         jdbcTemplate.execute("create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at)");
 
+        ensureRuntimeClusterColumnsSqlite();
         ensureAlertTablesSqlite();
         backfillProjectIdsSqlite();
         backfillWorkerGroupColumnsSqlite();
@@ -1996,7 +2015,8 @@ public class StudioSchemaUpgradeService {
                     "created_at datetime default current_timestamp,updated_at datetime default current_timestamp,rule_id bigint not null," +
                     "rule_name_snapshot varchar(255),rule_type varchar(64),signature varchar(64) not null,subject_type varchar(64)," +
                     "subject_key varchar(255),subject_id bigint,subject_name_snapshot varchar(255),target_path varchar(1000),severity varchar(32)," +
-                    "status varchar(32),summary varchar(1000),current_evidence_json json,occurrence_count int default 0," +
+                    "status varchar(32),summary varchar(1000),requested_cluster_id bigint,actual_cluster_id bigint," +
+                    "current_evidence_json json,occurrence_count int default 0," +
                     "notification_count int default 0,reopen_count int default 0,condition_active int default 0,closed_while_active int default 0," +
                     "first_triggered_at datetime,last_triggered_at datetime,last_notified_at datetime,acknowledged_at datetime,recovered_at datetime," +
                     "closed_at datetime,acknowledged_by bigint,closed_by bigint,version int default 0)");
@@ -2009,6 +2029,9 @@ public class StudioSchemaUpgradeService {
                 "alter table studio_alert_incident add key idx_alert_incident_rule (rule_id, last_triggered_at)");
         ensureIndex("studio_alert_incident", "idx_alert_incident_subject",
                 "alter table studio_alert_incident add key idx_alert_incident_subject (project_id, subject_type, subject_id)");
+        ensureIndex("studio_alert_incident", "idx_alert_incident_cluster",
+                "alter table studio_alert_incident add key idx_alert_incident_cluster " +
+                        "(project_id, requested_cluster_id, actual_cluster_id, last_triggered_at)");
 
         if (!tableExists("studio_alert_event")) {
             jdbcTemplate.execute("create table studio_alert_event (" +
@@ -2080,7 +2103,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create table if not exists studio_alert_incident (" +
                 "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
                 "rule_id integer not null,rule_name_snapshot text,rule_type text,signature text not null,subject_type text,subject_key text,subject_id integer," +
-                "subject_name_snapshot text,target_path text,severity text,status text,summary text,current_evidence_json text,occurrence_count integer default 0," +
+                "subject_name_snapshot text,target_path text,severity text,status text,summary text," +
+                "requested_cluster_id integer,actual_cluster_id integer,current_evidence_json text,occurrence_count integer default 0," +
                 "notification_count integer default 0,reopen_count integer default 0,condition_active integer default 0,closed_while_active integer default 0," +
                 "first_triggered_at text,last_triggered_at text,last_notified_at text,acknowledged_at text,recovered_at text,closed_at text," +
                 "acknowledged_by integer,closed_by integer,version integer default 0)");
@@ -2088,6 +2112,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_alert_incident_status on studio_alert_incident(project_id, status, severity, last_triggered_at)");
         jdbcTemplate.execute("create index if not exists idx_alert_incident_rule on studio_alert_incident(rule_id, last_triggered_at)");
         jdbcTemplate.execute("create index if not exists idx_alert_incident_subject on studio_alert_incident(project_id, subject_type, subject_id)");
+        jdbcTemplate.execute("create index if not exists idx_alert_incident_cluster on studio_alert_incident" +
+                "(project_id, requested_cluster_id, actual_cluster_id, last_triggered_at)");
         jdbcTemplate.execute("create table if not exists studio_alert_event (" +
                 "id integer primary key,tenant_id text default 'default',project_id integer,deleted integer default 0,created_at text,updated_at text," +
                 "incident_id integer,rule_id integer,event_type text not null,status_from text,status_to text,source_type text,source_id text," +
@@ -3977,6 +4003,327 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_so_pf_script_env_enabled on so_pf_script_env(tenant_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_rel_env on so_pf_env_dep_rel(environment_id, sort_order)");
         jdbcTemplate.execute("create unique index if not exists uk_so_pf_env_dep_rel on so_pf_env_dep_rel(environment_id, dependency_id)");
+    }
+
+    private void ensureRuntimeClusterTablesMysql() {
+        if (!tableExists("studio_runtime_cluster")) {
+            jdbcTemplate.execute("create table studio_runtime_cluster (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "code varchar(64) not null,name varchar(255) not null,enabled int default 1,status varchar(32) default 'UNKNOWN'," +
+                    "version varchar(128),last_heartbeat_at datetime,instances_json json," +
+                    "unique key uk_runtime_cluster_tenant_code (tenant_id,code)," +
+                    "key idx_runtime_cluster_tenant_enabled (tenant_id,enabled))");
+        }
+        if (!tableExists("studio_runtime_endpoint")) {
+            jdbcTemplate.execute("create table studio_runtime_endpoint (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "runtime_cluster_id bigint not null,mode varchar(32) not null,endpoint_ciphertext text,headers_ciphertext text," +
+                    "token_ciphertext text,connect_timeout_millis int default 3000,read_timeout_millis int default 5000," +
+                    "enabled int default 1,last_tested_at datetime,last_test_status varchar(32),last_test_message varchar(1000)," +
+                    "key idx_runtime_endpoint_cluster (tenant_id,runtime_cluster_id,enabled))");
+        }
+        if (!tableExists("studio_runtime_idempotency")) {
+            jdbcTemplate.execute("create table studio_runtime_idempotency (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint not null," +
+                    "deleted int default 0,created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "runtime_cluster_id bigint,resource_type varchar(64) not null,resource_id bigint not null," +
+                    "key_hash char(64) not null,request_fingerprint char(64) not null,status varchar(16) not null," +
+                    "owner_token_hash char(64) not null,owner_instance_id varchar(128) not null,owner_boot_id varchar(128) not null," +
+                    "response_status int,response_content_type varchar(512),response_body_ciphertext longtext,completed_at datetime," +
+                    "version int default 0," +
+                    "unique key uk_runtime_idem_scope_key (tenant_id,project_id,resource_type,resource_id,key_hash)," +
+                    "key idx_runtime_idem_status_updated (status,updated_at))");
+        }
+        if (!tableExists("studio_project_runtime_cluster")) {
+            jdbcTemplate.execute("create table studio_project_runtime_cluster (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint not null,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "runtime_cluster_id bigint not null,enabled int default 1,preferred int default 0,allow_manual_override int default 0," +
+                    "unique key uk_project_runtime_cluster (tenant_id,project_id,runtime_cluster_id)," +
+                    "key idx_project_runtime_cluster_options (tenant_id,project_id,enabled,preferred))");
+        }
+        if (!tableExists("datasource_cluster_binding")) {
+            jdbcTemplate.execute("create table datasource_cluster_binding (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "datasource_id bigint not null,runtime_cluster_id bigint not null,enabled int default 1," +
+                    "unique key uk_datasource_cluster_binding (tenant_id,datasource_id,runtime_cluster_id)," +
+                    "key idx_datasource_cluster_options (tenant_id,runtime_cluster_id,enabled,datasource_id))");
+        }
+        if (!tableExists("studio_runtime_validation")) {
+            jdbcTemplate.execute("create table studio_runtime_validation (" +
+                    "id bigint primary key,tenant_id varchar(64) default 'default',project_id bigint not null,deleted int default 0," +
+                    "created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                    "resource_type varchar(64) not null,resource_id bigint not null,runtime_cluster_id bigint,valid int default 1," +
+                    "issue_code varchar(128),issue_message varchar(1000),details_json json,validated_at datetime," +
+                    "unique key uk_runtime_validation_resource (tenant_id,project_id,resource_type,resource_id)," +
+                    "key idx_runtime_validation_invalid (tenant_id,project_id,valid,resource_type))");
+        }
+        ensureIndexIfTableExists("studio_runtime_cluster", "uk_runtime_cluster_tenant_code",
+                "alter table studio_runtime_cluster add unique key uk_runtime_cluster_tenant_code (tenant_id,code)");
+        ensureIndexIfTableExists("studio_runtime_cluster", "idx_runtime_cluster_tenant_enabled",
+                "alter table studio_runtime_cluster add key idx_runtime_cluster_tenant_enabled (tenant_id,enabled)");
+        ensureIndexIfTableExists("studio_runtime_endpoint", "idx_runtime_endpoint_cluster",
+                "alter table studio_runtime_endpoint add key idx_runtime_endpoint_cluster (tenant_id,runtime_cluster_id,enabled)");
+        ensureIndexIfTableExists("studio_runtime_idempotency", "uk_runtime_idem_scope_key",
+                "alter table studio_runtime_idempotency add unique key uk_runtime_idem_scope_key " +
+                        "(tenant_id,project_id,resource_type,resource_id,key_hash)");
+        ensureIndexIfTableExists("studio_runtime_idempotency", "idx_runtime_idem_status_updated",
+                "alter table studio_runtime_idempotency add key idx_runtime_idem_status_updated (status,updated_at)");
+        ensureIndexIfTableExists("studio_project_runtime_cluster", "uk_project_runtime_cluster",
+                "alter table studio_project_runtime_cluster add unique key uk_project_runtime_cluster (tenant_id,project_id,runtime_cluster_id)");
+        ensureIndexIfTableExists("studio_project_runtime_cluster", "idx_project_runtime_cluster_options",
+                "alter table studio_project_runtime_cluster add key idx_project_runtime_cluster_options (tenant_id,project_id,enabled,preferred)");
+        ensureIndexIfTableExists("datasource_cluster_binding", "uk_datasource_cluster_binding",
+                "alter table datasource_cluster_binding add unique key uk_datasource_cluster_binding (tenant_id,datasource_id,runtime_cluster_id)");
+        ensureIndexIfTableExists("datasource_cluster_binding", "idx_datasource_cluster_options",
+                "alter table datasource_cluster_binding add key idx_datasource_cluster_options (tenant_id,runtime_cluster_id,enabled,datasource_id)");
+        ensureIndexIfTableExists("studio_runtime_validation", "uk_runtime_validation_resource",
+                "alter table studio_runtime_validation add unique key uk_runtime_validation_resource (tenant_id,project_id,resource_type,resource_id)");
+        ensureIndexIfTableExists("studio_runtime_validation", "idx_runtime_validation_invalid",
+                "alter table studio_runtime_validation add key idx_runtime_validation_invalid (tenant_id,project_id,valid,resource_type)");
+    }
+
+    private void ensureRuntimeClusterColumnsMysql() {
+        ensureColumnIfTableExists("datasource_connection_health", "runtime_cluster_id",
+                "alter table datasource_connection_health add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("datasource_connection_health", "legacy_connection_fingerprint",
+                "alter table datasource_connection_health add column legacy_connection_fingerprint varchar(128) " +
+                        "generated always as (case when runtime_cluster_id is null then connection_fingerprint else null end) stored");
+        ensureColumnIfTableExists("datasource_connection_test_record", "runtime_cluster_id",
+                "alter table datasource_connection_test_record add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("model_sync_task", "runtime_cluster_id",
+                "alter table model_sync_task add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("collection_task_definition", "runtime_cluster_id",
+                "alter table collection_task_definition add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("quality_task_definition", "runtime_cluster_id",
+                "alter table quality_task_definition add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("workflow_definition", "runtime_cluster_id",
+                "alter table workflow_definition add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("workflow_definition_version", "runtime_cluster_id",
+                "alter table workflow_definition_version add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("data_dev_script", "runtime_cluster_id",
+                "alter table data_dev_script add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("data_service_definition", "runtime_cluster_id",
+                "alter table data_service_definition add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("data_ingestion_service", "runtime_cluster_id",
+                "alter table data_ingestion_service add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("protocol_conversion_service", "runtime_cluster_id",
+                "alter table protocol_conversion_service add column runtime_cluster_id bigint");
+        ensureInvocationClusterColumnsMysql("data_service_access_log");
+        ensureInvocationClusterColumnsMysql("data_ingestion_access_log");
+        ensureInvocationClusterColumnsMysql("protocol_conversion_access_log");
+        ensureColumnIfTableExists("dispatch_task", "target_cluster_id",
+                "alter table dispatch_task add column target_cluster_id bigint");
+        ensureColumnIfTableExists("dispatch_task", "resource_revision",
+                "alter table dispatch_task add column resource_revision varchar(128)");
+        ensureColumnIfTableExists("dispatch_task", "claim_token",
+                "alter table dispatch_task add column claim_token varchar(64)");
+        ensureColumnIfTableExists("dispatch_task", "worker_boot_id",
+                "alter table dispatch_task add column worker_boot_id varchar(128)");
+        ensureColumnIfTableExists("run_record", "requested_cluster_id",
+                "alter table run_record add column requested_cluster_id bigint");
+        ensureColumnIfTableExists("run_record", "actual_cluster_id",
+                "alter table run_record add column actual_cluster_id bigint");
+        ensureColumnIfTableExists("run_record", "actual_cluster_code",
+                "alter table run_record add column actual_cluster_code varchar(64)");
+        ensureColumnIfTableExists("run_record", "worker_boot_id",
+                "alter table run_record add column worker_boot_id varchar(128)");
+        ensureColumnIfTableExists("studio_alert_incident", "requested_cluster_id",
+                "alter table studio_alert_incident add column requested_cluster_id bigint");
+        ensureColumnIfTableExists("studio_alert_incident", "actual_cluster_id",
+                "alter table studio_alert_incident add column actual_cluster_id bigint");
+        ensureColumnIfTableExists("worker_lease", "runtime_cluster_id",
+                "alter table worker_lease add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("worker_lease", "runtime_cluster_code",
+                "alter table worker_lease add column runtime_cluster_code varchar(64)");
+        ensureColumnIfTableExists("worker_lease", "boot_id",
+                "alter table worker_lease add column boot_id varchar(128)");
+        ensureColumnIfTableExists("worker_lease", "runtime_version",
+                "alter table worker_lease add column runtime_version varchar(128)");
+        ensureColumnIfTableExists("worker_lease", "plugin_fingerprint",
+                "alter table worker_lease add column plugin_fingerprint varchar(128)");
+        ensureIndexIfTableExists("datasource_connection_health", "uk_ds_conn_health_legacy_fp",
+                "alter table datasource_connection_health add unique key uk_ds_conn_health_legacy_fp " +
+                        "(tenant_id,legacy_connection_fingerprint)");
+        if (tableExists("datasource_connection_health") &&
+                !indexMatchesColumns("datasource_connection_health", "uk_ds_conn_health_fp",
+                        "tenant_id", "runtime_cluster_id", "connection_fingerprint")) {
+            if (indexExists("datasource_connection_health", "uk_ds_conn_health_fp")) {
+                jdbcTemplate.execute("alter table datasource_connection_health drop index uk_ds_conn_health_fp");
+            }
+            jdbcTemplate.execute("alter table datasource_connection_health add unique key uk_ds_conn_health_fp " +
+                    "(tenant_id,runtime_cluster_id,connection_fingerprint)");
+        }
+        ensureIndexIfTableExists("datasource_connection_test_record", "idx_ds_conn_record_cluster_lookup",
+                "alter table datasource_connection_test_record add key idx_ds_conn_record_cluster_lookup " +
+                        "(tenant_id,runtime_cluster_id,connection_fingerprint,ended_at)");
+        ensureIndexIfTableExists("model_sync_task", "idx_model_sync_task_project_cluster_status",
+                "alter table model_sync_task add key idx_model_sync_task_project_cluster_status " +
+                        "(project_id,runtime_cluster_id,status)");
+        ensureIndexIfTableExists("dispatch_task", "idx_dispatch_task_cluster_status_created",
+                "alter table dispatch_task add key idx_dispatch_task_cluster_status_created (target_cluster_id,status,created_at)");
+        ensureIndexIfTableExists("run_record", "idx_run_record_project_cluster_created",
+                "alter table run_record add key idx_run_record_project_cluster_created (project_id,requested_cluster_id,created_at)");
+        ensureIndexIfTableExists("studio_alert_incident", "idx_alert_incident_cluster",
+                "alter table studio_alert_incident add key idx_alert_incident_cluster " +
+                        "(project_id,requested_cluster_id,actual_cluster_id,last_triggered_at)");
+        ensureIndexIfTableExists("worker_lease", "idx_worker_lease_cluster_status",
+                "alter table worker_lease add key idx_worker_lease_cluster_status (runtime_cluster_id,status,last_heartbeat_at)");
+    }
+
+    private void ensureInvocationClusterColumnsMysql(String tableName) {
+        ensureColumnIfTableExists(tableName, "requested_cluster_id",
+                "alter table " + tableName + " add column requested_cluster_id bigint");
+        ensureColumnIfTableExists(tableName, "actual_cluster_id",
+                "alter table " + tableName + " add column actual_cluster_id bigint");
+    }
+
+    private void ensureRuntimeClusterTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists studio_runtime_cluster (" +
+                "id integer primary key,tenant_id text default 'default',deleted integer default 0,created_at text,updated_at text," +
+                "code text not null,name text not null,enabled integer default 1,status text default 'UNKNOWN',version text," +
+                "last_heartbeat_at text,instances_json text)");
+        jdbcTemplate.execute("create unique index if not exists uk_runtime_cluster_tenant_code on studio_runtime_cluster(tenant_id,code)");
+        jdbcTemplate.execute("create index if not exists idx_runtime_cluster_tenant_enabled on studio_runtime_cluster(tenant_id,enabled)");
+        jdbcTemplate.execute("create table if not exists studio_runtime_endpoint (" +
+                "id integer primary key,tenant_id text default 'default',deleted integer default 0,created_at text,updated_at text," +
+                "runtime_cluster_id integer not null,mode text not null,endpoint_ciphertext text,headers_ciphertext text,token_ciphertext text," +
+                "connect_timeout_millis integer default 3000,read_timeout_millis integer default 5000,enabled integer default 1," +
+                "last_tested_at text,last_test_status text,last_test_message text)");
+        jdbcTemplate.execute("create index if not exists idx_runtime_endpoint_cluster on studio_runtime_endpoint(tenant_id,runtime_cluster_id,enabled)");
+        jdbcTemplate.execute("create table if not exists studio_runtime_idempotency (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer not null,deleted integer default 0," +
+                "created_at text,updated_at text,runtime_cluster_id integer,resource_type text not null,resource_id integer not null," +
+                "key_hash text not null,request_fingerprint text not null,status text not null,owner_token_hash text not null," +
+                "owner_instance_id text not null,owner_boot_id text not null,response_status integer,response_content_type text," +
+                "response_body_ciphertext text,completed_at text,version integer default 0)");
+        jdbcTemplate.execute("create unique index if not exists uk_runtime_idem_scope_key on studio_runtime_idempotency" +
+                "(tenant_id,project_id,resource_type,resource_id,key_hash)");
+        jdbcTemplate.execute("create index if not exists idx_runtime_idem_status_updated on studio_runtime_idempotency(status,updated_at)");
+        jdbcTemplate.execute("create table if not exists studio_project_runtime_cluster (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer not null,deleted integer default 0," +
+                "created_at text,updated_at text,runtime_cluster_id integer not null,enabled integer default 1,preferred integer default 0," +
+                "allow_manual_override integer default 0)");
+        jdbcTemplate.execute("create unique index if not exists uk_project_runtime_cluster on studio_project_runtime_cluster(tenant_id,project_id,runtime_cluster_id)");
+        jdbcTemplate.execute("create index if not exists idx_project_runtime_cluster_options on studio_project_runtime_cluster(tenant_id,project_id,enabled,preferred)");
+        jdbcTemplate.execute("create table if not exists datasource_cluster_binding (" +
+                "id integer primary key,tenant_id text default 'default',deleted integer default 0,created_at text,updated_at text," +
+                "datasource_id integer not null,runtime_cluster_id integer not null,enabled integer default 1)");
+        jdbcTemplate.execute("create unique index if not exists uk_datasource_cluster_binding on datasource_cluster_binding(tenant_id,datasource_id,runtime_cluster_id)");
+        jdbcTemplate.execute("create index if not exists idx_datasource_cluster_options on datasource_cluster_binding(tenant_id,runtime_cluster_id,enabled,datasource_id)");
+        jdbcTemplate.execute("create table if not exists studio_runtime_validation (" +
+                "id integer primary key,tenant_id text default 'default',project_id integer not null,deleted integer default 0," +
+                "created_at text,updated_at text,resource_type text not null,resource_id integer not null,runtime_cluster_id integer," +
+                "valid integer default 1,issue_code text,issue_message text,details_json text,validated_at text)");
+        jdbcTemplate.execute("create unique index if not exists uk_runtime_validation_resource on studio_runtime_validation(tenant_id,project_id,resource_type,resource_id)");
+        jdbcTemplate.execute("create index if not exists idx_runtime_validation_invalid on studio_runtime_validation(tenant_id,project_id,valid,resource_type)");
+    }
+
+    private void ensureRuntimeClusterColumnsSqlite() {
+        ensureColumnIfTableExists("datasource_connection_health", "runtime_cluster_id",
+                "alter table datasource_connection_health add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("datasource_connection_test_record", "runtime_cluster_id",
+                "alter table datasource_connection_test_record add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("model_sync_task", "runtime_cluster_id",
+                "alter table model_sync_task add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("collection_task_definition", "runtime_cluster_id",
+                "alter table collection_task_definition add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("quality_task_definition", "runtime_cluster_id",
+                "alter table quality_task_definition add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("workflow_definition", "runtime_cluster_id",
+                "alter table workflow_definition add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("workflow_definition_version", "runtime_cluster_id",
+                "alter table workflow_definition_version add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("data_dev_script", "runtime_cluster_id",
+                "alter table data_dev_script add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("data_service_definition", "runtime_cluster_id",
+                "alter table data_service_definition add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("data_ingestion_service", "runtime_cluster_id",
+                "alter table data_ingestion_service add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("protocol_conversion_service", "runtime_cluster_id",
+                "alter table protocol_conversion_service add column runtime_cluster_id integer");
+        ensureInvocationClusterColumnsSqlite("data_service_access_log");
+        ensureInvocationClusterColumnsSqlite("data_ingestion_access_log");
+        ensureInvocationClusterColumnsSqlite("protocol_conversion_access_log");
+        ensureColumnIfTableExists("dispatch_task", "target_cluster_id",
+                "alter table dispatch_task add column target_cluster_id integer");
+        ensureColumnIfTableExists("dispatch_task", "resource_revision",
+                "alter table dispatch_task add column resource_revision text");
+        ensureColumnIfTableExists("dispatch_task", "claim_token",
+                "alter table dispatch_task add column claim_token text");
+        ensureColumnIfTableExists("dispatch_task", "worker_boot_id",
+                "alter table dispatch_task add column worker_boot_id text");
+        ensureColumnIfTableExists("run_record", "requested_cluster_id",
+                "alter table run_record add column requested_cluster_id integer");
+        ensureColumnIfTableExists("run_record", "actual_cluster_id",
+                "alter table run_record add column actual_cluster_id integer");
+        ensureColumnIfTableExists("run_record", "actual_cluster_code",
+                "alter table run_record add column actual_cluster_code text");
+        ensureColumnIfTableExists("run_record", "worker_boot_id",
+                "alter table run_record add column worker_boot_id text");
+        ensureColumnIfTableExists("studio_alert_incident", "requested_cluster_id",
+                "alter table studio_alert_incident add column requested_cluster_id integer");
+        ensureColumnIfTableExists("studio_alert_incident", "actual_cluster_id",
+                "alter table studio_alert_incident add column actual_cluster_id integer");
+        ensureColumnIfTableExists("worker_lease", "runtime_cluster_id",
+                "alter table worker_lease add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("worker_lease", "runtime_cluster_code",
+                "alter table worker_lease add column runtime_cluster_code text");
+        ensureColumnIfTableExists("worker_lease", "boot_id",
+                "alter table worker_lease add column boot_id text");
+        ensureColumnIfTableExists("worker_lease", "runtime_version",
+                "alter table worker_lease add column runtime_version text");
+        ensureColumnIfTableExists("worker_lease", "plugin_fingerprint",
+                "alter table worker_lease add column plugin_fingerprint text");
+        if (tableExists("datasource_connection_health") &&
+                !indexMatchesColumns("datasource_connection_health", "uk_ds_conn_health_fp",
+                        "tenant_id", "runtime_cluster_id", "connection_fingerprint")) {
+            jdbcTemplate.execute("create unique index if not exists uk_ds_conn_health_legacy_fp " +
+                    "on datasource_connection_health(tenant_id,connection_fingerprint) where runtime_cluster_id is null");
+            jdbcTemplate.execute("drop index if exists uk_ds_conn_health_fp");
+            jdbcTemplate.execute("create unique index if not exists uk_ds_conn_health_fp on datasource_connection_health" +
+                    "(tenant_id,runtime_cluster_id,connection_fingerprint)");
+        }
+        ensureIndexIfTableExists("datasource_connection_health", "uk_ds_conn_health_legacy_fp",
+                "create unique index if not exists uk_ds_conn_health_legacy_fp on datasource_connection_health" +
+                        "(tenant_id,connection_fingerprint) where runtime_cluster_id is null");
+        ensureIndexIfTableExists("datasource_connection_test_record", "idx_ds_conn_record_cluster_lookup",
+                "create index if not exists idx_ds_conn_record_cluster_lookup on datasource_connection_test_record" +
+                        "(tenant_id,runtime_cluster_id,connection_fingerprint,ended_at)");
+        ensureIndexIfTableExists("model_sync_task", "idx_model_sync_task_project_cluster_status",
+                "create index if not exists idx_model_sync_task_project_cluster_status on model_sync_task" +
+                        "(project_id,runtime_cluster_id,status)");
+        ensureIndexIfTableExists("dispatch_task", "idx_dispatch_task_cluster_status_created",
+                "create index if not exists idx_dispatch_task_cluster_status_created on dispatch_task(target_cluster_id,status,created_at)");
+        ensureIndexIfTableExists("run_record", "idx_run_record_project_cluster_created",
+                "create index if not exists idx_run_record_project_cluster_created on run_record(project_id,requested_cluster_id,created_at)");
+        ensureIndexIfTableExists("studio_alert_incident", "idx_alert_incident_cluster",
+                "create index if not exists idx_alert_incident_cluster on studio_alert_incident" +
+                        "(project_id,requested_cluster_id,actual_cluster_id,last_triggered_at)");
+        ensureIndexIfTableExists("worker_lease", "idx_worker_lease_cluster_status",
+                "create index if not exists idx_worker_lease_cluster_status on worker_lease(runtime_cluster_id,status,last_heartbeat_at)");
+    }
+
+    private void ensureInvocationClusterColumnsSqlite(String tableName) {
+        ensureColumnIfTableExists(tableName, "requested_cluster_id",
+                "alter table " + tableName + " add column requested_cluster_id integer");
+        ensureColumnIfTableExists(tableName, "actual_cluster_id",
+                "alter table " + tableName + " add column actual_cluster_id integer");
+    }
+
+    private void ensureColumnIfTableExists(String tableName, String columnName, String ddl) {
+        if (tableExists(tableName)) {
+            ensureColumn(tableName, columnName, ddl);
+        }
+    }
+
+    private void ensureIndexIfTableExists(String tableName, String indexName, String ddl) {
+        if (tableExists(tableName)) {
+            ensureIndex(tableName, indexName, ddl);
+        }
     }
 
     private void ensureClusterLockTableMysql() {

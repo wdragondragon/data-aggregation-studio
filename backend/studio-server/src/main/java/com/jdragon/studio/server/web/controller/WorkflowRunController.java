@@ -31,13 +31,16 @@ public class WorkflowRunController {
     @GetMapping
     public Result<PageView<WorkflowRunSummaryView>> list(@RequestParam(value = "workflowDefinitionId", required = false) Long workflowDefinitionId,
                                                          @RequestParam(value = "status", required = false) String status,
+                                                         @RequestParam(value = "requestedClusterId", required = false) Long requestedClusterId,
+                                                         @RequestParam(value = "actualClusterId", required = false) Long actualClusterId,
                                                          @RequestParam(value = "startTime", required = false)
                                                          @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
                                                          @RequestParam(value = "endTime", required = false)
                                                          @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime,
                                                          @RequestParam(value = "pageNo", defaultValue = "1") Integer pageNo,
                                                          @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize) {
-        return Result.success(workflowRunService.list(workflowDefinitionId, status, startTime, endTime, pageNo, pageSize));
+        return Result.success(workflowRunService.list(workflowDefinitionId, status,
+                requestedClusterId, actualClusterId, startTime, endTime, pageNo, pageSize));
     }
 
     @Operation(summary = "Get workflow run detail")

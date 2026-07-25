@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AggregationRuntimeRegistryTest {
@@ -29,6 +31,20 @@ class AggregationRuntimeRegistryTest {
     void runtimeHandleKeepsLegacySerialVersionUid() {
         assertEquals(-4997852490667400347L,
                 ObjectStreamClass.lookup(AggregationRuntimeHandle.class).getSerialVersionUID());
+    }
+
+    @Test
+    void runtimeHandleSummaryDoesNotExposeCapabilityTokens() {
+        String localToken = "local-sensitive-runtime-token";
+        AggregationRuntimeHandle local = AggregationRuntimeHandle.local(localToken);
+        assertEquals(true, local.summary().startsWith("local-"));
+        assertEquals(false, local.summary().contains(localToken));
+
+        String remoteToken = "remote-sensitive-runtime-token";
+        AggregationRuntimeHandle remote = AggregationRuntimeHandle.remote(
+                "https://runtime.example.test", remoteToken);
+        assertEquals(true, remote.summary().startsWith("remote-"));
+        assertEquals(false, remote.summary().contains(remoteToken));
     }
 
     @Test
@@ -45,6 +61,7 @@ class AggregationRuntimeRegistryTest {
         String ref = AggregationFlinkRuntimeRegistry.register(runtime, 300);
         try {
             AggregationFlinkTableRuntimePayload payload = AggregationFlinkRuntimeRegistry.resolvePayload(ref);
+            assertNull(payload.getRuntimeRef());
             AggregationFlinkTableRuntime resolved = payload.toRuntime();
             assertEquals("mysql8", resolved.getPluginName());
             assertEquals("secret", resolved.getDataSourceDTO().getPassword());
@@ -64,7 +81,10 @@ class AggregationRuntimeRegistryTest {
 
     @Test
     void rejectsMissingRuntimeToken() {
-        assertThrows(IllegalStateException.class, () -> AggregationFlinkRuntimeRegistry.required("missing"));
+        String capability = "secret-missing-runtime-ref";
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> AggregationFlinkRuntimeRegistry.required(capability));
+        assertFalse(error.getMessage().contains(capability));
     }
 
     @Test
@@ -82,6 +102,7 @@ class AggregationRuntimeRegistryTest {
     void serializesRemoteRuntimeStateAndKeepsAuditWorking() throws Exception {
         AggregationFlinkTableRuntime baseRuntime = new AggregationFlinkTableRuntime();
         baseRuntime.setPluginName("http");
+        baseRuntime.setRuntimeRef("payload-runtime-secret");
         Map<String, Object> modelMetadata = new LinkedHashMap<String, Object>();
         modelMetadata.put("readerOptions", Collections.singletonMap("header",
                 "{\"Authorization\":\"Bearer remote-secret\"}"));
@@ -91,12 +112,18 @@ class AggregationRuntimeRegistryTest {
         baseRuntime.setDataSourceDTO(dataSourceDTO);
         baseRuntime.setHttpFilterAlwaysFalse(true);
         AtomicReference<JsonNode> auditRequest = new AtomicReference<JsonNode>();
+        AtomicReference<String> resolveCapability = new AtomicReference<String>();
+        AtomicReference<String> auditCapability = new AtomicReference<String>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/flink/runtime/resolve", exchange -> {
+            resolveCapability.set(exchange.getRequestHeaders().getFirst(
+                    AggregationFlinkRuntimeRegistry.CAPABILITY_TOKEN_HEADER));
             exchange.getRequestBody().readAllBytes();
             respond(exchange, successBody(AggregationFlinkTableRuntimePayload.fromRuntime(baseRuntime)));
         });
         server.createContext("/api/flink/runtime/audit", exchange -> {
+            auditCapability.set(exchange.getRequestHeaders().getFirst(
+                    AggregationFlinkRuntimeRegistry.CAPABILITY_TOKEN_HEADER));
             auditRequest.set(OBJECT_MAPPER.readTree(exchange.getRequestBody()));
             respond(exchange, successBody(Boolean.TRUE));
         });
@@ -105,6 +132,7 @@ class AggregationRuntimeRegistryTest {
             AggregationRuntimeHandle handle = AggregationRuntimeHandle.remote(
                     "http://127.0.0.1:" + server.getAddress().getPort(), "runtime-token");
             AggregationFlinkTableRuntime planned = AggregationRuntimeResolver.resolve(handle);
+            assertNull(planned.getRuntimeRef());
             assertEquals(false, planned.isHttpFilterAlwaysFalse());
             planned.setPushedFilters(Collections.singletonList("customer_id = 'C001'"));
             planned.setHttpPushdownFilters(Collections.singletonList(
@@ -121,7 +149,10 @@ class AggregationRuntimeRegistryTest {
 
             resolved.addResolvedSourceSql("SELECT * FROM remote_http");
             AggregationRuntimeResolver.updateAudit(restored, resolved);
-            assertEquals("runtime-token", auditRequest.get().path("token").asText());
+            assertEquals("runtime-token", resolveCapability.get());
+            assertEquals("runtime-token", auditCapability.get());
+            assertFalse(auditRequest.get().has("token"));
+            assertFalse(auditRequest.get().path("runtime").hasNonNull("runtimeRef"));
             assertEquals("C001", auditRequest.get().path("runtime")
                     .path("httpPushdownFilters").path(0).path("values").path(0).asText());
             assertEquals(true, auditRequest.get().path("runtime").path("httpFilterAlwaysFalse").asBoolean());

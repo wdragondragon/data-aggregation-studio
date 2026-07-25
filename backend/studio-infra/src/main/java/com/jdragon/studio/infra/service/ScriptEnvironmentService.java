@@ -257,7 +257,6 @@ public class ScriptEnvironmentService {
         if (runtimeService != null) {
             runtimeService.clearEnvironment(environmentId);
         }
-        JavaDataDevelopmentExecutor.clearCompiledCache(environmentId, null);
     }
 
     private void saveRelations(Long environmentId, List<Long> dependencyIds) {

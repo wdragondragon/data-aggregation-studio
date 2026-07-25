@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 
 @Data
 public class DatasourceConnectionTestRecordView {
+    private Long runtimeClusterId;
     private DataSourceConnectionStatus status;
     private LocalDateTime testedAt;
     private LocalDateTime startedAt;

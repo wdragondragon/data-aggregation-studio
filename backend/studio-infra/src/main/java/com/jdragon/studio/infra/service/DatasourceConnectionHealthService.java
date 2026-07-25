@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
+import com.jdragon.studio.dto.model.DatasourceClusterHealthView;
+import com.jdragon.studio.dto.model.RuntimeClusterView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTestRecordView;
 import com.jdragon.studio.dto.model.dto.DatasourceConnectionTrendPointView;
@@ -112,11 +114,16 @@ public class DatasourceConnectionHealthService {
 
     @Transactional
     public void ensureHealthRow(String tenantId, String fingerprint) {
-        if (!hasText(tenantId) || !hasText(fingerprint) || selectHealth(tenantId, fingerprint) != null) {
+        ensureHealthRow(tenantId, null, fingerprint);
+    }
+    @Transactional
+    public void ensureHealthRow(String tenantId, Long runtimeClusterId, String fingerprint) {
+        if (!hasText(tenantId) || !hasText(fingerprint) || selectHealth(tenantId, runtimeClusterId, fingerprint) != null) {
             return;
         }
         DatasourceConnectionHealthEntity entity = new DatasourceConnectionHealthEntity();
         entity.setTenantId(tenantId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setConnectionFingerprint(fingerprint);
         entity.setConnectionStatus(DataSourceConnectionStatus.UNKNOWN.name());
         entity.setProbeState(PROBE_STATE_IDLE);
@@ -154,6 +161,7 @@ public class DatasourceConnectionHealthService {
         for (Map.Entry<String, Set<String>> entry : fingerprintsByTenant.entrySet()) {
             List<DatasourceConnectionHealthEntity> healthItems = healthMapper.selectList(new LambdaQueryWrapper<DatasourceConnectionHealthEntity>()
                     .eq(DatasourceConnectionHealthEntity::getTenantId, entry.getKey())
+                    .isNull(DatasourceConnectionHealthEntity::getRuntimeClusterId)
                     .in(DatasourceConnectionHealthEntity::getConnectionFingerprint, entry.getValue()));
             for (DatasourceConnectionHealthEntity health : healthItems) {
                 healthByKey.put(healthKey(health.getTenantId(), health.getConnectionFingerprint()), health);
@@ -214,6 +222,7 @@ public class DatasourceConnectionHealthService {
                             DatasourceConnectionHealthEntity::getProbeLeaseUntil,
                             DatasourceConnectionHealthEntity::getNextProbeAt)
                     .eq(DatasourceConnectionHealthEntity::getTenantId, entry.getKey())
+                    .isNull(DatasourceConnectionHealthEntity::getRuntimeClusterId)
                     .in(DatasourceConnectionHealthEntity::getConnectionFingerprint, entry.getValue()));
             for (DatasourceConnectionHealthEntity health : healthItems) {
                 healthByKey.put(healthKey(health.getTenantId(), health.getConnectionFingerprint()), health);
@@ -240,33 +249,102 @@ public class DatasourceConnectionHealthService {
         }
     }
 
+    public void hydrateClusterHealth(List<DataSourceListView> views) {
+        if (views == null || views.isEmpty()) {
+            return;
+        }
+        Map<String, Set<String>> fingerprintsByTenant = new LinkedHashMap<String, Set<String>>();
+        Set<Long> clusterIds = new LinkedHashSet<Long>();
+        for (DataSourceListView view : views) {
+            if (view == null || !hasText(view.getTenantId()) || !hasText(view.getConnectionFingerprint())) {
+                continue;
+            }
+            Set<String> fingerprints = fingerprintsByTenant.get(view.getTenantId());
+            if (fingerprints == null) {
+                fingerprints = new LinkedHashSet<String>();
+                fingerprintsByTenant.put(view.getTenantId(), fingerprints);
+            }
+            fingerprints.add(view.getConnectionFingerprint());
+            for (RuntimeClusterView cluster : view.getApplicableClusters()) {
+                if (cluster != null && cluster.getId() != null) {
+                    clusterIds.add(cluster.getId());
+                }
+            }
+        }
+        Map<String, DatasourceConnectionHealthEntity> healthByKey = new LinkedHashMap<String, DatasourceConnectionHealthEntity>();
+        if (!clusterIds.isEmpty()) {
+            for (Map.Entry<String, Set<String>> entry : fingerprintsByTenant.entrySet()) {
+                List<DatasourceConnectionHealthEntity> healthItems = healthMapper.selectList(
+                        new LambdaQueryWrapper<DatasourceConnectionHealthEntity>()
+                                .eq(DatasourceConnectionHealthEntity::getTenantId, entry.getKey())
+                                .in(DatasourceConnectionHealthEntity::getRuntimeClusterId, clusterIds)
+                                .in(DatasourceConnectionHealthEntity::getConnectionFingerprint, entry.getValue()));
+                for (DatasourceConnectionHealthEntity health : healthItems) {
+                    healthByKey.put(clusterHealthKey(health.getTenantId(), health.getRuntimeClusterId(),
+                            health.getConnectionFingerprint()), health);
+                }
+            }
+        }
+        for (DataSourceListView view : views) {
+            List<DatasourceClusterHealthView> items = new ArrayList<DatasourceClusterHealthView>();
+            for (RuntimeClusterView cluster : view.getApplicableClusters()) {
+                if (cluster == null || cluster.getId() == null) {
+                    continue;
+                }
+                DatasourceClusterHealthView item = new DatasourceClusterHealthView();
+                item.setRuntimeClusterId(cluster.getId());
+                item.setRuntimeClusterCode(cluster.getCode());
+                item.setRuntimeClusterName(cluster.getName());
+                DatasourceConnectionHealthEntity health = healthByKey.get(clusterHealthKey(
+                        view.getTenantId(), cluster.getId(), view.getConnectionFingerprint()));
+                if (health != null) {
+                    item.setConnectionStatus(parseStatus(health.getConnectionStatus()));
+                    item.setLastConnectionTestAt(health.getLastConnectionTestAt());
+                    item.setLastConnectionTestMessage(safeMessage(health.getLastConnectionTestMessage()));
+                    item.setLastConnectionTestDurationMs(health.getLastConnectionTestDurationMs());
+                    item.setConnectionTesting(isRunning(health, LocalDateTime.now()));
+                    item.setConnectionStale(isStale(health));
+                    item.setNextConnectionProbeAt(health.getNextProbeAt());
+                }
+                items.add(item);
+            }
+            view.setClusterHealth(items);
+        }
+    }
+
     public ConnectionTestResult runManualProbe(DataSourceDefinition definition,
                                                Callable<ConnectionTestResult> probe,
                                                int timeoutSeconds) {
+        return runManualProbe(definition, null, probe, timeoutSeconds);
+    }
+
+    /** Health rows are isolated by runtime cluster; null is readable only for historical migration records. */
+    public ConnectionTestResult runManualProbe(DataSourceDefinition definition, Long runtimeClusterId,
+                                               Callable<ConnectionTestResult> probe, int timeoutSeconds) {
         String tenantId = definition.getTenantId();
         String fingerprint = definition.getConnectionFingerprint();
-        ensureHealthRow(tenantId, fingerprint);
+        ensureHealthRow(tenantId, runtimeClusterId, fingerprint);
         String runId = IdWorker.getIdStr();
-        if (!claimProbe(tenantId, fingerprint, runId, timeoutSeconds, PROBE_MODE_MANUAL)) {
-            return waitForRunningProbe(tenantId, fingerprint);
+        if (!claimProbe(tenantId, runtimeClusterId, fingerprint, runId, timeoutSeconds, PROBE_MODE_MANUAL)) {
+            return waitForRunningProbe(tenantId, runtimeClusterId, fingerprint);
         }
         boolean capacityAcquired = false;
         try {
             if (!tryAcquireCapacity(PROBE_MODE_MANUAL)) {
-                releaseProbeLease(tenantId, fingerprint, runId);
-                return busyResult(tenantId, fingerprint, "Manual connection test is busy, please retry later");
+                releaseProbeLease(tenantId, runtimeClusterId, fingerprint, runId);
+                return busyResult(tenantId, runtimeClusterId, fingerprint, "Manual connection test is busy, please retry later");
             }
             capacityAcquired = true;
             ProbeExecution execution = executeWithTimeout(manualProbeExecutor, probe, timeoutSeconds);
-            ConnectionTestResult result = finishProbe(definition, runId, PROBE_MODE_MANUAL, timeoutSeconds, execution, execution.timedOut);
+            ConnectionTestResult result = finishProbe(definition, runtimeClusterId, runId, PROBE_MODE_MANUAL, timeoutSeconds, execution, execution.timedOut);
             if (execution.timedOut) {
-                releaseProbeAndCapacityWhenTaskCompletes(execution.future, tenantId, fingerprint, runId, PROBE_MODE_MANUAL, timeoutSeconds);
+                releaseProbeAndCapacityWhenTaskCompletes(execution.future, tenantId, runtimeClusterId, fingerprint, runId, PROBE_MODE_MANUAL, timeoutSeconds);
                 capacityAcquired = false;
             }
             return result;
         } catch (TaskRejectedException e) {
-            releaseProbeLease(tenantId, fingerprint, runId);
-            return busyResult(tenantId, fingerprint, "Manual connection test is busy, please retry later");
+            releaseProbeLease(tenantId, runtimeClusterId, fingerprint, runId);
+            return busyResult(tenantId, runtimeClusterId, fingerprint, "Manual connection test is busy, please retry later");
         } finally {
             if (capacityAcquired) {
                 releaseCapacity(PROBE_MODE_MANUAL);
@@ -315,14 +393,18 @@ public class DatasourceConnectionHealthService {
     public void submitScheduledProbe(final DataSourceDefinition definition,
                                      final Callable<ConnectionTestResult> probe,
                                      final int timeoutSeconds) {
+        submitScheduledProbe(definition, null, probe, timeoutSeconds);
+    }
+    public void submitScheduledProbe(final DataSourceDefinition definition, final Long runtimeClusterId,
+                                     final Callable<ConnectionTestResult> probe, final int timeoutSeconds) {
         final String tenantId = definition.getTenantId();
         final String fingerprint = definition.getConnectionFingerprint();
-        ensureHealthRow(tenantId, fingerprint);
+        ensureHealthRow(tenantId, runtimeClusterId, fingerprint);
         if (!tryAcquireCapacity(PROBE_MODE_SCHEDULED)) {
             return;
         }
         final String runId = IdWorker.getIdStr();
-        if (!claimProbe(tenantId, fingerprint, runId, timeoutSeconds, PROBE_MODE_SCHEDULED)) {
+        if (!claimProbe(tenantId, runtimeClusterId, fingerprint, runId, timeoutSeconds, PROBE_MODE_SCHEDULED)) {
             releaseCapacity(PROBE_MODE_SCHEDULED);
             return;
         }
@@ -335,10 +417,11 @@ public class DatasourceConnectionHealthService {
                 public void run() {
                     try {
                         ProbeExecution execution = waitForFuture(future, startedAt, startedNanos, timeoutSeconds);
-                        finishProbe(definition, runId, PROBE_MODE_SCHEDULED, timeoutSeconds, execution, execution.timedOut);
+                        finishProbe(definition, runtimeClusterId, runId, PROBE_MODE_SCHEDULED, timeoutSeconds, execution, execution.timedOut);
                         if (execution.timedOut) {
-                            waitForTaskCompletionAndExtendLease(future, tenantId, fingerprint, runId, timeoutSeconds);
-                            releaseProbeLease(tenantId, fingerprint, runId);
+                            waitForTaskCompletionAndExtendLease(future, tenantId, runtimeClusterId,
+                                    fingerprint, runId, timeoutSeconds);
+                            releaseProbeLease(tenantId, runtimeClusterId, fingerprint, runId);
                         }
                     } finally {
                         releaseCapacity(PROBE_MODE_SCHEDULED);
@@ -348,13 +431,16 @@ public class DatasourceConnectionHealthService {
             watcher.setDaemon(true);
             watcher.start();
         } catch (TaskRejectedException e) {
-            releaseProbeLease(tenantId, fingerprint, runId);
+            releaseProbeLease(tenantId, runtimeClusterId, fingerprint, runId);
             releaseCapacity(PROBE_MODE_SCHEDULED);
         }
     }
 
     public boolean scheduledDue(String tenantId, String fingerprint) {
-        DatasourceConnectionHealthEntity health = selectHealth(tenantId, fingerprint);
+        return scheduledDue(tenantId, null, fingerprint);
+    }
+    public boolean scheduledDue(String tenantId, Long runtimeClusterId, String fingerprint) {
+        DatasourceConnectionHealthEntity health = selectHealth(tenantId, runtimeClusterId, fingerprint);
         if (health == null) {
             return true;
         }
@@ -369,6 +455,10 @@ public class DatasourceConnectionHealthService {
                                                             String fingerprint,
                                                             Integer days,
                                                             Integer limit) {
+        return history(tenantId, null, fingerprint, days, limit);
+    }
+    public List<DatasourceConnectionTestRecordView> history(String tenantId, Long runtimeClusterId,
+                                                            String fingerprint, Integer days, Integer limit) {
         if (!hasText(tenantId) || !hasText(fingerprint)) {
             return new ArrayList<DatasourceConnectionTestRecordView>();
         }
@@ -377,6 +467,8 @@ public class DatasourceConnectionHealthService {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(safeDays);
         List<DatasourceConnectionTestRecordEntity> records = recordMapper.selectList(new LambdaQueryWrapper<DatasourceConnectionTestRecordEntity>()
                 .eq(DatasourceConnectionTestRecordEntity::getTenantId, tenantId)
+                .eq(runtimeClusterId != null, DatasourceConnectionTestRecordEntity::getRuntimeClusterId, runtimeClusterId)
+                .isNull(runtimeClusterId == null, DatasourceConnectionTestRecordEntity::getRuntimeClusterId)
                 .eq(DatasourceConnectionTestRecordEntity::getConnectionFingerprint, fingerprint)
                 .ge(DatasourceConnectionTestRecordEntity::getEndedAt, cutoff)
                 .orderByDesc(DatasourceConnectionTestRecordEntity::getEndedAt)
@@ -422,7 +514,12 @@ public class DatasourceConnectionHealthService {
     }
 
     @Transactional
-    protected ConnectionTestResult finishProbe(DataSourceDefinition definition,
+    protected ConnectionTestResult finishProbe(DataSourceDefinition definition, String runId, String probeMode,
+                                               int timeoutSeconds, ProbeExecution execution, boolean keepProbeRunning) {
+        return finishProbe(definition, null, runId, probeMode, timeoutSeconds, execution, keepProbeRunning);
+    }
+    @Transactional
+    protected ConnectionTestResult finishProbe(DataSourceDefinition definition, Long runtimeClusterId,
                                                String runId,
                                                String probeMode,
                                                int timeoutSeconds,
@@ -430,13 +527,15 @@ public class DatasourceConnectionHealthService {
                                                boolean keepProbeRunning) {
         ConnectionTestResult result = execution.result;
         DataSourceConnectionStatus status = resolveStatus(result);
-        DatasourceConnectionHealthEntity current = selectHealth(definition.getTenantId(), definition.getConnectionFingerprint());
+        DatasourceConnectionHealthEntity current = selectHealth(definition.getTenantId(), runtimeClusterId, definition.getConnectionFingerprint());
         int nextFailureCount = status == DataSourceConnectionStatus.AVAILABLE
                 ? 0
                 : (current == null || current.getFailureCount() == null ? 0 : current.getFailureCount().intValue()) + 1;
         LocalDateTime nextProbeAt = nextProbeAt(status, nextFailureCount, execution.endedAt);
         LambdaUpdateWrapper<DatasourceConnectionHealthEntity> updateWrapper = new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
                 .eq(DatasourceConnectionHealthEntity::getTenantId, definition.getTenantId())
+                .eq(runtimeClusterId != null, DatasourceConnectionHealthEntity::getRuntimeClusterId, runtimeClusterId)
+                .isNull(runtimeClusterId == null, DatasourceConnectionHealthEntity::getRuntimeClusterId)
                 .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, definition.getConnectionFingerprint())
                 .eq(DatasourceConnectionHealthEntity::getProbeRunId, runId)
                 .set(DatasourceConnectionHealthEntity::getConnectionStatus, status.name())
@@ -456,7 +555,7 @@ public class DatasourceConnectionHealthService {
         }
         int updated = healthMapper.update(null, updateWrapper);
         if (updated > 0) {
-            insertHistory(definition, runId, probeMode, timeoutSeconds, status, execution);
+            insertHistory(definition, runtimeClusterId, runId, probeMode, timeoutSeconds, status, execution);
             result.setStatus(status);
             result.setLastTestAt(execution.endedAt);
             result.setNextProbeAt(nextProbeAt);
@@ -464,13 +563,13 @@ public class DatasourceConnectionHealthService {
             result.setTesting(keepProbeRunning);
             result.setStale(false);
             result.setBusy(false);
-            result.setRecentConnectionTests(history(definition.getTenantId(), definition.getConnectionFingerprint(), 7, recentLimit()));
+            result.setRecentConnectionTests(history(definition.getTenantId(), runtimeClusterId, definition.getConnectionFingerprint(), 7, recentLimit()));
             return result;
         }
-        return snapshotResult(definition.getTenantId(), definition.getConnectionFingerprint(), true);
+        return snapshotResult(definition.getTenantId(), runtimeClusterId, definition.getConnectionFingerprint(), true);
     }
 
-    private void insertHistory(DataSourceDefinition definition,
+    private void insertHistory(DataSourceDefinition definition, Long runtimeClusterId,
                                String runId,
                                String probeMode,
                                int timeoutSeconds,
@@ -478,6 +577,7 @@ public class DatasourceConnectionHealthService {
                                ProbeExecution execution) {
         DatasourceConnectionTestRecordEntity record = new DatasourceConnectionTestRecordEntity();
         record.setTenantId(definition.getTenantId());
+        record.setRuntimeClusterId(runtimeClusterId);
         record.setConnectionFingerprint(definition.getConnectionFingerprint());
         record.setDatasourceId(definition.getId());
         record.setDatasourceName(definition.getName());
@@ -498,10 +598,15 @@ public class DatasourceConnectionHealthService {
     }
 
     private boolean claimProbe(String tenantId, String fingerprint, String runId, int timeoutSeconds, String probeMode) {
+        return claimProbe(tenantId, null, fingerprint, runId, timeoutSeconds, probeMode);
+    }
+    private boolean claimProbe(String tenantId, Long runtimeClusterId, String fingerprint, String runId, int timeoutSeconds, String probeMode) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime leaseUntil = now.plusSeconds(Math.max(1, timeoutSeconds) + 30L);
         int updated = healthMapper.update(null, new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
                 .eq(DatasourceConnectionHealthEntity::getTenantId, tenantId)
+                .eq(runtimeClusterId != null, DatasourceConnectionHealthEntity::getRuntimeClusterId, runtimeClusterId)
+                .isNull(runtimeClusterId == null, DatasourceConnectionHealthEntity::getRuntimeClusterId)
                 .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, fingerprint)
                 .and(wrapper -> wrapper.ne(DatasourceConnectionHealthEntity::getProbeState, PROBE_STATE_RUNNING)
                         .or()
@@ -516,9 +621,12 @@ public class DatasourceConnectionHealthService {
         return updated > 0;
     }
 
-    private void releaseProbeLease(String tenantId, String fingerprint, String runId) {
+    private void releaseProbeLease(String tenantId, String fingerprint, String runId) { releaseProbeLease(tenantId, null, fingerprint, runId); }
+    private void releaseProbeLease(String tenantId, Long runtimeClusterId, String fingerprint, String runId) {
         healthMapper.update(null, new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
                 .eq(DatasourceConnectionHealthEntity::getTenantId, tenantId)
+                .eq(runtimeClusterId != null, DatasourceConnectionHealthEntity::getRuntimeClusterId, runtimeClusterId)
+                .isNull(runtimeClusterId == null, DatasourceConnectionHealthEntity::getRuntimeClusterId)
                 .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, fingerprint)
                 .eq(DatasourceConnectionHealthEntity::getProbeRunId, runId)
                 .set(DatasourceConnectionHealthEntity::getProbeState, PROBE_STATE_IDLE)
@@ -534,13 +642,22 @@ public class DatasourceConnectionHealthService {
                                                           final String runId,
                                                           final String probeMode,
                                                           final int timeoutSeconds) {
+        releaseProbeAndCapacityWhenTaskCompletes(future, tenantId, null, fingerprint, runId, probeMode, timeoutSeconds);
+    }
+    private void releaseProbeAndCapacityWhenTaskCompletes(final Future<ConnectionTestResult> future,
+                                                          final String tenantId, final Long runtimeClusterId,
+                                                          final String fingerprint,
+                                                          final String runId,
+                                                          final String probeMode,
+                                                          final int timeoutSeconds) {
         Thread watcher = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    waitForTaskCompletionAndExtendLease(future, tenantId, fingerprint, runId, timeoutSeconds);
+                    waitForTaskCompletionAndExtendLease(future, tenantId, runtimeClusterId,
+                            fingerprint, runId, timeoutSeconds);
                     if (hasText(tenantId) && hasText(fingerprint) && hasText(runId)) {
-                        releaseProbeLease(tenantId, fingerprint, runId);
+                        releaseProbeLease(tenantId, runtimeClusterId, fingerprint, runId);
                     }
                 } finally {
                     releaseCapacity(probeMode);
@@ -556,6 +673,15 @@ public class DatasourceConnectionHealthService {
                                                      String fingerprint,
                                                      String runId,
                                                      int timeoutSeconds) {
+        waitForTaskCompletionAndExtendLease(future, tenantId, null, fingerprint, runId, timeoutSeconds);
+    }
+
+    private void waitForTaskCompletionAndExtendLease(Future<ConnectionTestResult> future,
+                                                     String tenantId,
+                                                     Long runtimeClusterId,
+                                                     String fingerprint,
+                                                     String runId,
+                                                     int timeoutSeconds) {
         if (future == null) {
             return;
         }
@@ -565,7 +691,7 @@ public class DatasourceConnectionHealthService {
                 future.get(waitSeconds, TimeUnit.SECONDS);
                 return;
             } catch (TimeoutException e) {
-                extendProbeLease(tenantId, fingerprint, runId, timeoutSeconds);
+                extendProbeLease(tenantId, runtimeClusterId, fingerprint, runId, timeoutSeconds);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -576,30 +702,39 @@ public class DatasourceConnectionHealthService {
     }
 
     private void extendProbeLease(String tenantId, String fingerprint, String runId, int timeoutSeconds) {
+        extendProbeLease(tenantId, null, fingerprint, runId, timeoutSeconds);
+    }
+
+    private void extendProbeLease(String tenantId, Long runtimeClusterId, String fingerprint,
+                                  String runId, int timeoutSeconds) {
         if (!hasText(tenantId) || !hasText(fingerprint) || !hasText(runId)) {
             return;
         }
         healthMapper.update(null, new LambdaUpdateWrapper<DatasourceConnectionHealthEntity>()
                 .eq(DatasourceConnectionHealthEntity::getTenantId, tenantId)
+                .eq(runtimeClusterId != null, DatasourceConnectionHealthEntity::getRuntimeClusterId, runtimeClusterId)
+                .isNull(runtimeClusterId == null, DatasourceConnectionHealthEntity::getRuntimeClusterId)
                 .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, fingerprint)
                 .eq(DatasourceConnectionHealthEntity::getProbeRunId, runId)
                 .set(DatasourceConnectionHealthEntity::getProbeLeaseUntil, nextLeaseUntil(timeoutSeconds)));
     }
 
-    private ConnectionTestResult waitForRunningProbe(String tenantId, String fingerprint) {
+    private ConnectionTestResult waitForRunningProbe(String tenantId, String fingerprint) { return waitForRunningProbe(tenantId, null, fingerprint); }
+    private ConnectionTestResult waitForRunningProbe(String tenantId, Long runtimeClusterId, String fingerprint) {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(manualWaitRunningSeconds());
         while (System.nanoTime() < deadline) {
-            DatasourceConnectionHealthEntity health = selectHealth(tenantId, fingerprint);
+            DatasourceConnectionHealthEntity health = selectHealth(tenantId, runtimeClusterId, fingerprint);
             if (!isRunning(health, LocalDateTime.now())) {
-                return snapshotResult(tenantId, fingerprint, false);
+                return snapshotResult(tenantId, runtimeClusterId, fingerprint, false);
             }
             sleepQuietly(200L);
         }
-        return snapshotResult(tenantId, fingerprint, true);
+        return snapshotResult(tenantId, runtimeClusterId, fingerprint, true);
     }
 
-    private ConnectionTestResult snapshotResult(String tenantId, String fingerprint, boolean testing) {
-        DatasourceConnectionHealthEntity health = selectHealth(tenantId, fingerprint);
+    private ConnectionTestResult snapshotResult(String tenantId, String fingerprint, boolean testing) { return snapshotResult(tenantId, null, fingerprint, testing); }
+    private ConnectionTestResult snapshotResult(String tenantId, Long runtimeClusterId, String fingerprint, boolean testing) {
+        DatasourceConnectionHealthEntity health = selectHealth(tenantId, runtimeClusterId, fingerprint);
         ConnectionTestResult result = new ConnectionTestResult();
         DataSourceConnectionStatus status = parseStatus(health == null ? null : health.getConnectionStatus());
         result.setStatus(status);
@@ -611,12 +746,13 @@ public class DatasourceConnectionHealthService {
         result.setTesting(testing);
         result.setBusy(false);
         result.setStale(isStale(health));
-        result.setRecentConnectionTests(history(tenantId, fingerprint, 7, recentLimit()));
+        result.setRecentConnectionTests(history(tenantId, runtimeClusterId, fingerprint, 7, recentLimit()));
         return result;
     }
 
-    private ConnectionTestResult busyResult(String tenantId, String fingerprint, String message) {
-        ConnectionTestResult result = snapshotResult(tenantId, fingerprint, false);
+    private ConnectionTestResult busyResult(String tenantId, String fingerprint, String message) { return busyResult(tenantId, null, fingerprint, message); }
+    private ConnectionTestResult busyResult(String tenantId, Long runtimeClusterId, String fingerprint, String message) {
+        ConnectionTestResult result = snapshotResult(tenantId, runtimeClusterId, fingerprint, false);
         result.setBusy(true);
         result.setMessage(message);
         return result;
@@ -733,11 +869,16 @@ public class DatasourceConnectionHealthService {
     }
 
     private DatasourceConnectionHealthEntity selectHealth(String tenantId, String fingerprint) {
+        return selectHealth(tenantId, null, fingerprint);
+    }
+    private DatasourceConnectionHealthEntity selectHealth(String tenantId, Long runtimeClusterId, String fingerprint) {
         if (!hasText(tenantId) || !hasText(fingerprint)) {
             return null;
         }
         return healthMapper.selectOne(new LambdaQueryWrapper<DatasourceConnectionHealthEntity>()
                 .eq(DatasourceConnectionHealthEntity::getTenantId, tenantId)
+                .eq(runtimeClusterId != null, DatasourceConnectionHealthEntity::getRuntimeClusterId, runtimeClusterId)
+                .isNull(runtimeClusterId == null, DatasourceConnectionHealthEntity::getRuntimeClusterId)
                 .eq(DatasourceConnectionHealthEntity::getConnectionFingerprint, fingerprint)
                 .last("limit 1"));
     }
@@ -779,6 +920,7 @@ public class DatasourceConnectionHealthService {
     private DatasourceConnectionTestRecordView toView(DatasourceConnectionTestRecordEntity record) {
         DatasourceConnectionTestRecordView view = new DatasourceConnectionTestRecordView();
         view.setStatus(parseStatus(record.getConnectionStatus()));
+        view.setRuntimeClusterId(record.getRuntimeClusterId());
         view.setStartedAt(record.getStartedAt());
         view.setEndedAt(record.getEndedAt());
         view.setTestedAt(record.getEndedAt());
@@ -908,6 +1050,11 @@ public class DatasourceConnectionHealthService {
 
     private String healthKey(String tenantId, String fingerprint) {
         return (tenantId == null ? "" : tenantId) + "\n" + (fingerprint == null ? "" : fingerprint);
+    }
+
+    private String clusterHealthKey(String tenantId, Long runtimeClusterId, String fingerprint) {
+        return (tenantId == null ? "" : tenantId) + "\n" + runtimeClusterId + "\n"
+                + (fingerprint == null ? "" : fingerprint);
     }
 
     private String truncate(String message) {

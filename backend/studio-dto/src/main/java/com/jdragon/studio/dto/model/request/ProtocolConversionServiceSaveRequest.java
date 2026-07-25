@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.ProtocolConversionFixedField;
 import com.jdragon.studio.dto.model.TransformerBinding;
 import com.jdragon.studio.dto.model.WebServiceConfig;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -17,6 +18,8 @@ import java.util.Map;
 
 @Data
 public class ProtocolConversionServiceSaveRequest {
+    @NotNull(message = "Runtime cluster is required")
+    private Long runtimeClusterId;
     private Long id;
 
     @NotBlank

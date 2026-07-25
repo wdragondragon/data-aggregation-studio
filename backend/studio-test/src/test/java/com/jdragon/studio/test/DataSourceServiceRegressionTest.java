@@ -1,7 +1,9 @@
 package com.jdragon.studio.test;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
@@ -16,10 +18,9 @@ import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeDatasourceProbeRouter;
 import com.jdragon.studio.infra.service.StudioSecurityService;
-import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
-import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -44,14 +45,14 @@ class DataSourceServiceRegressionTest {
     @BeforeAll
     static void initMybatisPlusTableInfo() {
         if (TableInfoHelper.getTableInfo(DatasourceEntity.class) == null) {
-            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DatasourceEntity.class);
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), DatasourceEntity.class);
         }
     }
 
     @Test
     void shouldTestConnectionUsingCurrentFormMetadataAndPreserveMaskedSensitiveValues() {
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        AggregationSourceCapabilityProvider capabilityProvider = mock(AggregationSourceCapabilityProvider.class);
+        RuntimeDatasourceProbeRouter probeRouter = mock(RuntimeDatasourceProbeRouter.class);
         MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
         EncryptionService encryptionService = mock(EncryptionService.class);
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
@@ -73,7 +74,8 @@ class DataSourceServiceRegressionTest {
         ConnectionTestResult expected = new ConnectionTestResult();
         expected.setSuccess(true);
         expected.setMessage("Connection success");
-        when(capabilityProvider.testConnection(any(DataSourceDefinition.class))).thenReturn(expected);
+        when(probeRouter.test(any(DataSourceDefinition.class), eq(46L),
+                eq(RuntimeDatasourceProbeMode.DRAFT_FORM))).thenReturn(expected);
         when(datasourceConnectionHealthService.effectiveManualTimeout(any(DataSourceDefinition.class))).thenReturn(30);
         when(datasourceConnectionHealthService.runCurrentFormProbe(any(Callable.class), eq(30))).thenAnswer(invocation ->
                 ((Callable<ConnectionTestResult>) invocation.getArgument(0)).call());
@@ -82,7 +84,6 @@ class DataSourceServiceRegressionTest {
                 datasourceMapper,
                 mock(DataModelMapper.class),
                 encryptionService,
-                capabilityProvider,
                 metadataSchemaService,
                 mock(DataModelIndexRebuildQueueService.class),
                 businessMetaModelMetadataService,
@@ -92,6 +93,7 @@ class DataSourceServiceRegressionTest {
                 mock(DatasourceConnectionFingerprintService.class),
                 datasourceConnectionHealthService
         );
+        service.setRuntimeDatasourceProbeRouter(probeRouter);
 
         DataSourceSaveRequest request = new DataSourceSaveRequest();
         request.setId(11L);
@@ -105,12 +107,13 @@ class DataSourceServiceRegressionTest {
         request.setTechnicalMetadata(requestMetadata);
         request.setBusinessMetadata(new LinkedHashMap<String, Object>());
 
-        ConnectionTestResult actual = service.testConnection(request);
+        ConnectionTestResult actual = service.testConnection(request, 46L);
 
         assertThat(actual).isSameAs(expected);
 
         ArgumentCaptor<DataSourceDefinition> captor = ArgumentCaptor.forClass(DataSourceDefinition.class);
-        verify(capabilityProvider).testConnection(captor.capture());
+        verify(probeRouter).test(captor.capture(), eq(46L),
+                eq(RuntimeDatasourceProbeMode.DRAFT_FORM));
         assertThat(captor.getValue().getTechnicalMetadata())
                 .containsEntry("host", "192.168.188.129")
                 .containsEntry("password", "ENC(cipher)");
@@ -120,12 +123,13 @@ class DataSourceServiceRegressionTest {
     @Test
     void shouldPersistConnectionSnapshotWhenTestingSavedDatasource() {
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        AggregationSourceCapabilityProvider capabilityProvider = mock(AggregationSourceCapabilityProvider.class);
+        RuntimeDatasourceProbeRouter probeRouter = mock(RuntimeDatasourceProbeRouter.class);
         MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
         ProjectResourceAccessService projectResourceAccessService = mock(ProjectResourceAccessService.class);
         DatasourceTypeCapabilityService datasourceTypeCapabilityService = mock(DatasourceTypeCapabilityService.class);
         DatasourceConnectionHealthService datasourceConnectionHealthService = mock(DatasourceConnectionHealthService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
 
         DatasourceEntity existing = datasourceEntity("mysql_source", "mysql8", 7L, "127.0.0.1");
         existing.setEnabled(1);
@@ -134,31 +138,36 @@ class DataSourceServiceRegressionTest {
         when(metadataSchemaService.findSchemaByVersionId(eq(7L))).thenReturn(null);
         when(metadataSchemaService.listSchemas()).thenReturn(Collections.emptyList());
         when(businessMetaModelMetadataService.normalizeForDatasource(any(Map.class))).thenReturn(new LinkedHashMap<String, Object>());
+        when(securityService.currentTenantId()).thenReturn("default");
 
         ConnectionTestResult expected = new ConnectionTestResult();
         expected.setSuccess(false);
         expected.setMessage("Connection refused");
-        when(capabilityProvider.testConnection(any(DataSourceDefinition.class))).thenReturn(expected);
+        expected.setStatus(com.jdragon.studio.dto.enums.DataSourceConnectionStatus.UNAVAILABLE);
+        expected.setDurationMs(3L);
+        when(probeRouter.test(any(DataSourceDefinition.class), eq(46L),
+                eq(RuntimeDatasourceProbeMode.STORED))).thenReturn(expected);
         when(datasourceConnectionHealthService.effectiveManualTimeout(any(DataSourceDefinition.class))).thenReturn(30);
-        when(datasourceConnectionHealthService.runManualProbe(any(DataSourceDefinition.class), any(Callable.class), eq(30))).thenAnswer(invocation ->
-                ((Callable<ConnectionTestResult>) invocation.getArgument(1)).call());
+        when(datasourceConnectionHealthService.runManualProbe(any(DataSourceDefinition.class), eq(46L),
+                any(Callable.class), eq(30))).thenAnswer(invocation ->
+                ((Callable<ConnectionTestResult>) invocation.getArgument(2)).call());
 
         DataSourceService service = new DataSourceService(
                 datasourceMapper,
                 mock(DataModelMapper.class),
                 mock(EncryptionService.class),
-                capabilityProvider,
                 metadataSchemaService,
                 mock(DataModelIndexRebuildQueueService.class),
                 businessMetaModelMetadataService,
-                mock(StudioSecurityService.class),
+                securityService,
                 projectResourceAccessService,
                 datasourceTypeCapabilityService,
                 mock(DatasourceConnectionFingerprintService.class),
                 datasourceConnectionHealthService
         );
+        service.setRuntimeDatasourceProbeRouter(probeRouter);
 
-        ConnectionTestResult actual = service.testConnection(11L);
+        ConnectionTestResult actual = service.testConnection(11L, 46L);
 
         assertThat(actual.getStatus()).hasToString("UNAVAILABLE");
         assertThat(actual.getDurationMs()).isNotNull();
@@ -172,7 +181,6 @@ class DataSourceServiceRegressionTest {
     @Test
     void shouldResetConnectionSnapshotWhenConnectionMetadataChangesOnSave() {
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        AggregationSourceCapabilityProvider capabilityProvider = mock(AggregationSourceCapabilityProvider.class);
         MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
@@ -198,7 +206,6 @@ class DataSourceServiceRegressionTest {
                 datasourceMapper,
                 mock(DataModelMapper.class),
                 mock(EncryptionService.class),
-                capabilityProvider,
                 metadataSchemaService,
                 mock(DataModelIndexRebuildQueueService.class),
                 businessMetaModelMetadataService,
@@ -224,7 +231,6 @@ class DataSourceServiceRegressionTest {
     @Test
     void shouldKeepConnectionSnapshotWhenOnlyDatasourceDisplayFieldsChangeOnSave() {
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        AggregationSourceCapabilityProvider capabilityProvider = mock(AggregationSourceCapabilityProvider.class);
         MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
         BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
@@ -250,7 +256,6 @@ class DataSourceServiceRegressionTest {
                 datasourceMapper,
                 mock(DataModelMapper.class),
                 mock(EncryptionService.class),
-                capabilityProvider,
                 metadataSchemaService,
                 mock(DataModelIndexRebuildQueueService.class),
                 businessMetaModelMetadataService,

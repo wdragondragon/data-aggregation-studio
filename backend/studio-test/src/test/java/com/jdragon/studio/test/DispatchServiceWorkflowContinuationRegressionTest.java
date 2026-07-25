@@ -1,6 +1,7 @@
 package com.jdragon.studio.test;
 
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.EdgeCondition;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
@@ -29,9 +30,9 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,7 +50,7 @@ class DispatchServiceWorkflowContinuationRegressionTest {
                 node("A"), node("B"),
                 edge("A", "B", EdgeCondition.ON_SUCCESS));
 
-        when(workflowService.get(eq(10L))).thenReturn(workflow);
+        when(workflowService.getVersion(10L, 101L)).thenReturn(workflow);
         when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
         when(runRecordMapper.selectCount(any())).thenReturn(0L);
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task(1000L, "A", "SUCCESS")));
@@ -73,6 +74,11 @@ class DispatchServiceWorkflowContinuationRegressionTest {
         verify(dispatchTaskMapper).insert(argThat((DispatchTaskEntity task) ->
                 "B".equals(task.getNodeCode())
                         && Long.valueOf(1000L).equals(task.getWorkflowRunId())
+                        && Long.valueOf(501L).equals(task.getProjectId())
+                        && Long.valueOf(901L).equals(task.getTargetClusterId())
+                        && !task.getPayloadJson().containsKey("config")
+                        && !task.getPayloadJson().containsKey("fieldMappings")
+                        && !task.getPayloadJson().containsKey("nodeType")
                         && "QUEUED".equals(task.getStatus())));
     }
 
@@ -87,7 +93,7 @@ class DispatchServiceWorkflowContinuationRegressionTest {
                 edge("A", "C", EdgeCondition.ON_SUCCESS),
                 edge("B", "C", EdgeCondition.ON_SUCCESS));
 
-        when(workflowService.get(eq(10L))).thenReturn(workflow);
+        when(workflowService.getVersion(10L, 101L)).thenReturn(workflow);
         when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
         when(runRecordMapper.selectCount(any())).thenReturn(0L);
         when(dispatchTaskMapper.selectList(any())).thenReturn(Arrays.asList(
@@ -126,7 +132,7 @@ class DispatchServiceWorkflowContinuationRegressionTest {
                 edge("B", "D", EdgeCondition.ON_SUCCESS),
                 edge("C", "D", EdgeCondition.ON_SUCCESS));
 
-        when(workflowService.get(eq(10L))).thenReturn(workflow);
+        when(workflowService.getVersion(10L, 101L)).thenReturn(workflow);
         when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
         when(runRecordMapper.selectCount(any())).thenReturn(0L);
         when(dispatchTaskMapper.selectList(any())).thenReturn(Arrays.asList(
@@ -153,7 +159,39 @@ class DispatchServiceWorkflowContinuationRegressionTest {
 
         verify(dispatchTaskMapper).insert(argThat((DispatchTaskEntity task) ->
                 "D".equals(task.getNodeCode())
-                        && Long.valueOf(3000L).equals(task.getWorkflowRunId())));
+                        && Long.valueOf(3000L).equals(task.getWorkflowRunId())
+                        && Long.valueOf(501L).equals(task.getProjectId())
+                        && Long.valueOf(901L).equals(task.getTargetClusterId())));
+    }
+
+    @Test
+    void shouldRejectWorkflowContinuationWithoutExplicitTargetCluster() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowDefinitionView workflow = workflow(10L, 101L,
+                node("A"), node("B"), edge("A", "B", EdgeCondition.ON_SUCCESS));
+        when(workflowService.getVersion(10L, 101L)).thenReturn(workflow);
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+        when(runRecordMapper.selectCount(any())).thenReturn(0L);
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task(4000L, "A", "SUCCESS")));
+        when(runRecordMapper.selectList(any())).thenReturn(Collections.singletonList(record(4000L, "A", "SUCCESS")));
+        DispatchService dispatchService = new DispatchService(
+                dispatchTaskMapper,
+                runRecordMapper,
+                mock(WorkflowDefinitionMapper.class),
+                workflowService,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(StudioSecurityService.class),
+                mock(WorkerAuthorizationService.class),
+                mock(StaleExecutionRecoveryService.class),
+                mock(ClusterLockService.class));
+        ExecutionEvent event = successEvent(4000L, 10L, "A");
+        event.setRequestedClusterId(null);
+
+        assertThrows(StudioException.class, () -> dispatchService.continueWorkflowRun(event));
+        verify(dispatchTaskMapper, never()).insert(org.mockito.ArgumentMatchers.<DispatchTaskEntity>any());
     }
 
     private WorkflowDefinitionView workflow(Long id,
@@ -163,6 +201,9 @@ class DispatchServiceWorkflowContinuationRegressionTest {
                                             WorkflowEdgeDefinition firstEdge) {
         WorkflowDefinitionView workflow = new WorkflowDefinitionView();
         workflow.setId(id);
+        workflow.setTenantId("default");
+        workflow.setProjectId(501L);
+        workflow.setRuntimeClusterId(901L);
         workflow.setVersionId(versionId);
         workflow.setNodes(Arrays.asList(firstNode, secondNode));
         workflow.setEdges(Collections.singletonList(firstEdge));
@@ -178,6 +219,9 @@ class DispatchServiceWorkflowContinuationRegressionTest {
                                             WorkflowEdgeDefinition secondEdge) {
         WorkflowDefinitionView workflow = new WorkflowDefinitionView();
         workflow.setId(id);
+        workflow.setTenantId("default");
+        workflow.setProjectId(501L);
+        workflow.setRuntimeClusterId(901L);
         workflow.setVersionId(versionId);
         workflow.setNodes(Arrays.asList(firstNode, secondNode, thirdNode));
         workflow.setEdges(Arrays.asList(firstEdge, secondEdge));
@@ -196,6 +240,9 @@ class DispatchServiceWorkflowContinuationRegressionTest {
                                             WorkflowEdgeDefinition fourthEdge) {
         WorkflowDefinitionView workflow = new WorkflowDefinitionView();
         workflow.setId(id);
+        workflow.setTenantId("default");
+        workflow.setProjectId(501L);
+        workflow.setRuntimeClusterId(901L);
         workflow.setVersionId(versionId);
         List<WorkflowNodeDefinition> nodes = new ArrayList<WorkflowNodeDefinition>();
         nodes.add(firstNode);
@@ -247,6 +294,9 @@ class DispatchServiceWorkflowContinuationRegressionTest {
         event.setEventType("SUCCESS");
         event.setWorkflowRunId(workflowRunId);
         event.setWorkflowDefinitionId(workflowDefinitionId);
+        event.setWorkflowVersionId(101L);
+        event.setProjectId(501L);
+        event.setRequestedClusterId(901L);
         event.setNodeCode(nodeCode);
         return event;
     }

@@ -130,4 +130,27 @@ public class DataDevelopmentExecutionContext {
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(runtimeContext);
     }
+
+    public Long getRuntimeProjectId() {
+        return readLongRuntimeValue("projectId");
+    }
+
+    public Long getRuntimeClusterId() {
+        return readLongRuntimeValue("runtimeClusterId");
+    }
+
+    private Long readLongRuntimeValue(String key) {
+        Object value = runtimeContext.get(key);
+        if (value instanceof Number) {
+            return Long.valueOf(((Number) value).longValue());
+        }
+        if (value instanceof String && !((String) value).trim().isEmpty()) {
+            try {
+                return Long.valueOf(((String) value).trim());
+            } catch (NumberFormatException invalidRuntimeValue) {
+                return null;
+            }
+        }
+        return null;
+    }
 }

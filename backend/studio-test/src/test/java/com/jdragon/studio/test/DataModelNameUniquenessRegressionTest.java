@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -20,8 +21,9 @@ class DataModelNameUniquenessRegressionTest extends StudioApiRegressionTestSuppo
     void shouldAllowDuplicateModelNamesAcrossDifferentDatasourcesWithinSameProject() throws Exception {
         String authorization = adminAuthorizationHeader();
         Long projectId = createProject(authorization, "duplicate_model_names", "Duplicate Model Names");
-        Long datasourceAId = createDatasource(authorization, projectId, "mysql-a");
-        Long datasourceBId = createDatasource(authorization, projectId, "mysql-b");
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, projectId);
+        Long datasourceAId = createDatasource(authorization, projectId, runtimeClusterId, "mysql-a");
+        Long datasourceBId = createDatasource(authorization, projectId, runtimeClusterId, "mysql-b");
         Long tableSchemaVersionId = syncMysqlTechnicalTableSchema(authorization);
 
         Long firstModelId = createModel(authorization, projectId, datasourceAId, tableSchemaVersionId, "orders");
@@ -74,12 +76,16 @@ class DataModelNameUniquenessRegressionTest extends StudioApiRegressionTestSuppo
         return readBody(result).path("data").path("id").asLong();
     }
 
-    private Long createDatasource(String authorization, Long projectId, String name) throws Exception {
+    private Long createDatasource(String authorization,
+                                  Long projectId,
+                                  Long runtimeClusterId,
+                                  String name) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("name", name);
         payload.put("typeCode", "mysql8");
         payload.put("enabled", true);
         payload.put("executable", false);
+        payload.put("applicableClusterIds", Collections.singletonList(runtimeClusterId));
         payload.put("technicalMetadata", minimalSqlMetadata());
         payload.put("businessMetadata", new LinkedHashMap<String, Object>());
 

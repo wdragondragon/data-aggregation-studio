@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 @TableName("data_service_access_log")
 public class DataServiceAccessLogEntity extends BaseProjectTenantEntity {
     private Long serviceId;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private String serviceCodeSnapshot;
     private String serviceNameSnapshot;
     private String serviceStatusSnapshot;

@@ -39,6 +39,14 @@ import com.jdragon.studio.infra.mapper.ProtocolConversionAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionSubscriptionMapper;
+import jakarta.annotation.PreDestroy;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.Header;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.util.Timeout;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,16 +60,15 @@ import org.xml.sax.InputSource;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.StringReader;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -98,14 +105,17 @@ public class ProtocolConversionService {
     private final DataSourceService dataSourceService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private RuntimeEndpointSecurityService runtimeEndpointSecurityService;
     private final ObjectMapper objectMapper;
     private final DataServiceTokenSupport tokenSupport = new DataServiceTokenSupport();
     private final ProtocolConversionAccessLogSupport accessLogSupport;
     private final OpenServiceInvocationLogSupport invocationLogSupport;
     private final OpenServiceInvocationLogService invocationLogService;
     private final WebServiceSupport webServiceSupport = new WebServiceSupport();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS))
+    private final CloseableHttpClient httpClient = HttpClients.custom()
+            .disableRedirectHandling()
+            .disableAutomaticRetries()
             .build();
 
     public ProtocolConversionService(ProtocolConversionServiceMapper serviceMapper,
@@ -128,9 +138,26 @@ public class ProtocolConversionService {
         this.invocationLogService = invocationLogService;
     }
 
+    @Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
+
+    @Autowired
+    void setRuntimeEndpointSecurityService(RuntimeEndpointSecurityService runtimeEndpointSecurityService) {
+        this.runtimeEndpointSecurityService = runtimeEndpointSecurityService;
+    }
+
     @Autowired(required = false)
     void setAlertSignalPublisher(AlertSignalPublisher alertSignalPublisher) {
         this.accessLogSupport.setAlertSignalPublisher(alertSignalPublisher);
+    }
+
+    @PreDestroy
+    void closeHttpClient() {
+        try {
+            httpClient.close();
+        } catch (java.io.IOException ignored) {
+            // The application is already shutting down; retrying cannot help here.
+        }
     }
 
     public PageView<ProtocolConversionServiceListView> list(Integer pageNo,
@@ -171,11 +198,16 @@ public class ProtocolConversionService {
         for (ProtocolConversionServiceEntity entity : entityPage.getRecords()) {
             items.add(toTableListView(entity));
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, items);
+        }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
     }
 
     public ProtocolConversionServiceView get(Long id) {
-        return toView(requireAccessibleEntity(id));
+        ProtocolConversionServiceView view = toView(requireAccessibleEntity(id));
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, view);
     }
 
     @Transactional
@@ -188,7 +220,10 @@ public class ProtocolConversionService {
         ensureUniqueServiceCode(currentProjectId, request.getServiceCode(), entity.getId());
         ensureUniqueServiceName(currentProjectId, request.getServiceName(), entity.getId());
 
-        DataSourceDefinition targetDatasource = requiredHttpDatasource(request.getTargetDatasourceId());
+        DataSourceDefinition targetDatasource = requiredHttpDatasource(request.getTargetDatasourceId(), false);
+        Long runtimeClusterId = runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                currentProjectId, request.getRuntimeClusterId(), entity.getRuntimeClusterId(),
+                entity.getId() != null, java.util.Collections.singletonList(targetDatasource.getId()));
         ProtocolConversionProtocol sourceProtocol = request.getSourceProtocol() == null
                 ? ProtocolConversionProtocol.HTTP_JSON
                 : request.getSourceProtocol();
@@ -201,6 +236,7 @@ public class ProtocolConversionService {
 
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setCreatedBy(entity.getId() == null ? securityService.currentUserId() : entity.getCreatedBy());
         entity.setServiceCode(normalizeRequiredText(request.getServiceCode(), "Service code is required"));
         entity.setServiceName(normalizeRequiredText(request.getServiceName(), "Service name is required"));
@@ -242,6 +278,7 @@ public class ProtocolConversionService {
         } else {
             serviceMapper.updateById(entity);
         }
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, entity.getId());
         return get(entity.getId());
     }
 
@@ -265,7 +302,9 @@ public class ProtocolConversionService {
 
     private void publishDefinition(Long id) {
         ProtocolConversionServiceEntity entity = requireWritableEntity(id);
-        validateExecutable(toView(entity));
+        ProtocolConversionServiceView view = toView(entity);
+        assertRuntimeRunnable(view);
+        validateExecutable(view);
         String serviceKey = hasText(entity.getServiceKey()) ? entity.getServiceKey() : tokenSupport.generateServiceKey();
         serviceMapper.update(null, new LambdaUpdateWrapper<ProtocolConversionServiceEntity>()
                 .set(ProtocolConversionServiceEntity::getStatus, ProtocolConversionStatus.ONLINE.name())
@@ -298,6 +337,8 @@ public class ProtocolConversionService {
 
     public ProtocolConversionDebugResult debug(Long id, ProtocolConversionDebugRequest request) {
         ProtocolConversionServiceView view = get(id);
+        runtimeClusterSelectionService.assertExplicitSelection(view.getRuntimeClusterId());
+        assertRuntimeRunnable(view);
         validateExecutable(view);
         String rawBody = debugRawBody(view, request);
         String requestId = newRequestId();
@@ -693,6 +734,12 @@ public class ProtocolConversionService {
         }
     }
 
+    private void assertRuntimeRunnable(ProtocolConversionServiceView view) {
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE, view.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(view.getProjectId(), view.getRuntimeClusterId(),
+                java.util.Collections.singletonList(view.getTargetDatasourceId()));
+    }
+
     private SourcePayload parseSourcePayload(ProtocolConversionServiceView service, Object parsedSoapBody, String rawBody) {
         ProtocolConversionProtocol protocol = service.getSourceProtocol() == null
                 ? ProtocolConversionProtocol.HTTP_JSON
@@ -887,7 +934,7 @@ public class ProtocolConversionService {
     }
 
     private String buildTargetUrl(ProtocolConversionServiceView service, Map<String, Object> targetQuery) {
-        DataSourceDefinition datasource = requiredHttpDatasource(service.getTargetDatasourceId());
+        DataSourceDefinition datasource = requiredHttpDatasource(service.getTargetDatasourceId(), true);
         Object base = datasource.getTechnicalMetadata() == null ? null : datasource.getTechnicalMetadata().get("url");
         if (base == null || !hasText(String.valueOf(base))) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "HTTP target datasource url is required");
@@ -1087,31 +1134,40 @@ public class ProtocolConversionService {
 
     private TargetResponse sendTarget(ProtocolConversionServiceView service, TargetRequest targetRequest) {
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(targetRequest.url))
-                    .timeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS));
+            String method = normalizeMethod(targetRequest.method, "POST");
+            HttpUriRequestBase request = new HttpUriRequestBase(method, URI.create(targetRequest.url));
+            request.setConfig(RequestConfig.custom()
+                    .setConnectTimeout(Timeout.ofSeconds(HTTP_TIMEOUT_SECONDS))
+                    .setConnectionRequestTimeout(Timeout.ofSeconds(HTTP_TIMEOUT_SECONDS))
+                    .setResponseTimeout(Timeout.ofSeconds(HTTP_TIMEOUT_SECONDS))
+                    .setRedirectsEnabled(false)
+                    .build());
             for (Map.Entry<String, Object> entry : targetRequest.headers.entrySet()) {
                 if (hasText(entry.getKey()) && entry.getValue() != null) {
-                    builder.header(entry.getKey(), String.valueOf(entry.getValue()));
+                    request.setHeader(entry.getKey(), String.valueOf(entry.getValue()));
                 }
             }
-            String method = normalizeMethod(targetRequest.method, "POST");
-            if ("GET".equalsIgnoreCase(method)) {
-                builder.GET();
-            } else {
-                builder.method(method, HttpRequest.BodyPublishers.ofString(targetRequest.body == null ? "" : targetRequest.body, StandardCharsets.UTF_8));
+            if (!"GET".equalsIgnoreCase(method)) {
+                request.setEntity(new ByteArrayEntity(
+                        (targetRequest.body == null ? "" : targetRequest.body).getBytes(StandardCharsets.UTF_8), null));
             }
-            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            String contentType = response.headers().firstValue("Content-Type").orElse(null);
-            TargetResponse targetResponse = new TargetResponse(response.statusCode(), contentType, response.body());
-            if (isSoapTarget(service.getTargetProtocol()) && hasSoapFault(response.body())) {
+            TargetResponse targetResponse = httpClient.execute(request, response -> {
+                Header contentTypeHeader = response.getFirstHeader("Content-Type");
+                String contentType = contentTypeHeader == null ? null : contentTypeHeader.getValue();
+                byte[] responseBytes = response.getEntity() == null
+                        ? new byte[0]
+                        : readTargetResponse(response.getEntity().getContent(), response.getEntity().getContentLength());
+                return new TargetResponse(response.getCode(), contentType,
+                        new String(responseBytes, StandardCharsets.UTF_8));
+            });
+            if (isSoapTarget(service.getTargetProtocol()) && hasSoapFault(targetResponse.body)) {
                 throw new TargetResponseException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                        "SOAP Fault: " + soapFaultMessage(response.body()),
+                        "SOAP Fault: " + soapFaultMessage(targetResponse.body),
                         targetResponse);
             }
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            if (targetResponse.status < 200 || targetResponse.status >= 300) {
                 throw new TargetResponseException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                        "Target HTTP request failed: " + response.statusCode() + " " + truncate(response.body(), 500),
+                        "Target HTTP request failed: " + targetResponse.status + " " + truncate(targetResponse.body, 500),
                         targetResponse);
             }
             return targetResponse;
@@ -1120,6 +1176,27 @@ public class ProtocolConversionService {
         } catch (Exception ex) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Target HTTP request failed: " + rootMessage(ex));
         }
+    }
+
+    private byte[] readTargetResponse(InputStream input, long contentLength) throws IOException {
+        int limit = runtimeEndpointSecurityService.maxResponseBytes();
+        if (contentLength > limit) {
+            throw new IOException("Target response exceeds the configured limit");
+        }
+        int initialSize = contentLength > 0L
+                ? (int) Math.min(contentLength, 64L * 1024L) : 8192;
+        ByteArrayOutputStream output = new ByteArrayOutputStream(initialSize);
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+            total += read;
+            if (total > limit) {
+                throw new IOException("Target response exceeds the configured limit");
+            }
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
     }
 
     private void validateTargetResponse(ProtocolConversionServiceView service, TargetResponse response) {
@@ -1274,6 +1351,8 @@ public class ProtocolConversionService {
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setCreatedBy(entity.getCreatedBy());
         view.setServiceCode(entity.getServiceCode());
         view.setServiceName(entity.getServiceName());
@@ -1302,6 +1381,9 @@ public class ProtocolConversionService {
         view.setProjectId(entity.getProjectId());
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setServiceCode(entity.getServiceCode());
         view.setServiceName(entity.getServiceName());
         view.setStatus(enumValue(ProtocolConversionStatus.class, entity.getStatus(), ProtocolConversionStatus.DRAFT));
@@ -1320,6 +1402,7 @@ public class ProtocolConversionService {
                 ProtocolConversionServiceEntity::getProjectId,
                 ProtocolConversionServiceEntity::getCreatedAt,
                 ProtocolConversionServiceEntity::getUpdatedAt,
+                ProtocolConversionServiceEntity::getRuntimeClusterId,
                 ProtocolConversionServiceEntity::getServiceCode,
                 ProtocolConversionServiceEntity::getServiceName,
                 ProtocolConversionServiceEntity::getStatus,
@@ -1352,6 +1435,8 @@ public class ProtocolConversionService {
         view.setDeleted(listView.getDeleted());
         view.setCreatedAt(listView.getCreatedAt());
         view.setUpdatedAt(listView.getUpdatedAt());
+        view.setRuntimeClusterId(listView.getRuntimeClusterId());
+        view.setRuntimeClusterName(listView.getRuntimeClusterName());
         view.setCreatedBy(listView.getCreatedBy());
         view.setServiceCode(listView.getServiceCode());
         view.setServiceName(listView.getServiceName());
@@ -1470,8 +1555,10 @@ public class ProtocolConversionService {
                 "Target data node path is required for XML/SOAP array payload");
     }
 
-    private DataSourceDefinition requiredHttpDatasource(Long datasourceId) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+    private DataSourceDefinition requiredHttpDatasource(Long datasourceId, boolean execution) {
+        DataSourceDefinition datasource = execution
+                ? dataSourceService.getInternal(datasourceId)
+                : dataSourceService.get(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }

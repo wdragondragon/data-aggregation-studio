@@ -64,7 +64,8 @@ class AlertOptimisticLockIntegrationTest {
                     "id integer primary key, tenant_id text, project_id integer, deleted integer default 0," +
                     "created_at text, updated_at text, rule_id integer, rule_name_snapshot text, rule_type text," +
                     "signature text, subject_type text, subject_key text, subject_id integer, subject_name_snapshot text," +
-                    "target_path text, severity text, status text, summary text, current_evidence_json text," +
+                    "target_path text, severity text, status text, summary text, requested_cluster_id integer," +
+                    "actual_cluster_id integer, current_evidence_json text," +
                     "occurrence_count integer, notification_count integer, reopen_count integer, condition_active integer," +
                     "closed_while_active integer, first_triggered_at text, last_triggered_at text, last_notified_at text," +
                     "acknowledged_at text, recovered_at text, closed_at text, acknowledged_by integer, closed_by integer," +

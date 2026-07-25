@@ -9,6 +9,8 @@ public class DataServiceMetricQueryRequest {
     private String serviceStatus;
     private Boolean success;
     private Boolean cacheHit;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private String startTime;
     private String endTime;
     private String granularity;

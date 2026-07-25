@@ -15,6 +15,9 @@ public class OpsCenterLogEventView extends BaseDefinition {
     private Long qualityTaskId;
     private String nodeCode;
     private String status;
+    private Long requestedClusterId;
+    private Long actualClusterId;
+    private String actualClusterCode;
     private String workerGroupCode;
     private String workerInstanceId;
     private LocalDateTime startedAt;

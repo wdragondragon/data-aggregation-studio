@@ -37,16 +37,16 @@ public class QualitySqlTemplateService {
     private static final Pattern ALIAS_PATTERN = Pattern.compile("(?i)\\s+as\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*$");
 
     private final QualityDynamicFunctionService dynamicFunctionService;
-    private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
 
     public QualitySqlTemplateService(QualityDynamicFunctionService dynamicFunctionService,
-                                     DataDevelopmentSqlExecutor sqlExecutor) {
+                                     DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
         this.dynamicFunctionService = dynamicFunctionService;
-        this.sqlExecutor = sqlExecutor;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
     }
 
     public Set<String> supportedDatasourceTypes() {
-        return sqlExecutor.supportedDatasourceTypes();
+        return new LinkedHashSet<String>(datasourceTypeCapabilityService.sqlExecutableTypes());
     }
 
     public QualityRuleParseResultView parseRule(QualityRuleGranularity granularity, String logicSql) {

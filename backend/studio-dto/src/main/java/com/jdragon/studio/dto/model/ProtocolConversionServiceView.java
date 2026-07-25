@@ -15,6 +15,8 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class ProtocolConversionServiceView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long createdBy;
     private String serviceCode;
     private String serviceName;

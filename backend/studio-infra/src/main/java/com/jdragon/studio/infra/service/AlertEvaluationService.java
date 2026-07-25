@@ -32,8 +32,6 @@ import com.jdragon.studio.infra.model.AlertSignal;
 import com.jdragon.studio.infra.model.WorkflowRunOutcome;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -96,7 +94,6 @@ public class AlertEvaluationService {
                 dataIngestionAccessCounterMapper, protocolConversionAccessCounterMapper);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void evaluateSignal(AlertSignal signal) {
         if (!enabled() || !properties.getAlert().isEvaluationEnabled() || signal == null) {
             return;

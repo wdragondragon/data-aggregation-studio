@@ -11,21 +11,31 @@ import java.util.Map;
 @Data
 @ConfigurationProperties(prefix = "studio")
 public class StudioPlatformProperties {
-    private String aggregationHome = "../../package_all/aggregation";
+    private String aggregationHome;
     private String encryptionSecret = "studio-secret-key";
     private String timezone = "Asia/Shanghai";
     private boolean scanPluginsOnStartup = true;
     private String instanceId;
     private String podName;
     private String nodeName;
+    /** Worker-only deployment identity used to match the database-backed runtime registry. */
+    private String runtimeClusterCode;
+    private String runtimeVersion;
+    private String pluginFingerprint;
     private String workerGroupCode;
     private String workerCode = "worker-local";
     private boolean desktopRuntime = false;
     private String runtimeLogDir = "./runtime/run-logs";
     private String workerApiBaseUrl;
-    private String internalApiToken = "studio-internal-token";
+    private String internalApiToken;
+    private Integer runtimeInvocationMaxBodyBytes = 10 * 1024 * 1024;
+    private Integer runtimeInvocationMaxConcurrency = 32;
+    private RuntimeInvocationIdempotencyProperties runtimeInvocationIdempotency =
+            new RuntimeInvocationIdempotencyProperties();
+    private RuntimeEndpointProperties runtimeEndpoint = new RuntimeEndpointProperties();
     private GatewayProperties gateway = new GatewayProperties();
     private PythonProperties python = new PythonProperties();
+    private ScriptEnvironmentProperties scriptEnvironment = new ScriptEnvironmentProperties();
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
     private DispatchProperties dispatch = new DispatchProperties();
     private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
@@ -58,6 +68,15 @@ public class StudioPlatformProperties {
         private List<String> executableArgs = new ArrayList<String>();
         private Long executionTimeoutSeconds = 120L;
         private String tempDir;
+    }
+
+    @Data
+    public static class ScriptEnvironmentProperties {
+        private Integer artifactConnectTimeoutSeconds = 5;
+        private Integer artifactReadTimeoutSeconds = 30;
+        private Integer maxArtifactBytes = 64 * 1024 * 1024;
+        private boolean allowLocalFiles = false;
+        private List<String> allowedLocalRoots = new ArrayList<String>();
     }
 
     @Data
@@ -122,6 +141,31 @@ public class StudioPlatformProperties {
         private Integer deliveryRetentionDays = 30;
         private WebhookProperties webhook = new WebhookProperties();
         private ElinkProperties elink = new ElinkProperties();
+    }
+
+    @Data
+    public static class RuntimeEndpointProperties {
+        /** Exact hosts that may resolve to local/private addresses and may use HTTP. */
+        private List<String> allowedHosts = new ArrayList<String>();
+        private Integer maxResponseBytes = 10 * 1024 * 1024;
+    }
+
+    @Data
+    public static class RuntimeInvocationIdempotencyProperties {
+        /** OPTIONAL keeps legacy callers compatible; REQUIRED_WRITE rejects writes without Idempotency-Key. */
+        private RuntimeInvocationIdempotencyMode mode = RuntimeInvocationIdempotencyMode.OPTIONAL;
+        /** Encrypted replay payload limit; larger uncertain results are never silently marked completed. */
+        private Integer maxResponseBytes = 10 * 1024 * 1024;
+        private boolean cleanupEnabled = true;
+        private Integer completedRetentionDays = 7;
+        private Integer runningUnknownAfterHours = 24;
+        private Integer cleanupBatchSize = 1000;
+        private Integer cleanupMaxBatches = 20;
+    }
+
+    public enum RuntimeInvocationIdempotencyMode {
+        OPTIONAL,
+        REQUIRED_WRITE
     }
 
     @Data

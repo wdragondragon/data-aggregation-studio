@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.enums.QualityRuleScopeType;
 import com.jdragon.studio.dto.enums.QualityTaskStatus;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityRuleListView;
+import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
 import com.jdragon.studio.dto.model.QualityTaskOptionView;
 import com.jdragon.studio.dto.model.QualityTaskWorkflowOptionView;
@@ -28,11 +29,11 @@ import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
-import com.jdragon.studio.infra.service.DataDevelopmentSqlExecutor;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.QualityRuleService;
 import com.jdragon.studio.infra.service.QualitySqlTemplateService;
-import com.jdragon.studio.infra.service.QualityTaskExecutionService;
+import com.jdragon.studio.infra.service.QualityTaskExecutionPlanService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -173,6 +174,7 @@ class QualityListSourceSlimmingRegressionTest {
 
         assertThat(page.getItems()).hasSize(1);
         assertThat(page.getItems().get(0).getTaskName()).isEqualTo("客户手机号完整性巡检任务");
+        assertThat(page.getItems().get(0).getRuntimeClusterId()).isEqualTo(46L);
         ArgumentCaptor<LambdaQueryWrapper<QualityTaskDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(taskMapper).selectPage(any(Page.class), captor.capture());
         assertTaskListSelectIsSlim(captor.getValue().getSqlSelect());
@@ -191,6 +193,17 @@ class QualityListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<QualityTaskDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(taskMapper).selectList(captor.capture());
         assertTaskListSelectIsSlim(captor.getValue().getSqlSelect());
+    }
+
+    @Test
+    void qualityTaskDetailShouldReturnPersistedRuntimeCluster() {
+        QualityTaskDefinitionMapper taskMapper = mock(QualityTaskDefinitionMapper.class);
+        QualityTaskService service = qualityTaskService(taskMapper);
+        when(taskMapper.selectById(21L)).thenReturn(taskEntity());
+
+        QualityTaskDefinitionView task = service.get(21L);
+
+        assertThat(task.getRuntimeClusterId()).isEqualTo(46L);
     }
 
     @Test
@@ -298,8 +311,8 @@ class QualityListSourceSlimmingRegressionTest {
                 mock(DataSourceService.class),
                 mock(DataModelService.class),
                 mock(QualityRuleService.class),
-                mock(QualityTaskExecutionService.class),
-                mock(DataDevelopmentSqlExecutor.class),
+                mock(QualityTaskExecutionPlanService.class),
+                mock(DatasourceTypeCapabilityService.class),
                 securityService,
                 accessService,
                 new ObjectMapper());
@@ -307,7 +320,7 @@ class QualityListSourceSlimmingRegressionTest {
 
     private void assertTaskListSelectIsSlim(String sqlSelect) {
         assertThat(sqlSelect)
-                .contains("task_name", "task_code", "status", "rule_name_snapshot", "datasource_name_snapshot", "model_physical_locator", "column_name")
+                .contains("runtime_cluster_id", "task_name", "task_code", "status", "rule_name_snapshot", "datasource_name_snapshot", "model_physical_locator", "column_name")
                 .doesNotContain("where_clause", "resolved_sql_preview", "parameter_bindings_json", "rule_snapshot_json");
     }
 
@@ -346,6 +359,7 @@ class QualityListSourceSlimmingRegressionTest {
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 27, 11, 10, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 27, 11, 11, 0));
         entity.setCreatedBy(1L);
+        entity.setRuntimeClusterId(46L);
         entity.setTaskName("客户手机号完整性巡检任务");
         entity.setTaskCode("customer_phone_quality_check");
         entity.setStatus(QualityTaskStatus.ONLINE.name());

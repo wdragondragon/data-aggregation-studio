@@ -1,6 +1,7 @@
 package com.jdragon.studio.flink.execution;
 
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.api.EnvironmentSettings;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+@ConditionalOnClass(name = "com.jdragon.studio.worker.bootstrap.StudioWorkerApplication")
 public class EmbeddedFlinkExecutionClient implements FlinkExecutionClient {
     private final StudioPlatformProperties properties;
 

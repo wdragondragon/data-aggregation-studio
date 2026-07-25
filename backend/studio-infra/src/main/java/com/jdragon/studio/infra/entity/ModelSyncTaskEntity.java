@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 @EqualsAndHashCode(callSuper = true)
 @TableName("model_sync_task")
 public class ModelSyncTaskEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long datasourceId;
     private String datasourceType;
     private String datasourceNameSnapshot;

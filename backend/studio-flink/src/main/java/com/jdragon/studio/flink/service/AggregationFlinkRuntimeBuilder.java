@@ -9,6 +9,7 @@ import com.jdragon.studio.flink.connector.AggregationFlinkTableRuntime;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.HttpReaderOptionNormalizer;
 import org.apache.flink.table.types.DataType;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Component
+@ConditionalOnClass(name = "com.jdragon.studio.worker.bootstrap.StudioWorkerApplication")
 class AggregationFlinkRuntimeBuilder {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String HTTP_READER_CONFIG_KEY = "__studio_http_reader_config";

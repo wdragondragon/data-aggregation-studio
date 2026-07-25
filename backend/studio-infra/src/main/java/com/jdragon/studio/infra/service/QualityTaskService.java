@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.QualityRuleGranularity;
@@ -59,11 +60,12 @@ public class QualityTaskService {
     private final DataSourceService dataSourceService;
     private final DataModelService dataModelService;
     private final QualityRuleService qualityRuleService;
-    private final QualityTaskExecutionService qualityTaskExecutionService;
-    private final DataDevelopmentSqlExecutor sqlExecutor;
+    private final QualityTaskExecutionPlanService qualityTaskExecutionPlanService;
+    private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final ObjectMapper objectMapper;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
 
     public QualityTaskService(QualityTaskDefinitionMapper definitionMapper,
                               QualityTaskScheduleMapper scheduleMapper,
@@ -73,8 +75,8 @@ public class QualityTaskService {
                               DataSourceService dataSourceService,
                               DataModelService dataModelService,
                               QualityRuleService qualityRuleService,
-                              QualityTaskExecutionService qualityTaskExecutionService,
-                              DataDevelopmentSqlExecutor sqlExecutor,
+                              QualityTaskExecutionPlanService qualityTaskExecutionPlanService,
+                              DatasourceTypeCapabilityService datasourceTypeCapabilityService,
                               StudioSecurityService securityService,
                               ProjectResourceAccessService projectResourceAccessService,
                               ObjectMapper objectMapper) {
@@ -86,8 +88,8 @@ public class QualityTaskService {
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.qualityRuleService = qualityRuleService;
-        this.qualityTaskExecutionService = qualityTaskExecutionService;
-        this.sqlExecutor = sqlExecutor;
+        this.qualityTaskExecutionPlanService = qualityTaskExecutionPlanService;
+        this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.securityService = securityService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.objectMapper = objectMapper;
@@ -135,8 +137,14 @@ public class QualityTaskService {
         for (QualityTaskDefinitionEntity entity : entityPage.getRecords()) {
             result.add(toListView(entity));
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, result);
+        }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), result);
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
 
     public List<QualityTaskListView> list(String keyword,
                                           String status,
@@ -169,12 +177,22 @@ public class QualityTaskService {
         for (QualityTaskDefinitionEntity entity : entities) {
             result.add(toListView(entity));
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, result);
+        }
         return result;
     }
 
     public PageView<QualityTaskWorkflowOptionView> listWorkflowOptions(Integer pageNo,
                                                                        Integer pageSize,
                                                                        String keyword) {
+        return listWorkflowOptions(pageNo, pageSize, keyword, null);
+    }
+
+    public PageView<QualityTaskWorkflowOptionView> listWorkflowOptions(Integer pageNo,
+                                                                       Integer pageSize,
+                                                                       String keyword,
+                                                                       Long runtimeClusterId) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         Long currentProjectId = projectResourceAccessService.currentProjectId();
@@ -187,6 +205,7 @@ public class QualityTaskService {
                 .eq(QualityTaskDefinitionEntity::getTenantId, securityService.currentTenantId())
                 .eq(QualityTaskDefinitionEntity::getProjectId, currentProjectId)
                 .eq(QualityTaskDefinitionEntity::getStatus, QualityTaskStatus.ONLINE.name())
+                .eq(runtimeClusterId != null, QualityTaskDefinitionEntity::getRuntimeClusterId, runtimeClusterId)
                 .and(hasText(normalizedKeyword), wrapper -> wrapper.like(QualityTaskDefinitionEntity::getTaskName, normalizedKeyword)
                         .or()
                         .like(QualityTaskDefinitionEntity::getTaskCode, normalizedKeyword)
@@ -311,7 +330,9 @@ public class QualityTaskService {
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Quality task not found: " + id);
         }
-        return toView(entity);
+        QualityTaskDefinitionView view = toView(entity);
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, view);
     }
 
     public QualityTaskDefinitionView requireOnline(Long id) {
@@ -319,19 +340,45 @@ public class QualityTaskService {
         if (definition.getStatus() != QualityTaskStatus.ONLINE) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task is not online");
         }
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, definition.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(definition.getProjectId(),
+                definition.getRuntimeClusterId(), java.util.Collections.singletonList(definition.getDatasourceId()));
+        return definition;
+    }
+
+    public QualityTaskDefinitionView requireOnlineForExecution(Long id) {
+        QualityTaskDefinitionView definition = get(id);
+        if (definition.getStatus() != QualityTaskStatus.ONLINE) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task is not online");
+        }
+        return definition;
+    }
+
+    public QualityTaskDefinitionView requireRunnableOnCluster(Long id, Long runtimeClusterId) {
+        QualityTaskDefinitionView definition = get(id);
+        if (definition.getStatus() != QualityTaskStatus.ONLINE) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task is not online");
+        }
+        List<Long> datasourceIds = new ArrayList<Long>();
+        if (definition.getDatasourceId() != null) {
+            datasourceIds.add(definition.getDatasourceId());
+        }
+        runtimeClusterSelectionService.validateManualOverride(definition.getProjectId(), runtimeClusterId, datasourceIds);
+        definition.setRuntimeClusterId(runtimeClusterId);
+        definition.setRuntimeClusterName(runtimeClusterSelectionService.runtimeClusterName(definition.getProjectId(), runtimeClusterId));
+        definition.setRuntimeValid(Boolean.TRUE);
+        definition.setRuntimeValidationMessage(null);
         return definition;
     }
 
     public QualityTaskPreviewView preview(QualityTaskSaveRequest request) {
-        return qualityTaskExecutionService.preview(toTransientDefinition(request));
+        runtimeClusterSelectionService.assertExplicitSelection(request == null ? null : request.getRuntimeClusterId());
+        return qualityTaskExecutionPlanService.preview(toTransientDefinition(request));
     }
 
     public QualityTaskValidationView validate(QualityTaskSaveRequest request) {
-        return qualityTaskExecutionService.validate(toTransientDefinition(request));
-    }
-
-    public Map<String, Object> executeTask(Long qualityTaskId) {
-        return qualityTaskExecutionService.execute(requireOnline(qualityTaskId));
+        runtimeClusterSelectionService.assertExplicitSelection(request == null ? null : request.getRuntimeClusterId());
+        return qualityTaskExecutionPlanService.validate(toTransientDefinition(request));
     }
 
     @Transactional
@@ -341,12 +388,14 @@ public class QualityTaskService {
         QualityTaskDefinitionEntity entity = request.getId() == null
                 ? new QualityTaskDefinitionEntity()
                 : requireWritableEntity(request.getId());
-        QualityTaskDefinitionView definition = toTransientDefinition(request);
+        QualityTaskDefinitionView definition = toTransientDefinition(request, entity);
+        Long runtimeClusterId = definition.getRuntimeClusterId();
         ensureUniqueTaskName(currentProjectId, request.getTaskName(), entity.getId());
         ensureUniqueTaskCode(currentProjectId, request.getTaskCode(), entity.getId());
 
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setTaskName(definition.getTaskName());
         entity.setTaskCode(definition.getTaskCode());
         entity.setStatus(entity.getId() != null && QualityTaskStatus.ONLINE.name().equalsIgnoreCase(entity.getStatus())
@@ -364,7 +413,7 @@ public class QualityTaskService {
         entity.setModelPhysicalLocator(definition.getModelPhysicalLocator());
         entity.setColumnName(definition.getColumnName());
         entity.setWhereClause(definition.getWhereClause());
-        entity.setResolvedSqlPreview(qualityTaskExecutionService.preview(definition).getResolvedSql());
+        entity.setResolvedSqlPreview(qualityTaskExecutionPlanService.preview(definition).getResolvedSql());
         entity.setParameterBindingsJson(toListOfMaps(definition.getParameterBindings()));
         entity.setRuleSnapshotJson(toMap(definition.getRuleSnapshot()));
         if (entity.getId() == null) {
@@ -376,6 +425,7 @@ public class QualityTaskService {
         }
         saveSchedule(entity.getId(), currentProjectId, request.getSchedule());
         saveAlerts(entity.getId(), definition.getAlertConfigs());
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, entity.getId());
         return get(entity.getId());
     }
 
@@ -383,7 +433,10 @@ public class QualityTaskService {
     public QualityTaskDefinitionView publish(Long id) {
         QualityTaskDefinitionEntity entity = requireWritableEntity(id);
         QualityTaskDefinitionView definition = toView(entity);
-        entity.setResolvedSqlPreview(qualityTaskExecutionService.preview(definition).getResolvedSql());
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, entity.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(), entity.getRuntimeClusterId(),
+                java.util.Collections.singletonList(entity.getDatasourceId()));
+        entity.setResolvedSqlPreview(qualityTaskExecutionPlanService.preview(definition).getResolvedSql());
         entity.setStatus(QualityTaskStatus.ONLINE.name());
         definitionMapper.updateById(entity);
         return get(id);
@@ -392,6 +445,11 @@ public class QualityTaskService {
     @Transactional
     public QualityTaskDefinitionView updateSchedule(Long id, CollectionTaskScheduleDefinition schedule) {
         QualityTaskDefinitionEntity entity = requireWritableEntity(id);
+        if (schedule != null && Boolean.TRUE.equals(schedule.getEnabled()) && runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, id);
+            runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(), entity.getRuntimeClusterId(),
+                    java.util.Collections.singletonList(entity.getDatasourceId()));
+        }
         saveSchedule(id, entity.getProjectId(), schedule);
         return get(id);
     }
@@ -427,6 +485,13 @@ public class QualityTaskService {
     }
 
     private QualityTaskDefinitionView toTransientDefinition(QualityTaskSaveRequest request) {
+        QualityTaskDefinitionEntity existingEntity = request == null || request.getId() == null
+                ? null : findAccessibleEntity(request.getId());
+        return toTransientDefinition(request, existingEntity);
+    }
+
+    private QualityTaskDefinitionView toTransientDefinition(QualityTaskSaveRequest request,
+                                                             QualityTaskDefinitionEntity existingEntity) {
         validateSaveRequest(request);
         QualityRuleView rule = qualityRuleService.requireAccessibleRule(request.getRuleId());
         DataSourceDefinition datasource = requireSqlDatasource(request.getDatasourceId());
@@ -438,6 +503,18 @@ public class QualityTaskService {
         String columnName = normalizeColumnName(request.getGranularity(), request.getColumnName(), model);
         QualityTaskDefinitionView definition = new QualityTaskDefinitionView();
         definition.setId(request.getId());
+        definition.setTenantId(securityService.currentTenantId());
+        definition.setProjectId(projectResourceAccessService.requireCurrentProjectId());
+        Long runtimeClusterId = runtimeClusterSelectionService == null
+                ? request.getRuntimeClusterId()
+                : runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                definition.getProjectId(), request.getRuntimeClusterId(),
+                existingEntity == null ? null : existingEntity.getRuntimeClusterId(),
+                existingEntity != null && existingEntity.getId() != null,
+                java.util.Collections.singletonList(datasource.getId()));
+        definition.setRuntimeClusterId(runtimeClusterId);
+        definition.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(definition.getProjectId(), runtimeClusterId));
         definition.setTaskName(normalizeText(request.getTaskName()));
         definition.setTaskCode(normalizeText(request.getTaskCode()));
         definition.setRuleId(rule.getId());
@@ -638,6 +715,9 @@ public class QualityTaskService {
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setCreatedBy(entity.getCreatedBy());
         view.setTaskName(entity.getTaskName());
         view.setTaskCode(entity.getTaskCode());
@@ -678,6 +758,8 @@ public class QualityTaskService {
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted().intValue() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setCreatedBy(entity.getCreatedBy());
         view.setTaskName(entity.getTaskName());
         view.setTaskCode(entity.getTaskCode());
@@ -712,6 +794,8 @@ public class QualityTaskService {
         view.setId(entity.getId());
         view.setProjectId(entity.getProjectId());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setTaskName(entity.getTaskName());
         view.setTaskCode(entity.getTaskCode());
         view.setRuleId(entity.getRuleId());
@@ -733,6 +817,7 @@ public class QualityTaskService {
                 QualityTaskDefinitionEntity::getDeleted,
                 QualityTaskDefinitionEntity::getCreatedAt,
                 QualityTaskDefinitionEntity::getUpdatedAt,
+                QualityTaskDefinitionEntity::getRuntimeClusterId,
                 QualityTaskDefinitionEntity::getCreatedBy,
                 QualityTaskDefinitionEntity::getTaskName,
                 QualityTaskDefinitionEntity::getTaskCode,
@@ -753,6 +838,7 @@ public class QualityTaskService {
     private LambdaQueryWrapper<QualityTaskDefinitionEntity> selectWorkflowOptionColumns(LambdaQueryWrapper<QualityTaskDefinitionEntity> queryWrapper) {
         return queryWrapper.select(QualityTaskDefinitionEntity::getId,
                 QualityTaskDefinitionEntity::getProjectId,
+                QualityTaskDefinitionEntity::getRuntimeClusterId,
                 QualityTaskDefinitionEntity::getUpdatedAt,
                 QualityTaskDefinitionEntity::getTaskName,
                 QualityTaskDefinitionEntity::getTaskCode,
@@ -870,7 +956,7 @@ public class QualityTaskService {
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
-        if (!sqlExecutor.supports(datasource)) {
+        if (!datasourceTypeCapabilityService.isSqlExecutable(datasource.getTypeCode())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Selected datasource does not support SQL quality checks");
         }
         return datasource;

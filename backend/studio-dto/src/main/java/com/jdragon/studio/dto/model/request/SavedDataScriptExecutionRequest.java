@@ -12,6 +12,9 @@ import java.util.Map;
 @Schema(description = "Execute saved data development script request")
 public class SavedDataScriptExecutionRequest {
 
+    @Schema(description = "Optional authorized runtime cluster override for this manual execution")
+    private Long runtimeClusterId;
+
     @Schema(description = "Execution arguments for non-SQL scripts")
     private Map<String, Object> arguments = new LinkedHashMap<String, Object>();
 

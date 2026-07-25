@@ -19,6 +19,9 @@ import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.HttpReaderOptionSecurityService;
+import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@ConditionalOnClass(name = "com.jdragon.studio.worker.bootstrap.StudioWorkerApplication")
 public class FlinkSqlExecutionService {
     private final DataModelService dataModelService;
     private final DataSourceService dataSourceService;
@@ -35,6 +39,8 @@ public class FlinkSqlExecutionService {
     private final FlinkSqlGuard sqlGuard;
     private final StudioPlatformProperties properties;
     private final FlinkExecutionClientRouter executionClientRouter;
+    private final ProjectResourceAccessService projectResourceAccessService;
+    private final RuntimeClusterSelectionService runtimeClusterSelectionService;
 
     public FlinkSqlExecutionService(DataModelService dataModelService,
                                     DataSourceService dataSourceService,
@@ -42,7 +48,9 @@ public class FlinkSqlExecutionService {
                                     AggregationFlinkRuntimeBuilder runtimeBuilder,
                                     FlinkSqlGuard sqlGuard,
                                     StudioPlatformProperties properties,
-                                    FlinkExecutionClientRouter executionClientRouter) {
+                                    FlinkExecutionClientRouter executionClientRouter,
+                                    ProjectResourceAccessService projectResourceAccessService,
+                                    RuntimeClusterSelectionService runtimeClusterSelectionService) {
         this.dataModelService = dataModelService;
         this.dataSourceService = dataSourceService;
         this.httpReaderOptionSecurityService = httpReaderOptionSecurityService;
@@ -50,6 +58,8 @@ public class FlinkSqlExecutionService {
         this.sqlGuard = sqlGuard;
         this.properties = properties;
         this.executionClientRouter = executionClientRouter;
+        this.projectResourceAccessService = projectResourceAccessService;
+        this.runtimeClusterSelectionService = runtimeClusterSelectionService;
     }
 
     public FlinkQuestionResultView execute(FlinkSqlExecuteRequest request) {
@@ -67,13 +77,27 @@ public class FlinkSqlExecutionService {
         List<String> createTableDdls = new ArrayList<String>();
         List<FlinkModelRefView> modelRefs = new ArrayList<FlinkModelRefView>();
         try {
+            List<DataModelDefinition> models = new ArrayList<DataModelDefinition>();
+            List<DataSourceDefinition> datasources = new ArrayList<DataSourceDefinition>();
+            List<Long> datasourceIds = new ArrayList<Long>();
+            for (Long modelId : request.getModelIds()) {
+                DataModelDefinition model = dataModelService.get(modelId);
+                DataSourceDefinition datasource = dataSourceService.getInternal(model.getDatasourceId());
+                models.add(model);
+                datasources.add(datasource);
+                datasourceIds.add(datasource.getId());
+            }
+            runtimeClusterSelectionService.validateExplicitDatasourceSelection(
+                    projectResourceAccessService.requireCurrentProjectId(),
+                    request.getRuntimeClusterId(),
+                    datasourceIds);
             List<AggregationFlinkTableRuntime> runtimes = new ArrayList<AggregationFlinkTableRuntime>();
             List<String> flinkTableNames = new ArrayList<String>();
             String executionMode = normalizedExecutionMode();
             FlinkExecutionClient executionClient = executionClientRouter.select(executionMode);
-            for (Long modelId : request.getModelIds()) {
-                DataModelDefinition model = dataModelService.get(modelId);
-                DataSourceDefinition datasource = dataSourceService.getInternal(model.getDatasourceId());
+            for (int i = 0; i < models.size(); i++) {
+                DataModelDefinition model = models.get(i);
+                DataSourceDefinition datasource = datasources.get(i);
                 AggregationFlinkTableRuntime runtime = runtimeBuilder.build(datasource, model, scanMaxRows);
                 runtimes.add(runtime);
                 String flinkTableName = tableNameFor(model);
@@ -110,9 +134,19 @@ public class FlinkSqlExecutionService {
             appendPushdownSummary(view, runtimes, flinkTableNames);
             return view;
         } catch (StudioException ex) {
-            throw ex;
+            String message = redactRuntimeCapabilities(ex.getMessage(), runtimeRefs);
+            if (message.equals(ex.getMessage())) {
+                throw ex;
+            }
+            throw new StudioException(ex.getCode(), message);
         } catch (Exception ex) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Flink SQL execution failed: " + ex.getMessage(), ex);
+            String message = redactRuntimeCapabilities(ex.getMessage(), runtimeRefs);
+            if (message.equals(ex.getMessage())) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Flink SQL execution failed: " + message, ex);
+            }
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Flink SQL execution failed: " + message);
         } finally {
             for (String ref : runtimeRefs) {
                 AggregationFlinkRuntimeRegistry.remove(ref);
@@ -173,6 +207,16 @@ public class FlinkSqlExecutionService {
                     "studio.flink.runtime-endpoint is required when execution-mode=gateway");
         }
         return endpoint.trim();
+    }
+
+    private String redactRuntimeCapabilities(String message, List<String> runtimeRefs) {
+        String redacted = message == null ? "" : message;
+        for (String runtimeRef : runtimeRefs) {
+            if (runtimeRef != null && !runtimeRef.isEmpty()) {
+                redacted = redacted.replace(runtimeRef, "***");
+            }
+        }
+        return redacted;
     }
 
     private void appendPushdownSummary(FlinkQuestionResultView view,

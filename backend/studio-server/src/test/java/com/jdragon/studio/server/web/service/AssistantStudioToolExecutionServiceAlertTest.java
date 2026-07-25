@@ -1,15 +1,18 @@
 package com.jdragon.studio.server.web.service;
 
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RuntimeClusterView;
 import com.jdragon.studio.infra.service.AlertChannelService;
 import com.jdragon.studio.infra.service.AlertDeliveryService;
 import com.jdragon.studio.infra.service.AlertIncidentService;
 import com.jdragon.studio.infra.service.AlertRuleService;
+import com.jdragon.studio.infra.service.RuntimeClusterService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Answers.CALLS_REAL_METHODS;
@@ -37,5 +40,22 @@ class AssistantStudioToolExecutionServiceAlertTest {
 
         assertSame(expected, result);
         verify(incidentService).events(10L, 2, 5);
+    }
+
+    @Test
+    void runtimeClusterListShouldUseCurrentProjectAuthorizedOptions() {
+        AssistantStudioToolExecutionService service = mock(AssistantStudioToolExecutionService.class, CALLS_REAL_METHODS);
+        RuntimeClusterService runtimeClusterService = mock(RuntimeClusterService.class);
+        RuntimeClusterView cluster = new RuntimeClusterView();
+        cluster.setId(46L);
+        List<RuntimeClusterView> expected = java.util.Collections.singletonList(cluster);
+        org.mockito.Mockito.when(runtimeClusterService.options(null)).thenReturn(expected);
+        ReflectionTestUtils.setField(service, "runtimeClusterService", runtimeClusterService);
+
+        Object result = ReflectionTestUtils.invokeMethod(service, "executeList",
+                "/runtime-clusters", java.util.Collections.emptyMap());
+
+        assertSame(expected, result);
+        verify(runtimeClusterService).options(null);
     }
 }

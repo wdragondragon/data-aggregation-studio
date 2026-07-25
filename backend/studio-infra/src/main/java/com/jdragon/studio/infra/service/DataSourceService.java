@@ -7,11 +7,13 @@ import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
+import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.enums.FieldValueType;
 import com.jdragon.studio.dto.enums.MetadataScope;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceListView;
 import com.jdragon.studio.dto.model.DataSourceOptionView;
+import com.jdragon.studio.dto.model.DatasourceClusterBindingImpactView;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
 import com.jdragon.studio.dto.model.PageView;
@@ -25,7 +27,7 @@ import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
-import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,7 +42,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
 
 @Service
 public class DataSourceService {
@@ -52,7 +53,6 @@ public class DataSourceService {
     private final DatasourceMapper datasourceMapper;
     private final DataModelMapper dataModelMapper;
     private final EncryptionService encryptionService;
-    private final AggregationSourceCapabilityProvider capabilityProvider;
     private final MetadataSchemaService metadataSchemaService;
     private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
@@ -61,11 +61,13 @@ public class DataSourceService {
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final DatasourceConnectionFingerprintService datasourceConnectionFingerprintService;
     private final DatasourceConnectionHealthService datasourceConnectionHealthService;
+    private DatasourceClusterBindingService datasourceClusterBindingService;
+    private RuntimeValidationService runtimeValidationService;
+    private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
                              EncryptionService encryptionService,
-                             AggregationSourceCapabilityProvider capabilityProvider,
                              MetadataSchemaService metadataSchemaService,
                              DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                              BusinessMetaModelMetadataService businessMetaModelMetadataService,
@@ -77,7 +79,6 @@ public class DataSourceService {
         this.datasourceMapper = datasourceMapper;
         this.dataModelMapper = dataModelMapper;
         this.encryptionService = encryptionService;
-        this.capabilityProvider = capabilityProvider;
         this.metadataSchemaService = metadataSchemaService;
         this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
@@ -86,6 +87,22 @@ public class DataSourceService {
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.datasourceConnectionFingerprintService = datasourceConnectionFingerprintService;
         this.datasourceConnectionHealthService = datasourceConnectionHealthService;
+    }
+
+    /** Kept as method injection so existing focused service tests remain source-compatible. */
+    @Autowired
+    public void setDatasourceClusterBindingService(DatasourceClusterBindingService datasourceClusterBindingService) {
+        this.datasourceClusterBindingService = datasourceClusterBindingService;
+    }
+
+    @Autowired
+    public void setRuntimeValidationService(RuntimeValidationService runtimeValidationService) {
+        this.runtimeValidationService = runtimeValidationService;
+    }
+
+    @Autowired
+    public void setRuntimeDatasourceProbeRouter(RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter) {
+        this.runtimeDatasourceProbeRouter = runtimeDatasourceProbeRouter;
     }
 
     public List<DataSourceDefinition> list() {
@@ -97,6 +114,7 @@ public class DataSourceService {
             result.add(toDefinition(entity, true));
         }
         datasourceConnectionHealthService.hydrateDefinitions(result);
+        hydrateApplicableClusters(result);
         return result;
     }
 
@@ -120,6 +138,7 @@ public class DataSourceService {
         for (DatasourceEntity entity : entities) {
             result.add(toBasicListView(entity));
         }
+        hydrateApplicableClustersForListViews(result);
         return result;
     }
 
@@ -141,14 +160,22 @@ public class DataSourceService {
         for (DatasourceEntity entity : entities) {
             result.add(toListView(entity));
         }
+        hydrateApplicableClustersForListViews(result);
         datasourceConnectionHealthService.hydrateListViews(result);
+        datasourceConnectionHealthService.hydrateClusterHealth(result);
         return result;
     }
 
     public List<DataSourceOptionView> listBasicOptions() {
+        return listBasicOptions(null);
+    }
+
+    public List<DataSourceOptionView> listBasicOptions(Long runtimeClusterId) {
         List<DatasourceEntity> entities = datasourceMapper.selectList(selectOptionColumns(buildAccessibleQuery())
+                .eq(DatasourceEntity::getEnabled, 1)
                 .orderByAsc(DatasourceEntity::getProjectId)
                 .orderByAsc(DatasourceEntity::getName));
+        entities = filterByRuntimeCluster(entities, runtimeClusterId);
         List<DataSourceOptionView> result = new ArrayList<DataSourceOptionView>();
         for (DatasourceEntity entity : entities) {
             result.add(toOptionView(entity));
@@ -200,13 +227,19 @@ public class DataSourceService {
     }
 
     public List<DataSourceOptionView> listBasicOptionsByTypes(Set<String> typeCodes) {
+        return listBasicOptionsByTypes(typeCodes, null);
+    }
+
+    public List<DataSourceOptionView> listBasicOptionsByTypes(Set<String> typeCodes, Long runtimeClusterId) {
         if (typeCodes == null || typeCodes.isEmpty()) {
             return new ArrayList<DataSourceOptionView>();
         }
         List<DatasourceEntity> entities = datasourceMapper.selectList(selectOptionColumns(buildAccessibleQuery())
                 .in(DatasourceEntity::getTypeCode, typeCodes)
+                .eq(DatasourceEntity::getEnabled, 1)
                 .orderByAsc(DatasourceEntity::getProjectId)
                 .orderByAsc(DatasourceEntity::getName));
+        entities = filterByRuntimeCluster(entities, runtimeClusterId);
         List<DataSourceOptionView> result = new ArrayList<DataSourceOptionView>();
         for (DatasourceEntity entity : entities) {
             result.add(toOptionView(entity));
@@ -236,6 +269,7 @@ public class DataSourceService {
             DataSourceListView view = toBasicListView(entity);
             result.put(view.getId(), view);
         }
+        hydrateApplicableClustersForListViews(new ArrayList<DataSourceListView>(result.values()));
         return result;
     }
 
@@ -248,6 +282,7 @@ public class DataSourceService {
         List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
         definitions.add(definition);
         datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        hydrateApplicableClusters(definitions);
         return definition;
     }
 
@@ -277,12 +312,22 @@ public class DataSourceService {
     public DataSourceDefinition save(DataSourceSaveRequest request) {
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         String currentTenantId = securityService.currentTenantId();
-        datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
         DatasourceEntity entity = request.getId() == null ? new DatasourceEntity() : requireWritableEntity(request.getId());
         if (entity == null) {
             entity = new DatasourceEntity();
         }
+        List<Long> applicableClusterIds = normalizeApplicableClusterIds(
+                currentProjectId, entity.getId(), request.getApplicableClusterIds());
+        datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
         boolean newEntity = entity.getId() == null;
+        DatasourceClusterBindingImpactView bindingImpact = newEntity || runtimeValidationService == null
+                ? new DatasourceClusterBindingImpactView()
+                : runtimeValidationService.previewDatasourceBindingImpact(entity.getId(), applicableClusterIds);
+        if (!bindingImpact.getAffectedResources().isEmpty() && !Boolean.TRUE.equals(request.getConfirmClusterBindingImpact())) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "Removing datasource cluster applicability affects " + bindingImpact.getAffectedResources().size()
+                            + " resource(s); confirmClusterBindingImpact is required");
+        }
         String originalConnectionFingerprint = entity.getConnectionFingerprint();
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
@@ -318,27 +363,52 @@ public class DataSourceService {
             }
         }
         datasourceConnectionHealthService.ensureHealthRow(currentTenantId, connectionFingerprint);
+        if (datasourceClusterBindingService != null) {
+            datasourceClusterBindingService.replaceBindings(currentTenantId, entity.getId(), applicableClusterIds);
+        }
+        if (runtimeValidationService != null) {
+            bindingImpact.setDatasourceId(entity.getId());
+            runtimeValidationService.applyDatasourceBindingImpact(bindingImpact);
+        }
         DataSourceDefinition saved = toDefinition(entity, true);
         List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
         definitions.add(saved);
         datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        hydrateApplicableClusters(definitions);
         return saved;
     }
 
+    public DatasourceClusterBindingImpactView previewClusterBindingImpact(Long datasourceId, List<Long> applicableClusterIds) {
+        requireWritableEntity(datasourceId);
+        if (runtimeValidationService == null) {
+            DatasourceClusterBindingImpactView empty = new DatasourceClusterBindingImpactView();
+            empty.setDatasourceId(datasourceId);
+            return empty;
+        }
+        return runtimeValidationService.previewDatasourceBindingImpact(datasourceId, applicableClusterIds);
+    }
+
     public ConnectionTestResult testConnection(Long id) {
+        return testConnection(id, null);
+    }
+
+    public ConnectionTestResult testConnection(Long id, Long runtimeClusterId) {
+        requireExplicitRuntimeCluster(runtimeClusterId);
         DatasourceEntity entity = findAccessibleEntity(id);
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
         }
+        assertApplicableToRuntimeCluster(entity, runtimeClusterId);
         ensureConnectionFingerprint(entity);
-        DataSourceDefinition definition = toDefinition(entity, false);
+        DataSourceDefinition definition = toDefinition(entity, true);
         ensureDatasourceCanTest(definition);
         final DataSourceDefinition probeDefinition = definition;
         int timeoutSeconds = datasourceConnectionHealthService.effectiveManualTimeout(definition);
-        ConnectionTestResult result = datasourceConnectionHealthService.runManualProbe(definition, new Callable<ConnectionTestResult>() {
+        ConnectionTestResult result = datasourceConnectionHealthService.runManualProbe(definition, runtimeClusterId, new Callable<ConnectionTestResult>() {
             @Override
             public ConnectionTestResult call() {
-                return executeConnectionTest(probeDefinition);
+                return executeConnectionTest(probeDefinition, runtimeClusterId,
+                        RuntimeDatasourceProbeMode.STORED);
             }
         }, timeoutSeconds);
         persistConnectionSnapshot(id, result);
@@ -346,14 +416,32 @@ public class DataSourceService {
     }
 
     public ConnectionTestResult testConnection(DataSourceSaveRequest request) {
+        return testConnection(request, null);
+    }
+
+    public ConnectionTestResult testConnection(DataSourceSaveRequest request, Long runtimeClusterId) {
+        requireExplicitRuntimeCluster(runtimeClusterId);
+        List<Long> applicableClusterIds = request.getApplicableClusterIds();
+        if (datasourceClusterBindingService != null && runtimeClusterId != null) {
+            Long projectId = projectResourceAccessService.requireCurrentProjectId();
+            applicableClusterIds = datasourceClusterBindingService.normalizeForSave(
+                    projectId, request.getId(), request.getApplicableClusterIds());
+            if (!applicableClusterIds.contains(runtimeClusterId)) {
+                throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                        "Datasource is not applicable to the selected runtime cluster");
+            }
+        }
         datasourceTypeCapabilityService.ensureEnabled(request.getTypeCode());
         final DataSourceDefinition definition = buildDefinitionForTest(request);
+        definition.setApplicableClusterIds(applicableClusterIds == null
+                ? new ArrayList<Long>() : new ArrayList<Long>(applicableClusterIds));
         ensureDatasourceCanTest(definition);
         int timeoutSeconds = datasourceConnectionHealthService.effectiveManualTimeout(definition);
         return datasourceConnectionHealthService.runCurrentFormProbe(new Callable<ConnectionTestResult>() {
             @Override
             public ConnectionTestResult call() {
-                return executeConnectionTest(definition);
+                return executeConnectionTest(definition, runtimeClusterId,
+                        RuntimeDatasourceProbeMode.DRAFT_FORM);
             }
         }, timeoutSeconds);
     }
@@ -367,24 +455,50 @@ public class DataSourceService {
     }
 
     public ModelDiscoveryResult discoverModels(Long id, String keyword, Integer pageNo, Integer pageSize) {
-        DataSourceDefinition definition = getInternal(id);
-        datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
-        return capabilityProvider.discoverModels(definition, keyword, pageNo, pageSize);
+        return discoverModels(id, keyword, pageNo, pageSize, null);
     }
 
-    public ModelDiscoveryOptionResult discoverModelOptions(Long id, String keyword, Integer pageNo, Integer pageSize) {
-        DataSourceDefinition definition = getInternal(id);
-        datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
-        return capabilityProvider.discoverModelOptions(definition, keyword, pageNo, pageSize);
-    }
-
-    public List<DatasourceConnectionTestRecordView> connectionHistory(Long id, Integer days, Integer limit) {
+    public ModelDiscoveryResult discoverModels(Long id, String keyword, Integer pageNo, Integer pageSize, Long runtimeClusterId) {
+        requireExplicitRuntimeCluster(runtimeClusterId);
         DatasourceEntity entity = findAccessibleEntity(id);
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
         }
+        assertApplicableToRuntimeCluster(entity, runtimeClusterId);
+        DataSourceDefinition definition = get(id);
+        datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
+        return runtimeDatasourceProbeRouter().discover(definition, runtimeClusterId, keyword, pageNo, pageSize);
+    }
+
+    public ModelDiscoveryOptionResult discoverModelOptions(Long id, String keyword, Integer pageNo, Integer pageSize) {
+        return discoverModelOptions(id, keyword, pageNo, pageSize, null);
+    }
+
+    public ModelDiscoveryOptionResult discoverModelOptions(Long id, String keyword, Integer pageNo, Integer pageSize, Long runtimeClusterId) {
+        requireExplicitRuntimeCluster(runtimeClusterId);
+        DatasourceEntity entity = findAccessibleEntity(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
+        }
+        assertApplicableToRuntimeCluster(entity, runtimeClusterId);
+        DataSourceDefinition definition = get(id);
+        datasourceTypeCapabilityService.ensureReadable(definition.getTypeCode());
+        return runtimeDatasourceProbeRouter().discoverOptions(definition, runtimeClusterId, keyword, pageNo, pageSize);
+    }
+
+    public List<DatasourceConnectionTestRecordView> connectionHistory(Long id, Integer days, Integer limit) {
+        return connectionHistory(id, days, limit, null);
+    }
+
+    public List<DatasourceConnectionTestRecordView> connectionHistory(Long id, Integer days, Integer limit, Long runtimeClusterId) {
+        requireExplicitRuntimeCluster(runtimeClusterId);
+        DatasourceEntity entity = findAccessibleEntity(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
+        }
+        assertApplicableToRuntimeCluster(entity, runtimeClusterId);
         ensureConnectionFingerprint(entity);
-        return datasourceConnectionHealthService.history(entity.getTenantId(), entity.getConnectionFingerprint(), days, limit);
+        return datasourceConnectionHealthService.history(entity.getTenantId(), runtimeClusterId, entity.getConnectionFingerprint(), days, limit);
     }
 
     public void dispatchDueScheduledConnectionTests() {
@@ -398,19 +512,38 @@ public class DataSourceService {
                 .orderByAsc(DatasourceEntity::getConnectionFingerprint)
                 .orderByAsc(DatasourceEntity::getId));
         Map<String, ScheduledProbeCandidate> candidates = new LinkedHashMap<String, ScheduledProbeCandidate>();
+        Map<Long, List<Long>> applicableClusters = new LinkedHashMap<Long, List<Long>>();
+        if (datasourceClusterBindingService != null) {
+            Map<String, List<Long>> datasourceIdsByTenant = new LinkedHashMap<String, List<Long>>();
+            for (DatasourceEntity entity : entities) {
+                List<Long> tenantDatasourceIds = datasourceIdsByTenant.get(entity.getTenantId());
+                if (tenantDatasourceIds == null) {
+                    tenantDatasourceIds = new ArrayList<Long>();
+                    datasourceIdsByTenant.put(entity.getTenantId(), tenantDatasourceIds);
+                }
+                tenantDatasourceIds.add(entity.getId());
+            }
+            for (Map.Entry<String, List<Long>> entry : datasourceIdsByTenant.entrySet()) {
+                applicableClusters.putAll(datasourceClusterBindingService.listApplicableClusterIds(
+                        entry.getKey(), entry.getValue()));
+            }
+        }
         for (DatasourceEntity entity : entities) {
             ensureConnectionFingerprint(entity);
             if (!hasText(entity.getConnectionFingerprint())) {
                 continue;
             }
-            String key = entity.getTenantId() + "\n" + entity.getConnectionFingerprint();
-            DataSourceDefinition definition = toDefinition(entity, false);
+            DataSourceDefinition definition = toDefinition(entity, true);
             int timeoutSeconds = datasourceConnectionHealthService.effectiveScheduledTimeout(definition);
-            ScheduledProbeCandidate candidate = candidates.get(key);
-            if (candidate == null) {
-                candidates.put(key, new ScheduledProbeCandidate(definition, timeoutSeconds));
-            } else if (timeoutSeconds > candidate.timeoutSeconds) {
-                candidate.timeoutSeconds = timeoutSeconds;
+            List<Long> clusterIds = applicableClusters.get(entity.getId());
+            if (clusterIds == null || clusterIds.isEmpty()) {
+                continue;
+            }
+            for (Long runtimeClusterId : clusterIds) {
+                String key = entity.getTenantId() + "\n" + runtimeClusterId + "\n" + entity.getConnectionFingerprint();
+                ScheduledProbeCandidate candidate = candidates.get(key);
+                if (candidate == null) candidates.put(key, new ScheduledProbeCandidate(definition, runtimeClusterId, timeoutSeconds));
+                else if (timeoutSeconds > candidate.timeoutSeconds) candidate.timeoutSeconds = timeoutSeconds;
             }
         }
         LocalDateTime roundStartedAt = LocalDateTime.now();
@@ -422,14 +555,15 @@ public class DataSourceService {
             if (roundStartedAt.plusSeconds(datasourceConnectionHealthService.roundBudgetSeconds()).isBefore(LocalDateTime.now())) {
                 break;
             }
-            if (!datasourceConnectionHealthService.scheduledDue(candidate.definition.getTenantId(), candidate.definition.getConnectionFingerprint())) {
+            if (!datasourceConnectionHealthService.scheduledDue(candidate.definition.getTenantId(), candidate.runtimeClusterId, candidate.definition.getConnectionFingerprint())) {
                 continue;
             }
             final DataSourceDefinition probeDefinition = candidate.definition;
-            datasourceConnectionHealthService.submitScheduledProbe(probeDefinition, new Callable<ConnectionTestResult>() {
+            datasourceConnectionHealthService.submitScheduledProbe(probeDefinition, candidate.runtimeClusterId, new Callable<ConnectionTestResult>() {
                 @Override
                 public ConnectionTestResult call() {
-                    return executeConnectionTest(probeDefinition);
+                    return executeConnectionTest(probeDefinition, candidate.runtimeClusterId,
+                            RuntimeDatasourceProbeMode.SCHEDULED_HEALTH);
                 }
             }, candidate.timeoutSeconds);
             processed++;
@@ -443,9 +577,12 @@ public class DataSourceService {
 
     @Transactional
     public void delete(Long id) {
-        requireWritableEntity(id);
+        DatasourceEntity entity = requireWritableEntity(id);
         dataModelMapper.delete(new LambdaQueryWrapper<DataModelEntity>()
                 .eq(DataModelEntity::getDatasourceId, id));
+        if (datasourceClusterBindingService != null) {
+            datasourceClusterBindingService.deleteBindings(entity.getTenantId(), id);
+        }
         datasourceMapper.deleteById(id);
         dataModelIndexRebuildQueueService.enqueueDatasourceDelete(id);
     }
@@ -575,6 +712,101 @@ public class DataSourceService {
         return view;
     }
 
+    private List<Long> normalizeApplicableClusterIds(Long projectId,
+                                                     Long existingDatasourceId,
+                                                     List<Long> applicableClusterIds) {
+        if (datasourceClusterBindingService == null) {
+            return applicableClusterIds == null ? new ArrayList<Long>() : new ArrayList<Long>(applicableClusterIds);
+        }
+        return datasourceClusterBindingService.normalizeForSave(
+                projectId, existingDatasourceId, applicableClusterIds);
+    }
+
+    private void assertApplicableToRuntimeCluster(DatasourceEntity entity, Long runtimeClusterId) {
+        requireExplicitRuntimeCluster(runtimeClusterId);
+        if (datasourceClusterBindingService == null || entity == null || runtimeClusterId == null) {
+            return;
+        }
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        datasourceClusterBindingService.filterApplicableDatasourceIds(currentProjectId, runtimeClusterId,
+                java.util.Collections.singletonList(entity.getId()));
+        datasourceClusterBindingService.assertDatasourceApplicable(entity.getId(), runtimeClusterId);
+    }
+
+    private List<DatasourceEntity> filterByRuntimeCluster(List<DatasourceEntity> entities, Long runtimeClusterId) {
+        if (datasourceClusterBindingService == null || runtimeClusterId == null || entities == null || entities.isEmpty()) {
+            return entities;
+        }
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
+        List<Long> datasourceIds = new ArrayList<Long>();
+        for (DatasourceEntity entity : entities) {
+            if (entity.getId() != null) {
+                datasourceIds.add(entity.getId());
+            }
+        }
+        Set<Long> allowedIds;
+        try {
+            allowedIds = datasourceClusterBindingService.filterApplicableDatasourceIds(
+                    currentProjectId, runtimeClusterId, datasourceIds);
+        } catch (StudioException ex) {
+            // An existing resource may reference a cluster that has just been
+            // disabled or de-authorized. Returning no choices keeps the
+            // resource editable while save/execute paths continue to reject it.
+            return new ArrayList<DatasourceEntity>();
+        }
+        List<DatasourceEntity> result = new ArrayList<DatasourceEntity>();
+        for (DatasourceEntity entity : entities) {
+            if (allowedIds.contains(entity.getId())) {
+                result.add(entity);
+            }
+        }
+        return result;
+    }
+
+    private void hydrateApplicableClusters(List<DataSourceDefinition> definitions) {
+        if (datasourceClusterBindingService == null || definitions == null || definitions.isEmpty()) {
+            return;
+        }
+        List<Long> datasourceIds = new ArrayList<Long>();
+        for (DataSourceDefinition definition : definitions) {
+            if (definition != null && definition.getId() != null) {
+                datasourceIds.add(definition.getId());
+            }
+        }
+        Map<Long, List<Long>> idsByDatasource = datasourceClusterBindingService.listApplicableClusterIds(datasourceIds);
+        Map<Long, List<com.jdragon.studio.dto.model.RuntimeClusterView>> clustersByDatasource =
+                datasourceClusterBindingService.listApplicableClusters(datasourceIds);
+        for (DataSourceDefinition definition : definitions) {
+            List<Long> ids = idsByDatasource.get(definition.getId());
+            definition.setApplicableClusterIds(ids == null ? new ArrayList<Long>() : ids);
+            List<com.jdragon.studio.dto.model.RuntimeClusterView> clusters = clustersByDatasource.get(definition.getId());
+            definition.setApplicableClusters(clusters == null
+                    ? new ArrayList<com.jdragon.studio.dto.model.RuntimeClusterView>() : clusters);
+        }
+    }
+
+    private void hydrateApplicableClustersForListViews(List<DataSourceListView> views) {
+        if (datasourceClusterBindingService == null || views == null || views.isEmpty()) {
+            return;
+        }
+        List<Long> datasourceIds = new ArrayList<Long>();
+        for (DataSourceListView view : views) {
+            if (view != null && view.getId() != null) {
+                datasourceIds.add(view.getId());
+            }
+        }
+        Map<Long, List<Long>> idsByDatasource = datasourceClusterBindingService.listApplicableClusterIds(datasourceIds);
+        Map<Long, List<com.jdragon.studio.dto.model.RuntimeClusterView>> clustersByDatasource =
+                datasourceClusterBindingService.listApplicableClusters(datasourceIds);
+        for (DataSourceListView view : views) {
+            List<Long> ids = idsByDatasource.get(view.getId());
+            view.setApplicableClusterIds(ids == null ? new ArrayList<Long>() : ids);
+            List<com.jdragon.studio.dto.model.RuntimeClusterView> clusters = clustersByDatasource.get(view.getId());
+            view.setApplicableClusters(clusters == null
+                    ? new ArrayList<com.jdragon.studio.dto.model.RuntimeClusterView>() : clusters);
+        }
+    }
+
     private DataSourceDefinition buildDefinitionForTest(DataSourceSaveRequest request) {
         DatasourceEntity entity = request.getId() == null ? null : requireWritableEntity(request.getId());
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
@@ -583,6 +815,8 @@ public class DataSourceService {
 
         DataSourceDefinition definition = new DataSourceDefinition();
         definition.setId(request.getId());
+        definition.setTenantId(securityService.currentTenantId());
+        definition.setProjectId(projectResourceAccessService.requireCurrentProjectId());
         definition.setName(request.getName());
         definition.setTypeCode(request.getTypeCode());
         definition.setSchemaVersionId(resolveSchemaVersionId(request, schema));
@@ -595,19 +829,24 @@ public class DataSourceService {
         return definition;
     }
 
-    private ConnectionTestResult executeConnectionTest(DataSourceDefinition definition) {
-        long startedAtNanos = System.nanoTime();
-        ConnectionTestResult result = capabilityProvider.testConnection(definition);
-        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+    private ConnectionTestResult executeConnectionTest(DataSourceDefinition definition, Long runtimeClusterId,
+                                                       RuntimeDatasourceProbeMode mode) {
+        ConnectionTestResult result = runtimeDatasourceProbeRouter().test(definition, runtimeClusterId, mode);
         if (result == null) {
             result = new ConnectionTestResult();
             result.setSuccess(false);
+            result.setStatus(DataSourceConnectionStatus.UNAVAILABLE);
             result.setMessage("Connection test returned no result");
         }
-        result.setStatus(result.isSuccess() ? DataSourceConnectionStatus.AVAILABLE : DataSourceConnectionStatus.UNAVAILABLE);
-        result.setDurationMs(durationMs);
         result.setMessage(truncateConnectionMessage(result.getMessage()));
         return result;
+    }
+
+    private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter() {
+        if (runtimeDatasourceProbeRouter == null) {
+            throw new IllegalStateException("Runtime datasource probe router is not configured");
+        }
+        return runtimeDatasourceProbeRouter;
     }
 
     private void persistConnectionSnapshot(Long id, ConnectionTestResult result) {
@@ -740,7 +979,7 @@ public class DataSourceService {
 
     private DatasourceEntity findAccessibleEntity(Long id) {
         DatasourceEntity entity = datasourceMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !Objects.equals(securityService.currentTenantId(), entity.getTenantId())) {
             return null;
         }
         projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_DATASOURCE,
@@ -750,11 +989,17 @@ public class DataSourceService {
 
     private DatasourceEntity requireWritableEntity(Long id) {
         DatasourceEntity entity = datasourceMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !Objects.equals(securityService.currentTenantId(), entity.getTenantId())) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
         }
         projectResourceAccessService.assertWritable(entity.getProjectId());
         return entity;
+    }
+
+    private void requireExplicitRuntimeCluster(Long runtimeClusterId) {
+        if (runtimeClusterId == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Runtime cluster is required");
+        }
     }
 
     private void ensureUniqueName(Long projectId, String name, Long selfId) {
@@ -950,10 +1195,12 @@ public class DataSourceService {
 
     private static final class ScheduledProbeCandidate {
         private final DataSourceDefinition definition;
+        private final Long runtimeClusterId;
         private int timeoutSeconds;
 
-        private ScheduledProbeCandidate(DataSourceDefinition definition, int timeoutSeconds) {
+        private ScheduledProbeCandidate(DataSourceDefinition definition, Long runtimeClusterId, int timeoutSeconds) {
             this.definition = definition;
+            this.runtimeClusterId = runtimeClusterId;
             this.timeoutSeconds = timeoutSeconds;
         }
     }

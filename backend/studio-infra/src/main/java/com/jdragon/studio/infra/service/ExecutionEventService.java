@@ -90,9 +90,13 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setQualityTaskId(event.getQualityTaskId());
         entity.setProjectId(event.getProjectId());
         entity.setNodeCode(event.getNodeCode());
+        entity.setRequestedClusterId(event.getRequestedClusterId());
+        entity.setActualClusterId(event.getActualClusterId());
+        entity.setActualClusterCode(event.getActualClusterCode());
         entity.setWorkerGroupCode(event.getWorkerGroupCode());
         entity.setWorkerCode(event.getWorkerCode());
         entity.setWorkerInstanceId(event.getWorkerInstanceId());
+        entity.setWorkerBootId(event.getWorkerBootId());
         entity.setWorkerPodName(event.getWorkerPodName());
         entity.setWorkerNodeName(event.getWorkerNodeName());
         entity.setStatus(event.getEventType());
@@ -293,6 +297,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         evidence.put("message", entity.getMessage());
         evidence.put("startedAt", entity.getStartedAt());
         evidence.put("endedAt", entity.getEndedAt());
+        putRuntimeClusterEvidence(evidence, entity);
         alertSignalPublisher.publish(new AlertSignal()
                 .setTenantId(entity.getTenantId())
                 .setProjectId(entity.getProjectId())
@@ -357,6 +362,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         evidence.put("runRecordId", entity.getId());
         evidence.put("logStatus", entity.getLogStatus());
         evidence.put("logErrorSummary", entity.getLogErrorSummary());
+        putRuntimeClusterEvidence(evidence, entity);
         alertSignalPublisher.publish(new AlertSignal()
                 .setTenantId(entity.getTenantId())
                 .setProjectId(entity.getProjectId())
@@ -371,6 +377,18 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                 .setTargetPath(AlertIncidentService.targetPath("LOG_STORAGE", null, null))
                 .setOccurredAt(event.getOccurredAt() == null ? LocalDateTime.now() : event.getOccurredAt())
                 .setEvidence(evidence));
+    }
+
+    private void putRuntimeClusterEvidence(Map<String, Object> evidence, RunRecordEntity entity) {
+        if (evidence == null || entity == null) {
+            return;
+        }
+        evidence.put("targetClusterId", entity.getRequestedClusterId());
+        evidence.put("actualClusterId", entity.getActualClusterId());
+        evidence.put("actualClusterCode", entity.getActualClusterCode());
+        evidence.put("workerGroupCode", entity.getWorkerGroupCode());
+        evidence.put("workerInstanceId", entity.getWorkerInstanceId());
+        evidence.put("workerBootId", entity.getWorkerBootId());
     }
 
     private static final class AlertSubjectTypeName {

@@ -15,6 +15,7 @@ import com.jdragon.studio.dto.model.request.DataIngestionServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
 import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.service.DataIngestionService;
+import com.jdragon.studio.server.web.service.RuntimeInvocationRouter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 
@@ -35,9 +37,12 @@ import java.util.List;
 public class DataIngestionServiceController {
 
     private final DataIngestionService dataIngestionService;
+    private final RuntimeInvocationRouter runtimeInvocationRouter;
 
-    public DataIngestionServiceController(DataIngestionService dataIngestionService) {
+    public DataIngestionServiceController(DataIngestionService dataIngestionService,
+                                          RuntimeInvocationRouter runtimeInvocationRouter) {
         this.dataIngestionService = dataIngestionService;
+        this.runtimeInvocationRouter = runtimeInvocationRouter;
     }
 
     @Operation(summary = "List data ingestion services")
@@ -95,15 +100,20 @@ public class DataIngestionServiceController {
 
     @Operation(summary = "Resolve target fields")
     @PostMapping("/resolve-fields")
-    public Result<DataIngestionResolveFieldsView> resolveFields(@RequestBody DataIngestionResolveFieldsRequest request) {
+    public Result<DataIngestionResolveFieldsView> resolveFields(@Valid @RequestBody DataIngestionResolveFieldsRequest request) {
         return Result.success(dataIngestionService.resolveFields(request));
     }
 
     @Operation(summary = "Debug data ingestion service")
     @PostMapping("/{id}/debug")
     public Result<DataIngestionInvokeResult> debug(@PathVariable("id") Long id,
-                                                   @RequestBody(required = false) DataIngestionDebugRequest request) {
-        return Result.success(dataIngestionService.debug(id, request));
+                                                   @RequestBody(required = false) DataIngestionDebugRequest request,
+                                                   HttpServletResponse response) {
+        DataIngestionServiceView view = dataIngestionService.get(id);
+        RuntimeInvocationRouter.DebugRoute<DataIngestionInvokeResult> route =
+                runtimeInvocationRouter.routeDataIngestionDebug(view, request);
+        response.setStatus(route.getStatus());
+        return route.getResult();
     }
 
     @Operation(summary = "Preview data ingestion service WebService contract")
@@ -115,8 +125,13 @@ public class DataIngestionServiceController {
     @Operation(summary = "Debug data ingestion service WebService")
     @PostMapping("/{id}/webservice/debug")
     public Result<WebServiceDebugResult> debugWebService(@PathVariable("id") Long id,
-                                                         @RequestBody(required = false) WebServiceDebugRequest request) {
-        return Result.success(dataIngestionService.debugWebService(id, request));
+                                                         @RequestBody(required = false) WebServiceDebugRequest request,
+                                                         HttpServletResponse response) {
+        DataIngestionServiceView view = dataIngestionService.get(id);
+        RuntimeInvocationRouter.DebugRoute<WebServiceDebugResult> route =
+                runtimeInvocationRouter.routeDataIngestionWebServiceDebug(view, request);
+        response.setStatus(route.getStatus());
+        return route.getResult();
     }
 
     @Operation(summary = "List data ingestion service subscriptions")

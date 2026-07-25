@@ -211,7 +211,7 @@ public class AssistantBuiltInSkillRegistry implements AssistantSkillProvider {
                 "frontendTool: {type:'frontendTool', tool:'assistant.context.observe|assistant.context.read|assistant.context.search|assistant.memory.select|studio.feature.list|get|action|studio.navigation.open|assistant.script.execute', reason, params}",
                 "backendTool: {type:'backendTool', tool:'assistant.skills.search|studio.operations.search', reason, params}"));
         schema.put("contextToolContract", "assistant.context.observe reads broad page state; assistant.context.read reads current business context for a feature path including activeObject, selectedEntity, visible page objects, recent candidates, filters, and pagination; assistant.context.search searches existing pageContext/recent candidates/memory by path and keyword; assistant.memory.select selects only an existing candidate. None of them call business APIs.");
-        schema.put("scriptToolContract", "assistant.script.execute only runs registered scriptEntrypoints by entrypointId with stdin-json input; never output shell commands or arbitrary script text.");
+        schema.put("scriptToolContract", "assistant.script.execute runs registered scriptEntrypoints on a Studio Worker by entrypointId with stdin-json input and required runtimeClusterId; use an explicitly selected project-authorized runtime cluster and never output shell commands or arbitrary script text.");
         schema.put("controls", list(
                 "choices/select/text/textarea/confirm controls for missing user decisions",
                 "controls must explicitly include type, title, and paramKey",

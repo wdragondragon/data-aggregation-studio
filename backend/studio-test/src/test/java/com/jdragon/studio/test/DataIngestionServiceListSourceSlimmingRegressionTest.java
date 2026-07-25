@@ -22,18 +22,20 @@ import com.jdragon.studio.infra.mapper.DataIngestionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionServiceMapper;
 import com.jdragon.studio.infra.mapper.DataIngestionSubscriptionMapper;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
-import com.jdragon.studio.infra.service.DataDevelopmentSqlExecutor;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.DataIngestionService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -45,6 +47,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -80,6 +83,7 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         assertThat(item.getSourcePositions()).containsExactly("QUERY", "HEADER");
         assertThat(item.getDatasourceName()).isEqualTo("长期回归-客户经营画像数据源");
         assertThat(item.getModelName()).isEqualTo("客户画像模型");
+        assertThat(item.getRuntimeClusterId()).isEqualTo(46L);
         assertThat(item.getRequestFormat()).isNull();
         assertThat(item.getPayloadMode()).isNull();
         assertThat(item.getDatasourceId()).isNull();
@@ -89,7 +93,7 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<DataIngestionServiceEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(serviceMapper).selectPage(any(Page.class), captor.capture());
         assertThat(captor.getValue().getSqlSelect())
-                .contains("id", "project_id", "created_at", "updated_at",
+                .contains("id", "project_id", "created_at", "updated_at", "runtime_cluster_id",
                         "service_code", "service_name", "status", "target_type",
                         "datasource_name_snapshot", "model_name_snapshot",
                         "model_physical_locator", "endpoint_path", "source_positions_json",
@@ -111,7 +115,7 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         DataIngestionService service = service(serviceMapper, dataSourceService, dataModelService, capabilityService);
         AtomicReference<DataIngestionServiceEntity> savedRef = new AtomicReference<DataIngestionServiceEntity>();
         when(serviceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
-        when(dataSourceService.getInternal(10L)).thenReturn(datasource());
+        when(dataSourceService.get(10L)).thenReturn(datasource());
         when(dataModelService.get(20L)).thenReturn(model());
         when(capabilityService.sourceCategory("mysql8")).thenReturn("DATABASE");
         when(serviceMapper.insert(any(DataIngestionServiceEntity.class))).thenAnswer(invocation -> {
@@ -201,7 +205,7 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
 
     private void assertTableListSelectIsSlim(String sqlSelect) {
         assertThat(sqlSelect)
-                .contains("id", "project_id", "created_at", "updated_at",
+                .contains("id", "project_id", "created_at", "updated_at", "runtime_cluster_id",
                         "service_code", "service_name", "status", "target_type",
                         "datasource_name_snapshot", "model_name_snapshot",
                         "model_physical_locator", "endpoint_path", "source_positions_json",
@@ -224,20 +228,31 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         when(accessService.currentProjectId()).thenReturn(100L);
         when(accessService.requireCurrentProjectId()).thenReturn(100L);
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
-        return new DataIngestionService(
+        DataIngestionService service = new DataIngestionService(
                 serviceMapper,
                 mock(DataIngestionSubscriptionMapper.class),
                 mock(DataIngestionAccessLogMapper.class),
                 mock(DataIngestionAccessCounterMapper.class),
                 dataSourceService,
                 dataModelService,
-                mock(DataDevelopmentSqlExecutor.class),
+                mock(DatasourceTypeCapabilityService.class),
                 securityService,
                 accessService,
                 capabilityService,
                 mock(CollectionTaskAssemblerService.class),
                 new ObjectMapper(),
                 mock(OpenServiceInvocationLogService.class));
+        injectRuntimeSelection(service);
+        return service;
+    }
+
+    private void injectRuntimeSelection(DataIngestionService service) {
+        RuntimeClusterSelectionService selectionService = mock(RuntimeClusterSelectionService.class);
+        when(selectionService.validateDatasourceSelectionForResourceSave(
+                any(), any(), any(), anyBoolean(), any())).thenReturn(46L);
+        when(selectionService.hydrateRuntimeValidation(
+                any(), any(DataIngestionServiceView.class))).thenAnswer(invocation -> invocation.getArgument(1));
+        ReflectionTestUtils.setField(service, "runtimeClusterSelectionService", selectionService);
     }
 
     private DataIngestionServiceEntity listEntity() {
@@ -248,6 +263,7 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 29, 10, 0, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 29, 10, 1, 0));
+        entity.setRuntimeClusterId(46L);
         entity.setServiceCode("customer_profile_ingest");
         entity.setServiceName("客户画像接入服务");
         entity.setStatus(DataIngestionStatus.ONLINE.name());
@@ -303,6 +319,7 @@ class DataIngestionServiceListSourceSlimmingRegressionTest {
         DataIngestionServiceSaveRequest request = new DataIngestionServiceSaveRequest();
         request.setServiceCode("customer_profile_ingest");
         request.setServiceName("客户画像接入服务");
+        request.setRuntimeClusterId(46L);
         request.setTargetType(DataIngestionTargetType.DATABASE);
         request.setDatasourceId(10L);
         request.setModelId(20L);

@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 public class CollectionTaskWorkflowOptionView {
     private Long id;
     private Long projectId;
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private LocalDateTime updatedAt;
     private String name;
     private CollectionTaskType taskType;

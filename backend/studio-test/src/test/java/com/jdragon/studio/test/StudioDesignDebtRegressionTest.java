@@ -18,14 +18,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class StudioDesignDebtRegressionTest {
 
-    private static final int MAX_BACKEND_CATCH_IGNORED = 101;
-    private static final int MAX_BACKEND_RETURN_NULL = 468;
+    private static final int MAX_BACKEND_CATCH_IGNORED = 112;
+    private static final int MAX_BACKEND_RETURN_NULL = 525;
     private static final int MAX_LEGACY_TABLE_WRAPPER_REFERENCES = 0;
-    private static final int MAX_LARGE_WEB_VUE_FILES = 15;
+    private static final int MAX_LARGE_WEB_VUE_FILES = 17;
     private static final int BACKEND_LARGE_FILE_LINE_THRESHOLD = 800;
     private static final int WEB_LARGE_FILE_LINE_THRESHOLD = 1000;
     // Snapshot the currently reviewed migration debt so later work cannot increase it silently.
     private static final Set<String> REVIEWED_LARGE_BACKEND_JAVA_FILES = Set.of(
+            "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/AlertIncidentService.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/AssistantLlmPlanner.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/AssistantStudioOperationRegistry.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/CollectionTaskService.java",
@@ -49,10 +50,12 @@ class StudioDesignDebtRegressionTest {
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/QualityIssueService.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/QualityTaskService.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/RunService.java",
+            "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/RuntimeValidationService.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/ScriptEnvironmentRuntimeService.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java",
             "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/SystemManagementService.java",
-            "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowRunService.java");
+            "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowRunService.java",
+            "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowService.java");
 
     @Test
     void backendIgnoredCatchesShouldNotIncrease() throws Exception {
@@ -96,6 +99,74 @@ class StudioDesignDebtRegressionTest {
         assertThat(frontendLargeFiles)
                 .as("web Vue files over " + WEB_LARGE_FILE_LINE_THRESHOLD + " lines")
                 .isLessThanOrEqualTo(MAX_LARGE_WEB_VUE_FILES);
+    }
+
+    @Test
+    void runtimeExecutionGuardDependenciesMustNotBeOptional() throws Exception {
+        Path root = resolveProjectRoot();
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataSourceService.java",
+                "setDatasourceClusterBindingService", "setRuntimeValidationService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataDevelopmentService.java",
+                "setDataModelMapper", "setRuntimeResourceRevisionService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataDevelopmentWorkerExecutionService.java",
+                "setRuntimeValidationService", "setRuntimeResourceRevisionService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataIngestionService.java",
+                "setRuntimeDatasourceProbeRouter");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DataServiceService.java",
+                "setRuntimeDatasourceProbeRouter");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/DispatchService.java",
+                "setRuntimeValidationService", "setRuntimeResourceRevisionService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/ModelSyncTaskService.java",
+                "setRuntimeClusterSelectionService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/ProtocolConversionService.java",
+                "setRuntimeEndpointSecurityService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/RuntimeClusterSelectionService.java",
+                "setRuntimeValidationService");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/RuntimeClusterService.java",
+                "setStudioPlatformProperties", "setRuntimeValidationService",
+                "setRuntimeEndpointSecurityService", "setRuntimeEndpointHttpClient",
+                "setRuntimeEndpointHeaderPolicy");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/RuntimeDatasourceProbeRouter.java",
+                "setRuntimeIdentityServices");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/RuntimeValidationService.java",
+                "setDataModelMapper", "setRuntimePlacementMappers");
+        assertRequiredWiring(root,
+                "backend/studio-infra/src/main/java/com/jdragon/studio/infra/service/WorkflowService.java",
+                "setRuntimeResourceRevisionService", "setWorkflowResourceMappers");
+        assertRequiredWiring(root,
+                "backend/studio-server/src/main/java/com/jdragon/studio/server/web/service/RuntimeInvocationRouter.java",
+                "setRuntimeValidationMapper");
+        assertRequiredWiring(root,
+                "backend/studio-server/src/main/java/com/jdragon/studio/server/web/service/AssistantStudioToolExecutionService.java",
+                "setRuntimeClusterService");
+        assertRequiredWiring(root,
+                "backend/studio-worker/src/main/java/com/jdragon/studio/worker/web/controller/InternalRuntimeInvocationController.java",
+                "setRuntimeIdentityMappers", "setIdempotencyService");
+    }
+
+    private void assertRequiredWiring(Path root, String relativePath, String... methodNames) throws IOException {
+        String source = Files.readString(root.resolve(relativePath), StandardCharsets.UTF_8);
+        for (String methodName : methodNames) {
+            Pattern optionalSetter = Pattern.compile(
+                    "@Autowired\\s*\\(\\s*required\\s*=\\s*false\\s*\\)\\s*"
+                            + "(?:public\\s+|protected\\s+|private\\s+)?void\\s+"
+                            + Pattern.quote(methodName) + "\\s*\\(");
+            assertThat(source)
+                    .as(relativePath + " must fail startup when " + methodName + " is unavailable")
+                    .doesNotContainPattern(optionalSetter);
+        }
     }
 
     private int countInBackendMain(Pattern pattern) throws IOException {

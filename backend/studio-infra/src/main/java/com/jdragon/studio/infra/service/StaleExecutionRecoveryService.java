@@ -1,6 +1,8 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
@@ -91,8 +93,9 @@ public class StaleExecutionRecoveryService {
         LocalDateTime now = LocalDateTime.now();
         for (DispatchTaskEntity task : selectRunningDispatchTasks(scope)) {
             if (isStaleDispatchTask(task, now)) {
-                failDispatchTask(task, now, AUTO_RECOVERY_REASON);
-                failLinkedRunRecord(task, now);
+                if (failDispatchTask(task, now, AUTO_RECOVERY_REASON)) {
+                    failLinkedRunRecord(task, now);
+                }
             }
         }
         for (RunRecordEntity record : selectCandidateRunRecords(scope)) {
@@ -132,7 +135,8 @@ public class StaleExecutionRecoveryService {
         if (task.getLeaseExpiresAt() != null && task.getLeaseExpiresAt().isAfter(now)) {
             return true;
         }
-        if (hasActiveWorker(task.getTenantId(), task.getWorkerGroupCode(), task.getLeaseOwner(), task.getWorkerInstanceId(), now)) {
+        if (hasActiveWorker(task.getTenantId(), task.getWorkerGroupCode(), task.getLeaseOwner(),
+                task.getWorkerInstanceId(), task.getWorkerBootId(), now)) {
             return true;
         }
         return isRecent(task.getCreatedAt(), now);
@@ -148,7 +152,9 @@ public class StaleExecutionRecoveryService {
         if (hasActiveDispatchForRecord(record, now)) {
             return true;
         }
-        if (hasActiveWorker(record.getTenantId(), record.getWorkerGroupCode(), record.getWorkerCode(), record.getWorkerInstanceId(), now)) {
+        if (!hasLinkedDispatch(record)
+                && hasActiveWorker(record.getTenantId(), record.getWorkerGroupCode(), record.getWorkerCode(),
+                record.getWorkerInstanceId(), record.getWorkerBootId(), now)) {
             return true;
         }
         return isRecent(firstNonNull(record.getStartedAt(), record.getCreatedAt()), now);
@@ -161,7 +167,8 @@ public class StaleExecutionRecoveryService {
         if (task.getLeaseExpiresAt() != null && task.getLeaseExpiresAt().isAfter(now)) {
             return false;
         }
-        if (hasActiveWorker(task.getTenantId(), task.getWorkerGroupCode(), task.getLeaseOwner(), task.getWorkerInstanceId(), now)) {
+        if (hasActiveWorker(task.getTenantId(), task.getWorkerGroupCode(), task.getLeaseOwner(),
+                task.getWorkerInstanceId(), task.getWorkerBootId(), now)) {
             return false;
         }
         return !isRecent(firstNonNull(task.getLeaseExpiresAt(), task.getUpdatedAt(), task.getCreatedAt()), now);
@@ -174,7 +181,9 @@ public class StaleExecutionRecoveryService {
         if (hasActiveDispatchForRecord(record, now)) {
             return false;
         }
-        if (hasActiveWorker(record.getTenantId(), record.getWorkerGroupCode(), record.getWorkerCode(), record.getWorkerInstanceId(), now)) {
+        if (!hasLinkedDispatch(record)
+                && hasActiveWorker(record.getTenantId(), record.getWorkerGroupCode(), record.getWorkerCode(),
+                record.getWorkerInstanceId(), record.getWorkerBootId(), now)) {
             return false;
         }
         return !isRecent(firstNonNull(record.getStartedAt(), record.getCreatedAt()), now);
@@ -188,9 +197,15 @@ public class StaleExecutionRecoveryService {
                 .eq(DispatchTaskEntity::getTenantId, record.getTenantId())
                 .eq(record.getProjectId() != null, DispatchTaskEntity::getProjectId, record.getProjectId())
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING");
-        if (record.getId() != null) {
+        boolean hasRunRecordId = record.getId() != null;
+        boolean hasWorkflowNode = record.getWorkflowRunId() != null && record.getNodeCode() != null;
+        if (hasRunRecordId && hasWorkflowNode) {
+            query.and(link -> link.eq(DispatchTaskEntity::getRunRecordId, record.getId())
+                    .or(fallback -> fallback.eq(DispatchTaskEntity::getWorkflowRunId, record.getWorkflowRunId())
+                            .eq(DispatchTaskEntity::getNodeCode, record.getNodeCode())));
+        } else if (hasRunRecordId) {
             query.eq(DispatchTaskEntity::getRunRecordId, record.getId());
-        } else if (record.getWorkflowRunId() != null && record.getNodeCode() != null) {
+        } else if (hasWorkflowNode) {
             query.eq(DispatchTaskEntity::getWorkflowRunId, record.getWorkflowRunId())
                     .eq(DispatchTaskEntity::getNodeCode, record.getNodeCode());
         } else {
@@ -204,10 +219,22 @@ public class StaleExecutionRecoveryService {
         return false;
     }
 
+    private boolean hasLinkedDispatch(RunRecordEntity record) {
+        if (record == null || record.getId() == null) {
+            return false;
+        }
+        Long count = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, record.getTenantId())
+                .eq(record.getProjectId() != null, DispatchTaskEntity::getProjectId, record.getProjectId())
+                .eq(DispatchTaskEntity::getRunRecordId, record.getId()));
+        return count != null && count.longValue() > 0L;
+    }
+
     private boolean hasActiveWorker(String tenantId,
                                     String workerGroupCode,
                                     String legacyWorkerCode,
                                     String workerInstanceId,
+                                    String workerBootId,
                                     LocalDateTime now) {
         String normalizedWorkerGroupCode = trimToNull(workerGroupCode);
         String normalizedLegacyWorkerCode = trimToNull(legacyWorkerCode);
@@ -229,8 +256,15 @@ public class StaleExecutionRecoveryService {
         if (workerInstanceId != null && !workerInstanceId.trim().isEmpty()) {
             query.eq(WorkerLeaseEntity::getInstanceId, workerInstanceId);
         }
+        if (workerBootId != null && !workerBootId.trim().isEmpty()) {
+            query.eq(WorkerLeaseEntity::getBootId, workerBootId);
+        }
         WorkerLeaseEntity lease = workerLeaseMapper.selectOne(query);
         if (lease == null || lease.getLastHeartbeatAt() == null) {
+            return false;
+        }
+        if (workerBootId != null && !workerBootId.trim().isEmpty()
+                && !workerBootId.equals(lease.getBootId())) {
             return false;
         }
         if (lease.getLeaseExpiresAt() != null && lease.getLeaseExpiresAt().isAfter(now)) {
@@ -264,7 +298,10 @@ public class StaleExecutionRecoveryService {
         }
     }
 
-    private void failDispatchTask(DispatchTaskEntity task, LocalDateTime endedAt, String reason) {
+    private boolean failDispatchTask(DispatchTaskEntity task, LocalDateTime endedAt, String reason) {
+        if (task == null || task.getId() == null || task.getStatus() == null) {
+            return false;
+        }
         Map<String, Object> payload = task.getPayloadJson() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(task.getPayloadJson());
@@ -272,13 +309,32 @@ public class StaleExecutionRecoveryService {
         payload.put("exceptionType", "STALE_EXECUTION_RECOVERY");
         payload.put("recovered", Boolean.TRUE);
         payload.put("recoveredAt", String.valueOf(endedAt));
+        DispatchTaskEntity update = new DispatchTaskEntity();
+        update.setStatus("FAILED");
+        update.setPayloadJson(payload);
+        update.setLeaseExpiresAt(endedAt);
+        LambdaUpdateWrapper<DispatchTaskEntity> cas = new LambdaUpdateWrapper<DispatchTaskEntity>()
+                .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
+                .eq(DispatchTaskEntity::getId, task.getId())
+                .eq(DispatchTaskEntity::getStatus, task.getStatus());
+        appendNullableCondition(cas, DispatchTaskEntity::getClaimToken, task.getClaimToken());
+        appendNullableCondition(cas, DispatchTaskEntity::getWorkerBootId, task.getWorkerBootId());
+        if (AUTO_RECOVERY_REASON.equals(reason)) {
+            appendNullableCondition(cas, DispatchTaskEntity::getLeaseExpiresAt, task.getLeaseExpiresAt());
+        }
+        if (dispatchTaskMapper.update(update, cas) != 1) {
+            return false;
+        }
         task.setStatus("FAILED");
         task.setPayloadJson(payload);
         task.setLeaseExpiresAt(endedAt);
-        dispatchTaskMapper.updateById(task);
+        return true;
     }
 
-    private void failRunRecord(RunRecordEntity record, LocalDateTime endedAt, String reason) {
+    private boolean failRunRecord(RunRecordEntity record, LocalDateTime endedAt, String reason) {
+        if (record == null || record.getId() == null || !"RUNNING".equalsIgnoreCase(record.getStatus())) {
+            return false;
+        }
         Map<String, Object> payload = record.getPayloadJson() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(record.getPayloadJson());
@@ -286,12 +342,34 @@ public class StaleExecutionRecoveryService {
         payload.put("exceptionType", "STALE_EXECUTION_RECOVERY");
         payload.put("recovered", Boolean.TRUE);
         payload.put("recoveredAt", String.valueOf(endedAt));
-        record.setStatus("FAILED");
-        record.setEndedAt(record.getEndedAt() == null ? endedAt : record.getEndedAt());
-        record.setMessage(appendMessage(record.getMessage(), reason));
+        RunRecordEntity update = new RunRecordEntity();
+        update.setStatus("FAILED");
+        update.setEndedAt(record.getEndedAt() == null ? endedAt : record.getEndedAt());
+        update.setMessage(appendMessage(record.getMessage(), reason));
+        update.setPayloadJson(payload);
+        update.setResultJson(payload);
+        int updated = runRecordMapper.update(update, new LambdaUpdateWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, record.getId())
+                .eq(RunRecordEntity::getStatus, "RUNNING"));
+        if (updated != 1) {
+            return false;
+        }
+        record.setStatus(update.getStatus());
+        record.setEndedAt(update.getEndedAt());
+        record.setMessage(update.getMessage());
         record.setPayloadJson(payload);
         record.setResultJson(payload);
-        runRecordMapper.updateById(record);
+        return true;
+    }
+
+    private <E, T> void appendNullableCondition(LambdaUpdateWrapper<E> wrapper,
+                                                SFunction<E, T> column,
+                                                T value) {
+        if (value == null) {
+            wrapper.isNull(column);
+        } else {
+            wrapper.eq(column, value);
+        }
     }
 
     private List<DispatchTaskEntity> selectActiveDispatchTasks(Scope scope) {

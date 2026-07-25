@@ -9,6 +9,7 @@ import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.worker.runtime.AggregationNodeExecutor;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -22,6 +23,23 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AggregationNodeExecutorRegressionTest {
+
+    private static final String ORIGINAL_AGGREGATION_HOME = System.getProperty("aggregation.home");
+    private static final String ORIGINAL_HOME = SystemConstants.HOME;
+    private static final String ORIGINAL_PLUGIN_HOME = SystemConstants.PLUGIN_HOME;
+    private static final String ORIGINAL_CORE_CONFIG = SystemConstants.CORE_CONFIG;
+
+    @AfterEach
+    void restoreAggregationRuntimeGlobals() {
+        if (ORIGINAL_AGGREGATION_HOME == null) {
+            System.clearProperty("aggregation.home");
+        } else {
+            System.setProperty("aggregation.home", ORIGINAL_AGGREGATION_HOME);
+        }
+        SystemConstants.HOME = ORIGINAL_HOME;
+        SystemConstants.PLUGIN_HOME = ORIGINAL_PLUGIN_HOME;
+        SystemConstants.CORE_CONFIG = ORIGINAL_CORE_CONFIG;
+    }
 
     @Test
     void shouldReturnFailedStatusWhenJobContainerFinishesWithFailedState() {

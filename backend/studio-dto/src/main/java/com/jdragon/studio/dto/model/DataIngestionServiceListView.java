@@ -13,6 +13,8 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataIngestionServiceListView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long createdBy;
     private String serviceCode;
     private String serviceName;

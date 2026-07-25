@@ -19,9 +19,13 @@ public class ExecutionEvent {
     private Long projectId;
     private DispatchExecutionType executionType;
     private String nodeCode;
+    private Long requestedClusterId;
+    private Long actualClusterId;
+    private String actualClusterCode;
     private String workerGroupCode;
     private String workerCode;
     private String workerInstanceId;
+    private String workerBootId;
     private String workerPodName;
     private String workerNodeName;
     private String logFilePath;

@@ -5,6 +5,7 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.io.IOException;
@@ -15,12 +16,16 @@ import java.nio.file.Paths;
 @SpringBootApplication(scanBasePackages = {
         "com.jdragon.studio.infra",
         "com.jdragon.studio.server.web",
+        "com.jdragon.studio.worker.config",
+        "com.jdragon.studio.worker.idempotency",
         "com.jdragon.studio.worker.runtime",
+        "com.jdragon.studio.worker.web.controller",
         "com.jdragon.studio.desktopruntime"
 })
 @MapperScan("com.jdragon.studio.infra.mapper")
 @EnableConfigurationProperties(StudioPlatformProperties.class)
 @EnableScheduling
+@EnableFeignClients(basePackages = "com.jdragon.studio.server.web.client")
 public class StudioDesktopRuntimeApplication {
 
     public static void main(String[] args) {

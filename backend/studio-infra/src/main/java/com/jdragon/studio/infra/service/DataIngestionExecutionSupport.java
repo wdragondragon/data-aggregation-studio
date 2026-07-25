@@ -45,7 +45,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-final class DataIngestionExecutionSupport {
+public final class DataIngestionExecutionSupport {
 
     private static final Logger log = LoggerFactory.getLogger(DataIngestionExecutionSupport.class);
     private static final int DEFAULT_MAX_PARALLEL_TARGETS = 4;
@@ -55,8 +55,8 @@ final class DataIngestionExecutionSupport {
     private final ObjectMapper objectMapper;
     private final long writeSlowThresholdMs;
 
-    DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
-                                  ObjectMapper objectMapper) {
+    public DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
+                                         ObjectMapper objectMapper) {
         this(collectionTaskAssemblerService, objectMapper, DEFAULT_WRITE_SLOW_THRESHOLD_MS);
     }
 

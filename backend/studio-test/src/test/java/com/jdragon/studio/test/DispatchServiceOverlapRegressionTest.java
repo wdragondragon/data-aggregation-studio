@@ -48,7 +48,7 @@ class DispatchServiceOverlapRegressionTest {
         workflow.setTenantId("default");
         workflow.setProjectId(1000L);
 
-        when(workflowService.get(100L)).thenReturn(workflow);
+        when(workflowService.requireRunnable(100L)).thenReturn(workflow);
         when(securityService.currentProjectId()).thenReturn(null);
         when(workerAuthorizationService.hasAvailableWorker("default", 1000L)).thenReturn(true);
         when(staleExecutionRecoveryService.hasActiveWorkflowRun("default", 1000L, 100L)).thenReturn(true);
@@ -86,7 +86,7 @@ class DispatchServiceOverlapRegressionTest {
         workflow.setTenantId("default");
         workflow.setProjectId(1000L);
 
-        when(workflowService.get(100L)).thenReturn(workflow);
+        when(workflowService.requireRunnable(100L)).thenReturn(workflow);
         when(securityService.currentProjectId()).thenReturn(null);
         when(workerAuthorizationService.hasAvailableWorker("default", 1000L)).thenReturn(true);
 
@@ -261,7 +261,7 @@ class DispatchServiceOverlapRegressionTest {
         workflow.setTenantId("default");
         workflow.setProjectId(1000L);
 
-        when(workflowService.get(100L)).thenReturn(workflow);
+        when(workflowService.requireRunnable(100L)).thenReturn(workflow);
         when(securityService.currentProjectId()).thenReturn(2000L);
 
         DispatchService dispatchService = new DispatchService(

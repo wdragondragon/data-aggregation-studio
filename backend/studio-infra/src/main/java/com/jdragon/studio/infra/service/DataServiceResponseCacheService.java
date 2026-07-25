@@ -12,12 +12,10 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -31,7 +29,6 @@ public class DataServiceResponseCacheService {
 
     private final ObjectProvider<StringRedisTemplate> redisTemplateProvider;
     private final ObjectMapper objectMapper;
-    private final Map<String, LocalCacheEntry> localCache = new ConcurrentHashMap<String, LocalCacheEntry>();
 
     public DataServiceResponseCacheService(ObjectProvider<StringRedisTemplate> redisTemplateProvider,
                                            ObjectMapper objectMapper) {
@@ -43,12 +40,12 @@ public class DataServiceResponseCacheService {
     public void logRedisStatus() {
         StringRedisTemplate redisTemplate = redisTemplateProvider.getIfAvailable();
         if (redisTemplate == null) {
-            log.warn("Data service response cache Redis template is not available, using local memory fallback only");
+            log.warn("Data service response cache Redis template is not available, cache is bypassed");
             return;
         }
         RedisConnectionFactory connectionFactory = redisTemplate.getConnectionFactory();
         if (connectionFactory == null) {
-            log.warn("Data service response cache Redis connection factory is not available, using local memory fallback only");
+            log.warn("Data service response cache Redis connection factory is not available, cache is bypassed");
             return;
         }
         RedisConnection connection = null;
@@ -58,7 +55,7 @@ public class DataServiceResponseCacheService {
             log.info("Data service response cache Redis is available, connectionFactory={}, ping={}",
                     connectionFactory.getClass().getName(), ping);
         } catch (Exception ex) {
-            log.warn("Data service response cache Redis is not available, connectionFactory={}, using local memory fallback",
+            log.warn("Data service response cache Redis is not available, connectionFactory={}, cache is bypassed",
                     connectionFactory.getClass().getName(), ex);
         } finally {
             if (connection != null) {
@@ -77,10 +74,7 @@ public class DataServiceResponseCacheService {
         }
         String cacheKey = cacheKey(serviceId, rawKey);
         CacheLookup redisLookup = getFromRedis(cacheKey);
-        if (redisLookup != null) {
-            return redisLookup;
-        }
-        return getFromLocal(cacheKey);
+        return redisLookup;
     }
 
     public void put(Long serviceId, String rawKey, Map<String, Object> data, long rowCount, long ttlMillis) {
@@ -93,7 +87,8 @@ public class DataServiceResponseCacheService {
         payload.rowCount = rowCount;
         payload.expiresAt = System.currentTimeMillis() + ttlMillis;
         if (!putToRedis(serviceId, cacheKey, payload, ttlMillis)) {
-            putToLocal(cacheKey, payload);
+            log.warn("Data service response cache write was bypassed because Redis is unavailable, serviceId={}",
+                    serviceId);
         }
     }
 
@@ -102,12 +97,6 @@ public class DataServiceResponseCacheService {
             return;
         }
         evictRedisService(serviceId);
-        String prefix = KEY_PREFIX + serviceId + ":";
-        for (String key : new ArrayList<String>(localCache.keySet())) {
-            if (key.startsWith(prefix)) {
-                localCache.remove(key);
-            }
-        }
     }
 
     private CacheLookup getFromRedis(String cacheKey) {
@@ -128,7 +117,7 @@ public class DataServiceResponseCacheService {
             log.debug("Data service response Redis cache hit, key={}", cacheKey);
             return new CacheLookup(copyData(payload.data), payload.rowCount);
         } catch (Exception ex) {
-            log.warn("Failed to read data service response cache from Redis, fallback to local cache", ex);
+            log.warn("Failed to read data service response cache from Redis, cache is bypassed", ex);
             return null;
         }
     }
@@ -146,7 +135,7 @@ public class DataServiceResponseCacheService {
             log.debug("Data service response Redis cache put, key={}, ttlMillis={}", cacheKey, ttlMillis);
             return true;
         } catch (Exception ex) {
-            log.warn("Failed to write data service response cache to Redis, fallback to local cache", ex);
+            log.warn("Failed to write data service response cache to Redis, cache is bypassed", ex);
             return false;
         }
     }
@@ -173,22 +162,6 @@ public class DataServiceResponseCacheService {
         } catch (Exception ex) {
             log.warn("Failed to evict data service response cache from Redis", ex);
         }
-    }
-
-    private CacheLookup getFromLocal(String cacheKey) {
-        LocalCacheEntry entry = localCache.get(cacheKey);
-        if (entry == null) {
-            return null;
-        }
-        if (entry.expiresAt <= System.currentTimeMillis()) {
-            localCache.remove(cacheKey);
-            return null;
-        }
-        return new CacheLookup(copyData(entry.data), entry.rowCount);
-    }
-
-    private void putToLocal(String cacheKey, CachePayload payload) {
-        localCache.put(cacheKey, new LocalCacheEntry(copyData(payload.data), payload.rowCount, payload.expiresAt));
     }
 
     private String cacheKey(Long serviceId, String rawKey) {
@@ -241,16 +214,5 @@ public class DataServiceResponseCacheService {
         public long expiresAt;
     }
 
-    private static class LocalCacheEntry {
-        private final Map<String, Object> data;
-        private final long rowCount;
-        private final long expiresAt;
-
-        private LocalCacheEntry(Map<String, Object> data, long rowCount, long expiresAt) {
-            this.data = data;
-            this.rowCount = rowCount;
-            this.expiresAt = expiresAt;
-        }
-    }
 }
 

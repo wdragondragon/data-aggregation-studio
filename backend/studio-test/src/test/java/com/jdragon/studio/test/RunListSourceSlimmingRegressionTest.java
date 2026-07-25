@@ -133,7 +133,8 @@ class RunListSourceSlimmingRegressionTest {
         });
         when(runRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(2L, 1L, 45L);
 
-        RunRecordPageView page = service.listRunRecords(11L, null, null, true, false, null, null, null, 1, 10);
+        RunRecordPageView page = service.listRunRecords(11L, null, null, true, false, null,
+                41L, 42L, null, null, 1, 10);
 
         assertThat(page.getPageNo()).isEqualTo(1);
         assertThat(page.getPageSize()).isEqualTo(10);
@@ -159,8 +160,14 @@ class RunListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> pageQueryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(runRecordMapper).selectPage(any(Page.class), pageQueryCaptor.capture());
         assertThat(pageQueryCaptor.getValue().getSqlSelect())
-                .contains("collection_task_id", "quality_task_id", "workflow_definition_id", "message", "collected_records")
+                .contains("collection_task_id", "quality_task_id", "workflow_definition_id", "requested_cluster_id", "actual_cluster_id", "message", "collected_records")
                 .doesNotContain("payload_json", "result_json", "log_file_path", "log_object_key", "log_object_bucket", "log_chunk_count");
+        assertThat(pageQueryCaptor.getValue().getSqlSegment())
+                .contains("requested_cluster_id", "actual_cluster_id");
+        ArgumentCaptor<LambdaQueryWrapper<RunRecordEntity>> countQueryCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(runRecordMapper, times(3)).selectCount(countQueryCaptor.capture());
+        assertThat(countQueryCaptor.getAllValues())
+                .allSatisfy(query -> assertThat(query.getSqlSegment()).contains("requested_cluster_id", "actual_cluster_id"));
     }
 
     @Test

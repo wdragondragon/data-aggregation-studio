@@ -161,9 +161,11 @@ public class DataServiceMetricsService {
         String logFocus = normalizedLogFocus(safeRequest.getLogFocus());
         Long minDurationMs = normalizeMinDurationMs(safeRequest.getMinDurationMs());
         DataServiceApiMetricView summary = accessLogMapper.selectDashboardSummary(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity);
         List<OpenServiceDashboardBucketSummary> bucketSummaries = accessLogMapper.selectDashboardBuckets(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity);
         Map<String, OpenServiceDashboardBucketSummary> bucketMap = bucketSummaryMap(bucketSummaries);
@@ -180,19 +182,23 @@ public class DataServiceMetricsService {
         view.setResponseTimeTrend(buildResponseTimeTrend(context, bucketMap));
         view.setSuccessRateTrend(buildSuccessRateTrend(context, bucketMap));
         view.setErrorDistribution(normalizeErrorDistribution(accessLogMapper.selectDashboardErrorDistribution(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, context.topN)));
         List<DataServiceApiMetricView> topSlowApis = accessLogMapper.selectDashboardApiStats(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, "SLOW", context.topN);
         hydrateApiMetrics(topSlowApis, context.serviceMap);
         view.setTopSlowApis(topSlowApis);
         List<DataServiceApiMetricView> topFailedApis = accessLogMapper.selectDashboardApiStats(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, "FAILED", context.topN);
         hydrateApiMetrics(topFailedApis, context.serviceMap);
         view.setTopFailedApis(topFailedApis);
         List<DataServiceApiMetricView> subscriptionRank = accessLogMapper.selectDashboardSubscriptionRank(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime, context.hourGranularity, context.topN);
         hydrateApiMetrics(subscriptionRank, context.serviceMap);
@@ -213,11 +219,13 @@ public class DataServiceMetricsService {
         String logFocus = normalizedLogFocus(safeRequest.getLogFocus());
         Long minDurationMs = normalizeMinDurationMs(safeRequest.getMinDurationMs());
         long total = accessLogMapper.countApiStats(context.tenantId, context.projectId, context.serviceIds,
+                safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                 subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                 context.startTime, context.endTime);
         List<DataServiceApiMetricView> metrics = total <= 0L
                 ? new ArrayList<DataServiceApiMetricView>()
                 : accessLogMapper.selectApiStatsPage(context.tenantId, context.projectId, context.serviceIds,
+                        safeRequest.getRequestedClusterId(), safeRequest.getActualClusterId(),
                         subscriptionId, noTokenSubscription, successFilter, cacheHitFilter, logFocus, minDurationMs,
                         context.startTime, context.endTime, context.pageSize, offset(context));
         hydrateApiMetrics(metrics, context.serviceMap);
@@ -313,6 +321,8 @@ public class DataServiceMetricsService {
                 .eq(DataServiceAccessLogEntity::getTenantId, context.tenantId)
                 .eq(DataServiceAccessLogEntity::getProjectId, context.projectId)
                 .in(!context.serviceIds.isEmpty(), DataServiceAccessLogEntity::getServiceId, context.serviceIds)
+                .eq(request.getRequestedClusterId() != null, DataServiceAccessLogEntity::getRequestedClusterId, request.getRequestedClusterId())
+                .eq(request.getActualClusterId() != null, DataServiceAccessLogEntity::getActualClusterId, request.getActualClusterId())
                 .ge(DataServiceAccessLogEntity::getOccurredAt, context.startTime)
                 .le(DataServiceAccessLogEntity::getOccurredAt, context.endTime)
                 .eq(request.getSubscriptionId() != null && !isNoTokenSubscriptionFilter(request.getSubscriptionId()), DataServiceAccessLogEntity::getSubscriptionId, request.getSubscriptionId())
@@ -342,6 +352,8 @@ public class DataServiceMetricsService {
         return baseLogQuery(request, context)
                 .select(DataServiceAccessLogEntity::getId,
                         DataServiceAccessLogEntity::getServiceId,
+                        DataServiceAccessLogEntity::getRequestedClusterId,
+                        DataServiceAccessLogEntity::getActualClusterId,
                         DataServiceAccessLogEntity::getServiceCodeSnapshot,
                         DataServiceAccessLogEntity::getServiceNameSnapshot,
                         DataServiceAccessLogEntity::getServiceStatusSnapshot,

@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +22,9 @@ class BusinessMetaModelBindingRegressionTest extends StudioApiRegressionTestSupp
 
     @Test
     void shouldPersistMultipleBusinessMetaModelsForDatasourceSourceCode() throws Exception {
-        String authorization = adminAuthorizationHeader();
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, currentProjectId(loginBody));
         mockMvc.perform(post("/api/v1/meta-schemas/technical/sync/mysql8")
                         .header("Authorization", authorization))
                 .andExpect(status().isOk())
@@ -55,6 +58,7 @@ class BusinessMetaModelBindingRegressionTest extends StudioApiRegressionTestSupp
         datasourcePayload.put("typeCode", "mysql8");
         datasourcePayload.put("enabled", true);
         datasourcePayload.put("executable", false);
+        datasourcePayload.put("applicableClusterIds", Collections.singletonList(runtimeClusterId));
         datasourcePayload.put("technicalMetadata", minimalSqlMetadata());
         datasourcePayload.put("businessMetadata", businessMetadata);
 
@@ -77,7 +81,9 @@ class BusinessMetaModelBindingRegressionTest extends StudioApiRegressionTestSupp
 
     @Test
     void shouldNotInheritDatasourceBusinessMetadataIntoManualModelSave() throws Exception {
-        String authorization = adminAuthorizationHeader();
+        JsonNode loginBody = loginAsAdmin();
+        String authorization = adminAuthorizationHeader(loginBody);
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, currentProjectId(loginBody));
         mockMvc.perform(post("/api/v1/meta-schemas/technical/sync/mysql8")
                         .header("Authorization", authorization))
                 .andExpect(status().isOk())
@@ -102,6 +108,7 @@ class BusinessMetaModelBindingRegressionTest extends StudioApiRegressionTestSupp
         datasourcePayload.put("typeCode", "mysql8");
         datasourcePayload.put("enabled", true);
         datasourcePayload.put("executable", false);
+        datasourcePayload.put("applicableClusterIds", Collections.singletonList(runtimeClusterId));
         datasourcePayload.put("technicalMetadata", minimalSqlMetadata());
         datasourcePayload.put("businessMetadata", datasourceBusinessMetadata);
 

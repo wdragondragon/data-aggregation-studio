@@ -27,5 +27,8 @@ public class DataSourceListView extends BaseDefinition {
     private LocalDateTime nextConnectionProbeAt;
     private Integer manualConnectionTestTimeoutSeconds;
     private Integer scheduledConnectionTestTimeoutSeconds;
+    private List<Long> applicableClusterIds = new ArrayList<Long>();
+    private List<RuntimeClusterView> applicableClusters = new ArrayList<RuntimeClusterView>();
+    private List<DatasourceClusterHealthView> clusterHealth = new ArrayList<DatasourceClusterHealthView>();
     private List<DatasourceConnectionTrendPointView> recentConnectionTests = new ArrayList<DatasourceConnectionTrendPointView>();
 }

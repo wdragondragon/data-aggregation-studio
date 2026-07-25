@@ -1,18 +1,23 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
+import com.jdragon.studio.dto.model.SqlExecutionResultView;
+import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -31,19 +36,38 @@ public class DataDevelopmentWorkerExecutionService {
     private final RunRecordMapper runRecordMapper;
     private final WorkerAuthorizationService workerAuthorizationService;
     private final StudioSecurityService securityService;
+    private final ObjectMapper objectMapper;
+    private final DispatchProtectedPayloadService protectedPayloadService;
+    private RuntimeValidationService runtimeValidationService;
+    private RuntimeResourceRevisionService runtimeResourceRevisionService;
 
     public DataDevelopmentWorkerExecutionService(DispatchTaskMapper dispatchTaskMapper,
                                                  RunRecordMapper runRecordMapper,
                                                  WorkerAuthorizationService workerAuthorizationService,
-                                                 StudioSecurityService securityService) {
+                                                 StudioSecurityService securityService,
+                                                 ObjectMapper objectMapper,
+                                                 DispatchProtectedPayloadService protectedPayloadService) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.runRecordMapper = runRecordMapper;
         this.workerAuthorizationService = workerAuthorizationService;
         this.securityService = securityService;
+        this.objectMapper = objectMapper;
+        this.protectedPayloadService = protectedPayloadService;
+    }
+
+    @Autowired
+    void setRuntimeValidationService(RuntimeValidationService runtimeValidationService) {
+        this.runtimeValidationService = runtimeValidationService;
+    }
+
+    @Autowired
+    void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
+        this.runtimeResourceRevisionService = runtimeResourceRevisionService;
     }
 
     public DataScriptExecutionResultView executeSavedScript(DataDevelopmentScriptEntity script,
                                                             ScriptType scriptType,
+                                                            Long runtimeClusterId,
                                                             Map<String, Object> arguments,
                                                             Map<String, Object> executionConfig,
                                                             Integer maxRows,
@@ -52,45 +76,105 @@ public class DataDevelopmentWorkerExecutionService {
         if (runtimeProjectId == null) {
             runtimeProjectId = script.getProjectId();
         }
-        workerAuthorizationService.assertProjectHasAvailableWorker(script.getTenantId(), runtimeProjectId);
-
+        if (runtimeValidationService != null
+                && java.util.Objects.equals(script.getRuntimeClusterId(), runtimeClusterId)) {
+            runtimeValidationService.assertResourceValid(StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, script.getId());
+        }
         DispatchTaskEntity task = new DispatchTaskEntity();
         task.setTenantId(script.getTenantId());
         task.setProjectId(runtimeProjectId);
         task.setExecutionType(DispatchExecutionType.DATA_SCRIPT_TEST.name());
         task.setNodeCode("data_script_test_" + script.getId() + "_" + System.currentTimeMillis());
         task.setStatus("QUEUED");
+        task.setTargetClusterId(runtimeClusterId);
+        task.setResourceRevision(runtimeResourceRevisionService == null
+                ? (script.getUpdatedAt() == null ? null : script.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.scriptRevision(script.getId()));
         task.setAttempts(0);
         task.setMaxRetries(0);
         task.setTriggeredByUserId(securityService.currentUserId());
-        task.setPayloadJson(buildPayload(script, scriptType, arguments, executionConfig, maxRows, runtimeProjectId));
-        dispatchTaskMapper.insert(task);
+        task.setPayloadJson(buildPayload(script, scriptType, runtimeClusterId, runtimeProjectId));
+        task.setProtectedPayloadCiphertext(protectedPayloadService.protect(
+                buildProtectedConfig(arguments, executionConfig, maxRows)));
+        insertDispatchTask(task);
 
         return waitForCompletion(task, scriptType, waitTimeoutSeconds);
     }
 
-    private Map<String, Object> buildPayload(DataDevelopmentScriptEntity script,
-                                             ScriptType scriptType,
-                                             Map<String, Object> arguments,
-                                             Map<String, Object> executionConfig,
-                                             Integer maxRows,
-                                             Long runtimeProjectId) {
-        LinkedHashMap<String, Object> config = new LinkedHashMap<String, Object>();
-        config.put("scriptId", script.getId());
-        config.put("scriptName", script.getFileName());
-        config.put("scriptType", scriptType.name());
-        config.put("arguments", arguments == null ? new LinkedHashMap<String, Object>() : arguments);
-        if (executionConfig != null && !executionConfig.isEmpty()) {
-            config.put("executionConfig", new LinkedHashMap<String, Object>(executionConfig));
-        }
-        config.put("maxRows", maxRows);
+    public DataScriptExecutionResultView executeInlineScript(DataScriptExecutionRequest request,
+                                                             Long runtimeProjectId,
+                                                             Integer waitTimeoutSeconds) {
+        DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setTenantId(securityService.currentTenantId());
+        task.setProjectId(runtimeProjectId);
+        task.setExecutionType(DispatchExecutionType.DATA_SCRIPT_TEST.name());
+        task.setNodeCode("data_script_inline_" + System.currentTimeMillis());
+        task.setStatus("QUEUED");
+        task.setTargetClusterId(request.getRuntimeClusterId());
+        task.setAttempts(0);
+        task.setMaxRetries(0);
+        task.setTriggeredByUserId(securityService.currentUserId());
+
+        LinkedHashMap<String, Object> protectedConfig = new LinkedHashMap<String, Object>();
+        protectedConfig.put("inline", Boolean.TRUE);
+        protectedConfig.put("scriptType", request.getScriptType().name());
+        protectedConfig.put("datasourceId", request.getDatasourceId());
+        protectedConfig.put("environmentId", request.getEnvironmentId());
+        protectedConfig.put("content", request.getContent());
+        protectedConfig.put("arguments", request.getArguments());
+        protectedConfig.put("executionConfig", request.getExecutionConfig());
+        protectedConfig.put("maxRows", request.getMaxRows());
 
         LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("executionType", DispatchExecutionType.DATA_SCRIPT_TEST.name());
         payload.put("nodeType", NodeType.DATA_SCRIPT.name());
         payload.put("projectId", runtimeProjectId);
+        payload.put("runtimeClusterId", request.getRuntimeClusterId());
+        payload.put("protectedInput", Boolean.TRUE);
+        payload.put("scriptType", request.getScriptType().name());
+        task.setPayloadJson(payload);
+        task.setProtectedPayloadCiphertext(protectedPayloadService.protect(protectedConfig));
+        insertDispatchTask(task);
+        return waitForCompletion(task, request.getScriptType(), waitTimeoutSeconds);
+    }
+
+    private void insertDispatchTask(DispatchTaskEntity task) {
+        if (task == null || task.getTargetClusterId() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "runtimeClusterId is required before a script can be dispatched");
+        }
+        dispatchTaskMapper.insert(task);
+    }
+
+    private Map<String, Object> buildPayload(DataDevelopmentScriptEntity script,
+                                             ScriptType scriptType,
+                                             Long runtimeClusterId,
+                                             Long runtimeProjectId) {
+        LinkedHashMap<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("scriptId", script.getId());
+
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("executionType", DispatchExecutionType.DATA_SCRIPT_TEST.name());
+        payload.put("nodeType", NodeType.DATA_SCRIPT.name());
+        payload.put("projectId", runtimeProjectId);
+        payload.put("runtimeClusterId", runtimeClusterId);
         payload.put("config", config);
+        payload.put("protectedInput", Boolean.TRUE);
+        payload.put("scriptType", scriptType.name());
+        payload.put("scriptName", script.getFileName());
         return payload;
+    }
+
+    private Map<String, Object> buildProtectedConfig(Map<String, Object> arguments,
+                                                     Map<String, Object> executionConfig,
+                                                     Integer maxRows) {
+        LinkedHashMap<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("arguments", arguments == null ? new LinkedHashMap<String, Object>() : arguments);
+        if (executionConfig != null && !executionConfig.isEmpty()) {
+            config.put("executionConfig", new LinkedHashMap<String, Object>(executionConfig));
+        }
+        config.put("maxRows", maxRows);
+        return config;
     }
 
     private DataScriptExecutionResultView waitForCompletion(DispatchTaskEntity submittedTask,
@@ -187,6 +271,10 @@ public class DataDevelopmentWorkerExecutionService {
         }
         if (resultJson != null) {
             result.setResultJson(resultJson);
+        }
+        Object sqlResult = payload.get("sqlResult");
+        if (sqlResult != null) {
+            result.setSqlResult(objectMapper.convertValue(sqlResult, SqlExecutionResultView.class));
         }
         return result;
     }

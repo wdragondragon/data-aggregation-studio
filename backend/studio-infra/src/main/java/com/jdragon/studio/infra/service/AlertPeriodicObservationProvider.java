@@ -40,9 +40,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 final class AlertPeriodicObservationProvider {
 
@@ -111,6 +113,9 @@ final class AlertPeriodicObservationProvider {
             evidence.put("startedAt", run.getStartedAt());
             evidence.put("durationMinutes", durationMinutes);
             evidence.put("thresholdMinutes", minutes);
+            evidence.put("targetClusterId", run.getRequestedClusterId());
+            evidence.put("actualClusterId", run.getActualClusterId());
+            evidence.put("actualClusterCode", run.getActualClusterCode());
             bySubject.putIfAbsent(resource.key(), observation(rule, resource, true,
                     rule.getName() + "：" + resource.name + " 已运行 " + durationMinutes + " 分钟",
                     evidence, String.valueOf(run.getId()),
@@ -181,6 +186,7 @@ final class AlertPeriodicObservationProvider {
             evidence.put("failureRatePercent", Math.round(rate * 100D) / 100D);
             evidence.put("thresholdPercent", threshold);
             evidence.put("minimumRequests", minimumRequests);
+            putResourceClusterEvidence(evidence, resource);
             observations.add(observation(rule, resource, active,
                     active ? rule.getName() + "：" + resource.name + " 失败率 "
                             + evidence.get("failureRatePercent") + "%"
@@ -202,7 +208,15 @@ final class AlertPeriodicObservationProvider {
             LocalDateTime latestHeartbeat = null;
             int reportedOnlineLeaseCount = 0;
             int validLeaseCount = 0;
+            Set<Long> actualClusterIds = new LinkedHashSet<Long>();
+            Set<String> actualClusterCodes = new LinkedHashSet<String>();
             for (WorkerLeaseEntity lease : leases) {
+                if (lease.getRuntimeClusterId() != null) {
+                    actualClusterIds.add(lease.getRuntimeClusterId());
+                }
+                if (StringUtils.hasText(lease.getRuntimeClusterCode())) {
+                    actualClusterCodes.add(lease.getRuntimeClusterCode().trim());
+                }
                 if (!StudioConstants.WORKER_STATUS_ONLINE.equalsIgnoreCase(lease.getStatus())) {
                     continue;
                 }
@@ -227,6 +241,11 @@ final class AlertPeriodicObservationProvider {
             evidence.put("latestHeartbeatAt", latestHeartbeat);
             evidence.put("instanceCount", validLeaseCount);
             evidence.put("reportedOnlineLeaseCount", reportedOnlineLeaseCount);
+            evidence.put("actualClusterIds", new ArrayList<Long>(actualClusterIds));
+            evidence.put("actualClusterCodes", new ArrayList<String>(actualClusterCodes));
+            if (actualClusterIds.size() == 1) {
+                evidence.put("actualClusterId", actualClusterIds.iterator().next());
+            }
             result.add(observation(rule, group, active,
                     active ? "Worker 组 " + group.name + " 已离线" : "Worker 组 " + group.name + " 已恢复在线",
                     evidence, null,
@@ -292,6 +311,7 @@ final class AlertPeriodicObservationProvider {
             evidence.put("scheduledFireTime", task.getScheduledFireTime());
             evidence.put("delayMinutes", delay);
             evidence.put("thresholdMinutes", delayMinutes);
+            evidence.put("targetClusterId", task.getTargetClusterId());
             result.putIfAbsent(resource.key(), observation(rule, resource, true,
                     resource.name + " 调度延迟 " + delay + " 分钟", evidence, String.valueOf(task.getId()),
                     AlertIncidentService.targetPath(rule.getSubjectType(), resource.id,
@@ -317,6 +337,14 @@ final class AlertPeriodicObservationProvider {
         evidence.put("oldestWaitStartedAt", oldestWaitStartedAt.orElse(null));
         evidence.put("oldestWaitMinutes", oldestWait);
         evidence.put("waitThresholdMinutes", waitMinutes);
+        evidence.put("targetClusterId", oldestTask == null ? null : oldestTask.getTargetClusterId());
+        Set<Long> targetClusterIds = new LinkedHashSet<Long>();
+        for (DispatchTaskEntity task : tasks) {
+            if (task.getTargetClusterId() != null) {
+                targetClusterIds.add(task.getTargetClusterId());
+            }
+        }
+        evidence.put("targetClusterIds", new ArrayList<Long>(targetClusterIds));
         return observation(rule, subject, active,
                 active ? subject.name + "积压 " + tasks.size() + " 个任务，最老等待 " + oldestWait + " 分钟"
                         : subject.name + "积压已恢复",
@@ -372,7 +400,7 @@ final class AlertPeriodicObservationProvider {
                             .eq(DataServiceDefinitionEntity::getProjectId, rule.getProjectId())
                             .eq(rule.getSubjectId() != null, DataServiceDefinitionEntity::getId, rule.getSubjectId()))) {
                 result.add(new Resource(entity.getId(), String.valueOf(entity.getId()), null,
-                        entity.getServiceName(), entity.getCreatedBy()));
+                        entity.getServiceName(), entity.getCreatedBy(), entity.getRuntimeClusterId()));
             }
         } else if (AlertSubjectType.DATA_INGESTION_SERVICE.name().equals(rule.getSubjectType())) {
             for (DataIngestionServiceEntity entity : dataIngestionServiceMapper.selectList(
@@ -381,7 +409,7 @@ final class AlertPeriodicObservationProvider {
                             .eq(DataIngestionServiceEntity::getProjectId, rule.getProjectId())
                             .eq(rule.getSubjectId() != null, DataIngestionServiceEntity::getId, rule.getSubjectId()))) {
                 result.add(new Resource(entity.getId(), String.valueOf(entity.getId()), null,
-                        entity.getServiceName(), entity.getCreatedBy()));
+                        entity.getServiceName(), entity.getCreatedBy(), entity.getRuntimeClusterId()));
             }
         } else {
             for (ProtocolConversionServiceEntity entity : protocolConversionServiceMapper.selectList(
@@ -390,7 +418,7 @@ final class AlertPeriodicObservationProvider {
                             .eq(ProtocolConversionServiceEntity::getProjectId, rule.getProjectId())
                             .eq(rule.getSubjectId() != null, ProtocolConversionServiceEntity::getId, rule.getSubjectId()))) {
                 result.add(new Resource(entity.getId(), String.valueOf(entity.getId()), null,
-                        entity.getServiceName(), entity.getCreatedBy()));
+                        entity.getServiceName(), entity.getCreatedBy(), entity.getRuntimeClusterId()));
             }
         }
         return result;
@@ -463,7 +491,7 @@ final class AlertPeriodicObservationProvider {
                         .eq(CollectionTaskDefinitionEntity::getProjectId, projectId)
                         .last("limit 1"));
         return Optional.ofNullable(entity).map(value -> new Resource(value.getId(), String.valueOf(value.getId()),
-                null, value.getName(), value.getCreatedBy()));
+                null, value.getName(), value.getCreatedBy(), value.getRuntimeClusterId()));
     }
 
     private Optional<Resource> qualityResource(Long id, String tenantId, Long projectId) {
@@ -477,7 +505,7 @@ final class AlertPeriodicObservationProvider {
                         .eq(QualityTaskDefinitionEntity::getProjectId, projectId)
                         .last("limit 1"));
         return Optional.ofNullable(entity).map(value -> new Resource(value.getId(), String.valueOf(value.getId()),
-                null, value.getTaskName(), value.getCreatedBy()));
+                null, value.getTaskName(), value.getCreatedBy(), value.getRuntimeClusterId()));
     }
 
     private Optional<Resource> workflowResource(Long id, String tenantId, Long projectId) {
@@ -491,7 +519,7 @@ final class AlertPeriodicObservationProvider {
                         .eq(WorkflowDefinitionEntity::getProjectId, projectId)
                         .last("limit 1"));
         return Optional.ofNullable(entity).map(value -> new Resource(value.getId(), String.valueOf(value.getId()),
-                null, value.getName(), value.getCreatedBy()));
+                null, value.getName(), value.getCreatedBy(), value.getRuntimeClusterId()));
     }
 
     private boolean matchesRuleSubject(AlertRuleEntity rule, Resource resource) {
@@ -544,19 +572,33 @@ final class AlertPeriodicObservationProvider {
         return value == null ? 0L : value.longValue();
     }
 
+    private void putResourceClusterEvidence(Map<String, Object> evidence, Resource resource) {
+        if (evidence == null || resource == null) {
+            return;
+        }
+        evidence.put("targetClusterId", resource.runtimeClusterId);
+        evidence.put("actualClusterId", resource.runtimeClusterId);
+    }
+
     private static final class Resource {
         private final Long id;
         private final String key;
         private final String code;
         private final String name;
         private final Long ownerUserId;
+        private final Long runtimeClusterId;
 
         private Resource(Long id, String key, String code, String name, Long ownerUserId) {
+            this(id, key, code, name, ownerUserId, null);
+        }
+
+        private Resource(Long id, String key, String code, String name, Long ownerUserId, Long runtimeClusterId) {
             this.id = id;
             this.key = key;
             this.code = code;
             this.name = name;
             this.ownerUserId = ownerUserId;
+            this.runtimeClusterId = runtimeClusterId;
         }
 
         private String key() {

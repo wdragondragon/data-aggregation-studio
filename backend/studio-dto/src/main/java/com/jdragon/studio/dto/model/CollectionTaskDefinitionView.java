@@ -13,6 +13,8 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class CollectionTaskDefinitionView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private String name;
     private CollectionTaskType taskType;
     private CollectionTaskStatus status;

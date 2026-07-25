@@ -10,6 +10,8 @@ import java.time.LocalDateTime;
 @EqualsAndHashCode(callSuper = true)
 @TableName("datasource_connection_health")
 public class DatasourceConnectionHealthEntity extends BaseTenantEntity {
+    /** Null is retained only for pre-migration historical snapshots and is never used for new probes. */
+    private Long runtimeClusterId;
     private String connectionFingerprint;
     private String connectionStatus;
     private LocalDateTime lastConnectionTestAt;

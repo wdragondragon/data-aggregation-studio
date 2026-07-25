@@ -8,6 +8,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class ModelSyncTaskView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long datasourceId;
     private String datasourceType;
     private String datasourceNameSnapshot;

@@ -12,6 +12,10 @@ import java.util.Map;
 @Data
 @Schema(description = "Execute data development script request")
 public class DataScriptExecutionRequest {
+    @NotNull(message = "Runtime cluster is required")
+    @Schema(description = "Target runtime cluster id", required = true)
+    private Long runtimeClusterId;
+
     @NotNull(message = "Script type is required")
     @Schema(description = "Script type", required = true)
     private ScriptType scriptType;

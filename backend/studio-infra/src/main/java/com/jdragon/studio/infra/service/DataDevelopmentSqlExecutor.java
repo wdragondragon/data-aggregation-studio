@@ -14,7 +14,6 @@ import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.SqlStatementExecutionResultView;
 import com.jdragon.studio.infra.service.script.DataDevelopmentExecutionContext;
 import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
-import org.springframework.stereotype.Service;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -31,7 +30,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-@Service
 public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor {
 
     private static final Set<String> RESERVED_KEYS = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(

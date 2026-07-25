@@ -9,6 +9,8 @@ public class OpsCenterQueryRequest {
     private String executionType;
     private String status;
     private String workerGroupCode;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private Integer pageNo;
     private Integer pageSize;
 }

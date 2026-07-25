@@ -45,6 +45,8 @@ final class AlertIncidentPresentationSupport {
         view.setSeverity(entity.getSeverity());
         view.setStatus(entity.getStatus());
         view.setSummary(entity.getSummary());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
         view.setEvidence(entity.getCurrentEvidenceJson());
         view.setOccurrenceCount(entity.getOccurrenceCount());
         view.setNotificationCount(entity.getNotificationCount());

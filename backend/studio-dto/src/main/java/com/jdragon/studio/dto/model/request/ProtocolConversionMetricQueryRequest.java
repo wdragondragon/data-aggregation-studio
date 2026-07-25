@@ -8,6 +8,8 @@ public class ProtocolConversionMetricQueryRequest {
     private Long subscriptionId;
     private String serviceStatus;
     private Boolean success;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private String startTime;
     private String endTime;
     private String logFocus;

@@ -14,10 +14,15 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "worker_lease", autoResultMap = true)
 public class WorkerLeaseEntity extends BaseTenantEntity {
+    private Long runtimeClusterId;
+    private String runtimeClusterCode;
     private String workerGroupCode;
     private String workerCode;
     private String workerKind;
     private String instanceId;
+    private String bootId;
+    private String runtimeVersion;
+    private String pluginFingerprint;
     private String hostName;
     private String podName;
     private String nodeName;

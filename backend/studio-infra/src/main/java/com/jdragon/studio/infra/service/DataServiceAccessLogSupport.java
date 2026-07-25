@@ -57,6 +57,8 @@ final class DataServiceAccessLogSupport {
             entity.setTenantId(service == null || !invocationSupport.hasText(service.getTenantId()) ? StudioConstants.DEFAULT_TENANT_ID : service.getTenantId());
             entity.setProjectId(service == null ? null : service.getProjectId());
             entity.setServiceId(service == null ? null : service.getId());
+            entity.setRequestedClusterId(service == null ? null : service.getRuntimeClusterId());
+            entity.setActualClusterId(service == null ? null : service.getRuntimeClusterId());
             entity.setServiceCodeSnapshot(service == null ? null : service.getServiceCode());
             entity.setServiceNameSnapshot(service == null ? null : service.getServiceName());
             entity.setServiceStatusSnapshot(service == null ? null : service.getStatus());
@@ -104,6 +106,8 @@ final class DataServiceAccessLogSupport {
         evidence.put("accessLogId", entity.getId());
         evidence.put("logArchiveStatus", entity.getLogArchiveStatus());
         evidence.put("logArchiveError", entity.getLogArchiveError());
+        evidence.put("targetClusterId", entity.getRequestedClusterId());
+        evidence.put("actualClusterId", entity.getActualClusterId());
         alertSignalPublisher.publish(new AlertSignal()
                 .setTenantId(entity.getTenantId()).setProjectId(entity.getProjectId())
                 .setSignalType("LOG_ARCHIVE").setSubjectType("LOG_STORAGE")

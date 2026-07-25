@@ -43,11 +43,13 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -116,6 +118,12 @@ public class AlertIncidentService {
                 .eq(request != null && StringUtils.hasText(request.getSeverity()), AlertIncidentEntity::getSeverity, upper(request == null ? null : request.getSeverity()))
                 .eq(request != null && StringUtils.hasText(request.getRuleType()), AlertIncidentEntity::getRuleType, upper(request == null ? null : request.getRuleType()))
                 .eq(request != null && StringUtils.hasText(request.getSubjectType()), AlertIncidentEntity::getSubjectType, upper(request == null ? null : request.getSubjectType()))
+                .eq(request != null && request.getRequestedClusterId() != null,
+                        AlertIncidentEntity::getRequestedClusterId,
+                        request == null ? null : request.getRequestedClusterId())
+                .eq(request != null && request.getActualClusterId() != null,
+                        AlertIncidentEntity::getActualClusterId,
+                        request == null ? null : request.getActualClusterId())
                 .in(request != null && Boolean.TRUE.equals(request.getActiveOnly()), AlertIncidentEntity::getStatus,
                         AlertIncidentStatus.OPEN.name(), AlertIncidentStatus.ACKNOWLEDGED.name())
                 .ge(request != null && request.getStartTime() != null, AlertIncidentEntity::getLastTriggeredAt, request == null ? null : request.getStartTime())
@@ -368,6 +376,7 @@ public class AlertIncidentService {
             incident.setStatus(AlertIncidentStatus.OPEN.name());
             incident.setSummary(sanitizeText(observation.getSummary(), 1000));
             incident.setCurrentEvidenceJson(sanitizeEvidence(observation.getEvidence()));
+            applyClusterEvidence(incident, observation.getEvidence());
             incident.setOccurrenceCount(1);
             incident.setNotificationCount(0);
             incident.setReopenCount(0);
@@ -390,6 +399,7 @@ public class AlertIncidentService {
             incident.setLastTriggeredAt(observedAt);
             incident.setSummary(sanitizeText(observation.getSummary(), 1000));
             incident.setCurrentEvidenceJson(sanitizeEvidence(observation.getEvidence()));
+            applyClusterEvidence(incident, observation.getEvidence());
             incident.setOccurrenceCount(safe(incident.getOccurrenceCount()) + 1);
             if (AlertIncidentStatus.CLOSED.name().equals(incident.getStatus())
                     && Integer.valueOf(1).equals(incident.getClosedWhileActive())) {
@@ -447,6 +457,7 @@ public class AlertIncidentService {
         incident.setRecoveredAt(observedAt);
         incident.setCurrentEvidenceJson(sanitizeEvidence(observation.getEvidence()));
         incident.setSummary(sanitizeText(observation.getSummary(), 1000));
+        applyClusterEvidence(incident, observation.getEvidence());
         boolean closed = AlertIncidentStatus.CLOSED.name().equals(previous);
         if (closed) {
             incident.setClosedWhileActive(0);
@@ -843,6 +854,67 @@ public class AlertIncidentService {
 
     private Map<String, Object> sanitizeEvidence(Map<String, Object> evidence) {
         return presentationSupport.sanitizeEvidence(evidence);
+    }
+
+    private void applyClusterEvidence(AlertIncidentEntity incident, Map<String, Object> evidence) {
+        scalarClusterId(evidence, "requestedClusterId", "targetClusterId")
+                .or(() -> singleClusterId(evidence, "requestedClusterIds", "targetClusterIds"))
+                .ifPresent(incident::setRequestedClusterId);
+        scalarClusterId(evidence, "actualClusterId")
+                .or(() -> singleClusterId(evidence, "actualClusterIds"))
+                .ifPresent(incident::setActualClusterId);
+    }
+
+    private Optional<Long> scalarClusterId(Map<String, Object> evidence, String... keys) {
+        if (evidence == null || keys == null) {
+            return Optional.empty();
+        }
+        for (String key : keys) {
+            Optional<Long> value = longValue(evidence.get(key));
+            if (value.isPresent()) {
+                return value;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Long> singleClusterId(Map<String, Object> evidence, String... keys) {
+        if (evidence == null || keys == null) {
+            return Optional.empty();
+        }
+        for (String key : keys) {
+            Object raw = evidence.get(key);
+            if (!(raw instanceof Collection<?>)) {
+                continue;
+            }
+            Long resolved = null;
+            int count = 0;
+            for (Object item : (Collection<?>) raw) {
+                Optional<Long> value = longValue(item);
+                if (value.isPresent()) {
+                    resolved = value.get();
+                    count += 1;
+                }
+            }
+            if (count == 1) {
+                return Optional.of(resolved);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Long> longValue(Object value) {
+        if (value instanceof Number) {
+            return Optional.of(Long.valueOf(((Number) value).longValue()));
+        }
+        if (value instanceof String && StringUtils.hasText((String) value)) {
+            try {
+                return Optional.of(Long.valueOf(((String) value).trim()));
+            } catch (NumberFormatException ex) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
     }
 
     private String sanitizeText(String value, int max) {

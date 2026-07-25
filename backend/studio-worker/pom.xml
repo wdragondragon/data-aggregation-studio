@@ -31,6 +31,38 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>com.jdragon.studio</groupId>
+            <artifactId>studio-flink</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Runtime execution libraries belong to Worker, not the Server control plane. -->
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>commons</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>data-source-handler-abstract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>data-source-handler-file-s3-minio</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>plugins-loader-center</artifactId>
+        </dependency>
+        <!-- Flink's bundled Calcite JDBC adapter references DBCP without shading it. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-dbcp2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
@@ -42,6 +74,16 @@
             <groupId>com.jdragon.studio</groupId>
             <artifactId>studio-nacos-compat-core</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

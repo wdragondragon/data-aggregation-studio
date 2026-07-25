@@ -12,7 +12,6 @@ import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
 import org.codehaus.janino.SimpleCompiler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -25,7 +24,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Service
 public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(JavaDataDevelopmentExecutor.class);
@@ -37,15 +35,18 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
     private final DataModelService dataModelService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
     private final ScriptEnvironmentRuntimeService environmentRuntimeService;
+    private final DatasourceClusterBindingService datasourceClusterBindingService;
 
     public JavaDataDevelopmentExecutor(DataSourceService dataSourceService,
                                        DataModelService dataModelService,
                                        DataDevelopmentSqlExecutor sqlExecutor,
-                                       ScriptEnvironmentRuntimeService environmentRuntimeService) {
+                                       ScriptEnvironmentRuntimeService environmentRuntimeService,
+                                       DatasourceClusterBindingService datasourceClusterBindingService) {
         this.dataSourceService = dataSourceService;
         this.dataModelService = dataModelService;
         this.sqlExecutor = sqlExecutor;
         this.environmentRuntimeService = environmentRuntimeService;
+        this.datasourceClusterBindingService = datasourceClusterBindingService;
     }
 
     @Override
@@ -68,7 +69,13 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
                     context.getArguments(),
                     context.getRuntimeContext(),
                     logger,
-                    new DefaultJavaDataScriptServices(dataSourceService, dataModelService, sqlExecutor)
+                    new DefaultJavaDataScriptServices(
+                            dataSourceService,
+                            dataModelService,
+                            sqlExecutor,
+                            datasourceClusterBindingService,
+                            context.getRuntimeProjectId(),
+                            context.getRuntimeClusterId())
             );
             JavaDataScriptResult executionResult = script.execute(scriptContext);
             long endedAt = System.currentTimeMillis();

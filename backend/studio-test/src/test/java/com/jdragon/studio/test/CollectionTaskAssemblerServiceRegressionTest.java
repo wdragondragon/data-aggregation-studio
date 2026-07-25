@@ -32,6 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssemblerTestSupport {
@@ -177,6 +179,52 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setEncryptionSecret("collection-task-assembler-regression-test");
         return new EncryptionService(properties);
+    }
+
+    @Test
+    void previewShouldUseMaskedDatasourceViewsWithoutDecryptingInternalConnections() {
+        EncryptionService encryptionService = testEncryptionService();
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataSourceDefinition internalSource = datasourceWithPassword(
+                1L, "ENC(" + encryptionService.encrypt("source-secret") + ")");
+        DataSourceDefinition internalTarget = datasourceWithPassword(
+                2L, "ENC(" + encryptionService.encrypt("target-secret") + ")");
+        DataSourceDefinition maskedSource = datasourceWithPassword(1L, "so********et");
+        DataSourceDefinition maskedTarget = datasourceWithPassword(2L, "ta********et");
+        when(dataSourceService.getInternal(1L)).thenReturn(internalSource);
+        when(dataSourceService.getInternal(2L)).thenReturn(internalTarget);
+        when(dataSourceService.get(1L)).thenReturn(maskedSource);
+        when(dataSourceService.get(2L)).thenReturn(maskedTarget);
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                dataSourceService,
+                mockDataModelService(),
+                encryptionService,
+                mockRuntimeOptionSchemaService());
+
+        Map<String, Object> preview = assemblerService.assemblePreview(buildDefinition(null));
+
+        String serializedPreview = String.valueOf(preview);
+        assertFalse(serializedPreview.contains("source-secret"));
+        assertFalse(serializedPreview.contains("target-secret"));
+        assertTrue(serializedPreview.contains("so********et"));
+        assertTrue(serializedPreview.contains("ta********et"));
+        verify(dataSourceService, never()).getInternal(1L);
+        verify(dataSourceService, never()).getInternal(2L);
+
+        String execution = String.valueOf(assemblerService.assemble(buildDefinition(null)));
+        assertTrue(execution.contains("source-secret"));
+        assertTrue(execution.contains("target-secret"));
+    }
+
+    private DataSourceDefinition datasourceWithPassword(Long id, String password) {
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(id);
+        datasource.setTypeCode("mysql8");
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("host", "db.internal");
+        metadata.put("password", password);
+        datasource.setTechnicalMetadata(metadata);
+        return datasource;
     }
 
     @Test

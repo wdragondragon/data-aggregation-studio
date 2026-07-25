@@ -64,6 +64,11 @@ abstract class CollectionTaskAssemblerTestSupport {
         when(service.getInternal(3L)).thenReturn(minioDatasource);
         when(service.getInternal(4L)).thenReturn(httpDatasource);
         when(service.getInternal(5L)).thenReturn(odpsDatasource);
+        when(service.get(1L)).thenReturn(datasource);
+        when(service.get(2L)).thenReturn(datasource);
+        when(service.get(3L)).thenReturn(minioDatasource);
+        when(service.get(4L)).thenReturn(httpDatasource);
+        when(service.get(5L)).thenReturn(odpsDatasource);
         return service;
     }
 

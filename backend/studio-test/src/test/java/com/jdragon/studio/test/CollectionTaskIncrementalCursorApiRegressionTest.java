@@ -30,13 +30,15 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
         JsonNode loginBody = loginAsAdmin();
         String authorization = adminAuthorizationHeader(loginBody);
         Long projectId = currentProjectId(loginBody);
-        Long sourceDatasourceId = createDatasource(authorization, projectId, "cursor_source");
-        Long targetDatasourceId = createDatasource(authorization, projectId, "cursor_target");
+        Long runtimeClusterId = createAndAuthorizeTestRuntimeCluster(authorization, projectId);
+        Long sourceDatasourceId = createDatasource(authorization, projectId, runtimeClusterId, "cursor_source");
+        Long targetDatasourceId = createDatasource(authorization, projectId, runtimeClusterId, "cursor_target");
         Long sourceModelId = createModel(authorization, projectId, sourceDatasourceId, "source_table");
         Long targetModelId = createModel(authorization, projectId, targetDatasourceId, "target_table");
 
         JsonNode created = saveTask(authorization, projectId,
-                taskPayload(null, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "id", Long.valueOf(999L)));
+                taskPayload(null, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "id", Long.valueOf(999L)));
         Long taskId = created.path("data").path("id").asLong();
         assertNullish(cursorValue(created));
         awaitIndexQueueIdle();
@@ -50,21 +52,25 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
         assertCursorStateValue(updated, "id", 42L);
 
         JsonNode savedWithIncomingCursor = saveTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "id", Long.valueOf(999L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "id", Long.valueOf(999L)));
         assertCursorLong(savedWithIncomingCursor, 42L);
         assertCursorStateValue(savedWithIncomingCursor, "id", 42L);
 
         JsonNode preview = previewTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "id", Long.valueOf(999L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "id", Long.valueOf(999L)));
         assertThat(preview.path("data").path("reader").path("config").path("pkValue").asLong()).isEqualTo(42L);
 
         JsonNode savedAfterColumnChange = saveTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "updated_at", Long.valueOf(1000L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "updated_at", Long.valueOf(1000L)));
         assertNullish(cursorValue(savedAfterColumnChange));
         assertCursorStateValue(savedAfterColumnChange, "id", 42L);
 
         JsonNode updatedAtPreviewWithoutCursor = previewTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "updated_at", Long.valueOf(1000L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "updated_at", Long.valueOf(1000L)));
         assertNullish(updatedAtPreviewWithoutCursor.path("data").path("reader").path("config").path("pkValue"));
 
         String updatedAtCursor = "2026-05-03 10:00:00";
@@ -76,12 +82,14 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
         assertCursorStateValue(updatedAtTask, "updated_at", updatedAtCursor);
 
         JsonNode switchedBackToId = saveTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "id", Long.valueOf(1001L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "id", Long.valueOf(1001L)));
         assertCursorLong(switchedBackToId, 42L);
         assertCursorStateValue(switchedBackToId, "updated_at", updatedAtCursor);
 
         JsonNode idPreview = previewTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "id", Long.valueOf(1001L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "id", Long.valueOf(1001L)));
         assertThat(idPreview.path("data").path("reader").path("config").path("pkValue").asLong()).isEqualTo(42L);
 
         JsonNode reset = resetCursor(authorization, projectId, taskId, "src1", "id", ">");
@@ -94,7 +102,8 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
         assertCursorStateValue(reset, "updated_at", updatedAtCursor);
 
         JsonNode switchedToUpdatedAtAfterReset = saveTask(authorization, projectId,
-                taskPayload(taskId, sourceDatasourceId, sourceModelId, targetDatasourceId, targetModelId, "updated_at", Long.valueOf(1002L)));
+                taskPayload(taskId, runtimeClusterId, sourceDatasourceId, sourceModelId,
+                        targetDatasourceId, targetModelId, "updated_at", Long.valueOf(1002L)));
         assertThat(cursorValue(switchedToUpdatedAtAfterReset).asText()).isEqualTo(updatedAtCursor);
     }
 
@@ -153,12 +162,16 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
         assertThat(value.isMissingNode() || value.isNull()).isTrue();
     }
 
-    private Long createDatasource(String authorization, Long projectId, String name) throws Exception {
+    private Long createDatasource(String authorization,
+                                  Long projectId,
+                                  Long runtimeClusterId,
+                                  String name) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("name", name);
         payload.put("typeCode", "mysql8");
         payload.put("enabled", Boolean.TRUE);
         payload.put("executable", Boolean.FALSE);
+        payload.put("applicableClusterIds", Collections.singletonList(runtimeClusterId));
         payload.put("technicalMetadata", minimalSqlMetadata());
         payload.put("businessMetadata", new LinkedHashMap<String, Object>());
 
@@ -249,6 +262,7 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
     }
 
     private Map<String, Object> taskPayload(Long id,
+                                            Long runtimeClusterId,
                                             Long sourceDatasourceId,
                                             Long sourceModelId,
                                             Long targetDatasourceId,
@@ -260,6 +274,7 @@ class CollectionTaskIncrementalCursorApiRegressionTest extends StudioApiRegressi
             payload.put("id", id);
         }
         payload.put("name", "cursor_task");
+        payload.put("runtimeClusterId", runtimeClusterId);
         List<Map<String, Object>> sources = new ArrayList<Map<String, Object>>();
         Map<String, Object> source = new LinkedHashMap<String, Object>();
         source.put("sourceAlias", "src1");

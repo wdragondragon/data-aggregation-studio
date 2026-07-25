@@ -38,7 +38,6 @@ public class AggregationFlinkTableRuntimePayload {
         if (runtime == null) {
             return payload;
         }
-        payload.setRuntimeRef(runtime.getRuntimeRef());
         payload.setDatasourceId(runtime.getDatasourceId());
         payload.setModelId(runtime.getModelId());
         payload.setPluginName(runtime.getPluginName());
@@ -73,7 +72,6 @@ public class AggregationFlinkTableRuntimePayload {
         if (runtime == null) {
             return payload;
         }
-        payload.setRuntimeRef(runtime.getRuntimeRef());
         payload.setPushedFilters(runtime.getPushedFilters());
         payload.setRemainingFilters(runtime.getRemainingFilters());
         List<Map<String, Object>> pathFilters = new ArrayList<Map<String, Object>>();

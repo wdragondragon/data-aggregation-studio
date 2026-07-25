@@ -25,19 +25,21 @@ import com.jdragon.studio.infra.mapper.DataServicePublishParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceRequestParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceResponseParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
-import com.jdragon.studio.infra.service.DataDevelopmentSqlExecutor;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataServiceResponseCacheService;
 import com.jdragon.studio.infra.service.DataServiceService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import com.jdragon.studio.infra.service.StudioTransformerSupport;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -77,6 +79,7 @@ class DataServiceListSourceSlimmingRegressionTest {
         assertThat(item.getServiceName()).isEqualTo("长期回归-客户画像查询服务");
         assertThat(item.getDatasourceName()).isEqualTo("长期回归-客户经营画像数据源");
         assertThat(item.getModelName()).isEqualTo("客户画像模型");
+        assertThat(item.getRuntimeClusterId()).isEqualTo(40L);
         assertThat(item.getSourceType()).isEqualTo(DataServiceSourceType.TABLE);
         assertThat(item.getDatasourceId()).isNull();
         assertThat(item.getModelId()).isNull();
@@ -86,7 +89,7 @@ class DataServiceListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<DataServiceDefinitionEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(definitionMapper).selectPage(any(Page.class), captor.capture());
         assertThat(captor.getValue().getSqlSelect())
-                .contains("id", "project_id", "created_at", "updated_at",
+                .contains("id", "project_id", "runtime_cluster_id", "created_at", "updated_at",
                         "service_code", "service_name", "status", "source_type",
                         "datasource_name_snapshot", "datasource_type_code",
                         "model_name_snapshot", "model_physical_locator", "endpoint_path")
@@ -171,7 +174,7 @@ class DataServiceListSourceSlimmingRegressionTest {
 
     private void assertTableListSelectIsSlim(String sqlSelect) {
         assertThat(sqlSelect)
-                .contains("id", "project_id", "created_at", "updated_at",
+                .contains("id", "project_id", "runtime_cluster_id", "created_at", "updated_at",
                         "service_code", "service_name", "status", "source_type",
                         "datasource_name_snapshot", "datasource_type_code",
                         "model_name_snapshot", "model_physical_locator", "endpoint_path")
@@ -198,7 +201,7 @@ class DataServiceListSourceSlimmingRegressionTest {
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
-        return new DataServiceService(
+        DataServiceService service = new DataServiceService(
                 definitionMapper,
                 requestParamMapper,
                 responseParamMapper,
@@ -208,12 +211,19 @@ class DataServiceListSourceSlimmingRegressionTest {
                 mock(DataServiceAccessCounterMapper.class),
                 mock(DataSourceService.class),
                 mock(DataModelService.class),
-                mock(DataDevelopmentSqlExecutor.class),
+                mock(DatasourceTypeCapabilityService.class),
                 securityService,
                 accessService,
                 mock(DataServiceResponseCacheService.class),
                 new StudioTransformerSupport(new ObjectMapper()),
                 mock(OpenServiceInvocationLogService.class));
+        injectRuntimeSelection(service);
+        return service;
+    }
+
+    private void injectRuntimeSelection(DataServiceService service) {
+        ReflectionTestUtils.setField(service, "runtimeClusterSelectionService",
+                mock(RuntimeClusterSelectionService.class));
     }
 
     private DataServiceDefinitionEntity dataServiceEntity() {
@@ -221,6 +231,7 @@ class DataServiceListSourceSlimmingRegressionTest {
         entity.setId(10L);
         entity.setTenantId("default");
         entity.setProjectId(100L);
+        entity.setRuntimeClusterId(40L);
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 29, 11, 0, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 29, 11, 5, 0));

@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -68,9 +69,9 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
                 securityService(),
                 accessService());
         when(definitionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dataService()));
-        when(accessLogMapper.countApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any()))
+        when(accessLogMapper.countApiStats(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(1L);
-        when(accessLogMapper.selectApiStatsPage(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(accessLogMapper.selectApiStatsPage(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(Collections.singletonList(dataServiceMetric()));
 
         PageView<DataServiceApiMetricView> page = service.queryApiStats(dataServiceRequest());
@@ -81,8 +82,8 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
         assertEquals("ONLINE", page.getItems().get(0).getStatus());
         assertEquals(Double.valueOf(75.0D), page.getItems().get(0).getSuccessRate());
         assertEquals(Double.valueOf(50.0D), page.getItems().get(0).getCacheHitRate());
-        verify(accessLogMapper).countApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any());
-        verify(accessLogMapper).selectApiStatsPage(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
+        verify(accessLogMapper).countApiStats(any(), any(), any(), eq(46L), eq(50L), any(), anyBoolean(), any(), any(), any(), any(), any(), any());
+        verify(accessLogMapper).selectApiStatsPage(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
         verify(accessLogMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verifyNoInteractions(counterMapper);
     }
@@ -99,15 +100,15 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
                 securityService(),
                 accessService());
         when(definitionMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dataService()));
-        when(accessLogMapper.selectDashboardSummary(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(accessLogMapper.selectDashboardSummary(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(dataServiceMetric());
-        when(accessLogMapper.selectDashboardBuckets(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(accessLogMapper.selectDashboardBuckets(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(Collections.singletonList(dataServiceBucket()));
-        when(accessLogMapper.selectDashboardErrorDistribution(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
+        when(accessLogMapper.selectDashboardErrorDistribution(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
                 .thenReturn(Collections.singletonList(distribution("500", 1L)));
-        when(accessLogMapper.selectDashboardApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt()))
+        when(accessLogMapper.selectDashboardApiStats(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt()))
                 .thenReturn(Collections.singletonList(dataServiceMetric()));
-        when(accessLogMapper.selectDashboardSubscriptionRank(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
+        when(accessLogMapper.selectDashboardSubscriptionRank(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
                 .thenReturn(Collections.singletonList(dataServiceSubscriptionMetric()));
 
         DataServiceMetricDashboardView dashboard = service.queryDashboard(dataServiceRequest());
@@ -116,10 +117,10 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
         assertEquals("HTTP_500", dashboard.getErrorDistribution().get(0).getKey());
         assertEquals("客户画像查询服务", dashboard.getTopSlowApis().get(0).getServiceName());
         assertEquals("客户画像查询订阅", dashboard.getSubscriptionRank().get(0).getSubscriptionName());
-        verify(accessLogMapper).selectDashboardSummary(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean());
-        verify(accessLogMapper).selectDashboardBuckets(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean());
-        verify(accessLogMapper, times(2)).selectDashboardApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt());
-        verify(accessLogMapper).selectDashboardSubscriptionRank(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyInt());
+        verify(accessLogMapper).selectDashboardSummary(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accessLogMapper).selectDashboardBuckets(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accessLogMapper, times(2)).selectDashboardApiStats(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt());
+        verify(accessLogMapper).selectDashboardSubscriptionRank(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyInt());
         verify(accessLogMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verifyNoInteractions(counterMapper);
     }
@@ -137,9 +138,9 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
                 accessService(),
                 mock(OpenServiceInvocationLogService.class));
         when(serviceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dataIngestionService()));
-        when(accessLogMapper.countApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any()))
+        when(accessLogMapper.countApiStats(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any()))
                 .thenReturn(1L);
-        when(accessLogMapper.selectApiStatsPage(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
+        when(accessLogMapper.selectApiStatsPage(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(Collections.singletonList(dataIngestionMetric()));
 
         PageView<DataIngestionApiMetricView> page = service.queryApiStats(dataIngestionRequest());
@@ -149,8 +150,8 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
         assertEquals("ORDER_INGESTION", page.getItems().get(0).getServiceCode());
         assertEquals("ONLINE", page.getItems().get(0).getStatus());
         assertEquals(Double.valueOf(80.0D), page.getItems().get(0).getSuccessRate());
-        verify(accessLogMapper).countApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any());
-        verify(accessLogMapper).selectApiStatsPage(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyInt(), anyInt());
+        verify(accessLogMapper).countApiStats(any(), any(), any(), eq(46L), eq(50L), any(), anyBoolean(), any(), any(), any(), any(), any());
+        verify(accessLogMapper).selectApiStatsPage(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyInt(), anyInt());
         verify(accessLogMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verifyNoInteractions(counterMapper);
     }
@@ -168,15 +169,15 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
                 accessService(),
                 mock(OpenServiceInvocationLogService.class));
         when(serviceMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dataIngestionService()));
-        when(accessLogMapper.selectDashboardSummary(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(accessLogMapper.selectDashboardSummary(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(dataIngestionMetric());
-        when(accessLogMapper.selectDashboardBuckets(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(accessLogMapper.selectDashboardBuckets(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(Collections.singletonList(dataIngestionBucket()));
-        when(accessLogMapper.selectDashboardErrorDistribution(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
+        when(accessLogMapper.selectDashboardErrorDistribution(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
                 .thenReturn(Collections.singletonList(distribution("502", 1L)));
-        when(accessLogMapper.selectDashboardApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt()))
+        when(accessLogMapper.selectDashboardApiStats(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt()))
                 .thenReturn(Collections.singletonList(dataIngestionMetric()));
-        when(accessLogMapper.selectDashboardSubscriptionRank(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
+        when(accessLogMapper.selectDashboardSubscriptionRank(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), anyInt()))
                 .thenReturn(Collections.singletonList(dataIngestionSubscriptionMetric()));
 
         DataIngestionMetricDashboardView dashboard = service.queryDashboard(dataIngestionRequest());
@@ -186,10 +187,10 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
         assertEquals("HTTP_502", dashboard.getErrorDistribution().get(0).getKey());
         assertEquals("订单接入服务", dashboard.getTopSlowServices().get(0).getServiceName());
         assertEquals("订单接入订阅", dashboard.getSubscriptionRank().get(0).getSubscriptionName());
-        verify(accessLogMapper).selectDashboardSummary(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean());
-        verify(accessLogMapper).selectDashboardBuckets(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean());
-        verify(accessLogMapper, times(2)).selectDashboardApiStats(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt());
-        verify(accessLogMapper).selectDashboardSubscriptionRank(any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), anyInt());
+        verify(accessLogMapper).selectDashboardSummary(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accessLogMapper).selectDashboardBuckets(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(accessLogMapper, times(2)).selectDashboardApiStats(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyInt());
+        verify(accessLogMapper).selectDashboardSubscriptionRank(any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any(), anyBoolean(), anyInt());
         verify(accessLogMapper, never()).selectList(any(LambdaQueryWrapper.class));
         verifyNoInteractions(counterMapper);
     }
@@ -214,6 +215,8 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
 
     private DataServiceMetricQueryRequest dataServiceRequest() {
         DataServiceMetricQueryRequest request = new DataServiceMetricQueryRequest();
+        request.setRequestedClusterId(46L);
+        request.setActualClusterId(50L);
         request.setPageNo(1);
         request.setPageSize(10);
         request.setStartTime("2026-06-27 00:00:00");
@@ -223,6 +226,8 @@ class OpenServiceMetricsApiStatsSourceSlimmingRegressionTest {
 
     private DataIngestionMetricQueryRequest dataIngestionRequest() {
         DataIngestionMetricQueryRequest request = new DataIngestionMetricQueryRequest();
+        request.setRequestedClusterId(46L);
+        request.setActualClusterId(50L);
         request.setPageNo(1);
         request.setPageSize(10);
         request.setStartTime("2026-06-27 00:00:00");

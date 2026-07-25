@@ -9,6 +9,9 @@ import com.jdragon.studio.flink.connector.FilePathPushdownConfig;
 import com.jdragon.studio.flink.connector.HttpPushdownMappingConfig;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
+import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -25,14 +28,24 @@ class FlinkQuestionContextService {
 
     private final DataModelService dataModelService;
     private final DataSourceService dataSourceService;
+    private final RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private final DatasourceClusterBindingService datasourceClusterBindingService;
+    private final ProjectResourceAccessService projectResourceAccessService;
 
-    FlinkQuestionContextService(DataModelService dataModelService, DataSourceService dataSourceService) {
+    FlinkQuestionContextService(DataModelService dataModelService,
+                                DataSourceService dataSourceService,
+                                RuntimeClusterSelectionService runtimeClusterSelectionService,
+                                DatasourceClusterBindingService datasourceClusterBindingService,
+                                ProjectResourceAccessService projectResourceAccessService) {
         this.dataModelService = dataModelService;
         this.dataSourceService = dataSourceService;
+        this.runtimeClusterSelectionService = runtimeClusterSelectionService;
+        this.datasourceClusterBindingService = datasourceClusterBindingService;
+        this.projectResourceAccessService = projectResourceAccessService;
     }
 
     FlinkQuestionContext build(FlinkQuestionAskRequest request) {
-        List<DataModelDefinition> candidates = resolveModels(request);
+        List<DataModelDefinition> candidates = filterByRuntimeCluster(request, resolveModels(request));
         if (candidates.isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "No readable data models are available for Flink question answering");
         }
@@ -40,6 +53,34 @@ class FlinkQuestionContextService {
         context.getModels().addAll(candidates);
         context.setPromptContext(buildPromptContext(candidates));
         return context;
+    }
+
+    private List<DataModelDefinition> filterByRuntimeCluster(FlinkQuestionAskRequest request,
+                                                              List<DataModelDefinition> candidates) {
+        Long projectId = projectResourceAccessService.requireCurrentProjectId();
+        Long runtimeClusterId = runtimeClusterSelectionService.resolveForSave(
+                projectId, request.getRuntimeClusterId());
+        Set<Long> datasourceIds = new LinkedHashSet<Long>();
+        for (DataModelDefinition candidate : candidates) {
+            if (candidate != null && candidate.getDatasourceId() != null) {
+                datasourceIds.add(candidate.getDatasourceId());
+            }
+        }
+        Set<Long> applicableDatasourceIds = datasourceClusterBindingService.filterApplicableDatasourceIds(
+                projectId, runtimeClusterId, datasourceIds);
+        boolean explicitFilter = request.getModelIds() != null && !request.getModelIds().isEmpty()
+                || request.getDatasourceIds() != null && !request.getDatasourceIds().isEmpty();
+        if (explicitFilter && !applicableDatasourceIds.containsAll(datasourceIds)) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "One or more selected models are not applicable to the selected runtime cluster");
+        }
+        List<DataModelDefinition> filtered = new ArrayList<DataModelDefinition>();
+        for (DataModelDefinition candidate : candidates) {
+            if (candidate != null && applicableDatasourceIds.contains(candidate.getDatasourceId())) {
+                filtered.add(candidate);
+            }
+        }
+        return filtered;
     }
 
     private List<DataModelDefinition> resolveModels(FlinkQuestionAskRequest request) {

@@ -17,6 +17,8 @@ final class DataIngestionMetricViewSupport {
         DataIngestionAccessLogListView view = new DataIngestionAccessLogListView();
         view.setId(entity.getId());
         view.setServiceId(entity.getServiceId());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
         view.setServiceCode(entity.getServiceCodeSnapshot());
         view.setServiceName(entity.getServiceNameSnapshot());
         view.setServiceStatus(entity.getServiceStatusSnapshot());

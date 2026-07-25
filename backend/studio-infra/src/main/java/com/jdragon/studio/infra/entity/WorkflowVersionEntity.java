@@ -13,6 +13,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "workflow_definition_version", autoResultMap = true)
 public class WorkflowVersionEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long definitionId;
     private Integer versionNumber;
     private Integer published;

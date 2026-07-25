@@ -10,6 +10,7 @@ import com.jdragon.studio.dto.model.QualityTaskPreviewView;
 import com.jdragon.studio.dto.model.QualityTaskValidationView;
 import com.jdragon.studio.dto.model.QualityTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.request.QualityTaskSaveRequest;
+import com.jdragon.studio.dto.model.request.RuntimeClusterTriggerRequest;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -67,8 +68,9 @@ public class QualityTaskController {
     @GetMapping("/workflow-options")
     public Result<PageView<QualityTaskWorkflowOptionView>> listWorkflowOptions(@RequestParam(value = "pageNo", required = false) Integer pageNo,
                                                                                @RequestParam(value = "pageSize", required = false) Integer pageSize,
-                                                                               @RequestParam(value = "keyword", required = false) String keyword) {
-        return Result.success(qualityTaskService.listWorkflowOptions(pageNo, pageSize, keyword));
+                                                                               @RequestParam(value = "keyword", required = false) String keyword,
+                                                                               @RequestParam(value = "runtimeClusterId") Long runtimeClusterId) {
+        return Result.success(qualityTaskService.listWorkflowOptions(pageNo, pageSize, keyword, runtimeClusterId));
     }
 
     @Operation(summary = "Get quality task detail")
@@ -110,8 +112,9 @@ public class QualityTaskController {
 
     @Operation(summary = "Trigger quality task")
     @PostMapping("/{id}/trigger")
-    public Result<Void> trigger(@PathVariable("id") Long id) {
-        dispatchService.triggerQualityTask(id);
+    public Result<Void> trigger(@PathVariable("id") Long id,
+                                @RequestBody(required = false) RuntimeClusterTriggerRequest request) {
+        dispatchService.triggerQualityTask(id, request == null ? null : request.getRuntimeClusterId());
         return Result.success(null);
     }
 

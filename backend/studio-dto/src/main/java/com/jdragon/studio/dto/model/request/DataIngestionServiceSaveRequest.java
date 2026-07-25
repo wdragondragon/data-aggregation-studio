@@ -9,6 +9,7 @@ import com.jdragon.studio.dto.model.WebServiceConfig;
 import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +17,8 @@ import java.util.Map;
 
 @Data
 public class DataIngestionServiceSaveRequest {
+    @NotNull(message = "Runtime cluster is required")
+    private Long runtimeClusterId;
     private Long id;
 
     @NotBlank

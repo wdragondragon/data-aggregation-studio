@@ -16,6 +16,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "quality_task_definition", autoResultMap = true)
 public class QualityTaskDefinitionEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long createdBy;
     private String taskName;
     private String taskCode;

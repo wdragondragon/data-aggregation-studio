@@ -15,6 +15,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "protocol_conversion_service", autoResultMap = true)
 public class ProtocolConversionServiceEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long createdBy;
     private String serviceCode;
     private String serviceName;

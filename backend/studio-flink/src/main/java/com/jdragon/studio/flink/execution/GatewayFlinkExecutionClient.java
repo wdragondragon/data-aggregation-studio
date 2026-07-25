@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -19,10 +20,14 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.UUID;
 
 @Component
+@ConditionalOnClass(name = "com.jdragon.studio.worker.bootstrap.StudioWorkerApplication")
 public class GatewayFlinkExecutionClient implements FlinkExecutionClient {
+    private static final Pattern RUNTIME_CAPABILITY_OPTION = Pattern.compile(
+            "(?i)('runtime\\.(?:token|ref)'\\s*=\\s*')[^']*(?:'|$)");
     private final StudioPlatformProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -402,9 +407,13 @@ public class GatewayFlinkExecutionClient implements FlinkExecutionClient {
         String message = extractGatewayErrorText(body);
         String businessMessage = extractHttpPushdownMessage(message);
         if (hasText(businessMessage)) {
-            return businessMessage;
+            return redactRuntimeCapabilities(businessMessage);
         }
-        return safeBody(message);
+        return redactRuntimeCapabilities(safeBody(message));
+    }
+
+    private String redactRuntimeCapabilities(String message) {
+        return message == null ? null : RUNTIME_CAPABILITY_OPTION.matcher(message).replaceAll("$1***'");
     }
 
     private String extractGatewayErrorText(String body) {

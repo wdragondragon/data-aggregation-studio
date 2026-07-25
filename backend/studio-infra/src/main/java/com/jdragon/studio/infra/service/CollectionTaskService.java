@@ -75,6 +75,7 @@ public class CollectionTaskService {
     private final DataModelLineageService dataModelLineageService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final CollectionTaskIncrementalCursorSupport incrementalCursorSupport;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
                                  CollectionTaskMetricBindingMapper metricBindingMapper,
@@ -115,8 +116,14 @@ public class CollectionTaskService {
                 result.add(view);
             }
         }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, result);
+        }
         return result;
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
 
     public List<CollectionTaskListView> listSummaries(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
         int pageNo = 1;
@@ -159,6 +166,9 @@ public class CollectionTaskService {
         List<CollectionTaskListView> result = new ArrayList<CollectionTaskListView>();
         for (CollectionTaskDefinitionEntity entity : entityPage.getRecords()) {
             result.add(toListView(entity, schedules.get(entity.getId())));
+        }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, result);
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), result);
     }
@@ -302,6 +312,13 @@ public class CollectionTaskService {
     public PageView<CollectionTaskWorkflowOptionView> listWorkflowOptions(Integer pageNo,
                                                                           Integer pageSize,
                                                                           String keyword) {
+        return listWorkflowOptions(pageNo, pageSize, keyword, null);
+    }
+
+    public PageView<CollectionTaskWorkflowOptionView> listWorkflowOptions(Integer pageNo,
+                                                                          Integer pageSize,
+                                                                          String keyword,
+                                                                          Long runtimeClusterId) {
         int safePageNo = normalizePageNo(pageNo);
         int safePageSize = normalizePageSize(pageSize);
         if (projectResourceAccessService.currentProjectId() == null) {
@@ -312,6 +329,7 @@ public class CollectionTaskService {
         Page<CollectionTaskDefinitionEntity> page = new Page<CollectionTaskDefinitionEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper = selectWorkflowOptionColumns(buildAccessibleQuery())
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
+                .eq(runtimeClusterId != null, CollectionTaskDefinitionEntity::getRuntimeClusterId, runtimeClusterId)
                 .and(hasText(normalizedKeyword), wrapper -> {
                     wrapper.like(CollectionTaskDefinitionEntity::getName, normalizedKeyword)
                             .or()
@@ -335,7 +353,9 @@ public class CollectionTaskService {
         if (entity == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
         }
-        return toView(entity, true);
+        CollectionTaskDefinitionView view = toView(entity, true);
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, view);
     }
 
     public CollectionTaskDefinitionView requireOnline(Long id) {
@@ -343,6 +363,9 @@ public class CollectionTaskService {
         if (view.getStatus() != CollectionTaskStatus.ONLINE) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task is not online");
         }
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, view.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(view.getProjectId(), view.getRuntimeClusterId(),
+                datasourceIds(view));
         return view;
     }
 
@@ -358,11 +381,25 @@ public class CollectionTaskService {
         return view;
     }
 
+    public CollectionTaskDefinitionView requireRunnableOnCluster(Long id, Long runtimeClusterId) {
+        CollectionTaskDefinitionView view = get(id);
+        if (view.getStatus() != CollectionTaskStatus.ONLINE) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task is not online");
+        }
+        runtimeClusterSelectionService.validateManualOverride(view.getProjectId(), runtimeClusterId, datasourceIds(view));
+        view.setRuntimeClusterId(runtimeClusterId);
+        view.setRuntimeClusterName(runtimeClusterSelectionService.runtimeClusterName(view.getProjectId(), runtimeClusterId));
+        view.setRuntimeValid(Boolean.TRUE);
+        view.setRuntimeValidationMessage(null);
+        return view;
+    }
+
     public Map<String, Object> preview(CollectionTaskSaveRequest request) {
         return previewForView(request);
     }
 
     public Map<String, Object> previewForView(CollectionTaskSaveRequest request) {
+        runtimeClusterSelectionService.assertExplicitSelection(request == null ? null : request.getRuntimeClusterId());
         return collectionTaskAssemblerService.assemblePreview(toDefinitionView(request));
     }
 
@@ -381,6 +418,14 @@ public class CollectionTaskService {
                 request.getSourceBindings(), storedSourceBindings(entity));
         incrementalCursorSupport.protectSystemIncrementalCursors(entity.getId() == null ? null : entity, sourceBindings);
         CollectionTaskTargetBinding targetBinding = enrichTargetBinding(request.getTargetBinding(), executionOptions);
+        List<Long> datasourceIds = new ArrayList<Long>();
+        for (CollectionTaskSourceBinding sourceBinding : sourceBindings) {
+            datasourceIds.add(sourceBinding.getDatasourceId());
+        }
+        datasourceIds.add(targetBinding == null ? null : targetBinding.getDatasourceId());
+        Long runtimeClusterId = runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                currentProjectId, request.getRuntimeClusterId(), entity.getRuntimeClusterId(),
+                entity.getId() != null, datasourceIds);
         List<FieldMappingDefinition> fieldMappings = request.getFieldMappings() == null
                 ? new ArrayList<FieldMappingDefinition>()
                 : request.getFieldMappings();
@@ -388,6 +433,7 @@ public class CollectionTaskService {
         ensureUniqueName(currentProjectId, request.getName(), entity.getId());
         entity.setTenantId(securityService.currentTenantId());
         entity.setProjectId(currentProjectId);
+        entity.setRuntimeClusterId(runtimeClusterId);
         entity.setName(request.getName());
         entity.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION.name() : CollectionTaskType.SINGLE_TABLE.name());
         entity.setSourceCount(sourceBindings.size());
@@ -411,12 +457,16 @@ public class CollectionTaskService {
         rebuildMetricBindings(entity, sourceBindings, targetBinding);
         saveSchedule(entity.getId(), entity.getProjectId(), request.getSchedule());
         dataModelLineageService.scheduleTaskRebuildAfterCommit(entity.getId());
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, entity.getId());
         return get(entity.getId());
     }
 
     @Transactional
     public CollectionTaskListView publish(Long id) {
         CollectionTaskDefinitionEntity entity = requireWritableListEntity(id);
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, entity.getId());
+        runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(), entity.getRuntimeClusterId(),
+                datasourceIds(entity));
         definitionMapper.update(null, new LambdaUpdateWrapper<CollectionTaskDefinitionEntity>()
                 .set(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
                 .eq(CollectionTaskDefinitionEntity::getId, entity.getId()));
@@ -426,9 +476,50 @@ public class CollectionTaskService {
         return getListView(id);
     }
 
+    private Set<Long> datasourceIds(CollectionTaskDefinitionView view) {
+        Set<Long> datasourceIds = new HashSet<Long>();
+        if (view == null) {
+            return datasourceIds;
+        }
+        for (CollectionTaskSourceBinding source : view.getSourceBindings()) {
+            if (source != null && source.getDatasourceId() != null) {
+                datasourceIds.add(source.getDatasourceId());
+            }
+        }
+        if (view.getTargetBinding() != null && view.getTargetBinding().getDatasourceId() != null) {
+            datasourceIds.add(view.getTargetBinding().getDatasourceId());
+        }
+        return datasourceIds;
+    }
+
+    private Set<Long> datasourceIds(CollectionTaskDefinitionEntity entity) {
+        Set<Long> datasourceIds = new HashSet<Long>();
+        if (entity == null) {
+            return datasourceIds;
+        }
+        for (CollectionTaskSourceBinding source : convertList(
+                entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class)) {
+            if (source != null && source.getDatasourceId() != null) {
+                datasourceIds.add(source.getDatasourceId());
+            }
+        }
+        CollectionTaskTargetBinding target = convertMap(
+                entity.getTargetBindingJson(), CollectionTaskTargetBinding.class);
+        if (target != null && target.getDatasourceId() != null) {
+            datasourceIds.add(target.getDatasourceId());
+        }
+        return datasourceIds;
+    }
+
     @Transactional
     public CollectionTaskDefinitionView updateSchedule(Long id, CollectionTaskScheduleDefinition schedule) {
         CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        if (schedule != null && Boolean.TRUE.equals(schedule.getEnabled()) && runtimeClusterSelectionService != null) {
+            CollectionTaskDefinitionView view = toView(entity, false);
+            runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, id);
+            runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(), entity.getRuntimeClusterId(),
+                    datasourceIds(view));
+        }
         saveSchedule(id, entity.getProjectId(), schedule);
         return get(id);
     }
@@ -515,6 +606,9 @@ public class CollectionTaskService {
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
@@ -553,12 +647,16 @@ public class CollectionTaskService {
 
     private CollectionTaskListView toListView(CollectionTaskDefinitionEntity entity, CollectionTaskScheduleDefinition schedule) {
         CollectionTaskListView view = new CollectionTaskListView();
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setId(entity.getId());
         view.setTenantId(entity.getTenantId());
         view.setProjectId(entity.getProjectId());
         view.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         view.setCreatedAt(entity.getCreatedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setName(entity.getName());
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
         view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
@@ -587,6 +685,9 @@ public class CollectionTaskService {
         CollectionTaskWorkflowOptionView view = new CollectionTaskWorkflowOptionView();
         view.setId(entity.getId());
         view.setProjectId(entity.getProjectId());
+        view.setRuntimeClusterId(entity.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(entity.getProjectId(), entity.getRuntimeClusterId()));
         view.setUpdatedAt(entity.getUpdatedAt());
         view.setName(entity.getName());
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
@@ -601,6 +702,7 @@ public class CollectionTaskService {
                 CollectionTaskDefinitionEntity::getDeleted,
                 CollectionTaskDefinitionEntity::getCreatedAt,
                 CollectionTaskDefinitionEntity::getUpdatedAt,
+                CollectionTaskDefinitionEntity::getRuntimeClusterId,
                 CollectionTaskDefinitionEntity::getName,
                 CollectionTaskDefinitionEntity::getTaskType,
                 CollectionTaskDefinitionEntity::getStatus,
@@ -614,6 +716,7 @@ public class CollectionTaskService {
     private LambdaQueryWrapper<CollectionTaskDefinitionEntity> selectWorkflowOptionColumns(LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper) {
         return queryWrapper.select(CollectionTaskDefinitionEntity::getId,
                 CollectionTaskDefinitionEntity::getProjectId,
+                CollectionTaskDefinitionEntity::getRuntimeClusterId,
                 CollectionTaskDefinitionEntity::getUpdatedAt,
                 CollectionTaskDefinitionEntity::getName,
                 CollectionTaskDefinitionEntity::getTaskType,
@@ -811,14 +914,27 @@ public class CollectionTaskService {
 
     private CollectionTaskDefinitionView toDefinitionView(CollectionTaskSaveRequest request) {
         validateRequest(request);
+        Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         Map<String, Object> executionOptions = copyExecutionOptions(request.getExecutionOptions());
         CollectionTaskDefinitionEntity existingEntity = request.getId() == null ? null : findAccessibleEntity(request.getId());
         List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(
                 request.getSourceBindings(), storedSourceBindings(existingEntity));
         incrementalCursorSupport.protectSystemIncrementalCursors(existingEntity, sourceBindings);
         CollectionTaskTargetBinding targetBinding = enrichTargetBinding(request.getTargetBinding(), executionOptions);
+        List<Long> datasourceIds = new ArrayList<Long>();
+        for (CollectionTaskSourceBinding sourceBinding : sourceBindings) {
+            datasourceIds.add(sourceBinding.getDatasourceId());
+        }
+        datasourceIds.add(targetBinding == null ? null : targetBinding.getDatasourceId());
+        Long runtimeClusterId = runtimeClusterSelectionService.validateDatasourceSelectionForResourceSave(
+                currentProjectId, request.getRuntimeClusterId(),
+                existingEntity == null ? null : existingEntity.getRuntimeClusterId(),
+                existingEntity != null && existingEntity.getId() != null, datasourceIds);
         CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
         definition.setId(request.getId());
+        definition.setTenantId(securityService.currentTenantId());
+        definition.setProjectId(currentProjectId);
+        definition.setRuntimeClusterId(runtimeClusterId);
         definition.setName(request.getName());
         definition.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION : CollectionTaskType.SINGLE_TABLE);
         definition.setSourceCount(sourceBindings.size());

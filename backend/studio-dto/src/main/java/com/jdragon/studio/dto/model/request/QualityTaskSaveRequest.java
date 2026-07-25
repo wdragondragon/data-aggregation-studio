@@ -15,6 +15,9 @@ import java.util.List;
 @Data
 @Schema(description = "Quality task save request")
 public class QualityTaskSaveRequest {
+    @NotNull(message = "Runtime cluster is required")
+    @Schema(description = "Runtime cluster id", required = true)
+    private Long runtimeClusterId;
     @Schema(description = "Task id")
     private Long id;
 

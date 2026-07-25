@@ -12,6 +12,8 @@ public class AlertIncidentQueryRequest {
     private String ruleType;
     private String subjectType;
     private Boolean activeOnly;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Integer pageNo;

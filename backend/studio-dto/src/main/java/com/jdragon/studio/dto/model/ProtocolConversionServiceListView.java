@@ -12,6 +12,8 @@ import lombok.EqualsAndHashCode;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @EqualsAndHashCode(callSuper = true)
 public class ProtocolConversionServiceListView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long createdBy;
     private String serviceCode;
     private String serviceName;

@@ -2,6 +2,9 @@ package com.jdragon.studio.server.web.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.commons.exception.StudioErrorCode;
+import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.enums.LineageLevel;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
@@ -22,10 +25,14 @@ import com.jdragon.studio.dto.model.request.DataDevelopmentDirectorySaveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentMoveRequest;
 import com.jdragon.studio.dto.model.request.DataDevelopmentScriptSaveRequest;
 import com.jdragon.studio.dto.model.request.DataIngestionResolveFieldsRequest;
+import com.jdragon.studio.dto.model.request.DataIngestionDebugRequest;
+import com.jdragon.studio.dto.model.request.DataIngestionServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.DataIngestionMetricQueryRequest;
 import com.jdragon.studio.dto.model.request.DataServiceMetricQueryRequest;
 import com.jdragon.studio.dto.model.request.DataServiceResolveFieldsRequest;
+import com.jdragon.studio.dto.model.request.DataServiceDebugRequest;
+import com.jdragon.studio.dto.model.request.DataServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
 import com.jdragon.studio.dto.model.request.FieldMappingRuleSaveRequest;
 import com.jdragon.studio.dto.model.request.MetadataSchemaSaveRequest;
@@ -42,12 +49,15 @@ import com.jdragon.studio.dto.model.request.QualityIssueSeverityRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueStatusRequest;
 import com.jdragon.studio.dto.model.request.QualityMetricDashboardQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityTaskSaveRequest;
+import com.jdragon.studio.dto.model.request.ProtocolConversionDebugRequest;
+import com.jdragon.studio.dto.model.request.ProtocolConversionServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.RunMetricDashboardQueryRequest;
 import com.jdragon.studio.dto.model.request.SavedDataScriptExecutionRequest;
 import com.jdragon.studio.dto.model.request.ScriptEnvironmentSaveRequest;
 import com.jdragon.studio.dto.model.request.SqlExecutionRequest;
 import com.jdragon.studio.dto.model.request.UserRegistrationRequestReviewRequest;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
+import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberEntity;
 import com.jdragon.studio.infra.entity.ProjectMemberRequestEntity;
@@ -61,7 +71,6 @@ import com.jdragon.studio.infra.service.AlertChannelService;
 import com.jdragon.studio.infra.service.AlertDeliveryService;
 import com.jdragon.studio.infra.service.AlertIncidentService;
 import com.jdragon.studio.infra.service.AlertRuleService;
-import com.jdragon.studio.infra.service.AssistantScriptSkillExecutionService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DataIngestionService;
 import com.jdragon.studio.infra.service.DataIngestionMetricsService;
@@ -87,6 +96,7 @@ import com.jdragon.studio.infra.service.QualityRuleService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.RunMetricsService;
 import com.jdragon.studio.infra.service.RunService;
+import com.jdragon.studio.infra.service.RuntimeClusterService;
 import com.jdragon.studio.infra.service.ScriptEnvironmentService;
 import com.jdragon.studio.infra.service.StandardRuntimeOptionSchemaBootstrapService;
 import com.jdragon.studio.infra.service.StudioDashboardService;
@@ -120,7 +130,7 @@ public class AssistantStudioToolExecutionService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AssistantStudioOperationRegistry operationRegistry;
-    private final AssistantScriptSkillExecutionService scriptSkillExecutionService;
+    private final AssistantScriptRuntimeRouter assistantScriptRuntimeRouter;
     private final StudioDashboardService studioDashboardService;
     private final WorkspaceAccessService workspaceAccessService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
@@ -159,9 +169,11 @@ public class AssistantStudioToolExecutionService {
     private AlertIncidentService alertIncidentService;
     private AlertChannelService alertChannelService;
     private AlertDeliveryService alertDeliveryService;
+    private RuntimeClusterService runtimeClusterService;
+    private RuntimeInvocationRouter runtimeInvocationRouter;
 
     public AssistantStudioToolExecutionService(AssistantStudioOperationRegistry operationRegistry,
-                                               AssistantScriptSkillExecutionService scriptSkillExecutionService,
+                                               AssistantScriptRuntimeRouter assistantScriptRuntimeRouter,
                                                StudioDashboardService studioDashboardService,
                                                WorkspaceAccessService workspaceAccessService,
                                                DatasourceTypeCapabilityService datasourceTypeCapabilityService,
@@ -197,7 +209,7 @@ public class AssistantStudioToolExecutionService {
                                                NotificationService notificationService,
                                                OpsCenterService opsCenterService) {
         this.operationRegistry = operationRegistry;
-        this.scriptSkillExecutionService = scriptSkillExecutionService;
+        this.assistantScriptRuntimeRouter = assistantScriptRuntimeRouter;
         this.studioDashboardService = studioDashboardService;
         this.workspaceAccessService = workspaceAccessService;
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
@@ -243,6 +255,16 @@ public class AssistantStudioToolExecutionService {
         this.alertIncidentService = alertIncidentService;
         this.alertChannelService = alertChannelService;
         this.alertDeliveryService = alertDeliveryService;
+    }
+
+    @Autowired
+    void setRuntimeClusterService(RuntimeClusterService runtimeClusterService) {
+        this.runtimeClusterService = runtimeClusterService;
+    }
+
+    @Autowired
+    void setRuntimeInvocationRouter(RuntimeInvocationRouter runtimeInvocationRouter) {
+        this.runtimeInvocationRouter = runtimeInvocationRouter;
     }
 
     public Map<String, Object> execute(Map<String, Object> request) {
@@ -315,18 +337,20 @@ public class AssistantStudioToolExecutionService {
         if (!(effectiveParams.get("input") instanceof Map<?, ?>)) {
             throw new IllegalArgumentException("assistant script input is required");
         }
-        Map<String, Object> data = scriptSkillExecutionService.execute(effectiveParams);
+        AssistantScriptRuntimeRouter.ExecutionResult execution =
+                assistantScriptRuntimeRouter.execute(effectiveParams);
         Map<String, Object> response = new LinkedHashMap<String, Object>();
         response.put("schema", "studio.tool-result.v1");
         response.put("interfaceCode", "assistant.script.execute");
         response.put("entrypointId", effectiveParams.get("entrypointId"));
-        response.put("executedBy", "backend");
+        response.put("executedBy", "worker");
+        response.put("runtimeClusterId", execution.getRuntimeClusterId());
         response.put("mutation", Boolean.FALSE);
         response.put("requiresConfirmation", Boolean.FALSE);
         response.put("params", params);
         response.put("effectiveParams", cleanEffectiveParams(effectiveParams));
         response.put("defaultedParams", defaultedParams(effectiveParams));
-        response.put("data", data);
+        response.put("data", execution.getData());
         return response;
     }
 
@@ -349,6 +373,12 @@ public class AssistantStudioToolExecutionService {
                         stringParam(params, "protocolMode"));
             }
             return capabilityMatrix();
+        }
+        if ("/runtime-clusters".equals(path)) {
+            if (runtimeClusterService == null) {
+                throw new IllegalStateException("Runtime cluster service is unavailable");
+            }
+            return runtimeClusterService.options(null);
         }
         if ("/metadata".equals(path)) {
             return metadataSchemaService.listSchemas(booleanParam(params, "includeFields", true));
@@ -390,6 +420,8 @@ public class AssistantStudioToolExecutionService {
         if ("/collection-task-runs".equals(path)) {
             return runService.listRunRecords(optionalLongParam(params, "collectionTaskId", "taskId"),
                     null, null, Boolean.TRUE, null, status(params),
+                    optionalLongParam(params, "requestedClusterId", "targetClusterId"),
+                    optionalLongParam(params, "actualClusterId"),
                     dateTimeParam(params, "startTime"), dateTimeParam(params, "endTime"),
                     pageNo(params), pageSize(params));
         }
@@ -401,6 +433,8 @@ public class AssistantStudioToolExecutionService {
                     optionalLongParam(params, "qualityTaskId"),
                     optionalLongParam(params, "workflowDefinitionId", "workflowId"),
                     null, null, status(params),
+                    optionalLongParam(params, "requestedClusterId", "targetClusterId"),
+                    optionalLongParam(params, "actualClusterId"),
                     dateTimeParam(params, "startTime"), dateTimeParam(params, "endTime"),
                     pageNo(params), pageSize(params));
         }
@@ -448,7 +482,8 @@ public class AssistantStudioToolExecutionService {
                 return dataDevelopmentService.listScripts(scriptType(params.get("scriptType")));
             }
             if ("datasources".equals(view)) {
-                return dataDevelopmentService.listSqlCapableDatasourceOptions();
+                return dataDevelopmentService.listSqlCapableDatasourceOptions(
+                        optionalLongParam(params, "runtimeClusterId"));
             }
             if ("datasourceTypes".equals(view)) {
                 return dataDevelopmentService.listSqlDatasourceTypes();
@@ -466,6 +501,8 @@ public class AssistantStudioToolExecutionService {
         if ("/quality-task-runs".equals(path)) {
             return runService.listRunRecords(null, optionalLongParam(params, "qualityTaskId", "taskId"),
                     null, null, Boolean.TRUE, status(params),
+                    optionalLongParam(params, "requestedClusterId", "targetClusterId"),
+                    optionalLongParam(params, "actualClusterId"),
                     dateTimeParam(params, "startTime"), dateTimeParam(params, "endTime"),
                     pageNo(params), pageSize(params));
         }
@@ -590,7 +627,8 @@ public class AssistantStudioToolExecutionService {
             if ("history".equals(view) || "connectionHistory".equals(view)) {
                 return dataSourceService.connectionHistory(id,
                         intParam(params, "days", 7, 1, 90),
-                        intParam(params, "limit", 20, 1, 200));
+                        intParam(params, "limit", 20, 1, 200),
+                        longParam(params, "runtimeClusterId"));
             }
             return dataSourceService.get(id);
         }
@@ -598,7 +636,8 @@ public class AssistantStudioToolExecutionService {
             if ("preview".equals(view) || booleanParam(params, "preview", false)) {
                 Map<String, Object> result = new LinkedHashMap<String, Object>();
                 result.put("detail", dataModelService.maskSensitiveReaderOptions(dataModelService.get(id)));
-                List<Map<String, Object>> previewRows = dataModelService.preview(id, intParam(params, "limit", 20, 1, 100));
+                List<Map<String, Object>> previewRows = dataModelService.preview(id,
+                        intParam(params, "limit", 20, 1, 100), longParam(params, "runtimeClusterId"));
                 result.put("previewRows", previewRows);
                 result.put("sampleRows", previewRows);
                 result.put("previewRowCount", Integer.valueOf(previewRows.size()));
@@ -865,17 +904,19 @@ public class AssistantStudioToolExecutionService {
             return dataSourceService.save(requiredPayload(params, DataSourceSaveRequest.class));
         }
         if ("testCurrent".equals(action)) {
-            return dataSourceService.testConnection(requiredPayload(params, DataSourceSaveRequest.class));
+            return dataSourceService.testConnection(requiredPayload(params, DataSourceSaveRequest.class),
+                    longParam(params, "runtimeClusterId"));
         }
         Long id = longParam(params, "id");
         if ("test".equals(action)) {
-            return dataSourceService.testConnection(id);
+            return dataSourceService.testConnection(id, longParam(params, "runtimeClusterId"));
         }
         if ("discover".equals(action)) {
             return dataSourceService.discoverModels(id,
                     stringParam(params, "keyword"),
                     optionalIntParam(params, "pageNo"),
-                    optionalIntParam(params, "pageSize"));
+                    optionalIntParam(params, "pageSize"),
+                    longParam(params, "runtimeClusterId"));
         }
         throw new IllegalArgumentException("assistant backend action tool does not support datasource action: " + action);
     }
@@ -890,11 +931,14 @@ public class AssistantStudioToolExecutionService {
         }
         Long datasourceId = longParam(params, "datasourceId");
         if ("sync".equals(action)) {
-            return dataModelService.maskSensitiveReaderOptions(dataModelService.syncFromDatasource(datasourceId));
+            return dataModelService.maskSensitiveReaderOptions(dataModelService.syncFromDatasource(
+                    datasourceId, longParam(params, "runtimeClusterId")));
         }
         if ("syncSelected".equals(action)) {
             return dataModelService.maskSensitiveReaderOptions(
-                    dataModelService.syncFromDatasource(datasourceId, stringListParam(params, "physicalLocators")));
+                    dataModelService.syncFromDatasource(datasourceId,
+                            stringListParam(params, "physicalLocators"),
+                            longParam(params, "runtimeClusterId")));
         }
         throw new IllegalArgumentException("assistant backend action tool does not support model action: " + action);
     }
@@ -1042,7 +1086,12 @@ public class AssistantStudioToolExecutionService {
             return collectionTaskService.publish(id);
         }
         if ("trigger".equals(action)) {
-            dispatchService.triggerCollectionTask(id);
+            Long runtimeClusterId = optionalLongParam(params, "runtimeClusterId");
+            if (runtimeClusterId == null) {
+                dispatchService.triggerCollectionTask(id);
+            } else {
+                dispatchService.triggerCollectionTask(id, runtimeClusterId);
+            }
             return null;
         }
         if ("schedule".equals(action)) {
@@ -1066,7 +1115,12 @@ public class AssistantStudioToolExecutionService {
             return workflowService.publish(id);
         }
         if ("trigger".equals(action)) {
-            dispatchService.triggerManualRun(id);
+            Long runtimeClusterId = optionalLongParam(params, "runtimeClusterId");
+            if (runtimeClusterId == null) {
+                dispatchService.triggerManualRun(id);
+            } else {
+                dispatchService.triggerManualRun(id, runtimeClusterId);
+            }
             return null;
         }
         if ("schedule".equals(action)) {
@@ -1075,6 +1129,7 @@ public class AssistantStudioToolExecutionService {
             request.setDefinitionId(workflow.getId());
             request.setCode(workflow.getCode());
             request.setName(workflow.getName());
+            request.setRuntimeClusterId(workflow.getRuntimeClusterId());
             request.setNodes(workflow.getNodes() == null ? Collections.emptyList() : workflow.getNodes());
             request.setEdges(workflow.getEdges() == null ? Collections.emptyList() : workflow.getEdges());
             request.setSchedule(requiredPayload(params, WorkflowScheduleDefinition.class));
@@ -1098,7 +1153,12 @@ public class AssistantStudioToolExecutionService {
             return qualityTaskService.publish(id);
         }
         if ("trigger".equals(action)) {
-            dispatchService.triggerQualityTask(id);
+            Long runtimeClusterId = optionalLongParam(params, "runtimeClusterId");
+            if (runtimeClusterId == null) {
+                dispatchService.triggerQualityTask(id);
+            } else {
+                dispatchService.triggerQualityTask(id, runtimeClusterId);
+            }
             return null;
         }
         if ("schedule".equals(action)) {
@@ -1142,10 +1202,25 @@ public class AssistantStudioToolExecutionService {
     }
 
     private Object executeDataServiceAction(String action, String resource, Map<String, Object> params) {
+        if ("save".equals(action)) {
+            return dataServiceService.save(requiredPayload(params, DataServiceSaveRequest.class));
+        }
         if ("resolveFields".equals(action)) {
             return dataServiceService.resolveFields(requiredPayload(params, DataServiceResolveFieldsRequest.class));
         }
         Long id = longParam(params, "id");
+        if ("debug".equals(action)) {
+            DataServiceDebugRequest request = optionalPayload(params, DataServiceDebugRequest.class);
+            RuntimeInvocationRouter.DebugRoute<Map<String, Object>> route = requireRuntimeInvocationRouter()
+                    .routeDataServiceDebug(dataServiceService.get(id), request);
+            return routedDebug(route);
+        }
+        if ("debugWebService".equals(action)) {
+            WebServiceDebugRequest request = optionalPayload(params, WebServiceDebugRequest.class);
+            RuntimeInvocationRouter.DebugRoute<com.jdragon.studio.dto.model.WebServiceDebugResult> route =
+                    requireRuntimeInvocationRouter().routeDataServiceWebServiceDebug(dataServiceService.get(id), request);
+            return routedDebug(route);
+        }
         if ("publish".equals(action)) {
             return dataServiceService.publish(id);
         }
@@ -1171,10 +1246,25 @@ public class AssistantStudioToolExecutionService {
     }
 
     private Object executeDataIngestionServiceAction(String action, String resource, Map<String, Object> params) {
+        if ("save".equals(action)) {
+            return dataIngestionService.save(requiredPayload(params, DataIngestionServiceSaveRequest.class));
+        }
         if ("resolveFields".equals(action)) {
             return dataIngestionService.resolveFields(requiredPayload(params, DataIngestionResolveFieldsRequest.class));
         }
         Long id = longParam(params, "id");
+        if ("debug".equals(action)) {
+            DataIngestionDebugRequest request = optionalPayload(params, DataIngestionDebugRequest.class);
+            RuntimeInvocationRouter.DebugRoute<com.jdragon.studio.dto.model.DataIngestionInvokeResult> route =
+                    requireRuntimeInvocationRouter().routeDataIngestionDebug(dataIngestionService.get(id), request);
+            return routedDebug(route);
+        }
+        if ("debugWebService".equals(action)) {
+            WebServiceDebugRequest request = optionalPayload(params, WebServiceDebugRequest.class);
+            RuntimeInvocationRouter.DebugRoute<com.jdragon.studio.dto.model.WebServiceDebugResult> route =
+                    requireRuntimeInvocationRouter().routeDataIngestionWebServiceDebug(dataIngestionService.get(id), request);
+            return routedDebug(route);
+        }
         if ("publish".equals(action)) {
             return dataIngestionService.publish(id);
         }
@@ -1200,7 +1290,16 @@ public class AssistantStudioToolExecutionService {
     }
 
     private Object executeProtocolConversionAction(String action, String resource, Map<String, Object> params) {
+        if ("save".equals(action)) {
+            return protocolConversionService.save(requiredPayload(params, ProtocolConversionServiceSaveRequest.class));
+        }
         Long id = longParam(params, "id");
+        if ("debug".equals(action)) {
+            ProtocolConversionDebugRequest request = optionalPayload(params, ProtocolConversionDebugRequest.class);
+            RuntimeInvocationRouter.DebugRoute<com.jdragon.studio.dto.model.ProtocolConversionDebugResult> route =
+                    requireRuntimeInvocationRouter().routeProtocolConversionDebug(protocolConversionService.get(id), request);
+            return routedDebug(route);
+        }
         if ("publish".equals(action)) {
             return protocolConversionService.publish(id);
         }
@@ -1223,6 +1322,25 @@ public class AssistantStudioToolExecutionService {
             }
         }
         throw new IllegalArgumentException("assistant backend action tool does not support protocol conversion action: " + action);
+    }
+
+    private <T> T routedDebug(RuntimeInvocationRouter.DebugRoute<T> route) {
+        Result<T> result = route.getResult();
+        if (result != null && result.isSuccess()) {
+            return result.getData();
+        }
+        throw new StudioException(result == null || !StringUtils.hasText(result.getCode())
+                ? StudioErrorCode.BUSINESS_ERROR : result.getCode(),
+                result == null || !StringUtils.hasText(result.getMessage())
+                        ? "Runtime debug failed" : result.getMessage());
+    }
+
+    private RuntimeInvocationRouter requireRuntimeInvocationRouter() {
+        if (runtimeInvocationRouter == null) {
+            throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                    "Runtime invocation router is unavailable; Server-side execution fallback is disabled");
+        }
+        return runtimeInvocationRouter;
     }
 
     private Object executeQualityRuleAction(String action, Map<String, Object> params) {
@@ -1418,6 +1536,8 @@ public class AssistantStudioToolExecutionService {
         request.setExecutionType(stringParam(params, "executionType", "type"));
         request.setStatus(status(params));
         request.setWorkerGroupCode(stringParam(params, "workerGroupCode", "workerGroup"));
+        request.setRequestedClusterId(optionalLongParam(params, "requestedClusterId", "targetClusterId"));
+        request.setActualClusterId(optionalLongParam(params, "actualClusterId"));
         request.setPageNo(pageNo(params));
         request.setPageSize(pageSize(params));
         return request;

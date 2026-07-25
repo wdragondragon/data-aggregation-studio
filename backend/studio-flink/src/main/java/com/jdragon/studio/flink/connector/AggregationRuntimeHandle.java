@@ -81,7 +81,8 @@ public class AggregationRuntimeHandle implements Serializable {
     }
 
     public String summary() {
-        return isLocal() ? runtimeRef : runtimeToken;
+        String mode = isLocal() ? "local" : "remote";
+        return mode + "-" + Integer.toUnsignedString(System.identityHashCode(this), 16);
     }
 
     private static String trimToNull(String value) {

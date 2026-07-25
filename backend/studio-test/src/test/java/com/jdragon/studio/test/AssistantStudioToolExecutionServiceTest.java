@@ -67,7 +67,7 @@ import com.jdragon.studio.dto.model.system.UserRegistrationRequestView;
 import com.jdragon.studio.infra.entity.StudioUserEntity;
 import com.jdragon.studio.infra.entity.TenantEntity;
 import com.jdragon.studio.infra.service.AssistantStudioOperationRegistry;
-import com.jdragon.studio.infra.service.AssistantScriptSkillExecutionService;
+import com.jdragon.studio.server.web.service.AssistantScriptRuntimeRouter;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DataIngestionService;
 import com.jdragon.studio.infra.service.DataIngestionMetricsService;
@@ -261,6 +261,44 @@ class AssistantStudioToolExecutionServiceTest {
         assertThat(result.get("data")).isSameAs(model);
         verify(dataModelService).get(Long.valueOf(7L));
         verify(dataModelService).maskSensitiveReaderOptions(model);
+    }
+
+    @Test
+    void executeShouldPassRuntimeClusterToModelPreview() {
+        DataModelService dataModelService = mock(DataModelService.class);
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(Long.valueOf(7L));
+        List<Map<String, Object>> rows = Collections.singletonList(params("id", 1L));
+        when(dataModelService.get(Long.valueOf(7L))).thenReturn(model);
+        when(dataModelService.maskSensitiveReaderOptions(model)).thenReturn(model);
+        when(dataModelService.preview(Long.valueOf(7L), 20, Long.valueOf(46L))).thenReturn(rows);
+        AssistantStudioToolExecutionService service = service(dataModelService);
+
+        Map<String, Object> result = service.execute(request("studio.feature.get", params(
+                "path", "/models",
+                "id", 7L,
+                "view", "preview",
+                "runtimeClusterId", 46L)));
+
+        assertThat(resultMap(result, "data").get("previewRows")).isSameAs(rows);
+        verify(dataModelService).preview(Long.valueOf(7L), 20, Long.valueOf(46L));
+    }
+
+    @Test
+    void executeShouldPassRuntimeClusterToDatasourceConnectionHistory() {
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        when(dataSourceService.connectionHistory(Long.valueOf(7L), 7, 20, Long.valueOf(46L)))
+                .thenReturn(Collections.emptyList());
+        AssistantStudioToolExecutionService service = service(dataSourceService);
+
+        Map<String, Object> result = service.execute(request("studio.feature.get", params(
+                "path", "/datasources",
+                "id", 7L,
+                "view", "connectionHistory",
+                "runtimeClusterId", 46L)));
+
+        assertThat(result.get("data")).isEqualTo(Collections.emptyList());
+        verify(dataSourceService).connectionHistory(Long.valueOf(7L), 7, 20, Long.valueOf(46L));
     }
 
     @Test
@@ -819,6 +857,7 @@ class AssistantStudioToolExecutionServiceTest {
                 "path", "/data-services",
                 "action", "resolveFields",
                 "payload", params(
+                        "runtimeClusterId", 46L,
                         "sourceType", "SQL",
                         "datasourceId", 71L,
                         "customSql", "select id, name from customer"))));
@@ -828,6 +867,7 @@ class AssistantStudioToolExecutionServiceTest {
         assertThat(result.get("requiresConfirmation")).isEqualTo(Boolean.FALSE);
         verify(dataServiceService).resolveFields(org.mockito.ArgumentMatchers.argThat(request ->
                 DataServiceSourceType.SQL.equals(request.getSourceType())
+                        && Long.valueOf(46L).equals(request.getRuntimeClusterId())
                         && Long.valueOf(71L).equals(request.getDatasourceId())
                         && "select id, name from customer".equals(request.getCustomSql())));
     }
@@ -874,6 +914,7 @@ class AssistantStudioToolExecutionServiceTest {
                 "path", "/data-ingestion-services",
                 "action", "resolveFields",
                 "payload", params(
+                        "runtimeClusterId", 46L,
                         "datasourceId", 72L,
                         "modelId", 7201L))));
 
@@ -881,7 +922,8 @@ class AssistantStudioToolExecutionServiceTest {
         assertThat(result.get("mutation")).isEqualTo(Boolean.FALSE);
         assertThat(result.get("requiresConfirmation")).isEqualTo(Boolean.FALSE);
         verify(dataIngestionService).resolveFields(org.mockito.ArgumentMatchers.argThat(request ->
-                Long.valueOf(72L).equals(request.getDatasourceId())
+                Long.valueOf(46L).equals(request.getRuntimeClusterId())
+                        && Long.valueOf(72L).equals(request.getDatasourceId())
                         && Long.valueOf(7201L).equals(request.getModelId())));
     }
 
@@ -952,6 +994,7 @@ class AssistantStudioToolExecutionServiceTest {
                 "payload", params(
                         "name", "assistant_mysql",
                         "typeCode", "mysql8",
+                        "applicableClusterIds", Collections.singletonList(46L),
                         "enabled", Boolean.TRUE),
                 "confirmed", Boolean.TRUE)));
 
@@ -959,7 +1002,23 @@ class AssistantStudioToolExecutionServiceTest {
         verify(dataSourceService).save(org.mockito.ArgumentMatchers.argThat(request ->
                 "assistant_mysql".equals(request.getName())
                         && "mysql8".equals(request.getTypeCode())
+                        && request.getApplicableClusterIds().equals(Collections.singletonList(46L))
                         && Boolean.TRUE.equals(request.getEnabled())));
+    }
+
+    @Test
+    void executeShouldPassRuntimeClusterToDatasourceTestAction() {
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        AssistantStudioToolExecutionService service = service(dataSourceService);
+
+        service.execute(request("studio.feature.action", params(
+                "path", "/datasources",
+                "action", "test",
+                "id", 71L,
+                "runtimeClusterId", 46L,
+                "confirmed", Boolean.TRUE)));
+
+        verify(dataSourceService).testConnection(Long.valueOf(71L), Long.valueOf(46L));
     }
 
     @Test
@@ -993,18 +1052,19 @@ class AssistantStudioToolExecutionServiceTest {
         DataModelService dataModelService = mock(DataModelService.class);
         List<DataModelDefinition> syncedDefinitions = Collections.singletonList(new DataModelDefinition());
         List<DataModelDefinition> maskedDefinitions = Collections.singletonList(new DataModelDefinition());
-        when(dataModelService.syncFromDatasource(Long.valueOf(71L))).thenReturn(syncedDefinitions);
+        when(dataModelService.syncFromDatasource(Long.valueOf(71L), Long.valueOf(46L))).thenReturn(syncedDefinitions);
         when(dataModelService.maskSensitiveReaderOptions(syncedDefinitions)).thenReturn(maskedDefinitions);
         AssistantStudioToolExecutionService service = service(dataModelService);
 
         Map<String, Object> result = service.execute(request("studio.feature.action", params(
                 "path", "/models",
                 "datasourceId", 71L,
+                "runtimeClusterId", 46L,
                 "action", "sync",
                 "confirmed", Boolean.TRUE)));
 
         assertThat(result.get("data")).isSameAs(maskedDefinitions);
-        verify(dataModelService).syncFromDatasource(Long.valueOf(71L));
+        verify(dataModelService).syncFromDatasource(Long.valueOf(71L), Long.valueOf(46L));
         verify(dataModelService).maskSensitiveReaderOptions(syncedDefinitions);
     }
 
@@ -1015,21 +1075,24 @@ class AssistantStudioToolExecutionServiceTest {
         List<DataModelDefinition> syncedDefinitions = Collections.singletonList(definition);
         List<DataModelDefinition> maskedDefinitions = Collections.singletonList(new DataModelDefinition());
         when(dataModelService.syncFromDatasource(org.mockito.ArgumentMatchers.eq(Long.valueOf(71L)),
-                org.mockito.ArgumentMatchers.anyList())).thenReturn(syncedDefinitions);
+                org.mockito.ArgumentMatchers.<List<String>>any(),
+                org.mockito.ArgumentMatchers.eq(Long.valueOf(46L)))).thenReturn(syncedDefinitions);
         when(dataModelService.maskSensitiveReaderOptions(syncedDefinitions)).thenReturn(maskedDefinitions);
         AssistantStudioToolExecutionService service = service(dataModelService);
 
         Map<String, Object> result = service.execute(request("studio.feature.action", params(
                 "path", "/models",
                 "datasourceId", 71L,
+                "runtimeClusterId", 46L,
                 "action", "syncSelected",
                 "physicalLocators", Collections.singletonList("ods_order"),
                 "confirmed", Boolean.TRUE)));
 
         assertThat(result.get("data")).isSameAs(maskedDefinitions);
         verify(dataModelService).syncFromDatasource(org.mockito.ArgumentMatchers.eq(Long.valueOf(71L)),
-                org.mockito.ArgumentMatchers.argThat(locators ->
-                        locators.size() == 1 && "ods_order".equals(locators.get(0))));
+                org.mockito.ArgumentMatchers.<List<String>>argThat(locators ->
+                        locators.size() == 1 && "ods_order".equals(locators.get(0))),
+                org.mockito.ArgumentMatchers.eq(Long.valueOf(46L)));
         verify(dataModelService).maskSensitiveReaderOptions(syncedDefinitions);
     }
 
@@ -1333,6 +1396,21 @@ class AssistantStudioToolExecutionServiceTest {
     }
 
     @Test
+    void executeShouldPassRuntimeClusterOverrideToCollectionTaskTrigger() {
+        DispatchService dispatchService = mock(DispatchService.class);
+        AssistantStudioToolExecutionService service = service(dispatchService);
+
+        service.execute(request("studio.feature.action", params(
+                "path", "/collection-tasks",
+                "id", 31L,
+                "runtimeClusterId", 46L,
+                "action", "trigger",
+                "confirmed", Boolean.TRUE)));
+
+        verify(dispatchService).triggerCollectionTask(Long.valueOf(31L), Long.valueOf(46L));
+    }
+
+    @Test
     void executeShouldRouteConfirmedCollectionTaskScheduleActionThroughBackendTool() {
         CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
         CollectionTaskDefinitionView view = new CollectionTaskDefinitionView();
@@ -1380,6 +1458,7 @@ class AssistantStudioToolExecutionServiceTest {
         workflow.setId(Long.valueOf(41L));
         workflow.setCode("wf_order");
         workflow.setName("Order workflow");
+        workflow.setRuntimeClusterId(Long.valueOf(46L));
         WorkflowDefinitionView saved = new WorkflowDefinitionView();
         when(workflowService.get(Long.valueOf(41L))).thenReturn(workflow);
         when(workflowService.save(org.mockito.ArgumentMatchers.any(WorkflowSaveRequest.class))).thenReturn(saved);
@@ -1401,6 +1480,7 @@ class AssistantStudioToolExecutionServiceTest {
                 Long.valueOf(41L).equals(request.getDefinitionId())
                         && "wf_order".equals(request.getCode())
                         && "Order workflow".equals(request.getName())
+                        && Long.valueOf(46L).equals(request.getRuntimeClusterId())
                         && request.getNodes() != null
                         && request.getEdges() != null
                         && request.getSchedule() != null
@@ -1463,6 +1543,7 @@ class AssistantStudioToolExecutionServiceTest {
                 "action", "executeSql",
                 "payload", params(
                         "datasourceId", 3L,
+                        "runtimeClusterId", 46L,
                         "scriptType", "SQL",
                         "content", "select 1",
                         "maxRows", 10),
@@ -1489,6 +1570,7 @@ class AssistantStudioToolExecutionServiceTest {
                 "action", "saveScript",
                 "payload", params(
                         "fileName", "assistant_job.py",
+                        "runtimeClusterId", 46L,
                         "scriptType", "PYTHON",
                         "content", "print('ok')"),
                 "confirmed", Boolean.TRUE)));
@@ -1496,6 +1578,7 @@ class AssistantStudioToolExecutionServiceTest {
         assertThat(result.get("data")).isSameAs(script);
         verify(dataDevelopmentService).saveScript(org.mockito.ArgumentMatchers.argThat(request ->
                 "assistant_job.py".equals(request.getFileName())
+                        && Long.valueOf(46L).equals(request.getRuntimeClusterId())
                         && ScriptType.PYTHON.equals(request.getScriptType())
                         && "print('ok')".equals(request.getContent())));
     }
@@ -1594,7 +1677,7 @@ class AssistantStudioToolExecutionServiceTest {
 
     @Test
     void executeShouldRouteAssistantScriptThroughRegisteredBackendExecutor() {
-        AssistantScriptSkillExecutionService scriptSkillExecutionService = mock(AssistantScriptSkillExecutionService.class);
+        AssistantScriptRuntimeRouter scriptRuntimeRouter = mock(AssistantScriptRuntimeRouter.class);
         Map<String, Object> scriptResult = params(
                 "schema", "studio.script-result.v1",
                 "success", Boolean.TRUE,
@@ -1605,27 +1688,29 @@ class AssistantStudioToolExecutionServiceTest {
                 "input", params(
                         "sourceFields", java.util.Arrays.asList("id", "order_no"),
                         "targetFields", java.util.Arrays.asList("ID", "orderNo", "missing_col")));
-        when(scriptSkillExecutionService.execute(scriptParams)).thenReturn(scriptResult);
-        AssistantStudioToolExecutionService service = service(scriptSkillExecutionService);
+        when(scriptRuntimeRouter.execute(scriptParams)).thenReturn(
+                new AssistantScriptRuntimeRouter.ExecutionResult(50L, scriptResult));
+        AssistantStudioToolExecutionService service = service(scriptRuntimeRouter);
 
         Map<String, Object> result = service.execute(request("assistant.script.execute", scriptParams));
 
         assertThat(result.get("schema")).isEqualTo("studio.tool-result.v1");
         assertThat(result.get("interfaceCode")).isEqualTo("assistant.script.execute");
-        assertThat(result.get("executedBy")).isEqualTo("backend");
+        assertThat(result.get("executedBy")).isEqualTo("worker");
+        assertThat(result.get("runtimeClusterId")).isEqualTo(50L);
         assertThat(result.get("mutation")).isEqualTo(Boolean.FALSE);
         assertThat(result.get("requiresConfirmation")).isEqualTo(Boolean.FALSE);
         assertThat(result.get("data")).isSameAs(scriptResult);
         assertThat(result.get("params")).isEqualTo(scriptParams);
         assertThat(result.get("effectiveParams")).isEqualTo(scriptParams);
         assertThat(resultStringList(result, "defaultedParams")).isEmpty();
-        verify(scriptSkillExecutionService).execute(scriptParams);
+        verify(scriptRuntimeRouter).execute(scriptParams);
     }
 
     @Test
     void executeShouldRejectAssistantScriptWithoutCanonicalEntrypointId() {
-        AssistantScriptSkillExecutionService scriptSkillExecutionService = mock(AssistantScriptSkillExecutionService.class);
-        AssistantStudioToolExecutionService service = service(scriptSkillExecutionService);
+        AssistantScriptRuntimeRouter scriptRuntimeRouter = mock(AssistantScriptRuntimeRouter.class);
+        AssistantStudioToolExecutionService service = service(scriptRuntimeRouter);
 
         assertThatThrownBy(() -> service.execute(request("assistant.script.execute", params(
                 "scriptId", "field-mapping-suggester",
@@ -1635,13 +1720,13 @@ class AssistantStudioToolExecutionServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("entrypointId");
 
-        verifyNoInteractions(scriptSkillExecutionService);
+        verifyNoInteractions(scriptRuntimeRouter);
     }
 
     @Test
     void executeShouldRejectAssistantScriptWithoutCanonicalInput() {
-        AssistantScriptSkillExecutionService scriptSkillExecutionService = mock(AssistantScriptSkillExecutionService.class);
-        AssistantStudioToolExecutionService service = service(scriptSkillExecutionService);
+        AssistantScriptRuntimeRouter scriptRuntimeRouter = mock(AssistantScriptRuntimeRouter.class);
+        AssistantStudioToolExecutionService service = service(scriptRuntimeRouter);
 
         assertThatThrownBy(() -> service.execute(request("assistant.script.execute", params(
                 "entrypointId", "field-mapping-suggester",
@@ -1651,7 +1736,7 @@ class AssistantStudioToolExecutionServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("input");
 
-        verifyNoInteractions(scriptSkillExecutionService);
+        verifyNoInteractions(scriptRuntimeRouter);
     }
 
     @SuppressWarnings("unchecked")
@@ -1665,7 +1750,7 @@ class AssistantStudioToolExecutionServiceTest {
     }
 
     private AssistantStudioToolExecutionService service(Object... overrides) {
-        AssistantScriptSkillExecutionService scriptSkillExecutionService = override(AssistantScriptSkillExecutionService.class, overrides);
+        AssistantScriptRuntimeRouter scriptRuntimeRouter = override(AssistantScriptRuntimeRouter.class, overrides);
         DataSourceService dataSourceService = override(DataSourceService.class, overrides);
         DataDevelopmentService dataDevelopmentService = override(DataDevelopmentService.class, overrides);
         MetadataSchemaService metadataSchemaService = override(MetadataSchemaService.class, overrides);
@@ -1703,7 +1788,7 @@ class AssistantStudioToolExecutionServiceTest {
         OpsCenterService opsCenterService = override(OpsCenterService.class, overrides);
         return new AssistantStudioToolExecutionService(
                 new AssistantStudioOperationRegistry(),
-                scriptSkillExecutionService,
+                scriptRuntimeRouter,
                 mock(StudioDashboardService.class),
                 mock(WorkspaceAccessService.class),
                 mock(DatasourceTypeCapabilityService.class),

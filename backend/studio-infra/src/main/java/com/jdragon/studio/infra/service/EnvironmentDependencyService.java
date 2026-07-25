@@ -649,7 +649,6 @@ public class EnvironmentDependencyService {
             if (runtimeService != null) {
                 runtimeService.clearEnvironment(environmentId);
             }
-            JavaDataDevelopmentExecutor.clearCompiledCache(environmentId, null);
         }
     }
 

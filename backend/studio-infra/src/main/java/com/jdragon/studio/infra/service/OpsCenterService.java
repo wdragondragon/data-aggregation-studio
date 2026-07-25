@@ -20,6 +20,7 @@ import com.jdragon.studio.infra.entity.DataServiceAccessLogEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.ProjectWorkerBindingEntity;
+import com.jdragon.studio.infra.entity.ProtocolConversionAccessLogEntity;
 import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
@@ -29,6 +30,7 @@ import com.jdragon.studio.infra.mapper.DataIngestionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DataServiceAccessLogMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
@@ -66,6 +68,7 @@ public class OpsCenterService {
     private final ProjectWorkerBindingMapper projectWorkerBindingMapper;
     private final DataServiceAccessLogMapper dataServiceAccessLogMapper;
     private final DataIngestionAccessLogMapper dataIngestionAccessLogMapper;
+    private final ProtocolConversionAccessLogMapper protocolConversionAccessLogMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
     private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
     private final QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
@@ -77,6 +80,7 @@ public class OpsCenterService {
                             ProjectWorkerBindingMapper projectWorkerBindingMapper,
                             DataServiceAccessLogMapper dataServiceAccessLogMapper,
                             DataIngestionAccessLogMapper dataIngestionAccessLogMapper,
+                            ProtocolConversionAccessLogMapper protocolConversionAccessLogMapper,
                             WorkflowDefinitionMapper workflowDefinitionMapper,
                             CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                             QualityTaskDefinitionMapper qualityTaskDefinitionMapper,
@@ -87,6 +91,7 @@ public class OpsCenterService {
         this.projectWorkerBindingMapper = projectWorkerBindingMapper;
         this.dataServiceAccessLogMapper = dataServiceAccessLogMapper;
         this.dataIngestionAccessLogMapper = dataIngestionAccessLogMapper;
+        this.protocolConversionAccessLogMapper = protocolConversionAccessLogMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
         this.qualityTaskDefinitionMapper = qualityTaskDefinitionMapper;
@@ -108,6 +113,7 @@ public class OpsCenterService {
         List<DispatchTaskEntity> queueTasks = queueTasks(scope, request);
         List<DataServiceAccessLogEntity> serviceLogs = serviceLogs(scope, request);
         List<DataIngestionAccessLogEntity> ingestionLogs = ingestionLogs(scope, request);
+        List<ProtocolConversionAccessLogEntity> protocolConversionLogs = protocolConversionLogs(scope, request);
         List<OpsCenterWorkerGroupView> workerGroups = workerGroups(scope);
         long failedRuns = count(runRecords, record -> isFailedStatus(record.getStatus()));
         long runningRuns = count(runRecords, record -> isRunningStatus(record.getStatus()));
@@ -118,6 +124,8 @@ public class OpsCenterService {
         long serviceSlowCalls = count(serviceLogs, log -> safeLong(log.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS);
         long ingestionFailures = count(ingestionLogs, log -> !isSuccess(log.getSuccess()) || safeLong(log.getFailedCount()) > 0L);
         long ingestionSlowCalls = count(ingestionLogs, log -> safeLong(log.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS);
+        long protocolConversionFailures = count(protocolConversionLogs, log -> !isSuccess(log.getSuccess()) || safeLong(log.getFailedCount()) > 0L);
+        long protocolConversionSlowCalls = count(protocolConversionLogs, log -> safeLong(log.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS);
         long logFailures = count(runRecords, this::isLogAbnormal);
         int onlineWorkerInstances = 0;
         int boundWorkerGroups = 0;
@@ -144,6 +152,8 @@ public class OpsCenterService {
         view.setServiceSlowCalls(Long.valueOf(serviceSlowCalls));
         view.setIngestionFailures(Long.valueOf(ingestionFailures));
         view.setIngestionSlowCalls(Long.valueOf(ingestionSlowCalls));
+        view.setProtocolConversionFailures(Long.valueOf(protocolConversionFailures));
+        view.setProtocolConversionSlowCalls(Long.valueOf(protocolConversionSlowCalls));
         view.setLogFailures(Long.valueOf(logFailures));
         view.setOnlineWorkerInstances(Integer.valueOf(onlineWorkerInstances));
         view.setBoundWorkerGroups(Integer.valueOf(boundWorkerGroups));
@@ -189,6 +199,11 @@ public class OpsCenterService {
         if (StringUtils.hasText(request == null ? null : request.getWorkerGroupCode())) {
             String expected = request.getWorkerGroupCode().trim();
             groups.removeIf(group -> !expected.equals(group.getWorkerGroupCode()));
+        }
+        if (request != null && request.getActualClusterId() != null) {
+            Long expectedClusterId = request.getActualClusterId();
+            groups.removeIf(group -> group.getRuntimeClusterIds() == null
+                    || !group.getRuntimeClusterIds().contains(expectedClusterId));
         }
         groups.sort(Comparator
                 .comparing((OpsCenterWorkerGroupView group) -> !Boolean.TRUE.equals(group.getBoundToProject()))
@@ -246,6 +261,32 @@ public class OpsCenterService {
         return PageView.of(pageNo, pageSize, page.getTotal(), views);
     }
 
+    public PageView<OpsCenterServiceEventView> queryProtocolConversionEvents(OpsCenterQueryRequest request) {
+        Scope scope = scope(request);
+        int pageNo = normalizePageNo(request);
+        int pageSize = normalizePageSize(request);
+        if (isRunScopedFilter(request)) {
+            return PageView.of(pageNo, pageSize, 0L, new ArrayList<OpsCenterServiceEventView>());
+        }
+        Page<ProtocolConversionAccessLogEntity> page = protocolConversionAccessLogMapper.selectPage(
+                new Page<ProtocolConversionAccessLogEntity>(pageNo, pageSize),
+                protocolConversionLogQuery(scope, request)
+                        .and(wrapper -> wrapper.ne(ProtocolConversionAccessLogEntity::getSuccess, 1)
+                                .or()
+                                .isNull(ProtocolConversionAccessLogEntity::getSuccess)
+                                .or()
+                                .ge(ProtocolConversionAccessLogEntity::getDurationMs, SLOW_CALL_THRESHOLD_MS)
+                                .or()
+                                .gt(ProtocolConversionAccessLogEntity::getFailedCount, 0L))
+                        .orderByDesc(ProtocolConversionAccessLogEntity::getOccurredAt)
+                        .orderByDesc(ProtocolConversionAccessLogEntity::getId));
+        List<OpsCenterServiceEventView> views = new ArrayList<OpsCenterServiceEventView>();
+        for (ProtocolConversionAccessLogEntity log : page.getRecords()) {
+            views.add(toProtocolConversionEvent(log));
+        }
+        return PageView.of(pageNo, pageSize, page.getTotal(), views);
+    }
+
     public PageView<OpsCenterLogEventView> queryLogEvents(OpsCenterQueryRequest request) {
         Scope scope = scope(request);
         int pageNo = normalizePageNo(request);
@@ -284,8 +325,10 @@ public class OpsCenterService {
                 && (safeLong(view.getFailedRuns()) > 0L
                 || safeLong(view.getServiceFailures()) > 0L
                 || safeLong(view.getIngestionFailures()) > 0L
+                || safeLong(view.getProtocolConversionFailures()) > 0L
                 || safeLong(view.getServiceSlowCalls()) > 0L
                 || safeLong(view.getIngestionSlowCalls()) > 0L
+                || safeLong(view.getProtocolConversionSlowCalls()) > 0L
                 || safeLong(view.getSlowRuns()) > 0L
                 || safeLong(view.getQueuedTasks()) > 0L)) {
             status = OpsCenterHealthStatus.WARNING;
@@ -309,6 +352,7 @@ public class OpsCenterService {
         metrics.add(metric("onlineWorkers", "在线 Worker", Long.valueOf(safeInt(view.getOnlineWorkerInstances())), safeInt(view.getOnlineWorkerInstances()) <= 0 ? OpsCenterHealthStatus.CRITICAL : OpsCenterHealthStatus.HEALTHY, "已绑定且在线实例"));
         metrics.add(metric("serviceFailures", "服务失败", view.getServiceFailures(), safeLong(view.getServiceFailures()) > 0L ? OpsCenterHealthStatus.WARNING : OpsCenterHealthStatus.HEALTHY, "数据服务调用失败"));
         metrics.add(metric("ingestionFailures", "接入失败", view.getIngestionFailures(), safeLong(view.getIngestionFailures()) > 0L ? OpsCenterHealthStatus.WARNING : OpsCenterHealthStatus.HEALTHY, "接入服务调用或写入失败"));
+        metrics.add(metric("protocolConversionFailures", "协议转换失败", view.getProtocolConversionFailures(), safeLong(view.getProtocolConversionFailures()) > 0L ? OpsCenterHealthStatus.WARNING : OpsCenterHealthStatus.HEALTHY, "协议转换调用或写入失败"));
         metrics.add(metric("logFailures", "日志异常", view.getLogFailures(), safeLong(view.getLogFailures()) > 0L ? OpsCenterHealthStatus.CRITICAL : OpsCenterHealthStatus.HEALTHY, "运行日志不可用"));
         return metrics;
     }
@@ -347,6 +391,7 @@ public class OpsCenterService {
                         DispatchTaskEntity::getQualityTaskId,
                         DispatchTaskEntity::getNodeCode,
                         DispatchTaskEntity::getStatus,
+                        DispatchTaskEntity::getTargetClusterId,
                         DispatchTaskEntity::getWorkerGroupCode,
                         DispatchTaskEntity::getLeaseOwner,
                         DispatchTaskEntity::getWorkerInstanceId,
@@ -360,6 +405,12 @@ public class OpsCenterService {
                 .in(DispatchTaskEntity::getStatus, Arrays.asList("QUEUED", "RUNNING"))
                 .eq(hasText(executionType), DispatchTaskEntity::getExecutionType, upper(executionType))
                 .eq(hasText(status), DispatchTaskEntity::getStatus, upper(status))
+                .eq(request != null && request.getRequestedClusterId() != null,
+                        DispatchTaskEntity::getTargetClusterId,
+                        request == null ? null : request.getRequestedClusterId())
+                .eq(request != null && request.getActualClusterId() != null,
+                        DispatchTaskEntity::getTargetClusterId,
+                        request == null ? null : request.getActualClusterId())
                 .eq(hasText(workerGroupCode), DispatchTaskEntity::getWorkerGroupCode, trim(workerGroupCode));
     }
 
@@ -387,6 +438,9 @@ public class OpsCenterService {
                         RunRecordEntity::getQualityTaskId,
                         RunRecordEntity::getNodeCode,
                         RunRecordEntity::getStatus,
+                        RunRecordEntity::getRequestedClusterId,
+                        RunRecordEntity::getActualClusterId,
+                        RunRecordEntity::getActualClusterCode,
                         RunRecordEntity::getWorkerGroupCode,
                         RunRecordEntity::getWorkerCode,
                         RunRecordEntity::getWorkerInstanceId,
@@ -404,6 +458,12 @@ public class OpsCenterService {
                 .le(RunRecordEntity::getCreatedAt, scope.endTime)
                 .eq(hasText(executionType), RunRecordEntity::getExecutionType, upper(executionType))
                 .eq(hasText(status), RunRecordEntity::getStatus, upper(status))
+                .eq(request != null && request.getRequestedClusterId() != null,
+                        RunRecordEntity::getRequestedClusterId,
+                        request == null ? null : request.getRequestedClusterId())
+                .eq(request != null && request.getActualClusterId() != null,
+                        RunRecordEntity::getActualClusterId,
+                        request == null ? null : request.getActualClusterId())
                 .eq(hasText(workerGroupCode), RunRecordEntity::getWorkerGroupCode, trim(workerGroupCode));
         if (incidentsOnly && !hasText(status)) {
             query.and(wrapper -> wrapper.in(RunRecordEntity::getStatus, Arrays.asList("FAILED", "ERROR", "RUNNING", "QUEUED"))
@@ -429,6 +489,8 @@ public class OpsCenterService {
                         DataServiceAccessLogEntity::getTenantId,
                         DataServiceAccessLogEntity::getProjectId,
                         DataServiceAccessLogEntity::getServiceId,
+                        DataServiceAccessLogEntity::getRequestedClusterId,
+                        DataServiceAccessLogEntity::getActualClusterId,
                         DataServiceAccessLogEntity::getServiceCodeSnapshot,
                         DataServiceAccessLogEntity::getServiceNameSnapshot,
                         DataServiceAccessLogEntity::getServiceStatusSnapshot,
@@ -445,7 +507,13 @@ public class OpsCenterService {
                 .eq(DataServiceAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataServiceAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataServiceAccessLogEntity::getOccurredAt, scope.startTime)
-                .le(DataServiceAccessLogEntity::getOccurredAt, scope.endTime);
+                .le(DataServiceAccessLogEntity::getOccurredAt, scope.endTime)
+                .eq(request != null && request.getRequestedClusterId() != null,
+                        DataServiceAccessLogEntity::getRequestedClusterId,
+                        request == null ? null : request.getRequestedClusterId())
+                .eq(request != null && request.getActualClusterId() != null,
+                        DataServiceAccessLogEntity::getActualClusterId,
+                        request == null ? null : request.getActualClusterId());
         applyServiceAccessLogStatusFilter(query, request == null ? null : request.getStatus());
         return query;
     }
@@ -464,6 +532,8 @@ public class OpsCenterService {
                         DataIngestionAccessLogEntity::getTenantId,
                         DataIngestionAccessLogEntity::getProjectId,
                         DataIngestionAccessLogEntity::getServiceId,
+                        DataIngestionAccessLogEntity::getRequestedClusterId,
+                        DataIngestionAccessLogEntity::getActualClusterId,
                         DataIngestionAccessLogEntity::getServiceCodeSnapshot,
                         DataIngestionAccessLogEntity::getServiceNameSnapshot,
                         DataIngestionAccessLogEntity::getServiceStatusSnapshot,
@@ -482,8 +552,61 @@ public class OpsCenterService {
                 .eq(DataIngestionAccessLogEntity::getTenantId, scope.tenantId)
                 .eq(DataIngestionAccessLogEntity::getProjectId, scope.projectId)
                 .ge(DataIngestionAccessLogEntity::getOccurredAt, scope.startTime)
-                .le(DataIngestionAccessLogEntity::getOccurredAt, scope.endTime);
+                .le(DataIngestionAccessLogEntity::getOccurredAt, scope.endTime)
+                .eq(request != null && request.getRequestedClusterId() != null,
+                        DataIngestionAccessLogEntity::getRequestedClusterId,
+                        request == null ? null : request.getRequestedClusterId())
+                .eq(request != null && request.getActualClusterId() != null,
+                        DataIngestionAccessLogEntity::getActualClusterId,
+                        request == null ? null : request.getActualClusterId());
         applyIngestionAccessLogStatusFilter(query, request == null ? null : request.getStatus());
+        return query;
+    }
+
+    private List<ProtocolConversionAccessLogEntity> protocolConversionLogs(Scope scope, OpsCenterQueryRequest request) {
+        if (isRunScopedFilter(request)) {
+            return Collections.emptyList();
+        }
+        return protocolConversionAccessLogMapper.selectList(protocolConversionLogQuery(scope, request)
+                .orderByDesc(ProtocolConversionAccessLogEntity::getOccurredAt));
+    }
+
+    private LambdaQueryWrapper<ProtocolConversionAccessLogEntity> protocolConversionLogQuery(Scope scope,
+                                                                                              OpsCenterQueryRequest request) {
+        LambdaQueryWrapper<ProtocolConversionAccessLogEntity> query = new LambdaQueryWrapper<ProtocolConversionAccessLogEntity>()
+                .select(ProtocolConversionAccessLogEntity::getId,
+                        ProtocolConversionAccessLogEntity::getTenantId,
+                        ProtocolConversionAccessLogEntity::getProjectId,
+                        ProtocolConversionAccessLogEntity::getServiceId,
+                        ProtocolConversionAccessLogEntity::getRequestedClusterId,
+                        ProtocolConversionAccessLogEntity::getActualClusterId,
+                        ProtocolConversionAccessLogEntity::getServiceCodeSnapshot,
+                        ProtocolConversionAccessLogEntity::getServiceNameSnapshot,
+                        ProtocolConversionAccessLogEntity::getServiceStatusSnapshot,
+                        ProtocolConversionAccessLogEntity::getSubscriptionId,
+                        ProtocolConversionAccessLogEntity::getSubscriptionNameSnapshot,
+                        ProtocolConversionAccessLogEntity::getRequestMethod,
+                        ProtocolConversionAccessLogEntity::getOccurredAt,
+                        ProtocolConversionAccessLogEntity::getDurationMs,
+                        ProtocolConversionAccessLogEntity::getSuccess,
+                        ProtocolConversionAccessLogEntity::getHttpStatus,
+                        ProtocolConversionAccessLogEntity::getTargetHttpStatus,
+                        ProtocolConversionAccessLogEntity::getErrorCode,
+                        ProtocolConversionAccessLogEntity::getErrorMessage,
+                        ProtocolConversionAccessLogEntity::getReceivedCount,
+                        ProtocolConversionAccessLogEntity::getSuccessCount,
+                        ProtocolConversionAccessLogEntity::getFailedCount)
+                .eq(ProtocolConversionAccessLogEntity::getTenantId, scope.tenantId)
+                .eq(ProtocolConversionAccessLogEntity::getProjectId, scope.projectId)
+                .ge(ProtocolConversionAccessLogEntity::getOccurredAt, scope.startTime)
+                .le(ProtocolConversionAccessLogEntity::getOccurredAt, scope.endTime)
+                .eq(request != null && request.getRequestedClusterId() != null,
+                        ProtocolConversionAccessLogEntity::getRequestedClusterId,
+                        request == null ? null : request.getRequestedClusterId())
+                .eq(request != null && request.getActualClusterId() != null,
+                        ProtocolConversionAccessLogEntity::getActualClusterId,
+                        request == null ? null : request.getActualClusterId());
+        applyProtocolConversionAccessLogStatusFilter(query, request == null ? null : request.getStatus());
         return query;
     }
 
@@ -523,6 +646,28 @@ public class OpsCenterService {
         query.eq(DataIngestionAccessLogEntity::getId, Long.valueOf(-1L));
     }
 
+    private void applyProtocolConversionAccessLogStatusFilter(LambdaQueryWrapper<ProtocolConversionAccessLogEntity> query,
+                                                               String status) {
+        String normalized = upper(status);
+        if (!hasText(normalized)) {
+            return;
+        }
+        if ("SUCCESS".equals(normalized)) {
+            query.eq(ProtocolConversionAccessLogEntity::getSuccess, 1)
+                    .and(wrapper -> wrapper.isNull(ProtocolConversionAccessLogEntity::getFailedCount)
+                            .or()
+                            .eq(ProtocolConversionAccessLogEntity::getFailedCount, 0L));
+            return;
+        }
+        if ("FAILED".equals(normalized) || "ERROR".equals(normalized)) {
+            query.and(wrapper -> wrapper.ne(ProtocolConversionAccessLogEntity::getSuccess, 1)
+                    .or()
+                    .isNull(ProtocolConversionAccessLogEntity::getSuccess)
+                    .or()
+                    .gt(ProtocolConversionAccessLogEntity::getFailedCount, 0L));
+        }
+    }
+
     private LambdaQueryWrapper<RunRecordEntity> logAbnormalSqlCondition(LambdaQueryWrapper<RunRecordEntity> wrapper) {
         return wrapper.and(inner -> inner.isNotNull(RunRecordEntity::getLogErrorSummary)
                         .ne(RunRecordEntity::getLogErrorSummary, ""))
@@ -557,6 +702,8 @@ public class OpsCenterService {
                 .orderByAsc(ProjectWorkerBindingEntity::getWorkerGroupCode));
         List<WorkerLeaseEntity> leases = workerLeaseMapper.selectList(new LambdaQueryWrapper<WorkerLeaseEntity>()
                 .select(WorkerLeaseEntity::getTenantId,
+                        WorkerLeaseEntity::getRuntimeClusterId,
+                        WorkerLeaseEntity::getRuntimeClusterCode,
                         WorkerLeaseEntity::getWorkerGroupCode,
                         WorkerLeaseEntity::getWorkerCode,
                         WorkerLeaseEntity::getInstanceId,
@@ -614,7 +761,15 @@ public class OpsCenterService {
         List<WorkerLeaseEntity> safeLeases = leases == null ? Collections.<WorkerLeaseEntity>emptyList() : leases;
         WorkerLeaseEntity latest = latestLease(safeLeases);
         int onlineCount = 0;
+        Set<Long> runtimeClusterIds = new LinkedHashSet<Long>();
+        Set<String> runtimeClusterCodes = new LinkedHashSet<String>();
         for (WorkerLeaseEntity lease : safeLeases) {
+            if (lease.getRuntimeClusterId() != null) {
+                runtimeClusterIds.add(lease.getRuntimeClusterId());
+            }
+            if (hasText(lease.getRuntimeClusterCode())) {
+                runtimeClusterCodes.add(lease.getRuntimeClusterCode().trim());
+            }
             if (isOnlineLease(lease, now)) {
                 onlineCount++;
             }
@@ -625,6 +780,8 @@ public class OpsCenterService {
         view.setEnabled(Boolean.valueOf(binding == null || binding.getEnabled() == null || binding.getEnabled().intValue() != 0));
         view.setOnlineInstanceCount(Integer.valueOf(onlineCount));
         view.setRecentInstanceCount(Integer.valueOf(safeLeases.size()));
+        view.setRuntimeClusterIds(new ArrayList<Long>(runtimeClusterIds));
+        view.setRuntimeClusterCodes(new ArrayList<String>(runtimeClusterCodes));
         view.setDisplayStatus(onlineCount > 0 ? "ONLINE" : safeLeases.isEmpty() ? "NO_INSTANCE" : "OFFLINE");
         if (latest != null) {
             view.setLatestHeartbeatAt(latest.getLastHeartbeatAt());
@@ -649,6 +806,7 @@ public class OpsCenterService {
         view.setTargetName(targetNameResolver.resolve(entity));
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
+        view.setTargetClusterId(entity.getTargetClusterId());
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setLeaseOwner(entity.getLeaseOwner());
         view.setWorkerInstanceId(entity.getWorkerInstanceId());
@@ -672,6 +830,9 @@ public class OpsCenterService {
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
         view.setMessage(safeMessage(entity.getMessage()));
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
+        view.setActualClusterCode(entity.getActualClusterCode());
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setWorkerCode(entity.getWorkerCode());
         view.setWorkerInstanceId(entity.getWorkerInstanceId());
@@ -692,6 +853,8 @@ public class OpsCenterService {
         OpsCenterServiceEventView view = new OpsCenterServiceEventView();
         view.setId(entity.getId());
         view.setServiceId(entity.getServiceId());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
         view.setServiceCode(entity.getServiceCodeSnapshot());
         view.setServiceName(entity.getServiceNameSnapshot());
         view.setServiceStatus(entity.getServiceStatusSnapshot());
@@ -713,6 +876,8 @@ public class OpsCenterService {
         OpsCenterServiceEventView view = new OpsCenterServiceEventView();
         view.setId(entity.getId());
         view.setServiceId(entity.getServiceId());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
         view.setServiceCode(entity.getServiceCodeSnapshot());
         view.setServiceName(entity.getServiceNameSnapshot());
         view.setServiceStatus(entity.getServiceStatusSnapshot());
@@ -732,6 +897,31 @@ public class OpsCenterService {
         return view;
     }
 
+    private OpsCenterServiceEventView toProtocolConversionEvent(ProtocolConversionAccessLogEntity entity) {
+        OpsCenterServiceEventView view = new OpsCenterServiceEventView();
+        view.setId(entity.getId());
+        view.setServiceId(entity.getServiceId());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
+        view.setServiceCode(entity.getServiceCodeSnapshot());
+        view.setServiceName(entity.getServiceNameSnapshot());
+        view.setServiceStatus(entity.getServiceStatusSnapshot());
+        view.setSubscriptionId(entity.getSubscriptionId());
+        view.setSubscriptionName(entity.getSubscriptionNameSnapshot());
+        view.setRequestMethod(entity.getRequestMethod());
+        view.setOccurredAt(entity.getOccurredAt());
+        view.setDurationMs(entity.getDurationMs());
+        view.setSuccess(Boolean.valueOf(isSuccess(entity.getSuccess()) && safeLong(entity.getFailedCount()) <= 0L));
+        view.setHttpStatus(entity.getTargetHttpStatus() == null ? entity.getHttpStatus() : entity.getTargetHttpStatus());
+        view.setErrorCode(entity.getErrorCode());
+        view.setErrorMessage(safeMessage(entity.getErrorMessage()));
+        view.setReceivedCount(entity.getReceivedCount());
+        view.setWrittenCount(entity.getSuccessCount());
+        view.setFailedCount(entity.getFailedCount());
+        view.setSlow(Boolean.valueOf(safeLong(entity.getDurationMs()) >= SLOW_CALL_THRESHOLD_MS));
+        return view;
+    }
+
     private OpsCenterLogEventView toLogEvent(RunRecordEntity entity) {
         OpsCenterLogEventView view = new OpsCenterLogEventView();
         copyBase(view, entity.getId(), entity.getTenantId(), entity.getProjectId(), entity.getDeleted(), entity.getCreatedAt(), entity.getUpdatedAt());
@@ -742,6 +932,9 @@ public class OpsCenterService {
         view.setQualityTaskId(entity.getQualityTaskId());
         view.setNodeCode(entity.getNodeCode());
         view.setStatus(entity.getStatus());
+        view.setRequestedClusterId(entity.getRequestedClusterId());
+        view.setActualClusterId(entity.getActualClusterId());
+        view.setActualClusterCode(entity.getActualClusterCode());
         view.setWorkerGroupCode(entity.getWorkerGroupCode());
         view.setWorkerInstanceId(entity.getWorkerInstanceId());
         view.setStartedAt(entity.getStartedAt());

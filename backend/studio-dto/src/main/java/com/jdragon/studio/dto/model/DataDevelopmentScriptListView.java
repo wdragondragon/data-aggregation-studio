@@ -7,6 +7,8 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataDevelopmentScriptListView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long directoryId;
     private String fileName;
     private ScriptType scriptType;

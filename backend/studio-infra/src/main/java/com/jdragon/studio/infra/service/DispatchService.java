@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.core.spi.WorkflowDispatcher;
@@ -19,6 +20,7 @@ import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +30,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -45,6 +48,8 @@ public class DispatchService implements WorkflowDispatcher {
     private final WorkerAuthorizationService workerAuthorizationService;
     private final StaleExecutionRecoveryService staleExecutionRecoveryService;
     private final ClusterLockService clusterLockService;
+    private RuntimeValidationService runtimeValidationService;
+    private RuntimeResourceRevisionService runtimeResourceRevisionService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
@@ -68,14 +73,21 @@ public class DispatchService implements WorkflowDispatcher {
         this.clusterLockService = clusterLockService;
     }
 
+    @Autowired
+    void setRuntimeValidationService(RuntimeValidationService runtimeValidationService) {
+        this.runtimeValidationService = runtimeValidationService;
+    }
+
+    @Autowired
+    void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
+        this.runtimeResourceRevisionService = runtimeResourceRevisionService;
+    }
+
     @Override
     public void dispatchReadyNodes() {
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
                 .eq(WorkflowDefinitionEntity::getPublished, 1));
         for (WorkflowDefinitionEntity definition : definitions) {
-            if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), definition.getProjectId())) {
-                continue;
-            }
             triggerWorkflowIfIdle(definition.getId(), definition.getProjectId());
         }
     }
@@ -83,13 +95,20 @@ public class DispatchService implements WorkflowDispatcher {
     @Override
     @Transactional
     public void triggerManualRun(Long workflowDefinitionId) {
-        WorkflowDefinitionView workflow = requireWorkflow(workflowDefinitionId);
+        triggerManualRun(workflowDefinitionId, null);
+    }
+
+    @Transactional
+    public void triggerManualRun(Long workflowDefinitionId, Long runtimeClusterOverrideId) {
+        WorkflowDefinitionView workflow = runtimeClusterOverrideId == null
+                ? requireWorkflow(workflowDefinitionId)
+                : workflowService.requireRunnableOnCluster(workflowDefinitionId, runtimeClusterOverrideId);
         assertCurrentProjectOwnsResource(workflow.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), workflow.getProjectId());
-        workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), runtimeProjectId, workflow.getId());
         if (triggerWorkflowIfIdleStatus(workflow, runtimeProjectId, true, null,
-                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false) != DispatchTriggerStatus.TRIGGERED) {
+                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false,
+                runtimeClusterOverrideId != null) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
         }
     }
@@ -111,13 +130,20 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public void triggerCollectionTask(Long collectionTaskId) {
-        CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
+        triggerCollectionTask(collectionTaskId, null);
+    }
+
+    @Transactional
+    public void triggerCollectionTask(Long collectionTaskId, Long runtimeClusterOverrideId) {
+        CollectionTaskDefinitionView definition = runtimeClusterOverrideId == null
+                ? collectionTaskService.requireOnline(collectionTaskId)
+                : collectionTaskService.requireRunnableOnCluster(collectionTaskId, runtimeClusterOverrideId);
         assertCurrentProjectOwnsResource(definition.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
-        workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), runtimeProjectId, definition.getId());
         if (triggerCollectionTaskIfIdleStatus(definition, runtimeProjectId, true, null,
-                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false) != DispatchTriggerStatus.TRIGGERED) {
+                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false,
+                runtimeClusterOverrideId != null) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
         }
     }
@@ -139,13 +165,20 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public void triggerQualityTask(Long qualityTaskId) {
-        QualityTaskDefinitionView definition = qualityTaskService.requireOnline(qualityTaskId);
+        triggerQualityTask(qualityTaskId, null);
+    }
+
+    @Transactional
+    public void triggerQualityTask(Long qualityTaskId, Long runtimeClusterOverrideId) {
+        QualityTaskDefinitionView definition = runtimeClusterOverrideId == null
+                ? qualityTaskService.requireOnline(qualityTaskId)
+                : qualityTaskService.requireRunnableOnCluster(qualityTaskId, runtimeClusterOverrideId);
         assertCurrentProjectOwnsResource(definition.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
-        workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), runtimeProjectId);
         staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), runtimeProjectId, definition.getId());
         if (triggerQualityTaskIfIdleStatus(definition, runtimeProjectId, true, null,
-                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false) != DispatchTriggerStatus.TRIGGERED) {
+                true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false,
+                runtimeClusterOverrideId != null) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task already has an active run");
         }
     }
@@ -197,7 +230,7 @@ public class DispatchService implements WorkflowDispatcher {
                                                               LocalDateTime scheduledFireTime,
                                                               boolean clusterGuard) {
         return triggerWorkflowIfIdleStatus(workflow, runtimeProjectId, workerRequired, scheduledFireTime,
-                clusterGuard, null, true);
+                clusterGuard, null, true, false);
     }
 
     private DispatchTriggerStatus triggerWorkflowIfIdleStatus(WorkflowDefinitionView workflow,
@@ -206,13 +239,11 @@ public class DispatchService implements WorkflowDispatcher {
                                                               LocalDateTime scheduledFireTime,
                                                               boolean clusterGuard,
                                                               Long lockLeaseSeconds,
-                                                              boolean releaseLock) {
+                                                              boolean releaseLock,
+                                                              boolean bypassPersistedRuntimeValidation) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, workflow.getProjectId());
-        if (!workerAuthorizationService.hasAvailableWorker(workflow.getTenantId(), resolvedProjectId)) {
-            if (workerRequired) {
-                workerAuthorizationService.assertProjectHasAvailableWorker(workflow.getTenantId(), resolvedProjectId);
-            }
-            return DispatchTriggerStatus.SKIPPED_NO_WORKER;
+        if (!bypassPersistedRuntimeValidation) {
+            assertRuntimeValid(StudioConstants.RESOURCE_TYPE_WORKFLOW, workflow.getId());
         }
         if (clusterGuard) {
             String lockName = triggerLockName("workflow", workflow.getTenantId(), resolvedProjectId, workflow.getId(), scheduledFireTime);
@@ -242,7 +273,8 @@ public class DispatchService implements WorkflowDispatcher {
         }
         for (WorkflowNodeDefinition node : workflow.getNodes()) {
             if (!inbound.contains(node.getNodeCode())) {
-                dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, workflowRunId, node, resolvedProjectId, scheduledFireTime));
+                insertDispatchTask(buildWorkflowNodeTask(workflow, workflowRunId, node, resolvedProjectId,
+                        workflow.getRuntimeClusterId(), scheduledFireTime));
             }
         }
         return DispatchTriggerStatus.TRIGGERED;
@@ -253,13 +285,15 @@ public class DispatchService implements WorkflowDispatcher {
         if (event == null
                 || event.getExecutionType() != DispatchExecutionType.WORKFLOW_NODE
                 || event.getWorkflowDefinitionId() == null
+                || event.getWorkflowVersionId() == null
                 || event.getWorkflowRunId() == null
                 || event.getNodeCode() == null
                 || !isTerminalStatus(event.getEventType())) {
             return;
         }
 
-        WorkflowDefinitionView workflow = workflowService.get(event.getWorkflowDefinitionId());
+        WorkflowDefinitionView workflow = workflowService.getVersion(event.getWorkflowDefinitionId(),
+                event.getWorkflowVersionId());
         if (workflow == null) {
             return;
         }
@@ -272,7 +306,8 @@ public class DispatchService implements WorkflowDispatcher {
             if (!isNodeReady(workflow, event.getWorkflowRunId(), candidate.getNodeCode())) {
                 continue;
             }
-            dispatchTaskMapper.insert(buildWorkflowNodeTask(workflow, event.getWorkflowRunId(), candidate, runtimeProjectId, null));
+            insertDispatchTask(buildWorkflowNodeTask(workflow, event.getWorkflowRunId(), candidate, runtimeProjectId,
+                    event.getRequestedClusterId(), null));
         }
     }
 
@@ -280,6 +315,7 @@ public class DispatchService implements WorkflowDispatcher {
                                                      Long workflowRunId,
                                                      WorkflowNodeDefinition node,
                                                      Long runtimeProjectId,
+                                                     Long runtimeClusterId,
                                                      LocalDateTime scheduledFireTime) {
         DispatchTaskEntity task = new DispatchTaskEntity();
         task.setTenantId(workflow.getTenantId());
@@ -292,6 +328,9 @@ public class DispatchService implements WorkflowDispatcher {
         task.setQualityTaskId(resolveQualityTaskId(node));
         task.setNodeCode(node.getNodeCode());
         task.setStatus("QUEUED");
+        task.setTargetClusterId(runtimeClusterId);
+        task.setResourceRevision(node.getConfig() == null || node.getConfig().get("_resourceRevision") == null
+                ? null : String.valueOf(node.getConfig().get("_resourceRevision")));
         task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
@@ -299,10 +338,8 @@ public class DispatchService implements WorkflowDispatcher {
         LinkedHashMap<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("executionType", DispatchExecutionType.WORKFLOW_NODE.name());
         payload.put("workflowRunId", workflowRunId);
-        payload.put("nodeType", node.getNodeType() == null ? null : node.getNodeType().name());
-        payload.put("config", node.getConfig());
-        payload.put("fieldMappings", node.getFieldMappings());
         payload.put("projectId", runtimeProjectId);
+        payload.put("runtimeClusterId", runtimeClusterId);
         payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
         task.setPayloadJson(payload);
         return task;
@@ -320,7 +357,7 @@ public class DispatchService implements WorkflowDispatcher {
                                                                     LocalDateTime scheduledFireTime,
                                                                     boolean clusterGuard) {
         return triggerCollectionTaskIfIdleStatus(definition, runtimeProjectId, workerRequired, scheduledFireTime,
-                clusterGuard, null, true);
+                clusterGuard, null, true, false);
     }
 
     private DispatchTriggerStatus triggerCollectionTaskIfIdleStatus(CollectionTaskDefinitionView definition,
@@ -329,31 +366,33 @@ public class DispatchService implements WorkflowDispatcher {
                                                                     LocalDateTime scheduledFireTime,
                                                                     boolean clusterGuard,
                                                                     Long lockLeaseSeconds,
-                                                                    boolean releaseLock) {
+                                                                    boolean releaseLock,
+                                                                    boolean bypassPersistedRuntimeValidation) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
-        if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
-            if (workerRequired) {
-                workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), resolvedProjectId);
-            }
-            return DispatchTriggerStatus.SKIPPED_NO_WORKER;
+        if (!bypassPersistedRuntimeValidation) {
+            assertRuntimeValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, definition.getId());
         }
         if (clusterGuard) {
             String lockName = triggerLockName("collection", definition.getTenantId(), resolvedProjectId, definition.getId(), scheduledFireTime);
             if (lockLeaseSeconds != null) {
                 return clusterLockService.executeIfAcquiredNonReentrant(lockName, lockLeaseSeconds.longValue(), releaseLock,
-                        () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                        () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
+                                bypassPersistedRuntimeValidation),
                         () -> DispatchTriggerStatus.LOCK_BUSY);
             }
             return clusterLockService.executeIfAcquiredNonReentrant(lockName,
-                    () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                    () -> triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
+                            bypassPersistedRuntimeValidation),
                     () -> DispatchTriggerStatus.LOCK_BUSY);
         }
-        return triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime);
+        return triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
+                bypassPersistedRuntimeValidation);
     }
 
     private DispatchTriggerStatus triggerCollectionTaskAfterLock(CollectionTaskDefinitionView definition,
                                                                  Long resolvedProjectId,
-                                                                 LocalDateTime scheduledFireTime) {
+                                                                 LocalDateTime scheduledFireTime,
+                                                                 boolean manualOverride) {
         staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), resolvedProjectId, definition.getId());
         if (hasActiveCollectionTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
             return DispatchTriggerStatus.SKIPPED_ACTIVE;
@@ -365,6 +404,8 @@ public class DispatchService implements WorkflowDispatcher {
         task.setCollectionTaskId(definition.getId());
         task.setNodeCode("collection_task_" + definition.getId());
         task.setStatus("QUEUED");
+        task.setTargetClusterId(definition.getRuntimeClusterId());
+        task.setResourceRevision(stableCollectionRevision(definition, manualOverride));
         task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
@@ -374,9 +415,10 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("nodeType", "COLLECTION_TASK");
         payload.put("collectionTaskId", definition.getId());
         payload.put("projectId", resolvedProjectId);
+        payload.put("runtimeClusterId", definition.getRuntimeClusterId());
         payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
         task.setPayloadJson(payload);
-        dispatchTaskMapper.insert(task);
+        insertDispatchTask(task);
         return DispatchTriggerStatus.TRIGGERED;
     }
 
@@ -392,7 +434,7 @@ public class DispatchService implements WorkflowDispatcher {
                                                                  LocalDateTime scheduledFireTime,
                                                                  boolean clusterGuard) {
         return triggerQualityTaskIfIdleStatus(definition, runtimeProjectId, workerRequired, scheduledFireTime,
-                clusterGuard, null, true);
+                clusterGuard, null, true, false);
     }
 
     private DispatchTriggerStatus triggerQualityTaskIfIdleStatus(QualityTaskDefinitionView definition,
@@ -401,31 +443,33 @@ public class DispatchService implements WorkflowDispatcher {
                                                                  LocalDateTime scheduledFireTime,
                                                                  boolean clusterGuard,
                                                                  Long lockLeaseSeconds,
-                                                                 boolean releaseLock) {
+                                                                 boolean releaseLock,
+                                                                 boolean bypassPersistedRuntimeValidation) {
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
-        if (!workerAuthorizationService.hasAvailableWorker(definition.getTenantId(), resolvedProjectId)) {
-            if (workerRequired) {
-                workerAuthorizationService.assertProjectHasAvailableWorker(definition.getTenantId(), resolvedProjectId);
-            }
-            return DispatchTriggerStatus.SKIPPED_NO_WORKER;
+        if (!bypassPersistedRuntimeValidation) {
+            assertRuntimeValid(StudioConstants.RESOURCE_TYPE_QUALITY_TASK, definition.getId());
         }
         if (clusterGuard) {
             String lockName = triggerLockName("quality", definition.getTenantId(), resolvedProjectId, definition.getId(), scheduledFireTime);
             if (lockLeaseSeconds != null) {
                 return clusterLockService.executeIfAcquiredNonReentrant(lockName, lockLeaseSeconds.longValue(), releaseLock,
-                        () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                        () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
+                                bypassPersistedRuntimeValidation),
                         () -> DispatchTriggerStatus.LOCK_BUSY);
             }
             return clusterLockService.executeIfAcquiredNonReentrant(lockName,
-                    () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime),
+                    () -> triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
+                            bypassPersistedRuntimeValidation),
                     () -> DispatchTriggerStatus.LOCK_BUSY);
         }
-        return triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime);
+        return triggerQualityTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
+                bypassPersistedRuntimeValidation);
     }
 
     private DispatchTriggerStatus triggerQualityTaskAfterLock(QualityTaskDefinitionView definition,
                                                               Long resolvedProjectId,
-                                                              LocalDateTime scheduledFireTime) {
+                                                              LocalDateTime scheduledFireTime,
+                                                              boolean manualOverride) {
         staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), resolvedProjectId, definition.getId());
         if (hasActiveQualityTaskRun(definition.getTenantId(), definition.getId(), resolvedProjectId)) {
             return DispatchTriggerStatus.SKIPPED_ACTIVE;
@@ -437,6 +481,8 @@ public class DispatchService implements WorkflowDispatcher {
         task.setQualityTaskId(definition.getId());
         task.setNodeCode("quality_task_" + definition.getId());
         task.setStatus("QUEUED");
+        task.setTargetClusterId(definition.getRuntimeClusterId());
+        task.setResourceRevision(stableQualityRevision(definition, manualOverride));
         task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
@@ -446,10 +492,64 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("nodeType", "QUALITY_TASK");
         payload.put("qualityTaskId", definition.getId());
         payload.put("projectId", resolvedProjectId);
+        payload.put("runtimeClusterId", definition.getRuntimeClusterId());
         payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
         task.setPayloadJson(payload);
-        dispatchTaskMapper.insert(task);
+        insertDispatchTask(task);
         return DispatchTriggerStatus.TRIGGERED;
+    }
+
+    private void insertDispatchTask(DispatchTaskEntity task) {
+        if (task == null || task.getTargetClusterId() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "runtimeClusterId is required before a task can be dispatched");
+        }
+        dispatchTaskMapper.insert(task);
+    }
+
+    private String stableCollectionRevision(CollectionTaskDefinitionView definition, boolean manualOverride) {
+        String revision = runtimeResourceRevisionService == null
+                ? (definition.getUpdatedAt() == null ? null : definition.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.collectionTaskRevision(
+                definition.getId(), definition.getUpdatedAt());
+        CollectionTaskDefinitionView revalidated = manualOverride
+                ? collectionTaskService.requireRunnableOnCluster(definition.getId(), definition.getRuntimeClusterId())
+                : collectionTaskService.requireOnline(definition.getId());
+        String stableRevision = runtimeResourceRevisionService == null
+                ? (revalidated.getUpdatedAt() == null ? null : revalidated.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.collectionTaskRevision(
+                revalidated.getId(), revalidated.getUpdatedAt());
+        assertStableDispatchSnapshot(definition.getRuntimeClusterId(), revalidated.getRuntimeClusterId(),
+                revision, stableRevision, "Collection task changed while dispatching; retry the run");
+        return revision;
+    }
+
+    private String stableQualityRevision(QualityTaskDefinitionView definition, boolean manualOverride) {
+        String revision = runtimeResourceRevisionService == null
+                ? (definition.getUpdatedAt() == null ? null : definition.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.qualityTaskRevision(
+                definition.getId(), definition.getUpdatedAt());
+        QualityTaskDefinitionView revalidated = manualOverride
+                ? qualityTaskService.requireRunnableOnCluster(definition.getId(), definition.getRuntimeClusterId())
+                : qualityTaskService.requireOnline(definition.getId());
+        String stableRevision = runtimeResourceRevisionService == null
+                ? (revalidated.getUpdatedAt() == null ? null : revalidated.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.qualityTaskRevision(
+                revalidated.getId(), revalidated.getUpdatedAt());
+        assertStableDispatchSnapshot(definition.getRuntimeClusterId(), revalidated.getRuntimeClusterId(),
+                revision, stableRevision, "Quality task changed while dispatching; retry the run");
+        return revision;
+    }
+
+    private void assertStableDispatchSnapshot(Long expectedClusterId,
+                                              Long actualClusterId,
+                                              String expectedRevision,
+                                              String actualRevision,
+                                              String message) {
+        if (!Objects.equals(expectedClusterId, actualClusterId)
+                || !Objects.equals(expectedRevision, actualRevision)) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR, message);
+        }
     }
 
     private List<WorkflowNodeDefinition> collectDownstreamNodes(WorkflowDefinitionView workflow,
@@ -585,7 +685,7 @@ public class DispatchService implements WorkflowDispatcher {
     }
 
     private WorkflowDefinitionView requireWorkflow(Long workflowDefinitionId) {
-        WorkflowDefinitionView workflow = workflowService.get(workflowDefinitionId);
+        WorkflowDefinitionView workflow = workflowService.requireRunnable(workflowDefinitionId);
         if (workflow == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
         }
@@ -629,5 +729,11 @@ public class DispatchService implements WorkflowDispatcher {
             return Long.parseLong(((String) value).trim());
         }
         return null;
+    }
+
+    private void assertRuntimeValid(String resourceType, Long resourceId) {
+        if (runtimeValidationService != null) {
+            runtimeValidationService.assertResourceValid(resourceType, resourceId);
+        }
     }
 }

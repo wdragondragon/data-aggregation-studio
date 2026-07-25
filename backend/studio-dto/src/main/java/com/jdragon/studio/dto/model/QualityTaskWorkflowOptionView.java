@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 
 @Data
 public class QualityTaskWorkflowOptionView {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long id;
     private Long projectId;
     private LocalDateTime updatedAt;

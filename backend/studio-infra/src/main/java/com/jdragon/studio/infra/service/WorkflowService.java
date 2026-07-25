@@ -23,7 +23,15 @@ import com.jdragon.studio.infra.entity.WorkflowNodeEntity;
 import com.jdragon.studio.infra.entity.WorkflowScheduleEntity;
 import com.jdragon.studio.infra.entity.WorkflowVersionEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
+import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
+import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
+import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
+import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
@@ -33,6 +41,7 @@ import com.jdragon.studio.infra.mapper.WorkflowScheduleMapper;
 import com.jdragon.studio.infra.mapper.WorkflowVersionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -41,6 +50,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collection;
 import java.util.Set;
 
 @Service
@@ -59,6 +69,12 @@ public class WorkflowService {
     private final RunRecordMapper runRecordMapper;
     private final StudioSecurityService securityService;
     private final ProjectResourceAccessService projectResourceAccessService;
+    private RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private RuntimeResourceRevisionService runtimeResourceRevisionService;
+    private CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
+    private QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
+    private DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
+    private DataModelMapper dataModelMapper;
 
     public WorkflowService(WorkflowDefinitionMapper definitionMapper,
                            WorkflowVersionMapper versionMapper,
@@ -90,6 +106,25 @@ public class WorkflowService {
         return result;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
+        this.runtimeResourceRevisionService = runtimeResourceRevisionService;
+    }
+
+    @Autowired
+    void setWorkflowResourceMappers(CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
+                                    QualityTaskDefinitionMapper qualityTaskDefinitionMapper,
+                                    DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
+                                    DataModelMapper dataModelMapper) {
+        this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
+        this.qualityTaskDefinitionMapper = qualityTaskDefinitionMapper;
+        this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
+        this.dataModelMapper = dataModelMapper;
+    }
+
     public List<WorkflowListView> listSummaries() {
         List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(selectSummaryColumns(buildAccessibleQuery())
                 .orderByAsc(WorkflowDefinitionEntity::getCode));
@@ -107,10 +142,16 @@ public class WorkflowService {
     }
 
     public List<WorkflowOptionView> listOptions() {
+        return listOptions(null);
+    }
+
+    public List<WorkflowOptionView> listOptions(Long runtimeClusterId) {
         List<WorkflowDefinitionEntity> definitions = definitionMapper.selectList(buildAccessibleQuery()
                 .select(WorkflowDefinitionEntity::getId,
                         WorkflowDefinitionEntity::getProjectId,
+                        WorkflowDefinitionEntity::getRuntimeClusterId,
                         WorkflowDefinitionEntity::getName)
+                .eq(runtimeClusterId != null, WorkflowDefinitionEntity::getRuntimeClusterId, runtimeClusterId)
                 .orderByAsc(WorkflowDefinitionEntity::getName)
                 .orderByAsc(WorkflowDefinitionEntity::getId));
         List<WorkflowOptionView> result = new ArrayList<WorkflowOptionView>();
@@ -118,6 +159,9 @@ public class WorkflowService {
             WorkflowOptionView view = new WorkflowOptionView();
             view.setId(definition.getId());
             view.setProjectId(definition.getProjectId());
+            view.setRuntimeClusterId(definition.getRuntimeClusterId());
+            view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                    : runtimeClusterSelectionService.runtimeClusterName(definition.getProjectId(), definition.getRuntimeClusterId()));
             view.setName(definition.getName());
             result.add(view);
         }
@@ -131,6 +175,9 @@ public class WorkflowService {
             WorkflowListView view = toBasicListView(definition);
             view.setSchedule(schedules.get(definition.getId()));
             result.add(view);
+        }
+        if (runtimeClusterSelectionService != null) {
+            runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_WORKFLOW, result);
         }
         return result;
     }
@@ -205,6 +252,28 @@ public class WorkflowService {
         if (definition == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found: " + definitionId);
         }
+        WorkflowVersionEntity version = definition.getCurrentVersionId() == null
+                ? null : versionMapper.selectById(definition.getCurrentVersionId());
+        WorkflowDefinitionView view = toView(definition, version);
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_WORKFLOW, view);
+    }
+
+    public WorkflowDefinitionView getVersion(Long definitionId, Long versionId) {
+        WorkflowDefinitionEntity definition = findAccessibleEntity(definitionId);
+        if (definition == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found: " + definitionId);
+        }
+        WorkflowVersionEntity version = versionId == null ? null : versionMapper.selectById(versionId);
+        if (version == null || !definitionId.equals(version.getDefinitionId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow version not found: " + versionId);
+        }
+        WorkflowDefinitionView view = toView(definition, version);
+        return runtimeClusterSelectionService == null ? view
+                : runtimeClusterSelectionService.hydrateRuntimeValidation(StudioConstants.RESOURCE_TYPE_WORKFLOW, view);
+    }
+
+    private WorkflowDefinitionView toView(WorkflowDefinitionEntity definition, WorkflowVersionEntity version) {
         WorkflowDefinitionView view = new WorkflowDefinitionView();
         view.setId(definition.getId());
         view.setTenantId(definition.getTenantId());
@@ -212,10 +281,12 @@ public class WorkflowService {
         view.setDeleted(definition.getDeleted() != null && definition.getDeleted() == 1);
         view.setCreatedAt(definition.getCreatedAt());
         view.setUpdatedAt(definition.getUpdatedAt());
+        view.setRuntimeClusterId(definition.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null
+                : runtimeClusterSelectionService.runtimeClusterName(definition.getProjectId(), definition.getRuntimeClusterId()));
         view.setCode(definition.getCode());
         view.setName(definition.getName());
         view.setPublished(definition.getPublished() != null && definition.getPublished() == 1);
-        WorkflowVersionEntity version = definition.getCurrentVersionId() == null ? null : versionMapper.selectById(definition.getCurrentVersionId());
         if (version != null) {
             view.setVersionId(version.getId());
             view.setVersionNumber(version.getVersionNumber());
@@ -261,7 +332,7 @@ public class WorkflowService {
             view.setEdges(edges);
         }
         WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()
-                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definitionId)
+                .eq(WorkflowScheduleEntity::getWorkflowDefinitionId, definition.getId())
                 .last("limit 1"));
         if (scheduleEntity != null) {
             WorkflowScheduleDefinition schedule = new WorkflowScheduleDefinition();
@@ -280,6 +351,7 @@ public class WorkflowService {
                 WorkflowDefinitionEntity::getDeleted,
                 WorkflowDefinitionEntity::getCreatedAt,
                 WorkflowDefinitionEntity::getUpdatedAt,
+                WorkflowDefinitionEntity::getRuntimeClusterId,
                 WorkflowDefinitionEntity::getCode,
                 WorkflowDefinitionEntity::getName,
                 WorkflowDefinitionEntity::getCurrentVersionId,
@@ -294,6 +366,8 @@ public class WorkflowService {
         view.setDeleted(definition.getDeleted() != null && definition.getDeleted() == 1);
         view.setCreatedAt(definition.getCreatedAt());
         view.setUpdatedAt(definition.getUpdatedAt());
+        view.setRuntimeClusterId(definition.getRuntimeClusterId());
+        view.setRuntimeClusterName(runtimeClusterSelectionService == null ? null : runtimeClusterSelectionService.runtimeClusterName(definition.getProjectId(), definition.getRuntimeClusterId()));
         view.setCode(definition.getCode());
         view.setName(definition.getName());
         view.setVersionId(definition.getCurrentVersionId());
@@ -358,12 +432,18 @@ public class WorkflowService {
         if (definition == null) {
             definition = new WorkflowDefinitionEntity();
         }
+        Long runtimeClusterId = runtimeClusterSelectionService.resolveForResourceSave(
+                currentProjectId, request.getRuntimeClusterId(), definition.getRuntimeClusterId(),
+                definition.getId() != null);
+        validateNodeRuntimeClusters(currentProjectId, runtimeClusterId, request.getNodes(), true);
         ensureUniqueCode(currentProjectId, request.getCode(), definition.getId());
         ensureUniqueName(currentProjectId, request.getName(), definition.getId());
         definition.setTenantId(securityService.currentTenantId());
         definition.setProjectId(currentProjectId);
+        definition.setRuntimeClusterId(runtimeClusterId);
         definition.setCode(request.getCode());
         definition.setName(request.getName());
+        definition.setPublished(0);
         if (definition.getId() == null && definition.getCreatedBy() == null) {
             definition.setCreatedBy(securityService.currentUserId());
         }
@@ -377,9 +457,10 @@ public class WorkflowService {
         version.setTenantId(definition.getTenantId());
         version.setProjectId(definition.getProjectId());
         version.setDefinitionId(definition.getId());
+        version.setRuntimeClusterId(runtimeClusterId);
         version.setVersionNumber(nextVersion(definition.getId()));
         version.setPublished(0);
-        version.setGraphJson(new LinkedHashMap<String, Object>());
+        version.setGraphJson(toGraphJson(request));
         version.setScheduleJson(toScheduleJson(request.getSchedule()));
         versionMapper.insert(version);
 
@@ -429,12 +510,17 @@ public class WorkflowService {
 
         definition.setCurrentVersionId(version.getId());
         definitionMapper.updateById(definition);
+        runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_WORKFLOW, definition.getId());
         return get(definition.getId());
     }
 
     @Transactional
     public WorkflowDefinitionView publish(Long definitionId) {
         WorkflowDefinitionEntity definition = requireWritableEntity(definitionId);
+        WorkflowDefinitionView draft = get(definitionId);
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_WORKFLOW, definitionId);
+        runtimeClusterSelectionService.resolveForSave(definition.getProjectId(), definition.getRuntimeClusterId());
+        validateNodeRuntimeClusters(definition.getProjectId(), definition.getRuntimeClusterId(), draft.getNodes());
         WorkflowVersionEntity version = versionMapper.selectById(definition.getCurrentVersionId());
         if (version == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow version not found");
@@ -444,6 +530,356 @@ public class WorkflowService {
         definition.setPublished(1);
         definitionMapper.updateById(definition);
         return get(definitionId);
+    }
+
+    public WorkflowDefinitionView requireRunnableOnCluster(Long definitionId, Long runtimeClusterId) {
+        WorkflowDefinitionView workflow = get(definitionId);
+        if (!Boolean.TRUE.equals(workflow.getPublished())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow is not published");
+        }
+        validateNodeResourceRevisions(workflow.getNodes());
+        Set<Long> datasourceIds = collectNodeDatasourceIds(workflow.getTenantId(), workflow.getNodes());
+        if (workflow.getNodes() != null) {
+            for (WorkflowNodeDefinition node : workflow.getNodes()) {
+                if (node != null) collectDatasourceIds(node.getConfig(), datasourceIds);
+            }
+        }
+        runtimeClusterSelectionService.validateManualOverride(
+                workflow.getProjectId(), runtimeClusterId, datasourceIds);
+        workflow.setRuntimeClusterId(runtimeClusterId);
+        workflow.setRuntimeClusterName(runtimeClusterSelectionService.runtimeClusterName(workflow.getProjectId(), runtimeClusterId));
+        workflow.setRuntimeValid(Boolean.TRUE);
+        workflow.setRuntimeValidationMessage(null);
+        return workflow;
+    }
+
+    public WorkflowDefinitionView requireRunnable(Long definitionId) {
+        WorkflowDefinitionView workflow = get(definitionId);
+        if (!Boolean.TRUE.equals(workflow.getPublished())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow is not published");
+        }
+        runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_WORKFLOW, workflow.getId());
+        runtimeClusterSelectionService.resolveForSave(workflow.getProjectId(), workflow.getRuntimeClusterId());
+        validateNodeRuntimeClusters(workflow.getProjectId(), workflow.getRuntimeClusterId(), workflow.getNodes());
+        return workflow;
+    }
+
+    private Set<Long> collectNodeDatasourceIds(String workflowTenantId, List<WorkflowNodeDefinition> nodes) {
+        Set<Long> datasourceIds = new HashSet<Long>();
+        if (nodes == null) {
+            return datasourceIds;
+        }
+        for (WorkflowNodeDefinition node : nodes) {
+            if (node == null || node.getNodeType() == null) {
+                continue;
+            }
+            if (node.getNodeType() == NodeType.COLLECTION_TASK && collectionTaskDefinitionMapper != null) {
+                CollectionTaskDefinitionEntity resource = collectionTaskDefinitionMapper.selectById(
+                        parseLong(node.getConfig(), "collectionTaskId"));
+                if (resource == null) {
+                    throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow collection task was not found");
+                }
+                assertWorkflowResourceReadable(workflowTenantId, StudioConstants.RESOURCE_TYPE_COLLECTION_TASK,
+                        resource.getTenantId(), resource.getProjectId(), resource.getId(),
+                        "Workflow collection task was not found");
+                collectDatasourceIds(resource.getSourceBindingsJson(), datasourceIds);
+                collectDatasourceIds(resource.getTargetBindingJson(), datasourceIds);
+            } else if (node.getNodeType() == NodeType.QUALITY_TASK && qualityTaskDefinitionMapper != null) {
+                QualityTaskDefinitionEntity resource = qualityTaskDefinitionMapper.selectById(
+                        parseLong(node.getConfig(), "qualityTaskId"));
+                if (resource == null) {
+                    throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow quality task was not found");
+                }
+                assertWorkflowResourceReadable(workflowTenantId, StudioConstants.RESOURCE_TYPE_QUALITY_TASK,
+                        resource.getTenantId(), resource.getProjectId(), resource.getId(),
+                        "Workflow quality task was not found");
+                if (resource.getDatasourceId() != null) {
+                    datasourceIds.add(resource.getDatasourceId());
+                }
+            } else if (node.getNodeType() == NodeType.DATA_SCRIPT && dataDevelopmentScriptMapper != null) {
+                DataDevelopmentScriptEntity resource = dataDevelopmentScriptMapper.selectById(
+                        parseLong(node.getConfig(), "scriptId"));
+                if (resource == null) {
+                    throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow data script was not found");
+                }
+                assertWorkflowResourceReadable(workflowTenantId, StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT,
+                        resource.getTenantId(), resource.getProjectId(), resource.getId(),
+                        "Workflow data script was not found");
+                collectScriptDatasourceIds(workflowTenantId, resource, datasourceIds);
+            }
+        }
+        return datasourceIds;
+    }
+
+    private void validateNodeRuntimeClusters(Long projectId, Long runtimeClusterId, List<WorkflowNodeDefinition> nodes) {
+        validateNodeRuntimeClusters(projectId, runtimeClusterId, nodes, false);
+    }
+
+    private void validateNodeResourceRevisions(List<WorkflowNodeDefinition> nodes) {
+        if (nodes == null) return;
+        for (WorkflowNodeDefinition node : nodes) {
+            if (node == null || node.getNodeType() == null) continue;
+            String currentRevision = null;
+            if (node.getNodeType() == NodeType.COLLECTION_TASK && collectionTaskDefinitionMapper != null) {
+                CollectionTaskDefinitionEntity resource = collectionTaskDefinitionMapper.selectById(
+                        parseLong(node.getConfig(), "collectionTaskId"));
+                if (resource == null) throw new StudioException(StudioErrorCode.NOT_FOUND,
+                        "Workflow collection task was not found");
+                assertWorkflowResourceReadable(securityService.currentTenantId(),
+                        StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, resource.getTenantId(), resource.getProjectId(),
+                        resource.getId(), "Workflow collection task was not found");
+                currentRevision = collectionRevision(resource);
+            } else if (node.getNodeType() == NodeType.QUALITY_TASK && qualityTaskDefinitionMapper != null) {
+                QualityTaskDefinitionEntity resource = qualityTaskDefinitionMapper.selectById(
+                        parseLong(node.getConfig(), "qualityTaskId"));
+                if (resource == null) throw new StudioException(StudioErrorCode.NOT_FOUND,
+                        "Workflow quality task was not found");
+                assertWorkflowResourceReadable(securityService.currentTenantId(),
+                        StudioConstants.RESOURCE_TYPE_QUALITY_TASK, resource.getTenantId(), resource.getProjectId(),
+                        resource.getId(), "Workflow quality task was not found");
+                currentRevision = qualityRevision(resource);
+            } else if (node.getNodeType() == NodeType.DATA_SCRIPT && dataDevelopmentScriptMapper != null) {
+                DataDevelopmentScriptEntity resource = dataDevelopmentScriptMapper.selectById(
+                        parseLong(node.getConfig(), "scriptId"));
+                if (resource == null) throw new StudioException(StudioErrorCode.NOT_FOUND,
+                        "Workflow data script was not found");
+                assertWorkflowResourceReadable(securityService.currentTenantId(),
+                        StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, resource.getTenantId(),
+                        resource.getProjectId(), resource.getId(), "Workflow data script was not found");
+                currentRevision = scriptRevision(resource);
+            }
+            applyResourceRevision(node, currentRevision, false);
+        }
+    }
+
+    private void validateNodeRuntimeClusters(Long projectId, Long runtimeClusterId,
+                                             List<WorkflowNodeDefinition> nodes,
+                                             boolean refreshResourceRevision) {
+        if (runtimeClusterSelectionService == null || nodes == null) {
+            return;
+        }
+        Set<Long> directDatasourceIds = new HashSet<Long>();
+        for (WorkflowNodeDefinition node : nodes) {
+            if (node == null || node.getNodeType() == null) {
+                continue;
+            }
+            Long resourceClusterId = null;
+            if (node.getNodeType() == NodeType.COLLECTION_TASK && collectionTaskDefinitionMapper != null) {
+                CollectionTaskDefinitionEntity resource = collectionTaskDefinitionMapper.selectById(parseLong(node.getConfig(), "collectionTaskId"));
+                resourceClusterId = resource == null ? null : resource.getRuntimeClusterId();
+                if (resource != null) {
+                    assertWorkflowResourceReadable(securityService.currentTenantId(),
+                            StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, resource.getTenantId(), resource.getProjectId(),
+                            resource.getId(), "Workflow collection task was not found");
+                    runtimeClusterSelectionService.assertResourceValid(
+                            StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, resource.getId());
+                }
+                applyResourceRevision(node, resource == null ? null : collectionRevision(resource), refreshResourceRevision);
+            } else if (node.getNodeType() == NodeType.QUALITY_TASK && qualityTaskDefinitionMapper != null) {
+                QualityTaskDefinitionEntity resource = qualityTaskDefinitionMapper.selectById(parseLong(node.getConfig(), "qualityTaskId"));
+                resourceClusterId = resource == null ? null : resource.getRuntimeClusterId();
+                if (resource != null) {
+                    assertWorkflowResourceReadable(securityService.currentTenantId(),
+                            StudioConstants.RESOURCE_TYPE_QUALITY_TASK, resource.getTenantId(), resource.getProjectId(),
+                            resource.getId(), "Workflow quality task was not found");
+                    runtimeClusterSelectionService.assertResourceValid(
+                            StudioConstants.RESOURCE_TYPE_QUALITY_TASK, resource.getId());
+                }
+                applyResourceRevision(node, resource == null ? null : qualityRevision(resource), refreshResourceRevision);
+            } else if (node.getNodeType() == NodeType.DATA_SCRIPT && dataDevelopmentScriptMapper != null) {
+                DataDevelopmentScriptEntity resource = dataDevelopmentScriptMapper.selectById(parseLong(node.getConfig(), "scriptId"));
+                resourceClusterId = resource == null ? null : resource.getRuntimeClusterId();
+                if (resource != null) {
+                    assertWorkflowResourceReadable(securityService.currentTenantId(),
+                            StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, resource.getTenantId(),
+                            resource.getProjectId(), resource.getId(), "Workflow data script was not found");
+                    runtimeClusterSelectionService.assertResourceValid(
+                            StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, resource.getId());
+                }
+                applyResourceRevision(node, resource == null ? null : scriptRevision(resource), refreshResourceRevision);
+            }
+            if (resourceClusterId != null || node.getNodeType() == NodeType.COLLECTION_TASK
+                    || node.getNodeType() == NodeType.QUALITY_TASK || node.getNodeType() == NodeType.DATA_SCRIPT) {
+                if (runtimeClusterId == null ? resourceClusterId != null : !runtimeClusterId.equals(resourceClusterId)) {
+                    throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                            "Workflow node resource must use the same runtime cluster as the workflow");
+                }
+            }
+            collectDatasourceIds(node.getConfig(), directDatasourceIds);
+        }
+        directDatasourceIds.addAll(collectNodeDatasourceIds(securityService.currentTenantId(), nodes));
+        runtimeClusterSelectionService.validateDatasourceSelection(projectId, runtimeClusterId, directDatasourceIds);
+    }
+
+    private void applyResourceRevision(WorkflowNodeDefinition node, String currentRevision,
+                                       boolean refreshResourceRevision) {
+        if (node == null || currentRevision == null) {
+            return;
+        }
+        Map<String, Object> config = node.getConfig() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(node.getConfig());
+        Object savedRevision = config.get("_resourceRevision");
+        if (!refreshResourceRevision && savedRevision != null
+                && !currentRevision.equals(String.valueOf(savedRevision))) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "Workflow node resource configuration changed; save and publish the workflow again");
+        }
+        if (refreshResourceRevision || savedRevision == null) {
+            config.put("_resourceRevision", currentRevision);
+            node.setConfig(config);
+        }
+    }
+
+    private String collectionRevision(CollectionTaskDefinitionEntity resource) {
+        return runtimeResourceRevisionService == null
+                ? (resource.getUpdatedAt() == null ? null : resource.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.collectionTaskRevision(resource.getId());
+    }
+
+    private String qualityRevision(QualityTaskDefinitionEntity resource) {
+        return runtimeResourceRevisionService == null
+                ? (resource.getUpdatedAt() == null ? null : resource.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.qualityTaskRevision(resource.getId());
+    }
+
+    private String scriptRevision(DataDevelopmentScriptEntity resource) {
+        return runtimeResourceRevisionService == null
+                ? (resource.getUpdatedAt() == null ? null : resource.getUpdatedAt().toString())
+                : runtimeResourceRevisionService.scriptRevision(resource.getId());
+    }
+
+    private void collectScriptDatasourceIds(String workflowTenantId,
+                                            DataDevelopmentScriptEntity script,
+                                            Set<Long> datasourceIds) {
+        if (script.getDatasourceId() != null) {
+            datasourceIds.add(script.getDatasourceId());
+        }
+        if (dataModelMapper == null || script.getExecutionConfigJson() == null) {
+            return;
+        }
+        Set<Long> modelIds = new HashSet<Long>();
+        collectModelIds(script.getExecutionConfigJson(), modelIds);
+        for (Long modelId : modelIds) {
+            DataModelEntity model = dataModelMapper.selectById(modelId);
+            if (model == null) {
+                throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow data model was not found");
+            }
+            assertWorkflowResourceReadable(workflowTenantId, StudioConstants.RESOURCE_TYPE_DATA_MODEL,
+                    model.getTenantId(), model.getProjectId(), model.getId(), "Workflow data model was not found");
+            if (model.getDatasourceId() != null) {
+                datasourceIds.add(model.getDatasourceId());
+            }
+        }
+    }
+
+    private void collectModelIds(Object value, Set<Long> target) {
+        if (value instanceof Map) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                String key = entry.getKey() == null ? "" : String.valueOf(entry.getKey()).toLowerCase();
+                if (key.endsWith("modelid") || key.endsWith("modelids")) {
+                    collectLongIds(entry.getValue(), target);
+                }
+                collectModelIds(entry.getValue(), target);
+            }
+        } else if (value instanceof Collection) {
+            for (Object item : (Collection<?>) value) {
+                collectModelIds(item, target);
+            }
+        }
+    }
+
+    private void collectLongIds(Object value, Set<Long> target) {
+        if (value instanceof Collection) {
+            for (Object item : (Collection<?>) value) {
+                collectLongIds(item, target);
+            }
+            return;
+        }
+        if (value instanceof Map) {
+            collectLongIds(((Map<?, ?>) value).get("id"), target);
+            return;
+        }
+        Long id = parseLongValue(value);
+        if (id != null) {
+            target.add(id);
+        }
+    }
+
+    private void assertWorkflowResourceReadable(String workflowTenantId,
+                                                String resourceType,
+                                                String resourceTenantId,
+                                                Long resourceProjectId,
+                                                Long resourceId,
+                                                String notFoundMessage) {
+        if (workflowTenantId == null || !workflowTenantId.equals(resourceTenantId)) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, notFoundMessage);
+        }
+        projectResourceAccessService.assertReadable(resourceType, resourceProjectId, resourceId, notFoundMessage);
+    }
+
+    private Long parseLong(Map<String, Object> config, String key) {
+        Object value = config == null ? null : config.get(key);
+        if (value instanceof Number) {
+            return Long.valueOf(((Number) value).longValue());
+        }
+        if (value instanceof String && !((String) value).trim().isEmpty()) {
+            try {
+                return Long.valueOf(((String) value).trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void collectDatasourceIds(Object value, Set<Long> target) {
+        if (value instanceof Map) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                String key = entry.getKey() == null ? "" : String.valueOf(entry.getKey()).toLowerCase();
+                if (key.contains("datasource") && key.endsWith("id")) {
+                    Long id = parseLongValue(entry.getValue());
+                    if (id != null) target.add(id);
+                }
+                collectDatasourceIds(entry.getValue(), target);
+            }
+        } else if (value instanceof Collection) {
+            for (Object item : (Collection<Object>) value) collectDatasourceIds(item, target);
+        }
+    }
+
+    private Long parseLongValue(Object value) {
+        if (value instanceof Number) return Long.valueOf(((Number) value).longValue());
+        if (value instanceof String) {
+            try { return Long.valueOf(((String) value).trim()); } catch (NumberFormatException ex) { return null; }
+        }
+        return null;
+    }
+
+    private Map<String, Object> toGraphJson(WorkflowSaveRequest request) {
+        Map<String, Object> graph = new LinkedHashMap<String, Object>();
+        List<Map<String, Object>> nodes = new ArrayList<Map<String, Object>>();
+        for (WorkflowNodeDefinition node : request.getNodes()) {
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("nodeCode", node.getNodeCode());
+            item.put("nodeName", node.getNodeName());
+            item.put("nodeType", node.getNodeType() == null ? null : node.getNodeType().name());
+            item.put("config", node.getConfig());
+            item.put("fieldMappings", toMappings(node.getFieldMappings()));
+            nodes.add(item);
+        }
+        List<Map<String, Object>> edges = new ArrayList<Map<String, Object>>();
+        for (WorkflowEdgeDefinition edge : request.getEdges()) {
+            Map<String, Object> item = new LinkedHashMap<String, Object>();
+            item.put("fromNodeCode", edge.getFromNodeCode());
+            item.put("toNodeCode", edge.getToNodeCode());
+            item.put("condition", edge.getCondition() == null ? EdgeCondition.ON_SUCCESS.name() : edge.getCondition().name());
+            edges.add(item);
+        }
+        graph.put("nodes", nodes);
+        graph.put("edges", edges);
+        return graph;
     }
 
     public List<WorkflowScheduleEntity> findEnabledSchedules() {
@@ -509,7 +945,7 @@ public class WorkflowService {
 
     private WorkflowDefinitionEntity findAccessibleEntity(Long definitionId) {
         WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
-        if (definition == null) {
+        if (definition == null || !java.util.Objects.equals(securityService.currentTenantId(), definition.getTenantId())) {
             return null;
         }
         projectResourceAccessService.assertReadable(StudioConstants.RESOURCE_TYPE_WORKFLOW,
@@ -519,7 +955,7 @@ public class WorkflowService {
 
     private WorkflowDefinitionEntity requireWritableEntity(Long definitionId) {
         WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
-        if (definition == null) {
+        if (definition == null || !java.util.Objects.equals(securityService.currentTenantId(), definition.getTenantId())) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Workflow not found");
         }
         projectResourceAccessService.assertWritable(definition.getProjectId());

@@ -15,13 +15,12 @@ import com.jdragon.studio.infra.script.java.JavaDataScriptResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -31,6 +30,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -61,7 +61,6 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-@Service
 public class ScriptEnvironmentRuntimeService {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptEnvironmentRuntimeService.class);
@@ -76,7 +75,7 @@ public class ScriptEnvironmentRuntimeService {
 
     private final ScriptEnvironmentService environmentService;
     private final EnvironmentDependencyService dependencyService;
-    private final CloudObjectStorageService cloudObjectStorageService;
+    private final ScriptEnvironmentArtifactLoader artifactLoader;
     private final Map<String, RuntimeClassLoaderHolder> classLoaderCache = new ConcurrentHashMap<String, RuntimeClassLoaderHolder>();
     private final Map<String, RuntimeClassLoaderHolder> retiredClassLoaderCache = new ConcurrentHashMap<String, RuntimeClassLoaderHolder>();
     private final Map<String, JavaImportHintResponse> importHintCache = new ConcurrentHashMap<String, JavaImportHintResponse>();
@@ -85,10 +84,10 @@ public class ScriptEnvironmentRuntimeService {
 
     public ScriptEnvironmentRuntimeService(ScriptEnvironmentService environmentService,
                                            EnvironmentDependencyService dependencyService,
-                                           CloudObjectStorageService cloudObjectStorageService) {
+                                           ScriptEnvironmentArtifactLoader artifactLoader) {
         this.environmentService = environmentService;
         this.dependencyService = dependencyService;
-        this.cloudObjectStorageService = cloudObjectStorageService;
+        this.artifactLoader = artifactLoader;
     }
 
     public RuntimeLease resolveRuntime(Long environmentId) {
@@ -270,7 +269,7 @@ public class ScriptEnvironmentRuntimeService {
         Files.createDirectories(artifactDir);
         Path target = artifactDir.resolve(file.getId() + ".jar");
         if (!Files.exists(target)) {
-            try (InputStream inputStream = openArtifactStream(file.getObjectUrl())) {
+            try (InputStream inputStream = artifactLoader.open(file.getObjectUrl())) {
                 Files.copy(inputStream, target);
             }
         }
@@ -284,7 +283,7 @@ public class ScriptEnvironmentRuntimeService {
         String extension = "ZIP".equalsIgnoreCase(dependency.getArtifactType()) ? ".zip" : ".jar";
         Path target = artifactDir.resolve(dependency.getId() + extension);
         if (!Files.exists(target)) {
-            try (InputStream inputStream = openArtifactStream(dependency.getArtifactUrl())) {
+            try (InputStream inputStream = artifactLoader.open(dependency.getArtifactUrl())) {
                 Files.copy(inputStream, target);
             }
         }
@@ -292,31 +291,6 @@ public class ScriptEnvironmentRuntimeService {
         return target;
     }
 
-    private InputStream openArtifactStream(String artifactUrl) throws Exception {
-        if (artifactUrl == null || artifactUrl.trim().isEmpty()) {
-            throw new IllegalArgumentException("Artifact URL is blank");
-        }
-        String normalized = artifactUrl.trim();
-        if (normalized.startsWith("oss://")) {
-            OssArtifact artifact = parseOssArtifact(normalized);
-            return new ByteArrayInputStream(cloudObjectStorageService.get(artifact.bucket, artifact.objectKey));
-        }
-        if (normalized.startsWith("http://")
-                || normalized.startsWith("https://")
-                || normalized.startsWith("file:")) {
-            return new URL(normalized).openStream();
-        }
-        return Files.newInputStream(Paths.get(normalized));
-    }
-
-    private OssArtifact parseOssArtifact(String artifactUrl) {
-        String value = artifactUrl.substring("oss://".length());
-        int splitIndex = value.indexOf('/');
-        if (splitIndex <= 0 || splitIndex >= value.length() - 1) {
-            throw new IllegalArgumentException("Invalid OSS artifact URL: " + artifactUrl);
-        }
-        return new OssArtifact(value.substring(0, splitIndex), value.substring(splitIndex + 1));
-    }
 
     private void verifyChecksum(EnvironmentDependencyEntity dependency, Path artifact) throws Exception {
         if (dependency.getChecksum() == null || dependency.getChecksum().trim().isEmpty()) {
@@ -358,13 +332,19 @@ public class ScriptEnvironmentRuntimeService {
     private List<ResolvedJar> extractJars(EnvironmentDependencyEntity dependency, Path zipPath, Path targetDir) throws Exception {
         Files.createDirectories(targetDir);
         List<ResolvedJar> result = new ArrayList<ResolvedJar>();
+        long extractedBytes = 0L;
+        long extractionLimit = artifactLoader.maxArtifactBytes();
         try (ZipInputStream zipInputStream = new ZipInputStream(Files.newInputStream(zipPath))) {
             ZipEntry entry = zipInputStream.getNextEntry();
             while (entry != null) {
                 if (!entry.isDirectory() && entry.getName() != null && entry.getName().toLowerCase(Locale.ROOT).endsWith(".jar")) {
                     String fileName = sanitizeFileName(entry.getName());
                     Path jarPath = targetDir.resolve(fileName);
-                    Files.copy(zipInputStream, jarPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    long remainingBytes = extractionLimit - extractedBytes;
+                    if (remainingBytes <= 0L || entry.getSize() > remainingBytes) {
+                        throw new IllegalArgumentException("ZIP dependency exceeds the configured extraction size limit");
+                    }
+                    extractedBytes += copyZipEntry(zipInputStream, jarPath, remainingBytes);
                     result.add(new ResolvedJar(dependency.getId(), jarPath));
                 }
                 zipInputStream.closeEntry();
@@ -1110,6 +1090,26 @@ public class ScriptEnvironmentRuntimeService {
         return result;
     }
 
+    private long copyZipEntry(InputStream input, Path target, long maxBytes) throws Exception {
+        long total = 0L;
+        byte[] buffer = new byte[8192];
+        try (OutputStream output = Files.newOutputStream(target,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                total += read;
+                if (total > maxBytes) {
+                    throw new IllegalArgumentException("ZIP dependency exceeds the configured extraction size limit");
+                }
+                output.write(buffer, 0, read);
+            }
+        } catch (Exception ex) {
+            Files.deleteIfExists(target);
+            throw ex;
+        }
+        return total;
+    }
+
     private boolean deleteDirectoryQuietly(Path directory) {
         if (directory == null) {
             return true;
@@ -1283,16 +1283,6 @@ public class ScriptEnvironmentRuntimeService {
         private ResolvedJar(Long dependencyId, Path path) {
             this.dependencyId = dependencyId;
             this.path = path;
-        }
-    }
-
-    private static final class OssArtifact {
-        private final String bucket;
-        private final String objectKey;
-
-        private OssArtifact(String bucket, String objectKey) {
-            this.bucket = bucket;
-            this.objectKey = objectKey;
         }
     }
 

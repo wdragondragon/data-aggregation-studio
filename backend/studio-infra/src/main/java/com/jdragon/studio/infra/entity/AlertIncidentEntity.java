@@ -27,6 +27,8 @@ public class AlertIncidentEntity extends BaseProjectTenantEntity {
     private String severity;
     private String status;
     private String summary;
+    private Long requestedClusterId;
+    private Long actualClusterId;
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> currentEvidenceJson = new LinkedHashMap<String, Object>();

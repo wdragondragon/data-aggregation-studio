@@ -11,6 +11,10 @@ import java.util.List;
 @Data
 @Schema(description = "Model sync task create request")
 public class ModelSyncTaskCreateRequest {
+    @NotNull(message = "Runtime cluster is required")
+    @Schema(description = "Runtime cluster used for discovery and metadata hydration")
+    private Long runtimeClusterId;
+
     @NotNull(message = "Datasource id is required")
     @Schema(description = "Datasource id", required = true)
     private Long datasourceId;

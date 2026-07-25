@@ -142,7 +142,7 @@ insert into meta_field_definition (id, tenant_id, deleted, created_at, updated_a
 (2047489290000010237, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 2047489290000000222, 'preSql', '写入前 SQL', '写入前 SQL', 'TECHNICAL', 'STRING', 'SQL_EDITOR', 0, 0, 70, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
 (2047489290000010238, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 2047489290000000222, 'postSql', '写入后 SQL', '写入后 SQL', 'TECHNICAL', 'STRING', 'SQL_EDITOR', 0, 0, 80, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]');
 
--- HTTP SOAP runtime option meta models. The JobContainer plugin remains httpreader/httpwriter;
+-- HTTP SOAP runtime option meta models. Worker-side JobContainer execution still uses httpreader/httpwriter;
 -- http-soap is only a Studio runtime profile used by protocolMode=SOAP.
 insert into meta_schema (id, tenant_id, deleted, created_at, updated_at, schema_code, schema_name, object_type, type_code, current_version_id, status, description) values
 (2047489290000000231, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 'runtime:reader:http-soap', 'HTTP SOAP Reader 参数', 'collection-runtime-option', 'reader:http-soap', 2047489290000000232, 'DRAFT', 'META_MODEL_CONFIG:{"domain":"RUNTIME","role":"reader","pluginType":"http-soap","metaModelCode":"reader","metaModelName":"HTTP SOAP Reader 参数","displayMode":"SINGLE","required":false,"syncStrategy":"RUNTIME_OPTION"}\nHTTP SOAP Reader 参数 runtime options.'),

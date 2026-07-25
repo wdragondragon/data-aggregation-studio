@@ -5,8 +5,12 @@ import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.entity.ProjectWorkerBindingEntity;
+import com.jdragon.studio.infra.entity.ProjectRuntimeClusterEntity;
+import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
+import com.jdragon.studio.infra.mapper.ProjectRuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.ProjectWorkerBindingMapper;
+import com.jdragon.studio.infra.mapper.RuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import org.springframework.stereotype.Service;
 
@@ -21,11 +25,17 @@ public class WorkerAuthorizationService {
 
     private final ProjectWorkerBindingMapper projectWorkerBindingMapper;
     private final WorkerLeaseMapper workerLeaseMapper;
+    private final RuntimeClusterMapper runtimeClusterMapper;
+    private final ProjectRuntimeClusterMapper projectRuntimeClusterMapper;
 
     public WorkerAuthorizationService(ProjectWorkerBindingMapper projectWorkerBindingMapper,
-                                      WorkerLeaseMapper workerLeaseMapper) {
+                                      WorkerLeaseMapper workerLeaseMapper,
+                                      RuntimeClusterMapper runtimeClusterMapper,
+                                      ProjectRuntimeClusterMapper projectRuntimeClusterMapper) {
         this.projectWorkerBindingMapper = projectWorkerBindingMapper;
         this.workerLeaseMapper = workerLeaseMapper;
+        this.runtimeClusterMapper = runtimeClusterMapper;
+        this.projectRuntimeClusterMapper = projectRuntimeClusterMapper;
     }
 
     public boolean hasAvailableWorker(String tenantId, Long projectId) {
@@ -51,6 +61,33 @@ public class WorkerAuthorizationService {
             }
         }
         return false;
+    }
+
+    public boolean isRuntimeClusterAuthorizedForProject(String tenantId, Long projectId, Long runtimeClusterId) {
+        if (!hasText(tenantId) || projectId == null || runtimeClusterId == null) {
+            return false;
+        }
+        Long clusterCount = runtimeClusterMapper.selectCount(new LambdaQueryWrapper<RuntimeClusterEntity>()
+                .eq(RuntimeClusterEntity::getId, runtimeClusterId)
+                .eq(RuntimeClusterEntity::getTenantId, tenantId.trim())
+                .eq(RuntimeClusterEntity::getEnabled, 1));
+        if (clusterCount == null || clusterCount.longValue() == 0L) {
+            return false;
+        }
+        return isProjectRuntimeClusterGrantEnabled(tenantId, projectId, runtimeClusterId);
+    }
+
+    public boolean isProjectRuntimeClusterGrantEnabled(String tenantId, Long projectId, Long runtimeClusterId) {
+        if (!hasText(tenantId) || projectId == null || runtimeClusterId == null) {
+            return false;
+        }
+        Long authorizationCount = projectRuntimeClusterMapper.selectCount(
+                new LambdaQueryWrapper<ProjectRuntimeClusterEntity>()
+                        .eq(ProjectRuntimeClusterEntity::getTenantId, tenantId.trim())
+                        .eq(ProjectRuntimeClusterEntity::getProjectId, projectId)
+                        .eq(ProjectRuntimeClusterEntity::getRuntimeClusterId, runtimeClusterId)
+                        .eq(ProjectRuntimeClusterEntity::getEnabled, 1));
+        return authorizationCount != null && authorizationCount.longValue() > 0L;
     }
 
     public List<WorkerLeaseEntity> listAvailableWorkers(String tenantId, Long projectId) {

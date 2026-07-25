@@ -14,6 +14,7 @@ import com.jdragon.studio.dto.model.request.DataServiceSaveRequest;
 import com.jdragon.studio.dto.model.request.DataServiceSubscriptionCreateRequest;
 import com.jdragon.studio.dto.model.request.WebServiceDebugRequest;
 import com.jdragon.studio.infra.service.DataServiceService;
+import com.jdragon.studio.server.web.service.RuntimeInvocationRouter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -35,9 +37,12 @@ import java.util.Map;
 public class DataServiceController {
 
     private final DataServiceService dataServiceService;
+    private final RuntimeInvocationRouter runtimeInvocationRouter;
 
-    public DataServiceController(DataServiceService dataServiceService) {
+    public DataServiceController(DataServiceService dataServiceService,
+                                 RuntimeInvocationRouter runtimeInvocationRouter) {
         this.dataServiceService = dataServiceService;
+        this.runtimeInvocationRouter = runtimeInvocationRouter;
     }
 
     @Operation(summary = "List data services")
@@ -95,15 +100,20 @@ public class DataServiceController {
 
     @Operation(summary = "Resolve source fields")
     @PostMapping("/resolve-fields")
-    public Result<DataServiceResolveFieldsView> resolveFields(@RequestBody DataServiceResolveFieldsRequest request) {
+    public Result<DataServiceResolveFieldsView> resolveFields(@Valid @RequestBody DataServiceResolveFieldsRequest request) {
         return Result.success(dataServiceService.resolveFields(request));
     }
 
     @Operation(summary = "Debug data service")
     @PostMapping("/{id}/debug")
     public Result<Map<String, Object>> debug(@PathVariable("id") Long id,
-                                             @RequestBody(required = false) DataServiceDebugRequest request) {
-        return Result.success(dataServiceService.debug(id, request));
+                                             @RequestBody(required = false) DataServiceDebugRequest request,
+                                             HttpServletResponse response) {
+        DataServiceDefinitionView view = dataServiceService.get(id);
+        RuntimeInvocationRouter.DebugRoute<Map<String, Object>> route =
+                runtimeInvocationRouter.routeDataServiceDebug(view, request);
+        response.setStatus(route.getStatus());
+        return route.getResult();
     }
 
     @Operation(summary = "Preview data service WebService contract")
@@ -115,8 +125,13 @@ public class DataServiceController {
     @Operation(summary = "Debug data service WebService")
     @PostMapping("/{id}/webservice/debug")
     public Result<WebServiceDebugResult> debugWebService(@PathVariable("id") Long id,
-                                                         @RequestBody(required = false) WebServiceDebugRequest request) {
-        return Result.success(dataServiceService.debugWebService(id, request));
+                                                         @RequestBody(required = false) WebServiceDebugRequest request,
+                                                         HttpServletResponse response) {
+        DataServiceDefinitionView view = dataServiceService.get(id);
+        RuntimeInvocationRouter.DebugRoute<WebServiceDebugResult> route =
+                runtimeInvocationRouter.routeDataServiceWebServiceDebug(view, request);
+        response.setStatus(route.getStatus());
+        return route.getResult();
     }
 
     @Operation(summary = "List data service subscriptions")

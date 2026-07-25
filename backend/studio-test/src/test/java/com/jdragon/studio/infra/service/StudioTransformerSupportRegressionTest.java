@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class StudioTransformerSupportRegressionTest {
 
     private final StudioTransformerSupport transformerSupport = new StudioTransformerSupport(new ObjectMapper());
+    private final StudioTransformerExecutionSupport transformerExecutionSupport =
+            new StudioTransformerExecutionSupport(transformerSupport);
 
     @Test
     void responseTransformerConfigShouldUseResponseParamOrderColumnIndex() {
@@ -58,12 +60,25 @@ class StudioTransformerSupportRegressionTest {
         row.put("name", "alice");
         List<Map<String, Object>> rows = Collections.singletonList(row);
 
-        List<Map<String, Object>> transformed = transformerSupport.applyOnlineResponseTransformers(
+        List<Map<String, Object>> transformed = transformerExecutionSupport.applyOnlineResponseTransformers(
                 rows,
                 Collections.singletonList(responseParam("name", null)));
 
         assertSame(rows, transformed);
         assertEquals("alice", transformed.get(0).get("name"));
+    }
+
+    @Test
+    void workerExecutionSupportShouldApplySafeResponseTransformer() {
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put("phone", "13812345678");
+
+        List<Map<String, Object>> transformed = transformerExecutionSupport.applyOnlineResponseTransformers(
+                Collections.singletonList(row),
+                Collections.singletonList(responseParam("phone",
+                        transformer("dx_replace", Arrays.<Object>asList("3", "4", "****")))));
+
+        assertEquals("138****5678", transformed.get(0).get("phone"));
     }
 
     private DataServiceResponseParamView responseParam(String paramName, TransformerBinding transformer) {

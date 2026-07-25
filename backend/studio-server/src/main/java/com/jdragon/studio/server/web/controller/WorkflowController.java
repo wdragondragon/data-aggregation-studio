@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowListView;
 import com.jdragon.studio.dto.model.WorkflowOptionView;
 import com.jdragon.studio.dto.model.request.WorkflowSaveRequest;
+import com.jdragon.studio.dto.model.request.RuntimeClusterTriggerRequest;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.WorkflowService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -50,8 +51,9 @@ public class WorkflowController {
 
     @Operation(summary = "List workflow options")
     @GetMapping("/options")
-    public Result<List<WorkflowOptionView>> options() {
-        return Result.success(workflowService.listOptions());
+    public Result<List<WorkflowOptionView>> options(
+            @RequestParam(value = "runtimeClusterId", required = false) Long runtimeClusterId) {
+        return Result.success(workflowService.listOptions(runtimeClusterId));
     }
 
     @Operation(summary = "Get workflow detail")
@@ -74,8 +76,9 @@ public class WorkflowController {
 
     @Operation(summary = "Trigger workflow execution")
     @PostMapping("/{id}/trigger")
-    public Result<Void> trigger(@PathVariable("id") Long id) {
-        dispatchService.triggerManualRun(id);
+    public Result<Void> trigger(@PathVariable("id") Long id,
+                                @RequestBody(required = false) RuntimeClusterTriggerRequest request) {
+        dispatchService.triggerManualRun(id, request == null ? null : request.getRuntimeClusterId());
         return Result.success(null);
     }
 

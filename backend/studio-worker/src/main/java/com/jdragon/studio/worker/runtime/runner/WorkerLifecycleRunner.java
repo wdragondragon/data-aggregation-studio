@@ -2,6 +2,7 @@ package com.jdragon.studio.worker.runtime.runner;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
@@ -11,21 +12,28 @@ import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.infra.service.ClusterInstanceIdentity;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
+import com.jdragon.studio.infra.service.DispatchProtectedPayloadService;
 import com.jdragon.studio.infra.service.QualityTaskService;
+import com.jdragon.studio.infra.service.RuntimeResourceRevisionService;
+import com.jdragon.studio.infra.service.RuntimeClusterHeartbeatService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.service.RunLogStorageService;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.RuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.security.StudioRequestContext;
 import com.jdragon.studio.infra.security.StudioRequestContextHolder;
+import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -35,9 +43,12 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 @Component
 @ConditionalOnProperty(name = "studio.worker.lifecycle.enabled", havingValue = "true", matchIfMissing = true)
@@ -56,6 +67,11 @@ public class WorkerLifecycleRunner {
     private final RunLogFileService runLogFileService;
     private final WorkerAuthorizationService workerAuthorizationService;
     private final ClusterInstanceIdentity clusterInstanceIdentity;
+    private final WorkflowDispatchNodeResolver workflowDispatchNodeResolver;
+    private RuntimeClusterMapper runtimeClusterMapper;
+    private RuntimeResourceRevisionService runtimeResourceRevisionService;
+    private RuntimeClusterHeartbeatService runtimeClusterHeartbeatService;
+    private DispatchProtectedPayloadService dispatchProtectedPayloadService;
     private volatile boolean acceptingTasks = false;
 
     public WorkerLifecycleRunner(DispatchTaskMapper dispatchTaskMapper,
@@ -69,7 +85,8 @@ public class WorkerLifecycleRunner {
                                  CollectionTaskAssemblerService collectionTaskAssemblerService,
                                  RunLogFileService runLogFileService,
                                  WorkerAuthorizationService workerAuthorizationService,
-                                 ClusterInstanceIdentity clusterInstanceIdentity) {
+                                 ClusterInstanceIdentity clusterInstanceIdentity,
+                                 WorkflowDispatchNodeResolver workflowDispatchNodeResolver) {
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.workerLeaseMapper = workerLeaseMapper;
         this.runRecordMapper = runRecordMapper;
@@ -82,12 +99,37 @@ public class WorkerLifecycleRunner {
         this.runLogFileService = runLogFileService;
         this.workerAuthorizationService = workerAuthorizationService;
         this.clusterInstanceIdentity = clusterInstanceIdentity;
+        this.workflowDispatchNodeResolver = workflowDispatchNodeResolver;
+    }
+
+    @Autowired(required = false)
+    void setRuntimeClusterMapper(RuntimeClusterMapper runtimeClusterMapper) {
+        this.runtimeClusterMapper = runtimeClusterMapper;
+    }
+
+    @Autowired(required = false)
+    void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
+        this.runtimeResourceRevisionService = runtimeResourceRevisionService;
+    }
+
+    @Autowired
+    void setDispatchProtectedPayloadService(DispatchProtectedPayloadService dispatchProtectedPayloadService) {
+        this.dispatchProtectedPayloadService = dispatchProtectedPayloadService;
+    }
+
+    @Autowired
+    void setRuntimeClusterHeartbeatService(RuntimeClusterHeartbeatService runtimeClusterHeartbeatService) {
+        this.runtimeClusterHeartbeatService = runtimeClusterHeartbeatService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void recoverLeasedRunningTasks() {
+        List<Long> runtimeClusterIds = currentRuntimeClusterIds();
+        if (runtimeClusterIds.isEmpty()) {
+            return;
+        }
         String workerGroupCode = workerGroupCode();
-        List<DispatchTaskEntity> runningTasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+        LambdaQueryWrapper<DispatchTaskEntity> query = new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getStatus, "RUNNING")
                 .and(wrapper -> wrapper.eq(DispatchTaskEntity::getWorkerGroupCode, workerGroupCode)
                         .or()
@@ -96,30 +138,62 @@ public class WorkerLifecycleRunner {
                         .eq(DispatchTaskEntity::getLeaseOwner, workerCode()))
                 .and(wrapper -> wrapper.eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId())
                         .or()
-                        .isNull(DispatchTaskEntity::getWorkerInstanceId)));
+                        .isNull(DispatchTaskEntity::getWorkerInstanceId))
+                .in(DispatchTaskEntity::getTargetClusterId, runtimeClusterIds);
+        if (hasText(clusterInstanceIdentity.bootId())) {
+            query.and(wrapper -> wrapper.ne(DispatchTaskEntity::getWorkerBootId, clusterInstanceIdentity.bootId())
+                    .or()
+                    .isNull(DispatchTaskEntity::getWorkerBootId));
+        } else {
+            query.isNull(DispatchTaskEntity::getWorkerBootId);
+        }
+        List<DispatchTaskEntity> runningTasks = dispatchTaskMapper.selectList(query);
         for (DispatchTaskEntity task : runningTasks) {
             recoverInterruptedTask(task);
         }
     }
 
-    @Scheduled(fixedDelay = 5000L)
     public void heartbeat() {
         LocalDateTime now = LocalDateTime.now();
+        List<RuntimeClusterEntity> runtimeClusters = currentRuntimeClusters();
+        if (runtimeClusters.isEmpty()) {
+            acceptingTasks = false;
+            markCurrentLeaseOffline();
+            log.warn("Worker runtime cluster {} is not registered or enabled; task polling is disabled", runtimeClusterCode());
+            return;
+        }
+        for (RuntimeClusterEntity runtimeCluster : runtimeClusters) {
+            heartbeatLease(runtimeCluster.getTenantId(), runtimeCluster.getId(), now);
+        }
+        updateRuntimeClusterHeartbeat(runtimeClusters, now);
+        acceptingTasks = true;
+        renewRunningTaskLeases();
+    }
+
+    private void heartbeatLease(String tenantId, Long runtimeClusterId, LocalDateTime now) {
         String workerGroupCode = workerGroupCode();
-        WorkerLeaseEntity lease = workerLeaseMapper.selectOne(new LambdaQueryWrapper<WorkerLeaseEntity>()
+        LambdaQueryWrapper<WorkerLeaseEntity> leaseQuery = new LambdaQueryWrapper<WorkerLeaseEntity>()
+                .eq(WorkerLeaseEntity::getTenantId, tenantId)
                 .eq(WorkerLeaseEntity::getWorkerGroupCode, workerGroupCode)
                 .and(wrapper -> wrapper.eq(WorkerLeaseEntity::getInstanceId, clusterInstanceIdentity.instanceId())
                         .or()
-                        .isNull(WorkerLeaseEntity::getInstanceId))
+                        .isNull(WorkerLeaseEntity::getInstanceId));
+        leaseQuery.eq(WorkerLeaseEntity::getRuntimeClusterId, runtimeClusterId)
+                .eq(WorkerLeaseEntity::getRuntimeClusterCode, runtimeClusterCode());
+        WorkerLeaseEntity lease = workerLeaseMapper.selectOne(leaseQuery
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt)
                 .last("limit 1"));
         if (lease == null) {
             lease = new WorkerLeaseEntity();
+            lease.setTenantId(tenantId);
+            lease.setRuntimeClusterId(runtimeClusterId);
+            lease.setRuntimeClusterCode(runtimeClusterCode());
             lease.setWorkerGroupCode(workerGroupCode);
             lease.setWorkerCode(workerCode());
             lease.setWorkerKind(workerKind());
             lease.setStatus("ONLINE");
             lease.setInstanceId(clusterInstanceIdentity.instanceId());
+            lease.setBootId(clusterInstanceIdentity.bootId());
             lease.setHostName(clusterInstanceIdentity.hostName());
             lease.setPodName(clusterInstanceIdentity.podName());
             lease.setNodeName(clusterInstanceIdentity.nodeName());
@@ -127,10 +201,16 @@ public class WorkerLifecycleRunner {
             workerLeaseMapper.insert(lease);
         }
         lease.setStatus("ONLINE");
+        lease.setTenantId(tenantId);
         lease.setWorkerGroupCode(workerGroupCode);
         lease.setWorkerCode(workerCode());
         lease.setWorkerKind(workerKind());
+        lease.setRuntimeClusterId(runtimeClusterId);
+        lease.setRuntimeClusterCode(runtimeClusterCode());
         lease.setInstanceId(clusterInstanceIdentity.instanceId());
+        lease.setBootId(clusterInstanceIdentity.bootId());
+        lease.setRuntimeVersion(properties.getRuntimeVersion());
+        lease.setPluginFingerprint(properties.getPluginFingerprint());
         lease.setHostName(clusterInstanceIdentity.hostName());
         lease.setPodName(clusterInstanceIdentity.podName());
         lease.setNodeName(clusterInstanceIdentity.nodeName());
@@ -143,12 +223,13 @@ public class WorkerLifecycleRunner {
         capabilities.put("workerCode", workerCode());
         capabilities.put("apiBaseUrl", properties.getWorkerApiBaseUrl());
         capabilities.put("instanceId", clusterInstanceIdentity.instanceId());
+        capabilities.put("bootId", clusterInstanceIdentity.bootId());
+        capabilities.put("runtimeClusterId", runtimeClusterId);
+        capabilities.put("runtimeClusterCode", runtimeClusterCode());
         capabilities.put("podName", clusterInstanceIdentity.podName());
         capabilities.put("nodeName", clusterInstanceIdentity.nodeName());
         lease.setCapabilitiesJson(capabilities);
         workerLeaseMapper.updateById(lease);
-        acceptingTasks = true;
-        renewRunningTaskLeases();
     }
 
     @Scheduled(fixedDelay = 3000L)
@@ -157,12 +238,32 @@ public class WorkerLifecycleRunner {
             acceptingTasks = false;
             return;
         }
-        List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+        List<Long> runtimeClusterIds = currentRuntimeClusterIds();
+        if (runtimeClusterIds.isEmpty()) {
+            acceptingTasks = false;
+            return;
+        }
+        LambdaQueryWrapper<DispatchTaskEntity> queuedQuery = new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getStatus, "QUEUED")
+                .in(DispatchTaskEntity::getTargetClusterId, runtimeClusterIds);
+        List<DispatchTaskEntity> queued = dispatchTaskMapper.selectList(queuedQuery
                 .orderByAsc(DispatchTaskEntity::getCreatedAt)
                 .last("limit 10"));
         for (DispatchTaskEntity task : queued) {
-            if (!isAuthorized(task)) {
+            boolean targetsCurrentRuntime = task != null && task.getTargetClusterId() != null
+                    && runtimeClusterIds.contains(task.getTargetClusterId());
+            boolean projectRuntimeAuthorized = targetsCurrentRuntime
+                    && workerAuthorizationService.isProjectRuntimeClusterGrantEnabled(
+                    task.getTenantId(), task.getProjectId(), task.getTargetClusterId());
+            boolean runtimeClusterAuthorized = projectRuntimeAuthorized
+                    && workerAuthorizationService.isRuntimeClusterAuthorizedForProject(
+                    task.getTenantId(), task.getProjectId(), task.getTargetClusterId());
+            boolean authorized = task != null && task.getTargetClusterId() != null
+                    && runtimeClusterAuthorized;
+            if (!authorized) {
+                if (targetsCurrentRuntime && !projectRuntimeAuthorized) {
+                    failQueuedUnauthorizedTask(task);
+                }
                 continue;
             }
             if (!claimTask(task)) {
@@ -177,6 +278,10 @@ public class WorkerLifecycleRunner {
                 if (claimedTask != null) {
                     task = claimedTask;
                 }
+                if (!isAuthorized(task)) {
+                    failClaimedUnauthorizedTask(task);
+                    continue;
+                }
                 runRecord = createRunRecord(task, startedAt);
                 preparedRunLog = runLogFileService.prepare(runRecord.getId());
                 runRecord.setLogFilePath(preparedRunLog.getRelativePath());
@@ -186,10 +291,13 @@ public class WorkerLifecycleRunner {
                 runRecord.setLogStatus("WRITING");
                 runRecordMapper.updateById(runRecord);
                 task.setRunRecordId(runRecord.getId());
-                updateOwnedRunningTask(task);
+                if (!updateOwnedRunningTask(task)) {
+                    log.warn("Dispatch task {} lost its claim before execution started", task.getId());
+                    failUnlinkedRunRecord(runRecord, "Dispatch claim was lost before the run record was linked");
+                    continue;
+                }
                 runLogScope = runLogFileService.openScope(preparedRunLog);
                 log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
-                WorkflowNodeDefinition node = toNode(task);
                 Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
                 runtimeContext.put("jobId", runRecord.getId());
                 runtimeContext.put("runRecordId", runRecord.getId());
@@ -199,10 +307,14 @@ public class WorkerLifecycleRunner {
                 runtimeContext.put("workerGroupCode", workerGroupCode());
                 runtimeContext.put("workerCode", workerCode());
                 runtimeContext.put("workerInstanceId", clusterInstanceIdentity.instanceId());
+                runtimeContext.put("workerBootId", clusterInstanceIdentity.bootId());
+                runtimeContext.put("runtimeClusterId", task.getTargetClusterId());
+                runtimeContext.put("runtimeClusterCode", runtimeClusterCode());
+                runtimeContext.put("resourceRevision", task.getResourceRevision());
                 runtimeContext.put("workerPodName", clusterInstanceIdentity.podName());
                 runtimeContext.put("workerNodeName", clusterInstanceIdentity.nodeName());
                 runtimeContext.put("triggeredByUserId", task.getTriggeredByUserId());
-                Map<String, Object> result = executeWithTaskContext(task, node, runtimeContext);
+                Map<String, Object> result = executeWithTaskContext(task, runtimeContext);
                 String resultStatus = resolveExecutionStatus(result);
                 LocalDateTime endedAt = LocalDateTime.now();
                 if ("FAILED".equalsIgnoreCase(resultStatus)) {
@@ -212,18 +324,25 @@ public class WorkerLifecycleRunner {
                 }
                 closeRunLogScope(runLogScope);
                 runLogScope = null;
-                RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                 if ("FAILED".equalsIgnoreCase(resultStatus)) {
                     task.setStatus("FAILED");
                     task.setAttempts(task.getAttempts() == null ? 1 : task.getAttempts() + 1);
                     task.setPayloadJson(result);
-                    updateOwnedRunningTask(task);
+                    if (!updateOwnedRunningTask(task)) {
+                        log.warn("Dispatch task {} lost its claim before FAILED completion was committed", task.getId());
+                        continue;
+                    }
+                    RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                     publishEvent("FAILED", task, runRecord, startedAt, endedAt,
                             logStorageResult, result);
                 } else {
                     task.setStatus("SUCCESS");
                     task.setPayloadJson(result);
-                    updateOwnedRunningTask(task);
+                    if (!updateOwnedRunningTask(task)) {
+                        log.warn("Dispatch task {} lost its claim before SUCCESS completion was committed", task.getId());
+                        continue;
+                    }
+                    RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                     publishEvent("SUCCESS", task, runRecord, startedAt, endedAt,
                             logStorageResult, result);
                 }
@@ -240,8 +359,10 @@ public class WorkerLifecycleRunner {
                 payload.put("exceptionType", e.getClass().getName());
                 payload.put("stackTrace", stackTraceOf(e));
                 task.setPayloadJson(payload);
-                updateOwnedRunningTask(task);
-                if (runRecord != null) {
+                boolean failureCommitted = updateOwnedRunningTask(task);
+                if (!failureCommitted) {
+                    log.warn("Dispatch task {} lost its claim; failure event is suppressed", task.getId());
+                } else if (runRecord != null) {
                     RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                     publishEvent("FAILED", task, runRecord, startedAt, LocalDateTime.now(),
                             logStorageResult, payload);
@@ -276,7 +397,8 @@ public class WorkerLifecycleRunner {
         update.setLeaseExpiresAt(LocalDateTime.now());
         workerLeaseMapper.update(update, new LambdaUpdateWrapper<WorkerLeaseEntity>()
                 .eq(WorkerLeaseEntity::getWorkerGroupCode, workerGroupCode())
-                .eq(WorkerLeaseEntity::getInstanceId, clusterInstanceIdentity.instanceId()));
+                .eq(WorkerLeaseEntity::getInstanceId, clusterInstanceIdentity.instanceId())
+                .eq(WorkerLeaseEntity::getBootId, clusterInstanceIdentity.bootId()));
     }
 
     public boolean isAcceptingTasks() {
@@ -288,7 +410,8 @@ public class WorkerLifecycleRunner {
         List<DispatchTaskEntity> runningTasks = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getStatus, "RUNNING")
                 .eq(DispatchTaskEntity::getWorkerGroupCode, workerGroupCode())
-                .eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId()));
+                .eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId())
+                .eq(DispatchTaskEntity::getWorkerBootId, clusterInstanceIdentity.bootId()));
         for (DispatchTaskEntity task : runningTasks) {
             task.setLeaseExpiresAt(leaseExpiresAt);
             updateOwnedRunningTask(task);
@@ -296,11 +419,13 @@ public class WorkerLifecycleRunner {
     }
 
     private boolean claimTask(DispatchTaskEntity task) {
-        if (task == null || task.getId() == null) {
+        if (task == null || task.getId() == null || task.getTargetClusterId() == null) {
             return false;
         }
         DispatchTaskEntity update = new DispatchTaskEntity();
         update.setStatus("RUNNING");
+        update.setClaimToken(UUID.randomUUID().toString());
+        update.setWorkerBootId(clusterInstanceIdentity.bootId());
         update.setWorkerGroupCode(workerGroupCode());
         update.setLeaseOwner(workerGroupCode());
         update.setWorkerInstanceId(clusterInstanceIdentity.instanceId());
@@ -308,7 +433,17 @@ public class WorkerLifecycleRunner {
         update.setPayloadJson(null);
         int updated = dispatchTaskMapper.update(update, new LambdaUpdateWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getId, task.getId())
-                .eq(DispatchTaskEntity::getStatus, "QUEUED"));
+                .eq(DispatchTaskEntity::getStatus, "QUEUED")
+                .eq(DispatchTaskEntity::getTargetClusterId, task.getTargetClusterId()));
+        if (updated == 1) {
+            task.setStatus(update.getStatus());
+            task.setClaimToken(update.getClaimToken());
+            task.setWorkerBootId(update.getWorkerBootId());
+            task.setWorkerGroupCode(update.getWorkerGroupCode());
+            task.setLeaseOwner(update.getLeaseOwner());
+            task.setWorkerInstanceId(update.getWorkerInstanceId());
+            task.setLeaseExpiresAt(update.getLeaseExpiresAt());
+        }
         return updated == 1;
     }
 
@@ -316,33 +451,97 @@ public class WorkerLifecycleRunner {
         if (task == null) {
             return false;
         }
-        return workerAuthorizationService.isWorkerAuthorizedForProject(task.getTenantId(), task.getProjectId(), workerGroupCode());
+        return task.getTargetClusterId() != null
+                && currentRuntimeClusterIds().contains(task.getTargetClusterId())
+                && workerAuthorizationService.isRuntimeClusterAuthorizedForProject(
+                task.getTenantId(), task.getProjectId(), task.getTargetClusterId());
     }
 
-    private void updateOwnedRunningTask(DispatchTaskEntity task) {
+    private boolean updateOwnedRunningTask(DispatchTaskEntity task) {
         if (task == null || task.getId() == null) {
-            return;
+            return false;
         }
-        dispatchTaskMapper.update(task, new LambdaUpdateWrapper<DispatchTaskEntity>()
+        LambdaUpdateWrapper<DispatchTaskEntity> update = new LambdaUpdateWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getId, task.getId())
+                .eq(DispatchTaskEntity::getStatus, "RUNNING")
+                .eq(DispatchTaskEntity::getClaimToken, task.getClaimToken())
+                .eq(DispatchTaskEntity::getWorkerBootId, clusterInstanceIdentity.bootId())
                 .eq(DispatchTaskEntity::getWorkerGroupCode, workerGroupCode())
-                .eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId()));
+                .eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId());
+        if (!"RUNNING".equalsIgnoreCase(task.getStatus())) {
+            task.setProtectedPayloadCiphertext(null);
+            update.set(DispatchTaskEntity::getProtectedPayloadCiphertext, null);
+        }
+        return dispatchTaskMapper.update(task, update) == 1;
     }
 
-    private void updateOwnedOrLegacyRunningTask(DispatchTaskEntity task) {
-        if (task == null || task.getId() == null) {
+    private void failQueuedUnauthorizedTask(DispatchTaskEntity task) {
+        if (task == null || task.getId() == null || task.getTargetClusterId() == null) {
             return;
         }
-        dispatchTaskMapper.update(task, new LambdaUpdateWrapper<DispatchTaskEntity>()
+        String reason = "Runtime cluster authorization was revoked while the task was queued";
+        Map<String, Object> payload = task.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(task.getPayloadJson());
+        payload.put("error", reason);
+        payload.put("exceptionType", "RUNTIME_CLUSTER_AUTHORIZATION_REVOKED");
+        DispatchTaskEntity update = new DispatchTaskEntity();
+        update.setStatus("FAILED");
+        update.setPayloadJson(payload);
+        update.setLeaseExpiresAt(LocalDateTime.now());
+        int updated = dispatchTaskMapper.update(update, new LambdaUpdateWrapper<DispatchTaskEntity>()
+                .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
                 .eq(DispatchTaskEntity::getId, task.getId())
-                .and(wrapper -> wrapper.eq(DispatchTaskEntity::getWorkerGroupCode, workerGroupCode())
-                        .or()
-                        .eq(DispatchTaskEntity::getLeaseOwner, workerGroupCode())
-                        .or()
-                        .eq(DispatchTaskEntity::getLeaseOwner, workerCode()))
-                .and(wrapper -> wrapper.eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId())
-                        .or()
-                        .isNull(DispatchTaskEntity::getWorkerInstanceId)));
+                .eq(DispatchTaskEntity::getStatus, "QUEUED")
+                .eq(DispatchTaskEntity::getTargetClusterId, task.getTargetClusterId()));
+        if (updated == 1) {
+            task.setStatus("FAILED");
+            task.setPayloadJson(payload);
+            task.setLeaseExpiresAt(update.getLeaseExpiresAt());
+        } else {
+            log.debug("Queued dispatch task {} changed before revoked authorization could be recorded", task.getId());
+        }
+    }
+
+    private void failClaimedUnauthorizedTask(DispatchTaskEntity task) {
+        if (task == null) {
+            return;
+        }
+        Map<String, Object> payload = task.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(task.getPayloadJson());
+        payload.put("error", "Runtime cluster authorization was revoked before execution");
+        payload.put("exceptionType", "RUNTIME_CLUSTER_AUTHORIZATION_REVOKED");
+        task.setStatus("FAILED");
+        task.setAttempts(task.getAttempts() == null ? 1 : task.getAttempts() + 1);
+        task.setPayloadJson(payload);
+        task.setLeaseExpiresAt(LocalDateTime.now());
+        if (!updateOwnedRunningTask(task)) {
+            log.warn("Dispatch task {} lost its claim while rejecting revoked runtime authorization", task.getId());
+        }
+    }
+
+    private void failUnlinkedRunRecord(RunRecordEntity runRecord, String reason) {
+        if (runRecord == null || runRecord.getId() == null) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("error", reason);
+        payload.put("exceptionType", "DISPATCH_RUN_RECORD_LINK_FAILED");
+        RunRecordEntity update = new RunRecordEntity();
+        update.setStatus("FAILED");
+        update.setEndedAt(LocalDateTime.now());
+        update.setMessage(reason);
+        update.setLogStatus("FAILED");
+        update.setPayloadJson(payload);
+        update.setResultJson(payload);
+        int updated = runRecordMapper.update(update, new LambdaUpdateWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, runRecord.getId())
+                .eq(RunRecordEntity::getStatus, "RUNNING")
+                .eq(RunRecordEntity::getWorkerBootId, clusterInstanceIdentity.bootId()));
+        if (updated != 1) {
+            log.warn("Run record {} could not be closed after dispatch linking failed", runRecord.getId());
+        }
     }
 
     private void closeRunLogScope(RunLogFileService.RunLogScope runLogScope) {
@@ -382,6 +581,12 @@ public class WorkerLifecycleRunner {
         if (task == null || task.getId() == null) {
             return;
         }
+        String originalStatus = task.getStatus();
+        String originalClaimToken = task.getClaimToken();
+        String originalBootId = task.getWorkerBootId();
+        String originalWorkerGroupCode = task.getWorkerGroupCode();
+        String originalLeaseOwner = task.getLeaseOwner();
+        String originalWorkerInstanceId = task.getWorkerInstanceId();
         RunRecordEntity runRecord = task.getRunRecordId() == null ? null : runRecordMapper.selectById(task.getRunRecordId());
         LocalDateTime startedAt = runRecord != null && runRecord.getStartedAt() != null
                 ? runRecord.getStartedAt()
@@ -393,18 +598,56 @@ public class WorkerLifecycleRunner {
         payload.put("error", "Task was interrupted by worker restart before completion");
         payload.put("exceptionType", "WORKER_RESTART_INTERRUPTED");
         payload.put("recovered", Boolean.TRUE);
+        DispatchTaskEntity dispatchUpdate = new DispatchTaskEntity();
+        dispatchUpdate.setStatus("FAILED");
+        dispatchUpdate.setPayloadJson(payload);
+        dispatchUpdate.setLeaseExpiresAt(endedAt);
+        LambdaUpdateWrapper<DispatchTaskEntity> dispatchCas = new LambdaUpdateWrapper<DispatchTaskEntity>()
+                .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
+                .eq(DispatchTaskEntity::getId, task.getId())
+                .eq(DispatchTaskEntity::getStatus, originalStatus);
+        appendNullableDispatchCondition(dispatchCas, DispatchTaskEntity::getClaimToken, originalClaimToken);
+        appendNullableDispatchCondition(dispatchCas, DispatchTaskEntity::getWorkerBootId, originalBootId);
+        appendNullableDispatchCondition(dispatchCas, DispatchTaskEntity::getWorkerGroupCode, originalWorkerGroupCode);
+        appendNullableDispatchCondition(dispatchCas, DispatchTaskEntity::getLeaseOwner, originalLeaseOwner);
+        appendNullableDispatchCondition(dispatchCas, DispatchTaskEntity::getWorkerInstanceId, originalWorkerInstanceId);
+        if (dispatchTaskMapper.update(dispatchUpdate, dispatchCas) != 1) {
+            log.warn("Dispatch task {} changed while recovering interrupted execution; recovery was skipped", task.getId());
+            return;
+        }
         task.setStatus("FAILED");
         task.setPayloadJson(payload);
         task.setLeaseExpiresAt(endedAt);
-        updateOwnedOrLegacyRunningTask(task);
         if (runRecord != null) {
             RunLogFileService.RunLogStorageResult logStorageResult = runLogFileService.syncExistingLog(
                     runRecord.getLogFilePath(), runRecord.getLogCharset());
             applyRunLogStorageResult(runRecord, logStorageResult);
-            runRecordMapper.updateById(runRecord);
-            publishEvent("FAILED", task, runRecord, startedAt, endedAt, logStorageResult, payload);
+            runRecord.setStatus("FAILED");
+            runRecord.setEndedAt(endedAt);
+            runRecord.setMessage("Task was interrupted by worker restart before completion");
+            runRecord.setPayloadJson(payload);
+            runRecord.setResultJson(payload);
+            int runRecordUpdated = runRecordMapper.update(runRecord, new LambdaUpdateWrapper<RunRecordEntity>()
+                    .eq(RunRecordEntity::getId, runRecord.getId())
+                    .eq(RunRecordEntity::getStatus, "RUNNING"));
+            if (runRecordUpdated == 1) {
+                publishEvent("FAILED", task, runRecord, startedAt, endedAt, logStorageResult, payload);
+            } else {
+                log.warn("Run record {} changed while recovering dispatch task {}; failure event was suppressed",
+                        runRecord.getId(), task.getId());
+            }
         }
         log.warn("Recovered interrupted dispatch task {} owned by worker group {}", task.getId(), workerGroupCode());
+    }
+
+    private <T> void appendNullableDispatchCondition(LambdaUpdateWrapper<DispatchTaskEntity> wrapper,
+                                                      SFunction<DispatchTaskEntity, T> column,
+                                                      T value) {
+        if (value == null) {
+            wrapper.isNull(column);
+        } else {
+            wrapper.eq(column, value);
+        }
     }
 
     private Map<String, Object> execute(WorkflowNodeDefinition node, Map<String, Object> runtimeContext) {
@@ -419,7 +662,6 @@ public class WorkerLifecycleRunner {
     }
 
     private Map<String, Object> executeWithTaskContext(DispatchTaskEntity task,
-                                                       WorkflowNodeDefinition node,
                                                        Map<String, Object> runtimeContext) {
         StudioRequestContext previousContext = StudioRequestContextHolder.getContext();
         StudioRequestContext taskContext = new StudioRequestContext();
@@ -428,6 +670,10 @@ public class WorkerLifecycleRunner {
         taskContext.setUsername(workerCode());
         StudioRequestContextHolder.setContext(taskContext);
         try {
+            WorkflowNodeDefinition node = toNode(task);
+            if (!clearProtectedPayload(task)) {
+                throw new IllegalStateException("Dispatch claim was lost before protected execution input was consumed");
+            }
             return execute(node, runtimeContext);
         } finally {
             if (previousContext == null) {
@@ -440,29 +686,50 @@ public class WorkerLifecycleRunner {
 
     @SuppressWarnings("unchecked")
     private WorkflowNodeDefinition toNode(DispatchTaskEntity dispatchTask) {
-        String nodeCode = dispatchTask.getNodeCode();
         Map<String, Object> payload = dispatchTask.getPayloadJson() == null
                 ? new LinkedHashMap<String, Object>()
                 : dispatchTask.getPayloadJson();
-        WorkflowNodeDefinition node = new WorkflowNodeDefinition();
-        node.setNodeCode(nodeCode);
-        node.setNodeName(nodeCode);
-        node.setNodeType(com.jdragon.studio.dto.enums.NodeType.valueOf(String.valueOf(payload.get("nodeType"))));
-        Object config = payload.get("config");
-        if (config instanceof Map) {
-            node.setConfig((Map<String, Object>) config);
+        WorkflowNodeDefinition node;
+        if (DispatchExecutionType.WORKFLOW_NODE.name().equals(dispatchTask.getExecutionType())) {
+            if (hasText(dispatchTask.getProtectedPayloadCiphertext())) {
+                throw new IllegalStateException("Workflow dispatch must not contain protected ad-hoc input");
+            }
+            node = workflowDispatchNodeResolver.resolve(dispatchTask);
         } else {
-            node.setConfig(new LinkedHashMap<String, Object>());
+            node = new WorkflowNodeDefinition();
+            node.setNodeCode(dispatchTask.getNodeCode());
+            node.setNodeName(dispatchTask.getNodeCode());
+            node.setNodeType(com.jdragon.studio.dto.enums.NodeType.valueOf(String.valueOf(payload.get("nodeType"))));
+            Object config = payload.get("config");
+            node.setConfig(config instanceof Map
+                    ? new LinkedHashMap<String, Object>((Map<String, Object>) config)
+                    : new LinkedHashMap<String, Object>());
+            if (hasText(dispatchTask.getProtectedPayloadCiphertext())) {
+                if (dispatchProtectedPayloadService == null) {
+                    throw new IllegalStateException("Protected dispatch input service is unavailable");
+                }
+                Map<String, Object> protectedConfig = dispatchProtectedPayloadService.unprotect(
+                        dispatchTask.getProtectedPayloadCiphertext());
+                Map<String, Object> mergedConfig = new LinkedHashMap<String, Object>(node.getConfig());
+                mergedConfig.putAll(protectedConfig);
+                node.setConfig(mergedConfig);
+            }
         }
         if (node.getNodeType() == com.jdragon.studio.dto.enums.NodeType.COLLECTION_TASK) {
             Long collectionTaskId = resolveCollectionTaskId(dispatchTask, payload, node.getConfig());
             com.jdragon.studio.dto.model.CollectionTaskDefinitionView task =
                     collectionTaskService.requireOnlineForExecution(collectionTaskId);
+            assertResourceRevision(dispatchTask, runtimeResourceRevisionService == null
+                    ? (task.getUpdatedAt() == null ? null : task.getUpdatedAt().toString())
+                    : runtimeResourceRevisionService.collectionTaskRevision(collectionTaskId));
             node.setNodeName(task.getName());
             node.setConfig(collectionTaskAssemblerService.assemble(task));
         } else if (node.getNodeType() == com.jdragon.studio.dto.enums.NodeType.QUALITY_TASK) {
             Long qualityTaskId = resolveQualityTaskId(dispatchTask, payload, node.getConfig());
-            com.jdragon.studio.dto.model.QualityTaskDefinitionView task = qualityTaskService.requireOnline(qualityTaskId);
+            com.jdragon.studio.dto.model.QualityTaskDefinitionView task = qualityTaskService.requireOnlineForExecution(qualityTaskId);
+            assertResourceRevision(dispatchTask, runtimeResourceRevisionService == null
+                    ? (task.getUpdatedAt() == null ? null : task.getUpdatedAt().toString())
+                    : runtimeResourceRevisionService.qualityTaskRevision(qualityTaskId));
             node.setNodeName(task.getTaskName());
             Map<String, Object> qualityConfig = node.getConfig() == null
                     ? new LinkedHashMap<String, Object>()
@@ -471,6 +738,35 @@ public class WorkerLifecycleRunner {
             node.setConfig(qualityConfig);
         }
         return node;
+    }
+
+    private boolean clearProtectedPayload(DispatchTaskEntity task) {
+        if (task == null || !hasText(task.getProtectedPayloadCiphertext())) {
+            return true;
+        }
+        DispatchTaskEntity update = new DispatchTaskEntity();
+        int updated = dispatchTaskMapper.update(update, new LambdaUpdateWrapper<DispatchTaskEntity>()
+                .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
+                .eq(DispatchTaskEntity::getId, task.getId())
+                .eq(DispatchTaskEntity::getStatus, "RUNNING")
+                .eq(DispatchTaskEntity::getClaimToken, task.getClaimToken())
+                .eq(DispatchTaskEntity::getWorkerBootId, clusterInstanceIdentity.bootId())
+                .eq(DispatchTaskEntity::getWorkerGroupCode, workerGroupCode())
+                .eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId()));
+        if (updated == 1) {
+            task.setProtectedPayloadCiphertext(null);
+            return true;
+        }
+        return false;
+    }
+
+    private void assertResourceRevision(DispatchTaskEntity dispatchTask, String currentRevision) {
+        if (dispatchTask == null || !hasText(dispatchTask.getResourceRevision()) || !hasText(currentRevision)) {
+            return;
+        }
+        if (!dispatchTask.getResourceRevision().equals(currentRevision)) {
+            throw new IllegalStateException("Resource configuration changed after dispatch; submit a new run");
+        }
     }
 
     private Long resolveCollectionTaskId(DispatchTaskEntity dispatchTask,
@@ -519,9 +815,14 @@ public class WorkerLifecycleRunner {
         event.setProjectId(task.getProjectId());
         event.setExecutionType(task.getExecutionType() == null ? DispatchExecutionType.WORKFLOW_NODE : DispatchExecutionType.valueOf(task.getExecutionType()));
         event.setNodeCode(task.getNodeCode());
+        event.setRequestedClusterId(task.getTargetClusterId());
+        event.setActualClusterId(runRecord.getActualClusterId());
+        event.setActualClusterCode(runRecord.getActualClusterCode());
         event.setWorkerGroupCode(workerGroupCode());
         event.setWorkerCode(workerCode());
         event.setWorkerInstanceId(clusterInstanceIdentity.instanceId());
+        event.setWorkerBootId(hasText(runRecord.getWorkerBootId())
+                ? runRecord.getWorkerBootId() : clusterInstanceIdentity.bootId());
         event.setWorkerPodName(clusterInstanceIdentity.podName());
         event.setWorkerNodeName(clusterInstanceIdentity.nodeName());
         event.setOccurredAt(endedAt);
@@ -555,10 +856,14 @@ public class WorkerLifecycleRunner {
         entity.setWorkerGroupCode(workerGroupCode());
         entity.setWorkerCode(workerCode());
         entity.setWorkerInstanceId(clusterInstanceIdentity.instanceId());
+        entity.setWorkerBootId(clusterInstanceIdentity.bootId());
         entity.setWorkerPodName(clusterInstanceIdentity.podName());
         entity.setWorkerNodeName(clusterInstanceIdentity.nodeName());
         entity.setTriggeredByUserId(task.getTriggeredByUserId());
         entity.setStatus("RUNNING");
+        entity.setRequestedClusterId(task.getTargetClusterId());
+        entity.setActualClusterId(task.getTargetClusterId());
+        entity.setActualClusterCode(runtimeClusterCode());
         entity.setMessage("Task execution started");
         entity.setStartedAt(startedAt);
         entity.setLogCharset("UTF-8");
@@ -609,6 +914,8 @@ public class WorkerLifecycleRunner {
         WorkerLeaseEntity lease = workerLeaseMapper.selectOne(new LambdaQueryWrapper<WorkerLeaseEntity>()
                 .eq(WorkerLeaseEntity::getWorkerGroupCode, workerGroupCode())
                 .eq(WorkerLeaseEntity::getInstanceId, clusterInstanceIdentity.instanceId())
+                .eq(WorkerLeaseEntity::getBootId, clusterInstanceIdentity.bootId())
+                .eq(WorkerLeaseEntity::getRuntimeClusterCode, runtimeClusterCode())
                 .eq(WorkerLeaseEntity::getStatus, StudioConstants.WORKER_STATUS_ONLINE)
                 .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt)
                 .last("limit 1"));
@@ -628,7 +935,52 @@ public class WorkerLifecycleRunner {
         update.setLeaseExpiresAt(LocalDateTime.now());
         workerLeaseMapper.update(update, new LambdaUpdateWrapper<WorkerLeaseEntity>()
                 .eq(WorkerLeaseEntity::getWorkerGroupCode, workerGroupCode())
-                .eq(WorkerLeaseEntity::getInstanceId, clusterInstanceIdentity.instanceId()));
+                .eq(WorkerLeaseEntity::getInstanceId, clusterInstanceIdentity.instanceId())
+                .eq(WorkerLeaseEntity::getBootId, clusterInstanceIdentity.bootId()));
+    }
+
+    private List<RuntimeClusterEntity> currentRuntimeClusters() {
+        if (runtimeClusterMapper == null) {
+            return new ArrayList<RuntimeClusterEntity>();
+        }
+        return runtimeClusterMapper.selectList(new LambdaQueryWrapper<RuntimeClusterEntity>()
+                .eq(RuntimeClusterEntity::getCode, runtimeClusterCode().toUpperCase(Locale.ROOT))
+                .eq(RuntimeClusterEntity::getEnabled, 1)
+                .orderByAsc(RuntimeClusterEntity::getTenantId)
+                .orderByAsc(RuntimeClusterEntity::getId));
+    }
+
+    private List<Long> currentRuntimeClusterIds() {
+        List<Long> ids = new ArrayList<Long>();
+        for (RuntimeClusterEntity cluster : currentRuntimeClusters()) {
+            if (cluster.getId() != null) {
+                ids.add(cluster.getId());
+            }
+        }
+        return ids;
+    }
+
+    private void updateRuntimeClusterHeartbeat(List<RuntimeClusterEntity> clusters, LocalDateTime now) {
+        for (RuntimeClusterEntity cluster : clusters) {
+            Map<String, Object> instance = new LinkedHashMap<String, Object>();
+            instance.put("bootId", clusterInstanceIdentity.bootId());
+            instance.put("workerGroupCode", workerGroupCode());
+            try {
+                runtimeClusterHeartbeatService.recordById(cluster.getTenantId(), cluster.getId(),
+                        clusterInstanceIdentity.instanceId(), instance, properties.getRuntimeVersion(),
+                        properties.getWorkerApiBaseUrl(), now);
+            } catch (RuntimeException ex) {
+                log.warn("Failed to update runtime cluster heartbeat for tenant {} cluster {}: {}",
+                        cluster.getTenantId(), cluster.getCode(), ex.getMessage());
+            }
+        }
+    }
+
+    private String runtimeClusterCode() {
+        if (!hasText(properties.getRuntimeClusterCode())) {
+            throw new IllegalStateException("STUDIO_CLUSTER_CODE must be configured explicitly for studio-worker");
+        }
+        return properties.getRuntimeClusterCode().trim();
     }
 
     private String workerGroupCode() {

@@ -21,6 +21,9 @@ spring:
     serialization:
       write-dates-as-timestamps: false
   mvc:
+    formcontent:
+      filter:
+        enabled: false
     async:
       request-timeout: ${STUDIO_MVC_ASYNC_REQUEST_TIMEOUT:300000}
   data:
@@ -75,16 +78,25 @@ studio:
     auto-upgrade-on-startup: false
   web:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
-  aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
-  encryption-secret: studio-secret-key
+  encryption-secret: ${STUDIO_ENCRYPTION_SECRET:}
   instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-server-local}}}
   pod-name: ${POD_NAME:${HOSTNAME:studio-server-local}}
   node-name: ${NODE_NAME:}
-  worker-group-code: ${STUDIO_WORKER_GROUP_CODE:${STUDIO_WORKER_CODE:studio-server-worker}}
-  worker-code: studio-server-worker
-  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
+  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:}
+  runtime-invocation-max-body-bytes: ${STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES:10485760}
+  runtime-invocation-idempotency:
+    mode: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MODE:OPTIONAL}
+    max-response-bytes: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MAX_RESPONSE_BYTES:10485760}
+    cleanup-enabled: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_ENABLED:true}
+    completed-retention-days: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_COMPLETED_RETENTION_DAYS:7}
+    running-unknown-after-hours: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_RUNNING_UNKNOWN_AFTER_HOURS:24}
+    cleanup-batch-size: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_BATCH_SIZE:1000}
+    cleanup-max-batches: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_CLEANUP_MAX_BATCHES:20}
+  runtime-endpoint:
+    allowed-hosts: ${STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS:127.0.0.1}
+    max-response-bytes: ${STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES:10485760}
   gateway:
-    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:true}
+    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:false}
     shared-secret: ${STUDIO_GATEWAY_SHARED_SECRET:change-me}
     signature-expire-seconds: ${STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS:300}
   assistant:
@@ -161,7 +173,3 @@ studio:
       service-name: ${STUDIO_FLINK_SERVICE_NAME:studio-flink}
       base-url: ${STUDIO_FLINK_BASE_URL:http://127.0.0.1:18084}
       path: ${STUDIO_FLINK_CONTEXT_PATH:}
-  python:
-    executable: ${STUDIO_PYTHON_EXECUTABLE:}
-    execution-timeout-seconds: ${STUDIO_PYTHON_TIMEOUT_SECONDS:120}
-    temp-dir: ${STUDIO_PYTHON_TEMP_DIR:}

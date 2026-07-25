@@ -102,6 +102,83 @@ create table if not exists studio_project (
     unique key uk_studio_project_name (tenant_id, project_name)
 );
 
+create table if not exists studio_runtime_cluster (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    code varchar(64) not null,
+    name varchar(255) not null,
+    enabled int default 1,
+    status varchar(32) default 'UNKNOWN',
+    version varchar(128),
+    last_heartbeat_at datetime,
+    instances_json json,
+    unique key uk_runtime_cluster_tenant_code (tenant_id, code),
+    key idx_runtime_cluster_tenant_enabled (tenant_id, enabled)
+);
+
+create table if not exists studio_runtime_endpoint (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    runtime_cluster_id bigint not null,
+    mode varchar(32) not null,
+    endpoint_ciphertext text,
+    headers_ciphertext text,
+    token_ciphertext text,
+    connect_timeout_millis int default 3000,
+    read_timeout_millis int default 5000,
+    enabled int default 1,
+    last_tested_at datetime,
+    last_test_status varchar(32),
+    last_test_message varchar(1000),
+    key idx_runtime_endpoint_cluster (tenant_id, runtime_cluster_id, enabled)
+);
+
+create table if not exists studio_runtime_idempotency (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint not null,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    runtime_cluster_id bigint,
+    resource_type varchar(64) not null,
+    resource_id bigint not null,
+    key_hash char(64) not null,
+    request_fingerprint char(64) not null,
+    status varchar(16) not null,
+    owner_token_hash char(64) not null,
+    owner_instance_id varchar(128) not null,
+    owner_boot_id varchar(128) not null,
+    response_status int,
+    response_content_type varchar(512),
+    response_body_ciphertext longtext,
+    completed_at datetime,
+    version int default 0,
+    unique key uk_runtime_idem_scope_key (tenant_id, project_id, resource_type, resource_id, key_hash),
+    key idx_runtime_idem_status_updated (status, updated_at)
+);
+
+create table if not exists studio_project_runtime_cluster (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint not null,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    runtime_cluster_id bigint not null,
+    enabled int default 1,
+    preferred int default 0,
+    allow_manual_override int default 0,
+    unique key uk_project_runtime_cluster (tenant_id, project_id, runtime_cluster_id),
+    key idx_project_runtime_cluster_options (tenant_id, project_id, enabled, preferred)
+);
+
 create table if not exists studio_tenant_member (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
@@ -414,13 +491,48 @@ create table if not exists datasource_definition (
     key idx_datasource_definition_connection (tenant_id, connection_fingerprint)
 );
 
+create table if not exists datasource_cluster_binding (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    datasource_id bigint not null,
+    runtime_cluster_id bigint not null,
+    enabled int default 1,
+    unique key uk_datasource_cluster_binding (tenant_id, datasource_id, runtime_cluster_id),
+    key idx_datasource_cluster_options (tenant_id, runtime_cluster_id, enabled, datasource_id)
+);
+
+create table if not exists studio_runtime_validation (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    project_id bigint not null,
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    resource_type varchar(64) not null,
+    resource_id bigint not null,
+    runtime_cluster_id bigint,
+    valid int default 1,
+    issue_code varchar(128),
+    issue_message varchar(1000),
+    details_json json,
+    validated_at datetime,
+    unique key uk_runtime_validation_resource (tenant_id, project_id, resource_type, resource_id),
+    key idx_runtime_validation_invalid (tenant_id, project_id, valid, resource_type)
+);
+
 create table if not exists datasource_connection_health (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
+    runtime_cluster_id bigint,
     connection_fingerprint varchar(128) not null,
+    legacy_connection_fingerprint varchar(128) generated always as
+        (case when runtime_cluster_id is null then connection_fingerprint else null end) stored,
     connection_status varchar(32) default 'UNKNOWN',
     last_connection_test_at datetime,
     last_connection_test_message varchar(1000),
@@ -432,7 +544,8 @@ create table if not exists datasource_connection_health (
     probe_lease_until datetime,
     failure_count int default 0,
     next_probe_at datetime,
-    unique key uk_ds_conn_health_fp (tenant_id, connection_fingerprint),
+    unique key uk_ds_conn_health_fp (tenant_id, runtime_cluster_id, connection_fingerprint),
+    unique key uk_ds_conn_health_legacy_fp (tenant_id, legacy_connection_fingerprint),
     key idx_ds_conn_health_next (next_probe_at),
     key idx_ds_conn_health_probe (probe_state, probe_lease_until)
 );
@@ -443,6 +556,7 @@ create table if not exists datasource_connection_test_record (
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
+    runtime_cluster_id bigint,
     connection_fingerprint varchar(128) not null,
     datasource_id bigint,
     datasource_name varchar(255),
@@ -457,6 +571,7 @@ create table if not exists datasource_connection_test_record (
     message varchar(1000),
     unique key uk_ds_conn_record_run (tenant_id, probe_run_id),
     key idx_ds_conn_record_lookup (tenant_id, connection_fingerprint, ended_at),
+    key idx_ds_conn_record_cluster_lookup (tenant_id, runtime_cluster_id, connection_fingerprint, ended_at),
     key idx_ds_conn_record_cleanup (ended_at)
 );
 
@@ -484,6 +599,7 @@ create table if not exists model_sync_task (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
     project_id bigint,
+    runtime_cluster_id bigint,
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
@@ -507,7 +623,8 @@ create table if not exists model_sync_task (
     last_error varchar(2000),
     unique key uk_model_sync_task_project_datasource_batch (project_id, datasource_id, batch_no),
     key idx_model_sync_task_project_created (project_id, created_at),
-    key idx_model_sync_task_project_status (project_id, status)
+    key idx_model_sync_task_project_status (project_id, status),
+    key idx_model_sync_task_project_cluster_status (project_id, runtime_cluster_id, status)
 );
 
 create table if not exists model_sync_task_item (
@@ -569,6 +686,7 @@ create table if not exists workflow_definition (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     created_by bigint,
+    runtime_cluster_id bigint,
     code varchar(255),
     name varchar(255),
     current_version_id bigint,
@@ -586,6 +704,7 @@ create table if not exists workflow_definition_version (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     definition_id bigint,
+    runtime_cluster_id bigint,
     version_number int,
     published int default 0,
     graph_json json,
@@ -646,6 +765,7 @@ create table if not exists collection_task_definition (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     created_by bigint,
+    runtime_cluster_id bigint,
     name varchar(255),
     task_type varchar(64),
     status varchar(64),
@@ -710,6 +830,7 @@ create table if not exists quality_task_definition (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     created_by bigint,
+    runtime_cluster_id bigint,
     task_name varchar(255) not null,
     task_code varchar(255) not null,
     status varchar(64),
@@ -887,6 +1008,7 @@ create table if not exists data_service_definition (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     created_by bigint,
+    runtime_cluster_id bigint,
     service_code varchar(128) not null,
     service_name varchar(255) not null,
     service_type varchar(64) not null,
@@ -994,6 +1116,8 @@ create table if not exists data_service_access_log (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     service_id bigint,
+    requested_cluster_id bigint,
+    actual_cluster_id bigint,
     service_code_snapshot varchar(255),
     service_name_snapshot varchar(255),
     service_status_snapshot varchar(64),
@@ -1055,6 +1179,7 @@ create table if not exists data_ingestion_service (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     created_by bigint,
+    runtime_cluster_id bigint,
     service_code varchar(128) not null,
     service_name varchar(255) not null,
     status varchar(64) not null,
@@ -1116,6 +1241,8 @@ create table if not exists data_ingestion_access_log (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     service_id bigint,
+    requested_cluster_id bigint,
+    actual_cluster_id bigint,
     service_code_snapshot varchar(255),
     service_name_snapshot varchar(255),
     service_status_snapshot varchar(64),
@@ -1176,6 +1303,7 @@ create table if not exists protocol_conversion_service (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     created_by bigint,
+    runtime_cluster_id bigint,
     service_code varchar(128) not null,
     service_name varchar(255) not null,
     status varchar(64) not null,
@@ -1242,6 +1370,8 @@ create table if not exists protocol_conversion_access_log (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     service_id bigint,
+    requested_cluster_id bigint,
+    actual_cluster_id bigint,
     service_code_snapshot varchar(255),
     service_name_snapshot varchar(255),
     service_status_snapshot varchar(64),
@@ -1320,6 +1450,7 @@ create table if not exists data_dev_script (
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
     directory_id bigint,
+    runtime_cluster_id bigint,
     file_name varchar(255),
     script_type varchar(64),
     datasource_id bigint,
@@ -1418,6 +1549,10 @@ create table if not exists dispatch_task (
     run_record_id bigint,
     node_code varchar(255),
     status varchar(64),
+    target_cluster_id bigint,
+    resource_revision varchar(128),
+    claim_token varchar(64),
+    worker_boot_id varchar(128),
     worker_group_code varchar(255),
     lease_owner varchar(255),
     worker_instance_id varchar(255),
@@ -1425,12 +1560,14 @@ create table if not exists dispatch_task (
     scheduled_fire_time datetime,
     attempts int default 0,
     max_retries int default 3,
+    protected_payload_ciphertext mediumtext,
     payload_json json,
     key idx_dispatch_task_project_status (project_id, status),
     key idx_dispatch_task_project_workflow_run (project_id, workflow_run_id),
     key idx_dispatch_task_project_quality_task_status (project_id, quality_task_id, status),
     key idx_dispatch_task_project_status_created (project_id, status, created_at),
-    key idx_dispatch_task_group_status_created (worker_group_code, status, created_at)
+    key idx_dispatch_task_group_status_created (worker_group_code, status, created_at),
+    key idx_dispatch_task_cluster_status_created (target_cluster_id, status, created_at)
 );
 
 create table if not exists run_record (
@@ -1449,9 +1586,13 @@ create table if not exists run_record (
     triggered_by_user_id bigint,
     node_code varchar(255),
     status varchar(64),
+    requested_cluster_id bigint,
+    actual_cluster_id bigint,
+    actual_cluster_code varchar(64),
     worker_group_code varchar(255),
     worker_code varchar(255),
     worker_instance_id varchar(255),
+    worker_boot_id varchar(128),
     worker_pod_name varchar(255),
     worker_node_name varchar(255),
     message varchar(2000),
@@ -1482,7 +1623,8 @@ create table if not exists run_record (
     key idx_run_record_project_created (project_id, created_at),
     key idx_run_record_project_workflow_run (project_id, workflow_run_id),
     key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at),
-    key idx_run_record_project_quality_task_ended (project_id, quality_task_id, ended_at)
+    key idx_run_record_project_quality_task_ended (project_id, quality_task_id, ended_at),
+    key idx_run_record_project_cluster_created (project_id, requested_cluster_id, created_at)
 );
 
 create table if not exists data_model_lineage_relation (
@@ -1536,10 +1678,15 @@ create table if not exists worker_lease (
     deleted int default 0,
     created_at datetime default current_timestamp,
     updated_at datetime default current_timestamp,
+    runtime_cluster_id bigint,
+    runtime_cluster_code varchar(64),
     worker_group_code varchar(255),
     worker_code varchar(255),
     worker_kind varchar(64),
     instance_id varchar(255),
+    boot_id varchar(128),
+    runtime_version varchar(128),
+    plugin_fingerprint varchar(128),
     host_name varchar(255),
     pod_name varchar(255),
     node_name varchar(255),
@@ -1549,7 +1696,8 @@ create table if not exists worker_lease (
     capabilities_json json,
     key idx_worker_lease_code_instance (worker_code, instance_id),
     key idx_worker_lease_group_instance (worker_group_code, instance_id),
-    key idx_worker_lease_status_heartbeat (status, last_heartbeat_at)
+    key idx_worker_lease_status_heartbeat (status, last_heartbeat_at),
+    key idx_worker_lease_cluster_status (runtime_cluster_id, status, last_heartbeat_at)
 );
 
 create table if not exists studio_cluster_lock (
@@ -1619,6 +1767,8 @@ create table if not exists studio_alert_incident (
     severity varchar(32),
     status varchar(32),
     summary varchar(1000),
+    requested_cluster_id bigint,
+    actual_cluster_id bigint,
     current_evidence_json json,
     occurrence_count int default 0,
     notification_count int default 0,
@@ -1637,7 +1787,8 @@ create table if not exists studio_alert_incident (
     unique key uk_alert_incident_signature (tenant_id, project_id, signature),
     key idx_alert_incident_status (project_id, status, severity, last_triggered_at),
     key idx_alert_incident_rule (rule_id, last_triggered_at),
-    key idx_alert_incident_subject (project_id, subject_type, subject_id)
+    key idx_alert_incident_subject (project_id, subject_type, subject_id),
+    key idx_alert_incident_cluster (project_id, requested_cluster_id, actual_cluster_id, last_triggered_at)
 );
 
 create table if not exists studio_alert_event (

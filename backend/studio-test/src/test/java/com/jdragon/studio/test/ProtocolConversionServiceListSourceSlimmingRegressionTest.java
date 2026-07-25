@@ -12,19 +12,24 @@ import com.jdragon.studio.dto.enums.ProtocolConversionStatus;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.ProtocolConversionServiceListView;
 import com.jdragon.studio.infra.entity.ProtocolConversionServiceEntity;
+import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.mapper.ProtocolConversionAccessCounterMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionAccessLogMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionServiceMapper;
 import com.jdragon.studio.infra.mapper.ProtocolConversionSubscriptionMapper;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.OpenServiceInvocationLogService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.ProtocolConversionService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
+import com.jdragon.studio.infra.service.RuntimeClusterService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -65,6 +70,7 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
         assertThat(item.getTargetDatasourceName()).isEqualTo("长期回归-客户经营画像接口");
         assertThat(item.getSourceProtocol()).isEqualTo(ProtocolConversionProtocol.SOAP_11);
         assertThat(item.getTargetProtocol()).isEqualTo(ProtocolConversionProtocol.HTTP_JSON);
+        assertThat(item.getRuntimeClusterId()).isEqualTo(46L);
         assertThat(item.getTokenRequired()).isNull();
         assertThat(item.getSourceMethod()).isNull();
         assertThat(item.getTargetDatasourceId()).isNull();
@@ -72,7 +78,7 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
         ArgumentCaptor<LambdaQueryWrapper<ProtocolConversionServiceEntity>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(serviceMapper).selectPage(any(Page.class), captor.capture());
         assertThat(captor.getValue().getSqlSelect())
-                .contains("id", "project_id", "created_at", "updated_at",
+                .contains("id", "project_id", "created_at", "updated_at", "runtime_cluster_id",
                         "service_code", "service_name", "status", "endpoint_path", "webservice_endpoint_path",
                         "source_protocol", "conversion_mode", "target_datasource_name_snapshot",
                         "target_path", "target_protocol")
@@ -161,7 +167,7 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
 
     private void assertTableListSelectIsSlim(String sqlSelect) {
         assertThat(sqlSelect)
-                .contains("id", "project_id", "created_at", "updated_at",
+                .contains("id", "project_id", "created_at", "updated_at", "runtime_cluster_id",
                         "service_code", "service_name", "status", "endpoint_path", "webservice_endpoint_path",
                         "source_protocol", "conversion_mode", "target_datasource_name_snapshot",
                         "target_path", "target_protocol")
@@ -182,7 +188,7 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
-        return new ProtocolConversionService(
+        ProtocolConversionService service = new ProtocolConversionService(
                 serviceMapper,
                 mock(ProtocolConversionSubscriptionMapper.class),
                 mock(ProtocolConversionAccessLogMapper.class),
@@ -192,6 +198,28 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
                 accessService,
                 new ObjectMapper(),
                 mock(OpenServiceInvocationLogService.class));
+        injectLegacyRuntimeSelection(service);
+        return service;
+    }
+
+    private void injectLegacyRuntimeSelection(ProtocolConversionService service) {
+        DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        RuntimeClusterService runtimeClusterService = mock(RuntimeClusterService.class);
+        RuntimeClusterEntity runtimeCluster = defaultLocalRuntimeCluster();
+        when(runtimeClusterService.requireAuthorized(100L, runtimeCluster.getId())).thenReturn(runtimeCluster);
+        when(runtimeClusterService.clusterName(runtimeCluster.getId())).thenReturn(runtimeCluster.getName());
+        ReflectionTestUtils.setField(service, "runtimeClusterSelectionService",
+                new RuntimeClusterSelectionService(runtimeClusterService, bindingService));
+    }
+
+    private RuntimeClusterEntity defaultLocalRuntimeCluster() {
+        RuntimeClusterEntity entity = new RuntimeClusterEntity();
+        entity.setId(46L);
+        entity.setTenantId("default");
+        entity.setCode("DEFAULT-LOCAL");
+        entity.setName("Default Local Runtime Cluster");
+        entity.setEnabled(1);
+        return entity;
     }
 
     private ProtocolConversionServiceEntity protocolConversionEntity() {
@@ -202,6 +230,7 @@ class ProtocolConversionServiceListSourceSlimmingRegressionTest {
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 29, 10, 0, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 29, 10, 5, 0));
+        entity.setRuntimeClusterId(46L);
         entity.setCreatedBy(900L);
         entity.setServiceCode("customer_protocol_bridge");
         entity.setServiceName("长期回归-客户协议转换服务");

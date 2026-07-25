@@ -168,6 +168,10 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
                 "Inspect supported datasource types, read/write capabilities, and runtime option schemas.",
                 true, false, "Read-only catalog.",
                 "catalog", "capability", "datasource", "能力", "目录"));
+        result.add(operation("Runtime cluster options", "studio.runtimeClusters.options", "Operations", "/runtime-clusters",
+                "List runtime clusters authorized for the current project before selecting execution placement.",
+                true, false, "Read-only project runtime cluster options.",
+                "runtime cluster", "placement", "execution cluster", "运行集群", "执行集群"));
         result.add(operation("Metadata schemas", "studio.metadata.schemas", "Metadata", "/metadata",
                 "List and inspect meta models, fields, and schema definitions.",
                 true, true, "Draft save, publish, and sync actions require explicit confirmation.",
@@ -362,6 +366,9 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         if ("/catalog".equals(path)) {
             return "Read datasource capability matrix and runtime option capability catalog.";
         }
+        if ("/runtime-clusters".equals(path)) {
+            return "List runtime clusters authorized for the current project.";
+        }
         if ("/metadata".equals(path)) {
             return "List meta model definitions.";
         }
@@ -497,7 +504,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             return list("startTime", "endTime", "executionType", "status", "granularity", "topN");
         }
         if ("/data-development".equals(path)) {
-            return list("view", "scriptType");
+            return list("view", "scriptType", "runtimeClusterId");
         }
         if ("/workflows".equals(path)) {
             return list("pageNo", "pageSize");
@@ -543,7 +550,8 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             return list("keyword", "enabled", "pageNo", "pageSize");
         }
         if ("/ops-center".equals(path)) {
-            return list("view", "startTime", "endTime", "executionType", "status", "workerGroupCode", "pageNo", "pageSize");
+            return list("view", "startTime", "endTime", "executionType", "status", "workerGroupCode",
+                    "requestedClusterId", "actualClusterId", "pageNo", "pageSize");
         }
         return emptyList();
     }
@@ -552,8 +560,11 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         if ("/metadata".equals(path)) {
             return list("id", "schemaId", "schemaCode");
         }
+        if ("/datasources".equals(path)) {
+            return list("view", "days", "limit", "runtimeClusterId");
+        }
         if ("/models".equals(path)) {
-            return list("view", "preview", "lineageLevel");
+            return list("view", "preview", "lineageLevel", "limit", "runtimeClusterId");
         }
         if ("/collection-task-runs".equals(path)
                 || "/runs".equals(path)
@@ -611,36 +622,50 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             result.add(action(path, "syncAllTechnical", null, "同步全部技术元模型。", true, emptyList(), emptyList(), list("syncAll")));
             result.add(action(path, "syncStandardRuntimeOptions", null, "同步标准运行参数元模型。", true, emptyList(), emptyList(), list("syncRuntimeOptions")));
         } else if ("/datasources".equals(path)) {
-            result.add(action(path, "save", null, "新增或修改数据源。", true, list("payload"), emptyList(), emptyList()));
-            result.add(action(path, "test", null, "测试已保存数据源连接。", true, list("id"), emptyList(), emptyList()));
-            result.add(action(path, "testCurrent", null, "测试尚未保存的数据源配置。", true, list("payload"), emptyList(), emptyList()));
-            result.add(action(path, "discover", null, "发现数据源下的真实物理表/视图候选，不等同于已登记模型列表。", false, list("id"), list("keyword", "pageNo", "pageSize"), list("discoverTables", "listPhysicalTables")));
+            result.add(action(path, "save", null, "新增或修改数据源。", true,
+                    list("payload", "payload.applicableClusterIds"), emptyList(), emptyList()));
+            result.add(action(path, "test", null, "在指定运行集群测试已保存数据源连接。", true,
+                    list("id", "runtimeClusterId"), emptyList(), emptyList()));
+            result.add(action(path, "testCurrent", null, "在指定运行集群测试尚未保存的数据源配置。", true,
+                    list("payload", "payload.applicableClusterIds", "runtimeClusterId"), emptyList(), emptyList()));
+            result.add(action(path, "discover", null, "在指定运行集群发现数据源下的真实物理表/视图候选，不等同于已登记模型列表。", false,
+                    list("id", "runtimeClusterId"), list("keyword", "pageNo", "pageSize"), list("discoverTables", "listPhysicalTables")));
         } else if ("/models".equals(path)) {
             result.add(action(path, "save", null, "保存模型定义。", true, list("payload"), emptyList(), emptyList()));
-            result.add(action(path, "sync", null, "同步指定数据源的模型。", true, list("datasourceId"), emptyList(), list("syncDatasource")));
-            result.add(action(path, "syncSelected", null, "按选择范围同步指定数据源的模型。", true, list("datasourceId", "physicalLocators"), emptyList(), emptyList()));
+            result.add(action(path, "sync", null, "在指定运行集群同步指定数据源的模型。", true,
+                    list("datasourceId", "runtimeClusterId"), emptyList(), list("syncDatasource")));
+            result.add(action(path, "syncSelected", null, "在指定运行集群按选择范围同步指定数据源的模型。", true,
+                    list("datasourceId", "physicalLocators", "runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "rebuildIndex", null, "重建模型检索索引。", true, emptyList(), list("datasourceId"), emptyList()));
         } else if ("/field-mapping-rules".equals(path)) {
             result.add(action(path, "save", null, "保存字段映射规则。", true, list("payload"), emptyList(), emptyList()));
         } else if ("/collection-tasks".equals(path)) {
-            result.add(action(path, "preview", null, "预览采集任务配置。", false, list("payload"), emptyList(), list("validatePreview")));
-            result.add(action(path, "save", null, "保存采集任务草稿或配置。", true, list("payload"), emptyList(), emptyList()));
+            result.add(action(path, "preview", null, "预览采集任务配置。", false,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), list("validatePreview")));
+            result.add(action(path, "save", null, "保存采集任务草稿或配置。", true,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "publish", null, "上线采集任务。", true, list("id"), emptyList(), list("online")));
-            result.add(action(path, "trigger", null, "立即触发采集任务。", true, list("id"), emptyList(), list("run", "execute")));
+            result.add(action(path, "trigger", null, "立即触发采集任务，可按项目授权覆盖运行集群。", true,
+                    list("id"), list("runtimeClusterId"), list("run", "execute")));
             result.add(action(path, "schedule", null, "保存采集任务调度配置。", true, list("id", "payload"), emptyList(), emptyList()));
             result.add(action(path, "resetIncrementalCursor", null, "重置采集任务增量游标。", true, list("id"), list("sourceAlias", "incrColumn", "incrModel"), emptyList()));
         } else if ("/data-development".equals(path)) {
             result.add(action(path, "saveDirectory", "directories", "保存脚本目录。", true, list("payload"), emptyList(), list("save")));
             result.add(action(path, "moveDirectory", "directories", "移动脚本目录。", true, list("id", "payload"), emptyList(), list("move")));
-            result.add(action(path, "saveScript", "scripts", "保存脚本。", true, list("payload"), emptyList(), list("save")));
+            result.add(action(path, "saveScript", "scripts", "保存脚本。", true,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), list("save")));
             result.add(action(path, "moveScript", "scripts", "移动脚本。", true, list("id", "payload"), emptyList(), list("move")));
-            result.add(action(path, "executeSql", "sql", "执行 SQL。", true, list("payload"), emptyList(), list("execute", "run")));
-            result.add(action(path, "executeScript", "scripts", "执行未保存脚本内容。", true, list("payload"), emptyList(), list("executeContent")));
+            result.add(action(path, "executeSql", "sql", "在指定运行集群执行 SQL。", true,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), list("execute", "run")));
+            result.add(action(path, "executeScript", "scripts", "在指定运行集群执行未保存脚本内容。", true,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), list("executeContent")));
             result.add(action(path, "executeSavedScript", "scripts", "执行已保存脚本。", true, list("id"), list("payload"), list("executeSaved", "runSaved")));
         } else if ("/workflows".equals(path)) {
-            result.add(action(path, "save", null, "保存工作流定义。", true, list("payload"), emptyList(), emptyList()));
+            result.add(action(path, "save", null, "保存工作流定义。", true,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "publish", null, "发布工作流。", true, list("id"), emptyList(), emptyList()));
-            result.add(action(path, "trigger", null, "立即触发工作流。", true, list("id"), emptyList(), list("run", "execute")));
+            result.add(action(path, "trigger", null, "立即触发工作流，可按项目授权覆盖运行集群。", true,
+                    list("id"), list("runtimeClusterId"), list("run", "execute")));
             result.add(action(path, "schedule", null, "保存工作流调度配置。", true, list("id", "payload"), emptyList(), list("timing", "cron")));
         } else if ("/quality-rules".equals(path)) {
             result.add(action(path, "save", null, "保存质量规则。", true, list("payload"), emptyList(), emptyList()));
@@ -649,11 +674,15 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             result.add(action(path, "parse", null, "解析质量规则参数。", false, list("payload"), emptyList(), emptyList()));
             result.add(action(path, "validate", null, "校验质量规则。", false, list("payload"), emptyList(), emptyList()));
         } else if ("/quality-tasks".equals(path)) {
-            result.add(action(path, "preview", null, "预览质量任务配置。", false, list("payload"), emptyList(), emptyList()));
-            result.add(action(path, "validate", null, "校验质量任务配置。", false, list("payload"), emptyList(), emptyList()));
-            result.add(action(path, "save", null, "保存质量任务。", true, list("payload"), emptyList(), emptyList()));
+            result.add(action(path, "preview", null, "预览质量任务配置。", false,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
+            result.add(action(path, "validate", null, "校验质量任务配置。", false,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
+            result.add(action(path, "save", null, "保存质量任务。", true,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "publish", null, "上线质量任务。", true, list("id"), emptyList(), list("online")));
-            result.add(action(path, "trigger", null, "立即触发质量任务。", true, list("id"), emptyList(), list("run", "execute")));
+            result.add(action(path, "trigger", null, "立即触发质量任务，可按项目授权覆盖运行集群。", true,
+                    list("id"), list("runtimeClusterId"), list("run", "execute")));
             result.add(action(path, "schedule", null, "保存质量任务调度配置。", true, list("id", "payload"), emptyList(), emptyList()));
         } else if ("/script-environments".equals(path)) {
             result.add(action(path, "save", null, "保存脚本运行环境。", true, list("payload"), emptyList(), list("saveOrUpdateCheck")));
@@ -722,12 +751,14 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
     private void addServiceActions(List<Map<String, Object>> result, String path) {
         String serviceName = "/data-ingestion-services".equals(path) ? "数据接入服务"
                 : "/protocol-conversions".equals(path) ? "协议转换服务" : "数据服务";
-        result.add(action(path, "save", null, "保存" + serviceName + "。", true, list("payload"), emptyList(), emptyList()));
+        result.add(action(path, "save", null, "保存" + serviceName + "。", true,
+                list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
         result.add(action(path, "publish", null, "发布" + serviceName + "。", true, list("id"), emptyList(), emptyList()));
         result.add(action(path, "offline", null, "下线" + serviceName + "。", true, list("id"), emptyList(), emptyList()));
         result.add(action(path, "debug", null, "调试" + serviceName + "。", true, list("id", "payload"), emptyList(), emptyList()));
         if (!"/protocol-conversions".equals(path)) {
-            result.add(action(path, "resolveFields", null, "解析" + serviceName + "字段。", false, list("payload"), emptyList(), emptyList()));
+            result.add(action(path, "resolveFields", null, "解析" + serviceName + "字段。", false,
+                    list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "debugWebService", "webservice", "调试" + serviceName + " WebService。", true, list("id", "payload"), emptyList(), list("debug")));
         }
         result.add(action(path, "createSubscription", "subscriptions", "创建" + serviceName + "订阅。", true, list("id", "subscriptionName"), emptyList(), list("subscribe")));

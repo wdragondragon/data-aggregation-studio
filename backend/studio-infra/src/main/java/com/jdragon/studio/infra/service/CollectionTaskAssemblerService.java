@@ -72,17 +72,22 @@ public class CollectionTaskAssemblerService {
     }
 
     public Map<String, Object> assemble(CollectionTaskDefinitionView definition) {
+        return assemble(definition, false);
+    }
+
+    private Map<String, Object> assemble(CollectionTaskDefinitionView definition,
+                                         boolean maskedDatasourceView) {
         if (definition == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task definition is required");
         }
         if (definition.getTaskType() == CollectionTaskType.FUSION) {
-            return assembleFusion(definition);
+            return assembleFusion(definition, maskedDatasourceView);
         }
-        return assembleSingle(definition);
+        return assembleSingle(definition, maskedDatasourceView);
     }
 
     public Map<String, Object> assemblePreview(CollectionTaskDefinitionView definition) {
-        Map<String, Object> config = assemble(definition);
+        Map<String, Object> config = assemble(definition, true);
         maskPreviewReader(config);
         return config;
     }
@@ -100,12 +105,15 @@ public class CollectionTaskAssemblerService {
         return buildStandardWriter(binding, targetDatasource, targetModel, targetFields);
     }
 
-    private Map<String, Object> assembleSingle(CollectionTaskDefinitionView definition) {
+    private Map<String, Object> assembleSingle(CollectionTaskDefinitionView definition,
+                                               boolean maskedDatasourceView) {
         CollectionTaskSourceBinding sourceBinding = definition.getSourceBindings().get(0);
         CollectionTaskTargetBinding targetBinding = definition.getTargetBinding();
-        DataSourceDefinition sourceDatasource = requiredDatasource(sourceBinding.getDatasourceId());
+        DataSourceDefinition sourceDatasource = requiredDatasource(
+                sourceBinding.getDatasourceId(), maskedDatasourceView);
         DataModelDefinition sourceModel = requiredModel(sourceBinding.getModelId());
-        DataSourceDefinition targetDatasource = requiredDatasource(targetBinding.getDatasourceId());
+        DataSourceDefinition targetDatasource = requiredDatasource(
+                targetBinding.getDatasourceId(), maskedDatasourceView);
         DataModelDefinition targetModel = requiredModel(targetBinding.getModelId());
 
         List<String> targetFields = fieldMappingResolver.resolveTargetFields(definition.getFieldMappings(), targetModel);
@@ -121,9 +129,11 @@ public class CollectionTaskAssemblerService {
         return config;
     }
 
-    private Map<String, Object> assembleFusion(CollectionTaskDefinitionView definition) {
+    private Map<String, Object> assembleFusion(CollectionTaskDefinitionView definition,
+                                               boolean maskedDatasourceView) {
         CollectionTaskTargetBinding targetBinding = definition.getTargetBinding();
-        DataSourceDefinition targetDatasource = requiredDatasource(targetBinding.getDatasourceId());
+        DataSourceDefinition targetDatasource = requiredDatasource(
+                targetBinding.getDatasourceId(), maskedDatasourceView);
         DataModelDefinition targetModel = requiredModel(targetBinding.getModelId());
         Map<String, Object> executionOptions = definition.getExecutionOptions() == null
                 ? new LinkedHashMap<String, Object>()
@@ -133,7 +143,8 @@ public class CollectionTaskAssemblerService {
         List<String> joinKeys = fieldMappingResolver.resolveJoinKeys(definition);
         List<Map<String, Object>> sources = new ArrayList<Map<String, Object>>();
         for (CollectionTaskSourceBinding sourceBinding : definition.getSourceBindings()) {
-            DataSourceDefinition sourceDatasource = requiredDatasource(sourceBinding.getDatasourceId());
+            DataSourceDefinition sourceDatasource = requiredDatasource(
+                    sourceBinding.getDatasourceId(), maskedDatasourceView);
             DataModelDefinition sourceModel = requiredModel(sourceBinding.getModelId());
             List<String> sourceFields = fieldMappingResolver.resolveSourceFieldsByAlias(definition.getFieldMappings(), sourceBinding.getSourceAlias(), sourceModel, joinKeys);
             String pluginType = resolvePluginType(sourceDatasource.getTypeCode(), "reader");
@@ -637,7 +648,14 @@ public class CollectionTaskAssemblerService {
     }
 
     private DataSourceDefinition requiredDatasource(Long datasourceId) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        return requiredDatasource(datasourceId, false);
+    }
+
+    private DataSourceDefinition requiredDatasource(Long datasourceId,
+                                                    boolean maskedDatasourceView) {
+        DataSourceDefinition datasource = maskedDatasourceView
+                ? dataSourceService.get(datasourceId)
+                : dataSourceService.getInternal(datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }

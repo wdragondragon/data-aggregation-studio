@@ -18,9 +18,13 @@ public class RunRecordListView extends BaseDefinition {
     private Long qualityTaskId;
     private String qualityTaskName;
     private String nodeCode;
+    private Long requestedClusterId;
+    private Long actualClusterId;
+    private String actualClusterCode;
     private String workerGroupCode;
     private String workerCode;
     private String workerInstanceId;
+    private String workerBootId;
     private String workerPodName;
     private String workerNodeName;
     private String status;

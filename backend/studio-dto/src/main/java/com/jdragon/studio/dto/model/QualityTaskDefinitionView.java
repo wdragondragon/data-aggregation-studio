@@ -14,6 +14,8 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class QualityTaskDefinitionView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long createdBy;
     private String taskName;
     private String taskCode;

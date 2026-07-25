@@ -15,6 +15,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "data_ingestion_service", autoResultMap = true)
 public class DataIngestionServiceEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long createdBy;
     private String serviceCode;
     private String serviceName;

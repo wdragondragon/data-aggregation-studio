@@ -12,6 +12,9 @@ public class WorkflowRunSummaryView {
     private Long workflowDefinitionId;
     private Long workflowVersionId;
     private String workflowName;
+    private Long requestedClusterId;
+    private Long actualClusterId;
+    private String actualClusterCode;
     private String status;
     private LocalDateTime startedAt;
     private LocalDateTime endedAt;

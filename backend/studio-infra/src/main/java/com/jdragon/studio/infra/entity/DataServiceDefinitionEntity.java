@@ -14,6 +14,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "data_service_definition", autoResultMap = true)
 public class DataServiceDefinitionEntity extends BaseProjectTenantEntity {
+    private Long runtimeClusterId;
     private Long createdBy;
     private String serviceCode;
     private String serviceName;

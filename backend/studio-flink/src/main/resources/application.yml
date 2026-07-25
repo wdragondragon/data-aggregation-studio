@@ -77,14 +77,14 @@ studio:
     auto-upgrade-on-startup: false
   web:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
-  aggregation-home: ${STUDIO_AGGREGATION_HOME:${aggregation.home:../../package_all/aggregation}}
-  encryption-secret: studio-secret-key
+  aggregation-home: ${STUDIO_AGGREGATION_HOME:}
+  encryption-secret: ${STUDIO_ENCRYPTION_SECRET:}
   instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-flink-local}}}
   pod-name: ${POD_NAME:${HOSTNAME:studio-flink-local}}
   node-name: ${NODE_NAME:}
-  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:studio-internal-token}
+  internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:}
   gateway:
-    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:true}
+    trust-enabled: ${STUDIO_GATEWAY_TRUST_ENABLED:false}
     shared-secret: ${STUDIO_GATEWAY_SHARED_SECRET:change-me}
     signature-expire-seconds: ${STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS:300}
   assistant:

@@ -1,10 +1,6 @@
 package com.jdragon.studio.infra.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.ScriptType;
@@ -13,48 +9,24 @@ import com.jdragon.studio.dto.model.FlinkQuestionResultView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.SqlStatementExecutionResultView;
 import com.jdragon.studio.dto.model.request.FlinkSqlExecuteRequest;
-import com.jdragon.studio.infra.config.StudioPlatformProperties;
-import com.jdragon.studio.infra.entity.StudioUserEntity;
-import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.service.script.DataDevelopmentExecutionContext;
 import com.jdragon.studio.infra.service.script.DataDevelopmentScriptExecutor;
-import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-@Service
 public class FlinkQuestionSqlDataDevelopmentExecutor implements DataDevelopmentScriptExecutor {
 
-    private static final String AUTHORIZATION_HEADER = "Authorization";
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {
-    };
-
-    private final StudioPlatformProperties properties;
     private final ObjectMapper objectMapper;
-    private final JwtTokenService jwtTokenService;
-    private final StudioUserMapper studioUserMapper;
-    private final HttpClient httpClient;
+    private final ExecutionGateway executionGateway;
 
-    public FlinkQuestionSqlDataDevelopmentExecutor(StudioPlatformProperties properties,
-                                                   ObjectMapper objectMapper,
-                                                   JwtTokenService jwtTokenService,
-                                                   StudioUserMapper studioUserMapper) {
-        this.properties = properties;
+    public FlinkQuestionSqlDataDevelopmentExecutor(ObjectMapper objectMapper,
+                                                   ExecutionGateway executionGateway) {
         this.objectMapper = objectMapper;
-        this.jwtTokenService = jwtTokenService;
-        this.studioUserMapper = studioUserMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(normalizeConnectTimeoutSeconds(properties)))
-                .build();
+        this.executionGateway = executionGateway;
     }
 
     @Override
@@ -82,6 +54,7 @@ public class FlinkQuestionSqlDataDevelopmentExecutor implements DataDevelopmentS
 
     private FlinkQuestionResultView executeRemote(DataDevelopmentExecutionContext context) {
         FlinkSqlExecuteRequest request = new FlinkSqlExecuteRequest();
+        request.setRuntimeClusterId(resolveLong(context.getRuntimeContext().get("runtimeClusterId")));
         request.setSql(context.getContent());
         request.setMaxRows(context.getMaxRows());
         request.setModelIds(resolveModelIds(context));
@@ -91,83 +64,13 @@ public class FlinkQuestionSqlDataDevelopmentExecutor implements DataDevelopmentS
                     "modelIds are required for 模型 Flink SQL execution");
         }
         try {
-            String body = objectMapper.writeValueAsString(request);
-            HttpRequest.Builder builder = HttpRequest.newBuilder(resolveExecuteUri())
-                    .timeout(Duration.ofSeconds(normalizeRequestTimeoutSeconds(properties)))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body));
-            applyContextHeaders(builder, context);
-            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            return parseResponse(response);
+            return executionGateway.execute(request);
         } catch (StudioException exception) {
             throw exception;
         } catch (Exception exception) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                    "studio-flink call failed: " + exception.getMessage(), exception);
+                    "Worker Flink SQL execution failed: " + exception.getMessage(), exception);
         }
-    }
-
-    private URI resolveExecuteUri() {
-        StudioPlatformProperties.FlinkClientProperties client = properties.getFlink().getClient();
-        String baseUrl = client == null || !StringUtils.hasText(client.getBaseUrl())
-                ? "http://127.0.0.1:18084"
-                : client.getBaseUrl().trim();
-        String path = client == null || client.getPath() == null ? "" : client.getPath().trim();
-        String endpoint = trimTrailingSlash(baseUrl) + normalizeContextPath(path) + "/api/flink/sql/execute";
-        return URI.create(endpoint);
-    }
-
-    private FlinkQuestionResultView parseResponse(HttpResponse<String> response) throws Exception {
-        String body = response.body();
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                    "studio-flink call failed: HTTP " + response.statusCode() + remoteMessage(body));
-        }
-        JsonNode root = objectMapper.readTree(body);
-        if (!root.path("success").asBoolean(false)) {
-            String code = root.path("code").asText(StudioErrorCode.BAD_REQUEST);
-            String message = root.path("message").asText("Flink SQL execution failed");
-            throw new StudioException(code, "studio-flink: " + message);
-        }
-        JsonNode data = root.path("data");
-        if (data == null || data.isMissingNode() || data.isNull()) {
-            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
-                    "studio-flink returned an empty result");
-        }
-        return objectMapper.convertValue(data, FlinkQuestionResultView.class);
-    }
-
-    private void applyContextHeaders(HttpRequest.Builder builder, DataDevelopmentExecutionContext context) {
-        String username = resolveTokenUsername(context);
-        if (StringUtils.hasText(username)) {
-            builder.header(AUTHORIZATION_HEADER, "Bearer " + jwtTokenService.createToken(username));
-        }
-        if (StringUtils.hasText(context.getTenantId())) {
-            builder.header(StudioConstants.REQUEST_TENANT_HEADER, context.getTenantId());
-        }
-        Object projectId = context.getRuntimeContext().get("projectId");
-        if (projectId != null) {
-            builder.header(StudioConstants.REQUEST_PROJECT_HEADER, String.valueOf(projectId));
-        }
-    }
-
-    private String resolveTokenUsername(DataDevelopmentExecutionContext context) {
-        Long triggeredByUserId = resolveLong(context.getRuntimeContext().get("triggeredByUserId"));
-        if (triggeredByUserId != null) {
-            StudioUserEntity user = studioUserMapper.selectById(triggeredByUserId);
-            if (user != null && StringUtils.hasText(user.getUsername())) {
-                return user.getUsername();
-            }
-        }
-        if (StringUtils.hasText(context.getUsername())) {
-            StudioUserEntity user = studioUserMapper.selectOne(new LambdaQueryWrapper<StudioUserEntity>()
-                    .eq(StudioUserEntity::getUsername, context.getUsername())
-                    .last("limit 1"));
-            if (user != null) {
-                return context.getUsername();
-            }
-        }
-        return StudioConstants.DEFAULT_ADMIN_USERNAME;
     }
 
     private SqlExecutionResultView toSqlResult(FlinkQuestionResultView flinkResult,
@@ -291,50 +194,8 @@ public class FlinkQuestionSqlDataDevelopmentExecutor implements DataDevelopmentS
         return null;
     }
 
-    private String remoteMessage(String body) {
-        if (!StringUtils.hasText(body)) {
-            return "";
-        }
-        try {
-            Map<String, Object> payload = objectMapper.readValue(body, MAP_TYPE);
-            Object message = payload.get("message");
-            return message == null ? "" : ": " + message;
-        } catch (Exception ignored) {
-            return "";
-        }
-    }
-
-    private String trimTrailingSlash(String value) {
-        String result = value;
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result;
-    }
-
-    private String normalizeContextPath(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        String path = value.trim();
-        while (path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
-        if (!path.startsWith("/")) {
-            path = "/" + path;
-        }
-        return path;
-    }
-
-    private long normalizeConnectTimeoutSeconds(StudioPlatformProperties properties) {
-        StudioPlatformProperties.FlinkClientProperties client = properties.getFlink().getClient();
-        Integer value = client == null ? null : client.getConnectTimeoutSeconds();
-        return Math.max(1L, value == null ? 10L : value.longValue());
-    }
-
-    private long normalizeRequestTimeoutSeconds(StudioPlatformProperties properties) {
-        StudioPlatformProperties.FlinkClientProperties client = properties.getFlink().getClient();
-        Integer value = client == null ? null : client.getRequestTimeoutSeconds();
-        return Math.max(1L, value == null ? 120L : value.longValue());
+    @FunctionalInterface
+    public interface ExecutionGateway {
+        FlinkQuestionResultView execute(FlinkSqlExecuteRequest request);
     }
 }

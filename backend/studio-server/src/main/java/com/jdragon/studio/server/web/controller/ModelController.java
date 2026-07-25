@@ -21,6 +21,7 @@ import com.jdragon.studio.infra.service.DataModelLineageService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataModelIndexRebuildQueueService;
 import com.jdragon.studio.infra.service.DataModelStatisticsService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -46,15 +47,18 @@ public class ModelController {
     private final DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService;
     private final DataModelStatisticsService dataModelStatisticsService;
     private final DataModelLineageService dataModelLineageService;
+    private final RuntimeClusterSelectionService runtimeClusterSelectionService;
 
     public ModelController(DataModelService dataModelService,
                            DataModelIndexRebuildQueueService dataModelIndexRebuildQueueService,
                            DataModelStatisticsService dataModelStatisticsService,
-                           DataModelLineageService dataModelLineageService) {
+                           DataModelLineageService dataModelLineageService,
+                           RuntimeClusterSelectionService runtimeClusterSelectionService) {
         this.dataModelService = dataModelService;
         this.dataModelIndexRebuildQueueService = dataModelIndexRebuildQueueService;
         this.dataModelStatisticsService = dataModelStatisticsService;
         this.dataModelLineageService = dataModelLineageService;
+        this.runtimeClusterSelectionService = runtimeClusterSelectionService;
     }
 
     @Operation(summary = "List all datasource models")
@@ -91,10 +95,13 @@ public class ModelController {
     public Result<PageView<DataModelDatasourceOptionView>> listSelectorOptions(
             @RequestParam(value = "datasourceType", required = false) String datasourceType,
             @RequestParam(value = "datasourceId", required = false) Long datasourceId,
+            @RequestParam("runtimeClusterId") Long runtimeClusterId,
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "pageNo", required = false) Integer pageNo,
             @RequestParam(value = "pageSize", required = false) Integer pageSize) {
-        return Result.success(dataModelService.listSelectorOptions(datasourceType, datasourceId, keyword, pageNo, pageSize));
+        runtimeClusterSelectionService.assertExplicitSelection(runtimeClusterId);
+        return Result.success(dataModelService.listSelectorOptions(
+                datasourceType, datasourceId, runtimeClusterId, keyword, pageNo, pageSize));
     }
 
     @Operation(summary = "List models by datasource")
@@ -171,18 +178,19 @@ public class ModelController {
 
     @Operation(summary = "Sync models from datasource")
     @PostMapping("/datasource/{datasourceId}/sync")
-    public Result<List<DataModelDefinition>> sync(@PathVariable("datasourceId") Long datasourceId) {
+    public Result<List<DataModelDefinition>> sync(@PathVariable("datasourceId") Long datasourceId,
+                                                  @RequestParam("runtimeClusterId") Long runtimeClusterId) {
         return Result.success(dataModelService.maskSensitiveReaderOptions(
-                dataModelService.syncFromDatasource(datasourceId)));
+                dataModelService.syncFromDatasource(datasourceId, runtimeClusterId)));
     }
 
     @Operation(summary = "Sync selected models from datasource")
     @PostMapping("/datasource/{datasourceId}/sync-selected")
     public Result<List<DataModelDefinition>> syncSelected(@PathVariable("datasourceId") Long datasourceId,
-                                                          @RequestBody(required = false) ModelSyncRequest request) {
+                                                          @Valid @RequestBody ModelSyncRequest request) {
         return Result.success(dataModelService.maskSensitiveReaderOptions(
                 dataModelService.syncFromDatasource(datasourceId,
-                        request == null ? null : request.getPhysicalLocators())));
+                        request.getPhysicalLocators(), request.getRuntimeClusterId())));
     }
 
     @Operation(summary = "Create or update datasource model")
@@ -194,8 +202,9 @@ public class ModelController {
     @Operation(summary = "Preview datasource model")
     @GetMapping("/{modelId}/preview")
     public Result<List<Map<String, Object>>> preview(@PathVariable("modelId") Long modelId,
-                                                     @RequestParam(value = "limit", defaultValue = "20") int limit) {
-        return Result.success(dataModelService.preview(modelId, limit));
+                                                     @RequestParam(value = "limit", defaultValue = "20") int limit,
+                                                     @RequestParam("runtimeClusterId") Long runtimeClusterId) {
+        return Result.success(dataModelService.preview(modelId, limit, runtimeClusterId));
     }
 
     @Operation(summary = "Get model lineage")

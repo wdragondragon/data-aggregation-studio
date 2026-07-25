@@ -17,8 +17,8 @@ import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeDatasourceProbeRouter;
 import com.jdragon.studio.infra.service.StudioSecurityService;
-import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -41,15 +41,15 @@ class DataSourceDiscoveryOptionsSourceSlimmingRegressionTest {
     @Test
     void discoveryOptionsShouldUseSlimProviderResultWithoutModelMetadata() throws Exception {
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        AggregationSourceCapabilityProvider capabilityProvider = mock(AggregationSourceCapabilityProvider.class);
+        RuntimeDatasourceProbeRouter probeRouter = mock(RuntimeDatasourceProbeRouter.class);
         MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
-        DataSourceService service = dataSourceService(datasourceMapper, capabilityProvider, metadataSchemaService);
+        DataSourceService service = dataSourceService(datasourceMapper, probeRouter, metadataSchemaService);
         when(datasourceMapper.selectById(11L)).thenReturn(datasource());
         when(metadataSchemaService.listSchemas()).thenReturn(Collections.emptyList());
-        when(capabilityProvider.discoverModelOptions(any(DataSourceDefinition.class), eq("客户"), eq(1), eq(20)))
+        when(probeRouter.discoverOptions(any(DataSourceDefinition.class), eq(46L), eq("客户"), eq(1), eq(20)))
                 .thenReturn(optionResult());
 
-        ModelDiscoveryOptionResult result = service.discoverModelOptions(11L, "客户", 1, 20);
+        ModelDiscoveryOptionResult result = service.discoverModelOptions(11L, "客户", 1, 20, 46L);
 
         assertThat(result.getModels()).hasSize(1);
         assertThat(result.getModels().get(0).getName()).isEqualTo("客户经营画像表");
@@ -59,24 +59,23 @@ class DataSourceDiscoveryOptionsSourceSlimmingRegressionTest {
                 .doesNotContain("technicalMetadata", "businessMetadata", "password", "columns");
 
         ArgumentCaptor<DataSourceDefinition> datasourceCaptor = ArgumentCaptor.forClass(DataSourceDefinition.class);
-        verify(capabilityProvider).discoverModelOptions(datasourceCaptor.capture(), eq("客户"), eq(1), eq(20));
+        verify(probeRouter).discoverOptions(datasourceCaptor.capture(), eq(46L), eq("客户"), eq(1), eq(20));
         assertThat(datasourceCaptor.getValue().getTechnicalMetadata()).containsKey("password");
-        verify(capabilityProvider, never()).discoverModels(any(DataSourceDefinition.class), any(), any(), any());
+        verify(probeRouter, never()).discover(any(DataSourceDefinition.class), any(), any(), any(), any());
     }
 
     private DataSourceService dataSourceService(DatasourceMapper datasourceMapper,
-                                                AggregationSourceCapabilityProvider capabilityProvider,
+                                                RuntimeDatasourceProbeRouter probeRouter,
                                                 MetadataSchemaService metadataSchemaService) {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         ProjectResourceAccessService accessService = mock(ProjectResourceAccessService.class);
         when(securityService.currentTenantId()).thenReturn("default");
         when(accessService.currentProjectId()).thenReturn(100L);
         when(accessService.sharedResourceIdList(any())).thenReturn(Collections.emptyList());
-        return new DataSourceService(
+        DataSourceService service = new DataSourceService(
                 datasourceMapper,
                 mock(DataModelMapper.class),
                 mock(EncryptionService.class),
-                capabilityProvider,
                 metadataSchemaService,
                 mock(DataModelIndexRebuildQueueService.class),
                 mock(BusinessMetaModelMetadataService.class),
@@ -85,6 +84,8 @@ class DataSourceDiscoveryOptionsSourceSlimmingRegressionTest {
                 mock(DatasourceTypeCapabilityService.class),
                 mock(DatasourceConnectionFingerprintService.class),
                 mock(DatasourceConnectionHealthService.class));
+        service.setRuntimeDatasourceProbeRouter(probeRouter);
+        return service;
     }
 
     private DatasourceEntity datasource() {

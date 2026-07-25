@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 @EqualsAndHashCode(callSuper = true)
 @TableName("datasource_connection_test_record")
 public class DatasourceConnectionTestRecordEntity extends BaseTenantEntity {
+    private Long runtimeClusterId;
     private String connectionFingerprint;
     private Long datasourceId;
     private String datasourceName;

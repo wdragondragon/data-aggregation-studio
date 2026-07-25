@@ -22,6 +22,8 @@ public class AlertIncidentView {
     private String severity;
     private String status;
     private String summary;
+    private Long requestedClusterId;
+    private Long actualClusterId;
     private Map<String, Object> evidence = new LinkedHashMap<String, Object>();
     private Integer occurrenceCount;
     private Integer notificationCount;

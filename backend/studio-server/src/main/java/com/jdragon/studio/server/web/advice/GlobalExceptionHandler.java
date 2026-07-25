@@ -7,11 +7,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import jakarta.validation.ConstraintViolationException;
 
 import java.util.stream.Collectors;
 
@@ -30,6 +36,10 @@ public class GlobalExceptionHandler {
             status = HttpStatus.FORBIDDEN;
         } else if (StudioErrorCode.NOT_FOUND.equals(ex.getCode())) {
             status = HttpStatus.NOT_FOUND;
+        } else if (StudioErrorCode.SERVICE_UNAVAILABLE.equals(ex.getCode())) {
+            status = HttpStatus.SERVICE_UNAVAILABLE;
+        } else if (StudioErrorCode.INTERNAL_SERVER_ERROR.equals(ex.getCode())) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
         }
         return ResponseEntity.status(status).body(Result.error(ex.getCode(), ex.getMessage()));
     }
@@ -57,6 +67,31 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         log.warn("Bind exception: {}", message, ex);
         return ResponseEntity.badRequest().body(Result.error(StudioErrorCode.BAD_REQUEST, message));
+    }
+
+    @ExceptionHandler({
+            MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class,
+            HttpMessageNotReadableException.class,
+            ConstraintViolationException.class
+    })
+    public ResponseEntity<Result<Void>> handleRequestException(Exception ex) {
+        log.warn("Invalid request: {}", ex.getMessage(), ex);
+        return ResponseEntity.badRequest()
+                .body(Result.error(StudioErrorCode.BAD_REQUEST, ex.getMessage()));
+    }
+
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<Result<Void>> handleMethodValidationException(
+            HandlerMethodValidationException ex) {
+        if (ex.isForReturnValue()) {
+            log.error("Invalid controller return value", ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Result.error(StudioErrorCode.INTERNAL_SERVER_ERROR, ex.getMessage()));
+        }
+        log.warn("Invalid request: {}", ex.getMessage(), ex);
+        return ResponseEntity.badRequest()
+                .body(Result.error(StudioErrorCode.BAD_REQUEST, ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

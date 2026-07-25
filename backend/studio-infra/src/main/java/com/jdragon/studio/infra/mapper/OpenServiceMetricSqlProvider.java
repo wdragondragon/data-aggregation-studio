@@ -308,6 +308,8 @@ public class OpenServiceMetricSqlProvider {
                 "  where deleted = 0",
                 "    and tenant_id = #{tenantId}",
                 "    and project_id = #{projectId}",
+                "    <if test='requestedClusterId != null'>and requested_cluster_id = #{requestedClusterId}</if>",
+                "    <if test='actualClusterId != null'>and actual_cluster_id = #{actualClusterId}</if>",
                 "    and service_id is not null",
                 "    and occurred_at &gt;= #{startTime}",
                 "    and occurred_at &lt;= #{endTime}",

@@ -16,6 +16,7 @@ import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskMetricBindingEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskScheduleEntity;
+import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.CollectionTaskMetricBindingMapper;
 import com.jdragon.studio.infra.mapper.CollectionTaskScheduleMapper;
@@ -26,15 +27,19 @@ import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DataModelLineageService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.PluginRuntimeOptionSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
+import com.jdragon.studio.infra.service.RuntimeClusterService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -76,6 +81,8 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         assertThat(page.getItems()).hasSize(1);
         CollectionTaskListView item = page.getItems().get(0);
         assertThat(item.getName()).isEqualTo("长期回归-客户订单增量采集任务");
+        assertThat(item.getRuntimeClusterId()).isEqualTo(46L);
+        assertThat(item.getRuntimeClusterName()).isEqualTo("Default Local Runtime Cluster");
         assertThat(item.getTargetDatasourceName()).isEqualTo("长期回归-客户经营画像数据源");
         assertThat(item.getTargetModelPhysicalLocator()).isEqualTo("lt_reg_customer_order_summary");
         assertThat(item.getSchedule()).isNotNull();
@@ -272,7 +279,7 @@ class CollectionTaskListSourceSlimmingRegressionTest {
                 mock(DataModelService.class),
                 mock(EncryptionService.class),
                 mock(PluginRuntimeOptionSchemaService.class));
-        return new CollectionTaskService(
+        CollectionTaskService service = new CollectionTaskService(
                 definitionMapper,
                 metricBindingMapper,
                 scheduleMapper,
@@ -286,11 +293,33 @@ class CollectionTaskListSourceSlimmingRegressionTest {
                 accessService,
                 mock(DataModelLineageService.class),
                 mock(DatasourceTypeCapabilityService.class));
+        injectLegacyRuntimeSelection(service);
+        return service;
+    }
+
+    private void injectLegacyRuntimeSelection(CollectionTaskService service) {
+        DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        RuntimeClusterService runtimeClusterService = mock(RuntimeClusterService.class);
+        RuntimeClusterEntity runtimeCluster = defaultLocalRuntimeCluster();
+        when(runtimeClusterService.requireAuthorized(100L, runtimeCluster.getId())).thenReturn(runtimeCluster);
+        when(runtimeClusterService.clusterName(runtimeCluster.getId())).thenReturn(runtimeCluster.getName());
+        ReflectionTestUtils.setField(service, "runtimeClusterSelectionService",
+                new RuntimeClusterSelectionService(runtimeClusterService, bindingService));
+    }
+
+    private RuntimeClusterEntity defaultLocalRuntimeCluster() {
+        RuntimeClusterEntity entity = new RuntimeClusterEntity();
+        entity.setId(46L);
+        entity.setTenantId("default");
+        entity.setCode("DEFAULT-LOCAL");
+        entity.setName("Default Local Runtime Cluster");
+        entity.setEnabled(1);
+        return entity;
     }
 
     private void assertTaskListSelectIsSlim(String sqlSelect) {
         assertThat(sqlSelect)
-                .contains("target_datasource_name_snapshot", "target_datasource_type_code_snapshot",
+                .contains("runtime_cluster_id", "target_datasource_name_snapshot", "target_datasource_type_code_snapshot",
                         "target_model_name_snapshot", "target_model_physical_locator_snapshot")
                 .doesNotContain("source_bindings_json", "target_binding_json", "field_mappings_json", "execution_options_json");
     }
@@ -304,6 +333,7 @@ class CollectionTaskListSourceSlimmingRegressionTest {
         entity.setCreatedAt(LocalDateTime.of(2026, 6, 27, 12, 0, 0));
         entity.setUpdatedAt(LocalDateTime.of(2026, 6, 27, 12, 1, 0));
         entity.setName("长期回归-客户订单增量采集任务");
+        entity.setRuntimeClusterId(46L);
         entity.setTaskType(CollectionTaskType.SINGLE_TABLE.name());
         entity.setStatus(CollectionTaskStatus.ONLINE.name());
         entity.setSourceCount(1);

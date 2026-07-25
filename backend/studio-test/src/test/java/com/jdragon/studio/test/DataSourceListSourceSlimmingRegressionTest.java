@@ -27,7 +27,6 @@ import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.MetadataSchemaService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
-import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -302,7 +301,6 @@ class DataSourceListSourceSlimmingRegressionTest {
                 datasourceMapper,
                 mock(DataModelMapper.class),
                 mock(EncryptionService.class),
-                mock(AggregationSourceCapabilityProvider.class),
                 mock(MetadataSchemaService.class),
                 mock(DataModelIndexRebuildQueueService.class),
                 mock(BusinessMetaModelMetadataService.class),

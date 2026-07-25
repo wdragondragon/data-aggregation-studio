@@ -22,9 +22,8 @@ final class AggregationRemoteRuntimeClient {
 
     static AggregationFlinkTableRuntime resolve(String endpoint, String token) {
         try {
-            Map<String, Object> body = new LinkedHashMap<String, Object>();
-            body.put("token", token);
-            JsonNode response = post(endpoint, "/api/flink/runtime/resolve", body);
+            JsonNode response = post(endpoint, "/api/flink/runtime/resolve", token,
+                    new LinkedHashMap<String, Object>());
             JsonNode data = response.path("data");
             if (data.isMissingNode() || data.isNull()) {
                 throw new IllegalStateException("runtime resolve returned empty data");
@@ -39,20 +38,20 @@ final class AggregationRemoteRuntimeClient {
     static void updateAudit(String endpoint, String token, AggregationFlinkTableRuntime runtime) {
         try {
             Map<String, Object> body = new LinkedHashMap<String, Object>();
-            body.put("token", token);
             body.put("runtime", AggregationFlinkTableRuntimePayload.auditFromRuntime(runtime));
-            post(endpoint, "/api/flink/runtime/audit", body);
+            post(endpoint, "/api/flink/runtime/audit", token, body);
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to update DataAggregation Flink runtime audit: "
                     + ex.getMessage(), ex);
         }
     }
 
-    private static JsonNode post(String endpoint, String path, Object body) throws Exception {
+    private static JsonNode post(String endpoint, String path, String token, Object body) throws Exception {
         String payload = OBJECT_MAPPER.writeValueAsString(body);
         HttpRequest request = HttpRequest.newBuilder(resolveUri(endpoint, path))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
+                .header(AggregationFlinkRuntimeRegistry.CAPABILITY_TOKEN_HEADER, token)
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
                 .build();
         HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());

@@ -10,6 +10,8 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataDevelopmentScriptView extends BaseDefinition {
+    private Long runtimeClusterId;
+    private String runtimeClusterName;
     private Long directoryId;
     private String fileName;
     private ScriptType scriptType;

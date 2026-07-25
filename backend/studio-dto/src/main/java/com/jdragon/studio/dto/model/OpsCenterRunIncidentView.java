@@ -17,6 +17,9 @@ public class OpsCenterRunIncidentView extends BaseDefinition {
     private String nodeCode;
     private String status;
     private String message;
+    private Long requestedClusterId;
+    private Long actualClusterId;
+    private String actualClusterCode;
     private String workerGroupCode;
     private String workerCode;
     private String workerInstanceId;

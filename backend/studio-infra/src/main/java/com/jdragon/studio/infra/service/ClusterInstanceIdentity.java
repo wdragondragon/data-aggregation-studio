@@ -11,16 +11,22 @@ public class ClusterInstanceIdentity {
 
     private final StudioPlatformProperties properties;
     private final String instanceId;
+    private final String bootId;
     private final String hostName;
 
     public ClusterInstanceIdentity(StudioPlatformProperties properties) {
         this.properties = properties;
         this.hostName = resolveHostName();
         this.instanceId = resolveInstanceId();
+        this.bootId = UUID.randomUUID().toString();
     }
 
     public String instanceId() {
         return instanceId;
+    }
+
+    public String bootId() {
+        return bootId;
     }
 
     public String hostName() {

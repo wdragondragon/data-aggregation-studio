@@ -72,6 +72,12 @@ public class OpsCenterController {
         return Result.success(opsCenterService.queryIngestionEvents(request));
     }
 
+    @Operation(summary = "Query protocol conversion operational events")
+    @PostMapping("/protocol-conversion-events/query")
+    public Result<PageView<OpsCenterServiceEventView>> queryProtocolConversionEvents(@RequestBody(required = false) OpsCenterQueryRequest request) {
+        return Result.success(opsCenterService.queryProtocolConversionEvents(request));
+    }
+
     @Operation(summary = "Query run log events")
     @PostMapping("/log-events/query")
     public Result<PageView<OpsCenterLogEventView>> queryLogEvents(@RequestBody(required = false) OpsCenterQueryRequest request) {

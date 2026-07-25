@@ -3,6 +3,7 @@ package com.jdragon.studio.worker.runtime;
 import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
+import com.jdragon.studio.infra.service.QualityTaskExecutionService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import org.springframework.stereotype.Component;
 
@@ -12,9 +13,12 @@ import java.util.Map;
 public class QualityTaskNodeExecutor implements NodeExecutor {
 
     private final QualityTaskService qualityTaskService;
+    private final QualityTaskExecutionService qualityTaskExecutionService;
 
-    public QualityTaskNodeExecutor(QualityTaskService qualityTaskService) {
+    public QualityTaskNodeExecutor(QualityTaskService qualityTaskService,
+                                   QualityTaskExecutionService qualityTaskExecutionService) {
         this.qualityTaskService = qualityTaskService;
+        this.qualityTaskExecutionService = qualityTaskExecutionService;
     }
 
     @Override
@@ -25,7 +29,7 @@ public class QualityTaskNodeExecutor implements NodeExecutor {
     @Override
     public Map<String, Object> execute(WorkflowNodeDefinition definition, Map<String, Object> runtimeContext) {
         Long qualityTaskId = resolveQualityTaskId(definition, runtimeContext);
-        return qualityTaskService.executeTask(qualityTaskId);
+        return qualityTaskExecutionService.execute(qualityTaskService.requireOnlineForExecution(qualityTaskId));
     }
 
     private Long resolveQualityTaskId(WorkflowNodeDefinition definition, Map<String, Object> runtimeContext) {

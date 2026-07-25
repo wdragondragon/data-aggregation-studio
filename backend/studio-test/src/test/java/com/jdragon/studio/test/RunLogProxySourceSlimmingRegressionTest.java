@@ -7,9 +7,10 @@ import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.service.RunLogStorageService;
 import com.jdragon.studio.infra.service.RunService;
+import com.jdragon.studio.infra.service.RuntimeEndpointHttpClient;
+import com.jdragon.studio.infra.service.RuntimeEndpointSecurityService;
 import com.jdragon.studio.server.web.service.RunLogProxyService;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -28,9 +29,10 @@ class RunLogProxySourceSlimmingRegressionTest {
                 runService,
                 mock(WorkerLeaseMapper.class),
                 mock(StudioPlatformProperties.class),
-                mock(RestTemplate.class),
                 new ObjectMapper(),
-                storageService);
+                storageService,
+                mock(RuntimeEndpointSecurityService.class),
+                mock(RuntimeEndpointHttpClient.class));
         RunRecordEntity pointer = objectStoragePointer();
         RunLogView expected = new RunLogView();
         expected.setRunRecordId(88L);
@@ -51,9 +53,10 @@ class RunLogProxySourceSlimmingRegressionTest {
                 runService,
                 mock(WorkerLeaseMapper.class),
                 mock(StudioPlatformProperties.class),
-                mock(RestTemplate.class),
                 new ObjectMapper(),
-                mock(RunLogStorageService.class));
+                mock(RunLogStorageService.class),
+                mock(RuntimeEndpointSecurityService.class),
+                mock(RuntimeEndpointHttpClient.class));
         RunRecordEntity pointer = new RunRecordEntity();
         pointer.setId(89L);
         pointer.setTenantId("default");

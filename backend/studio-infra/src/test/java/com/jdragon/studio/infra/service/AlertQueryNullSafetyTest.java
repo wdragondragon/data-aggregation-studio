@@ -140,6 +140,8 @@ class AlertQueryNullSafetyTest {
         AlertIncidentQueryRequest request = new AlertIncidentQueryRequest();
         request.setSeverity("CRITICAL");
         request.setActiveOnly(true);
+        request.setRequestedClusterId(41L);
+        request.setActualClusterId(42L);
 
         service.query(request);
 
@@ -148,6 +150,8 @@ class AlertQueryNullSafetyTest {
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         org.mockito.Mockito.verify(incidentMapper).selectCount(captor.capture());
         assertTrue(captor.getValue().getSqlSegment().contains("status IN"));
+        assertTrue(captor.getValue().getSqlSegment().contains("requested_cluster_id"));
+        assertTrue(captor.getValue().getSqlSegment().contains("actual_cluster_id"));
     }
 
     @Test

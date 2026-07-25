@@ -23,11 +23,11 @@ class ManualTriggerResponseSlimmingRegressionTest {
         DispatchService dispatchService = mock(DispatchService.class);
         WorkflowController controller = new WorkflowController(workflowService, dispatchService);
 
-        Result<Void> result = controller.trigger(1001L);
+        Result<Void> result = controller.trigger(1001L, null);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isNull();
-        verify(dispatchService).triggerManualRun(1001L);
+        verify(dispatchService).triggerManualRun(1001L, null);
         verify(workflowService, never()).get(1001L);
     }
 
@@ -37,11 +37,11 @@ class ManualTriggerResponseSlimmingRegressionTest {
         DispatchService dispatchService = mock(DispatchService.class);
         CollectionTaskController controller = new CollectionTaskController(collectionTaskService, dispatchService);
 
-        Result<Void> result = controller.trigger(2001L);
+        Result<Void> result = controller.trigger(2001L, null);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isNull();
-        verify(dispatchService).triggerCollectionTask(2001L);
+        verify(dispatchService).triggerCollectionTask(2001L, null);
         verify(collectionTaskService, never()).get(2001L);
     }
 
@@ -51,11 +51,11 @@ class ManualTriggerResponseSlimmingRegressionTest {
         DispatchService dispatchService = mock(DispatchService.class);
         QualityTaskController controller = new QualityTaskController(qualityTaskService, dispatchService);
 
-        Result<Void> result = controller.trigger(3001L);
+        Result<Void> result = controller.trigger(3001L, null);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isNull();
-        verify(dispatchService).triggerQualityTask(3001L);
+        verify(dispatchService).triggerQualityTask(3001L, null);
         verify(qualityTaskService, never()).get(3001L);
     }
 }

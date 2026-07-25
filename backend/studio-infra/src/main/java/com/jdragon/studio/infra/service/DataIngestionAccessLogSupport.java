@@ -55,6 +55,8 @@ final class DataIngestionAccessLogSupport {
             entity.setTenantId(service == null || isBlank(service.getTenantId()) ? StudioConstants.DEFAULT_TENANT_ID : service.getTenantId());
             entity.setProjectId(service == null ? null : service.getProjectId());
             entity.setServiceId(service == null ? null : service.getId());
+            entity.setRequestedClusterId(service == null ? null : service.getRuntimeClusterId());
+            entity.setActualClusterId(service == null ? null : service.getRuntimeClusterId());
             entity.setServiceCodeSnapshot(service == null ? null : service.getServiceCode());
             entity.setServiceNameSnapshot(service == null ? null : service.getServiceName());
             entity.setServiceStatusSnapshot(service == null ? null : service.getStatus());
@@ -101,6 +103,8 @@ final class DataIngestionAccessLogSupport {
         evidence.put("failedCount", entity.getFailedCount());
         evidence.put("errorCode", entity.getErrorCode());
         evidence.put("errorMessage", entity.getErrorMessage());
+        evidence.put("targetClusterId", entity.getRequestedClusterId());
+        evidence.put("actualClusterId", entity.getActualClusterId());
         alertSignalPublisher.publish(new AlertSignal()
                 .setTenantId(entity.getTenantId()).setProjectId(entity.getProjectId())
                 .setSignalType("INVOCATION").setSubjectType("DATA_INGESTION_SERVICE")
@@ -122,6 +126,8 @@ final class DataIngestionAccessLogSupport {
         evidence.put("accessLogId", entity.getId());
         evidence.put("logArchiveStatus", entity.getLogArchiveStatus());
         evidence.put("logArchiveError", entity.getLogArchiveError());
+        evidence.put("targetClusterId", entity.getRequestedClusterId());
+        evidence.put("actualClusterId", entity.getActualClusterId());
         alertSignalPublisher.publish(new AlertSignal()
                 .setTenantId(entity.getTenantId()).setProjectId(entity.getProjectId())
                 .setSignalType("LOG_ARCHIVE").setSubjectType("LOG_STORAGE")
