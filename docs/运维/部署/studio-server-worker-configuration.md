@@ -1,255 +1,330 @@
 # Studio Server / Worker 配置说明
 
-更新时间：2026-05-31
+更新时间：2026-07-24
 
-本文档说明 `data-aggregation-studio` 中 `studio-server` 与 `studio-worker` 的主要可配置项。配置项来源包括：
+本文按 P0-MC-02 的统一运行模型说明部署配置：`studio-server` 是纯控制面，`studio-worker` 是唯一执行面。单集群与多集群使用相同应用和配置语义，差别只有运行集群记录、Worker 数量和数据源适用范围。
 
-- `backend/studio-server/src/main/resources/application.yml`
-- `backend/studio-worker/src/main/resources/application.yml`
-- `StudioPlatformProperties` 中 `studio.*` 配置绑定
+## 1. 进程职责
 
-生产环境建议通过环境变量、启动参数或 Nacos 配置覆盖默认值，不建议直接修改仓库内 `application.yml`。
+| 模块 | 默认端口 | 职责 | 不应承担 |
+| --- | ---: | --- | --- |
+| `studio-server` | `18080` | 用户 API、配置管理、调度入队、运行集群管理、Worker 路由、统计、告警 | 插件加载、业务数据源连接、SQL/脚本/任务执行 |
+| `studio-worker` | `18081` | 定向 Dispatch、数据源探测、模型数据访问、SQL/Flink/Java/Python、采集、质量和同步服务执行 | 用户控制面和跨集群自动故障转移 |
+| `studio-flink` | `18084` | 智能问数的 SQL 计划生成；启用该功能时由 OMS 侧部署 | 代替 Worker 执行真实 Flink SQL，或作为运行集群路由目标 |
 
-## 1. 配置优先级与模块边界
+部署不再配置 `LEGACY/ENFORCED` 模式：
 
-| 模块 | 默认端口 | 主要职责 | 关键配置重点 |
-| --- | --- | --- | --- |
-| `studio-server` | `18080` | Web API、开放服务、调度扫描、运行日志读取、系统管理 | 数据库、Redis、Nacos、集群锁、运行日志对象存储、开放接口安全 |
-| `studio-worker` | `18081` | Worker 心跳、任务领取、任务执行、运行日志采集与上传 | 数据库、Redis、Worker 组、实例身份、运行日志目录、对象存储、任务租约 |
+- 所有资源和运行操作都必须有真实 `runtimeClusterId`。
+- `DEFAULT-LOCAL` 只是普通 Worker 集群编码，不表示 Server 进程内执行。
+- Server 不配置 `STUDIO_CLUSTER_CODE`，也不挂载 DataAggregation 插件目录。
+- Worker 离线时，同步请求返回 `503`，异步任务保持排队；禁止回退到 Server 或其他集群。
 
-配置建议：
+## 2. 共享配置
 
-| 场景 | 建议 |
-| --- | --- |
-| 本地开发 | 可以使用 `application.yml` 默认值，但 Redis、数据库、Nacos 建议通过环境变量覆盖。 |
-| 服务器部署 | 使用环境变量或外部配置中心覆盖数据库、Redis、Nacos、Token、对象存储等配置。 |
-| K8s 多副本 | 使用环境变量注入 `POD_UID`、`POD_NAME`、`NODE_NAME`、`STUDIO_WORKER_GROUP_CODE`。 |
-| 敏感配置 | 数据库密码、Redis 密码、Nacos 密码、内部 Token、对象存储密钥不应提交到代码仓库。 |
+Server 与全部 Worker 必须连接同一 Studio 元数据库，并使用相同的加密密钥和内部调用 Token。
 
-## 2. 通用 Spring 配置
+| 环境变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `SPRING_DATASOURCE_URL` | 是 | Studio 元数据库 JDBC URL。 |
+| `SPRING_DATASOURCE_USERNAME` | 是 | 元数据库账号。 |
+| `SPRING_DATASOURCE_PASSWORD` | 是 | 元数据库密码。 |
+| `STUDIO_ENCRYPTION_SECRET` | 是 | 加解密数据源、运行端点 URL/Header/Token 和短期 Dispatch 执行输入；所有进程必须一致。 |
+| `STUDIO_INTERNAL_API_TOKEN` | 是 | Server 调用 Worker 内部接口的共享认证 Token；所有进程必须一致。 |
+| `NACOS_SERVER` | 按需 | Nacos 地址。运行集群路由本身以数据库中的 HTTP/SLB 端点为准。 |
+| `NACOS_NAMESPACE` | 按需 | Nacos namespace。 |
+| `NACOS_GROUP` | 按需 | Nacos group。 |
+| `REDIS_HOST/PORT/PASSWORD` | 按需 | 启用共享缓存时使用；多集群不能使用实例本地响应缓存代替共享 Redis。 |
 
-以下配置 server 与 worker 都存在。
+生产必须使用非默认、足够长且不可提交到仓库的 `STUDIO_ENCRYPTION_SECRET` 和 `STUDIO_INTERNAL_API_TOKEN`。该加密密钥也保护排队中的即席脚本正文和运行参数。修改加密密钥前，必须按[运行集群升级说明](../../数据库/runtime-cluster-upgrade.md#加密密钥迁移边界)停止全部 Studio 进程、备份数据库，并使用 `backend/scripts/rotate-studio-encryption-key.ps1` 先 Dry Run、再双确认 Apply。不能直接替换环境变量后重启，也不支持新旧密钥实例滚动混跑。
 
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `spring.profiles.active` | `APP_ACTIVE` | `prod` | Spring profile。 |
-| `spring.datasource.url` | `SPRING_DATASOURCE_URL` | `jdbc:mysql://<host>:3306/data_aggregation_studio?...` | Studio 元数据库连接。server 与 worker 必须指向同一库。 |
-| `spring.datasource.username` | `SPRING_DATASOURCE_USERNAME` | 按环境填写 | 数据库用户名。 |
-| `spring.datasource.password` | `SPRING_DATASOURCE_PASSWORD` | 按环境填写 | 数据库密码。生产必须覆盖。 |
-| `spring.datasource.driver-class-name` | `SPRING_DATASOURCE_DRIVER_CLASS_NAME` | `com.mysql.cj.jdbc.Driver` | 数据库驱动。 |
-| `spring.data.redis.host` | `REDIS_HOST` | 按环境填写 | Redis 地址。建议通过启动变量指定，不改配置文件。 |
-| `spring.data.redis.port` | `REDIS_PORT` | `6379` | Redis 端口。 |
-| `spring.data.redis.database` | `REDIS_DATABASE` | `1` | Redis database。 |
-| `spring.data.redis.password` | `REDIS_PASSWORD` | 按环境填写 | Redis 密码。生产必须覆盖。 |
-| `spring.cloud.nacos.username` | `NACOS_USER` | `nacos` | Nacos 用户名。 |
-| `spring.cloud.nacos.password` | `NACOS_PASSWORD` | 按环境填写 | Nacos 密码。生产必须覆盖。 |
-| `spring.cloud.nacos.discovery.server-addr` | `NACOS_SERVER` | `127.0.0.1:8848` | Nacos 服务发现地址。 |
-| `spring.cloud.nacos.discovery.namespace` | `NACOS_NAMESPACE` | 按环境填写 | Nacos namespace。 |
-| `spring.cloud.nacos.discovery.group` | `NACOS_GROUP` | 按环境填写 | Nacos group。 |
-| `spring.cloud.nacos.config.server-addr` | `NACOS_SERVER` | `127.0.0.1:8848` | Nacos 配置中心地址。 |
-| `spring.cloud.nacos.config.namespace` | `NACOS_NAMESPACE` | 按环境填写 | 配置中心 namespace。 |
-| `spring.cloud.nacos.config.group` | `NACOS_GROUP` | 按环境填写 | 配置中心 group。 |
-| `management.endpoints.web.exposure.include` | 启动参数或配置中心 | `health,info` | 暴露 actuator 健康检查和 info。 |
+### 2.1 可信网关配置
 
-说明：
+`STUDIO_GATEWAY_*` 用于上游可信网关把已经认证的身份兑换为 Studio JWT，与 Server 调用 Worker 的 `STUDIO_INTERNAL_API_TOKEN` 不是同一条认证链。
 
-- `studio-server` 的 `spring.sql.init.mode` 当前为 `never`，MySQL 首次建表应按 SQL 文件手工初始化。
-- `mybatis-plus.configuration.map-underscore-to-camel-case` 当前固定为 `true`。
+| 环境变量 | 生产要求 | 说明 |
+| --- | --- | --- |
+| `STUDIO_GATEWAY_TRUST_ENABLED` | 必须显式配置 | 未接入可信网关时设为 `false`；只有确认上游签名方和网络边界后才设为 `true`。 |
+| `STUDIO_GATEWAY_SHARED_SECRET` | 启用可信网关时必填 | 上游网关和 `studio-server` 使用同一强随机密钥，禁止使用应用默认值 `change-me`。 |
+| `STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS` | 建议保持较短窗口 | 签名有效期，默认 `300` 秒；需要配合网关和 Server 的时钟同步。 |
 
-## 3. Studio 通用配置
+Worker 和独立 `studio-flink` 不承担用户身份兑换，生产应显式设置 `STUDIO_GATEWAY_TRUST_ENABLED=false`。可信网关密钥不得与内部 API Token、数据源密码或端点 Token 复用，也不得写入镜像、日志、工单或本文档。
 
-以下配置由 `studio.*` 绑定，server 与 worker 均可使用。
+### 2.2 本地 IDEA 配置启动
 
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `studio.aggregation-home` | `STUDIO_AGGREGATION_HOME` 或 `-Daggregation.home` | `../../package_all/aggregation` | DataAggregation 插件与运行资源目录。 |
-| `studio.encryption-secret` | `STUDIO_ENCRYPTION_SECRET` | 按环境填写 | 加密密钥。当前 yml 有默认值，生产建议覆盖。 |
-| `studio.timezone` | `STUDIO_TIMEZONE` | `Asia/Shanghai` | Studio 时间处理时区。 |
-| `studio.scan-plugins-on-startup` | `STUDIO_SCAN_PLUGINS_ON_STARTUP` | `true` | 启动时是否扫描插件。 |
-| `studio.instance-id` | `STUDIO_INSTANCE_ID` / `POD_UID` | 自动推导 | 当前 server/worker 实例 ID。K8s 推荐使用 `POD_UID`。 |
-| `studio.pod-name` | `POD_NAME` / `HOSTNAME` | 自动推导 | Pod 名称或主机名。 |
-| `studio.node-name` | `NODE_NAME` | 空 | K8s 节点名称。 |
-| `studio.worker-group-code` | `STUDIO_WORKER_GROUP_CODE` | 按部署组填写 | Worker 组编码。worker 多副本接单按该组授权。 |
-| `studio.worker-code` | `STUDIO_WORKER_CODE` | 按环境填写 | 历史兼容字段。新部署优先使用 `worker-group-code`。 |
-| `studio.internal-api-token` | `STUDIO_INTERNAL_API_TOKEN` | 按环境填写 | server 与 worker 内部调用鉴权 Token。生产必须覆盖。 |
-| `studio.desktop-runtime` | `STUDIO_DESKTOP_RUNTIME` | `false` | 是否桌面运行时。服务端部署保持 `false`。 |
+仓库 `scripts/dev-services.ps1` 在本地存在根项目 `.idea/workspace.xml` 时，会分别读取 `StudioServerApplication` 和 `StudioWorkerApplication` 的环境变量。IDEA 中的 Redis、Nacos、Python和对象存储配置只通过子进程环境继承，不拼入 PowerShell 或 Java 命令行，也不打印变量值。脚本仍会覆盖本地必需的共享内部 Token/加密密钥并强制关闭可信网关；Server 子进程会清除集群编码、插件目录和其它 Worker 身份变量，Worker 则补齐显式集群编码与插件目录。
 
-### Gateway 信任配置
+该行为只服务本机开发和验收，不表示生产部署读取 `.idea`。生产仍必须通过 Secret、ConfigMap或受控启动环境显式注入本文件列出的变量。
 
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `studio.gateway.trust-enabled` | `STUDIO_GATEWAY_TRUST_ENABLED` | `true` | 是否信任网关下发的上下文。 |
-| `studio.gateway.shared-secret` | `STUDIO_GATEWAY_SHARED_SECRET` | 按环境填写 | 网关签名共享密钥。生产必须覆盖。 |
-| `studio.gateway.signature-expire-seconds` | `STUDIO_GATEWAY_SIGNATURE_EXPIRE_SECONDS` | `300` | 网关签名有效期，单位秒。 |
+## 3. Server 配置
 
-### Python 执行配置
+### 3.1 必要配置
 
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `studio.python.executable` | `STUDIO_PYTHON_EXECUTABLE` | 空 | Python 可执行文件路径。 |
-| `studio.python.executable-args` | 配置中心或启动参数 | 空数组 | Python 启动附加参数。 |
-| `studio.python.execution-timeout-seconds` | `STUDIO_PYTHON_TIMEOUT_SECONDS` | `120` | Python 执行超时。 |
-| `studio.python.temp-dir` | `STUDIO_PYTHON_TEMP_DIR` | 空 | Python 临时目录。 |
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SERVER_PORT` | `18080` | 控制面 HTTP 端口。 |
+| `STUDIO_INSTANCE_ID` | Pod UID/主机名 | Server 实例标识，用于集群锁和观测。 |
+| `STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES` | `10485760` | Server 接收并代理到 Worker 的最大请求体。 |
+| `STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES` | `10485760` | Server 从 Worker 接收的响应体上限。 |
+| `STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS` | 本地配置默认允许 `127.0.0.1` | Server 显式放行可使用 HTTP 或解析到内网地址的 Worker/SLB 主机；Worker 下载历史 HTTP 脚本制品时复用同一精确主机允许列表。 |
+| `STUDIO_SCHEDULER_BATCH_SIZE` | `500` | 每轮调度扫描最大入队数量。 |
+| `STUDIO_CLUSTER_LOCK_LEASE_SECONDS` | `120` | 控制面集群锁租约秒数。 |
 
-## 4. Server 专属配置
+`STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS` 是 Spring Boot 字符串列表，环境变量使用逗号分隔：
 
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `server.port` | `SERVER_PORT` 或启动参数 | `18080` | server HTTP 端口。 |
-| `springdoc.api-docs.enabled` | 配置中心或启动参数 | `true` | 是否启用 OpenAPI 文档。 |
-| `springdoc.swagger-ui.enabled` | 配置中心或启动参数 | `true` | 是否启用 Swagger UI。 |
-| `knife4j.enable` | 配置中心或启动参数 | `true` | 是否启用 Knife4j。 |
-| `studio.model-sync-task.max-concurrency` | `STUDIO_MODEL_SYNC_TASK_MAX_CONCURRENCY` | `1` | 模型同步任务最大并发。 |
-| `studio.dispatch.scheduler-batch-size` | `STUDIO_SCHEDULER_BATCH_SIZE` | `500` | server 每轮调度扫描最大入队数量。 |
-| `studio.dispatch.cluster-lock-lease-seconds` | `STUDIO_CLUSTER_LOCK_LEASE_SECONDS` | `120` | server 调度集群锁租约秒数。 |
-
-Server 多副本部署要求：
-
-- 多个 server 可以同时启动，但调度扫描器必须依赖数据库集群锁防重。
-- 所有 server 必须连接同一 Studio 元数据库。
-- 运行日志对象存储配置需要与 worker 一致，否则 server 无法读取 worker 上传的对象日志。
-
-## 5. Worker 专属配置
-
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `server.port` | `SERVER_PORT` 或启动参数 | `18081` | worker HTTP 端口。 |
-| `studio.runtime-log-dir` | `STUDIO_RUNTIME_LOG_DIR` | `./runtime/run-logs` | worker 本地运行日志目录。对象存储开启后仍会先写本地再上传。 |
-| `studio.worker-api-base-url` | `STUDIO_WORKER_API_BASE_URL` | `http://127.0.0.1:${server.port}` | worker 内部 API 访问地址。K8s 对象存储模式下历史日志不依赖该地址。 |
-| `studio.dispatch.worker-scheduler-pool-size` | `STUDIO_WORKER_SCHEDULER_POOL_SIZE` | `4` | worker 调度线程池大小。 |
-| `studio.dispatch.dispatch-lease-minutes` | `STUDIO_DISPATCH_LEASE_MINUTES` | `10` | worker 已领取任务租约分钟数。 |
-| `studio.dispatch.worker-offline-grace-minutes` | `STUDIO_WORKER_OFFLINE_GRACE_MINUTES` | `120` | worker 离线保留窗口，用于页面展示近期实例。 |
-
-Worker 组化部署要求：
-
-- 项目绑定的是 `workerGroupCode`，不是 Pod IP、Pod 名或 `POD_UID`。
-- 同一 `workerGroupCode` 下允许多个 Pod 并发接单。
-- 不同 Worker 组建议使用不同 Deployment 或 StatefulSet 区分。
-- `workerInstanceId` 推荐使用 `POD_UID`，用于区分同组下的具体 Pod。
-
-K8s 推荐变量：
-
-```yaml
-STUDIO_WORKER_GROUP_CODE: default-pool
-STUDIO_INSTANCE_ID: ${POD_UID}
-POD_NAME: ${metadata.name}
-NODE_NAME: ${spec.nodeName}
+```bash
+STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS=studio-worker.default.svc,worker-slb.internal.example,127.0.0.1
 ```
 
-## 6. 运行日志存储配置
+主机名必须精确填写，不支持 `*` 通配符。云元数据地址始终拒绝。允许列表只放行地址安全策略，不代替内部 Token、SLB Header 或网络 ACL。仅在 Worker 仍需读取私网 HTTP/HTTPS 脚本环境制品时才把相应制品主机加入 Worker 配置；新部署优先使用受管 `oss://bucket/object-key` 地址。
 
-运行日志支持两种存储模式。
+`STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES` 需要同时配置到 Server 和全部 Worker，并保持一致：Server 用它限制从 Worker 读取的响应体；Worker 用它限制协议转换访问下游 HTTP 服务时读取的响应体。若响应声明的 `Content-Length` 或实际读取字节数超过限制，请求会失败并返回 `Target response exceeds the configured limit`，不会继续把超限正文读入内存。
 
-| `studio.run-log.storage-type` | 说明 |
+`STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES` 也需要在 Server 和全部 Worker 保持一致。Server 在代理前限制用户请求体，Worker 内部入口再次按声明长度和实际读取字节数独立限制；Server、Worker 和 Desktop 均关闭 Spring 的表单预解析过滤器，JSON、XML/SOAP 和 `application/x-www-form-urlencoded` 会由运行路由在有界读取后处理，分块表单不会在限流前被消费。超限返回 HTTP `413` 和 `PAYLOAD_TOO_LARGE`，不会进入业务执行或写入幂等状态。双端校验用于防止错误代理配置或持有内部 Token 的直连请求绕过 OMS 限制。
+
+### 3.2 Server 禁止配置
+
+以下变量不属于 Server：
+
+```text
+STUDIO_AGGREGATION_HOME
+STUDIO_CLUSTER_CODE
+STUDIO_WORKER_GROUP_CODE
+STUDIO_WORKER_CODE
+STUDIO_PLUGIN_FINGERPRINT
+STUDIO_PYTHON_EXECUTABLE
+STUDIO_PYTHON_TEMP_DIR
+STUDIO_PYTHON_TIMEOUT_SECONDS
+STUDIO_SCRIPT_ARTIFACT_CONNECT_TIMEOUT_SECONDS
+STUDIO_SCRIPT_ARTIFACT_READ_TIMEOUT_SECONDS
+STUDIO_SCRIPT_ARTIFACT_MAX_BYTES
+STUDIO_SCRIPT_ARTIFACT_ALLOW_LOCAL_FILES
+STUDIO_SCRIPT_ARTIFACT_ALLOWED_LOCAL_ROOTS
+```
+
+Server 镜像和 Pod 不需要挂载：
+
+```text
+aggregation/conf/core.json
+aggregation/plugin/**
+```
+
+Server 也不能通过旧 JVM 参数 `-Daggregation.home=...` 间接携带插件目录。应用启动守门会同时拒绝 `STUDIO_AGGREGATION_HOME` 和 JVM `aggregation.home`；不要用系统属性绕过角色配置边界。
+
+Server 所在网络可以禁止访问业务数据库、消息队列、文件系统和对象源网段；它只需要访问 Studio 元数据库、共享基础设施和 Worker HTTP/SLB 端点。
+
+## 4. Worker 配置
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SERVER_PORT` | `18081` | Worker 内部 HTTP 端口。 |
+| `STUDIO_CLUSTER_CODE` | 空 | Worker 所属运行集群的稳定编码，必须显式配置并与控制面登记值一致，例如 `DEFAULT-LOCAL`。 |
+| `STUDIO_AGGREGATION_HOME` | `../../package_all/aggregation` | DataAggregation 运行目录，必须包含该 Worker 的完整插件。 |
+| `STUDIO_WORKER_GROUP_CODE` | 由 `worker-code` 回退 | 集群内部技术池和观测标识，不替代集群编码。 |
+| `STUDIO_INSTANCE_ID` | Pod UID/主机名 | Worker 实例标识。多副本必须唯一。 |
+| `STUDIO_WORKER_API_BASE_URL` | 当前 Worker 地址 | Worker 上报的诊断地址。生产填写 Pod 可达地址或内部服务地址。 |
+| `STUDIO_RUNTIME_VERSION` | 空 | 运行版本观测值。 |
+| `STUDIO_PLUGIN_FINGERPRINT` | 空 | 插件集合指纹，建议发布时固定生成。 |
+| `STUDIO_WORKER_SCHEDULER_POOL_SIZE` | `4` | 异步 Dispatch 执行线程池大小。 |
+| `STUDIO_DISPATCH_LEASE_MINUTES` | `10` | 已领取任务租约。 |
+| `STUDIO_WORKER_OFFLINE_GRACE_MINUTES` | `120` | 离线实例保留窗口。 |
+| `STUDIO_RUNTIME_INVOCATION_MAX_CONCURRENCY` | `32` | 单个 Worker 同时接受的数据面 HTTP 执行数；超限立即返回 `503`，不会占用异步 Dispatch 执行线程。 |
+| `STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES` | `10485760` | Worker 内部同步入口独立接受的最大请求体；应与 Server 配置保持一致。 |
+| `STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES` | `10485760` | 协议转换 Worker 从下游 HTTP 服务读取的最大响应体；应与 Server 配置保持一致。 |
+| `STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS` | 本地配置默认允许 `127.0.0.1` | Worker 下载私网 HTTP/HTTPS 脚本环境制品时精确放行主机；公网 HTTPS 和 `oss://` 不依赖该项。 |
+| `STUDIO_RUNTIME_LOG_DIR` | `./runtime/run-logs` | Worker 本地运行日志目录。 |
+| `STUDIO_PYTHON_EXECUTABLE` | 空 | Python 脚本执行器路径；使用 Python 能力时必填。 |
+| `STUDIO_PYTHON_TIMEOUT_SECONDS` | `120` | Python 执行超时秒数。 |
+| `STUDIO_SCRIPT_ARTIFACT_CONNECT_TIMEOUT_SECONDS` | `5` | Worker 下载 HTTP/HTTPS Java 环境依赖的连接超时，范围收敛到 1 至 60 秒。 |
+| `STUDIO_SCRIPT_ARTIFACT_READ_TIMEOUT_SECONDS` | `30` | Worker 下载 HTTP/HTTPS Java 环境依赖的读取超时，范围收敛到 1 至 60 秒。 |
+| `STUDIO_SCRIPT_ARTIFACT_MAX_BYTES` | `67108864` | 单个 JAR/ZIP、对象存储对象、本地文件及 ZIP 解压后 JAR 总量上限，最大 64 MiB。 |
+| `STUDIO_SCRIPT_ARTIFACT_ALLOW_LOCAL_FILES` | `false` | 是否允许脚本环境依赖读取 Worker 本地文件；生产保持关闭。 |
+| `STUDIO_SCRIPT_ARTIFACT_ALLOWED_LOCAL_ROOTS` | 空 | 开启本地文件后允许访问的真实根目录列表，逗号分隔；目标会经 `toRealPath()` 校验，不能目录逃逸。 |
+| `STUDIO_FLINK_ENABLED` | `true` | 是否注册 Worker 内的 Flink SQL 执行能力。 |
+| `STUDIO_FLINK_EXECUTION_MODE` | `embedded` | Worker 的 Flink SQL 执行模式；使用 Gateway 时必须同步配置其连接参数。 |
+| `STUDIO_FLINK_RUNTIME_ENDPOINT` | 当前 Worker 地址 | Flink Gateway 运行时回调到当前 Worker 的内部地址，不能填写 Server 地址。 |
+
+同一运行集群可部署多个 Worker，所有实例使用相同 `STUDIO_CLUSTER_CODE`，但 `STUDIO_INSTANCE_ID` 不同。Worker 只领取 `target_cluster_id` 指向自身集群的任务；没有目标集群的历史任务不会被领取。
+
+Worker 内部 HTTP 接口不应暴露给用户网络。Server 到 Worker 的路由端点可以是单 Worker 地址、Kubernetes Service 或 SLB；多实例负载均衡由 Service/SLB 完成，Studio 不在应用内轮询多个端点。
+
+脚本环境依赖推荐先上传到受管对象存储并保存 `oss://<bucket>/<object-key>`。HTTP/HTTPS 下载固定 DNS 解析结果、禁止重定向和自动重试，并限制超时与响应大小；私网主机必须精确加入 Worker 的 `STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS`。本地路径和 `file:` 默认拒绝，只有确有历史兼容需求时才同时开启本地文件并配置允许根目录。
+
+## 5. studio-flink 规划服务
+
+`studio-flink` 只在启用智能问数时需要。它读取 Studio 模型上下文并生成受约束的 SQL 计划，最终 Flink SQL 仍由 `studio-server` 按 `runtimeClusterId` 转发到目标 Worker 执行。停止 `studio-flink` 不影响采集、质量、工作流和普通数据服务，但 `/question/plan`、`/question/ask` 等智能问数入口应明确失败，不得回退到 Server 本地执行。
+
+Server 侧路由配置：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `STUDIO_FLINK_SERVICE_NAME` | `studio-flink` | 使用 Nacos 服务发现时的服务名。 |
+| `STUDIO_FLINK_BASE_URL` | `http://127.0.0.1:18084` | 固定 HTTP 地址；使用 Nacos 发现时应留空，并确认 service name、namespace 和 group 一致。 |
+| `STUDIO_FLINK_CONTEXT_PATH` | 空 | 规划服务存在统一 context path 时填写。 |
+
+规划服务至少需要连接同一 Studio 元数据库，使用与 Server 相同的 `STUDIO_ENCRYPTION_SECRET` 和 `STUDIO_INTERNAL_API_TOKEN`，并配置实际使用的 LLM Provider。加密密钥保证规划服务能够读取同一控制面元数据，内部 Token仅保持共享运行配置一致，不能把规划服务变成 Worker内部接口。它不应作为运行集群端点，不配置 `STUDIO_CLUSTER_CODE`、`STUDIO_AGGREGATION_HOME`或其它 Worker身份变量，并且必须显式设置 `STUDIO_GATEWAY_TRUST_ENABLED=false`。若部署 Flink Gateway，Worker 还需按环境配置 `STUDIO_FLINK_GATEWAY_BASE_URL`、连接/获取超时和回调地址；这些地址只属于 Worker 执行面。
+
+## 6. 运行集群模块配置
+
+运行集群、端点和项目授权保存在数据库，不写死在应用环境变量中。
+
+每个可执行集群需要：
+
+1. 一条启用的运行集群记录，编码与 Worker 的 `STUDIO_CLUSTER_CODE` 一致。
+2. 至少一个在线 Worker 心跳。
+3. 项目对该集群的授权。
+4. 数据源对该集群的适用绑定。
+5. 需要同步探测或服务调用时，一条启用的 `HTTP` Worker 端点。
+
+旧 `LOCAL` 端点不再具有执行语义，只能在迁移期查看、获得固定测试失败提示、停用和删除。新建或编辑端点只允许 `HTTP`。
+
+端点可保存额外 SLB Header 和 Token，值由 Server 加密保存。运行时会隔离内部认证 Header 与业务 Header，禁止重定向和自动业务重试。
+
+## 7. 单集群部署
+
+单集群就是只登记一个运行集群，例如 `DEFAULT-LOCAL`：
+
+1. 启动 Studio 元数据库和 `studio-server`。
+2. 在“运行集群”中创建或保留 `DEFAULT-LOCAL`，为项目授权。
+3. 启动一个完整能力 Worker，设置 `STUDIO_CLUSTER_CODE=DEFAULT-LOCAL`，等待实例心跳在线。
+4. 配置 Worker HTTP 端点，例如 `http://studio-worker:18081`，并完成端点测试。
+5. 将数据源绑定到该集群，并测试连接。
+6. 创建资源时保存真实 `runtimeClusterId`。
+
+项目只有一个授权集群时，前端自动选择或只读显示，但请求 DTO 仍提交集群 ID。以后新增第二个集群只需新增记录、Worker、端点、项目授权和数据源绑定，不需要切换应用模式或改变 Server 启动参数。
+
+## 8. 多集群部署
+
+OMS 集群只部署 Server 也可以；需要在 OMS 执行任务时，再额外部署属于 OMS 运行集群的 Worker。其他执行网络通常只部署 Worker，不需要部署第二套 Server。
+
+多集群共同要求：
+
+- 所有 Server/Worker 连接同一 Studio 元数据库。
+- 每个 Worker 使用自身集群编码。
+- 每个集群部署相同的完整能力版本，不配置任务类型能力矩阵。
+- 数据源适用范围反映网络可达性，不由健康检查自动修改。
+- 多集群生产使用共享对象存储保存运行日志。
+- 启用数据服务缓存时使用共享 Redis。
+- 不实现跨集群自动故障转移；目标离线时保持原目标。
+
+## 9. 运行日志
+
+| `STUDIO_RUN_LOG_STORAGE_TYPE` | 说明 |
 | --- | --- |
-| `LOCAL` | 默认模式。日志保存在 worker 本地目录，历史日志依赖 worker 本地文件和 worker 可访问性。 |
-| `OBJECT_STORAGE` | 对象存储模式。worker 本地写日志后同步到 MinIO/OSS，server 通过 bucket/key 读取历史日志。 |
+| `LOCAL` | 仅适合本地或单 Worker 开发；历史日志依赖原 Worker 文件。 |
+| `OBJECT_STORAGE` | 生产推荐；Worker 上传，Server 按 bucket/key 读取。 |
 
-当前 `storage-type` 在代码中是字符串约定，可填值只有 `LOCAL` 和 `OBJECT_STORAGE`。如果填错，当前不会在配置绑定阶段按枚举直接失败，后续建议改成 Java enum。
+对象存储核心变量。以下为阿里云 OSS 示例，Server 和全部 Worker 必须使用相同配置：
 
-### 对象存储配置
+```bash
+STUDIO_RUN_LOG_STORAGE_TYPE=OBJECT_STORAGE
+STUDIO_OBJECT_PROVIDER=OSS
+STUDIO_OBJECT_ENDPOINT=https://oss-<region>-internal.aliyuncs.com
+STUDIO_OBJECT_ACCESS_KEY=<secret-injected-access-key>
+STUDIO_OBJECT_SECRET_KEY=<secret-injected-secret-key>
+STUDIO_OBJECT_BUCKET=<pre-created-bucket>
+STUDIO_OBJECT_REGION=<region>
+STUDIO_OBJECT_CREATE_BUCKET=false
+STUDIO_RUN_LOG_OBJECT_PREFIX=studio/run-logs
+```
 
-| 配置项 | 环境变量 | 默认/示例 | 说明 |
-| --- | --- | --- | --- |
-| `studio.run-log.object-storage.provider` | `STUDIO_RUN_LOG_OBJECT_PROVIDER` | `MINIO` | 对象存储实现。可填 `MINIO` 或 `OSS`。`MINIO` 使用 S3/MinIO 兼容实现；`OSS` 使用阿里云 OSS 原生 SDK。 |
-| `studio.run-log.object-storage.endpoint` | `STUDIO_RUN_LOG_OBJECT_ENDPOINT` | `http://<minio-host>:9000` | 对象存储 endpoint。MinIO 示例为 `http://<minio-host>:9000`；阿里云 OSS 示例为 `https://oss-cn-guangzhou.aliyuncs.com`。 |
-| `studio.run-log.object-storage.access-key` | `STUDIO_RUN_LOG_OBJECT_ACCESS_KEY` | 按环境填写 | 对象存储 access key。生产必须覆盖。 |
-| `studio.run-log.object-storage.secret-key` | `STUDIO_RUN_LOG_OBJECT_SECRET_KEY` | 按环境填写 | 对象存储 secret key。生产必须覆盖。 |
-| `studio.run-log.object-storage.bucket` | `STUDIO_RUN_LOG_OBJECT_BUCKET` | 按环境填写 | 运行日志 bucket。`OBJECT_STORAGE` 模式下必填。 |
-| `studio.run-log.object-storage.region` | `STUDIO_RUN_LOG_OBJECT_REGION` | 空 | S3 region，可按对象存储要求填写。 |
-| `studio.run-log.object-storage.prefix` | `STUDIO_RUN_LOG_OBJECT_PREFIX` | `studio/run-logs` | 对象 key 前缀。 |
-| `studio.run-log.object-storage.create-bucket` | `STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET` | `true` | bucket 不存在时是否尝试创建。生产可按权限策略设为 `false`。 |
+Server 与 Worker 必须使用相同的 provider、endpoint、bucket 和 prefix。`OSS` 是规范提供方值；代码也兼容 `ALIYUN/ALIYUN_OSS/ALIYUN-OSS`，但部署清单统一使用 `OSS`。若使用公网 endpoint，将示例中的 internal endpoint 换成实际受控地址；不要把真实地址和凭据提交到仓库。MinIO 部署则将 provider 改为 `MINIO`并配置对应 endpoint。
 
-选择规则：
+当前实现使用静态 Access Key/Secret Key，不支持额外的 STS SecurityToken 或 RAM Role 凭据链。生产 OSS bucket 应预先创建，应用保持 `STUDIO_OBJECT_CREATE_BUCKET=false`。
 
-- 使用 MinIO 或其他 path-style S3 兼容服务时，设置 `STUDIO_RUN_LOG_OBJECT_PROVIDER=MINIO`。
-- 使用阿里云 OSS 时，设置 `STUDIO_RUN_LOG_OBJECT_PROVIDER=OSS`。OSS SDK 会按 OSS endpoint 访问 bucket，避免 MinIO SDK path-style 访问触发 `Please use virtual hosted style to access`。
-- server 与 worker 必须使用相同的 `provider / endpoint / bucket / prefix`，否则 worker 上传成功后 server 可能无法读取日志。
-- 生产环境若 bucket 已由平台提前创建，建议设置 `STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=false`，避免应用启动或健康检查尝试创建 bucket。
+发布前可用显式集成测试验证 Worker 归档、跨节点读取和存储故障恢复。该测试不进入默认 Surefire；测试对象会在用例内删除，但仍应使用独立测试 bucket：
 
-对象日志同步行为：
+```powershell
+$env:STUDIO_IT_OBJECT_PROVIDER='OSS'
+$env:STUDIO_IT_OBJECT_ENDPOINT='https://oss-<region>-internal.aliyuncs.com'
+$env:STUDIO_IT_OBJECT_ACCESS_KEY='<test-access-key>'
+$env:STUDIO_IT_OBJECT_SECRET_KEY='<test-secret-key>'
+$env:STUDIO_IT_OBJECT_BUCKET='<pre-created-test-bucket>'
+$env:STUDIO_IT_OBJECT_REGION='<region>'
+$env:STUDIO_IT_OBJECT_CREATE_BUCKET='false'
+mvn -pl studio-test -am "-Dtest=SharedObjectStorageRuntimeIT" "-Dsurefire.failIfNoSpecifiedTests=false" test
+```
 
-1. worker 任务开始时先写本地日志文件。
-2. `OBJECT_STORAGE` 模式下，worker 每 10 秒同步一次运行中的日志，状态为 `WRITING`。
-3. 任务结束后 worker 再上传一次完整日志，成功后状态为 `AVAILABLE`。
-4. server 读取日志时优先根据 `run_record.log_object_bucket` 和 `run_record.log_object_key` 从对象存储读取。
+验收通过必须同时满足：Worker A 归档为 `AVAILABLE`、独立 Server 和 Worker B 可读、不可达端点产生 `FAILED` 且保留本地日志、恢复端点后 `syncExistingLog()` 重新上传为 `AVAILABLE`。用例会删除随机前缀下的测试对象，但不会删除 bucket。不要在命令、日志或验收文档中记录生产对象存储凭据。
 
-## 7. 推荐最小配置
+## 10. 最小生产示例
 
-### 7.1 Server 最小生产配置
+### Server
 
 ```bash
 APP_ACTIVE=prod
-SPRING_DATASOURCE_URL=jdbc:mysql://<mysql-host>:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+SERVER_PORT=18080
+SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
 SPRING_DATASOURCE_USERNAME=<db-user>
 SPRING_DATASOURCE_PASSWORD=<db-password>
-REDIS_HOST=<redis-host>
-REDIS_PORT=6379
-REDIS_PASSWORD=<redis-password>
-NACOS_SERVER=<nacos-host>:8848
-NACOS_NAMESPACE=<namespace>
-NACOS_GROUP=<group>
-STUDIO_AGGREGATION_HOME=/opt/data-aggregation/package_all/aggregation
+STUDIO_ENCRYPTION_SECRET=<shared-encryption-secret>
+STUDIO_INTERNAL_API_TOKEN=<shared-internal-token>
 STUDIO_INSTANCE_ID=${POD_UID}
-STUDIO_INTERNAL_API_TOKEN=<internal-token>
+STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES=10485760
+STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES=10485760
+STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS=studio-worker.default.svc,worker-slb.internal.example
+STUDIO_GATEWAY_TRUST_ENABLED=false
 ```
 
-### 7.2 Worker 最小生产配置
+接入可信网关时，将最后一项改为 `true`，并通过 Secret 注入非默认的 `STUDIO_GATEWAY_SHARED_SECRET`；不要把密钥直接写入部署清单。
+
+### Worker
 
 ```bash
 APP_ACTIVE=prod
-SPRING_DATASOURCE_URL=jdbc:mysql://<mysql-host>:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+SERVER_PORT=18081
+SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
 SPRING_DATASOURCE_USERNAME=<db-user>
 SPRING_DATASOURCE_PASSWORD=<db-password>
-REDIS_HOST=<redis-host>
-REDIS_PORT=6379
-REDIS_PASSWORD=<redis-password>
-NACOS_SERVER=<nacos-host>:8848
-NACOS_NAMESPACE=<namespace>
-NACOS_GROUP=<group>
-STUDIO_AGGREGATION_HOME=/opt/data-aggregation/package_all/aggregation
+STUDIO_ENCRYPTION_SECRET=<shared-encryption-secret>
+STUDIO_INTERNAL_API_TOKEN=<shared-internal-token>
+STUDIO_GATEWAY_TRUST_ENABLED=false
+STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES=10485760
+STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES=10485760
+STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS=artifact-store.internal.example
+STUDIO_CLUSTER_CODE=C50
+STUDIO_AGGREGATION_HOME=/opt/data-aggregation/aggregation
 STUDIO_WORKER_GROUP_CODE=default-pool
 STUDIO_INSTANCE_ID=${POD_UID}
-POD_NAME=${POD_NAME}
-NODE_NAME=${NODE_NAME}
-STUDIO_INTERNAL_API_TOKEN=<internal-token>
+STUDIO_WORKER_API_BASE_URL=http://${POD_IP}:18081
+STUDIO_RUNTIME_VERSION=<release-version>
+STUDIO_PLUGIN_FINGERPRINT=<plugin-fingerprint>
+STUDIO_SCRIPT_ARTIFACT_CONNECT_TIMEOUT_SECONDS=5
+STUDIO_SCRIPT_ARTIFACT_READ_TIMEOUT_SECONDS=30
+STUDIO_SCRIPT_ARTIFACT_MAX_BYTES=67108864
+STUDIO_SCRIPT_ARTIFACT_ALLOW_LOCAL_FILES=false
+STUDIO_SCRIPT_ARTIFACT_ALLOWED_LOCAL_ROOTS=
 ```
 
-### 7.3 启用对象存储日志
-
-server 与 worker 都需要配置同一组对象存储参数：
+### studio-flink（启用智能问数时）
 
 ```bash
-STUDIO_RUN_LOG_STORAGE_TYPE=OBJECT_STORAGE
-STUDIO_RUN_LOG_OBJECT_PROVIDER=MINIO
-STUDIO_RUN_LOG_OBJECT_ENDPOINT=http://<minio-host>:9000
-STUDIO_RUN_LOG_OBJECT_ACCESS_KEY=<access-key>
-STUDIO_RUN_LOG_OBJECT_SECRET_KEY=<secret-key>
-STUDIO_RUN_LOG_OBJECT_BUCKET=studio-run-logs
-STUDIO_RUN_LOG_OBJECT_PREFIX=studio/run-logs
-STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=true
+APP_ACTIVE=prod
+SERVER_PORT=18084
+SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+SPRING_DATASOURCE_USERNAME=<db-user>
+SPRING_DATASOURCE_PASSWORD=<db-password>
+STUDIO_ENCRYPTION_SECRET=<same-as-server-and-worker>
+STUDIO_INTERNAL_API_TOKEN=<same-as-server-and-worker>
+STUDIO_GATEWAY_TRUST_ENABLED=false
+STUDIO_ASSISTANT_LLM_ENABLED=true
+STUDIO_ASSISTANT_LLM_BASE_URL=<llm-base-url>
+STUDIO_ASSISTANT_LLM_API_KEY=<llm-api-key>
+STUDIO_ASSISTANT_LLM_MODEL=<model-name>
 ```
 
-阿里云 OSS 示例：
+`studio-server` 还需把 `STUDIO_FLINK_BASE_URL` 指向该服务；若走 Nacos，则留空固定 URL 并配置相同的 Nacos namespace/group。
+
+普通后端和 Worker 构建不会再把 DataAggregation 插件压入 `studio-flink` 主制品；Worker 始终使用 `STUDIO_AGGREGATION_HOME` 中的外部插件目录。只有需要生成上传到 Flink 集群的 Connector 制品时，才显式启用打包 profile：
 
 ```bash
-STUDIO_RUN_LOG_STORAGE_TYPE=OBJECT_STORAGE
-STUDIO_RUN_LOG_OBJECT_PROVIDER=OSS
-STUDIO_RUN_LOG_OBJECT_ENDPOINT=https://oss-cn-guangzhou.aliyuncs.com
-STUDIO_RUN_LOG_OBJECT_ACCESS_KEY=<access-key>
-STUDIO_RUN_LOG_OBJECT_SECRET_KEY=<secret-key>
-STUDIO_RUN_LOG_OBJECT_BUCKET=studio-run-logs
-STUDIO_RUN_LOG_OBJECT_PREFIX=studio/run-logs
-STUDIO_RUN_LOG_OBJECT_CREATE_BUCKET=false
+mvn -pl studio-flink -Pflink-connector-bundle -DskipTests package
 ```
 
-## 8. ODPS / MaxCompute 集成配置
+该命令会生成 `studio-flink-*-connector.jar` 和 `studio-flink-*-connector-upload.jar`，并要求相关 `data-source-plugins/*/target/*.zip` 已提前构建。日常 `mvn package`、Server 构建和 Worker 构建不读取这些 Reactor 外部 `target` 目录，避免控制面/Worker 制品被内嵌插件放大。
 
-Studio 已将 ODPS 作为数据库型数据源接入，支持数据源管理、模型同步、模型预览、采集任务源端读取和目标端写入。
+## 11. 插件要求
 
-### 8.1 插件目录要求
-
-`studio.aggregation-home` 指向的 DataAggregation 运行目录必须包含以下插件：
+插件只安装在 Worker。以 ODPS 为例，Worker 的 `STUDIO_AGGREGATION_HOME` 需要包含：
 
 ```text
 plugin/source/odps
@@ -257,121 +332,62 @@ plugin/reader/odpsreader
 plugin/writer/odpswriter
 ```
 
-server 侧需要 `source/odps` 支撑数据源测试、模型同步、预览和 SQL 执行；worker 侧需要 `reader/odpsreader` 与 `writer/odpswriter` 支撑采集任务运行。
+`source` 插件用于数据源测试、模型发现、预览和 SQL；`reader/writer` 插件用于采集、接入及其他任务执行。Server 不需要这些目录，也不应拥有业务数据源网络权限。
 
-### 8.2 数据源字段
+“完整插件”不能只靠目录存在来判断。每个发布版本必须随部署制品交付一份插件 manifest，至少记录：
 
-| 字段 | 说明 |
-| --- | --- |
-| `host` | MaxCompute Endpoint，例如 `http://service.cn-hangzhou.maxcompute.aliyun.com/api`。 |
-| `database` | MaxCompute Project 名。`projectEnv=dev` 时底层会按 ODPS 工具逻辑解析为开发项目。 |
-| `userName` | AccessKey ID。 |
-| `password` | AccessKey Secret，按敏感字段保存。 |
-| `extraParams` | ODPS 全局参数 JSON。 |
+- Studio/Worker 发布版本和 manifest 生成时间。
+- 全部 `source/reader/writer/transformer` 插件的名称、版本和文件 SHA-256。
+- Java、Python、Flink 运行依赖及其版本要求。
+- 该 manifest 的整体 fingerprint。
 
-推荐 `extraParams`：
+`STUDIO_PLUGIN_FINGERPRINT` 应填写发布 manifest 的整体 fingerprint。同一发布版本、同一运行集群以及要求能力等价的不同集群必须使用相同 manifest；运维中心显示的实例 fingerprint 不一致、为空或与发布记录不符时，不得通过“全能力 Worker”生产验收。首版由发布和验收流程人工核对，不能把“应用成功启动”视为插件完整性已经自动校验。
 
-```json
-{
-  "projectEnv": "",
-  "tunnelEndpoint": "",
-  "odps.sql.allow.fullscan": "true"
-}
-```
+## 12. 已废弃配置
 
-说明：
-
-- `tunnelEndpoint` 用于 TableTunnel / InstanceTunnel 读写通道。
-- 模型样例预览默认使用 TableTunnel 读取普通表或最近分区，不拼接 `SELECT * LIMIT`。
-- `odps.sql.allow.fullscan` 仅对 SQL 执行类场景有意义，Tunnel 读取普通表、分区或样例预览时不需要依赖该参数。
-- ODPS 目标表需要提前创建；Studio 首版不提供 ODPS 建表向导。
-
-### 8.3 采集任务 Reader 参数
-
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `readMode` | `auto` | `auto` 在填写 `selectSql` 时走 `sql`，未填写时走 `tunnel`；也可显式填写 `tunnel` 或 `sql`。 |
-| `selectSql` | 空 | `readMode=sql` 或 `auto` 时执行的自定义 SQL；显式 `readMode=tunnel` 时不能填写。 |
-| `partitionSpec` | 空 | ODPS 分区条件，例如 `dt='20260605'`。 |
-| `includePartitionColumns` | `false` | Tunnel 读取指定分区时，是否把分区字段值也输出为普通记录列。 |
-| `offset` | `0` | 起始偏移。 |
-| `maxRows` | `0` | 最大读取行数，`0` 表示不限制。 |
-
-### 8.4 采集任务 Writer 参数
-
-| 参数 | 默认值 | 说明 |
-| --- | --- | --- |
-| `writeMode` | `append` | `append` 追加写入；`overwrite` 覆盖目标表或目标分区。 |
-| `partitionSpec` | 空 | 静态分区写入，例如 `dt='20260605'`。 |
-| `partitionColumns` | `[]` | 动态分区字段，分区值来自字段映射后的记录列。 |
-| `batchSize` | `1000` | 每个 Tunnel block 的批量写入大小。 |
-| `emptyAsNull` | `false` | 空字符串是否写入为 `NULL`。 |
-| `autoCreatePartition` | `true` | 分区不存在时是否自动创建。 |
-| `preSql` | 空 | 写入前执行的 ODPS SQL。 |
-| `postSql` | 空 | 写入后执行的 ODPS SQL。 |
-
-限制：
-
-- `partitionSpec` 与 `partitionColumns` 不能同时配置。
-- 分区表必须配置静态分区或动态分区来源。
-- `overwrite` 是覆盖目标表或目标分区，不是按主键 update/upsert。
-- 动态分区 `append` 可以一次写入多个分区，但 ODPS Tunnel 多 UploadSession 不具备跨分区全局事务；若某个分区提交失败，需要根据运行日志中的已提交/未提交分区人工补偿。
-- 动态分区 `overwrite` 只允许一次覆盖一个分区；一次任务触达多个动态分区时会在提交前失败，避免部分分区已覆盖、部分分区未覆盖。
-- 当前 ODPS writer 不支持 row-level update/delete/upsert；如需更新语义，应使用 ODPS SQL 或后续单独扩展 Delta Table 能力。
-
-## 9. 常见配置问题
-
-### 9.1 修改 Redis 地址应该改哪里？
-
-优先通过启动环境变量设置：
-
-```bash
-REDIS_HOST=<redis-host>
-REDIS_PORT=6379
-```
-
-不建议直接改仓库内 `application.yml`。
-
-### 9.2 Worker 多副本时 `workerCode` 是否必须不同？
-
-不要求。当前推荐使用：
-
-- `workerGroupCode`：稳定调度池，用于项目绑定。
-- `workerInstanceId`：具体 Pod 实例，推荐 `POD_UID`。
-
-同一 `workerGroupCode` 下多个 Pod 可以并发接单，任务领取通过数据库原子更新防重复。
-
-### 9.3 `storageType` 可以填哪些值？
-
-当前可填：
+以下配置不再参与正常启动和运行，不应出现在新部署清单或 Nacos 配置中：
 
 ```text
-LOCAL
-OBJECT_STORAGE
+STUDIO_RUNTIME_CLUSTER_MODE
+STUDIO_RUNTIME_CLUSTER_BACKFILL_ENABLED
+STUDIO_RUNTIME_CLUSTER_BACKFILL_DRY_RUN
 ```
 
-生产 K8s 环境推荐使用 `OBJECT_STORAGE`，否则 worker 重启或 Pod IP 变化后，历史本地日志可能不可访问。
+历史空集群数据必须在升级窗口使用一次性迁移工具处理。迁移完成后，应用运行时不会推断默认集群，也不会领取空 `targetClusterId` 的任务。
 
-### 9.4 server 和 worker 哪些配置必须一致？
+## 13. 上线检查
 
-必须保持一致或指向同一资源：
+在最终容器或 Pod 已注入环境变量、挂载插件卷之后，先执行部署预检。脚本只检查当前进程环境和本地挂载，不读取或输出秘密值：
 
-- `SPRING_DATASOURCE_URL`
-- `SPRING_DATASOURCE_USERNAME`
-- `SPRING_DATASOURCE_PASSWORD`
-- `STUDIO_INTERNAL_API_TOKEN`
-- `STUDIO_RUN_LOG_STORAGE_TYPE`
-- `STUDIO_RUN_LOG_OBJECT_*`
-- `STUDIO_AGGREGATION_HOME` 对应的插件能力版本
+```powershell
+# OMS 控制面
+powershell -ExecutionPolicy Bypass -File backend/scripts/check-studio-deployment.ps1 -Role Server
 
-### 9.5 哪些配置不应该提交明文？
+# Worker；多集群生产同时检查共享对象存储变量
+powershell -ExecutionPolicy Bypass -File backend/scripts/check-studio-deployment.ps1 -Role Worker -RequireSharedObjectStorage
 
-以下配置应通过环境变量、K8s Secret 或配置中心安全管理：
+# 智能问数规划服务；只检查控制面身份和秘密边界，不要求插件目录
+powershell -ExecutionPolicy Bypass -File backend/scripts/check-studio-deployment.ps1 -Role Flink
+```
 
-- `SPRING_DATASOURCE_PASSWORD`
-- `REDIS_PASSWORD`
-- `NACOS_PASSWORD`
-- `STUDIO_INTERNAL_API_TOKEN`
-- `STUDIO_GATEWAY_SHARED_SECRET`
-- `STUDIO_RUN_LOG_OBJECT_ACCESS_KEY`
-- `STUDIO_RUN_LOG_OBJECT_SECRET_KEY`
+预检会拒绝废弃模式变量、默认 Token/密钥、Server或`studio-flink`携带集群代码/插件目录/Worker实例身份变量、Worker缺少集群编码和完整插件目录、`studio-flink`启用可信网关，以及多集群生产缺少或未显式声明 `MINIO/OSS` 的共享对象存储配置。它不能替代数据库升级、SLB 实际请求、对象存储连通性/容量/生命周期/高可用和网络 ACL 验收。目标环境必须继续执行[生产运行面验收](./studio-production-runtime-acceptance.md)：分别在 OMS 与 Worker Pod 验证同一业务数据源端口的一拒一通，并通过真实 SLB Header、内部认证标记和生产对象存储证据。通过 Nacos 注入的值需要在渲染部署配置时等价检查；不要为了让脚本通过而把秘密写入仓库文件。
+
+应用自身也有失败关闭守门：`studio-server`或独立`studio-flink`一旦绑定 Worker集群身份或插件目录会拒绝就绪；`studio-flink`和独立 Worker启用可信网关也会拒绝就绪；独立 Worker和Desktop Worker平面缺少`conf/core.json`、`plugin/source`、`plugin/reader`、`plugin/writer`或`plugin/transformer`时会拒绝就绪。独立 Worker及`studio-flink`的`application.yml`均不再提供隐式插件目录默认值。
+
+```text
+[ ] 新版 Server/Worker 启动前已完成 20260720、20260722、20260723 数据库结构升级
+[ ] 旧 Worker 已排空并停止；新版 Worker 先于会写短期 Dispatch 密文的新版 Server 上线
+[ ] Server 未挂载 aggregation/conf/core.json 和 aggregation/plugin/**
+[ ] Server 未配置 STUDIO_CLUSTER_CODE、STUDIO_AGGREGATION_HOME 或 Worker 身份变量
+[ ] STUDIO_GATEWAY_TRUST_ENABLED 已显式配置；启用时 shared secret 不是 change-me 且由 Secret 注入
+[ ] Server/Worker及已启用的studio-flink使用相同且非默认的 STUDIO_INTERNAL_API_TOKEN 和 STUDIO_ENCRYPTION_SECRET
+[ ] Server/Worker 的 STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES 已按业务请求规模设置并保持一致
+[ ] Server/Worker 的 STUDIO_RUNTIME_ENDPOINT_MAX_RESPONSE_BYTES 已按业务响应规模设置并保持一致
+[ ] 若修改过加密密钥，已停机备份并完成离线 Dry Run/Apply；全部进程统一使用新密钥，数据源、运行端点、告警通道、短期 Dispatch 输入和同步服务已逐集群验证
+[ ] 启用智能问数时 studio-flink 已部署，Server 的固定地址或 Nacos 服务发现已验证
+[ ] 每个 Worker 的版本、插件 manifest 和 STUDIO_PLUGIN_FINGERPRINT 与发布记录一致
+[ ] 每个集群已登记、授权、绑定数据源，并且 Worker 心跳与 HTTP/SLB 端点测试正常
+[ ] 多集群生产已配置共享对象存储；启用响应缓存时已配置共享 Redis
+[ ] 阿里云环境已显式配置 provider=OSS、预建 bucket、create-bucket=false，且认证方式为当前支持的静态 AK/SK
+[ ] `test-studio-production-runtime.ps1` 的 SLB、OMS 网络、Worker 网络和对象存储报告已归档，且 `confirm-studio-production-acceptance.ps1` 对全部生产集群的最终汇总为 `PASS`
+```

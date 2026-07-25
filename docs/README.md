@@ -24,16 +24,23 @@
   - 面向产品规划、阶段建设和后续立项的路线图文档。
   - 当前包含：
     - [studio-future-roadmap.md](./规划/studio-future-roadmap.md)
+    - [可配置多集群运行与数据源适用范围](./规划/studio-configurable-runtime-cluster-plan-20260720.md)
+    - [统一 Worker 执行面与纯控制面计划](./规划/studio-worker-only-execution-plane-plan-20260721.md)
 
 - `交接/`
   - 交接类文档，面向项目接手人和维护人。
-  - 当前包含：[tenant-project-handover.md](./交接/tenant-project-handover.md)
+  - 当前包含：
+    - [tenant-project-handover.md](./交接/tenant-project-handover.md)
+    - [Studio 可配置多集群运行架构](./交接/studio-multi-cluster-runtime-architecture-20260721.md)：P0-MC-01 历史基线。
+    - [Studio 统一 Worker 执行面架构](./交接/studio-worker-only-execution-architecture-20260721.md)：当前控制面、执行面、同步/异步链路、安全、迁移和验收状态。
 
 - `运维/`
   - 运维、监控、排障和运行策略说明。
   - 当前包含：
     - [环境初始化说明.md](./运维/部署/环境初始化说明.md)
-    - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：server/worker、运行日志对象存储、Worker 组和 ODPS 集成配置说明。
+    - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：纯控制面 Server、全能力 Worker、内部调用、运行日志和插件边界说明。
+    - [studio-runtime-cluster-deployment.md](./运维/部署/studio-runtime-cluster-deployment.md)：OMS 纯控制面、统一 Worker 执行面、单/多集群部署与历史迁移说明。
+    - [studio-production-runtime-acceptance.md](./运维/部署/studio-production-runtime-acceptance.md)：生产 SLB、OMS/Worker 网络边界和共享对象存储的无秘密验收工具与证据模板。
     - [data-service-metrics-retention-impact.md](./运维/监控/data-service-metrics-retention-impact.md)
     - [alert-webhook-security.md](./运维/监控/alert-webhook-security.md)：告警 Webhook 的 SSRF、签名、秘密与投递安全配置。
 
@@ -46,6 +53,8 @@
       - [data-service-test-result-20260416-二轮复测.md](./测试/数据服务/data-service-test-result-20260416-%E4%BA%8C%E8%BD%AE%E5%A4%8D%E6%B5%8B.md)
     - 数据资产：
       - [datasource-connection-status-test-cases.md](./测试/数据资产/datasource-connection-status-test-cases.md)
+    - 多运行集群：
+      - [P0-MC-01 多集群运行验收执行记录](./测试/长期跟踪/records/20260720-P0-MC-01多集群运行验收执行记录.md)
     - 质量指标：
       - [quality-metrics-ui-test-cases.md](./测试/质量指标/quality-metrics-ui-test-cases.md)
       - [quality-metrics-test-cases.md](./测试/质量指标/quality-metrics-test-cases.md)
@@ -56,6 +65,7 @@
   - 当前包含：
     - [MySQL Schema Snapshots](./数据库/结构快照/mysql/README.md)
     - [alert-center-upgrade.md](./数据库/alert-center-upgrade.md)：统一告警中心增量升级、核验和回滚说明。
+    - [runtime-cluster-upgrade.md](./数据库/runtime-cluster-upgrade.md)：多运行集群和数据源适用范围增量升级、回填和回滚说明。
 
 - `规范/`
   - 文档规范、归档约定、模板和团队协作标准。
@@ -78,6 +88,7 @@
 | 系统管理、权限、访问申请、通知和关注 | [09-system-access-notifications.md](./使用/接口/09-system-access-notifications.md) |
 | 运维中心、运行时、导入导出和 AI 助手 | [10-ops-center-runtime-import-export-assistant.md](./使用/接口/10-ops-center-runtime-import-export-assistant.md) |
 | 统一告警中心 | [11-alert-center.md](./使用/接口/11-alert-center.md) |
+| 运行集群与数据源适用范围 | [12-runtime-clusters.md](./使用/接口/12-runtime-clusters.md) |
 
 ## 功能模块文档
 

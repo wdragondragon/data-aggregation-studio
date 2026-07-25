@@ -19,10 +19,21 @@
 ## 典型调用链
 
 1. 质量规则：POST /quality-rules/parse-params -> POST /quality-rules/validate -> POST /quality-rules -> POST /quality-rules/{id}/enable-summary。
-2. 质量任务：GET /quality-rules/option-summaries -> GET /data-development/datasource-options -> GET /models/datasource-options -> POST /quality-tasks/preview -> POST /quality-tasks/validate -> POST /quality-tasks -> POST /quality-tasks/{id}/publish。
+2. 质量任务：GET /quality-rules/option-summaries -> 选择运行集群 -> GET /data-development/datasource-options?runtimeClusterId=<id> -> GET /models/datasource-options -> POST /quality-tasks/preview -> POST /quality-tasks/validate -> POST /quality-tasks -> POST /quality-tasks/{id}/publish。
 3. 手动执行质量任务：POST /quality-tasks/{id}/trigger -> GET /runs/page?qualityTaskId=<id> -> GET /runs/{runRecordId}/log。
 4. 质量指标：GET /quality-metrics/options -> POST /quality-metrics/dashboard/query -> POST /quality-metrics/assets/query -> GET /quality-metrics/assets/{assetId}。
 5. 问题闭环：POST /quality-metrics/issues/query -> GET /quality-metrics/issues/{id} -> POST /quality-metrics/issues/{id}/assign -> POST /quality-metrics/issues/{id}/status -> POST /quality-metrics/issues/{id}/comments。
+
+## 2026-07-20 多集群增量契约
+
+- `QualityTaskSaveRequest.runtimeClusterId` 为保存、预览和校验的必填字段；规则引用的数据源和模型必须适用于该集群。
+- 编辑器先选择运行集群，再按集群加载数据源和模型。切换集群必须确认并清理不兼容绑定、参数和 SQL 预览。
+- `GET /quality-tasks/workflow-options` 的 Query `runtimeClusterId` 必填，只返回可绑定到同一集群工作流的质量任务；未选择运行集群时前端不得发起请求。
+- `POST /quality-tasks/{id}/trigger` 接受可选 Body `{"runtimeClusterId": 4601}`。省略 Body 使用任务保存值；定时调度不允许覆盖。
+- 列表和详情返回 `runtimeClusterId/runtimeClusterName` 与 `runtimeValid/runtimeValidationMessage`。失效任务不能上线、启用调度或触发新运行。
+- 质量运行仍通过 `/runs`、`/runs/page` 查询，并支持 `requestedClusterId/actualClusterId` 过滤；运行记录返回请求和实际集群信息。
+
+以上增量字段优先于下方历史自动抽取表中未包含集群参数的旧签名。
 
 ## 前端 SDK 接口清单
 
@@ -50,7 +61,7 @@
 | `qualityTasks.options()` | GET | `/quality-tasks/options` | - | `QualityTaskOptionView[]` | `frontend/apps/web/src/views/QualityTaskRunsView.vue:223` | `frontend/packages/api-sdk/src/client.ts:1382` |
 | `qualityTasks.preview()` | POST | `/quality-tasks/preview` | payload: QualityTaskSaveRequest<br>body: `payload` | `QualityTaskPreviewView` | `frontend/apps/web/src/views/QualityTaskEditorView.vue:968` | `frontend/packages/api-sdk/src/client.ts:1400` |
 | `qualityTasks.validate()` | POST | `/quality-tasks/validate` | payload: QualityTaskSaveRequest<br>body: `payload` | `QualityTaskValidationView` | `frontend/apps/web/src/views/QualityTaskEditorView.vue:991` | `frontend/packages/api-sdk/src/client.ts:1403` |
-| `qualityTasks.workflowOptions()` | GET | `/quality-tasks/workflow-options` | params?: { pageNo?: number; pageSize?: number; keyword?: string; } | `unknown` | `frontend/apps/web/src/views/WorkflowEditorView.vue:461`<br>`frontend/apps/web/src/views/WorkflowEditorView.vue:469` | `frontend/packages/api-sdk/src/client.ts:1385` |
+| `qualityTasks.workflowOptions()` | GET | `/quality-tasks/workflow-options` | params: { runtimeClusterId: EntityId; pageNo?: number; pageSize?: number; keyword?: string; } | `unknown` | `frontend/apps/web/src/views/WorkflowEditorView.vue` | `frontend/packages/api-sdk/src/client.ts` |
 | `runs.list()` | GET | `/runs` | params?: RunListQuery | `RunListResponse` | `frontend/apps/web/src/views/CollectionTasksView.vue:322` | `frontend/packages/api-sdk/src/client.ts:1605` |
 | `runs.listPage()` | GET | `/runs/page` | params?: RunRecordPageQuery | `RunRecordPageResponse` | `frontend/apps/web/src/views/CollectionTaskRunsView.vue:243`<br>`frontend/apps/web/src/views/QualityTaskRunsView.vue:231` | `frontend/packages/api-sdk/src/client.ts:1612` |
 | `qualityMetrics.getAsset()` | GET | ``/quality-metrics/assets/${assetId}`` | assetId: string<br>params?: { startTime?: string; endTime?: string } | `QualityAssetDetailView` | `frontend/apps/web/src/views/QualityMetricsView.vue:603` | `frontend/packages/api-sdk/src/client.ts:1444` |
@@ -118,7 +129,7 @@
 | QualityTaskController | GET | `/api/v1/quality-tasks/options` | `listOptions()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/QualityTaskController.java:61` |
 | QualityTaskController | POST | `/api/v1/quality-tasks/preview` | `preview()` | body: `@RequestBody QualityTaskSaveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/QualityTaskController.java:87` |
 | QualityTaskController | POST | `/api/v1/quality-tasks/validate` | `validate()` | body: `@RequestBody QualityTaskSaveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/QualityTaskController.java:93` |
-| QualityTaskController | GET | `/api/v1/quality-tasks/workflow-options` | `listWorkflowOptions()` | query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSize"`<br>implicit: `required = false) Integer pageSize`<br>query: `@RequestParam(value = "keyword"`<br>implicit: `required = false) String keyword` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/QualityTaskController.java:67` |
+| QualityTaskController | GET | `/api/v1/quality-tasks/workflow-options` | `listWorkflowOptions()` | query: `runtimeClusterId`（必填）<br>query: `pageNo/pageSize/keyword`（可选） | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/QualityTaskController.java` |
 | RunController | GET | `/api/v1/runs` | `list()` | query: `@RequestParam(value = "collectionTaskId"`<br>implicit: `required = false) Long collectionTaskId`<br>query: `@RequestParam(value = "qualityTaskId"`<br>implicit: `required = false) Long qualityTaskId`<br>query: `@RequestParam(value = "workflowDefinitionId"`<br>implicit: `required = false) Long workflowDefinitionId`<br>query: `@RequestParam(value = "startTime"`<br>implicit: `required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime`<br>query: `@RequestParam(value = "endTime"`<br>implicit: `required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime`<br>query: `@RequestParam(value = "includeRunRecords"`<br>implicit: `required = false) Boolean includeRunRecords` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:36` |
 | RunController | GET | `/api/v1/runs/{id}` | `get()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:66` |
 | RunController | GET | `/api/v1/runs/{id}/log` | `log()` | path: `@PathVariable("id") Long id`<br>query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSizeBytes"`<br>implicit: `required = false) Integer pageSizeBytes` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:78` |
@@ -1006,4 +1017,3 @@ interface RunRecordPageResponse extends PageResult
 | failedCount | 否 | `number \| string \| null` | |
 | runningCount | 否 | `number \| string \| null` | |
 | successCount | 否 | `number \| string \| null` | |
-

@@ -22,9 +22,9 @@ data-aggregation-studio/
     ├── studio-commons/          # 公共常量、异常和基础工具
     ├── studio-dto/              # DTO、VO、请求和响应模型
     ├── studio-core/             # Studio SPI 和集成契约
-    ├── studio-infra/            # 实体、Mapper、仓储、安全和运行适配
-    ├── studio-server/           # 在线 REST API、开放 API、调度和管理端接口
-    ├── studio-worker/           # 在线 Worker，负责采集任务和工作流节点执行
+    ├── studio-infra/            # 控制面与 Worker 共享的实体、仓储、安全和适配
+    ├── studio-server/           # 纯控制面 REST API、调度、路由和管理端接口
+    ├── studio-worker/           # 唯一执行面，负责全部数据源访问和运行任务
     └── studio-desktop-runtime/  # 本地离线运行时
 ```
 
@@ -104,7 +104,7 @@ data-aggregation-studio/
 - Studio 不加入外层 `DataAggregation` 根 Maven Reactor。
 - Studio 不使用外层 `DataAggregation` 父 POM。
 - Studio 通过 Maven 依赖集成已发布的 `com.jdragon.aggregation:*` 构件。
-- 插件运行仍依赖 `aggregation.home` 指向 DataAggregation 插件运行目录。
+- 只有 Worker 和组合式 Desktop 运行时依赖 `aggregation.home` 指向 DataAggregation 插件运行目录；Server 不加载插件目录，也不携带 DataAggregation 执行运行库。
 
 需要准备的 DataAggregation 构件包括：
 
@@ -112,6 +112,8 @@ data-aggregation-studio/
 - `com.jdragon.aggregation:core`
 - `com.jdragon.aggregation:data-source-handler-abstract`
 - `com.jdragon.aggregation:plugins-loader-center`
+
+这些构件用于编译和打包 Worker 执行面。Server 只保留控制数据库、缓存、共享对象存储和 Worker 内部端点所需依赖；其中 MinIO/OSS SDK用于读取共享运行日志，不表示 Server 可以直接执行数据源插件。
 
 ## 快速启动
 
@@ -240,15 +242,26 @@ mvn -pl studio-worker -am -DskipTests package
 ```powershell
 cd C:\dev\ideaProject\DataAggregation\data-aggregation-studio\frontend
 npm run build:web
+npm run build:desktop
 ```
 
 前端生产构建产物位于：
 
 ```text
 frontend/apps/web/dist
+frontend/apps/desktop/dist/renderer
 ```
 
 生产部署 Web 控制台时，需要将该目录下的静态资源部署到 nginx 或静态资源服务的 `/dfs/data-aggregation-studio/` 基座路径下。
+
+Desktop 生产构建默认连接 `http://127.0.0.1:18180/api/v1`。若 Desktop Runtime 不在该地址，必须在构建前设置完整 API 根地址，例如：
+
+```powershell
+$env:VITE_API_BASE_URL='https://studio.example.com/api/v1'
+npm run build:desktop
+```
+
+`VITE_API_BASE_URL` 是构建期变量，不应包含 Token、Cookie 或其它认证秘密。
 
 ## 登录与接口文档
 

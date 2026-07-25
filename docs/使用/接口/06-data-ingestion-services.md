@@ -17,11 +17,21 @@
 
 ## 典型调用链
 
-1. 创建接入服务：GET /data-development/datasource-options -> GET /models/datasource-options?datasourceId=<target> -> POST /data-ingestion-services/resolve-fields -> POST /data-ingestion-services -> POST /data-ingestion-services/{id}/publish。
+1. 创建接入服务：先选择运行集群，GET /data-development/datasource-options?runtimeClusterId=<id> -> GET /models/datasource-options?datasourceId=<target> -> POST /data-ingestion-services/resolve-fields -> POST /data-ingestion-services -> POST /data-ingestion-services/{id}/publish。
 2. 调试写入：GET /data-ingestion-services/{id} -> POST /data-ingestion-services/{id}/debug，body 中放 headers/query/body/form/sourcePayload。
 3. 开放写入：POST /data-ingestion-services/{id}/subscriptions 创建 token -> POST /openapi/data-ingestion-services/{serviceCode}/{serviceKey}，请求头 X-Data-Ingestion-Token=<token>。
 4. SOAP 写入：GET /data-ingestion-services/{id}/webservice/preview -> GET /openapi/ws/data-ingestion-services/{serviceCode}/{serviceKey}?wsdl -> POST /openapi/ws/data-ingestion-services/{serviceCode}/{serviceKey}。
 5. 接入监控：POST /data-ingestion-metrics/dashboard/query -> POST /data-ingestion-metrics/access-logs/query -> GET /invocation-logs/DATA_INGESTION/{accessLogId}。
+
+## 2026-07-20 多集群增量契约
+
+- `DataIngestionServiceSaveRequest.runtimeClusterId` 为必填字段；`DataIngestionResolveFieldsRequest` 同样必须携带运行集群。目标数据源和模型候选只从该集群适用范围加载。
+- 列表和详情返回 `runtimeClusterId/runtimeClusterName` 与 `runtimeValid/runtimeValidationMessage`。运行配置失效时不能发布、调试或接受新的写入调用。
+- 对外 REST、SOAP 和 WSDL 地址保持 OMS 不变。所有运行集群统一通过目标 Worker 的 HTTP/SLB 端点执行，不存在 Server 本地执行快速路径；目标不可达返回 `503`，不自动重试、不跟随重定向，实际业务状态与响应体保持原样。
+- `DataIngestionMetricQueryRequest` 增加 `requestedClusterId/actualClusterId`，访问日志返回相同字段。日志只在实际执行集群写一次。
+- 同步代理请求体超过统一上限时返回 `413 PAYLOAD_TOO_LARGE`，不会转发到目标集群。
+
+以上增量字段优先于下方历史自动抽取表中未包含集群参数的旧签名。
 
 ## 前端 SDK 接口清单
 
@@ -724,4 +734,3 @@ interface WebServicePreviewView
 | soapAction | 否 | `string` | |
 | namespaceUri | 否 | `string` | |
 | operationName | 否 | `string` | |
-

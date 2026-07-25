@@ -17,11 +17,21 @@
 
 ## 典型调用链
 
-1. 创建数据服务：GET /data-development/datasource-options -> GET /models/datasource-options?datasourceId=<id> -> POST /data-services/resolve-fields -> POST /data-services -> POST /data-services/{id}/publish。
+1. 创建数据服务：先选择运行集群，GET /data-development/datasource-options?runtimeClusterId=<id> -> GET /models/datasource-options?datasourceId=<id> -> POST /data-services/resolve-fields -> POST /data-services -> POST /data-services/{id}/publish。
 2. 调试服务：GET /data-services/{id} -> POST /data-services/{id}/debug，body 中放 headers/query/body -> 根据返回 result/table 判断输出。
 3. 开放调用：GET /data-services/{id}/subscriptions -> POST /data-services/{id}/subscriptions 创建 token -> 调用 /openapi/data-services/{serviceCode}/{serviceKey}，请求头 X-Data-Service-Token=<token>。
 4. SOAP 调用：GET /data-services/{id}/webservice/preview -> GET /openapi/ws/data-services/{serviceCode}/{serviceKey}?wsdl -> POST /openapi/ws/data-services/{serviceCode}/{serviceKey}。
 5. 监控排查：POST /data-service-metrics/dashboard/query -> POST /data-service-metrics/access-logs/query -> GET /invocation-logs/DATA_SERVICE/{accessLogId}。
+
+## 2026-07-20 多集群增量契约
+
+- `DataServiceSaveRequest.runtimeClusterId` 为必填字段；`DataServiceResolveFieldsRequest` 同样必须携带运行集群。数据源和模型候选必须先按该集群筛选。
+- 列表和详情返回 `runtimeClusterId/runtimeClusterName` 与 `runtimeValid/runtimeValidationMessage`。运行配置失效的服务不能发布、调试或接收新的开放调用。
+- 对外 REST、SOAP 和 WSDL 地址仍由 OMS 暴露。无论选择 `DEFAULT-LOCAL` 还是其它运行集群，实际数据面调用都通过目标集群的 Worker HTTP/SLB 端点执行。目标不可达返回 `503`，不回退到 Server 本地执行，不自动重试、不跟随重定向，目标业务 HTTP 状态和响应体保持原样。
+- `DataServiceMetricQueryRequest` 增加 `requestedClusterId/actualClusterId`；访问日志返回相同两个字段。请求集群表示服务保存的目标，实际集群表示真正写入调用日志的执行位置。
+- 同步代理请求体受统一大小限制，超限返回 `413 PAYLOAD_TOO_LARGE`。访问日志只在实际执行位置写一次，不记录内部认证或受管端点秘密。
+
+以上增量字段优先于下方历史自动抽取表中未包含集群参数的旧签名。
 
 ## 前端 SDK 接口清单
 
@@ -688,4 +698,3 @@ interface WebServicePreviewView
 | soapAction | 否 | `string` | |
 | namespaceUri | 否 | `string` | |
 | operationName | 否 | `string` | |
-

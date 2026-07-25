@@ -19,22 +19,36 @@
 ## 典型调用链
 
 1. 脚本开发：GET /data-development/tree -> POST /data-development/directories 创建目录 -> POST /data-development/scripts 保存 SQL/FLINK_QUESTION_SQL/JAVA/PYTHON 脚本 -> POST /data-development/scripts/{id}/execute 执行。
-2. SQL 试跑：GET /data-development/datasource-options -> POST /data-development/sql/execute，body 包含 datasourceId、scriptType=SQL、content/sql。
-3. Java 脚本提示：GET /script-environments/options?enabledOnly=true -> GET /data-development/java/import-hints -> GET /data-development/java/member-hints。
-4. 工作流编排：GET /collection-tasks/workflow-options 和 GET /quality-tasks/workflow-options 选节点 -> POST /workflows 保存定义 -> POST /workflows/{id}/publish -> POST /workflows/{id}/trigger -> GET /workflow-runs/{workflowRunId}。
+2. SQL 试跑：先选择运行集群，调用 GET /data-development/datasource-options?runtimeClusterId=<id>，再 POST /data-development/sql/execute；body 包含 runtimeClusterId、datasourceId、scriptType=SQL、content/sql。
+3. Java 脚本提示：GET /script-environments/options?enabledOnly=true -> 选择运行集群 -> GET /data-development/java/import-hints -> GET /data-development/java/member-hints。两个提示接口的 Query 都必须携带 `runtimeClusterId`，OMS 会将请求路由到目标 Worker 加载环境依赖，Server 不下载依赖 JAR，也不创建用户环境类加载器。
+4. 工作流编排：先选运行集群，再以必填 Query `runtimeClusterId` 调用 GET /collection-tasks/workflow-options 和 GET /quality-tasks/workflow-options 选节点 -> POST /workflows 保存定义 -> POST /workflows/{id}/publish -> POST /workflows/{id}/trigger -> GET /workflow-runs/{workflowRunId}。
 5. 运行日志：GET /runs/page 或 GET /workflow-runs -> GET /runs/{runRecordId}/summary -> GET /runs/{runRecordId}/log -> GET /runs/{runRecordId}/log/download。
+
+## 2026-07-20 多集群增量契约
+
+- `DataDevelopmentScriptSaveRequest.runtimeClusterId` 和 `WorkflowSaveRequest.runtimeClusterId` 为必填字段。Java/Python 即使不引用数据源也必须保存运行集群。
+- `GET /data-development/datasource-options?runtimeClusterId=...` 和兼容接口 `GET /data-development/datasources?runtimeClusterId=...` 都要求显式运行集群，并只返回适用于该集群的 SQL 数据源；模型 Flink SQL 通过带 `runtimeClusterId` 的模型选择器加载候选，并在执行前校验全部 `modelIds` 的底层数据源。
+- `POST /data-development/sql/execute` 与未保存脚本执行要求 Body 明确 `runtimeClusterId`。`POST /data-development/scripts/{id}/execute` 可选携带 `runtimeClusterId` 作为受控手动覆盖；省略时使用脚本保存值。
+- Flink SQL 使用 `POST /api/flink/sql/execute`；智能问数使用 `POST /api/flink/question/ask`。两者都必须提交 `runtimeClusterId`，最终 SQL 统一在目标 Worker 执行。`studio-flink` 的 `/question/plan` 仅供 Server 生成计划，不是用户执行入口。
+- 工作流只能绑定同一运行集群的采集、质量和脚本资源。采集/质量工作流选项接口的 Query `runtimeClusterId` 必填；工作流版本会固化该值，下游节点继承工作流运行的目标集群。
+- `POST /workflows/{id}/trigger` 接受可选 Body `{"runtimeClusterId": 4601}`。定时调度始终使用保存值。
+- `GET /runs`、`GET /runs/page` 和 `GET /workflow-runs` 增加 `requestedClusterId/actualClusterId` 查询条件。队列项返回 `targetClusterId`，运行记录与工作流运行返回 `requestedClusterId/actualClusterId/actualClusterCode`。
+- 脚本、工作流列表和详情返回 `runtimeClusterId/runtimeClusterName` 与 `runtimeValid/runtimeValidationMessage`；失效资源不能发布或触发。
+- Java import/member hints 必须携带 `runtimeClusterId`。`DEFAULT-LOCAL` 与远端集群使用相同的受管 Worker HTTP 路由；目标 Worker 离线、无端点或内部认证失败时返回 `503`，不会回退到 Server 本地加载脚本依赖。
+
+以上增量字段优先于下方历史自动抽取表中未包含集群参数的旧签名。
 
 ## 前端 SDK 接口清单
 
 | SDK 调用 | 方法 | 路径 | 参数/请求体 | 返回类型 | 前端调用点 | 源码 |
 |---|---|---|---|---|---|---|
-| `dataDevelopment.listSqlDatasourceOptions()` | GET | `/data-development/datasource-options` | - | `DataSourceOptionView[]` | `frontend/apps/web/src/views/DataDevelopmentView.vue:523`<br>`frontend/apps/web/src/views/DataServiceEditorView.vue:798`<br>`frontend/apps/web/src/views/QualityRuleEditorView.vue:319`<br>`frontend/apps/web/src/views/QualityTaskEditorView.vue:364` | `frontend/packages/api-sdk/src/client.ts:1577` |
+| `dataDevelopment.listSqlDatasourceOptions(runtimeClusterId)` | GET | `/data-development/datasource-options` | required query: `runtimeClusterId` | `DataSourceOptionView[]` | 兼容 SDK；主编辑器统一使用 `datasources.optionsByRuntimeCluster(runtimeClusterId)` | `frontend/packages/api-sdk/src/client.ts` |
 | `dataDevelopment.listSqlDatasourceTypes()` | GET | `/data-development/datasource-types` | - | `string[]` | `frontend/apps/web/src/views/QualityRuleEditorView.vue:304` | `frontend/packages/api-sdk/src/client.ts:1580` |
-| `dataDevelopment.listSqlDatasources()` | GET | `/data-development/datasources` | - | `DataSourceDefinition[]` | - | `frontend/packages/api-sdk/src/client.ts:1574` |
+| `dataDevelopment.listSqlDatasources(runtimeClusterId)` | GET | `/data-development/datasources` | required query: `runtimeClusterId` | `DataSourceDefinition[]` | 兼容接口，不建议下拉框使用完整定义 | `frontend/packages/api-sdk/src/client.ts` |
 | `dataDevelopment.listDirectories()` | GET | `/data-development/directories` | - | `DataDevelopmentDirectory[]` | `frontend/apps/web/src/views/DataDevelopmentView.vue:437`<br>`frontend/apps/web/src/views/DataDevelopmentView.vue:473` | `frontend/packages/api-sdk/src/client.ts:1542` |
 | `dataDevelopment.saveDirectory()` | POST | `/data-development/directories` | payload: DataDevelopmentDirectorySaveRequest<br>body: `payload` | `DataDevelopmentDirectory` | `frontend/apps/web/src/views/DataDevelopmentView.vue:660` | `frontend/packages/api-sdk/src/client.ts:1545` |
-| `dataDevelopment.javaImportHints()` | GET | `/data-development/java/import-hints` | params?: { environmentId?: EntityId; keyword?: string; limit?: number }<br>config?: StudioRequestConfig | `JavaImportHintResponse` | `frontend/apps/web/src/views/DataDevelopmentView.vue:1052` | `frontend/packages/api-sdk/src/client.ts:1592` |
-| `dataDevelopment.javaMemberHints()` | GET | `/data-development/java/member-hints` | params: { environmentId?: EntityId; className: string; keyword?: string; staticOnly?: boolean; limit?: number }<br>config?: StudioRequestConfig | `JavaMemberHintResponse` | `frontend/apps/web/src/views/DataDevelopmentView.vue:1067` | `frontend/packages/api-sdk/src/client.ts:1595` |
+| `dataDevelopment.javaImportHints()` | GET | `/data-development/java/import-hints` | params: { runtimeClusterId: EntityId; environmentId?: EntityId; keyword?: string; limit?: number }<br>config?: StudioRequestConfig | `JavaImportHintResponse` | `frontend/apps/web/src/views/DataDevelopmentView.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `dataDevelopment.javaMemberHints()` | GET | `/data-development/java/member-hints` | params: { runtimeClusterId: EntityId; environmentId?: EntityId; className: string; keyword?: string; staticOnly?: boolean; limit?: number }<br>config?: StudioRequestConfig | `JavaMemberHintResponse` | `frontend/apps/web/src/views/DataDevelopmentView.vue` | `frontend/packages/api-sdk/src/client.ts` |
 | `dataDevelopment.listScripts()` | GET | `/data-development/scripts` | scriptType?: ScriptType<br>config?: StudioRequestConfig<br>query: `scriptType ? { scriptType } : undefined` | `DataDevelopmentScriptListView[]` | - | `frontend/packages/api-sdk/src/client.ts:1554` |
 | `dataDevelopment.saveScript()` | POST | `/data-development/scripts` | payload: DataDevelopmentScriptSaveRequest<br>body: `payload` | `DataDevelopmentScript` | `frontend/apps/web/src/views/DataDevelopmentView.vue:684` | `frontend/packages/api-sdk/src/client.ts:1565` |
 | `dataDevelopment.executeScript()` | POST | `/data-development/scripts/execute` | payload: DataScriptExecutionRequest<br>body: `payload` | `DataScriptExecutionResult` | `frontend/apps/web/src/views/DataDevelopmentView.vue:806` | `frontend/packages/api-sdk/src/client.ts:1586` |
@@ -90,15 +104,15 @@
 
 | Controller | 方法 | 路径 | Java 方法 | 参数来源 | 源码 |
 |---|---|---|---|---|---|
-| DataDevelopmentController | GET | `/api/v1/data-development/datasource-options` | `datasourceOptions()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:120` |
+| DataDevelopmentController | GET | `/api/v1/data-development/datasource-options` | `datasourceOptions()` | required query: `runtimeClusterId` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java` |
 | DataDevelopmentController | GET | `/api/v1/data-development/datasource-types` | `datasourceTypes()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:126` |
-| DataDevelopmentController | GET | `/api/v1/data-development/datasources` | `datasources()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:114` |
+| DataDevelopmentController | GET | `/api/v1/data-development/datasources` | `datasources()` | required query: `runtimeClusterId` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java` |
 | DataDevelopmentController | GET | `/api/v1/data-development/directories` | `directories()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:54` |
 | DataDevelopmentController | POST | `/api/v1/data-development/directories` | `saveDirectory()` | body: `@Valid @RequestBody DataDevelopmentDirectorySaveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:60` |
 | DataDevelopmentController | DELETE | `/api/v1/data-development/directories/{id}` | `deleteDirectory()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:74` |
 | DataDevelopmentController | POST | `/api/v1/data-development/directories/{id}/move` | `moveDirectory()` | path: `@PathVariable("id") Long id`<br>body: `@RequestBody(required = false) DataDevelopmentMoveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:66` |
-| DataDevelopmentController | GET | `/api/v1/data-development/java/import-hints` | `javaImportHints()` | query: `@RequestParam(value = "environmentId"`<br>implicit: `required = false) Long environmentId`<br>query: `@RequestParam(value = "keyword"`<br>implicit: `required = false) String keyword`<br>query: `@RequestParam(value = "limit"`<br>implicit: `required = false) Integer limit` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:132` |
-| DataDevelopmentController | GET | `/api/v1/data-development/java/member-hints` | `javaMemberHints()` | query: `@RequestParam(value = "environmentId"`<br>implicit: `required = false) Long environmentId`<br>query: `@RequestParam("className") String className`<br>query: `@RequestParam(value = "keyword"`<br>implicit: `required = false) String keyword`<br>query: `@RequestParam(value = "staticOnly"`<br>implicit: `required = false) Boolean staticOnly`<br>query: `@RequestParam(value = "limit"`<br>implicit: `required = false) Integer limit` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:140` |
+| DataDevelopmentController | GET | `/api/v1/data-development/java/import-hints` | `javaImportHints()` | required query: `runtimeClusterId`<br>optional query: `environmentId`, `keyword`, `limit` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java` |
+| DataDevelopmentController | GET | `/api/v1/data-development/java/member-hints` | `javaMemberHints()` | required query: `runtimeClusterId`, `className`<br>optional query: `environmentId`, `keyword`, `staticOnly`, `limit` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java` |
 | DataDevelopmentController | GET | `/api/v1/data-development/scripts` | `scripts()` | query: `@RequestParam(value = "scriptType"`<br>implicit: `required = false) ScriptType scriptType` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:81` |
 | DataDevelopmentController | POST | `/api/v1/data-development/scripts` | `saveScript()` | body: `@Valid @RequestBody DataDevelopmentScriptSaveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:93` |
 | DataDevelopmentController | GET | `/api/v1/data-development/scripts/{id}` | `script()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/DataDevelopmentController.java:87` |
@@ -155,10 +169,10 @@
 
 如果接口清单的“参数/请求体”列没有显示 `body:`，则自动化调用时删除模板中的 `-H "Content-Type: application/json"` 和 `-d` 行；只有列出 `body:` 的接口才发送 JSON 请求体。
 
-### dataDevelopment.listSqlDatasourceOptions()
+### dataDevelopment.listSqlDatasourceOptions(runtimeClusterId)
 
 ```bash
-curl -X GET "${BASE_URL}/data-development/datasource-options" \
+curl -X GET "${BASE_URL}/data-development/datasource-options?runtimeClusterId=${RUNTIME_CLUSTER_ID}" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Project-Id: ${PROJECT_ID}"
@@ -173,10 +187,10 @@ curl -X GET "${BASE_URL}/data-development/datasource-types" \
   -H "X-Project-Id: ${PROJECT_ID}"
 ```
 
-### dataDevelopment.listSqlDatasources()
+### dataDevelopment.listSqlDatasources(runtimeClusterId)
 
 ```bash
-curl -X GET "${BASE_URL}/data-development/datasources" \
+curl -X GET "${BASE_URL}/data-development/datasources?runtimeClusterId=${RUNTIME_CLUSTER_ID}" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Project-Id: ${PROJECT_ID}"
@@ -205,7 +219,7 @@ curl -X POST "${BASE_URL}/data-development/directories" \
 ### dataDevelopment.javaImportHints()
 
 ```bash
-curl -X GET "${BASE_URL}/data-development/java/import-hints" \
+curl -X GET "${BASE_URL}/data-development/java/import-hints?runtimeClusterId=${RUNTIME_CLUSTER_ID}&environmentId=${ENVIRONMENT_ID}&keyword=customer&limit=100" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Project-Id: ${PROJECT_ID}"
@@ -214,7 +228,7 @@ curl -X GET "${BASE_URL}/data-development/java/import-hints" \
 ### dataDevelopment.javaMemberHints()
 
 ```bash
-curl -X GET "${BASE_URL}/data-development/java/member-hints" \
+curl -X GET "${BASE_URL}/data-development/java/member-hints?runtimeClusterId=${RUNTIME_CLUSTER_ID}&environmentId=${ENVIRONMENT_ID}&className=demo.Customer&staticOnly=false&limit=100" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Project-Id: ${PROJECT_ID}"
@@ -415,6 +429,8 @@ interface DataDevelopmentScript extends BaseRecord
 | directoryId | 否 | `EntityId` | |
 | fileName | 是 | `string` | |
 | scriptType | 是 | `ScriptType` | |
+| runtimeClusterId | 否 | `EntityId` | 脚本保存的运行集群。返回字段为兼容迁移前记录可为空；新建、编辑和执行请求不得依赖空值推断。 |
+| runtimeClusterName | 否 | `string` | 运行集群展示名称。 |
 | datasourceId | 否 | `EntityId` | |
 | datasourceName | 否 | `string` | |
 | datasourceTypeCode | 否 | `string` | |
@@ -438,6 +454,7 @@ interface DataDevelopmentScriptSaveRequest
 | directoryId | 否 | `EntityId` | |
 | fileName | 是 | `string` | |
 | scriptType | 是 | `ScriptType` | |
+| runtimeClusterId | 是 | `EntityId` | 新建和编辑脚本必须选择的运行集群。 |
 | datasourceId | 否 | `EntityId` | |
 | environmentId | 否 | `EntityId` | |
 | description | 否 | `string` | |
@@ -455,6 +472,7 @@ interface DataScriptExecutionRequest
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | scriptType | 是 | `ScriptType` | |
+| runtimeClusterId | 是 | `EntityId` | 未保存脚本本次执行的目标集群。 |
 | datasourceId | 否 | `EntityId` | |
 | environmentId | 否 | `EntityId` | |
 | content | 是 | `string` | |
@@ -660,9 +678,13 @@ interface RunRecord extends BaseRecord
 | qualityTaskId | 否 | `EntityId` | |
 | qualityTaskName | 否 | `string` | |
 | nodeCode | 否 | `string` | |
+| requestedClusterId | 否 | `EntityId` | Dispatch 固化的目标运行集群。 |
+| actualClusterId | 否 | `EntityId` | 实际领取并执行任务的集群。 |
+| actualClusterCode | 否 | `string` | 实际执行集群编码。 |
 | workerGroupCode | 否 | `string` | |
 | workerCode | 否 | `string` | |
 | workerInstanceId | 否 | `string` | |
+| workerBootId | 否 | `string` | Worker 本次启动标识，用于恢复和并发覆盖排查。 |
 | workerPodName | 否 | `string` | |
 | workerNodeName | 否 | `string` | |
 | status | 否 | `string` | |
@@ -696,9 +718,13 @@ interface RunRecordListView extends BaseRecord
 | qualityTaskId | 否 | `EntityId` | |
 | qualityTaskName | 否 | `string` | |
 | nodeCode | 否 | `string` | |
+| requestedClusterId | 否 | `EntityId` | Dispatch 固化的目标运行集群。 |
+| actualClusterId | 否 | `EntityId` | 实际领取并执行任务的集群。 |
+| actualClusterCode | 否 | `string` | 实际执行集群编码。 |
 | workerGroupCode | 否 | `string` | |
 | workerCode | 否 | `string` | |
 | workerInstanceId | 否 | `string` | |
+| workerBootId | 否 | `string` | Worker 本次启动标识。 |
 | workerPodName | 否 | `string` | |
 | workerNodeName | 否 | `string` | |
 | status | 否 | `string` | |
@@ -724,6 +750,8 @@ interface RunRecordPageQuery
 | collectionTaskOnly | 否 | `boolean` | |
 | qualityTaskOnly | 否 | `boolean` | |
 | status | 否 | `string` | |
+| requestedClusterId | 否 | `EntityId` | 按请求集群过滤。 |
+| actualClusterId | 否 | `EntityId` | 按实际执行集群过滤。 |
 | startTime | 否 | `string` | |
 | endTime | 否 | `string` | |
 | pageNo | 否 | `number` | |
@@ -753,6 +781,7 @@ interface SavedDataScriptExecutionRequest
 
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
+| runtimeClusterId | 否 | `EntityId` | 手动执行时的受控集群覆盖；省略则使用脚本保存值。 |
 | arguments | 否 | `Record<string, unknown>` | |
 | executionConfig | 否 | `Record<string, unknown>` | 保存脚本执行默认使用脚本保存时的 `executionConfig`；传入后会覆盖同名执行配置，例如替换 `FLINK_QUESTION_SQL` 的 `modelIds`。 |
 | maxRows | 否 | `number` | |
@@ -832,6 +861,7 @@ interface SqlExecutionRequest
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | datasourceId | 是 | `EntityId` | |
+| runtimeClusterId | 是 | `EntityId` | SQL 即席执行的目标集群，且数据源必须适用于该集群。 |
 | scriptType | 是 | `ScriptType` | |
 | content | 是 | `string` | |
 | maxRows | 否 | `number` | |
@@ -869,6 +899,8 @@ interface WorkflowDefinitionView extends BaseRecord
 |---|---:|---|---|
 | code | 是 | `string` | |
 | name | 是 | `string` | |
+| runtimeClusterId | 否 | `EntityId` | 工作流保存并由发布版本固化的运行集群。 |
+| runtimeClusterName | 否 | `string` | 运行集群名称。 |
 | versionId | 否 | `EntityId` | |
 | versionNumber | 否 | `number` | |
 | published | 否 | `boolean` | |
@@ -888,6 +920,8 @@ interface WorkflowListView extends BaseRecord
 |---|---:|---|---|
 | code | 是 | `string` | |
 | name | 是 | `string` | |
+| runtimeClusterId | 否 | `EntityId` | 工作流保存的运行集群。 |
+| runtimeClusterName | 否 | `string` | 运行集群名称。 |
 | versionId | 否 | `EntityId` | |
 | versionNumber | 否 | `number` | |
 | published | 否 | `boolean` | |
@@ -918,6 +952,8 @@ interface WorkflowRunListQuery
 |---|---:|---|---|
 | workflowDefinitionId | 否 | `EntityId` | |
 | status | 否 | `string` | |
+| requestedClusterId | 否 | `EntityId` | 按工作流运行请求集群过滤。 |
+| actualClusterId | 否 | `EntityId` | 按实际执行集群过滤。 |
 | startTime | 否 | `string` | |
 | endTime | 否 | `string` | |
 | pageNo | 否 | `number` | |
@@ -939,6 +975,9 @@ interface WorkflowRunSummary
 | workflowDefinitionId | 否 | `EntityId` | |
 | workflowVersionId | 否 | `EntityId` | |
 | workflowName | 否 | `string` | |
+| requestedClusterId | 否 | `EntityId` | 工作流本次运行的请求集群。 |
+| actualClusterId | 否 | `EntityId` | 节点实际执行集群的汇总值。 |
+| actualClusterCode | 否 | `string` | 实际执行集群编码。 |
 | status | 否 | `string` | |
 | startedAt | 否 | `string` | |
 | endedAt | 否 | `string` | |
@@ -964,6 +1003,7 @@ interface WorkflowSaveRequest
 | definitionId | 否 | `EntityId` | |
 | code | 是 | `string` | |
 | name | 是 | `string` | |
+| runtimeClusterId | 是 | `EntityId` | 工作流唯一运行集群，节点资源必须与其一致。 |
 | schedule | 否 | `WorkflowScheduleDefinition` | |
 | nodes | 是 | `WorkflowNodeDefinition[]` | |
 | edges | 是 | `WorkflowEdgeDefinition[]` | |

@@ -17,10 +17,20 @@
 ## 典型调用链
 
 1. 创建协议转换：GET /field-mapping-rules/option-summaries -> POST /protocol-conversions -> POST /protocol-conversions/{id}/publish。
-2. 调试转换：GET /protocol-conversions/{id} -> POST /protocol-conversions/{id}/debug，body 中放 headers/query/body/rawMessage -> 查看 trace.steps。
+2. 调试转换：GET /protocol-conversions/{id} -> POST /protocol-conversions/{id}/debug，body 中放 headers/query/body/rawBody -> 查看 trace.steps。
 3. 开放调用：POST /protocol-conversions/{id}/subscriptions 创建 token -> 调用 /openapi/protocol-conversions/{serviceCode}/{serviceKey}，请求头 X-Protocol-Conversion-Token=<token>。
 4. SOAP 协议转换：GET /protocol-conversions/{id}/webservice/preview -> GET /openapi/ws/protocol-conversions/{serviceCode}/{serviceKey}?wsdl -> POST /openapi/ws/protocol-conversions/{serviceCode}/{serviceKey}。
-5. 日志追踪：POST /protocol-conversion-metrics/access-logs/query -> GET /protocol-conversions/traces/{accessLogId} 或 GET /invocation-logs/PROTOCOL_CONVERSION/{accessLogId}。
+5. 日志追踪：POST /protocol-conversion-metrics/access-logs/query -> GET /protocol-conversion-metrics/access-logs/{accessLogId}/trace 或 GET /invocation-logs/PROTOCOL_CONVERSION/{accessLogId}。
+
+## 2026-07-20 多集群增量契约
+
+- `ProtocolConversionServiceSaveRequest.runtimeClusterId` 为必填字段。协议转换引用的数据源、模型或关联配置必须适用于该集群。
+- 列表和详情返回 `runtimeClusterId/runtimeClusterName` 与 `runtimeValid/runtimeValidationMessage`。运行配置失效时不能发布、调试或接受新的转换调用。
+- 对外 REST、SOAP 和 WSDL 地址保持 OMS 不变。所有运行集群统一通过目标 Worker 的 HTTP/SLB 端点执行，不存在 Server 本地执行快速路径；目标不可达返回 `503`，不自动重试、不跟随重定向，JSON/XML/SOAP 状态与响应体保持原样。
+- `ProtocolConversionMetricQueryRequest` 增加 `requestedClusterId/actualClusterId`，访问日志返回相同字段。协议转换 Trace 和归档日志不得包含受管端点认证配置。
+- 同步代理请求体超过统一上限时返回 `413 PAYLOAD_TOO_LARGE`，不会转发到目标集群。
+
+以上增量字段优先于下方历史自动抽取表中未包含集群参数的旧签名。
 
 ## 前端 SDK 接口清单
 
@@ -590,4 +600,3 @@ interface RunLogView
 | totalPages | 否 | `number` | |
 | pageSizeBytes | 否 | `number` | |
 | sections | 否 | `InvocationLogSectionView[]` | |
-

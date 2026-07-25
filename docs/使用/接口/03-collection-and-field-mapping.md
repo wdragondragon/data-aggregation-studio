@@ -19,9 +19,20 @@
 ## 典型调用链
 
 1. 字段映射规则：GET /field-mapping-rules/option-summaries -> GET /field-mapping-rules/{id} -> POST /field-mapping-rules 保存规则 -> 在数据服务、采集、协议转换中引用规则 ID。
-2. 创建采集任务：GET /data-development/datasource-options -> GET /models/datasource-options?datasourceId=<source> -> GET /models/datasource-options?datasourceId=<target> -> POST /collection-tasks/preview -> POST /collection-tasks -> POST /collection-tasks/{id}/online。
+2. 创建采集任务：先选择运行集群，GET /data-development/datasource-options?runtimeClusterId=<id> -> GET /models/datasource-options?datasourceId=<source> -> GET /models/datasource-options?datasourceId=<target> -> POST /collection-tasks/preview -> POST /collection-tasks -> POST /collection-tasks/{id}/online。
 3. 手动触发采集：POST /collection-tasks/{id}/trigger -> GET /runs/page?collectionTaskId=<id> -> GET /runs/{runRecordId}/log?pageNo=1&pageSizeBytes=65536。
 4. 采集指标：GET /run-metrics/options -> POST /run-metrics/query，按 datasourceId/sourceModelId/targetModelId/startTime/endTime/topN 聚合。
+
+## 2026-07-20 多集群增量契约
+
+- `CollectionTaskSaveRequest.runtimeClusterId` 为新建、编辑和预览的必填字段。来源和目标数据源、模型必须全部适用于同一运行集群。
+- 编辑器先调用 `GET /runtime-clusters/options` 选择运行集群，再调用 `/datasources/options?runtimeClusterId=...` 和相应模型选项接口。切换集群时必须确认，并清空不再适用的数据源、模型、字段映射和预览结果。
+- `GET /collection-tasks/workflow-options` 的 Query `runtimeClusterId` 必填，只返回可绑定到同一集群工作流的任务；未选择运行集群时前端不得发起请求。
+- `POST /collection-tasks/{id}/trigger` 接受可选 Body `{"runtimeClusterId": 4601}`。省略 Body 使用任务保存的集群；覆盖仅在项目允许手动覆盖且全部依赖适用时成功。
+- 列表和详情返回 `runtimeClusterId/runtimeClusterName` 以及 `runtimeValid/runtimeValidationMessage`。失效任务可以编辑，但不能上线、启用调度或触发新运行。
+- `GET /runs` 和 `GET /runs/page` 支持 `requestedClusterId/actualClusterId` 过滤，运行记录返回请求集群、实际集群和实际集群编码。
+
+定时运行不接受覆盖，始终使用任务保存的集群；目标集群离线时 Dispatch 保留排队，不会转移到其它集群。以上契约优先于下方历史自动抽取表中的旧签名。
 
 ## 前端 SDK 接口清单
 
@@ -33,7 +44,7 @@
 | `collectionTasks.options()` | GET | `/collection-tasks/options` | config?: StudioRequestConfig | `CollectionTaskOptionView[]` | `frontend/apps/web/src/views/CollectionTaskRunsView.vue:235` | `frontend/packages/api-sdk/src/client.ts:1279` |
 | `collectionTasks.listPage()` | GET | `/collection-tasks/page` | params?: CollectionTaskListQuery & { pageNo?: number; pageSize?: number }<br>config?: StudioRequestConfig | `unknown` | `frontend/apps/web/src/views/CollectionTasksView.vue:235` | `frontend/packages/api-sdk/src/client.ts:1282` |
 | `collectionTasks.preview()` | POST | `/collection-tasks/preview` | payload: CollectionTaskSaveRequest<br>body: `payload` | `JobContainerConfig` | `frontend/apps/web/src/views/CollectionTaskEditorView.vue:1277` | `frontend/packages/api-sdk/src/client.ts:1305` |
-| `collectionTasks.workflowOptions()` | GET | `/collection-tasks/workflow-options` | params?: { pageNo?: number; pageSize?: number; keyword?: string; } | `unknown` | `frontend/apps/web/src/views/WorkflowEditorView.vue:419`<br>`frontend/apps/web/src/views/WorkflowEditorView.vue:427` | `frontend/packages/api-sdk/src/client.ts:1290` |
+| `collectionTasks.workflowOptions()` | GET | `/collection-tasks/workflow-options` | params: { runtimeClusterId: EntityId; pageNo?: number; pageSize?: number; keyword?: string; } | `unknown` | `frontend/apps/web/src/views/WorkflowEditorView.vue` | `frontend/packages/api-sdk/src/client.ts` |
 | `fieldMappingRules.list()` | GET | `/field-mapping-rules` | params?: { pageNo?: number; pageSize?: number; keyword?: string; mappingType?: string; enabled?: boolean; } | `FieldMappingRuleListView` | `frontend/apps/web/src/views/FieldMappingRulesView.vue:117` | `frontend/packages/api-sdk/src/client.ts:474` |
 | `fieldMappingRules.save()` | POST | `/field-mapping-rules` | payload: FieldMappingRuleSaveRequest<br>body: `payload` | `FieldMappingRuleView` | `frontend/apps/web/src/views/FieldMappingRuleEditorView.vue:310` | `frontend/packages/api-sdk/src/client.ts:486` |
 | `fieldMappingRules.optionSummaries()` | GET | `/field-mapping-rules/option-summaries` | mappingType?: string<br>query: `mappingType ? { mappingType } : undefined` | `FieldMappingRuleOptionView[]` | `frontend/apps/web/src/views/CollectionTaskEditorView.vue:336`<br>`frontend/apps/web/src/views/DataServiceEditorView.vue:799`<br>`frontend/apps/web/src/views/ProtocolConversionServiceEditorView.vue:821` | `frontend/packages/api-sdk/src/client.ts:499` |
@@ -72,7 +83,7 @@
 | CollectionTaskController | GET | `/api/v1/collection-tasks/options` | `options()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:61` |
 | CollectionTaskController | GET | `/api/v1/collection-tasks/page` | `listPage()` | query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSize"`<br>implicit: `required = false) Integer pageSize`<br>query: `@RequestParam(value = "name"`<br>implicit: `required = false) String name`<br>query: `@RequestParam(value = "targetDatasource"`<br>implicit: `required = false) String targetDatasource`<br>query: `@RequestParam(value = "targetModel"`<br>implicit: `required = false) String targetModel` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:51` |
 | CollectionTaskController | POST | `/api/v1/collection-tasks/preview` | `preview()` | body: `@RequestBody CollectionTaskSaveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:93` |
-| CollectionTaskController | GET | `/api/v1/collection-tasks/workflow-options` | `listWorkflowOptions()` | query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSize"`<br>implicit: `required = false) Integer pageSize`<br>query: `@RequestParam(value = "keyword"`<br>implicit: `required = false) String keyword` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:73` |
+| CollectionTaskController | GET | `/api/v1/collection-tasks/workflow-options` | `listWorkflowOptions()` | query: `runtimeClusterId`（必填）<br>query: `pageNo/pageSize/keyword`（可选） | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
 | FieldMappingRuleController | GET | `/api/v1/field-mapping-rules` | `list()` | query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSize"`<br>implicit: `required = false) Integer pageSize`<br>query: `@RequestParam(value = "keyword"`<br>implicit: `required = false) String keyword`<br>query: `@RequestParam(value = "mappingType"`<br>implicit: `required = false) String mappingType`<br>query: `@RequestParam(value = "enabled"`<br>implicit: `required = false) Boolean enabled` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/FieldMappingRuleController.java:36` |
 | FieldMappingRuleController | POST | `/api/v1/field-mapping-rules` | `save()` | body: `@Valid @RequestBody FieldMappingRuleSaveRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/FieldMappingRuleController.java:64` |
 | FieldMappingRuleController | GET | `/api/v1/field-mapping-rules/{id}` | `get()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/FieldMappingRuleController.java:58` |
@@ -156,7 +167,7 @@ curl -X POST "${BASE_URL}/collection-tasks/preview" \
 ### collectionTasks.workflowOptions()
 
 ```bash
-curl -X GET "${BASE_URL}/collection-tasks/workflow-options" \
+curl -X GET "${BASE_URL}/collection-tasks/workflow-options?runtimeClusterId=${RUNTIME_CLUSTER_ID}" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Project-Id: ${PROJECT_ID}"
@@ -667,4 +678,3 @@ interface RunRecordPageResponse extends PageResult
 | failedCount | 否 | `number \| string \| null` | |
 | runningCount | 否 | `number \| string \| null` | |
 | successCount | 否 | `number \| string \| null` | |
-

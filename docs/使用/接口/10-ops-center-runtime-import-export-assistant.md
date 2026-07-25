@@ -20,6 +20,17 @@
 3. 导出项目：GET /exports/project，返回 metaSchemas、workflows 等项目包；导入模板：GET /imports/template。
 4. AI 助手：GET /assistant/config -> GET /assistant/operations -> POST /assistant/tools/execute；流式聊天使用 POST /assistant/chat/stream，Accept 为 text/event-stream。
 
+## 2026-07-20 多集群增量契约
+
+- `OpsCenterQueryRequest` 增加 `requestedClusterId/actualClusterId`。总览、运行、队列、服务、接入、协议转换和日志事件查询均复用这两个筛选条件；队列查询把请求集群解释为 `targetClusterId`。
+- 新增 `POST /ops-center/protocol-conversion-events/query`，与数据服务、数据接入事件使用相同分页和集群筛选契约。
+- 运行事件和日志事件返回 `requestedClusterId/actualClusterId/actualClusterCode`；队列项返回 `targetClusterId`；Worker 组摘要返回 `runtimeClusterIds/runtimeClusterCodes`；三类同步服务事件返回请求/实际集群。
+- AI operation catalog 增加运行集群选项查询，并为数据源测试/发现/同步、七类资源保存、脚本执行和手动触发增加 `runtimeClusterId`。运行、运维和告警查询支持目标/实际集群参数。
+- `assistant.script.execute` 属于未绑定持久化资源的即时执行，必须显式提交项目已授权的 `runtimeClusterId`；即使项目只有一个运行集群，前端也应自动选中后把真实 ID 放入请求，后端不再推断唯一或首选集群。
+- 助手不能绕过项目授权、数据源适用范围或手动覆盖许可，也不能创建或修改包含运行端点秘密的配置。所有写操作仍要求确认。
+
+运行集群管理接口独立记录在 [12-runtime-clusters.md](./12-runtime-clusters.md)。以上增量字段优先于下方历史自动抽取表中的旧参数摘要。
+
 ## 前端 SDK 接口清单
 
 | SDK 调用 | 方法 | 路径 | 参数/请求体 | 返回类型 | 前端调用点 | 源码 |
@@ -33,6 +44,7 @@
 | `exports.project()` | GET | `/exports/project` | - | `ExportProjectBundle` | - | `frontend/packages/api-sdk/src/client.ts:1944` |
 | `imports.template()` | GET | `/imports/template` | - | `Record<string, unknown>` | - | `frontend/packages/api-sdk/src/client.ts:1939` |
 | `opsCenter.queryIngestionEvents()` | POST | `/ops-center/ingestion-events/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterServiceEventView` | `frontend/apps/web/src/views/OpsCenterView.vue:425` | `frontend/packages/api-sdk/src/client.ts:1687` |
+| `opsCenter.queryProtocolConversionEvents()` | POST | `/ops-center/protocol-conversion-events/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterServiceEventView` | `frontend/apps/web/src/views/OpsCenterView.vue` | `frontend/packages/api-sdk/src/client.ts` |
 | `opsCenter.queryLogEvents()` | POST | `/ops-center/log-events/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterLogEventView` | `frontend/apps/web/src/views/OpsCenterView.vue:434` | `frontend/packages/api-sdk/src/client.ts:1690` |
 | `opsCenter.options()` | GET | `/ops-center/options` | config?: StudioRequestConfig | `OpsCenterOptionsView` | `frontend/apps/web/src/views/OpsCenterView.vue:334` | `frontend/packages/api-sdk/src/client.ts:1669` |
 | `opsCenter.queryOverview()` | POST | `/ops-center/overview/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterOverviewView` | `frontend/apps/web/src/views/OpsCenterView.vue:380` | `frontend/packages/api-sdk/src/client.ts:1672` |
@@ -58,6 +70,7 @@
 | ImportExportController | GET | `/api/v1/exports/project` | `exportProject()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/ImportExportController.java:30` |
 | ImportExportController | GET | `/api/v1/imports/template` | `importTemplate()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/ImportExportController.java:39` |
 | OpsCenterController | POST | `/api/v1/ops-center/ingestion-events/query` | `queryIngestionEvents()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:70` |
+| OpsCenterController | POST | `/api/v1/ops-center/protocol-conversion-events/query` | `queryProtocolConversionEvents()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java` |
 | OpsCenterController | POST | `/api/v1/ops-center/log-events/query` | `queryLogEvents()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:76` |
 | OpsCenterController | GET | `/api/v1/ops-center/options` | `options()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:34` |
 | OpsCenterController | POST | `/api/v1/ops-center/overview/query` | `queryOverview()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:40` |
@@ -557,4 +570,3 @@ interface RuntimeModeResponse
 | mode | 是 | `string` | |
 | syncStrategy | 是 | `string` | |
 | offlineExecution | 是 | `boolean` | |
-
