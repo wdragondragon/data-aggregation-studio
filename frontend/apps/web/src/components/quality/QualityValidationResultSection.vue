@@ -24,6 +24,7 @@
 
     <div v-if="validationResult.rows?.length" class="validation-block">
       <strong>样例数据</strong>
+      <StudioTableShell min-width="720px">
       <el-table :data="validationResult.rows" border max-height="360">
         <el-table-column
           v-for="column in validationResult.columns"
@@ -33,6 +34,7 @@
           min-width="160"
         />
       </el-table>
+      </StudioTableShell>
     </div>
 
     <div class="validation-block">
@@ -44,7 +46,7 @@
 
 <script setup lang="ts">
 import type { QualityTaskValidationView } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import { prettyJson } from "@/utils/studio";
 
 defineProps<{

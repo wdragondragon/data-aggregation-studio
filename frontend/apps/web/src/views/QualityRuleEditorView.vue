@@ -303,21 +303,9 @@ async function loadDatasourceTypes() {
   try {
     const types = await studioApi.dataDevelopment.listSqlDatasourceTypes();
     datasourceTypeOptions.value = uniqueDatasourceTypes(types);
-    if (!datasourceTypeOptions.value.length) {
-      await loadDatasourceTypesFromInstances();
-    }
   } catch (error) {
-    try {
-      await loadDatasourceTypesFromInstances();
-    } catch {
-      ElMessage.error(error instanceof Error ? error.message : "加载数据源类型失败");
-    }
+    ElMessage.error(error instanceof Error ? error.message : "加载数据源类型失败");
   }
-}
-
-async function loadDatasourceTypesFromInstances() {
-  const items = await studioApi.dataDevelopment.listSqlDatasourceOptions();
-  datasourceTypeOptions.value = uniqueDatasourceTypes(items.map((item) => item.typeCode));
 }
 
 function uniqueDatasourceTypes(values: Array<string | null | undefined>) {

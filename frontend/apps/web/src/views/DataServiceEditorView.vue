@@ -12,7 +12,7 @@
         </template>
         <template v-else>
           <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
-          <el-button type="success" :disabled="!form.id" :loading="publishing" @click="publishService">发布</el-button>
+          <el-button type="success" :disabled="!form.id || runtimeValidation.invalid" :loading="publishing" @click="publishService">发布</el-button>
         </template>
       </div>
     </div>
@@ -26,6 +26,14 @@
     </SectionCard>
 
     <template v-else>
+      <el-alert
+        v-if="runtimeValidation.invalid"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="t('web.runtimeClusterSelection.invalid')"
+        :description="runtimeValidation.message || t('web.runtimeClusterSelection.invalidFallback')"
+      />
       <div class="service-wizard">
         <button
           v-for="(step, index) in wizardSteps"
@@ -45,6 +53,11 @@
 
       <SectionCard v-if="activeStep === 0" title="一、服务基础信息" description="服务代理作为后续能力占位；REST 返回 JSON，启用 SOAP 后 WebService 返回 XML。">
       <div class="studio-form-grid">
+        <el-form-item :label="t('web.runtimeClusterSelection.runtimeCluster')" required>
+          <el-select v-model="form.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="handleRuntimeClusterChange">
+            <el-option v-for="cluster in runtimeClusters" :key="String(cluster.id)" :label="runtimeClusterOptionLabel(cluster)" :value="cluster.id" :disabled="runtimeClusterOptionDisabled(cluster)" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="服务 Code">
           <el-input v-model="form.serviceCode" :disabled="Boolean(form.id)" placeholder="例如：order_query_api" />
         </el-form-item>
@@ -76,6 +89,7 @@
             :model-value="form.datasourceId == null ? '' : String(form.datasourceId)"
             filterable
             clearable
+            :disabled="!form.runtimeClusterId"
             placeholder="选择支持 SQL 执行的数据源"
             @update:model-value="handleDatasourceChange"
           >
@@ -88,6 +102,7 @@
             filterable
             remote
             clearable
+            :disabled="!form.runtimeClusterId || !form.datasourceId"
             placeholder="选择模型"
             :remote-method="searchModels"
             @visible-change="handleModelDropdownVisible"
@@ -102,7 +117,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="字段解析">
-          <el-button plain :loading="resolvingFields" @click="resolveFields">解析字段</el-button>
+          <el-button plain :disabled="!form.runtimeClusterId || !form.datasourceId" :loading="resolvingFields" @click="resolveFields">解析字段</el-button>
         </el-form-item>
       </div>
 
@@ -117,6 +132,7 @@
         </div>
         <el-button plain @click="addRequestParam">新增请求参数</el-button>
       </div>
+      <StudioTableShell min-width="940px">
       <el-table :data="form.requestParams" border>
         <el-table-column label="绑定模型字段" min-width="180">
           <template #default="{ row }">
@@ -156,6 +172,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </StudioTableShell>
 
       <div class="section-toolbar">
         <div>
@@ -163,6 +180,7 @@
           <p>默认拉出模型字段，通过“启用”控制对外暴露字段。</p>
         </div>
       </div>
+      <StudioTableShell min-width="980px">
       <el-table :data="form.responseParams" border>
         <el-table-column label="启用" width="90" align="center" header-align="center">
           <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
@@ -192,6 +210,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </StudioTableShell>
     </SectionCard>
 
     <SectionCard v-if="activeStep === 2" title="三、服务发布" description="发布地址保存后自动生成；请求方式影响新增映射的默认参数位置。">
@@ -289,6 +308,7 @@
           <el-button plain @click="syncPublishParams">同步请求参数</el-button>
         </div>
       </div>
+      <StudioTableShell min-width="1120px">
       <el-table :data="form.publishParams" border>
         <el-table-column label="参数名称" min-width="160">
           <template #default="{ row }"><el-input v-model="row.frontendParamName" /></template>
@@ -321,6 +341,7 @@
           <template #default="{ row }"><el-input v-model="row.description" /></template>
         </el-table-column>
       </el-table>
+      </StudioTableShell>
     </SectionCard>
 
     <OpenServiceDebugPanel
@@ -331,7 +352,7 @@
       title="四、接口调试"
       description="表单模式按发布映射生成请求样例，原始模式按 Header、Query、Body 分段编辑。"
       disabled-hint="请先保存服务，保存后会生成服务地址并允许发送调试请求。"
-      :can-debug="Boolean(form.id)"
+      :can-debug="Boolean(form.id) && !runtimeValidation.invalid"
       :debugging="debugging || webserviceDebugging"
       :endpoint-url="endpointUrl"
       :form-groups="debugPanelGroups"
@@ -386,6 +407,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { ElMessage } from "element-plus";
 import type {
   DataModelDefinition,
@@ -407,7 +429,7 @@ import type {
   WebServiceConfig,
   WebServicePreviewView,
 } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import OpenServiceDebugPanel from "@/components/open-service/OpenServiceDebugPanel.vue";
 import type {
@@ -449,9 +471,23 @@ import {
 } from "@/components/data-service/dataServiceEditorSupport";
 import { prettyJson } from "@/utils/studio";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
+import { useRuntimeClusterOptions } from "@/composables/useRuntimeClusterOptions";
+import { useRuntimeClusterChangeGuard } from "@/composables/useRuntimeClusterChangeGuard";
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
+const {
+  runtimeClusters,
+  runtimeClustersLoading,
+  singleRuntimeCluster,
+  loadRuntimeClusters,
+  resolveInitialRuntimeClusterId,
+  ensureRuntimeClusterOption,
+  runtimeClusterOptionLabel,
+  runtimeClusterOptionDisabled,
+} = useRuntimeClusterOptions();
+const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterChange } = useRuntimeClusterChangeGuard();
 const serviceId = computed(() => route.params.serviceId as string | undefined);
 type DebugMode = "form" | "raw" | "soap";
 type DebugFieldValue = string | number | boolean | null | undefined;
@@ -493,6 +529,7 @@ const form = reactive<DataServiceSaveRequest & {
 }>({
   serviceCode: "",
   serviceName: "",
+  runtimeClusterId: "",
   serviceType: "MODEL_PUBLISH",
   sourceType: "TABLE",
   requestMethod: "GET",
@@ -517,6 +554,7 @@ const publishing = ref(false);
 const resolvingFields = ref(false);
 const debugging = ref(false);
 const detailLoadError = ref("");
+const runtimeValidation = reactive({ invalid: false, message: "" });
 const activeStep = ref(0);
 const debugMode = ref<DebugMode>("form");
 const debugHeaders = ref("{}");
@@ -553,6 +591,8 @@ const soapFieldValues = reactive<Record<string, DebugFieldValue>>({});
 const responseTransformerDialogVisible = ref(false);
 const editingResponseParamIndex = ref<number | null>(null);
 const SOAP_TOKEN_FIELD_KEY = "__soap_header_token";
+let datasourceLoadSequence = 0;
+let modelLoadSequence = 0;
 
 const onlineSafeFieldMappingRules = computed(() =>
   fieldMappingRules.value.filter((rule) => {
@@ -794,11 +834,10 @@ function defaultWebServiceConfig(config?: WebServiceConfig, enabled = false): We
 }
 
 async function loadInitialData() {
-  const [sqlDatasources, rules] = await Promise.all([
-    studioApi.dataDevelopment.listSqlDatasourceOptions(),
+  const [, rules] = await Promise.all([
+    loadRuntimeClusters(),
     studioApi.fieldMappingRules.optionSummaries(),
   ]);
-  datasources.value = sqlDatasources;
   fieldMappingRules.value = rules;
   ensureFixedParams();
   if (serviceId.value) {
@@ -807,9 +846,7 @@ async function loadInitialData() {
       return;
     }
   }
-  if (form.datasourceId) {
-    await loadModels(form.datasourceId);
-  }
+  await hydrateServiceDependencies();
   if (route.query.debug) {
     activeStep.value = wizardSteps.length - 1;
     syncDebugTemplate({ notify: false });
@@ -838,13 +875,31 @@ async function retryLoadService() {
   if (!serviceId.value) {
     return;
   }
-  await loadService(serviceId.value);
+  if (await loadService(serviceId.value)) {
+    await hydrateServiceDependencies();
+  }
+}
+
+async function hydrateServiceDependencies() {
+  if (!form.runtimeClusterId) {
+    form.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  }
+  acceptRuntimeCluster(form.runtimeClusterId);
+  await loadDatasourcesForRuntimeCluster();
+  if (form.datasourceId) {
+    await loadModels(form.datasourceId);
+  }
 }
 
 function applyDetail(detail: DataServiceDefinitionView) {
+  runtimeValidation.invalid = detail.runtimeValid === false;
+  runtimeValidation.message = detail.runtimeValidationMessage ?? "";
   form.id = detail.id;
   form.serviceCode = detail.serviceCode;
   form.serviceName = detail.serviceName;
+  ensureRuntimeClusterOption(detail.runtimeClusterId, detail.runtimeClusterName);
+  form.runtimeClusterId = detail.runtimeClusterId ?? "";
+  acceptRuntimeCluster(form.runtimeClusterId);
   form.serviceType = detail.serviceType || "MODEL_PUBLISH";
   form.status = detail.status;
   form.sourceType = detail.sourceType || "TABLE";
@@ -874,12 +929,54 @@ function applyDetail(detail: DataServiceDefinitionView) {
   syncDebugTemplate({ notify: false });
 }
 
+async function loadDatasourcesForRuntimeCluster() {
+  const runtimeClusterId = form.runtimeClusterId;
+  const sequence = ++datasourceLoadSequence;
+  const options = runtimeClusterId == null || runtimeClusterId === ""
+    ? []
+    : (await studioApi.datasources.optionsByRuntimeCluster(runtimeClusterId)).filter((item) => item.executable !== false);
+  if (sequence === datasourceLoadSequence && String(form.runtimeClusterId ?? "") === String(runtimeClusterId ?? "")) {
+    datasources.value = options;
+  }
+}
+
+async function handleRuntimeClusterChange() {
+  const nextRuntimeClusterId = form.runtimeClusterId;
+  if (!await confirmRuntimeClusterChange(nextRuntimeClusterId)) {
+    form.runtimeClusterId = acceptedRuntimeClusterId.value ?? "";
+    return;
+  }
+  form.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
+  datasourceLoadSequence += 1;
+  modelLoadSequence += 1;
+  form.datasourceId = undefined;
+  form.modelId = undefined;
+  form.customSql = "";
+  datasources.value = [];
+  models.value = [];
+  fieldOptions.value = [];
+  form.requestParams = defaultFixedParams();
+  form.responseParams = [];
+  form.publishParams = [];
+  webservicePreview.value = null;
+  debugResult.value = "";
+  curlCommand.value = "";
+  soapEnvelope.value = "";
+  soapEnvelopeError.value = "";
+  syncDebugTemplate({ notify: false });
+  await loadDatasourcesForRuntimeCluster();
+}
+
 async function loadModels(datasourceId: EntityId, keyword = "") {
+  const sequence = ++modelLoadSequence;
   const page = await studioApi.models.listDatasourceOptions(datasourceId, {
     keyword: keyword.trim() || undefined,
     pageNo: 1,
     pageSize: MODEL_OPTION_PAGE_SIZE,
   });
+  if (sequence !== modelLoadSequence || String(form.datasourceId ?? "") !== String(datasourceId)) {
+    return;
+  }
   models.value = page.items;
   await ensureSelectedModelOption();
 }
@@ -961,6 +1058,7 @@ async function resolveFields() {
   resolvingFields.value = true;
   try {
     const resolved = await studioApi.dataServices.resolveFields({
+      runtimeClusterId: form.runtimeClusterId,
       sourceType: form.sourceType,
       datasourceId: form.datasourceId,
       modelId: form.modelId,
@@ -1130,6 +1228,10 @@ function saveResponseTransformers(transformers: TransformerBinding[]) {
 async function saveService() {
   if (detailLoadError.value && serviceId.value) {
     ElMessage.error(detailLoadError.value);
+    return;
+  }
+  if (!form.runtimeClusterId) {
+    ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
     return;
   }
   saving.value = true;

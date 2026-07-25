@@ -15,7 +15,7 @@
 
       <template v-if="selectedNode.nodeType === 'COLLECTION_TASK'">
         <el-form-item :label="t('web.workflows.collectionTaskBinding')">
-          <el-button type="primary" plain :loading="collectionTasksLoading" @click="nodeActions.openCollectionTaskDialog">
+          <el-button type="primary" plain :loading="collectionTasksLoading" :disabled="!runtimeClusterSelected" @click="nodeActions.openCollectionTaskDialog">
             {{ selectedBoundTask ? t("web.workflows.reselectCollectionTask") : t("web.workflows.selectCollectionTask") }}
           </el-button>
         </el-form-item>
@@ -27,7 +27,7 @@
 
       <template v-else-if="selectedNode.nodeType === 'QUALITY_TASK'">
         <el-form-item :label="t('web.workflows.qualityTaskBinding')">
-          <el-button type="primary" plain :loading="qualityTasksLoading" @click="nodeActions.openQualityTaskDialog">
+          <el-button type="primary" plain :loading="qualityTasksLoading" :disabled="!runtimeClusterSelected" @click="nodeActions.openQualityTaskDialog">
             {{ selectedBoundQualityTask ? t("web.workflows.reselectQualityTask") : t("web.workflows.selectQualityTask") }}
           </el-button>
         </el-form-item>
@@ -48,7 +48,7 @@
 
       <template v-else-if="selectedNode.nodeType === 'DATA_SCRIPT'">
         <el-form-item :label="t('web.workflows.dataScriptBinding')">
-          <el-button type="primary" plain :loading="scriptsLoading || scriptTreeLoading" @click="nodeActions.openScriptDialog">
+          <el-button type="primary" plain :loading="scriptsLoading || scriptTreeLoading" :disabled="!runtimeClusterSelected" @click="nodeActions.openScriptDialog">
             {{ selectedBoundScript ? t("web.workflows.reselectDataScript") : t("web.workflows.selectDataScript") }}
           </el-button>
         </el-form-item>
@@ -286,6 +286,7 @@ const props = defineProps<{
   httpBodyText: string;
   selectedNodeFields: MetadataFieldDefinition[];
   selectedNodeConfig: Record<string, unknown>;
+  runtimeClusterSelected: boolean;
   nodeActions: WorkflowSelectedNodeActions;
 }>();
 

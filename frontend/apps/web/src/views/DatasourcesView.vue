@@ -21,6 +21,14 @@
           </el-table-column>
           <el-table-column prop="name" :label="t('web.datasources.nameColumn')" min-width="180" />
         <el-table-column prop="typeCode" :label="t('web.datasources.typeColumn')" width="120" />
+        <el-table-column :label="t('web.datasources.applicableClustersColumn')" min-width="180">
+          <template #default="{ row }">
+            <div v-if="datasourceClusterLabels(row).length" class="tag-row datasource-cluster-tags">
+              <el-tag v-for="cluster in datasourceClusterLabels(row)" :key="cluster" size="small" effect="plain">{{ cluster }}</el-tag>
+            </div>
+            <span v-else class="cell-subtle">{{ t("web.datasources.noApplicableClusters") }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="所属项目" min-width="170">
           <template #default="{ row }">
             <div class="stack-cell">
@@ -39,9 +47,22 @@
             <StatusPill :label="row.executable ? t('common.managed') : t('common.unmanaged')" :tone="row.executable ? 'success' : 'warning'" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('web.datasources.connectionStatusColumn')" min-width="210" align="center" header-align="center">
+        <el-table-column :label="t('web.datasources.connectionStatusColumn')" min-width="260" align="center" header-align="center">
           <template #default="{ row }">
-            <div class="stack-cell status-stack">
+            <div v-if="row.clusterHealth?.length" class="cluster-health-list">
+              <button
+                v-for="health in row.clusterHealth"
+                :key="String(health.runtimeClusterId)"
+                class="cluster-health-item"
+                type="button"
+                :title="health.lastConnectionTestMessage || t('web.datasources.connectionTrendTitle')"
+                @click="openConnectionHistory(row, health.runtimeClusterId)"
+              >
+                <span class="cluster-health-name">{{ clusterHealthName(health) }}</span>
+                <StatusPill :label="clusterHealthStatusLabel(health)" :tone="clusterHealthStatusTone(health)" />
+              </button>
+            </div>
+            <div v-else class="stack-cell status-stack">
               <StatusPill :label="connectionStatusLabel(row)" :tone="connectionStatusTone(row)" />
               <button class="connection-trend" type="button" :title="t('web.datasources.connectionTrendTitle')" @click="openConnectionHistory(row)">
                 <span
@@ -82,7 +103,7 @@
       </div>
     </SectionCard>
 
-    <el-drawer v-model="drawerOpen" size="70%" :title="form.id ? t('web.datasources.drawerEditTitle') : t('web.datasources.drawerCreateTitle')">
+    <el-drawer v-model="drawerOpen" size="min(1120px, 96vw)" :title="form.id ? t('web.datasources.drawerEditTitle') : t('web.datasources.drawerCreateTitle')">
       <div class="studio-grid columns-2">
         <SectionCard :title="t('web.datasources.identityTitle')" :description="t('web.datasources.identityDescription')">
           <div class="studio-form-grid">
@@ -108,6 +129,25 @@
                   :value="schema.currentVersionId ?? schema.id"
                 />
               </el-select>
+            </el-form-item>
+            <el-form-item :label="t('web.datasources.applicableClusters')" class="datasource-cluster-select">
+              <el-select
+                v-model="form.applicableClusterIds"
+                multiple
+                filterable
+                :disabled="singleRuntimeCluster"
+                :placeholder="t('web.datasources.applicableClustersPlaceholder')"
+              >
+                <el-option
+                  v-for="cluster in runtimeClusterSelectionOptions"
+                  :key="cluster.id"
+                  :label="runtimeClusterLabel(cluster)"
+                  :value="String(cluster.id)"
+                  :disabled="runtimeClusterOptionDisabled(cluster)"
+                />
+              </el-select>
+              <p v-if="singleRuntimeCluster" class="form-item-hint">{{ t("web.datasources.singleClusterAutoSelected") }}</p>
+              <p v-else class="form-item-hint">{{ t("web.datasources.applicableClustersHint") }}</p>
             </el-form-item>
             <el-form-item :label="t('web.datasources.executionSurface')">
               <el-switch v-model="form.executable" inline-prompt :active-text="t('common.managedShort')" :inactive-text="t('common.unmanagedShort')" />
@@ -143,6 +183,21 @@
 
       <SectionCard :title="t('web.datasources.healthConfigTitle')" :description="t('web.datasources.healthConfigDescription')">
         <div class="studio-form-grid">
+          <el-form-item :label="t('web.datasources.testRuntimeCluster')">
+            <el-select
+              v-model="testRuntimeClusterId"
+              clearable
+              :disabled="applicableRuntimeClusters.length === 0"
+              :placeholder="t('web.datasources.testRuntimeClusterPlaceholder')"
+            >
+              <el-option
+                v-for="cluster in applicableRuntimeClusters"
+                :key="cluster.id"
+                :label="runtimeClusterLabel(cluster)"
+                :value="String(cluster.id)"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item :label="t('web.datasources.manualTimeout')">
             <el-input-number
               v-model="form.manualConnectionTestTimeoutSeconds"
@@ -198,6 +253,7 @@
               <div class="multiple-section-actions">
                 <el-button type="primary" plain @click="appendSectionRow(section)">{{ t("common.addRow") }}</el-button>
               </div>
+              <StudioTableShell min-width="720px">
               <el-table :data="sectionRows(section)" border>
                 <el-table-column
                   v-for="field in section.fields"
@@ -229,6 +285,7 @@
                   </template>
                 </el-table-column>
               </el-table>
+              </StudioTableShell>
             </template>
 
             <MetaFormRenderer
@@ -243,16 +300,44 @@
 
       <div class="drawer-actions">
         <el-button @click="drawerOpen = false">{{ t("common.cancel") }}</el-button>
-        <el-button @click="testCurrent">{{ t("web.datasources.testConnection") }}</el-button>
+        <el-button :disabled="!testRuntimeClusterId" @click="testCurrent">{{ t("web.datasources.testConnection") }}</el-button>
+        <el-button :disabled="applicableRuntimeClusters.length === 0" @click="testAllApplicableClusters">
+          {{ t("web.datasources.testAllClusters") }}
+        </el-button>
         <el-button type="primary" :loading="saving" @click="saveDatasource">{{ t("common.save") }}</el-button>
       </div>
+
+      <SectionCard v-if="clusterTestResults.length" :title="t('web.datasources.clusterTestResults')">
+        <StudioTableShell min-width="620px">
+        <el-table :data="clusterTestResults" border>
+          <el-table-column prop="clusterName" :label="t('web.datasources.testRuntimeCluster')" min-width="180" />
+          <el-table-column :label="t('web.datasources.historyStatusColumn')" width="130">
+            <template #default="{ row }"><StatusPill :label="recordStatusLabel(row.result)" :tone="recordStatusTone(row.result)" /></template>
+          </el-table-column>
+          <el-table-column prop="result.message" :label="t('web.datasources.historyMessageColumn')" min-width="260" show-overflow-tooltip />
+        </el-table>
+        </StudioTableShell>
+      </SectionCard>
 
       <SectionCard v-if="testResult" :title="t('web.datasources.testResultTitle')" :description="t('web.datasources.testResultDescription')">
         <pre class="json-block studio-mono">{{ prettyJson(testResult) }}</pre>
       </SectionCard>
     </el-drawer>
 
-    <el-dialog v-model="discoverDialogOpen" :title="t('web.datasources.discoveredModelsTitle')" width="62%">
+    <el-dialog v-model="discoverClusterDialogOpen" :title="t('web.datasources.discoverClusterDialogTitle')" width="min(520px, 94vw)">
+      <el-form-item :label="t('web.datasources.testRuntimeCluster')">
+        <el-select v-model="discoverRuntimeClusterId" filterable :placeholder="t('web.datasources.testRuntimeClusterPlaceholder')">
+          <el-option v-for="cluster in discoveryRuntimeClusters" :key="cluster.id" :label="runtimeClusterLabel(cluster)" :value="String(cluster.id)" />
+        </el-select>
+      </el-form-item>
+      <template #footer>
+        <el-button @click="discoverClusterDialogOpen = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" :loading="discovering" :disabled="!discoverRuntimeClusterId" @click="confirmDiscoverModels">{{ t("common.confirm") }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="discoverDialogOpen" :title="t('web.datasources.discoveredModelsTitle')" width="min(960px, 94vw)">
+      <StudioTableShell min-width="620px">
       <el-table :data="discoveredModels" border>
         <el-table-column prop="name" :label="t('web.datasources.modelNameColumn')" min-width="180" />
         <el-table-column :label="t('web.datasources.modelKindColumn')" width="120" align="center" header-align="center">
@@ -262,14 +347,27 @@
         </el-table-column>
         <el-table-column prop="physicalLocator" :label="t('web.datasources.physicalLocatorColumn')" min-width="220" />
       </el-table>
+      </StudioTableShell>
     </el-dialog>
 
-    <el-dialog v-model="connectionHistoryDialogOpen" :title="connectionHistoryDialogTitle" width="760px">
+    <el-dialog v-model="connectionHistoryDialogOpen" :title="connectionHistoryDialogTitle" width="min(760px, 94vw)">
       <div class="history-dialog">
         <div class="history-summary">
-          <StatusPill :label="historyDatasource ? connectionStatusLabel(historyDatasource) : t('web.datasources.connectionUnknown')" :tone="historyDatasource ? connectionStatusTone(historyDatasource) : 'neutral'" />
+          <StatusPill
+            :label="selectedHistoryClusterHealth ? clusterHealthStatusLabel(selectedHistoryClusterHealth) : t('web.datasources.connectionUnknown')"
+            :tone="selectedHistoryClusterHealth ? clusterHealthStatusTone(selectedHistoryClusterHealth) : 'neutral'"
+          />
           <span class="cell-subtle">{{ t("web.datasources.connectionHistorySubtitle") }}</span>
+          <el-select
+            v-model="historyRuntimeClusterId"
+            :placeholder="t('web.datasources.testRuntimeClusterPlaceholder')"
+            class="history-cluster-select"
+            @change="loadConnectionHistory"
+          >
+            <el-option v-for="cluster in historyRuntimeClusters" :key="cluster.id" :label="runtimeClusterLabel(cluster)" :value="String(cluster.id)" />
+          </el-select>
         </div>
+        <StudioTableShell min-width="980px">
         <el-table v-loading="connectionHistoryLoading" :data="connectionHistoryRecords" border>
           <el-table-column :label="t('web.datasources.historyTimeColumn')" min-width="180">
             <template #default="{ row }">{{ formatConnectionTestAt(row.testedAt || row.endedAt) || "--" }}</template>
@@ -290,6 +388,7 @@
           </el-table-column>
           <el-table-column prop="message" :label="t('web.datasources.historyMessageColumn')" min-width="220" show-overflow-tooltip />
         </el-table>
+        </StudioTableShell>
         <div v-if="!connectionHistoryLoading && connectionHistoryRecords.length === 0" class="soft-panel empty-hint history-empty">
           {{ t("web.datasources.connectionHistoryEmpty") }}
         </div>
@@ -307,12 +406,15 @@ import type {
   ConnectionTestResult,
   DataSourceDefinition,
   DataSourceListView,
+  DataSourceSaveRequest,
+  DatasourceClusterHealthView,
   DatasourceConnectionTestRecordView,
   DatasourceConnectionTrendPointView,
   EntityId,
   MetadataFieldDefinition,
   MetadataSchemaDefinition,
   ModelDiscoveryOptionResult,
+  RuntimeClusterView,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
@@ -330,12 +432,14 @@ import {
   setBusinessMetaModelValues,
 } from "@/utils/metaModel";
 import { cloneDeep, formatModelKind, isSharedFromAnotherProject, prettyJson, resolveProjectName } from "@/utils/studio";
+import { resolveRuntimeClusterSelectionState } from "@/utils/runtimeClusters";
 
 interface DataSourceForm extends DataSourceDefinition {
   name: string;
   typeCode: string;
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
+  applicableClusterIds: EntityId[];
 }
 
 interface DatasourceBusinessSection {
@@ -354,6 +458,7 @@ const datasources = ref<DataSourceListView[]>([]);
 const datasourceTotal = ref(0);
 const datasourcePagination = reactive({ page: 1, pageSize: 20 });
 const schemas = ref<MetadataSchemaDefinition[]>([]);
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const capabilityMatrix = reactive<CapabilityMatrix>({
   executableSourceTypes: [],
@@ -362,14 +467,29 @@ const executableDatasourceTypes = computed(() => capabilityMatrix.executableData
 const drawerOpen = ref(false);
 const saving = ref(false);
 const testResult = ref<ConnectionTestResult | null>(null);
+const clusterTestResults = ref<Array<{ clusterId: EntityId; clusterName: string; result: ConnectionTestResult }>>([]);
 const testingDatasourceIds = ref<string[]>([]);
 const activeDatasource = ref<DataSourceListView | null>(null);
 const discoverDialogOpen = ref(false);
 const discoveredModels = ref<ModelDiscoveryOptionResult["models"]>([]);
+const discoverClusterDialogOpen = ref(false);
+const discoverRuntimeClusterId = ref("");
+const discoveryDatasource = ref<DataSourceListView | null>(null);
+const discovering = ref(false);
 const connectionHistoryDialogOpen = ref(false);
 const connectionHistoryLoading = ref(false);
 const historyDatasource = ref<DataSourceListView | null>(null);
 const connectionHistoryRecords = ref<DatasourceConnectionTestRecordView[]>([]);
+const historyRuntimeClusterId = ref("");
+const testRuntimeClusterId = ref<string>("");
+let pageLoadSequence = 0;
+let datasourceListLoadSequence = 0;
+let runtimeClusterLoadSequence = 0;
+let editLoadSequence = 0;
+let connectionHistoryLoadSequence = 0;
+let discoverLoadSequence = 0;
+let currentTestSequence = 0;
+let allClustersTestSequence = 0;
 const form = reactive<DataSourceForm>({
   name: "",
   typeCode: "",
@@ -378,9 +498,40 @@ const form = reactive<DataSourceForm>({
   schemaVersionId: undefined,
   manualConnectionTestTimeoutSeconds: undefined,
   scheduledConnectionTestTimeoutSeconds: undefined,
+  applicableClusterIds: [],
+  applicableClusters: [],
   technicalMetadata: {},
   businessMetadata: {},
 });
+
+const authorizedRuntimeClusterIds = computed(() => new Set(
+  runtimeClusters.value.filter((cluster) => cluster.id != null).map((cluster) => String(cluster.id)),
+));
+const runtimeClusterSelectionOptions = computed(() => {
+  const result = [...runtimeClusters.value];
+  for (const cluster of form.applicableClusters ?? []) {
+    if (cluster.id != null && !result.some((item) => String(item.id) === String(cluster.id))) {
+      result.push(cluster);
+    }
+  }
+  return result;
+});
+const hasUnavailableSelectedCluster = computed(() => (
+  (form.applicableClusterIds ?? []).some((clusterId) => !authorizedRuntimeClusterIds.value.has(String(clusterId)))
+));
+const singleRuntimeCluster = computed(() => runtimeClusters.value.length === 1 && !hasUnavailableSelectedCluster.value);
+const applicableRuntimeClusters = computed(() => {
+  const selected = new Set((form.applicableClusterIds ?? []).map((item) => String(item)));
+  return runtimeClusters.value.filter((cluster) => cluster.id != null && selected.has(String(cluster.id)));
+});
+const discoveryRuntimeClusters = computed(() => datasourceRuntimeClusters(discoveryDatasource.value)
+  .filter((cluster) => cluster.id != null && authorizedRuntimeClusterIds.value.has(String(cluster.id))));
+const historyRuntimeClusters = computed(() => datasourceRuntimeClusters(historyDatasource.value));
+const selectedHistoryClusterHealth = computed(() =>
+  (historyDatasource.value?.clusterHealth ?? []).find(
+    (health) => String(health.runtimeClusterId ?? "") === historyRuntimeClusterId.value,
+  ),
+);
 
 const sourceTypeOptions = computed(() =>
   Array.from(new Set((capabilityMatrix.sourceCapabilities ?? []).map((item) => item.typeCode).filter(Boolean)))
@@ -554,6 +705,68 @@ function canTestDatasource(datasource: DataSourceListView) {
   return Boolean(datasource.id && datasource.enabled && datasource.executable);
 }
 
+function runtimeClusterLabel(cluster: RuntimeClusterView) {
+  const label = cluster.code ? `${cluster.name || cluster.code} (${cluster.code})` : cluster.name || String(cluster.id ?? "-");
+  return runtimeClusterOptionUnavailable(cluster)
+    ? `${label} - ${t("web.runtimeClusterSelection.unavailableOption")}`
+    : label;
+}
+
+function runtimeClusterOptionUnavailable(cluster: RuntimeClusterView) {
+  return runtimeClusterSelectionState(cluster).unavailable;
+}
+
+function runtimeClusterOptionDisabled(cluster: RuntimeClusterView) {
+  return runtimeClusterSelectionState(cluster).disabled;
+}
+
+function runtimeClusterSelectionState(cluster: RuntimeClusterView) {
+  return resolveRuntimeClusterSelectionState(
+    cluster.id,
+    form.applicableClusterIds ?? [],
+    authorizedRuntimeClusterIds.value,
+  );
+}
+
+function datasourceClusterLabels(datasource: DataSourceListView) {
+  if (datasource.applicableClusters?.length) {
+    return datasource.applicableClusters.map(runtimeClusterLabel);
+  }
+  const selected = new Set((datasource.applicableClusterIds ?? []).map((item) => String(item)));
+  return runtimeClusters.value.filter((cluster) => cluster.id != null && selected.has(String(cluster.id))).map(runtimeClusterLabel);
+}
+
+function datasourceRuntimeClusters(datasource: DataSourceListView | null) {
+  if (!datasource) return [];
+  if (datasource.applicableClusters?.length) return datasource.applicableClusters;
+  const ids = new Set((datasource.applicableClusterIds ?? []).map((id) => String(id)));
+  return runtimeClusters.value.filter((cluster) => cluster.id != null && ids.has(String(cluster.id)));
+}
+
+function applySingleRuntimeClusterSelection() {
+  if (runtimeClusters.value.length !== 1 || runtimeClusters.value[0]?.id == null) {
+    return;
+  }
+  const clusterId = String(runtimeClusters.value[0].id);
+  if (!form.applicableClusterIds?.length) {
+    form.applicableClusterIds = [clusterId];
+  }
+  if (!testRuntimeClusterId.value) {
+    testRuntimeClusterId.value = clusterId;
+  }
+}
+
+watch(() => (form.applicableClusterIds ?? []).map(String), (clusterIds) => {
+  currentTestSequence += 1;
+  allClustersTestSequence += 1;
+  testResult.value = null;
+  clusterTestResults.value = [];
+  if (!testRuntimeClusterId.value || clusterIds.includes(testRuntimeClusterId.value)) {
+    return;
+  }
+  testRuntimeClusterId.value = clusterIds.length === 1 ? clusterIds[0] : "";
+});
+
 function datasourceTestKey(datasource: DataSourceListView) {
   return String(datasource.id ?? "");
 }
@@ -604,6 +817,26 @@ function connectionStatusTone(datasource: DataSourceListView) {
   if (datasource.connectionStatus === "UNAVAILABLE") {
     return "danger";
   }
+  return "warning";
+}
+
+function clusterHealthName(health: DatasourceClusterHealthView) {
+  return health.runtimeClusterCode
+    ? `${health.runtimeClusterName || health.runtimeClusterCode} (${health.runtimeClusterCode})`
+    : health.runtimeClusterName || String(health.runtimeClusterId ?? "-");
+}
+
+function clusterHealthStatusLabel(health: DatasourceClusterHealthView) {
+  if (health.connectionTesting) return t("web.datasources.connectionTesting");
+  if (health.connectionStatus === "AVAILABLE") return t("web.datasources.connectionAvailable");
+  if (health.connectionStatus === "UNAVAILABLE") return t("web.datasources.connectionUnavailable");
+  return t("web.datasources.connectionUnknown");
+}
+
+function clusterHealthStatusTone(health: DatasourceClusterHealthView) {
+  if (health.connectionTesting) return "primary";
+  if (health.connectionStatus === "AVAILABLE") return "success";
+  if (health.connectionStatus === "UNAVAILABLE") return "danger";
   return "warning";
 }
 
@@ -701,6 +934,9 @@ const technicalFields = computed(
 );
 
 function resetForm() {
+  editLoadSequence += 1;
+  currentTestSequence += 1;
+  allClustersTestSequence += 1;
   form.id = undefined;
   form.name = "";
   form.typeCode = "";
@@ -709,9 +945,14 @@ function resetForm() {
   form.schemaVersionId = undefined;
   form.manualConnectionTestTimeoutSeconds = undefined;
   form.scheduledConnectionTestTimeoutSeconds = undefined;
+  form.applicableClusterIds = [];
+  form.applicableClusters = [];
   form.technicalMetadata = {};
   form.businessMetadata = {};
   testResult.value = null;
+  clusterTestResults.value = [];
+  testRuntimeClusterId.value = "";
+  applySingleRuntimeClusterSelection();
 }
 
 function openCreate() {
@@ -723,16 +964,28 @@ async function editDatasource(item: DataSourceListView) {
   if (!item.id) {
     return;
   }
+  const sequence = ++editLoadSequence;
   setActiveDatasource(item);
   try {
     const detail = await studioApi.datasources.get(item.id);
+    if (sequence !== editLoadSequence) {
+      return;
+    }
     Object.assign(form, cloneDeep(detail));
+    form.applicableClusterIds = (detail.applicableClusterIds ?? detail.applicableClusters?.map((cluster) => cluster.id).filter((id): id is EntityId => id != null) ?? []).map(String);
+    testRuntimeClusterId.value = form.applicableClusterIds.length === 1
+      ? String(form.applicableClusterIds[0])
+      : "";
+    applySingleRuntimeClusterSelection();
     await ensureDatasourceSchemaDetails(form.typeCode);
     applyBusinessMetadataDefaults();
     testResult.value = null;
+    clusterTestResults.value = [];
     drawerOpen.value = true;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+    if (sequence === editLoadSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+    }
   }
 }
 
@@ -972,10 +1225,15 @@ function removeDatasourceRow(item: DataSourceListView) {
 }
 
 async function loadDatasources() {
+  const sequence = ++datasourceListLoadSequence;
+  const pageNo = datasourcePagination.page;
   const page = await studioApi.datasources.listPage({
-    pageNo: datasourcePagination.page,
+    pageNo,
     pageSize: datasourcePagination.pageSize,
   });
+  if (sequence !== datasourceListLoadSequence) {
+    return;
+  }
   const maxPage = page.total > 0 ? Math.ceil(page.total / datasourcePagination.pageSize) : 1;
   if (datasourcePagination.page > maxPage) {
     datasourcePagination.page = maxPage;
@@ -988,6 +1246,8 @@ async function loadDatasources() {
 }
 
 async function loadPage() {
+  const sequence = ++pageLoadSequence;
+  const datasourceSequence = ++datasourceListLoadSequence;
   try {
     const [datasourceData, schemaData, capabilityData] = await Promise.all([
       studioApi.datasources.listPage({
@@ -997,9 +1257,14 @@ async function loadPage() {
       studioApi.metaSchemas.list({ includeFields: false }),
       studioApi.catalog.capabilities(),
     ]);
-    datasources.value = datasourceData.items;
-    datasourceTotal.value = datasourceData.total;
-    refreshActiveDatasourceFromVisibleRows();
+    if (sequence !== pageLoadSequence) {
+      return;
+    }
+    if (datasourceSequence === datasourceListLoadSequence) {
+      datasources.value = datasourceData.items;
+      datasourceTotal.value = datasourceData.total;
+      refreshActiveDatasourceFromVisibleRows();
+    }
     schemas.value = schemaData.map(toSchemaSummary);
     schemaDetails.value = {};
     capabilityMatrix.executableSourceTypes = capabilityData.executableSourceTypes;
@@ -1011,7 +1276,28 @@ async function loadPage() {
       applyBusinessMetadataDefaults();
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+    if (sequence === pageLoadSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.loadFailed"));
+    }
+  }
+}
+
+async function loadRuntimeClusters() {
+  const sequence = ++runtimeClusterLoadSequence;
+  const projectId = authStore.currentProjectId;
+  try {
+    const options = await studioApi.runtimeClusters.options(projectId ?? undefined);
+    if (sequence !== runtimeClusterLoadSequence || String(authStore.currentProjectId ?? "") !== String(projectId ?? "")) {
+      return;
+    }
+    runtimeClusters.value = options;
+    applySingleRuntimeClusterSelection();
+  } catch {
+    if (sequence !== runtimeClusterLoadSequence) {
+      return;
+    }
+    // Keep the datasource center usable during a rolling upgrade before the cluster module is deployed.
+    runtimeClusters.value = [];
   }
 }
 
@@ -1035,10 +1321,41 @@ async function handleDatasourcePageSizeChange(pageSize: number) {
 }
 
 async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
+  if (runtimeClusters.value.length > 0 && form.applicableClusterIds.length === 0) {
+    ElMessage.warning(t("web.datasources.applicableClustersRequired"));
+    return;
+  }
+  const payload: DataSourceSaveRequest = cloneDeep(form);
+  if (form.id != null) {
+    try {
+      const impact = await studioApi.datasources.clusterBindingImpact(form.id, form.applicableClusterIds);
+      const affected = impact.affectedResources ?? [];
+      if (affected.length > 0) {
+        const preview = affected.slice(0, 5)
+          .map((item) => `${item.resourceName || `${item.resourceType ?? "RESOURCE"}#${item.resourceId ?? "-"}`} (project ${item.projectId ?? "-"})`)
+          .join("\n");
+        await ElMessageBox.confirm(
+          `${t("web.datasources.clusterImpactConfirmMessage", { count: affected.length })}${preview ? `\n\n${preview}` : ""}`,
+          t("web.datasources.clusterImpactConfirmTitle"),
+          { type: "warning", distinguishCancelAndClose: true },
+        );
+        payload.confirmClusterBindingImpact = true;
+      }
+    } catch (error) {
+      if (error === "cancel" || error === "close") {
+        return;
+      }
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.saveFailed"));
+      return;
+    }
+  }
   saving.value = true;
   try {
-    const saved = await studioApi.datasources.save(cloneDeep(form));
+    const saved = await studioApi.datasources.save(payload);
     Object.assign(form, saved);
+    form.applicableClusterIds = (saved.applicableClusterIds ?? saved.applicableClusters?.map((cluster) => cluster.id).filter((id): id is EntityId => id != null) ?? []).map(String);
+    form.applicableClusters = saved.applicableClusters ?? [];
+    applySingleRuntimeClusterSelection();
     ElMessage.success(t("web.datasources.saveSuccess"));
     if (options.closeAfterSave !== false) {
       drawerOpen.value = false;
@@ -1053,8 +1370,8 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
 }
 
 function upsertDatasourceRow(saved: DataSourceDefinition) {
-  const next = toDataSourceListView(saved);
-  const index = datasources.value.findIndex((item) => item.id === next.id);
+  const index = datasources.value.findIndex((item) => sameEntityId(item.id, saved.id));
+  const next = toDataSourceListView(saved, index >= 0 ? datasources.value[index] : undefined);
   if (index >= 0) {
     Object.assign(datasources.value[index], next);
     return;
@@ -1063,7 +1380,26 @@ function upsertDatasourceRow(saved: DataSourceDefinition) {
   datasourceTotal.value += 1;
 }
 
-function toDataSourceListView(source: DataSourceDefinition): DataSourceListView {
+function toDataSourceListView(source: DataSourceDefinition, previous?: DataSourceListView): DataSourceListView {
+  const previousHealthByClusterId = new Map(
+    (previous?.clusterHealth ?? [])
+      .filter((item) => item.runtimeClusterId != null)
+      .map((item) => [String(item.runtimeClusterId), item]),
+  );
+  const applicableClusterIds = source.applicableClusterIds
+    ?? source.applicableClusters?.map((cluster) => cluster.id).filter((id): id is EntityId => id != null)
+    ?? [];
+  const clusterHealth = applicableClusterIds.map((runtimeClusterId) => {
+    const cluster = source.applicableClusters?.find((item) => sameEntityId(item.id, runtimeClusterId));
+    const previousHealth = previousHealthByClusterId.get(String(runtimeClusterId));
+    return {
+      ...previousHealth,
+      runtimeClusterId,
+      runtimeClusterCode: cluster?.code ?? previousHealth?.runtimeClusterCode,
+      runtimeClusterName: cluster?.name ?? previousHealth?.runtimeClusterName,
+      connectionStatus: previousHealth?.connectionStatus ?? "UNKNOWN",
+    } satisfies DatasourceClusterHealthView;
+  });
   return {
     id: source.id,
     tenantId: source.tenantId,
@@ -1086,6 +1422,9 @@ function toDataSourceListView(source: DataSourceDefinition): DataSourceListView 
     nextConnectionProbeAt: source.nextConnectionProbeAt,
     manualConnectionTestTimeoutSeconds: source.manualConnectionTestTimeoutSeconds,
     scheduledConnectionTestTimeoutSeconds: source.scheduledConnectionTestTimeoutSeconds,
+    applicableClusterIds: source.applicableClusterIds,
+    applicableClusters: source.applicableClusters,
+    clusterHealth,
     recentConnectionTests: toConnectionTrendPoints(source.recentConnectionTests ?? []),
   };
 }
@@ -1097,9 +1436,21 @@ async function testDatasource(item: DataSourceListView) {
   setActiveDatasource(item);
   setDatasourceTesting(item, true);
   try {
-    const result = await studioApi.datasources.test(item.id);
-    applyConnectionTestResult(item, result);
-    showConnectionTestMessage(result);
+    const clusters = datasourceRuntimeClusters(item);
+    if (clusters.length === 0) {
+      ElMessage.warning(t("web.datasources.applicableClustersRequired"));
+      return;
+    }
+    const results: ConnectionTestResult[] = [];
+    for (const cluster of clusters) {
+      if (cluster.id == null) continue;
+      const result = await studioApi.datasources.test(item.id, cluster.id);
+      results.push(result);
+      applyClusterConnectionTestResult(item, cluster.id, result);
+    }
+    const aggregate = aggregateConnectionResults(results);
+    applyConnectionTestResult(item, aggregate);
+    showConnectionTestMessage(aggregate);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
   } finally {
@@ -1108,12 +1459,75 @@ async function testDatasource(item: DataSourceListView) {
 }
 
 async function testCurrent() {
-  try {
-    testResult.value = await studioApi.datasources.testCurrent(cloneDeep(form));
-    showConnectionTestMessage(testResult.value);
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
+  if (!testRuntimeClusterId.value) {
+    ElMessage.warning(t("web.datasources.testRuntimeClusterPlaceholder"));
+    return;
   }
+  const runtimeClusterId = testRuntimeClusterId.value;
+  const sequence = ++currentTestSequence;
+  try {
+    const result = await studioApi.datasources.testCurrent(cloneDeep(form), runtimeClusterId);
+    if (sequence !== currentTestSequence || testRuntimeClusterId.value !== runtimeClusterId) {
+      return;
+    }
+    testResult.value = result;
+    const cluster = applicableRuntimeClusters.value.find((item) => String(item.id) === runtimeClusterId);
+    clusterTestResults.value = [{
+      clusterId: runtimeClusterId,
+      clusterName: cluster ? runtimeClusterLabel(cluster) : runtimeClusterId,
+      result,
+    }];
+    showConnectionTestMessage(result);
+  } catch (error) {
+    if (sequence === currentTestSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.testFailed"));
+    }
+  }
+}
+
+async function testAllApplicableClusters() {
+  const sequence = ++allClustersTestSequence;
+  const clusters = [...applicableRuntimeClusters.value];
+  const payload = cloneDeep(form);
+  clusterTestResults.value = [];
+  for (const cluster of clusters) {
+    if (cluster.id == null) continue;
+    try {
+      const result = await studioApi.datasources.testCurrent(payload, cluster.id);
+      if (sequence !== allClustersTestSequence) {
+        return;
+      }
+      clusterTestResults.value.push({ clusterId: cluster.id, clusterName: runtimeClusterLabel(cluster), result });
+    } catch (error) {
+      if (sequence !== allClustersTestSequence) {
+        return;
+      }
+      clusterTestResults.value.push({
+        clusterId: cluster.id,
+        clusterName: runtimeClusterLabel(cluster),
+        result: { success: false, status: "UNKNOWN", message: error instanceof Error ? error.message : t("web.datasources.testFailed") },
+      });
+    }
+  }
+  if (sequence !== allClustersTestSequence) {
+    return;
+  }
+  const aggregate = aggregateConnectionResults(clusterTestResults.value.map((item) => item.result));
+  testResult.value = aggregate;
+  showConnectionTestMessage(aggregate);
+}
+
+function aggregateConnectionResults(results: ConnectionTestResult[]) {
+  const statuses = results.map((item) => item.status ?? (item.success ? "AVAILABLE" : "UNAVAILABLE"));
+  const status = statuses.every((item) => item === "AVAILABLE")
+    ? "AVAILABLE"
+    : statuses.some((item) => item === "UNAVAILABLE") ? "UNAVAILABLE" : "UNKNOWN";
+  return {
+    success: status === "AVAILABLE",
+    status,
+    message: results.map((item) => item.message).filter(Boolean).join("; ") || status,
+    lastTestAt: new Date().toISOString(),
+  } as ConnectionTestResult;
 }
 
 function showConnectionTestMessage(result: ConnectionTestResult) {
@@ -1162,6 +1576,25 @@ function applyConnectionTestResult(item: DataSourceListView, result: ConnectionT
   }
 }
 
+function applyClusterConnectionTestResult(item: DataSourceListView, runtimeClusterId: EntityId, result: ConnectionTestResult) {
+  const cluster = datasourceRuntimeClusters(item).find((candidate) => String(candidate.id) === String(runtimeClusterId));
+  const health: DatasourceClusterHealthView = (item.clusterHealth ?? []).find((candidate) => String(candidate.runtimeClusterId) === String(runtimeClusterId)) ?? {
+    runtimeClusterId,
+    runtimeClusterCode: cluster?.code,
+    runtimeClusterName: cluster?.name,
+  };
+  health.connectionStatus = result.status ?? (result.success ? "AVAILABLE" : "UNAVAILABLE");
+  health.lastConnectionTestAt = result.lastTestAt;
+  health.lastConnectionTestMessage = result.message;
+  health.lastConnectionTestDurationMs = result.durationMs;
+  health.connectionTesting = Boolean(result.testing);
+  health.connectionStale = Boolean(result.stale);
+  health.nextConnectionProbeAt = result.nextProbeAt;
+  if (!(item.clusterHealth ?? []).some((candidate) => String(candidate.runtimeClusterId) === String(runtimeClusterId))) {
+    item.clusterHealth = [...(item.clusterHealth ?? []), health];
+  }
+}
+
 function toConnectionTrendPoints(records: DatasourceConnectionTestRecordView[]) {
   return records.map((record) => ({
     status: record.status,
@@ -1184,31 +1617,109 @@ async function discoverModels(item: DataSourceListView) {
     return;
   }
   setActiveDatasource(item);
-  try {
-    const result = await studioApi.datasources.discoverOptions(item.id);
-    discoveredModels.value = result.models;
-    discoverDialogOpen.value = true;
-    updateAssistantPageContext();
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.discoverFailed"));
+  discoveryDatasource.value = item;
+  const clusters = discoveryRuntimeClusters.value;
+  if (clusters.length === 0) {
+    ElMessage.warning(t("web.datasources.discoverClusterRequired"));
+    return;
+  }
+  if (clusters.length > 1) {
+    discoverRuntimeClusterId.value = "";
+    discoverClusterDialogOpen.value = true;
+    return;
+  }
+  discoverRuntimeClusterId.value = String(clusters[0]?.id ?? "");
+  await executeDiscoverModels();
+}
+
+async function confirmDiscoverModels() {
+  if (!discoverRuntimeClusterId.value) {
+    ElMessage.warning(t("web.datasources.discoverClusterRequired"));
+    return;
+  }
+  if (await executeDiscoverModels()) {
+    discoverClusterDialogOpen.value = false;
   }
 }
 
-async function openConnectionHistory(item: DataSourceListView) {
+async function executeDiscoverModels() {
+  const item = discoveryDatasource.value;
+  const runtimeClusterId = discoverRuntimeClusterId.value;
+  if (!item?.id || !runtimeClusterId) {
+    return false;
+  }
+  const sequence = ++discoverLoadSequence;
+  discovering.value = true;
+  try {
+    const result = await studioApi.datasources.discoverOptions(item.id, { runtimeClusterId });
+    if (sequence !== discoverLoadSequence
+      || String(discoveryDatasource.value?.id ?? "") !== String(item.id)
+      || discoverRuntimeClusterId.value !== runtimeClusterId) {
+      return false;
+    }
+    discoveredModels.value = result.models;
+    discoverDialogOpen.value = true;
+    updateAssistantPageContext();
+    return true;
+  } catch (error) {
+    if (sequence === discoverLoadSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.discoverFailed"));
+    }
+    return false;
+  } finally {
+    if (sequence === discoverLoadSequence) {
+      discovering.value = false;
+    }
+  }
+}
+
+async function openConnectionHistory(item: DataSourceListView, runtimeClusterId?: EntityId) {
   if (!item.id) {
     return;
   }
   setActiveDatasource(item);
   historyDatasource.value = item;
   connectionHistoryDialogOpen.value = true;
-  connectionHistoryLoading.value = true;
   connectionHistoryRecords.value = [];
-  try {
-    connectionHistoryRecords.value = await studioApi.datasources.connectionHistory(item.id, { days: 7, limit: 1000 });
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.datasources.connectionHistoryFailed"));
-  } finally {
+  const clusters = datasourceRuntimeClusters(item);
+  historyRuntimeClusterId.value = runtimeClusterId != null
+    ? String(runtimeClusterId)
+    : clusters.length === 1 ? String(clusters[0]?.id ?? "") : "";
+  if (historyRuntimeClusterId.value) {
+    await loadConnectionHistory();
+  }
+}
+
+async function loadConnectionHistory() {
+  if (!historyDatasource.value?.id || !historyRuntimeClusterId.value) {
+    connectionHistoryLoadSequence += 1;
     connectionHistoryLoading.value = false;
+    connectionHistoryRecords.value = [];
+    return;
+  }
+  const datasourceId = historyDatasource.value.id;
+  const runtimeClusterId = historyRuntimeClusterId.value;
+  const sequence = ++connectionHistoryLoadSequence;
+  connectionHistoryLoading.value = true;
+  try {
+    const records = await studioApi.datasources.connectionHistory(datasourceId, {
+      days: 7,
+      limit: 1000,
+      runtimeClusterId,
+    });
+    if (sequence === connectionHistoryLoadSequence
+      && String(historyDatasource.value?.id ?? "") === String(datasourceId)
+      && historyRuntimeClusterId.value === runtimeClusterId) {
+      connectionHistoryRecords.value = records;
+    }
+  } catch (error) {
+    if (sequence === connectionHistoryLoadSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.datasources.connectionHistoryFailed"));
+    }
+  } finally {
+    if (sequence === connectionHistoryLoadSequence) {
+      connectionHistoryLoading.value = false;
+    }
   }
 }
 
@@ -1241,7 +1752,9 @@ async function deleteDatasource(item: DataSourceListView) {
   }
 }
 
-onMounted(loadPage);
+onMounted(async () => {
+  await Promise.all([loadPage(), loadRuntimeClusters()]);
+});
 
 onBeforeUnmount(() => clearAssistantPageContext("datasources-view"));
 
@@ -1261,8 +1774,18 @@ watch(
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
   if (authStore.isAuthenticated) {
+    editLoadSequence += 1;
+    discoverLoadSequence += 1;
+    connectionHistoryLoadSequence += 1;
+    currentTestSequence += 1;
+    allClustersTestSequence += 1;
+    drawerOpen.value = false;
+    discoverClusterDialogOpen.value = false;
+    discoverDialogOpen.value = false;
+    connectionHistoryDialogOpen.value = false;
     datasourcePagination.page = 1;
     loadPage();
+    loadRuntimeClusters();
   }
 });
 </script>
@@ -1296,6 +1819,34 @@ p {
   display: inline-block;
   max-width: 180px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-health-list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.cluster-health-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cluster-health-name {
+  overflow: hidden;
+  color: var(--studio-text-soft);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1341,6 +1892,21 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.datasource-cluster-tags {
+  gap: 6px;
+}
+
+.datasource-cluster-select :deep(.el-select) {
+  width: 100%;
+}
+
+.form-item-hint {
+  margin: 6px 0 0;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .capability-note {
@@ -1395,9 +1961,40 @@ p {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-cluster-select {
+  width: min(280px, 100%);
+  margin-left: auto;
 }
 
 .history-empty {
   text-align: center;
+}
+
+@media (max-width: 640px) {
+  .drawer-actions,
+  .datasource-meta-section__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .drawer-actions .el-button,
+  .multiple-section-actions .el-button {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .table-pagination,
+  .history-summary {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .history-cluster-select {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 </style>

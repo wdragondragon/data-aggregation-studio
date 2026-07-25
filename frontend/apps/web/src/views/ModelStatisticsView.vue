@@ -830,7 +830,7 @@ function applyRouteQuery() {
 }
 
 async function loadDatasources() {
-  const items = await studioApi.datasources.options();
+  const items = await studioApi.datasources.list();
   datasources.value = [...items].sort((left, right) => left.name.localeCompare(right.name));
 }
 

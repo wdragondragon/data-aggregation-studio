@@ -60,7 +60,7 @@ export function buildHttpDynamicFunctionCatalog(t: Translate): HttpDynamicFuncti
       description: t("web.collectionTasks.httpDynTokenDescription"),
       signature: "{dyn_from_http_token(method,url,header,body,path)}",
       returnDescription: t("web.collectionTasks.httpDynTokenReturn"),
-      example: "Bearer {dyn_from_http_token(POST,http://localhost/login,,username=admin&password=admin123,data.token)}",
+      example: "Bearer {dyn_from_http_token(POST,http://localhost/login,,username=api-user&password=replace-me,data.token)}",
       kind: "token",
       params: [],
     },

@@ -67,6 +67,9 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column :label="t('web.runtimeClusterSelection.runtimeCluster')" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.runtimeClusterName || (row.runtimeClusterId != null ? `#${row.runtimeClusterId}` : t('common.none')) }}</template>
+        </el-table-column>
         <el-table-column label="规则信息" min-width="210">
           <template #default="{ row }">
             <div class="table-entity-cell">
@@ -92,7 +95,10 @@
         </el-table-column>
         <el-table-column label="状态" width="110" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="row.status === STUDIO_RUN_STATUS.ONLINE ? '已发布' : '草稿'" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'neutral'" />
+            <el-tooltip v-if="row.runtimeValid === false" :content="row.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')" placement="top">
+              <span><StatusPill :label="t('web.runtimeClusterSelection.invalid')" tone="danger" /></span>
+            </el-tooltip>
+            <StatusPill v-else :label="row.status === STUDIO_RUN_STATUS.ONLINE ? '已发布' : '草稿'" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'neutral'" />
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="180" />
@@ -117,22 +123,36 @@
         />
       </div>
     </SectionCard>
+    <ManualRunClusterDialog
+      v-if="manualRunTask"
+      v-model="manualRunDialogVisible"
+      :resource-name="manualRunTask.taskName"
+      :default-cluster-id="manualRunTask.runtimeClusterId"
+      :default-cluster-name="manualRunTask.runtimeClusterName"
+      :shared="isSharedTask(manualRunTask)"
+      :submitting="manualRunSubmitting"
+      @confirm="confirmManualRun"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { EntityId, QualityTaskListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import ManualRunClusterDialog from "@/components/ManualRunClusterDialog.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber, type ClientPaginationState } from "@/composables/useClientPagination";
 import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
+import { isRuntimeManualTriggerDisabled, sameEntityId } from "@/utils/runtimeClusters";
 
 const router = useRouter();
+const { t } = useI18n();
 const authStore = useAuthStore();
 
 const dimensionOptions = [
@@ -162,6 +182,9 @@ const taskPagination = reactive<ClientPaginationState>({
   page: 1,
   pageSize: 10,
 });
+const manualRunTask = ref<QualityTaskListView | null>(null);
+const manualRunDialogVisible = ref(false);
+const manualRunSubmitting = ref(false);
 
 async function loadTasks() {
   try {
@@ -222,10 +245,11 @@ function isSharedTask(row: QualityTaskListView) {
 }
 
 function buildActions(row: QualityTaskListView) {
+  const shared = isSharedTask(row);
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/quality-tasks/${row.id}/edit`); } },
-    { key: "publish", label: row.status === STUDIO_RUN_STATUS.ONLINE ? "重新发布" : "发布", onClick: () => publishTask(row) },
-    { key: "trigger", label: "手动执行", onClick: () => triggerTask(row) },
+    { key: "publish", label: row.status === STUDIO_RUN_STATUS.ONLINE ? "重新发布" : "发布", disabled: row.runtimeValid === false, onClick: () => publishTask(row) },
+    { key: "trigger", label: "手动执行", disabled: isRuntimeManualTriggerDisabled(shared, row.runtimeValid === false), onClick: () => triggerTask(row) },
     { key: "runs", label: "运行日志", onClick: () => viewTaskRuns(row) },
     { key: "delete", label: "删除", type: "danger", onClick: () => deleteTask(row) },
   ];
@@ -279,11 +303,23 @@ async function triggerTask(task: QualityTaskListView) {
   if (!task.id) {
     return;
   }
+  manualRunTask.value = task;
+  manualRunDialogVisible.value = true;
+}
+
+async function confirmManualRun(runtimeClusterId?: EntityId) {
+  const task = manualRunTask.value;
+  if (!task?.id) return;
+  manualRunSubmitting.value = true;
   try {
-    await studioApi.qualityTasks.trigger(task.id);
+    const overrideId = sameEntityId(runtimeClusterId, task.runtimeClusterId) ? undefined : runtimeClusterId;
+    await studioApi.qualityTasks.trigger(task.id, overrideId);
+    manualRunDialogVisible.value = false;
     ElMessage.success("已触发质量任务执行");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "触发质量任务失败");
+  } finally {
+    manualRunSubmitting.value = false;
   }
 }
 

@@ -12,7 +12,7 @@
         </template>
         <template v-else>
           <el-button type="primary" :loading="saving" @click="saveService">保存</el-button>
-          <el-button v-if="form.id" plain type="success" @click="publishService">发布</el-button>
+          <el-button v-if="form.id" plain type="success" :disabled="form.runtimeValid === false" @click="publishService">发布</el-button>
         </template>
       </div>
     </div>
@@ -26,6 +26,14 @@
     </SectionCard>
 
     <template v-else>
+    <el-alert
+      v-if="form.runtimeValid === false"
+      type="error"
+      show-icon
+      :closable="false"
+      :title="t('web.runtimeClusterSelection.invalid')"
+      :description="form.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')"
+    />
     <div class="service-wizard">
       <button
         v-for="(step, index) in wizardSteps"
@@ -45,6 +53,11 @@
 
     <SectionCard v-if="activeStep === 0" title="一、基础与入口协议" description="入口协议决定开放服务的调用方式和最终响应格式；SOAP 入口必须走 WebService 地址。">
       <el-form label-width="120px" class="protocol-form-grid">
+        <el-form-item :label="t('web.runtimeClusterSelection.runtimeCluster')" required>
+          <el-select v-model="form.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="handleRuntimeClusterChange">
+            <el-option v-for="cluster in runtimeClusters" :key="String(cluster.id)" :label="runtimeClusterOptionLabel(cluster)" :value="cluster.id" :disabled="runtimeClusterOptionDisabled(cluster)" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="服务编码">
           <el-input v-model="form.serviceCode" :disabled="!isCreateMode" placeholder="customer_protocol_bridge" />
         </el-form-item>
@@ -116,7 +129,7 @@
     <SectionCard v-if="activeStep === 1" title="二、下游目标协议" description="下游目标地址由 HTTP 数据源 URL 与目标路径拼接，不允许任意绝对 URL。">
       <el-form label-width="120px" class="protocol-form-grid">
         <el-form-item label="目标数据源">
-          <el-select v-model="form.targetDatasourceId" filterable placeholder="选择 HTTP 数据源">
+          <el-select v-model="form.targetDatasourceId" filterable :disabled="!form.runtimeClusterId" placeholder="选择 HTTP 数据源">
             <el-option v-for="item in httpDatasources" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
@@ -444,7 +457,7 @@
       <div class="section-actions">
         <el-button plain :disabled="!openEndpoint || openEndpoint === '-'" @click="generateCurlCommand('bash')">生成 cURL(bash)</el-button>
         <el-button plain :disabled="!openEndpoint || openEndpoint === '-'" @click="generateCurlCommand('cmd')">生成 cURL(cmd)</el-button>
-        <el-button type="primary" :disabled="!form.id" :loading="debugging" @click="debugService">发送调试</el-button>
+        <el-button type="primary" :disabled="!form.id || form.runtimeValid === false" :loading="debugging" @click="debugService">发送调试</el-button>
       </div>
       <div class="curl-panel">
         <div class="curl-panel__header">
@@ -519,6 +532,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { Delete } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import type {
@@ -551,15 +565,30 @@ import ProtocolConversionTraceTimeline from "@/components/protocol-conversion/Pr
 import { resolveDataServiceOpenUrl, studioApi } from "@/api/studio";
 import { copyTextFallback } from "@/components/data-service/dataServiceEditorSupport";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
+import { useRuntimeClusterOptions } from "@/composables/useRuntimeClusterOptions";
+import { useRuntimeClusterChangeGuard } from "@/composables/useRuntimeClusterChangeGuard";
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
+const {
+  runtimeClusters,
+  runtimeClustersLoading,
+  singleRuntimeCluster,
+  loadRuntimeClusters,
+  resolveInitialRuntimeClusterId,
+  ensureRuntimeClusterOption,
+  runtimeClusterOptionLabel,
+  runtimeClusterOptionDisabled,
+} = useRuntimeClusterOptions();
+const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterChange } = useRuntimeClusterChangeGuard();
 const serviceId = computed(() => route.params.serviceId as string | undefined);
 const isCreateMode = computed(() => !serviceId.value || serviceId.value === "new");
 const activeStep = ref(0);
 const saving = ref(false);
 const debugging = ref(false);
 const datasources = ref<DataSourceOptionView[]>([]);
+let datasourceLoadSequence = 0;
 const debugResultText = ref("");
 const debugError = ref("");
 const debugTrace = ref<ProtocolConversionTraceView | null>(null);
@@ -593,6 +622,7 @@ const wizardSteps = [
 const form = reactive<ProtocolConversionServiceView>({
   serviceCode: "",
   serviceName: "",
+  runtimeClusterId: "",
   status: "DRAFT",
   tokenRequired: true,
   sourceProtocol: "HTTP_JSON",
@@ -816,11 +846,10 @@ watch(
 );
 
 onMounted(async () => {
-  const [datasourceItems, rules] = await Promise.all([
-    studioApi.datasources.options(),
+  const [, rules] = await Promise.all([
+    loadRuntimeClusters(),
     studioApi.fieldMappingRules.optionSummaries(),
   ]);
-  datasources.value = datasourceItems;
   fieldMappingRules.value = rules;
   if (!isCreateMode.value && serviceId.value) {
     const loaded = await loadService(serviceId.value);
@@ -830,6 +859,7 @@ onMounted(async () => {
   } else {
     addMapping();
   }
+  await hydrateServiceDependencies();
   activeStep.value = route.query.debug === "1" ? 3 : 0;
 });
 
@@ -841,7 +871,9 @@ async function loadService(id: EntityId) {
   try {
     detailLoadError.value = "";
     const detail = await studioApi.protocolConversions.get(id);
+    ensureRuntimeClusterOption(detail.runtimeClusterId, detail.runtimeClusterName);
     Object.assign(form, detail);
+    acceptRuntimeCluster(form.runtimeClusterId);
     Object.assign(webserviceConfig, detail.webserviceConfig ?? {});
     Object.assign(targetWebserviceConfig, detail.targetWebserviceConfig ?? detail.webserviceConfig ?? {});
     debugSoapOptions.value = { header: "{}", requestBody: "" };
@@ -856,11 +888,61 @@ async function loadService(id: EntityId) {
   }
 }
 
+async function loadDatasourcesForRuntimeCluster() {
+  const runtimeClusterId = form.runtimeClusterId;
+  const sequence = ++datasourceLoadSequence;
+  const options = runtimeClusterId == null || runtimeClusterId === ""
+    ? []
+    : await studioApi.datasources.optionsByRuntimeCluster(runtimeClusterId);
+  if (sequence === datasourceLoadSequence && String(form.runtimeClusterId ?? "") === String(runtimeClusterId ?? "")) {
+    datasources.value = options;
+  }
+}
+
+async function handleRuntimeClusterChange() {
+  const nextRuntimeClusterId = form.runtimeClusterId;
+  if (!await confirmRuntimeClusterChange(nextRuntimeClusterId)) {
+    form.runtimeClusterId = acceptedRuntimeClusterId.value ?? "";
+    return;
+  }
+  form.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
+  datasourceLoadSequence += 1;
+  form.targetDatasourceId = undefined;
+  datasources.value = [];
+  form.targetPath = "";
+  form.targetHeaders = {};
+  form.targetQuery = {};
+  form.targetBodyTemplate = "";
+  form.fieldMappings = [];
+  form.fixedFields = [];
+  form.rawTransformers = [];
+  debugSummary.value = null;
+  debugTrace.value = null;
+  debugError.value = "";
+  debugResultText.value = "";
+  rawDebugResultText.value = "";
+  curlCommand.value = "";
+  debugSoapOptions.value = { header: "{}", requestBody: "" };
+  debugSoapHeaders.value = {};
+  debugSoapEntityBody.value = "";
+  await loadDatasourcesForRuntimeCluster();
+}
+
 async function retryLoadService() {
   if (!serviceId.value) {
     return;
   }
-  await loadService(serviceId.value);
+  if (await loadService(serviceId.value)) {
+    await hydrateServiceDependencies();
+  }
+}
+
+async function hydrateServiceDependencies() {
+  if (!form.runtimeClusterId) {
+    form.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  }
+  acceptRuntimeCluster(form.runtimeClusterId);
+  await loadDatasourcesForRuntimeCluster();
 }
 
 function addMapping() {
@@ -902,6 +984,10 @@ function saveRawTransformers(transformers: TransformerBinding[]) {
 async function saveService() {
   if (detailLoadError.value && serviceId.value) {
     ElMessage.error(detailLoadError.value);
+    return;
+  }
+  if (!form.runtimeClusterId) {
+    ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
     return;
   }
   if (!targetHeadersValid.value || !targetQueryValid.value || !responseStatusValid.value) {
@@ -1133,6 +1219,7 @@ function buildPayload(): ProtocolConversionServiceSaveRequest {
     id: form.id,
     serviceCode: form.serviceCode,
     serviceName: form.serviceName,
+    runtimeClusterId: form.runtimeClusterId ?? "",
     tokenRequired: form.tokenRequired,
     defaultSubscriptionName: form.defaultSubscriptionName,
     sourceProtocol: form.sourceProtocol,

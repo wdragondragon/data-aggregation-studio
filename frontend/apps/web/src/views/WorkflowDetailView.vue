@@ -41,6 +41,10 @@
             <strong>{{ resolveProjectLabel(workflow?.projectId) }}</strong>
           </div>
           <div class="detail-item">
+            <span class="detail-label">{{ t("web.runtimeClusterSelection.runtimeCluster") }}</span>
+            <strong>{{ workflow?.runtimeClusterName || (workflow?.runtimeClusterId != null ? `#${workflow.runtimeClusterId}` : t("common.none")) }}</strong>
+          </div>
+          <div class="detail-item">
             <span class="detail-label">{{ t("web.workflows.cronExpression") }}</span>
             <strong>{{ workflow?.schedule?.cronExpression || t("common.none") }}</strong>
           </div>

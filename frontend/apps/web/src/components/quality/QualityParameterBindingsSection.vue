@@ -1,5 +1,6 @@
 <template>
   <SectionCard title="输入参数绑定" description="表参数和字段参数会自动赋值，自定义参数支持动态函数与手工输入。">
+    <StudioTableShell min-width="820px">
     <el-table :data="bindings" border>
       <el-table-column label="序号" width="90" align="center" header-align="center">
         <template #default="{ row }">{{ row.paramOrder || "-" }}</template>
@@ -39,12 +40,13 @@
         </template>
       </el-table-column>
     </el-table>
+    </StudioTableShell>
   </SectionCard>
 </template>
 
 <script setup lang="ts">
 import type { QualityRuleParamType, QualityTaskParamBinding } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 
 interface ParameterBindingActions {
   resolveParamTypeLabel: (type?: QualityRuleParamType) => string;

@@ -24,6 +24,7 @@ export const fileWriterDynamicFunctionFields = ["rootPath", "fileName", "efile.d
 export function createDefaultCollectionTaskForm(): CollectionTaskEditorForm {
   return {
     name: "",
+    runtimeClusterId: "",
     sourceBindings: [
       {
         sourceAlias: "src1",

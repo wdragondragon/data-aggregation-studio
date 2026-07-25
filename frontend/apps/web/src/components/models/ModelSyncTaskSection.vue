@@ -69,6 +69,9 @@
             {{ row.createdAt || t("common.none") }}
           </template>
         </el-table-column>
+        <el-table-column :label="t('web.models.runtimeCluster')" min-width="150">
+          <template #default="{ row }">{{ row.runtimeClusterName || row.runtimeClusterId || t("common.none") }}</template>
+        </el-table-column>
         <el-table-column label="更新时间" min-width="180">
           <template #default="{ row }">
             {{ row.updatedAt || t("common.none") }}

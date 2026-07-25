@@ -11,12 +11,12 @@
         <el-input
           v-model="keyword"
           clearable
-          :disabled="!datasourceId || disabled"
+          :disabled="!runtimeClusterId || !datasourceId || disabled"
           :placeholder="t('web.models.syncTableSearchPlaceholder')"
           @keyup.enter="reloadFirstPage"
           @clear="reloadFirstPage"
         />
-        <el-button plain :disabled="!datasourceId || disabled" :loading="loading" @click="reloadFirstPage">
+        <el-button plain :disabled="!runtimeClusterId || !datasourceId || disabled" :loading="loading" @click="reloadFirstPage">
           {{ t("common.search") }}
         </el-button>
       </div>
@@ -79,6 +79,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { DataModelDatasourceOptionView, EntityId } from "@studio/api-sdk";
 import { StudioTableShell } from "@studio/ui";
@@ -86,6 +87,7 @@ import { studioApi } from "@/api/studio";
 
 const props = withDefaults(defineProps<{
   datasourceId?: EntityId;
+  runtimeClusterId?: EntityId;
   modelValue?: string[];
   disabled?: boolean;
   title?: string;
@@ -107,6 +109,7 @@ const keyword = ref("");
 const pageNo = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
+let loadSequence = 0;
 
 const selectedLocators = computed(() => props.modelValue ?? []);
 const selectedSet = computed(() => new Set(selectedLocators.value.map((item) => String(item))));
@@ -117,7 +120,8 @@ const emptyText = computed(() =>
 );
 
 async function loadPage() {
-  if (!props.datasourceId) {
+  const requestSequence = ++loadSequence;
+  if (!props.datasourceId || !props.runtimeClusterId) {
     rows.value = [];
     total.value = 0;
     return;
@@ -128,12 +132,24 @@ async function loadPage() {
       keyword: keyword.value.trim() || undefined,
       pageNo: pageNo.value,
       pageSize: pageSize.value,
+      runtimeClusterId: props.runtimeClusterId,
     });
+    if (requestSequence !== loadSequence) {
+      return;
+    }
     rows.value = result.models ?? [];
     total.value = Number(result.total ?? 0);
     await restoreSelections();
+  } catch (error) {
+    if (requestSequence === loadSequence) {
+      rows.value = [];
+      total.value = 0;
+      ElMessage.error(error instanceof Error ? error.message : t("web.models.syncLoadTablesFailed"));
+    }
   } finally {
-    loading.value = false;
+    if (requestSequence === loadSequence) {
+      loading.value = false;
+    }
   }
 }
 
@@ -202,12 +218,14 @@ function handlePageSizeChange(value: number) {
   void loadPage();
 }
 
-watch(() => props.datasourceId, () => {
+watch(() => [props.datasourceId, props.runtimeClusterId], () => {
+  loadSequence += 1;
+  loading.value = false;
   keyword.value = "";
   pageNo.value = 1;
   rows.value = [];
   total.value = 0;
-  if (props.datasourceId) {
+  if (props.datasourceId && props.runtimeClusterId) {
     void loadPage();
   }
 }, { immediate: true });

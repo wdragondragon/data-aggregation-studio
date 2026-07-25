@@ -64,7 +64,8 @@ export function setStoredProjectId(projectId: string | number | null | undefined
 }
 
 export function resolveStudioApiBaseUrl(path = "") {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+  const configuredBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL);
+  const baseUrl = configuredBaseUrl || (import.meta.env.DEV ? "/api/v1" : "http://127.0.0.1:18180/api/v1");
   if (!path) {
     return baseUrl;
   }

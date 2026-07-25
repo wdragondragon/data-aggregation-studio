@@ -441,9 +441,9 @@ const ASSISTANT_FRONTEND_TOOL_DEFINITIONS: AssistantFrontendToolDefinition[] = [
   },
   {
     interfaceCode: "assistant.script.execute",
-    purpose: "执行后端登记的助手脚本 skill；只能传 entrypointId 和 stdin-json input，不能传 shell 命令或任意脚本文本。",
+    purpose: "在目标 Worker 执行后端登记的助手脚本 skill；只能传 entrypointId、stdin-json input 和必填 runtimeClusterId，不能传 shell 命令或任意脚本文本。",
     mutation: false,
-    requiredValues: ["entrypointId", "input"],
+    requiredValues: ["entrypointId", "input", "runtimeClusterId"],
     optionalValues: ["skillId"],
   },
 ];
@@ -1967,11 +1967,18 @@ function resolveToolParams(call: AssistantToolCall): { ok: true; value: Record<s
   if (code === "assistant.script.execute") {
     const entrypointId = firstText(params, ["entrypointId"]);
     const input = params.input;
+    const runtimeClusterId = readOptionalPositiveIntegerParam(params, "runtimeClusterId");
     if (!entrypointId) {
       return { ok: false, error: "执行助手脚本前需要提供 entrypointId。" };
     }
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       return { ok: false, error: "执行助手脚本前需要提供 input 对象。" };
+    }
+    if (params.runtimeClusterId == null || params.runtimeClusterId === "") {
+      return { ok: false, error: "执行助手脚本前需要提供 runtimeClusterId。" };
+    }
+    if (params.runtimeClusterId != null && params.runtimeClusterId !== "" && runtimeClusterId == null) {
+      return { ok: false, error: "执行助手脚本时 runtimeClusterId 必须是正整数。" };
     }
     return {
       ok: true,
@@ -1979,6 +1986,7 @@ function resolveToolParams(call: AssistantToolCall): { ok: true; value: Record<s
         entrypointId,
         input,
         skillId: firstText(params, ["skillId"]),
+        runtimeClusterId,
       },
     };
   }
@@ -2317,6 +2325,7 @@ function backendToolOutput(result: AssistantToolExecutionResult): AssistantToolE
     resource: result.resource,
     entrypointId: result.entrypointId,
     executedBy: result.executedBy,
+    runtimeClusterId: result.runtimeClusterId,
     mutation: result.mutation,
     requiresConfirmation: result.requiresConfirmation,
     params: result.params,
@@ -2389,11 +2398,11 @@ async function callBackendStudioActionTool(
 async function callBackendAssistantScriptTool(params: Record<string, unknown>) {
   try {
     const result = await studioApi.assistant.executeTool({ interfaceCode: "assistant.script.execute", params });
-    if (result?.executedBy === "backend") {
+    if (result?.executedBy === "worker") {
       pushProcessEvent({
         stage: `tool.backend.assistant.script.execute.${Date.now()}`,
-        title: "后端脚本工具",
-        detail: `助手脚本 ${String(params.entrypointId ?? "")} 已由后端登记入口执行。`,
+        title: "Worker 脚本工具",
+        detail: `助手脚本 ${String(params.entrypointId ?? "")} 已在运行集群 ${String(result.runtimeClusterId ?? "")} 执行。`,
         status: "done",
       });
       return backendToolOutput(result);
@@ -2803,6 +2812,18 @@ function readOptionalNumberParam(params: Record<string, unknown>, key: string, m
     return undefined;
   }
   return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
+
+function readOptionalPositiveIntegerParam(params: Record<string, unknown>, key: string) {
+  const value = params[key];
+  if (value == null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "number" && typeof value !== "string") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function resolveScriptTypeParam(params: Record<string, unknown>): ScriptType | undefined {

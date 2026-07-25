@@ -78,6 +78,9 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
 
@@ -137,8 +140,10 @@ function createWindow() {
     showLoadError(`Renderer process exited.\nReason: ${details.reason}\nExit code: ${details.exitCode}`);
   });
 
-  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[desktop-renderer:${level}] ${message} (${sourceId}:${line})`);
+  window.webContents.on("console-message", (event) => {
+    console.log(
+      `[desktop-renderer:${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`,
+    );
   });
 
   loadRenderer();

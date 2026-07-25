@@ -13,8 +13,8 @@
           <el-button plain :loading="previewLoading" @click="previewSql">SQL 预览</el-button>
           <el-button plain :loading="validateLoading" @click="validateTask">语义校验</el-button>
           <el-button type="primary" :loading="saving" @click="saveTask">保存草稿</el-button>
-          <el-button type="success" :disabled="!form.id" :loading="publishing" @click="publishTask">发布</el-button>
-          <el-button type="warning" :disabled="!form.id" :loading="triggering" @click="triggerTask">手动执行</el-button>
+          <el-button type="success" :disabled="!form.id || runtimeValidation.invalid" :loading="publishing" @click="publishTask">发布</el-button>
+          <el-button type="warning" :disabled="!form.id || runtimeValidation.invalid" :loading="triggering" @click="triggerTask">手动执行</el-button>
         </template>
       </div>
     </div>
@@ -28,6 +28,19 @@
     </SectionCard>
 
     <template v-else>
+    <el-alert
+      v-if="runtimeValidation.invalid"
+      type="error"
+      show-icon
+      :closable="false"
+      :title="t('web.runtimeClusterSelection.invalid')"
+      :description="runtimeValidation.message || t('web.runtimeClusterSelection.invalidFallback')"
+    />
+    <SectionCard :title="t('web.runtimeClusterSelection.runtimeCluster')" :description="t('web.runtimeClusterSelection.sectionDescription')">
+      <el-select v-model="form.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="handleRuntimeClusterChange">
+        <el-option v-for="cluster in runtimeClusters" :key="String(cluster.id)" :label="runtimeClusterOptionLabel(cluster)" :value="cluster.id" :disabled="runtimeClusterOptionDisabled(cluster)" />
+      </el-select>
+    </SectionCard>
     <QualityTaskBasicInfoSection
       :form="form"
       :task-status="taskStatus"
@@ -36,6 +49,7 @@
     />
 
     <QualityTaskBindingSection
+      v-if="form.runtimeClusterId"
       :form="form"
       :datasources="datasources"
       :models="currentDatasourceModels"
@@ -71,7 +85,7 @@
       :actions="alertConfigActions"
     />
 
-    <QualityScheduleSection :schedule="form.schedule" />
+    <QualityScheduleSection :schedule="form.schedule" :runtime-invalid="runtimeValidation.invalid" />
 
     <QualityValidationResultSection :validation-result="validationResult" />
 
@@ -85,6 +99,7 @@
       :preview="dynamicFunctionPreview"
       @confirm="confirmDynamicFunctionInsert"
     />
+    <el-alert v-if="!form.runtimeClusterId" :title="t('web.runtimeClusterSelection.selectFirst')" type="info" :closable="false" show-icon />
     </template>
   </div>
 </template>
@@ -93,6 +108,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useI18n } from "vue-i18n";
 import type {
   DataModelDefinition,
   DataModelDatasourceOptionView,
@@ -124,11 +140,14 @@ import QualityValidationResultSection from "@/components/quality/QualityValidati
 import { dynamicFunctionCatalog } from "@/components/quality/qualityTaskDynamicFunctions";
 import type { DynamicFunctionInsertTarget, DynamicFunctionParamSchema } from "@/components/quality/qualityTaskDynamicFunctions";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
+import { useRuntimeClusterOptions } from "@/composables/useRuntimeClusterOptions";
+import { useRuntimeClusterChangeGuard } from "@/composables/useRuntimeClusterChangeGuard";
 
 interface QualityTaskEditorForm {
   id?: string | number;
   taskName: string;
   taskCode: string;
+  runtimeClusterId: string | number;
   ruleDimension: QualityRuleDimension;
   granularity: QualityRuleGranularity;
   datasourceId: string | number;
@@ -148,6 +167,18 @@ interface QualityTaskEditorForm {
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
+const {
+  runtimeClusters,
+  runtimeClustersLoading,
+  singleRuntimeCluster,
+  loadRuntimeClusters,
+  resolveInitialRuntimeClusterId,
+  ensureRuntimeClusterOption,
+  runtimeClusterOptionLabel,
+  runtimeClusterOptionDisabled,
+} = useRuntimeClusterOptions();
+const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterChange } = useRuntimeClusterChangeGuard();
 
 const taskId = computed(() => route.params.taskId as string | undefined);
 const saving = ref(false);
@@ -157,9 +188,14 @@ const publishing = ref(false);
 const triggering = ref(false);
 const rulesLoading = ref(false);
 const detailLoadError = ref("");
+const runtimeValidation = reactive({ invalid: false, message: "" });
 const datasources = ref<DataSourceOptionView[]>([]);
 const MODEL_OPTION_PAGE_SIZE = 100;
 const modelCache = ref<Record<string, DataModelDatasourceOptionView[]>>({});
+const modelRequestSequences = new Map<string, number>();
+let datasourceLoadSequence = 0;
+let ruleOptionsLoadSequence = 0;
+let taskLoadSequence = 0;
 const modelDetailCache = ref<Record<string, DataModelDefinition>>({});
 const ruleOptions = ref<QualityRuleOptionView[]>([]);
 const ruleDetailCache = ref<Record<string, QualityRuleView>>({});
@@ -207,6 +243,7 @@ const rangeOperators: Array<{ label: string; value: QualityTaskAlertOperator }> 
 const form = reactive<QualityTaskEditorForm>({
   taskName: "",
   taskCode: "",
+  runtimeClusterId: "",
   ruleDimension: "CONSISTENCY",
   granularity: "TABLE",
   datasourceId: "",
@@ -276,9 +313,13 @@ const alertConfigActions = {
 };
 
 function resetForm() {
+  runtimeValidation.invalid = false;
+  runtimeValidation.message = "";
   form.id = undefined;
   form.taskName = "";
   form.taskCode = "";
+  form.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  acceptRuntimeCluster(form.runtimeClusterId);
   form.ruleDimension = "CONSISTENCY";
   form.granularity = "TABLE";
   form.datasourceId = "";
@@ -308,18 +349,32 @@ function resetForm() {
 }
 
 async function loadTask() {
-  await loadDatasources();
+  const sequence = ++taskLoadSequence;
+  const loadingTaskId = taskId.value;
+  await loadRuntimeClusters();
+  if (sequence !== taskLoadSequence || taskId.value !== loadingTaskId) {
+    return;
+  }
   if (!taskId.value) {
     detailLoadError.value = "";
     resetForm();
+    await loadDatasources();
     return;
   }
   try {
     detailLoadError.value = "";
     const detail = await studioApi.qualityTasks.get(taskId.value);
+    if (sequence !== taskLoadSequence || taskId.value !== loadingTaskId) {
+      return;
+    }
+    runtimeValidation.invalid = detail.runtimeValid === false;
+    runtimeValidation.message = detail.runtimeValidationMessage ?? "";
     form.id = detail.id;
     form.taskName = detail.taskName;
     form.taskCode = detail.taskCode;
+    ensureRuntimeClusterOption(detail.runtimeClusterId, detail.runtimeClusterName);
+    form.runtimeClusterId = detail.runtimeClusterId ?? resolveInitialRuntimeClusterId() ?? "";
+    acceptRuntimeCluster(form.runtimeClusterId);
     form.ruleDimension = detail.ruleDimension ?? "CONSISTENCY";
     form.granularity = detail.granularity ?? "TABLE";
     form.datasourceId = detail.datasourceId ?? "";
@@ -340,6 +395,7 @@ async function loadTask() {
     previewWarnings.value = [];
     validationWarnings.value = [];
     validationResult.value = null;
+    await loadDatasources();
     if (form.datasourceId) {
       await ensureModels(form.datasourceId);
       if (form.modelId) {
@@ -353,6 +409,9 @@ async function loadTask() {
     syncParameterBindings(form.parameterBindings);
     syncAlertConfigs(form.alertConfigs);
   } catch (error) {
+    if (sequence !== taskLoadSequence || taskId.value !== loadingTaskId) {
+      return;
+    }
     const message = resolveErrorMessage(error, "加载质量任务详情失败");
     detailLoadError.value = message;
     ElMessage.error(message);
@@ -360,26 +419,43 @@ async function loadTask() {
 }
 
 async function loadDatasources() {
+  const clusterId = form.runtimeClusterId;
+  const sequence = ++datasourceLoadSequence;
   try {
-    datasources.value = await studioApi.dataDevelopment.listSqlDatasourceOptions();
+    const options = clusterId
+      ? (await studioApi.datasources.optionsByRuntimeCluster(clusterId)).filter((item) => item.executable !== false)
+      : [];
+    if (sequence === datasourceLoadSequence && String(form.runtimeClusterId ?? "") === String(clusterId ?? "")) {
+      datasources.value = options;
+    }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载数据源失败");
+    if (sequence === datasourceLoadSequence) {
+      ElMessage.error(error instanceof Error ? error.message : "加载数据源失败");
+    }
   }
 }
 
 async function loadRuleOptions() {
+  const sequence = ++ruleOptionsLoadSequence;
   rulesLoading.value = true;
   try {
-    ruleOptions.value = await studioApi.qualityRules.optionSummaries({
+    const options = await studioApi.qualityRules.optionSummaries({
       ruleDimension: form.ruleDimension,
       granularity: form.granularity,
       datasourceType: currentDatasource.value?.typeCode,
       enabledOnly: true,
     });
+    if (sequence === ruleOptionsLoadSequence) {
+      ruleOptions.value = options;
+    }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : "加载质量规则失败");
+    if (sequence === ruleOptionsLoadSequence) {
+      ElMessage.error(error instanceof Error ? error.message : "加载质量规则失败");
+    }
   } finally {
-    rulesLoading.value = false;
+    if (sequence === ruleOptionsLoadSequence) {
+      rulesLoading.value = false;
+    }
   }
 }
 
@@ -408,6 +484,26 @@ async function ensureSelectedRuleLoaded(ruleId: string | number): Promise<Qualit
     ElMessage.warning(error instanceof Error ? error.message : "当前质量规则已不可用");
     return null;
   }
+}
+
+async function handleRuntimeClusterChange() {
+  const nextRuntimeClusterId = form.runtimeClusterId;
+  if (!await confirmRuntimeClusterChange(nextRuntimeClusterId)) {
+    form.runtimeClusterId = acceptedRuntimeClusterId.value ?? "";
+    return;
+  }
+  form.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
+  form.datasourceId = "";
+  form.modelId = "";
+  form.columnName = "";
+  form.whereClause = "";
+  whereClauseSelection.value = null;
+  datasources.value = [];
+  modelCache.value = {};
+  modelRequestSequences.clear();
+  modelDetailCache.value = {};
+  clearRuleSelection();
+  await loadDatasources();
 }
 
 function ensureSelectedRuleOption(rule: QualityRuleView) {
@@ -439,11 +535,16 @@ async function ensureModels(datasourceId: unknown, keyword = "") {
   if (!key || key === "undefined" || key === "null") {
     return;
   }
+  const requestSequence = (modelRequestSequences.get(key) ?? 0) + 1;
+  modelRequestSequences.set(key, requestSequence);
   const page = await studioApi.models.listDatasourceOptions(key, {
     keyword: keyword.trim() || undefined,
     pageNo: 1,
     pageSize: MODEL_OPTION_PAGE_SIZE,
   });
+  if (modelRequestSequences.get(key) !== requestSequence) {
+    return;
+  }
   modelCache.value[key] = page.items;
   ensureSelectedModelOption();
 }
@@ -900,6 +1001,10 @@ function buildSavePayload() {
     ElMessage.warning("请先填写任务编码");
     return null;
   }
+  if (!form.runtimeClusterId) {
+    ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
+    return null;
+  }
   if (!form.datasourceId) {
     ElMessage.warning("请选择数据源");
     return null;
@@ -919,6 +1024,7 @@ function buildSavePayload() {
   return {
     id: form.id,
     taskName: form.taskName.trim(),
+    runtimeClusterId: form.runtimeClusterId,
     taskCode: form.taskCode.trim(),
     ruleId: form.ruleId,
     granularity: form.granularity,
@@ -1028,6 +1134,8 @@ async function saveTaskInternal() {
     ElMessage.success("质量任务保存成功");
     form.id = saved.id;
     taskStatus.value = saved.status ?? "DRAFT";
+    runtimeValidation.invalid = saved.runtimeValid === false;
+    runtimeValidation.message = saved.runtimeValidationMessage ?? "";
     return saved;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "保存质量任务失败");

@@ -52,6 +52,8 @@ export const sharedMessages = {
       openRuntime: "Open Runtime",
       on: "On",
       off: "Off",
+      enable: "Enable",
+      disable: "Disable",
       yes: "Yes",
       no: "No",
       run: "Run",
@@ -196,6 +198,11 @@ export const sharedMessages = {
           title: "Script Environments",
           subtitle: "Manage Java script environments, dependency packages and class loader policies.",
           menuCaption: "Java environment and dependencies",
+        },
+        runtimeClusters: {
+          title: "Runtime Clusters",
+          subtitle: "Manage executable cluster identities, internal endpoints and project authorization.",
+          menuCaption: "Cluster endpoints and project authorization",
         },
         dataServices: {
           title: "Data Services",
@@ -409,6 +416,8 @@ export const sharedMessages = {
       openRuntime: "打开运行时",
       on: "开启",
       off: "关闭",
+      enable: "启用",
+      disable: "停用",
       yes: "是",
       no: "否",
       run: "运行",
@@ -553,6 +562,11 @@ export const sharedMessages = {
           title: "运行环境管理",
           subtitle: "管理 Java 脚本运行环境、依赖包和类加载策略。",
           menuCaption: "Java 运行环境与依赖",
+        },
+        runtimeClusters: {
+          title: "运行集群管理",
+          subtitle: "管理可执行集群身份、内部端点和项目授权。",
+          menuCaption: "集群端点与项目授权",
         },
         dataServices: {
           title: "数据服务",

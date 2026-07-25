@@ -30,6 +30,10 @@
             <strong>{{ task?.datasourceNameSnapshot || t("common.none") }}</strong>
           </div>
           <div class="detail-item">
+            <span class="detail-label">{{ t("web.runtimeClusterSelection.runtimeCluster") }}</span>
+            <strong>{{ task?.runtimeClusterName || (task?.runtimeClusterId != null ? `#${task.runtimeClusterId}` : t("common.none")) }}</strong>
+          </div>
+          <div class="detail-item">
             <span class="detail-label">状态</span>
             <StatusPill :label="formatStatusLabel(t, task?.status)" :tone="toneFromStatus(task?.status)" />
           </div>

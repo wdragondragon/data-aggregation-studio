@@ -1,5 +1,6 @@
 <template>
   <SectionCard title="输出告警" description="按输出字段逐项定义告警条件，当前版本仅将告警内容打印到运行日志。">
+    <StudioTableShell min-width="940px">
     <el-table :data="configs" border>
       <el-table-column label="序号" width="90" align="center" header-align="center">
         <template #default="{ row }">{{ row.outputOrder || "-" }}</template>
@@ -37,12 +38,13 @@
         </template>
       </el-table-column>
     </el-table>
+    </StudioTableShell>
   </SectionCard>
 </template>
 
 <script setup lang="ts">
 import type { QualityRuleOutputType, QualityTaskAlertConfig, QualityTaskAlertOperator } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 
 interface AlertOperatorOption {
   label: string;

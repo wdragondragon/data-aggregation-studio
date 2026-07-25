@@ -26,11 +26,13 @@ export interface ModelFormState {
 }
 
 export interface ModelSyncFormState {
+  runtimeClusterId?: EntityId;
   datasourceType: string;
   datasourceId?: EntityId;
 }
 
 export interface ModelSyncTaskFormState {
+  runtimeClusterId?: EntityId;
   datasourceType: string;
   datasourceId?: EntityId;
   selectedLocators: string[];

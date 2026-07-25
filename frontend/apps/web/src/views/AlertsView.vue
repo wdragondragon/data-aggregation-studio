@@ -31,6 +31,12 @@
           <el-select v-model="incidentFilters.ruleType" clearable :placeholder="t('web.alerts.ruleType')">
             <el-option v-for="rule in options.ruleTypes" :key="rule.code" :label="ruleTypeLabel(rule.code)" :value="rule.code" />
           </el-select>
+          <el-select v-model="incidentFilters.requestedClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.targetCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`target-${String(item.id)}`" :label="formatRuntimeClusterLabel(runtimeClusters, item.id, item.code)" :value="item.id" />
+          </el-select>
+          <el-select v-model="incidentFilters.actualClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.actualCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`actual-${String(item.id)}`" :label="formatRuntimeClusterLabel(runtimeClusters, item.id, item.code)" :value="item.id" />
+          </el-select>
           <el-button type="primary" :icon="Search" @click="searchIncidents()">{{ t("common.search") }}</el-button>
           <el-button @click="resetIncidentFilters">{{ t("common.reset") }}</el-button>
         </section>
@@ -44,6 +50,14 @@
           </el-table-column>
           <el-table-column prop="ruleName" :label="t('web.alerts.rule')" min-width="170" show-overflow-tooltip />
           <el-table-column prop="subjectName" :label="t('web.alerts.subject')" min-width="180" show-overflow-tooltip />
+          <el-table-column :label="t('web.runtimeClusterSelection.runtimePlacement')" min-width="220">
+            <template #default="{ row }">
+              <div class="delivery-cell">
+                <span class="delivery-cell__title">{{ t("web.runtimeClusterSelection.targetCluster") }}: {{ incidentClusterLabel(row, "target") }}</span>
+                <span class="delivery-cell__meta">{{ t("web.runtimeClusterSelection.actualCluster") }}: {{ incidentClusterLabel(row, "actual") }}</span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column prop="summary" :label="t('web.alerts.summary')" min-width="260" show-overflow-tooltip />
           <el-table-column prop="occurrenceCount" :label="t('web.alerts.occurrences')" width="90" />
           <el-table-column prop="lastTriggeredAt" :label="t('web.alerts.lastTriggeredAt')" min-width="165" />
@@ -235,6 +249,8 @@
         <h4>{{ selectedIncident.summary }}</h4>
         <dl class="incident-detail__grid">
           <dt>{{ t("web.alerts.subject") }}</dt><dd>{{ selectedIncident.subjectName }}</dd>
+          <dt>{{ t("web.runtimeClusterSelection.targetCluster") }}</dt><dd>{{ incidentClusterLabel(selectedIncident, "target") }}</dd>
+          <dt>{{ t("web.runtimeClusterSelection.actualCluster") }}</dt><dd>{{ incidentClusterLabel(selectedIncident, "actual") }}</dd>
           <dt>{{ t("web.alerts.firstTriggeredAt") }}</dt><dd>{{ selectedIncident.firstTriggeredAt || '-' }}</dd>
           <dt>{{ t("web.alerts.lastTriggeredAt") }}</dt><dd>{{ selectedIncident.lastTriggeredAt || '-' }}</dd>
           <dt>{{ t("web.alerts.occurrences") }}</dt><dd>{{ selectedIncident.occurrenceCount || 0 }}</dd>
@@ -537,9 +553,11 @@ import type {
   AlertSummaryView,
   AlertTenantProjectSummaryView,
   EntityId,
+  RuntimeClusterView,
 } from "@studio/api-sdk";
 import { studioApi } from "@/api/studio";
 import { useElinkDirectoryOptions } from "@/composables/useElinkDirectoryOptions";
+import { formatRuntimeClusterLabel } from "@/utils/runtimeClusters";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -596,13 +614,14 @@ const deliveries = ref<AlertDeliveryView[]>([]);
 const subjectOptions = ref<AlertSelectOptionView[]>([]);
 const recipientOptions = ref<AlertSelectOptionView[]>([]);
 const tenantSummaries = ref<AlertTenantProjectSummaryView[]>([]);
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 const incidentTotal = ref(0);
 const ruleTotal = ref(0);
 const channelTotal = ref(0);
 const deliveryTotal = ref(0);
 const tenantSummaryTotal = ref(0);
 
-const incidentFilters = reactive({ keyword: "", status: "", severity: "", ruleType: "", activeOnly: false, pageNo: 1, pageSize: 20 });
+const incidentFilters = reactive({ keyword: "", status: "", severity: "", ruleType: "", requestedClusterId: "" as EntityId | "", actualClusterId: "" as EntityId | "", activeOnly: false, pageNo: 1, pageSize: 20 });
 const ruleFilters = reactive<{ keyword: string; ruleType: string; enabled?: boolean; pageNo: number; pageSize: number }>({ keyword: "", ruleType: "", enabled: undefined, pageNo: 1, pageSize: 20 });
 const channelFilters = reactive<{ keyword: string; enabled?: boolean; pageNo: number; pageSize: number }>({ keyword: "", enabled: undefined, pageNo: 1, pageSize: 20 });
 const deliveryFilters = reactive({ status: "", failedOnly: false, pageNo: 1, pageSize: 20 });
@@ -706,7 +725,7 @@ watch(channelDialogVisible, (visible) => {
 async function loadAll() {
   loading.value = true;
   try {
-    const [optionResult] = await Promise.all([studioApi.alerts.options(), loadSummary(false), loadIncidents(false), loadRules(false), loadChannels(false), loadDeliveries(false), loadRecipients("", false)]);
+    const [optionResult] = await Promise.all([studioApi.alerts.options(), loadSummary(false), loadIncidents(false), loadRules(false), loadChannels(false), loadDeliveries(false), loadRecipients("", false), loadRuntimeClusters()]);
     Object.assign(options, optionResult);
   } catch (error) {
     ElMessage.error(errorMessage(error, t("web.alerts.loadFailed")));
@@ -716,11 +735,18 @@ async function loadAll() {
 }
 
 async function loadSummary(reportError = true) { await runAlertLoad(summaryLoading, async () => { Object.assign(summary, await studioApi.alerts.summary()); }, reportError); }
-async function loadIncidents(reportError = true) { await runAlertLoad(incidentLoading, async () => { const page = await studioApi.alerts.queryIncidents({ ...incidentFilters, status: incidentFilters.status || undefined, severity: incidentFilters.severity || undefined, ruleType: incidentFilters.ruleType || undefined, activeOnly: incidentFilters.activeOnly || undefined }); incidents.value = page.items; incidentTotal.value = page.total; }, reportError); }
+async function loadIncidents(reportError = true) { await runAlertLoad(incidentLoading, async () => { const page = await studioApi.alerts.queryIncidents({ ...incidentFilters, status: incidentFilters.status || undefined, severity: incidentFilters.severity || undefined, ruleType: incidentFilters.ruleType || undefined, requestedClusterId: incidentFilters.requestedClusterId || undefined, actualClusterId: incidentFilters.actualClusterId || undefined, activeOnly: incidentFilters.activeOnly || undefined }); incidents.value = page.items; incidentTotal.value = page.total; }, reportError); }
 async function loadRules(reportError = true) { await runAlertLoad(ruleLoading, async () => { const page = await studioApi.alerts.queryRules({ ...ruleFilters, keyword: ruleFilters.keyword || undefined, ruleType: ruleFilters.ruleType || undefined }); rules.value = page.items; ruleTotal.value = page.total; }, reportError); }
 async function loadChannels(reportError = true) { await runAlertLoad(channelLoading, async () => { const page = await studioApi.alerts.queryChannels({ ...channelFilters, keyword: channelFilters.keyword || undefined }); channels.value = page.items; channelTotal.value = page.total; }, reportError); }
 async function loadDeliveries(reportError = true) { await runAlertLoad(deliveryLoading, async () => { const page = await studioApi.alerts.queryDeliveries({ ...deliveryFilters, status: deliveryFilters.status || undefined, failedOnly: deliveryFilters.failedOnly || undefined }); deliveries.value = page.items; deliveryTotal.value = page.total; }, reportError); }
 async function loadTenantSummary(reportError = true) { await runAlertLoad(tenantSummaryLoading, async () => { const page = await studioApi.alerts.tenantSummary({ ...tenantSummaryFilters, keyword: tenantSummaryFilters.keyword || undefined }); tenantSummaries.value = page.items; tenantSummaryTotal.value = page.total; }, reportError); }
+async function loadRuntimeClusters() {
+  try {
+    runtimeClusters.value = await studioApi.runtimeClusters.options();
+  } catch {
+    runtimeClusters.value = [];
+  }
+}
 async function loadRecipients(keyword = "", reportError = true) {
   const requestSequence = ++recipientRequestSequence;
   recipientLoading.value = true;
@@ -779,7 +805,7 @@ function searchChannels() { channelFilters.pageNo = 1; loadChannels(); }
 function searchDeliveries() { deliveryFilters.failedOnly = false; deliveryFilters.pageNo = 1; loadDeliveries(); }
 function searchTenantSummary() { tenantSummaryFilters.pageNo = 1; loadTenantSummary(); }
 async function openTenantSummary() { tenantSummaryVisible.value = true; await loadTenantSummary(); }
-function resetIncidentFilters() { Object.assign(incidentFilters, { keyword: "", status: "", severity: "", ruleType: "", activeOnly: false, pageNo: 1 }); loadIncidents(); }
+function resetIncidentFilters() { Object.assign(incidentFilters, { keyword: "", status: "", severity: "", ruleType: "", requestedClusterId: "", actualClusterId: "", activeOnly: false, pageNo: 1 }); loadIncidents(); }
 function resetRuleFilters() { Object.assign(ruleFilters, { keyword: "", ruleType: "", enabled: undefined, pageNo: 1 }); loadRules(); }
 function resetChannelFilters() { Object.assign(channelFilters, { keyword: "", enabled: undefined, pageNo: 1 }); loadChannels(); }
 
@@ -790,6 +816,8 @@ function applySummaryFilter(key: string) {
   selectTab("incidents");
   incidentFilters.keyword = "";
   incidentFilters.ruleType = "";
+  incidentFilters.requestedClusterId = "";
+  incidentFilters.actualClusterId = "";
   incidentFilters.status = key === "open" ? "OPEN" : key === "ack" ? "ACKNOWLEDGED" : "";
   incidentFilters.severity = key === "critical" ? "CRITICAL" : "";
   incidentFilters.activeOnly = key === "critical";
@@ -1004,6 +1032,19 @@ function ruleChannelOptionLabel(channel: AlertChannelView) {
 }
 function deliveryStatusLabel(value?: string) { return t(`web.alerts.deliveryStatus${titleCase(value)}`, value || "-"); }
 function eventTypeLabel(value?: string) { return t(`web.alerts.eventType${titleCase(value)}`, value || "-"); }
+function incidentClusterLabel(row: AlertIncidentView, kind: "target" | "actual") {
+  const evidence = row.evidence || {};
+  const scalar = kind === "target"
+    ? row.requestedClusterId ?? evidence.targetClusterId ?? evidence.requestedClusterId
+    : row.actualClusterId ?? evidence.actualClusterId;
+  const list = kind === "target" ? evidence.targetClusterIds : evidence.actualClusterIds;
+  const code = kind === "actual" ? evidence.actualClusterCode : undefined;
+  const ids = Array.isArray(list) ? list : scalar == null ? [] : [scalar];
+  if (ids.length === 0) return "-";
+  return ids
+    .map((id) => formatRuntimeClusterLabel(runtimeClusters.value, id as EntityId, typeof code === "string" ? code : undefined))
+    .join(", ");
+}
 function deliveryMessageTitle(row: AlertDeliveryView) {
   return row.messageTitle || row.summary || t("web.alerts.untitledMessage");
 }
@@ -1185,7 +1226,7 @@ function mergeOptions<T extends { id?: EntityId }>(current: T[], incoming: T[], 
 .alert-summary-item strong.is-warning { color: var(--el-color-warning); }
 .alert-tabs { min-height: 460px; }
 .alert-toolbar { display: grid; gap: 10px; align-items: center; margin-bottom: 12px; }
-.alert-toolbar--incidents { grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(135px, 180px)) auto auto; }
+.alert-toolbar--incidents { grid-template-columns: minmax(220px, 1fr) repeat(5, minmax(125px, 170px)) auto auto; }
 .alert-toolbar--rules { grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(150px, 190px)) auto auto auto; }
 .alert-toolbar--channels { grid-template-columns: minmax(240px, 1fr) minmax(150px, 190px) auto auto auto; }
 .alert-table { width: 100%; }

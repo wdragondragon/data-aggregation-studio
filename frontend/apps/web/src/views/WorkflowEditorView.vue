@@ -21,7 +21,24 @@
     </SectionCard>
 
     <template v-else>
-    <WorkflowBasicsSection :form="form" />
+    <el-alert
+      v-if="runtimeValidation.invalid"
+      type="error"
+      show-icon
+      :closable="false"
+      :title="t('web.runtimeClusterSelection.invalid')"
+      :description="runtimeValidation.message || t('web.runtimeClusterSelection.invalidFallback')"
+    />
+    <WorkflowBasicsSection
+      :form="form"
+      :runtime-clusters="runtimeClusters"
+      :runtime-clusters-loading="runtimeClustersLoading"
+      :single-runtime-cluster="singleRuntimeCluster"
+      :runtime-cluster-option-label="runtimeClusterOptionLabel"
+      :runtime-cluster-option-disabled="runtimeClusterOptionDisabled"
+      :on-runtime-cluster-change="handleRuntimeClusterChange"
+      :runtime-invalid="runtimeValidation.invalid"
+    />
 
     <WorkflowCanvasSection
       :nodes="form.nodes"
@@ -50,10 +67,12 @@
         :selected-http-headers="selectedHttpHeaders"
         :selected-node-fields="selectedNodeFields"
         :selected-node-config="selectedNodeConfig"
+        :runtime-cluster-selected="Boolean(form.runtimeClusterId)"
         :node-actions="selectedNodePanelActions"
       />
 
       <SectionCard :title="t('web.workflows.edgeTitle')" :description="t('web.workflows.edgeDescription')">
+        <StudioTableShell min-width="520px">
         <el-table :data="form.edges" border>
           <el-table-column prop="fromNodeCode" :label="t('web.workflows.from')" min-width="120" />
           <el-table-column prop="toNodeCode" :label="t('web.workflows.to')" min-width="120" />
@@ -67,6 +86,7 @@
             </template>
           </el-table-column>
         </el-table>
+        </StudioTableShell>
       </SectionCard>
     </div>
 
@@ -100,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
@@ -116,7 +136,7 @@ import type {
   WorkflowNodeDefinition,
   WorkflowSaveRequest,
 } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import WorkflowBasicsSection from "@/components/workflow/WorkflowBasicsSection.vue";
 import WorkflowCanvasSection from "@/components/workflow/WorkflowCanvasSection.vue";
@@ -142,6 +162,8 @@ import {
   prettyJson,
 } from "@/utils/studio";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
+import { useRuntimeClusterOptions } from "@/composables/useRuntimeClusterOptions";
+import { useRuntimeClusterChangeGuard } from "@/composables/useRuntimeClusterChangeGuard";
 
 interface WorkflowEditor extends WorkflowSaveRequest {
   definitionId?: string | number;
@@ -157,6 +179,17 @@ const route = useRoute();
 const router = useRouter();
 
 const workflowId = computed(() => route.params.workflowId as string | undefined);
+const {
+  runtimeClusters,
+  runtimeClustersLoading,
+  singleRuntimeCluster,
+  loadRuntimeClusters,
+  resolveInitialRuntimeClusterId,
+  ensureRuntimeClusterOption,
+  runtimeClusterOptionLabel,
+  runtimeClusterOptionDisabled,
+} = useRuntimeClusterOptions();
+const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterChange } = useRuntimeClusterChangeGuard();
 const datasources = ref<DataSourceOptionView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskWorkflowOptionView[]>([]);
 const onlineQualityTasks = ref<QualityTaskWorkflowOptionView[]>([]);
@@ -164,6 +197,13 @@ const scripts = ref<DataDevelopmentScriptListView[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
 const detailLoadError = ref("");
+const runtimeValidation = reactive({ invalid: false, message: "" });
+let editorLoadSequence = 0;
+let datasourceLoadSequence = 0;
+let collectionTaskRequestSequence = 0;
+let qualityTaskRequestSequence = 0;
+let scriptTreeRequestSequence = 0;
+let scriptPreviewRequestSequence = 0;
 const collectionTasksLoading = ref(false);
 const collectionTaskReloadPending = ref(false);
 const qualityTasksLoading = ref(false);
@@ -194,6 +234,7 @@ const httpBodyText = ref("");
 const form = reactive<WorkflowEditor>({
   code: "",
   name: "",
+  runtimeClusterId: "",
   schedule: {
     cronExpression: "0 */30 * * * ?",
     enabled: false,
@@ -367,9 +408,13 @@ function readSelectedNodeConfigText(key: string) {
 }
 
 function resetWorkflow() {
+  runtimeValidation.invalid = false;
+  runtimeValidation.message = "";
   form.definitionId = undefined;
   form.code = "";
   form.name = "";
+  form.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  acceptRuntimeCluster(form.runtimeClusterId);
   form.schedule = {
     cronExpression: "0 */30 * * * ?",
     enabled: false,
@@ -382,10 +427,11 @@ function resetWorkflow() {
 
 async function loadReferenceData() {
   try {
-    const [datasourceData] = await Promise.all([
-      studioApi.datasources.options(),
-    ]);
-    datasources.value = datasourceData;
+    if (!form.runtimeClusterId) {
+      form.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+      acceptRuntimeCluster(form.runtimeClusterId);
+    }
+    await loadDatasourcesForRuntimeCluster();
     await refreshSelectedNodeCandidates();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
@@ -402,6 +448,30 @@ async function refreshSelectedNodeCandidates() {
   }
 }
 
+async function initializeWorkflowEditor() {
+  const sequence = ++editorLoadSequence;
+  const loadingWorkflowId = workflowId.value;
+  await loadRuntimeClusters();
+  if (sequence !== editorLoadSequence || workflowId.value !== loadingWorkflowId) {
+    return;
+  }
+  await loadWorkflow(loadingWorkflowId, sequence);
+  if (sequence !== editorLoadSequence || workflowId.value !== loadingWorkflowId || (detailLoadError.value && workflowId.value)) {
+    return;
+  }
+  await loadReferenceData();
+}
+
+function filterRuntimeClusterScripts(nodes: DataDevelopmentTreeNode[], runtimeClusterId: unknown): DataDevelopmentTreeNode[] {
+  return nodes.flatMap((node) => {
+    const children = filterRuntimeClusterScripts(node.children ?? [], runtimeClusterId);
+    if (node.nodeType === "DIRECTORY") {
+      return children.length ? [{ ...node, children }] : [];
+    }
+    return String(node.runtimeClusterId ?? "") === String(runtimeClusterId) ? [{ ...node, children }] : [];
+  });
+}
+
 async function ensureCollectionTasksLoaded(force = false) {
   if ((collectionTasksLoaded.value && !force) || collectionTasksLoading.value) {
     return;
@@ -410,16 +480,28 @@ async function ensureCollectionTasksLoaded(force = false) {
 }
 
 async function loadCollectionTasks() {
+  const runtimeClusterId = form.runtimeClusterId;
+  if (!runtimeClusterId) {
+    collectionTaskRequestSequence += 1;
+    collectionTasksLoading.value = false;
+    collectionTaskReloadPending.value = false;
+    onlineCollectionTasks.value = [];
+    collectionTaskTotal.value = 0;
+    collectionTasksLoaded.value = false;
+    return;
+  }
   if (collectionTasksLoading.value) {
     collectionTaskReloadPending.value = true;
     return;
   }
+  const requestSequence = ++collectionTaskRequestSequence;
   collectionTasksLoading.value = true;
   try {
     let page = await studioApi.collectionTasks.workflowOptions({
       pageNo: collectionTaskPagination.page,
       pageSize: collectionTaskPagination.pageSize,
       keyword: collectionTaskKeyword.value.trim() || undefined,
+      runtimeClusterId,
     });
     const maxPage = Math.max(1, Math.ceil(page.total / collectionTaskPagination.pageSize));
     if (collectionTaskPagination.page > maxPage) {
@@ -428,18 +510,26 @@ async function loadCollectionTasks() {
         pageNo: collectionTaskPagination.page,
         pageSize: collectionTaskPagination.pageSize,
         keyword: collectionTaskKeyword.value.trim() || undefined,
+        runtimeClusterId,
       });
+    }
+    if (requestSequence !== collectionTaskRequestSequence || String(form.runtimeClusterId ?? "") !== String(runtimeClusterId ?? "")) {
+      return;
     }
     onlineCollectionTasks.value = page.items;
     collectionTaskTotal.value = page.total;
     collectionTasksLoaded.value = true;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    if (requestSequence === collectionTaskRequestSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    }
   } finally {
-    collectionTasksLoading.value = false;
-    if (collectionTaskReloadPending.value) {
-      collectionTaskReloadPending.value = false;
-      await loadCollectionTasks();
+    if (requestSequence === collectionTaskRequestSequence) {
+      collectionTasksLoading.value = false;
+      if (collectionTaskReloadPending.value) {
+        collectionTaskReloadPending.value = false;
+        await loadCollectionTasks();
+      }
     }
   }
 }
@@ -452,16 +542,28 @@ async function ensureQualityTasksLoaded(force = false) {
 }
 
 async function loadQualityTasks() {
+  const runtimeClusterId = form.runtimeClusterId;
+  if (!runtimeClusterId) {
+    qualityTaskRequestSequence += 1;
+    qualityTasksLoading.value = false;
+    qualityTaskReloadPending.value = false;
+    onlineQualityTasks.value = [];
+    qualityTaskTotal.value = 0;
+    qualityTasksLoaded.value = false;
+    return;
+  }
   if (qualityTasksLoading.value) {
     qualityTaskReloadPending.value = true;
     return;
   }
+  const requestSequence = ++qualityTaskRequestSequence;
   qualityTasksLoading.value = true;
   try {
     let page = await studioApi.qualityTasks.workflowOptions({
       pageNo: qualityTaskPagination.page,
       pageSize: qualityTaskPagination.pageSize,
       keyword: qualityTaskKeyword.value.trim() || undefined,
+      runtimeClusterId,
     });
     const maxPage = Math.max(1, Math.ceil(page.total / qualityTaskPagination.pageSize));
     if (qualityTaskPagination.page > maxPage) {
@@ -470,18 +572,26 @@ async function loadQualityTasks() {
         pageNo: qualityTaskPagination.page,
         pageSize: qualityTaskPagination.pageSize,
         keyword: qualityTaskKeyword.value.trim() || undefined,
+        runtimeClusterId,
       });
+    }
+    if (requestSequence !== qualityTaskRequestSequence || String(form.runtimeClusterId ?? "") !== String(runtimeClusterId ?? "")) {
+      return;
     }
     onlineQualityTasks.value = page.items;
     qualityTaskTotal.value = page.total;
     qualityTasksLoaded.value = true;
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    if (requestSequence === qualityTaskRequestSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    }
   } finally {
-    qualityTasksLoading.value = false;
-    if (qualityTaskReloadPending.value) {
-      qualityTaskReloadPending.value = false;
-      await loadQualityTasks();
+    if (requestSequence === qualityTaskRequestSequence) {
+      qualityTasksLoading.value = false;
+      if (qualityTaskReloadPending.value) {
+        qualityTaskReloadPending.value = false;
+        await loadQualityTasks();
+      }
     }
   }
 }
@@ -490,14 +600,22 @@ async function ensureScriptTreeLoaded(force = false) {
   if ((scriptTreeLoaded.value && !force) || scriptTreeLoading.value) {
     return;
   }
+  const requestSequence = ++scriptTreeRequestSequence;
+  const runtimeClusterId = form.runtimeClusterId;
   scriptTreeLoading.value = true;
   try {
-    scriptTreeData.value = await studioApi.dataDevelopment.tree();
+    const tree = filterRuntimeClusterScripts(await studioApi.dataDevelopment.tree(), runtimeClusterId);
+    if (requestSequence !== scriptTreeRequestSequence || String(form.runtimeClusterId ?? "") !== String(runtimeClusterId ?? "")) {
+      return;
+    }
+    scriptTreeData.value = tree;
     scriptTreeLoaded.value = true;
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
   } finally {
-    scriptTreeLoading.value = false;
+    if (requestSequence === scriptTreeRequestSequence) {
+      scriptTreeLoading.value = false;
+    }
   }
 }
 
@@ -572,10 +690,14 @@ async function handleScriptTreeClick(node: DataDevelopmentTreeNode) {
 }
 
 async function loadScriptPreview(scriptId: string | number) {
+  const requestSequence = ++scriptPreviewRequestSequence;
   scriptPreviewLoading.value = true;
   previewScript.value = null;
   try {
     const script = await studioApi.dataDevelopment.getScript(scriptId);
+    if (requestSequence !== scriptPreviewRequestSequence || String(pendingScriptId.value ?? "") !== String(scriptId)) {
+      return false;
+    }
     previewScript.value = script;
     upsertScript(script);
     return true;
@@ -583,7 +705,9 @@ async function loadScriptPreview(scriptId: string | number) {
     ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
     return false;
   } finally {
-    scriptPreviewLoading.value = false;
+    if (requestSequence === scriptPreviewRequestSequence) {
+      scriptPreviewLoading.value = false;
+    }
   }
 }
 
@@ -643,20 +767,29 @@ function resolveScriptForBinding(scriptId: string | number): DataDevelopmentScri
     ?? buildSelectedScriptFallback(String(scriptId));
 }
 
-async function loadWorkflow() {
-  if (!workflowId.value) {
+async function loadWorkflow(loadingWorkflowId = workflowId.value, sequence = editorLoadSequence) {
+  if (!loadingWorkflowId) {
+    if (sequence !== editorLoadSequence || workflowId.value !== loadingWorkflowId) {
+      return;
+    }
     detailLoadError.value = "";
     resetWorkflow();
     return;
   }
   try {
     detailLoadError.value = "";
-    const workflow = await studioApi.workflows.get(workflowId.value);
+    const workflow = await studioApi.workflows.get(loadingWorkflowId);
+    if (sequence !== editorLoadSequence || workflowId.value !== loadingWorkflowId) {
+      return;
+    }
     if (!workflow?.id) {
-      throw new Error(`Workflow not found: ${workflowId.value}`);
+      throw new Error(`Workflow not found: ${loadingWorkflowId}`);
     }
     applyWorkflow(workflow);
   } catch (error) {
+    if (sequence !== editorLoadSequence || workflowId.value !== loadingWorkflowId) {
+      return;
+    }
     const message = resolveErrorMessage(error, t("web.workflows.loadFailed"));
     detailLoadError.value = message;
     ElMessage.error(message);
@@ -664,18 +797,19 @@ async function loadWorkflow() {
 }
 
 async function refreshWorkflowEditor() {
-  if (detailLoadError.value && workflowId.value) {
-    await loadWorkflow();
-    return;
-  }
-  await loadReferenceData();
+  await initializeWorkflowEditor();
 }
 
 function applyWorkflow(workflow: WorkflowDefinitionView) {
   const copied = cloneDeep(workflow);
+  runtimeValidation.invalid = copied.runtimeValid === false;
+  runtimeValidation.message = copied.runtimeValidationMessage ?? "";
   form.definitionId = copied.id;
   form.code = copied.code;
   form.name = copied.name;
+  ensureRuntimeClusterOption(copied.runtimeClusterId, copied.runtimeClusterName);
+  form.runtimeClusterId = copied.runtimeClusterId ?? resolveInitialRuntimeClusterId() ?? "";
+  acceptRuntimeCluster(form.runtimeClusterId);
   form.schedule = copied.schedule ?? {
     cronExpression: "0 */30 * * * ?",
     enabled: false,
@@ -684,6 +818,48 @@ function applyWorkflow(workflow: WorkflowDefinitionView) {
   form.nodes = copied.nodes ?? [];
   form.edges = copied.edges ?? [];
   selectedNodeCode.value = form.nodes[0]?.nodeCode ?? null;
+}
+
+async function handleRuntimeClusterChange() {
+  const nextRuntimeClusterId = form.runtimeClusterId;
+  if (!await confirmRuntimeClusterChange(nextRuntimeClusterId)) {
+    form.runtimeClusterId = acceptedRuntimeClusterId.value ?? "";
+    return;
+  }
+  form.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
+  collectionTaskRequestSequence += 1;
+  qualityTaskRequestSequence += 1;
+  scriptTreeRequestSequence += 1;
+  scriptPreviewRequestSequence += 1;
+  collectionTasksLoading.value = false;
+  qualityTasksLoading.value = false;
+  scriptTreeLoading.value = false;
+  scriptPreviewLoading.value = false;
+  collectionTaskReloadPending.value = false;
+  qualityTaskReloadPending.value = false;
+  datasources.value = [];
+  form.nodes = form.nodes.map((node) => (
+    node.nodeType === "COLLECTION_TASK" || node.nodeType === "QUALITY_TASK" || node.nodeType === "DATA_SCRIPT"
+      ? { ...node, config: {} }
+      : node
+  ));
+  onlineCollectionTasks.value = [];
+  onlineQualityTasks.value = [];
+  scripts.value = [];
+  scriptTreeData.value = [];
+  collectionTasksLoaded.value = false;
+  qualityTasksLoaded.value = false;
+  scriptTreeLoaded.value = false;
+  await loadDatasourcesForRuntimeCluster();
+}
+
+async function loadDatasourcesForRuntimeCluster() {
+  const clusterId = form.runtimeClusterId;
+  const sequence = ++datasourceLoadSequence;
+  const options = clusterId ? await studioApi.datasources.optionsByRuntimeCluster(clusterId) : [];
+  if (sequence === datasourceLoadSequence && String(form.runtimeClusterId ?? "") === String(clusterId ?? "")) {
+    datasources.value = options;
+  }
 }
 
 function updateSelectedNode(key: keyof WorkflowNodeDefinition, value: unknown) {
@@ -900,6 +1076,10 @@ async function saveWorkflow() {
     ElMessage.error(detailLoadError.value);
     return;
   }
+  if (!form.runtimeClusterId) {
+    ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
+    return;
+  }
   saving.value = true;
   try {
     if (selectedNode.value?.nodeType === "HTTP") {
@@ -916,9 +1096,7 @@ async function saveWorkflow() {
   }
 }
 
-watch(workflowId, async () => {
-  await loadWorkflow();
-}, { immediate: true });
+watch(workflowId, initializeWorkflowEditor, { immediate: true });
 
 watch(
   () => selectedNode.value?.nodeType,
@@ -959,8 +1137,6 @@ watch(
   },
   { immediate: true },
 );
-
-onMounted(loadReferenceData);
 
 function buildWorkflowPayload() {
   const payload = cloneDeep(form);

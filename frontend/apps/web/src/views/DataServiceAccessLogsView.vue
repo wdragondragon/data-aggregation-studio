@@ -37,6 +37,12 @@
         <el-select v-model="filters.subscriptionId" clearable filterable placeholder="全部订阅方">
           <el-option v-for="item in filteredSubscriptions" :key="String(item.id)" :label="item.label || item.name || String(item.id)" :value="item.id" />
         </el-select>
+        <el-select v-model="filters.requestedClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.targetCluster')">
+          <el-option v-for="item in runtimeClusters" :key="`target-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="item.id" />
+        </el-select>
+        <el-select v-model="filters.actualClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.actualCluster')">
+          <el-option v-for="item in runtimeClusters" :key="`actual-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="item.id" />
+        </el-select>
         <el-select v-model="filters.logFocus" placeholder="日志类型">
           <el-option label="异常或慢查询" value="ERROR_OR_SLOW" />
           <el-option label="仅异常查询" value="ERROR" />
@@ -98,6 +104,14 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column :label="t('web.runtimeClusterSelection.runtimePlacement')" min-width="220">
+          <template #default="{ row }">
+            <div class="table-entity-cell">
+              <span class="table-entity-cell__title">{{ t("web.runtimeClusterSelection.targetCluster") }}: {{ clusterLabel(row.requestedClusterId) }}</span>
+              <span class="table-entity-cell__meta">{{ t("web.runtimeClusterSelection.actualCluster") }}: {{ clusterLabel(row.actualClusterId) }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="subscriptionName" label="订阅方" min-width="150" />
         <el-table-column prop="requestMethod" label="方法" width="90" align="center" header-align="center" />
         <el-table-column label="缓存" width="90" align="center" header-align="center">
@@ -155,6 +169,14 @@
             <span>{{ activeLog.serviceCode || "-" }}</span>
           </div>
           <div class="log-detail-item">
+            <span class="log-detail-item__label">{{ t("web.runtimeClusterSelection.targetCluster") }}</span>
+            <strong>{{ clusterLabel(activeLog.requestedClusterId) }}</strong>
+          </div>
+          <div class="log-detail-item">
+            <span class="log-detail-item__label">{{ t("web.runtimeClusterSelection.actualCluster") }}</span>
+            <strong>{{ clusterLabel(activeLog.actualClusterId) }}</strong>
+          </div>
+          <div class="log-detail-item">
             <span class="log-detail-item__label">订阅方</span>
             <strong>{{ activeLog.subscriptionName || "-" }}</strong>
           </div>
@@ -201,23 +223,27 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { ElMessage } from "element-plus";
 import type {
   DataServiceAccessLogListView,
   DataServiceMetricOptionsView,
   DataServiceMetricQueryRequest,
   EntityId,
+  RuntimeClusterView,
 } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import InvocationLogDrawer from "@/components/InvocationLogDrawer.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
+import { formatRuntimeClusterLabel } from "@/utils/runtimeClusters";
 
 type TriState = "" | "true" | "false";
 type LogFocus = "ALL" | "ERROR" | "SLOW" | "ERROR_OR_SLOW";
 
 const router = useRouter();
 const route = useRoute();
+const { t } = useI18n();
 const now = new Date();
 const timePreset = ref("7d");
 const timeRange = ref<[string, string]>([formatDateTimeValue(addDays(now, -7)), formatDateTimeValue(now)]);
@@ -225,9 +251,12 @@ const options = reactive<DataServiceMetricOptionsView>({
   services: [],
   subscriptions: [],
 });
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 const filters = reactive<{
   serviceId: EntityId | "";
   subscriptionId: EntityId | "";
+  requestedClusterId: EntityId | "";
+  actualClusterId: EntityId | "";
   logFocus: LogFocus;
   minDurationMs: number;
   success: TriState;
@@ -235,6 +264,8 @@ const filters = reactive<{
 }>({
   serviceId: route.query.serviceId ? String(route.query.serviceId) : "",
   subscriptionId: "",
+  requestedClusterId: "",
+  actualClusterId: "",
   logFocus: "ERROR_OR_SLOW",
   minDurationMs: 1000,
   success: "",
@@ -257,7 +288,7 @@ const filteredSubscriptions = computed(() => {
 });
 
 onMounted(async () => {
-  await loadOptions();
+  await Promise.all([loadOptions(), loadRuntimeClusters()]);
   await loadLogs();
 });
 
@@ -265,6 +296,14 @@ async function loadOptions() {
   const payload = await studioApi.dataServiceMetrics.options();
   options.services = payload.services || [];
   options.subscriptions = payload.subscriptions || [];
+}
+
+async function loadRuntimeClusters() {
+  try {
+    runtimeClusters.value = await studioApi.runtimeClusters.options();
+  } catch {
+    runtimeClusters.value = [];
+  }
 }
 
 async function loadLogs() {
@@ -289,6 +328,8 @@ function buildQuery(extra: Partial<DataServiceMetricQueryRequest> = {}): DataSer
     endTime: timeRange.value?.[1],
     serviceId: filters.serviceId || undefined,
     subscriptionId: filters.subscriptionId || undefined,
+    requestedClusterId: filters.requestedClusterId || undefined,
+    actualClusterId: filters.actualClusterId || undefined,
     logFocus: filters.logFocus,
     minDurationMs: filters.minDurationMs,
     success: parseTriState(filters.success),
@@ -305,6 +346,8 @@ function searchLogs() {
 function resetFilters() {
   filters.serviceId = route.query.serviceId ? String(route.query.serviceId) : "";
   filters.subscriptionId = "";
+  filters.requestedClusterId = "";
+  filters.actualClusterId = "";
   filters.logFocus = "ERROR_OR_SLOW";
   filters.minDurationMs = 1000;
   filters.success = "";
@@ -398,6 +441,10 @@ function formatMs(value?: number) {
 
 function formatDateTime(value?: string) {
   return value || "-";
+}
+
+function clusterLabel(clusterId?: EntityId, clusterCode?: string) {
+  return formatRuntimeClusterLabel(runtimeClusters.value, clusterId, clusterCode);
 }
 
 function formatDateTimeValue(date: Date) {

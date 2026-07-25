@@ -65,6 +65,14 @@
 
       <SectionCard :title="t('web.dataDevelopment.editorTitle')" :description="t('web.dataDevelopment.editorDescription')">
         <template v-if="scriptEditorVisible">
+          <el-alert
+            v-if="scriptForm.runtimeValid === false"
+            type="error"
+            show-icon
+            :closable="false"
+            :title="t('web.runtimeClusterSelection.invalid')"
+            :description="scriptForm.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')"
+          />
           <div class="studio-form-grid">
             <el-form-item :label="t('web.dataDevelopment.currentDirectory')">
               <el-input :model-value="currentDirectoryLabel" disabled />
@@ -83,8 +91,13 @@
                 />
               </el-select>
             </el-form-item>
+            <el-form-item :label="t('web.runtimeClusterSelection.runtimeCluster')" required>
+              <el-select v-model="scriptForm.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="handleRuntimeClusterChange">
+                <el-option v-for="cluster in runtimeClusters" :key="String(cluster.id)" :label="runtimeClusterOptionLabel(cluster)" :value="cluster.id" :disabled="runtimeClusterOptionDisabled(cluster)" />
+              </el-select>
+            </el-form-item>
             <el-form-item v-if="currentScriptRegistryEntry.requiresDatasource" :label="t('web.dataDevelopment.datasource')">
-              <el-select v-model="scriptForm.datasourceId" filterable :placeholder="t('web.dataDevelopment.datasourcePlaceholder')">
+              <el-select v-model="scriptForm.datasourceId" filterable :disabled="!scriptForm.runtimeClusterId" :placeholder="t('web.dataDevelopment.datasourcePlaceholder')">
                 <el-option
                   v-for="datasource in sqlDatasources"
                   :key="datasource.id"
@@ -101,7 +114,7 @@
               <div class="flink-model-picker">
                 <div class="flink-model-picker__toolbar">
                   <span>{{ t("web.dataDevelopment.flinkQuestionSelectedModels") }}：{{ flinkQuestionSelectedModels.length }}</span>
-                  <el-button type="primary" plain @click="openFlinkModelSelector">
+                  <el-button type="primary" plain :disabled="!scriptForm.runtimeClusterId" @click="openFlinkModelSelector">
                     {{ t("web.dataDevelopment.flinkQuestionAddModel") }}
                   </el-button>
                 </div>
@@ -273,7 +286,7 @@
     <el-dialog
       v-model="flinkModelSelectorVisible"
       :title="t('web.dataDevelopment.flinkQuestionModelSelectorTitle')"
-      width="860px"
+      width="min(860px, 94vw)"
       @open="prepareFlinkModelSelector"
     >
       <div class="studio-form-grid flink-model-selector-filters">
@@ -324,6 +337,7 @@
         </el-form-item>
       </div>
 
+      <StudioTableShell min-width="760px">
       <el-table
         v-loading="flinkModelSelectorLoading"
         :data="flinkModelSelectorRows"
@@ -346,6 +360,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </StudioTableShell>
 
       <div class="flink-model-selector-pagination">
         <el-pagination
@@ -406,7 +421,7 @@ import type {
   ScriptEnvironmentOption,
   SqlExecutionResult,
 } from "@studio/api-sdk";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { formatScriptType, formatStatusLabel, isSharedFromAnotherProject, prettyJson, resolveProjectName, sameEntityId } from "@/utils/studio";
@@ -414,8 +429,21 @@ import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.
 import { defaultJavaTemplate, defaultPythonTemplate, normalizeEntityId, requireEntityId } from "../components/data-development/dataDevelopmentViewSupport";
 import type { JavaEditorHintSource, SqlEditorHintSource } from "../components/data-development/editorTypes";
 import { resolveScriptEditorEntry } from "../components/data-development/scriptEditorRegistry";
+import { useRuntimeClusterOptions } from "@/composables/useRuntimeClusterOptions";
+import { useRuntimeClusterChangeGuard } from "@/composables/useRuntimeClusterChangeGuard";
 
 const { t } = useI18n();
+const {
+  runtimeClusters,
+  runtimeClustersLoading,
+  singleRuntimeCluster,
+  loadRuntimeClusters,
+  resolveInitialRuntimeClusterId,
+  ensureRuntimeClusterOption,
+  runtimeClusterOptionLabel,
+  runtimeClusterOptionDisabled,
+} = useRuntimeClusterOptions();
+const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterChange } = useRuntimeClusterChangeGuard();
 const authStore = useAuthStore();
 const LOCAL_LOADING_REQUEST = { studioSkipGlobalLoading: true } as const;
 const EXECUTION_LOG_PREVIEW_SIZE_BYTES = 64 * 1024;
@@ -430,6 +458,7 @@ const selectedTreeNode = ref<DataDevelopmentTreeNode | null>(null);
 const selectedDirectory = ref<DataDevelopmentDirectory | null>(null);
 const executionResult = ref<DataScriptExecutionResult | null>(null);
 const executionLogContent = ref("");
+const persistedRuntimeClusterId = ref<EntityId>();
 const activeExecutionTab = ref("1");
 const scriptEditorVisible = ref(false);
 const directoryDialogVisible = ref(false);
@@ -448,6 +477,10 @@ const refreshToken = ref(0);
 const sqlDatasourceOptionsLoaded = ref(false);
 const datasourceOptionsLoaded = ref(false);
 const datasourceTypeOptionsLoaded = ref(false);
+let sqlDatasourceLoadSequence = 0;
+let datasourceOptionsLoadSequence = 0;
+let scriptLoadSequence = 0;
+let flinkModelSearchSequence = 0;
 const scriptEnvironmentOptionsLoaded = ref(false);
 const flinkModelSelectorFilter = reactive({
   datasourceType: "",
@@ -474,6 +507,7 @@ const scriptForm = reactive<DataDevelopmentScript>({
   projectId: undefined,
   fileName: "",
   scriptType: "SQL",
+  runtimeClusterId: "",
   datasourceId: "",
   environmentId: undefined,
   environmentName: undefined,
@@ -506,9 +540,10 @@ const scriptTypeOptions = computed(() => [
   { value: "PYTHON", label: t("web.dataDevelopment.scriptTypePython"), disabled: false },
 ]);
 const canExecuteCurrentScript = computed(() =>
-  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsExecution);
+  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsExecution
+  && Boolean(scriptForm.runtimeClusterId) && scriptForm.runtimeValid !== false);
 const canSaveCurrentScript = computed(() =>
-  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave && !isCurrentScriptShared.value);
+  hasCurrentProject.value && scriptEditorVisible.value && currentScriptRegistryEntry.value.supportsSave && !isCurrentScriptShared.value && Boolean(scriptForm.runtimeClusterId));
 const executeButtonLabel = computed(() => isStructuredScriptType.value
   ? t("web.dataDevelopment.executeScript")
   : t("web.dataDevelopment.executeSql"));
@@ -573,7 +608,7 @@ const defaultScriptEnvironmentId = computed(() => {
   return enabledEnvironments.find((item) => item.environmentCode === DEFAULT_SCRIPT_ENVIRONMENT_CODE)?.id
     ?? enabledEnvironments[0]?.id;
 });
-const javaHintKey = computed(() => `${scriptForm.scriptType}:${scriptForm.environmentId ?? defaultScriptEnvironmentId.value ?? "default"}`);
+const javaHintKey = computed(() => `${scriptForm.scriptType}:${scriptForm.runtimeClusterId || "none"}:${scriptForm.environmentId ?? defaultScriptEnvironmentId.value ?? "default"}`);
 const sqlExecutionResult = computed<SqlExecutionResult | null>(() => executionResult.value?.sqlResult ?? null);
 const executionResults = computed<SqlStatementExecutionResult[]>(() => {
   return sqlExecutionResult.value?.results?.length
@@ -680,6 +715,10 @@ async function refreshStructure() {
 }
 
 function resetProjectScopedState() {
+  scriptLoadSequence += 1;
+  sqlDatasourceLoadSequence += 1;
+  datasourceOptionsLoadSequence += 1;
+  flinkModelSearchSequence += 1;
   treeData.value = [];
   directories.value = [];
   sqlDatasources.value = [];
@@ -710,6 +749,9 @@ function resetProjectScopedState() {
   scriptForm.projectId = undefined;
   scriptForm.fileName = "";
   scriptForm.scriptType = "SQL";
+  scriptForm.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  persistedRuntimeClusterId.value = undefined;
+  acceptRuntimeCluster(scriptForm.runtimeClusterId);
   scriptForm.datasourceId = "";
   scriptForm.datasourceName = undefined;
   scriptForm.datasourceTypeCode = undefined;
@@ -737,8 +779,15 @@ async function loadSqlDatasourceOptions(force = false) {
   if (sqlDatasourceOptionsLoaded.value && !force) {
     return;
   }
-  sqlDatasources.value = await studioApi.dataDevelopment.listSqlDatasourceOptions();
-  sqlDatasourceOptionsLoaded.value = true;
+  const runtimeClusterId = scriptForm.runtimeClusterId;
+  const sequence = ++sqlDatasourceLoadSequence;
+  const options = runtimeClusterId
+    ? (await studioApi.datasources.optionsByRuntimeCluster(runtimeClusterId)).filter((item) => item.executable !== false)
+    : [];
+  if (sequence === sqlDatasourceLoadSequence && String(scriptForm.runtimeClusterId ?? "") === String(runtimeClusterId ?? "")) {
+    sqlDatasources.value = options;
+    sqlDatasourceOptionsLoaded.value = true;
+  }
 }
 
 async function loadDatasourceOptions(force = false) {
@@ -750,8 +799,15 @@ async function loadDatasourceOptions(force = false) {
   if (datasourceOptionsLoaded.value && !force) {
     return;
   }
-  datasourceOptions.value = await studioApi.datasources.options(LOCAL_LOADING_REQUEST);
-  datasourceOptionsLoaded.value = true;
+  const runtimeClusterId = scriptForm.runtimeClusterId;
+  const sequence = ++datasourceOptionsLoadSequence;
+  const options = runtimeClusterId
+    ? await studioApi.datasources.optionsByRuntimeCluster(runtimeClusterId, LOCAL_LOADING_REQUEST)
+    : [];
+  if (sequence === datasourceOptionsLoadSequence && String(scriptForm.runtimeClusterId ?? "") === String(runtimeClusterId ?? "")) {
+    datasourceOptions.value = options;
+    datasourceOptionsLoaded.value = true;
+  }
 }
 
 async function loadDatasourceTypeOptions(force = false) {
@@ -807,6 +863,38 @@ async function ensureEditorReferenceData(scriptType = scriptForm.scriptType, for
   }
 }
 
+async function handleRuntimeClusterChange() {
+  const nextRuntimeClusterId = scriptForm.runtimeClusterId;
+  if (!await confirmRuntimeClusterChange(nextRuntimeClusterId)) {
+    scriptForm.runtimeClusterId = acceptedRuntimeClusterId.value ?? "";
+    return;
+  }
+  scriptForm.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
+  sqlDatasourceLoadSequence += 1;
+  datasourceOptionsLoadSequence += 1;
+  flinkModelSearchSequence += 1;
+  scriptForm.datasourceId = undefined;
+  scriptForm.datasourceName = undefined;
+  scriptForm.datasourceTypeCode = undefined;
+  sqlDatasources.value = [];
+  datasourceOptions.value = [];
+  flinkQuestionModelIds.value = [];
+  flinkQuestionModelMap.value = {};
+  flinkQuestionSqlHintCache.value = {};
+  flinkModelSelectorFilter.datasourceId = "";
+  flinkModelSelectorRows.value = [];
+  flinkModelSelectorSelection.value = [];
+  flinkModelSelectorPagination.pageNo = 1;
+  flinkModelSelectorPagination.total = 0;
+  flinkModelSelectorLoading.value = false;
+  executionResult.value = null;
+  executionLogContent.value = "";
+  activeExecutionTab.value = "1";
+  sqlDatasourceOptionsLoaded.value = false;
+  datasourceOptionsLoaded.value = false;
+  await ensureEditorReferenceData(scriptForm.scriptType, true);
+}
+
 function synchronizeSelection() {
   if (!selectedTreeNode.value) {
     return;
@@ -854,7 +942,11 @@ async function loadScript(scriptId: string | number | undefined) {
   if (!scriptId) {
     return;
   }
+  const sequence = ++scriptLoadSequence;
   const script = await studioApi.dataDevelopment.getScript(scriptId);
+  if (sequence !== scriptLoadSequence || String(selectedTreeNode.value?.scriptId ?? "") !== String(scriptId)) {
+    return;
+  }
   scriptEditorVisible.value = true;
   activeExecutionTab.value = "1";
   scriptForm.id = script.id;
@@ -862,6 +954,16 @@ async function loadScript(scriptId: string | number | undefined) {
   scriptForm.projectId = script.projectId;
   scriptForm.fileName = script.fileName;
   scriptForm.scriptType = script.scriptType;
+  scriptForm.runtimeValid = script.runtimeValid;
+  scriptForm.runtimeValidationMessage = script.runtimeValidationMessage;
+  ensureRuntimeClusterOption(script.runtimeClusterId, script.runtimeClusterName);
+  scriptForm.runtimeClusterId = script.runtimeClusterId ?? resolveInitialRuntimeClusterId() ?? "";
+  persistedRuntimeClusterId.value = script.runtimeClusterId;
+  acceptRuntimeCluster(scriptForm.runtimeClusterId);
+  sqlDatasourceOptionsLoaded.value = false;
+  datasourceOptionsLoaded.value = false;
+  sqlDatasources.value = [];
+  datasourceOptions.value = [];
   scriptForm.datasourceId = script.datasourceId;
   scriptForm.datasourceName = script.datasourceName;
   scriptForm.datasourceTypeCode = script.datasourceTypeCode;
@@ -871,11 +973,12 @@ async function loadScript(scriptId: string | number | undefined) {
   scriptForm.content = script.content;
   flinkQuestionModelIds.value = resolveFlinkQuestionModelIds(script.executionConfig);
   scriptExecutionArgumentsText.value = "{\n  \n}";
-  await ensureEditorReferenceData(script.scriptType);
+  await ensureEditorReferenceData(script.scriptType, true);
   await ensureSqlHintsLoaded(script.datasourceId);
 }
 
 function createNewScript() {
+  scriptLoadSequence += 1;
   const directoryId = resolveSelectedWritableDirectoryId();
   scriptEditorVisible.value = true;
   scriptForm.id = undefined;
@@ -883,6 +986,11 @@ function createNewScript() {
   scriptForm.projectId = authStore.currentProjectId ?? undefined;
   scriptForm.fileName = "";
   scriptForm.scriptType = "SQL";
+  scriptForm.runtimeValid = true;
+  scriptForm.runtimeValidationMessage = undefined;
+  scriptForm.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  persistedRuntimeClusterId.value = undefined;
+  acceptRuntimeCluster(scriptForm.runtimeClusterId);
   scriptForm.datasourceId = "";
   scriptForm.datasourceName = undefined;
   scriptForm.datasourceTypeCode = undefined;
@@ -929,15 +1037,19 @@ async function saveScript() {
   }
 }
 
-async function persistCurrentScript(showSuccessMessage: boolean) {
+async function persistCurrentScript(showSuccessMessage: boolean, runtimeClusterId: EntityId = scriptForm.runtimeClusterId as EntityId) {
   if (!currentScriptRegistryEntry.value.supportsSave) {
     throw new Error(t("web.dataDevelopment.unsupportedScriptType"));
+  }
+  if (!runtimeClusterId) {
+    throw new Error(t("web.runtimeClusterSelection.selectFirst"));
   }
   const saved = await studioApi.dataDevelopment.saveScript({
     id: scriptForm.id,
     directoryId: normalizeEntityId(scriptForm.directoryId),
     fileName: scriptForm.fileName,
     scriptType: scriptForm.scriptType,
+    runtimeClusterId,
     datasourceId: currentScriptRegistryEntry.value.requiresDatasource
       ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
       : undefined,
@@ -959,6 +1071,11 @@ function applySavedScript(saved: DataDevelopmentScript) {
   scriptForm.projectId = saved.projectId;
   scriptForm.fileName = saved.fileName;
   scriptForm.scriptType = saved.scriptType;
+  scriptForm.runtimeValid = saved.runtimeValid;
+  scriptForm.runtimeValidationMessage = saved.runtimeValidationMessage;
+  ensureRuntimeClusterOption(saved.runtimeClusterId, saved.runtimeClusterName);
+  scriptForm.runtimeClusterId = saved.runtimeClusterId ?? scriptForm.runtimeClusterId;
+  persistedRuntimeClusterId.value = saved.runtimeClusterId;
   scriptForm.datasourceId = saved.datasourceId;
   scriptForm.datasourceName = saved.datasourceName;
   scriptForm.datasourceTypeCode = saved.datasourceTypeCode;
@@ -1054,11 +1171,16 @@ async function executeCurrentScript() {
     ElMessage.warning(t("web.dataDevelopment.unsupportedScriptType"));
     return;
   }
+  if (!scriptForm.runtimeClusterId) {
+    ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
+    return;
+  }
   try {
     executionLogContent.value = "";
     if (scriptForm.scriptType === "SQL" || scriptForm.scriptType === "FLINK_QUESTION_SQL") {
       executionResult.value = await studioApi.dataDevelopment.executeScript({
         scriptType: scriptForm.scriptType,
+        runtimeClusterId: scriptForm.runtimeClusterId,
         datasourceId: currentScriptRegistryEntry.value.requiresDatasource
           ? requireEntityId(scriptForm.datasourceId, t("web.dataDevelopment.datasource"))
           : undefined,
@@ -1069,8 +1191,13 @@ async function executeCurrentScript() {
         executionConfig: buildCurrentExecutionConfig(true),
       });
     } else {
-      const savedScriptId = await ensureSavedScriptForExecution();
-      executionResult.value = await studioApi.dataDevelopment.executeSavedScript(savedScriptId, {
+      const executionRuntimeClusterId = scriptForm.runtimeClusterId;
+      const savedScript = await ensureSavedScriptForExecution(executionRuntimeClusterId);
+      const runtimeClusterOverride = sameEntityId(executionRuntimeClusterId, savedScript.runtimeClusterId)
+        ? undefined
+        : executionRuntimeClusterId;
+      executionResult.value = await studioApi.dataDevelopment.executeSavedScript(savedScript.id, {
+        runtimeClusterId: runtimeClusterOverride,
         arguments: supportsExecutionArguments.value ? parseScriptExecutionArguments() : undefined,
         maxRows: 100,
         waitTimeoutSeconds: 120,
@@ -1088,18 +1215,25 @@ async function executeCurrentScript() {
   }
 }
 
-async function ensureSavedScriptForExecution(): Promise<EntityId> {
+async function ensureSavedScriptForExecution(executionRuntimeClusterId: EntityId): Promise<{ id: EntityId; runtimeClusterId?: EntityId }> {
   if (isCurrentScriptShared.value) {
     if (!scriptForm.id) {
       throw new Error(t("web.dataDevelopment.executeFailed"));
     }
-    return scriptForm.id;
+    return { id: scriptForm.id, runtimeClusterId: persistedRuntimeClusterId.value };
   }
-  const saved = await persistCurrentScript(false);
+  const runtimeClusterIdToPersist = scriptForm.id && persistedRuntimeClusterId.value != null
+    ? persistedRuntimeClusterId.value
+    : executionRuntimeClusterId;
+  const saved = await persistCurrentScript(false, runtimeClusterIdToPersist);
   if (!saved.id) {
     throw new Error(t("web.dataDevelopment.executeFailed"));
   }
-  return saved.id;
+  if (!sameEntityId(executionRuntimeClusterId, saved.runtimeClusterId)) {
+    scriptForm.runtimeClusterId = executionRuntimeClusterId;
+    acceptRuntimeCluster(executionRuntimeClusterId);
+  }
+  return { id: saved.id, runtimeClusterId: saved.runtimeClusterId };
 }
 
 async function loadExecutionRunLog(result: DataScriptExecutionResult) {
@@ -1261,26 +1395,41 @@ async function searchFlinkModelSelector() {
     flinkModelSelectorPagination.total = 0;
     return;
   }
+  const sequence = ++flinkModelSearchSequence;
+  const runtimeClusterId = scriptForm.runtimeClusterId;
+  if (!runtimeClusterId) {
+    flinkModelSelectorRows.value = [];
+    flinkModelSelectorPagination.total = 0;
+    return;
+  }
   flinkModelSelectorLoading.value = true;
   try {
     const page = await studioApi.models.listSelectorOptions({
       datasourceType: flinkModelSelectorFilter.datasourceType || undefined,
       datasourceId: normalizeEntityId(flinkModelSelectorFilter.datasourceId),
+      runtimeClusterId,
       keyword: flinkModelSelectorFilter.keyword.trim() || undefined,
       pageNo: flinkModelSelectorPagination.pageNo,
       pageSize: flinkModelSelectorPagination.pageSize,
     }, LOCAL_LOADING_REQUEST);
+    if (sequence !== flinkModelSearchSequence || String(scriptForm.runtimeClusterId ?? "") !== String(runtimeClusterId ?? "")) {
+      return;
+    }
     flinkModelSelectorRows.value = page.items ?? [];
     flinkModelSelectorPagination.pageNo = page.pageNo;
     flinkModelSelectorPagination.pageSize = page.pageSize;
     flinkModelSelectorPagination.total = page.total;
     cacheFlinkQuestionModels(page.items ?? []);
   } catch (error) {
-    flinkModelSelectorRows.value = [];
-    flinkModelSelectorPagination.total = 0;
-    ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.flinkQuestionModelSelectorLoadFailed"));
+    if (sequence === flinkModelSearchSequence) {
+      flinkModelSelectorRows.value = [];
+      flinkModelSelectorPagination.total = 0;
+      ElMessage.error(error instanceof Error ? error.message : t("web.dataDevelopment.flinkQuestionModelSelectorLoadFailed"));
+    }
   } finally {
-    flinkModelSelectorLoading.value = false;
+    if (sequence === flinkModelSearchSequence) {
+      flinkModelSelectorLoading.value = false;
+    }
   }
 }
 
@@ -1481,11 +1630,12 @@ function resolveJavaEnvironmentId() {
 
 const javaHintSource: JavaEditorHintSource = {
   async loadImports(keyword, limit) {
-    if (!isJavaScriptType.value) {
+    if (!isJavaScriptType.value || !scriptForm.runtimeClusterId) {
       return [];
     }
     try {
       const response = await studioApi.dataDevelopment.javaImportHints({
+        runtimeClusterId: scriptForm.runtimeClusterId,
         environmentId: resolveJavaEnvironmentId(),
         keyword,
         limit,
@@ -1496,11 +1646,12 @@ const javaHintSource: JavaEditorHintSource = {
     }
   },
   async loadMembers(className, keyword, staticOnly, limit) {
-    if (!isJavaScriptType.value || !className) {
+    if (!isJavaScriptType.value || !scriptForm.runtimeClusterId || !className) {
       return [];
     }
     try {
       const response = await studioApi.dataDevelopment.javaMemberHints({
+        runtimeClusterId: scriptForm.runtimeClusterId,
         environmentId: resolveJavaEnvironmentId(),
         className,
         keyword,
@@ -1526,15 +1677,23 @@ function resolveSelectedWritableDirectoryId() {
 
 onMounted(async () => {
   scriptForm.scriptType = "SQL";
+  await loadRuntimeClusters();
+  scriptForm.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  persistedRuntimeClusterId.value = undefined;
+  acceptRuntimeCluster(scriptForm.runtimeClusterId);
   await refreshAll();
 });
 
-watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (!authStore.isAuthenticated) {
     return;
   }
   resetProjectScopedState();
-  refreshAll();
+  await loadRuntimeClusters();
+  scriptForm.runtimeClusterId = resolveInitialRuntimeClusterId() ?? "";
+  persistedRuntimeClusterId.value = undefined;
+  acceptRuntimeCluster(scriptForm.runtimeClusterId);
+  await refreshAll();
 });
 
 watch(
@@ -1730,6 +1889,7 @@ p {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+  overflow-x: auto;
 }
 
 .monospace {
@@ -1824,6 +1984,19 @@ p {
 
   .span-2 {
     grid-column: span 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .flink-model-picker__toolbar,
+  .flink-selected-model {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .flink-model-picker__toolbar .el-button,
+  .flink-selected-model .el-button {
+    width: 100%;
   }
 }
 </style>

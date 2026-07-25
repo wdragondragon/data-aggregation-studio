@@ -7,6 +7,7 @@ interface DesktopMenuDescriptor {
   path: string;
   labelKey: string;
   captionKey: string;
+  requiredRoleCodes?: string[];
 }
 
 export const desktopMenuDescriptors: DesktopMenuDescriptor[] = [
@@ -16,15 +17,22 @@ export const desktopMenuDescriptors: DesktopMenuDescriptor[] = [
   { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption" },
   { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption" },
   { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption" },
+  { path: "/data-development", labelKey: "routes.web.dataDevelopment.title", captionKey: "routes.web.dataDevelopment.menuCaption" },
   { path: "/workflows", labelKey: "routes.web.workflows.title", captionKey: "routes.web.workflows.menuCaption" },
   { path: "/runs", labelKey: "routes.web.runs.title", captionKey: "routes.web.runs.menuCaption" },
   { path: "/ops-center", labelKey: "routes.web.opsCenter.title", captionKey: "routes.web.opsCenter.menuCaption" },
   { path: "/alerts", labelKey: "routes.web.alerts.title", captionKey: "routes.web.alerts.menuCaption" },
+  { path: "/runtime-clusters", labelKey: "routes.web.runtimeClusters.title", captionKey: "routes.web.runtimeClusters.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"] },
+  { path: "/script-environments", labelKey: "routes.web.scriptEnvironments.title", captionKey: "routes.web.scriptEnvironments.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN", "ADMIN"] },
   { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption" },
 ];
 
-export function resolveDesktopMenus(t: (key: string) => string): StudioNavItem[] {
-  return desktopMenuDescriptors.map((item) => ({
+export function resolveDesktopMenus(t: (key: string) => string, roleCodes: string[] = []): StudioNavItem[] {
+  const normalizedRoles = roleCodes.map((roleCode) => roleCode.toUpperCase());
+  return desktopMenuDescriptors.filter((item) => (
+    !item.requiredRoleCodes?.length
+    || item.requiredRoleCodes.some((roleCode) => normalizedRoles.includes(roleCode.toUpperCase()))
+  )).map((item) => ({
     path: item.path,
     label: t(item.labelKey),
     caption: t(item.captionKey),
@@ -138,6 +146,25 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/data-development",
+        name: "data-development",
+        component: () => import("@web/views/DataDevelopmentView.vue"),
+        meta: {
+          titleKey: "routes.web.dataDevelopment.title",
+          subtitleKey: "routes.web.dataDevelopment.subtitle",
+        },
+      },
+      {
+        path: "/script-environments",
+        name: "script-environments",
+        component: () => import("@web/views/ScriptEnvironmentsView.vue"),
+        meta: {
+          titleKey: "routes.web.scriptEnvironments.title",
+          subtitleKey: "routes.web.scriptEnvironments.subtitle",
+          requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN", "ADMIN"],
+        },
+      },
+      {
         path: "/quality-task-runs",
         name: "quality-task-runs",
         component: () => import("@web/views/QualityTaskRunsView.vue"),
@@ -246,6 +273,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/runtime-clusters",
+        name: "runtime-clusters",
+        component: () => import("@web/views/RuntimeClustersView.vue"),
+        meta: {
+          titleKey: "routes.web.runtimeClusters.title",
+          subtitleKey: "routes.web.runtimeClusters.subtitle",
+          requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"],
+        },
+      },
+      {
         path: "/system",
         name: "system",
         component: () => import("@web/views/SystemView.vue"),
@@ -280,6 +317,14 @@ router.beforeEach(async (to) => {
         redirect: to.fullPath,
       },
     };
+  }
+  const requiredRoleCodes = Array.isArray(to.meta.requiredRoleCodes) ? to.meta.requiredRoleCodes : [];
+  if (requiredRoleCodes.length > 0) {
+    const normalizedRoles = [...authStore.systemRoleCodes, ...authStore.effectiveRoleCodes]
+      .map((roleCode) => String(roleCode).toUpperCase());
+    if (!requiredRoleCodes.some((roleCode) => normalizedRoles.includes(String(roleCode).toUpperCase()))) {
+      return "/dashboard";
+    }
   }
   return true;
 });

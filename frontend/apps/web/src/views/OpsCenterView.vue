@@ -42,6 +42,14 @@
           <el-option :label="t('web.opsCenter.all')" value="" />
           <el-option v-for="item in options.workerGroups" :key="item" :label="item" :value="item" />
         </el-select>
+        <el-select class="ops-filter-control" v-model="filters.requestedClusterId" clearable filterable :placeholder="t('web.opsCenter.targetCluster')">
+          <el-option :label="t('web.opsCenter.all')" value="" />
+          <el-option v-for="item in runtimeClusters" :key="String(item.id)" :label="runtimeClusterOptionLabel(item)" :value="item.id" />
+        </el-select>
+        <el-select class="ops-filter-control" v-model="filters.actualClusterId" clearable filterable :placeholder="t('web.opsCenter.actualCluster')">
+          <el-option :label="t('web.opsCenter.all')" value="" />
+          <el-option v-for="item in runtimeClusters" :key="String(item.id)" :label="runtimeClusterOptionLabel(item)" :value="item.id" />
+        </el-select>
         <div class="ops-filter-actions">
           <el-button type="primary" @click="search">{{ t("common.search") }}</el-button>
           <el-button @click="resetFilters">{{ t("common.reset") }}</el-button>
@@ -93,6 +101,9 @@
           <el-table-column prop="status" :label="t('common.status')" width="110">
             <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ formatStatus(row.status) }}</el-tag></template>
           </el-table-column>
+          <el-table-column :label="t('web.opsCenter.targetCluster')" min-width="170" show-overflow-tooltip>
+            <template #default="{ row }">{{ runtimeClusterLabel(row.targetClusterId) }}</template>
+          </el-table-column>
           <el-table-column prop="workerGroupCode" :label="t('web.opsCenter.workerGroup')" min-width="150" show-overflow-tooltip />
           <el-table-column :label="t('web.opsCenter.queuedDuration')" width="120">
             <template #default="{ row }">{{ formatDuration(row.queuedDurationMs) }}</template>
@@ -135,6 +146,9 @@
           <el-table-column prop="displayStatus" :label="t('web.opsCenter.groupStatus')" width="120">
             <template #default="{ row }"><el-tag :type="workerTagType(row)">{{ workerStatusLabel(row) }}</el-tag></template>
           </el-table-column>
+          <el-table-column :label="t('web.opsCenter.actualCluster')" min-width="190" show-overflow-tooltip>
+            <template #default="{ row }">{{ workerRuntimeClusterLabel(row) }}</template>
+          </el-table-column>
           <el-table-column label="在线/近期" width="110">
             <template #default="{ row }">{{ row.onlineInstanceCount || 0 }} / {{ row.recentInstanceCount || 0 }}</template>
           </el-table-column>
@@ -152,6 +166,14 @@
         <el-table-column prop="nodeCode" :label="t('web.runs.node')" min-width="160" show-overflow-tooltip />
         <el-table-column prop="status" :label="t('common.status')" width="110">
           <template #default="{ row }"><el-tag :type="statusTagType(row.status)">{{ formatStatus(row.status) }}</el-tag></template>
+        </el-table-column>
+        <el-table-column :label="t('web.opsCenter.runtimePlacement')" min-width="210">
+          <template #default="{ row }">
+            <div class="ops-cluster-cell">
+              <span>{{ t('web.opsCenter.targetCluster') }}: {{ runtimeClusterLabel(row.requestedClusterId) }}</span>
+              <span>{{ t('web.opsCenter.actualCluster') }}: {{ runtimeClusterLabel(row.actualClusterId, row.actualClusterCode) }}</span>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column prop="workerGroupCode" :label="t('web.opsCenter.workerGroup')" min-width="140" show-overflow-tooltip />
         <el-table-column :label="t('web.opsCenter.duration')" width="120">
@@ -175,6 +197,14 @@
         <el-table :data="serviceEvents" size="small" border empty-text="暂无数据">
           <el-table-column prop="serviceName" :label="t('web.opsCenter.service')" min-width="180" show-overflow-tooltip />
           <el-table-column prop="subscriptionName" :label="t('web.opsCenter.subscription')" min-width="140" show-overflow-tooltip />
+          <el-table-column :label="t('web.opsCenter.runtimePlacement')" min-width="210">
+            <template #default="{ row }">
+              <div class="ops-cluster-cell">
+                <span>{{ t('web.opsCenter.targetCluster') }}: {{ runtimeClusterLabel(row.requestedClusterId) }}</span>
+                <span>{{ t('web.opsCenter.actualCluster') }}: {{ runtimeClusterLabel(row.actualClusterId) }}</span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column prop="httpStatus" label="HTTP" width="84" />
           <el-table-column :label="t('web.opsCenter.duration')" width="110">
             <template #default="{ row }">{{ formatDuration(row.durationMs) }}</template>
@@ -195,6 +225,14 @@
         <el-table :data="ingestionEvents" size="small" border empty-text="暂无数据">
           <el-table-column prop="serviceName" :label="t('web.opsCenter.service')" min-width="180" show-overflow-tooltip />
           <el-table-column prop="subscriptionName" :label="t('web.opsCenter.subscription')" min-width="140" show-overflow-tooltip />
+          <el-table-column :label="t('web.opsCenter.runtimePlacement')" min-width="210">
+            <template #default="{ row }">
+              <div class="ops-cluster-cell">
+                <span>{{ t('web.opsCenter.targetCluster') }}: {{ runtimeClusterLabel(row.requestedClusterId) }}</span>
+                <span>{{ t('web.opsCenter.actualCluster') }}: {{ runtimeClusterLabel(row.actualClusterId) }}</span>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column :label="t('web.opsCenter.receivedWritten')" width="130">
             <template #default="{ row }">{{ formatCount(row.receivedCount) }} / {{ formatCount(row.writtenCount) }}</template>
           </el-table-column>
@@ -209,6 +247,36 @@
           </el-table-column>
         </el-table>
       </SectionCard>
+
+      <SectionCard v-loading="sectionLoading.protocolConversionEvents" :title="t('web.opsCenter.protocolConversionTitle')" :description="t('web.opsCenter.protocolConversionDescription')">
+        <template #actions>
+          <el-button link type="primary" @click="router.push('/protocol-conversions/access-logs')">{{ t("web.opsCenter.openProtocolConversionLogs") }}</el-button>
+        </template>
+        <el-table :data="protocolConversionEvents" size="small" border empty-text="暂无数据">
+          <el-table-column prop="serviceName" :label="t('web.opsCenter.service')" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="subscriptionName" :label="t('web.opsCenter.subscription')" min-width="140" show-overflow-tooltip />
+          <el-table-column :label="t('web.opsCenter.runtimePlacement')" min-width="210">
+            <template #default="{ row }">
+              <div class="ops-cluster-cell">
+                <span>{{ t('web.opsCenter.targetCluster') }}: {{ runtimeClusterLabel(row.requestedClusterId) }}</span>
+                <span>{{ t('web.opsCenter.actualCluster') }}: {{ runtimeClusterLabel(row.actualClusterId) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.opsCenter.receivedWritten')" width="130">
+            <template #default="{ row }">{{ formatCount(row.receivedCount) }} / {{ formatCount(row.writtenCount) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('web.opsCenter.duration')" width="110">
+            <template #default="{ row }">{{ formatDuration(row.durationMs) }}</template>
+          </el-table-column>
+          <el-table-column prop="occurredAt" :label="t('web.opsCenter.occurredAt')" min-width="170" show-overflow-tooltip />
+          <el-table-column :label="t('common.actions')" width="90" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openProtocolConversionLogs(row.serviceId)">{{ t("web.opsCenter.viewLog") }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </SectionCard>
     </div>
 
     <SectionCard id="ops-section-logs" v-loading="sectionLoading.logEvents" :title="t('web.opsCenter.logTitle')" :description="t('web.opsCenter.logDescription')">
@@ -217,6 +285,14 @@
           <template #default="{ row }">{{ formatExecutionType(row.executionType) }}</template>
         </el-table-column>
         <el-table-column prop="nodeCode" :label="t('web.runs.node')" min-width="160" show-overflow-tooltip />
+        <el-table-column :label="t('web.opsCenter.runtimePlacement')" min-width="210">
+          <template #default="{ row }">
+            <div class="ops-cluster-cell">
+              <span>{{ t('web.opsCenter.targetCluster') }}: {{ runtimeClusterLabel(row.requestedClusterId) }}</span>
+              <span>{{ t('web.opsCenter.actualCluster') }}: {{ runtimeClusterLabel(row.actualClusterId, row.actualClusterCode) }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="workerGroupCode" :label="t('web.opsCenter.workerGroup')" min-width="140" show-overflow-tooltip />
         <el-table-column prop="logStorageType" label="Storage" min-width="120" show-overflow-tooltip />
         <el-table-column prop="logStatus" :label="t('web.opsCenter.logStatus')" min-width="120" show-overflow-tooltip />
@@ -249,6 +325,7 @@ import type {
   OpsCenterRunIncidentView,
   OpsCenterServiceEventView,
   OpsCenterWorkerGroupView,
+  RuntimeClusterView,
 } from "@studio/api-sdk";
 import { studioApi } from "@/api/studio";
 import RunLogDrawer from "@/components/RunLogDrawer.vue";
@@ -272,11 +349,14 @@ const filters = reactive({
   executionType: "",
   status: "",
   workerGroupCode: "",
+  requestedClusterId: "" as EntityId | "",
+  actualClusterId: "" as EntityId | "",
 });
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 const timePreset = ref("24h");
 const timeRange = ref<[string, string] | []>([]);
 const autoRefresh = ref(true);
-type OpsSectionKey = "overview" | "queue" | "workers" | "runs" | "serviceEvents" | "ingestionEvents" | "logEvents";
+type OpsSectionKey = "overview" | "queue" | "workers" | "runs" | "serviceEvents" | "ingestionEvents" | "protocolConversionEvents" | "logEvents";
 const sectionLoading = reactive<Record<OpsSectionKey, boolean>>({
   overview: false,
   queue: false,
@@ -284,6 +364,7 @@ const sectionLoading = reactive<Record<OpsSectionKey, boolean>>({
   runs: false,
   serviceEvents: false,
   ingestionEvents: false,
+  protocolConversionEvents: false,
   logEvents: false,
 });
 const overview = ref<OpsCenterOverviewView | null>(null);
@@ -292,6 +373,7 @@ const workerGroups = ref<OpsCenterWorkerGroupView[]>([]);
 const runIncidents = ref<OpsCenterRunIncidentView[]>([]);
 const serviceEvents = ref<OpsCenterServiceEventView[]>([]);
 const ingestionEvents = ref<OpsCenterServiceEventView[]>([]);
+const protocolConversionEvents = ref<OpsCenterServiceEventView[]>([]);
 const logEvents = ref<OpsCenterLogEventView[]>([]);
 const lastUpdatedAt = ref("");
 const runLogDrawerOpen = ref(false);
@@ -342,6 +424,8 @@ watch(() => route.query.section, () => {
 
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   filters.workerGroupCode = "";
+  filters.requestedClusterId = "";
+  filters.actualClusterId = "";
   runLogDrawerOpen.value = false;
   activeRunRecordId.value = null;
   await loadOptions();
@@ -350,10 +434,14 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async
 
 async function loadOptions() {
   try {
-    const payload = await studioApi.opsCenter.options(LOCAL_LOADING_REQUEST);
+    const [payload, clusterOptions] = await Promise.all([
+      studioApi.opsCenter.options(LOCAL_LOADING_REQUEST),
+      studioApi.runtimeClusters.options(undefined, LOCAL_LOADING_REQUEST),
+    ]);
     options.executionTypes = payload.executionTypes || [];
     options.statuses = payload.statuses || [];
     options.workerGroups = payload.workerGroups || [];
+    runtimeClusters.value = clusterOptions || [];
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.opsCenter.loadFailed"));
   }
@@ -372,6 +460,7 @@ async function loadAll() {
     loadRuns(query, requestId),
     loadServiceEvents(query, requestId),
     loadIngestionEvents(query, requestId),
+    loadProtocolConversionEvents(query, requestId),
     loadLogEvents(query, requestId),
   ]);
   if (requestId === loadRequestId) {
@@ -448,6 +537,15 @@ async function loadIngestionEvents(query: OpsCenterQueryRequest, requestId: numb
   }, t("web.opsCenter.loadFailed"));
 }
 
+async function loadProtocolConversionEvents(query: OpsCenterQueryRequest, requestId: number) {
+  await withSectionLoading("protocolConversionEvents", requestId, async () => {
+    const page = await studioApi.opsCenter.queryProtocolConversionEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
+    if (requestId === loadRequestId) {
+      protocolConversionEvents.value = page.items || [];
+    }
+  }, t("web.opsCenter.loadFailed"));
+}
+
 async function loadLogEvents(query: OpsCenterQueryRequest, requestId: number) {
   await withSectionLoading("logEvents", requestId, async () => {
     const page = await studioApi.opsCenter.queryLogEvents({ ...query, pageNo: 1, pageSize: PAGE_SIZE }, LOCAL_LOADING_REQUEST);
@@ -464,6 +562,8 @@ function buildQuery(): OpsCenterQueryRequest {
     executionType: filters.executionType || undefined,
     status: filters.status || undefined,
     workerGroupCode: filters.workerGroupCode || undefined,
+    requestedClusterId: filters.requestedClusterId || undefined,
+    actualClusterId: filters.actualClusterId || undefined,
   };
 }
 
@@ -475,6 +575,8 @@ function resetFilters() {
   filters.executionType = "";
   filters.status = "";
   filters.workerGroupCode = "";
+  filters.requestedClusterId = "";
+  filters.actualClusterId = "";
   timePreset.value = "24h";
   applyTimePreset("24h");
   void loadAll();
@@ -587,6 +689,10 @@ function openIngestionLogs(serviceId?: EntityId) {
   void router.push({ path: "/data-ingestion-metrics/access-logs", query: serviceId ? { serviceId: String(serviceId) } : undefined });
 }
 
+function openProtocolConversionLogs(serviceId?: EntityId) {
+  void router.push({ path: "/protocol-conversions/access-logs", query: serviceId ? { serviceId: String(serviceId) } : undefined });
+}
+
 function healthLabel(value?: string) {
   if (value === "CRITICAL") {
     return t("web.opsCenter.healthCritical");
@@ -657,6 +763,37 @@ function workerAssignmentLabel(row: OpsCenterWorkerGroupView) {
     return t("web.opsCenter.workerAssignedDisabled");
   }
   return t("web.opsCenter.workerAssigned");
+}
+
+function runtimeClusterOptionLabel(cluster: RuntimeClusterView) {
+  const name = String(cluster.name || "").trim();
+  const code = String(cluster.code || "").trim();
+  if (name && code && name !== code) {
+    return `${name} (${code})`;
+  }
+  return name || code || `#${String(cluster.id ?? "-")}`;
+}
+
+function runtimeClusterLabel(clusterId?: EntityId, clusterCode?: string) {
+  const code = String(clusterCode || "").trim();
+  if (clusterId != null && String(clusterId).trim()) {
+    const matched = runtimeClusters.value.find((item) => String(item.id) === String(clusterId));
+    if (matched) {
+      return runtimeClusterOptionLabel(matched);
+    }
+    return code || `#${String(clusterId)}`;
+  }
+  return code || "-";
+}
+
+function workerRuntimeClusterLabel(row: OpsCenterWorkerGroupView) {
+  const labels = (row.runtimeClusterIds || []).map((clusterId) => runtimeClusterLabel(clusterId));
+  for (const code of row.runtimeClusterCodes || []) {
+    if (!labels.some((label) => label.includes(code))) {
+      labels.push(code);
+    }
+  }
+  return labels.length ? labels.join("、") : "-";
 }
 
 function formatExecutionType(value?: string) {
@@ -859,6 +996,13 @@ function formatDateTime(value: Date) {
 
 .ops-section-alert {
   margin-bottom: 12px;
+}
+
+.ops-cluster-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.35;
 }
 
 .ops-grid {

@@ -27,6 +27,15 @@
         :actions="editorHeaderActions"
       />
 
+      <el-alert
+        v-if="runtimeValidation.invalid"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="t('web.runtimeClusterSelection.invalid')"
+        :description="runtimeValidation.message || t('web.runtimeClusterSelection.invalidFallback')"
+      />
+
       <CollectionTaskStepIndicator v-model:active-step="activeStep" />
 
       <CollectionTaskBindingSection
@@ -38,6 +47,12 @@
         :collection-mode-visible="collectionModeVisible"
         :is-fusion-task="isFusionTask"
         :datasources="datasources"
+        :runtime-clusters="runtimeClusters"
+        :runtime-clusters-loading="runtimeClustersLoading"
+        :single-runtime-cluster="singleRuntimeCluster"
+        :runtime-cluster-option-label="runtimeClusterOptionLabel"
+        :runtime-cluster-option-disabled="runtimeClusterOptionDisabled"
+        :on-runtime-cluster-change="handleRuntimeClusterChange"
         :writer-advanced-fields="writerAdvancedFields"
         :binding-actions="bindingSectionActions"
       />
@@ -64,6 +79,7 @@
       <CollectionTaskScheduleSection
         v-else-if="activeStep === 3"
         :schedule="form.schedule"
+        :runtime-invalid="runtimeValidation.invalid"
       />
 
       <CollectionTaskReviewSection
@@ -152,12 +168,25 @@ import {
 } from "@/components/open-service/openServiceDebugSupport";
 import { cloneDeep } from "@/utils/studio";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
+import { useRuntimeClusterOptions } from "@/composables/useRuntimeClusterOptions";
+import { useRuntimeClusterChangeGuard } from "@/composables/useRuntimeClusterChangeGuard";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 
 const taskId = computed(() => route.params.taskId as string | undefined);
+const {
+  runtimeClusters,
+  runtimeClustersLoading,
+  singleRuntimeCluster,
+  loadRuntimeClusters,
+  resolveInitialRuntimeClusterId,
+  ensureRuntimeClusterOption,
+  runtimeClusterOptionLabel,
+  runtimeClusterOptionDisabled,
+} = useRuntimeClusterOptions();
+const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterChange } = useRuntimeClusterChangeGuard();
 const activeStep = ref(1);
 const datasources = ref<DataSourceOptionView[]>([]);
 const fieldMappingRules = ref<FieldMappingRuleOptionView[]>([]);
@@ -174,8 +203,12 @@ const previewLoading = ref(false);
 const previewDirty = ref(true);
 const previewConfig = ref<JobContainerConfig | null>(null);
 const detailLoadError = ref("");
+const runtimeValidation = reactive({ invalid: false, message: "" });
 const resettingIncrementalCursor = ref<Record<string, boolean>>({});
 const customSqlFieldCache = ref<Record<string, { datasourceId: string; sql: string; fields: string[]; loading: boolean; error?: string }>>({});
+const modelRequestSequences = new Map<string, number>();
+let datasourceLoadSequence = 0;
+let taskLoadSequence = 0;
 const customSqlResolveTimers = new Map<string, number>();
 const httpReaderDirtyKeys = new WeakMap<object, Set<string>>();
 
@@ -335,11 +368,13 @@ const mappingSectionActions = {
 
 async function loadReferenceData() {
   try {
-    const [datasourceData, fieldMappingRuleData] = await Promise.all([
-      studioApi.datasources.options(),
+    const [, fieldMappingRuleData] = await Promise.all([
+      loadRuntimeClusters(),
       studioApi.fieldMappingRules.optionSummaries(),
     ]);
-    datasources.value = datasourceData;
+    form.runtimeClusterId = resolveInitialRuntimeClusterId(form.runtimeClusterId) ?? "";
+    acceptRuntimeCluster(form.runtimeClusterId);
+    await loadDatasourcesForRuntimeCluster();
     fieldMappingRules.value = fieldMappingRuleData;
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
     await ensureModels(form.targetBinding.datasourceId);
@@ -352,14 +387,22 @@ async function loadReferenceData() {
 }
 
 async function loadTask() {
+  const sequence = ++taskLoadSequence;
+  const loadingTaskId = taskId.value;
   if (!taskId.value) {
     detailLoadError.value = "";
+    runtimeValidation.invalid = false;
+    runtimeValidation.message = "";
     return;
   }
   try {
     detailLoadError.value = "";
     const task = await studioApi.collectionTasks.get(taskId.value);
+    if (sequence !== taskLoadSequence || taskId.value !== loadingTaskId) {
+      return;
+    }
     applyTask(task);
+    await loadDatasourcesForRuntimeCluster();
     await Promise.all(form.sourceBindings.map((item) => ensureModels(item.datasourceId)));
     await ensureModels(form.targetBinding.datasourceId);
     await Promise.all([
@@ -370,6 +413,9 @@ async function loadTask() {
     await resolveCustomSqlFieldsForActiveStep();
     syncHttpSoapWriterRequestBodyFromMappings();
   } catch (error) {
+    if (sequence !== taskLoadSequence || taskId.value !== loadingTaskId) {
+      return;
+    }
     const message = resolveErrorMessage(error, t("web.collectionTasks.loadFailed"));
     detailLoadError.value = message;
     ElMessage.error(message);
@@ -389,8 +435,13 @@ function applyTask(task: CollectionTaskDefinitionView) {
   const inferredCollectionMode = inferCollectionMode(task, executionOptions);
   const targetBinding = normalizeTargetBinding(cloneDeep(task.targetBinding ?? { datasourceId: "", modelId: "" }));
   migrateLegacyWriteMode(targetBinding, executionOptions);
+  runtimeValidation.invalid = task.runtimeValid === false;
+  runtimeValidation.message = task.runtimeValidationMessage ?? "";
   form.id = task.id;
   form.name = task.name;
+  ensureRuntimeClusterOption(task.runtimeClusterId, task.runtimeClusterName);
+  form.runtimeClusterId = task.runtimeClusterId ?? resolveInitialRuntimeClusterId() ?? "";
+  acceptRuntimeCluster(form.runtimeClusterId);
   form.executionOptions = {
     collectionMode: inferredCollectionMode,
     joinKeys: [],
@@ -422,13 +473,51 @@ async function ensureModels(datasourceId: unknown, keyword = "", force = false) 
   if (!key || key === "undefined" || key === "null" || (!normalizedKeyword && !force && modelCache.value[key])) {
     return;
   }
+  const requestSequence = (modelRequestSequences.get(key) ?? 0) + 1;
+  modelRequestSequences.set(key, requestSequence);
   const page = await studioApi.models.listDatasourceOptions(key, {
     keyword: normalizedKeyword || undefined,
     pageNo: 1,
     pageSize: MODEL_OPTION_PAGE_SIZE,
   });
+  if (modelRequestSequences.get(key) !== requestSequence) {
+    return;
+  }
   modelCache.value[key] = page.items;
   ensureSelectedModelOptionsForDatasource(key);
+}
+
+async function loadDatasourcesForRuntimeCluster() {
+  const clusterId = form.runtimeClusterId;
+  const sequence = ++datasourceLoadSequence;
+  if (!clusterId) {
+    datasources.value = [];
+    return;
+  }
+  const options = await studioApi.datasources.optionsByRuntimeCluster(clusterId);
+  if (sequence === datasourceLoadSequence && String(form.runtimeClusterId) === String(clusterId)) {
+    datasources.value = options;
+  }
+}
+
+async function handleRuntimeClusterChange() {
+  const nextRuntimeClusterId = form.runtimeClusterId;
+  if (!await confirmRuntimeClusterChange(nextRuntimeClusterId)) {
+    form.runtimeClusterId = acceptedRuntimeClusterId.value ?? "";
+    return;
+  }
+  form.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
+  form.sourceBindings = [normalizeSourceBinding({ sourceAlias: "src1", datasourceId: "", modelId: "" }, collectionMode.value, "src1")];
+  form.targetBinding = normalizeTargetBinding({ datasourceId: "", modelId: "" });
+  form.fieldMappings = [];
+  form.executionOptions = { ...form.executionOptions, fusionReaderOptions: undefined };
+  datasources.value = [];
+  modelCache.value = {};
+  modelRequestSequences.clear();
+  modelDetailCache.value = {};
+  runtimeSchemaCache.value = {};
+  customSqlFieldCache.value = {};
+  await loadDatasourcesForRuntimeCluster();
 }
 
 function resolveModelsByDatasource(datasourceId: unknown) {
@@ -1035,6 +1124,7 @@ async function resolveCustomSqlFields(source: CollectionTaskSourceBinding, showE
   try {
     const result = await studioApi.dataDevelopment.executeSql({
       datasourceId,
+      runtimeClusterId: form.runtimeClusterId,
       scriptType: "SQL",
       content: sql,
       maxRows: 1,
@@ -1437,6 +1527,10 @@ async function loadPreviewConfig() {
 async function saveTask() {
   if (detailLoadError.value && taskId.value) {
     ElMessage.error(detailLoadError.value);
+    return;
+  }
+  if (!form.runtimeClusterId) {
+    ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
     return;
   }
   if (!validateHttpSoapRuntimeOptions()) {

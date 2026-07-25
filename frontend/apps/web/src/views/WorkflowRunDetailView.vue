@@ -33,6 +33,8 @@
         <div class="summary-grid">
           <div><strong>{{ t("web.runs.workflow") }}:</strong> {{ runDetail?.workflowName || "--" }}</div>
           <div><strong>所属项目:</strong> {{ resolveProjectLabel(runDetail?.projectId) }}</div>
+          <div><strong>{{ t("web.runtimeClusterSelection.targetCluster") }}:</strong> {{ runClusterLabel(runDetail?.requestedClusterId) }}</div>
+          <div><strong>{{ t("web.runtimeClusterSelection.actualCluster") }}:</strong> {{ runClusterLabel(runDetail?.actualClusterId, runDetail?.actualClusterCode) }}</div>
           <div class="summary-status-row">
             <strong>{{ t("web.runs.status") }}:</strong>
             <StatusPill :label="formatStatusLabel(t, runDetail?.status)" :tone="toneFromStatus(runDetail?.status)" />
@@ -148,6 +150,7 @@ import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { formatNodeType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { sameEntityId } from "@/utils/runtimeClusters";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
 
 const { t } = useI18n();
@@ -177,6 +180,16 @@ const nodeStatuses = computed<Record<string, string>>(() => {
   }
   return result;
 });
+
+function runClusterLabel(clusterId?: string | number, clusterCode?: string) {
+  if (clusterCode?.trim()) {
+    return clusterCode.trim();
+  }
+  if (sameEntityId(clusterId, runDetail.value?.workflow?.runtimeClusterId) && runDetail.value?.workflow?.runtimeClusterName) {
+    return runDetail.value.workflow.runtimeClusterName;
+  }
+  return clusterId == null ? t("common.none") : `#${clusterId}`;
+}
 
 async function loadDetail() {
   try {

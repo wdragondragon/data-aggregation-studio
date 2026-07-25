@@ -27,7 +27,7 @@
     </SectionCard>
 
     <SectionCard title="服务列表" description="发布后可创建订阅 Token，外部系统调用入口会自动转换并转发。">
-      <StudioTableShell min-width="1500px">
+      <StudioTableShell min-width="1680px">
         <el-table :data="services" border>
           <el-table-column label="序号" width="76" align="center" header-align="center">
             <template #default="{ $index }">{{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}</template>
@@ -47,6 +47,9 @@
                 <span class="table-entity-cell__meta">{{ isSharedService(row) ? "共享来源" : "当前项目" }}</span>
               </div>
             </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runtimeClusterSelection.runtimeCluster')" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.runtimeClusterName || (row.runtimeClusterId != null ? `#${row.runtimeClusterId}` : t('common.none')) }}</template>
           </el-table-column>
           <el-table-column label="协议转换" min-width="230">
             <template #default="{ row }">
@@ -71,7 +74,10 @@
           </el-table-column>
           <el-table-column label="状态" width="110" align="center" header-align="center">
             <template #default="{ row }">
-              <StatusPill :label="statusLabel(row.status)" :tone="statusTone(row.status)" />
+              <el-tooltip v-if="row.runtimeValid === false" :content="row.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')" placement="top">
+                <span><StatusPill :label="t('web.runtimeClusterSelection.invalid')" tone="danger" /></span>
+              </el-tooltip>
+              <StatusPill v-else :label="statusLabel(row.status)" :tone="statusTone(row.status)" />
             </template>
           </el-table-column>
           <el-table-column prop="createdAt" label="创建时间" min-width="180" />
@@ -141,6 +147,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type {
   EntityId,
@@ -155,6 +162,7 @@ import { useAuthStore } from "@/stores/auth";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const router = useRouter();
+const { t } = useI18n();
 const authStore = useAuthStore();
 const services = ref<ProtocolConversionServiceListView[]>([]);
 const total = ref(0);
@@ -201,9 +209,9 @@ function handlePageSizeChange() {
 function buildActions(row: ProtocolConversionServiceListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/protocol-conversions/${row.id}/edit`); } },
-    { key: "debug", label: "调试", onClick: () => { void router.push(`/protocol-conversions/${row.id}/edit?debug=1`); } },
+    { key: "debug", label: "调试", disabled: row.runtimeValid === false, onClick: () => { void router.push(`/protocol-conversions/${row.id}/edit?debug=1`); } },
     { key: "accessLogs", label: "调用日志", onClick: () => { void router.push(`/protocol-conversions/access-logs?serviceId=${row.id}`); } },
-    { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", onClick: () => publishService(row) },
+    { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", disabled: row.runtimeValid === false, onClick: () => publishService(row) },
     { key: "offline", label: "下线", visible: row.status === "ONLINE", onClick: () => offlineService(row) },
     { key: "subscriptions", label: "订阅", onClick: () => openSubscriptions(row) },
     { key: "delete", label: "删除", type: "danger", onClick: () => deleteService(row) },

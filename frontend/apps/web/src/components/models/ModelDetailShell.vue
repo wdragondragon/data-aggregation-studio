@@ -2,6 +2,14 @@
   <div class="detail-toolbar">
     <el-button plain @click="actions.goBackToList">{{ t("common.backToList") }}</el-button>
     <div class="detail-toolbar__actions">
+      <el-select
+        :model-value="runtimeClusterId"
+        class="runtime-cluster-select"
+        :placeholder="t('web.models.runtimeClusterPlaceholder')"
+        @update:model-value="handleRuntimeClusterChange"
+      >
+        <el-option v-for="cluster in runtimeClusters" :key="cluster.id" :label="cluster.name" :value="cluster.id" />
+      </el-select>
       <el-button plain :disabled="!model?.datasourceId" @click="actions.openStatisticsWorkspace(model?.datasourceId)">{{ t("common.statistics") }}</el-button>
       <el-button plain @click="actions.refreshDetail">{{ t("common.refresh") }}</el-button>
       <el-button type="primary" :disabled="!model || shared" @click="actions.openDetailEdit">{{ t("common.edit") }}</el-button>
@@ -32,7 +40,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { DataModelDefinition, EntityId } from "@studio/api-sdk";
+import type { DataModelDefinition, EntityId, RuntimeClusterView } from "@studio/api-sdk";
 import ModelLineagePanel from "@/components/ModelLineagePanel.vue";
 import ModelDetailOverview from "./ModelDetailOverview.vue";
 import type { ModelMetaSection } from "./modelViewTypes";
@@ -46,6 +54,8 @@ defineProps<{
   previewRows: Record<string, unknown>[];
   previewColumns: string[];
   previewLoading?: boolean;
+  runtimeClusters: RuntimeClusterView[];
+  runtimeClusterId?: EntityId;
   resolveProjectLabel: (projectId?: EntityId | null) => string;
   previewSectionRows: (section: ModelMetaSection) => Record<string, unknown>[];
   sectionValue: (section: ModelMetaSection, fieldKey?: string, editor?: boolean) => unknown;
@@ -60,9 +70,14 @@ defineProps<{
 
 const emit = defineEmits<{
   "update:activeTab": [value: string];
+  "update:runtimeClusterId": [value?: EntityId];
 }>();
 
 const { t } = useI18n();
+
+function handleRuntimeClusterChange(value: unknown) {
+  emit("update:runtimeClusterId", value as EntityId | undefined);
+}
 </script>
 
 <style scoped>
@@ -78,6 +93,10 @@ const { t } = useI18n();
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.runtime-cluster-select {
+  width: min(260px, 42vw);
 }
 
 .model-detail-tabs :deep(.el-tabs__header) {

@@ -61,11 +61,14 @@
       :preview-rows="previewRows"
       :preview-columns="previewColumns"
       :preview-loading="loadingPreviewRows"
+      :runtime-clusters="previewRuntimeClusters"
+      :runtime-cluster-id="previewRuntimeClusterId"
       :resolve-project-label="resolveProjectLabel"
       :preview-section-rows="previewSectionRows"
       :section-value="sectionValue"
       :format-display-value="formatDisplayValue"
       :actions="modelDetailActions"
+      @update:runtime-cluster-id="handlePreviewRuntimeClusterChange"
     />
 
     <ModelSyncDialogs
@@ -77,6 +80,7 @@
       :syncing="syncing"
       :creating-sync-task="creatingSyncTask"
       :database-datasource-types="databaseDatasourceTypes"
+      :runtime-clusters="runtimeClusters"
       :sync-datasource-options="syncDatasourceOptions"
       :sync-task-datasource-options="syncTaskDatasourceOptions"
       :actions="syncDialogActions"
@@ -118,6 +122,7 @@ import type {
   EntityId,
   MetadataSchemaDefinition,
   ModelSyncTaskView,
+  RuntimeClusterView,
 } from "@studio/api-sdk";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -138,6 +143,7 @@ const router = useRouter();
 const { t } = useI18n();
 const authStore = useAuthStore();
 const datasources = ref<DataSourceOptionView[]>([]);
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 const schemas = ref<MetadataSchemaDefinition[]>([]);
 const schemaDetails = ref<Record<string, MetadataSchemaDefinition>>({});
 const models = ref<DataModelListView[]>([]);
@@ -151,6 +157,7 @@ const modelSortState = reactive({
   order: "descending" as "ascending" | "descending",
 });
 const previewRows = ref<Record<string, unknown>[]>([]);
+const previewRuntimeClusterId = ref<EntityId>();
 const loadingPreviewRows = ref(false);
 const queryGroups = ref<ModelQueryGroupState[]>([]);
 const selectedDatasourceType = ref("");
@@ -187,10 +194,12 @@ const modelForm = reactive<ModelFormState>({
 });
 
 const syncForm = reactive<ModelSyncFormState>({
+  runtimeClusterId: undefined,
   datasourceType: "",
 });
 
 const syncTaskForm = reactive<ModelSyncTaskFormState>({
+  runtimeClusterId: undefined,
   datasourceType: "",
   selectedLocators: [],
 });
@@ -222,17 +231,22 @@ const filteredDatasourceOptions = computed(() =>
 const selectedDatasource = computed(() => findDatasourceById(selectedDatasourceId.value));
 const activeQueryDatasourceType = computed(() => selectedDatasource.value?.typeCode ?? selectedDatasourceType.value);
 const editorDatasource = computed(() => findDatasourceById(modelForm.datasourceId));
+const previewDatasource = computed(() => findDatasourceById(selectedModel.value?.datasourceId));
+const previewRuntimeClusters = computed(() => applicableRuntimeClusters(previewDatasource.value));
 const databaseDatasourceTypes = computed(() =>
   Array.from(new Set(datasources.value.filter((item) => isDatabaseDatasourceType(item.typeCode)).map((item) => item.typeCode))).sort(),
 );
 const syncDatasourceOptions = computed(() =>
   datasources.value.filter(
-    (item) => isDatabaseDatasourceType(item.typeCode) && (!syncForm.datasourceType || item.typeCode === syncForm.datasourceType),
+    (item) => isDatabaseDatasourceType(item.typeCode)
+      && datasourceApplicableToCluster(item, syncForm.runtimeClusterId)
+      && (!syncForm.datasourceType || item.typeCode === syncForm.datasourceType),
   ),
 );
 const syncTaskDatasourceOptions = computed(() =>
   datasources.value.filter(
     (item) => isDatabaseDatasourceType(item.typeCode)
+      && datasourceApplicableToCluster(item, syncTaskForm.runtimeClusterId)
       && (!syncTaskForm.datasourceType || item.typeCode === syncTaskForm.datasourceType),
   ),
 );
@@ -359,8 +373,10 @@ const syncTaskSectionActions = {
   formatDurationMs: (durationMs?: number) => formatSyncTaskDurationMs(durationMs, t("common.none")),
 };
 const syncDialogActions = {
+  handleSyncRuntimeClusterChange,
   handleSyncDatasourceTypeChange,
   handleSyncDatasourceChange,
+  handleSyncTaskRuntimeClusterChange,
   handleSyncTaskFormDatasourceTypeChange,
   handleSyncTaskFormDatasourceChange,
   submitSync,
@@ -390,6 +406,23 @@ let previewLoadSeq = 0;
 
 function findDatasourceById(datasourceId?: EntityId) {
   return datasources.value.find((item) => sameId(item.id, datasourceId));
+}
+
+function datasourceApplicableToCluster(datasource: DataSourceOptionView, runtimeClusterId?: EntityId) {
+  if (runtimeClusterId == null) return false;
+  const ids = datasource.applicableClusterIds
+    ?? datasource.applicableClusters?.map((cluster) => cluster.id).filter((id): id is EntityId => id != null)
+    ?? [];
+  return ids.some((id) => sameId(id, runtimeClusterId));
+}
+
+function applicableRuntimeClusters(datasource?: DataSourceOptionView) {
+  if (!datasource) return [];
+  return runtimeClusters.value.filter((cluster) => datasourceApplicableToCluster(datasource, cluster.id));
+}
+
+function defaultRuntimeClusterId() {
+  return runtimeClusters.value.length === 1 ? runtimeClusters.value[0]?.id : undefined;
 }
 
 function toSchemaSummary(schema: MetadataSchemaDefinition) {
@@ -546,10 +579,17 @@ function handleModelSchemaChange() {
 }
 
 function openSyncDialog() {
+  syncForm.runtimeClusterId = defaultRuntimeClusterId();
   syncForm.datasourceType = "";
   syncForm.datasourceId = undefined;
   syncSelectedLocators.value = [];
   syncDialogOpen.value = true;
+}
+
+function handleSyncRuntimeClusterChange() {
+  syncForm.datasourceType = "";
+  syncForm.datasourceId = undefined;
+  syncSelectedLocators.value = [];
 }
 
 function handleSyncDatasourceTypeChange() {
@@ -562,10 +602,17 @@ function handleSyncDatasourceChange() {
 }
 
 function openCreateSyncTaskDialog() {
+  syncTaskForm.runtimeClusterId = defaultRuntimeClusterId();
   syncTaskForm.datasourceType = "";
   syncTaskForm.datasourceId = undefined;
   syncTaskForm.selectedLocators = [];
   syncTaskDialogOpen.value = true;
+}
+
+function handleSyncTaskRuntimeClusterChange() {
+  syncTaskForm.datasourceType = "";
+  syncTaskForm.datasourceId = undefined;
+  syncTaskForm.selectedLocators = [];
 }
 
 function handleSyncTaskFormDatasourceTypeChange() {
@@ -706,11 +753,13 @@ function removeSyncTaskRow(task: ModelSyncTaskView) {
 
 async function loadPage() {
   try {
-    const [datasourceData, schemaData] = await Promise.all([
-      studioApi.datasources.options(),
+    const [datasourceData, schemaData, runtimeClusterData] = await Promise.all([
+      studioApi.datasources.list(),
       studioApi.metaSchemas.list({ includeFields: false }),
+      studioApi.runtimeClusters.options(authStore.currentProjectId ?? undefined),
     ]);
     datasources.value = datasourceData;
+    runtimeClusters.value = runtimeClusterData;
     schemas.value = schemaData.map(toSchemaSummary);
     schemaDetails.value = {};
     if (selectedDatasourceType.value && !queryDatasourceTypes.value.some((item) => normalizeTypeCode(item) === normalizeTypeCode(selectedDatasourceType.value))) {
@@ -839,15 +888,35 @@ async function selectModel(model: DataModelDefinition) {
     loadingPreviewRows.value = false;
     return;
   }
-  void loadModelPreviewRows(model.id);
+  const clusters = applicableRuntimeClusters(datasource);
+  if (!clusters.some((cluster) => sameId(cluster.id, previewRuntimeClusterId.value))) {
+    previewRuntimeClusterId.value = clusters.length === 1 ? clusters[0]?.id : undefined;
+  }
+  if (previewRuntimeClusterId.value != null) {
+    void loadModelPreviewRows(model.id);
+  }
+}
+
+function handlePreviewRuntimeClusterChange(runtimeClusterId?: EntityId) {
+  previewRuntimeClusterId.value = runtimeClusterId;
+  if (selectedModel.value?.id && runtimeClusterId != null) {
+    void loadModelPreviewRows(selectedModel.value.id);
+  } else {
+    previewRows.value = [];
+  }
 }
 
 async function loadModelPreviewRows(modelId: EntityId) {
+  if (previewRuntimeClusterId.value == null) {
+    previewRows.value = [];
+    loadingPreviewRows.value = false;
+    return;
+  }
   const seq = ++previewLoadSeq;
   previewRows.value = [];
   loadingPreviewRows.value = true;
   try {
-    const rows = await studioApi.models.preview(modelId);
+    const rows = await studioApi.models.preview(modelId, 20, previewRuntimeClusterId.value);
     if (seq === previewLoadSeq && sameId(selectedModel.value?.id, modelId)) {
       previewRows.value = rows;
     }
@@ -904,6 +973,7 @@ async function loadModelDetail() {
   if (!detailModelId.value) {
     modelDetailLoadSeq += 1;
     selectedModel.value = undefined;
+    previewRuntimeClusterId.value = undefined;
     previewRows.value = [];
     loadingPreviewRows.value = false;
     previewLoadSeq += 1;
@@ -1004,6 +1074,10 @@ function sanitizeModelTechnicalMetadata(metadata: Record<string, unknown>) {
 }
 
 async function submitSync() {
+  if (!syncForm.runtimeClusterId) {
+    ElMessage.warning(t("web.models.runtimeClusterRequired"));
+    return;
+  }
   if (!syncForm.datasourceId) {
     ElMessage.warning(t("web.models.syncSelectDatasourceFirst"));
     return;
@@ -1020,6 +1094,7 @@ async function submitSync() {
         { type: "warning" },
       );
       const created = await studioApi.modelSyncTasks.create({
+        runtimeClusterId: syncForm.runtimeClusterId,
         datasourceId: syncForm.datasourceId,
         physicalLocators: cloneDeep(syncSelectedLocators.value),
         source: "AUTO_PAGE",
@@ -1046,6 +1121,7 @@ async function submitSync() {
       selectedDatasourceType.value = datasource.typeCode;
     }
     await studioApi.models.syncSelected(syncForm.datasourceId, {
+      runtimeClusterId: syncForm.runtimeClusterId,
       physicalLocators: cloneDeep(syncSelectedLocators.value),
     });
     modelPagination.page = 1;
@@ -1060,6 +1136,10 @@ async function submitSync() {
 }
 
 async function submitSyncTaskCreate() {
+  if (!syncTaskForm.runtimeClusterId) {
+    ElMessage.warning(t("web.models.runtimeClusterRequired"));
+    return;
+  }
   if (!syncTaskForm.datasourceId) {
     ElMessage.warning("请先选择数据源");
     return;
@@ -1071,6 +1151,7 @@ async function submitSyncTaskCreate() {
   creatingSyncTask.value = true;
   try {
     const created = await studioApi.modelSyncTasks.create({
+      runtimeClusterId: syncTaskForm.runtimeClusterId,
       datasourceId: syncTaskForm.datasourceId,
       physicalLocators: cloneDeep(syncTaskForm.selectedLocators),
       source: "MANUAL",

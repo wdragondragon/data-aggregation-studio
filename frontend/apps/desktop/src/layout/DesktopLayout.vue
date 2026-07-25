@@ -35,7 +35,10 @@ const unsubscribe = subscribeStudioApiLoading((loading) => {
   appLoading.value = loading;
 });
 
-const desktopMenus = computed(() => resolveDesktopMenus(t));
+const desktopMenus = computed(() => resolveDesktopMenus(t, [
+  ...authStore.systemRoleCodes,
+  ...authStore.effectiveRoleCodes,
+]));
 const activeMenuPath = computed(() => {
   const matched = desktopMenus.value.find((item) => route.path === item.path || route.path.startsWith(`${item.path}/`));
   return matched?.path ?? route.path;

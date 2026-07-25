@@ -35,6 +35,12 @@
             <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.SUCCESS)" :value="STUDIO_RUN_STATUS.SUCCESS" />
             <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.FAILED)" :value="STUDIO_RUN_STATUS.FAILED" />
           </el-select>
+          <el-select v-model="filters.requestedClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.targetCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`target-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="String(item.id)" />
+          </el-select>
+          <el-select v-model="filters.actualClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.actualCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`actual-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="String(item.id)" />
+          </el-select>
           <el-date-picker
             v-model="filters.timeRange"
             type="datetimerange"
@@ -72,7 +78,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.runs.runtimeTitle')" :description="t('web.runs.runtimeDescription')">
-      <StudioTableShell min-width="1280px">
+      <StudioTableShell min-width="1460px">
         <el-table
           :data="workflowRuns"
           border
@@ -105,6 +111,14 @@
           <el-table-column :label="t('web.runs.status')" width="108" align="center" header-align="center">
             <template #default="{ row }">
               <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runtimeClusterSelection.runtimePlacement')" min-width="220">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ t("web.runtimeClusterSelection.targetCluster") }}: {{ workflowTargetClusterLabel(row) }}</span>
+                <span class="cell-subtle">{{ t("web.runtimeClusterSelection.actualCluster") }}: {{ clusterLabel(row.actualClusterId, row.actualClusterCode) }}</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" min-width="190">
@@ -151,7 +165,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { WorkflowOptionView, WorkflowRunSummary } from "@studio/api-sdk";
+import type { EntityId, RuntimeClusterView, WorkflowOptionView, WorkflowRunSummary } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
@@ -161,6 +175,7 @@ import { usePageQuery } from "@/composables/usePageQuery";
 import { resolveErrorMessage } from "@/composables/useAsyncAction";
 import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { formatRuntimeClusterLabel } from "@/utils/runtimeClusters";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -168,15 +183,20 @@ const router = useRouter();
 const authStore = useAuthStore();
 const workflows = ref<WorkflowOptionView[]>([]);
 const workflowRuns = ref<WorkflowRunSummary[]>([]);
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 const workflowRunTotal = ref(0);
 const { pagination, resetPage, setPage, setPageSize, ensureValidPage } = usePageQuery(10);
 const filters = ref<{
   workflowDefinitionId: string;
   status: string;
+  requestedClusterId: string;
+  actualClusterId: string;
   timeRange: [string, string] | [];
 }>({
   workflowDefinitionId: "",
   status: "",
+  requestedClusterId: "",
+  actualClusterId: "",
   timeRange: [],
 });
 
@@ -193,10 +213,14 @@ const successCount = computed(() =>
 function syncFiltersFromRoute() {
   const workflowDefinitionId = route.query.workflowDefinitionId;
   const status = route.query.status;
+  const requestedClusterId = route.query.requestedClusterId;
+  const actualClusterId = route.query.actualClusterId;
   const startTime = route.query.startTime;
   const endTime = route.query.endTime;
   filters.value.workflowDefinitionId = Array.isArray(workflowDefinitionId) ? workflowDefinitionId[0] || "" : String(workflowDefinitionId || "");
   filters.value.status = Array.isArray(status) ? status[0] || "" : String(status || "");
+  filters.value.requestedClusterId = Array.isArray(requestedClusterId) ? requestedClusterId[0] || "" : String(requestedClusterId || "");
+  filters.value.actualClusterId = Array.isArray(actualClusterId) ? actualClusterId[0] || "" : String(actualClusterId || "");
   const startValue = Array.isArray(startTime) ? startTime[0] || "" : String(startTime || "");
   const endValue = Array.isArray(endTime) ? endTime[0] || "" : String(endTime || "");
   filters.value.timeRange = startValue && endValue ? [startValue, endValue] : [];
@@ -210,11 +234,21 @@ async function loadWorkflows() {
   }
 }
 
+async function loadRuntimeClusters() {
+  try {
+    runtimeClusters.value = await studioApi.runtimeClusters.options();
+  } catch {
+    runtimeClusters.value = [];
+  }
+}
+
 async function loadWorkflowRuns() {
   try {
     const response = await studioApi.workflowRuns.list({
       workflowDefinitionId: filters.value.workflowDefinitionId || undefined,
       status: filters.value.status || undefined,
+      requestedClusterId: filters.value.requestedClusterId || undefined,
+      actualClusterId: filters.value.actualClusterId || undefined,
       startTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[0] : undefined,
       endTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[1] : undefined,
       pageNo: pagination.page,
@@ -238,6 +272,12 @@ function applyFilters() {
   if (filters.value.status) {
     query.status = filters.value.status;
   }
+  if (filters.value.requestedClusterId) {
+    query.requestedClusterId = filters.value.requestedClusterId;
+  }
+  if (filters.value.actualClusterId) {
+    query.actualClusterId = filters.value.actualClusterId;
+  }
   if (filters.value.timeRange.length === 2) {
     query.startTime = filters.value.timeRange[0];
     query.endTime = filters.value.timeRange[1];
@@ -249,6 +289,8 @@ function applyFilters() {
 function resetFilters() {
   filters.value.workflowDefinitionId = "";
   filters.value.status = "";
+  filters.value.requestedClusterId = "";
+  filters.value.actualClusterId = "";
   filters.value.timeRange = [];
   resetPage();
   router.push({ path: "/runs" });
@@ -284,6 +326,19 @@ function isSharedRun(item: WorkflowRunSummary) {
   return isSharedFromAnotherProject(authStore.currentProjectId, item.projectId);
 }
 
+function clusterLabel(clusterId?: EntityId, clusterCode?: string) {
+  return formatRuntimeClusterLabel(runtimeClusters.value, clusterId, clusterCode);
+}
+
+function workflowTargetClusterLabel(item: WorkflowRunSummary) {
+  if (item.requestedClusterId != null) return clusterLabel(item.requestedClusterId);
+  const workflow = workflows.value.find((candidate) => String(candidate.id) === String(item.workflowDefinitionId));
+  const configured = clusterLabel(workflow?.runtimeClusterId);
+  return workflow?.runtimeClusterId == null
+    ? configured
+    : `${configured} · ${t("web.runtimeClusterSelection.configuredCluster")}`;
+}
+
 function formatDurationMs(durationMs?: number) {
   if (durationMs == null || Number.isNaN(Number(durationMs))) {
     return t("common.none");
@@ -311,7 +366,7 @@ function formatNodeStats(item: WorkflowRunSummary) {
 
 onMounted(async () => {
   syncFiltersFromRoute();
-  await Promise.all([loadWorkflows(), loadWorkflowRuns()]);
+  await Promise.all([loadWorkflows(), loadRuntimeClusters(), loadWorkflowRuns()]);
 });
 
 watch(
@@ -326,7 +381,7 @@ watch(
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
     resetPage();
-    await Promise.all([loadWorkflows(), loadWorkflowRuns()]);
+    await Promise.all([loadWorkflows(), loadRuntimeClusters(), loadWorkflowRuns()]);
   }
 });
 </script>

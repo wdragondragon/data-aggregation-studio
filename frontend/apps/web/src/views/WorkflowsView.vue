@@ -52,9 +52,15 @@
               </div>
             </template>
           </el-table-column>
+          <el-table-column :label="t('web.runtimeClusterSelection.runtimeCluster')" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.runtimeClusterName || (row.runtimeClusterId != null ? `#${row.runtimeClusterId}` : t('common.none')) }}</template>
+          </el-table-column>
           <el-table-column :label="t('web.workflows.status')" width="120" align="center" header-align="center">
             <template #default="{ row }">
-              <StatusPill :label="row.published ? t('common.published') : t('common.draft')" :tone="row.published ? 'success' : 'warning'" />
+              <el-tooltip v-if="row.runtimeValid === false" :content="row.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')" placement="top">
+                <span><StatusPill :label="t('web.runtimeClusterSelection.invalid')" tone="danger" /></span>
+              </el-tooltip>
+              <StatusPill v-else :label="row.published ? t('common.published') : t('common.draft')" :tone="row.published ? 'success' : 'warning'" />
             </template>
           </el-table-column>
           <el-table-column :label="t('web.workflows.scheduleEnabled')" width="120" align="center" header-align="center">
@@ -92,6 +98,16 @@
         <el-button type="primary" @click="router.push('/workflows/new')">{{ t("common.newWorkflow") }}</el-button>
       </div>
     </SectionCard>
+    <ManualRunClusterDialog
+      v-if="manualRunWorkflow"
+      v-model="manualRunDialogVisible"
+      :resource-name="manualRunWorkflow.name"
+      :default-cluster-id="manualRunWorkflow.runtimeClusterId"
+      :default-cluster-name="manualRunWorkflow.runtimeClusterName"
+      :shared="isSharedWorkflow(manualRunWorkflow)"
+      :submitting="manualRunSubmitting"
+      @confirm="confirmManualRun"
+    />
   </div>
 </template>
 
@@ -100,14 +116,16 @@ import { onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { WorkflowListView } from "@studio/api-sdk";
+import type { EntityId, WorkflowListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
+import ManualRunClusterDialog from "@/components/ManualRunClusterDialog.vue";
 import { useAuthStore } from "@/stores/auth";
 import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import { STUDIO_RESOURCE_TYPE } from "@/constants/studioDomain";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
+import { isRuntimeManualTriggerDisabled, sameEntityId } from "@/utils/runtimeClusters";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -115,6 +133,9 @@ const authStore = useAuthStore();
 const workflows = ref<WorkflowListView[]>([]);
 const workflowTotal = ref(0);
 const workflowPagination = reactive({ page: 1, pageSize: 20 });
+const manualRunWorkflow = ref<WorkflowListView | null>(null);
+const manualRunDialogVisible = ref(false);
+const manualRunSubmitting = ref(false);
 
 async function loadWorkflows() {
   try {
@@ -168,8 +189,8 @@ function buildWorkflowActions(workflow: WorkflowListView) {
   return [
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editWorkflow(workflow) },
     { key: "logs", label: t("web.workflows.logsEntry"), onClick: () => viewWorkflowLogs(workflow) },
-    { key: "publish", label: t("common.publish"), type: "success", disabled: shared || !workflow.id, onClick: () => publishWorkflow(workflow) },
-    { key: "trigger", label: t("common.trigger"), type: "warning", disabled: !workflow.id, onClick: () => triggerWorkflow(workflow) },
+    { key: "publish", label: t("common.publish"), type: "success", disabled: shared || !workflow.id || workflow.runtimeValid === false, onClick: () => publishWorkflow(workflow) },
+    { key: "trigger", label: t("common.trigger"), type: "warning", disabled: !workflow.id || isRuntimeManualTriggerDisabled(shared, workflow.runtimeValid === false), onClick: () => triggerWorkflow(workflow) },
     { key: "delete", label: t("common.delete"), type: "danger", disabled: shared || !workflow.id, onClick: () => deleteWorkflow(workflow) },
   ];
 }
@@ -222,12 +243,24 @@ async function triggerWorkflow(workflow: WorkflowListView) {
   if (!workflow.id) {
     return;
   }
+  manualRunWorkflow.value = workflow;
+  manualRunDialogVisible.value = true;
+}
+
+async function confirmManualRun(runtimeClusterId?: EntityId) {
+  const workflow = manualRunWorkflow.value;
+  if (!workflow?.id) return;
+  manualRunSubmitting.value = true;
   try {
-    await studioApi.workflows.trigger(workflow.id);
+    const overrideId = sameEntityId(runtimeClusterId, workflow.runtimeClusterId) ? undefined : runtimeClusterId;
+    await studioApi.workflows.trigger(workflow.id, overrideId);
+    manualRunDialogVisible.value = false;
     ElMessage.success(t("web.workflows.triggerSuccess"));
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     ElMessage.error(message.includes("Workflow already has an active run") ? t("web.workflows.activeRunTriggerHint") : message || t("web.workflows.triggerFailed"));
+  } finally {
+    manualRunSubmitting.value = false;
   }
 }
 

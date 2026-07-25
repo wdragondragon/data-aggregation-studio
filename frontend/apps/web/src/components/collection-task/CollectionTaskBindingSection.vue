@@ -1,6 +1,11 @@
 <template>
   <SectionCard :title="t('web.collectionTasks.bindingTitle')" :description="t('web.collectionTasks.bindingDescription')">
     <div class="studio-form-grid">
+      <el-form-item :label="t('web.runtimeClusterSelection.runtimeCluster')" required>
+        <el-select v-model="form.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="onRuntimeClusterChange">
+          <el-option v-for="cluster in runtimeClusters" :key="String(cluster.id)" :label="runtimeClusterOptionLabel(cluster)" :value="cluster.id" :disabled="runtimeClusterOptionDisabled(cluster)" />
+        </el-select>
+      </el-form-item>
       <el-form-item :label="t('web.collectionTasks.name')">
         <el-input v-model="form.name" :placeholder="t('web.collectionTasks.namePlaceholder')" />
       </el-form-item>
@@ -24,6 +29,7 @@
         <el-button type="primary" plain @click="bindingActions.appendSourceBinding">{{ t("common.addRow") }}</el-button>
       </div>
 
+      <StudioTableShell min-width="720px">
       <el-table :data="form.sourceBindings" border>
         <el-table-column v-if="isFusionTask" :label="t('web.collectionTasks.sourceAlias')" min-width="150">
           <template #default="{ row }">
@@ -36,6 +42,7 @@
             <el-select
               :model-value="String(row.datasourceId ?? '')"
               filterable
+              :disabled="!form.runtimeClusterId"
               :placeholder="t('web.collectionTasks.datasourcePlaceholder')"
               @update:model-value="bindingActions.handleSourceDatasourceChange(row, $event)"
             >
@@ -50,6 +57,7 @@
               :model-value="String(row.modelId ?? '')"
               filterable
               remote
+              :disabled="!form.runtimeClusterId || !row.datasourceId"
               :placeholder="t('web.collectionTasks.modelPlaceholder')"
               :remote-method="sourceModelRemoteMethod(row)"
               @visible-change="sourceModelVisibleChange(row)"
@@ -73,6 +81,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </StudioTableShell>
     </div>
 
     <div v-if="form.sourceBindings.length" class="advanced-options">
@@ -193,6 +202,7 @@
           <el-select
             :model-value="String(form.targetBinding.datasourceId ?? '')"
             filterable
+            :disabled="!form.runtimeClusterId"
             :placeholder="t('web.collectionTasks.datasourcePlaceholder')"
             @update:model-value="bindingActions.handleTargetDatasourceChange"
           >
@@ -204,6 +214,7 @@
             :model-value="String(form.targetBinding.modelId ?? '')"
             filterable
             remote
+            :disabled="!form.runtimeClusterId || !form.targetBinding.datasourceId"
             :placeholder="t('web.collectionTasks.modelPlaceholder')"
             :remote-method="targetModelRemoteMethod"
             @visible-change="targetModelVisibleChange"
@@ -288,9 +299,10 @@ import type {
   DataSourceOptionView,
   MetadataFieldDefinition,
   PluginRuntimeOptionSchemaView,
+  RuntimeClusterView,
 } from "@studio/api-sdk";
 import { MetaFormRenderer } from "@studio/meta-form";
-import { SectionCard } from "@studio/ui";
+import { SectionCard, StudioTableShell } from "@studio/ui";
 import HttpRequestOptionsEditor from "@web/components/HttpRequestOptionsEditor.vue";
 import HttpWebServiceOptionsEditor from "@web/components/HttpWebServiceOptionsEditor.vue";
 
@@ -298,6 +310,7 @@ type RuntimeOptionRole = "reader" | "writer";
 
 interface BindingSectionForm {
   name: string;
+  runtimeClusterId: unknown;
   sourceBindings: CollectionTaskSourceBinding[];
   targetBinding: CollectionTaskTargetBinding;
 }
@@ -349,6 +362,12 @@ const props = defineProps<{
   collectionMode: string;
   isFusionTask: boolean;
   datasources: DataSourceOptionView[];
+  runtimeClusters: RuntimeClusterView[];
+  runtimeClustersLoading: boolean;
+  singleRuntimeCluster: boolean;
+  runtimeClusterOptionLabel: (cluster: RuntimeClusterView) => string;
+  runtimeClusterOptionDisabled: (cluster: RuntimeClusterView) => boolean;
+  onRuntimeClusterChange: () => void | Promise<void>;
   writerAdvancedFields: MetadataFieldDefinition[];
   bindingActions: CollectionTaskBindingActions;
 }>();
@@ -479,5 +498,19 @@ p {
   color: var(--studio-text-soft);
   font-size: 12px;
   line-height: 1.3;
+}
+
+@media (max-width: 640px) {
+  .section-toolbar,
+  .runtime-option-header,
+  .incremental-cursor {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .section-toolbar .el-button,
+  .incremental-cursor .el-button {
+    width: 100%;
+  }
 }
 </style>

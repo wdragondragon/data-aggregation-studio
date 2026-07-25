@@ -97,6 +97,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     captionKey: "routes.web.menuGroups.administration.caption",
     items: [
       { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN"] },
+      { path: "/runtime-clusters", labelKey: "routes.web.runtimeClusters.title", captionKey: "routes.web.runtimeClusters.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"] },
       { path: "/script-environments", labelKey: "routes.web.scriptEnvironments.title", captionKey: "routes.web.scriptEnvironments.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN", "ADMIN"] },
     ],
   },
@@ -648,6 +649,16 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/runtime-clusters",
+        name: "runtime-clusters",
+        component: () => import("@/views/RuntimeClustersView.vue"),
+        meta: {
+          titleKey: "routes.web.runtimeClusters.title",
+          subtitleKey: "routes.web.runtimeClusters.subtitle",
+          requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"],
+        },
+      },
+      {
         path: "/system",
         name: "system",
         component: () => import("@/views/SystemView.vue"),
@@ -731,6 +742,13 @@ function canAccessWithoutProject(path: string, authStore: ReturnType<typeof useA
     return true;
   }
   if (path === "/system" || path.startsWith("/system/")) {
+    const roleCodes = [
+      ...(authStore.systemRoleCodes ?? []),
+      ...(authStore.effectiveRoleCodes ?? []),
+    ].map((item) => item.toUpperCase());
+    return roleCodes.includes("SUPER_ADMIN") || roleCodes.includes("TENANT_ADMIN");
+  }
+  if (path === "/runtime-clusters" || path.startsWith("/runtime-clusters/")) {
     const roleCodes = [
       ...(authStore.systemRoleCodes ?? []),
       ...(authStore.effectiveRoleCodes ?? []),

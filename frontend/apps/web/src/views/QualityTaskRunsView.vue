@@ -34,6 +34,12 @@
             <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.SUCCESS)" :value="STUDIO_RUN_STATUS.SUCCESS" />
             <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.FAILED)" :value="STUDIO_RUN_STATUS.FAILED" />
           </el-select>
+          <el-select v-model="filters.requestedClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.targetCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`target-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="String(item.id)" />
+          </el-select>
+          <el-select v-model="filters.actualClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.actualCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`actual-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="String(item.id)" />
+          </el-select>
           <el-date-picker
             v-model="filters.timeRange"
             type="datetimerange"
@@ -71,7 +77,7 @@
     </SectionCard>
 
     <SectionCard title="运行列表" description="每一行代表一次质量任务运行，点击“查看日志”按统一抽屉方式打开日志详情。">
-      <StudioTableShell min-width="1180px">
+      <StudioTableShell min-width="1400px">
         <el-table
           :data="pagedRunRecords"
           border
@@ -112,6 +118,14 @@
           <el-table-column label="执行节点" min-width="150">
             <template #default="{ row }">
               <span>{{ row.workerGroupCode || row.workerCode || t("common.none") }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runtimeClusterSelection.runtimePlacement')" min-width="220">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ t("web.runtimeClusterSelection.targetCluster") }}: {{ clusterLabel(row.requestedClusterId) }}</span>
+                <span class="cell-subtle">{{ t("web.runtimeClusterSelection.actualCluster") }}: {{ clusterLabel(row.actualClusterId, row.actualClusterCode) }}</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="开始 / 耗时" min-width="190">
@@ -159,7 +173,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { QualityTaskOptionView, RunRecordListView } from "@studio/api-sdk";
+import type { EntityId, QualityTaskOptionView, RunRecordListView, RuntimeClusterView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -169,6 +183,7 @@ import { getPaginatedRowNumber } from "@/composables/useClientPagination";
 import { usePageQuery } from "@/composables/usePageQuery";
 import { STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, resolveProjectName, toneFromStatus } from "@/utils/studio";
+import { formatRuntimeClusterLabel } from "@/utils/runtimeClusters";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -183,14 +198,19 @@ const runningCount = ref(0);
 const successCount = ref(0);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 
 const filters = ref<{
   qualityTaskId: string;
   status: string;
+  requestedClusterId: string;
+  actualClusterId: string;
   timeRange: [string, string] | [];
 }>({
   qualityTaskId: "",
   status: "",
+  requestedClusterId: "",
+  actualClusterId: "",
   timeRange: [],
 });
 
@@ -210,12 +230,16 @@ function syncFiltersFromRoute() {
   const qualityTaskId = route.query.qualityTaskId;
   const runRecordId = route.query.runRecordId;
   const status = route.query.status;
+  const requestedClusterId = route.query.requestedClusterId;
+  const actualClusterId = route.query.actualClusterId;
   const startTime = route.query.startTime;
   const endTime = route.query.endTime;
   filters.value.qualityTaskId = Array.isArray(qualityTaskId) ? qualityTaskId[0] || "" : String(qualityTaskId || "");
   const runRecordValue = Array.isArray(runRecordId) ? runRecordId[0] : runRecordId;
   activeRunRecordId.value = runRecordValue == null || runRecordValue === "" ? undefined : String(runRecordValue);
   filters.value.status = Array.isArray(status) ? status[0] || "" : String(status || "");
+  filters.value.requestedClusterId = Array.isArray(requestedClusterId) ? requestedClusterId[0] || "" : String(requestedClusterId || "");
+  filters.value.actualClusterId = Array.isArray(actualClusterId) ? actualClusterId[0] || "" : String(actualClusterId || "");
   const startValue = Array.isArray(startTime) ? startTime[0] || "" : String(startTime || "");
   const endValue = Array.isArray(endTime) ? endTime[0] || "" : String(endTime || "");
   filters.value.timeRange = startValue && endValue ? [startValue, endValue] : [];
@@ -235,6 +259,8 @@ async function loadTaskRuns() {
       qualityTaskId: filters.value.qualityTaskId || undefined,
       qualityTaskOnly: true,
       status: filters.value.status || undefined,
+      requestedClusterId: filters.value.requestedClusterId || undefined,
+      actualClusterId: filters.value.actualClusterId || undefined,
       startTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[0] : undefined,
       endTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[1] : undefined,
       pageNo: pagination.page,
@@ -261,6 +287,8 @@ function applyFilters() {
   if (filters.value.status) {
     query.status = filters.value.status;
   }
+  if (filters.value.requestedClusterId) query.requestedClusterId = filters.value.requestedClusterId;
+  if (filters.value.actualClusterId) query.actualClusterId = filters.value.actualClusterId;
   if (filters.value.timeRange.length === 2) {
     query.startTime = filters.value.timeRange[0];
     query.endTime = filters.value.timeRange[1];
@@ -269,9 +297,19 @@ function applyFilters() {
   void navigateOrReload(query);
 }
 
+async function loadRuntimeClusters() {
+  try {
+    runtimeClusters.value = await studioApi.runtimeClusters.options();
+  } catch {
+    runtimeClusters.value = [];
+  }
+}
+
 function resetFilters() {
   filters.value.qualityTaskId = "";
   filters.value.status = "";
+  filters.value.requestedClusterId = "";
+  filters.value.actualClusterId = "";
   filters.value.timeRange = [];
   resetPage();
   activeRunRecordId.value = undefined;
@@ -304,6 +342,10 @@ function openQualityTask(taskId: string | number) {
 
 function resolveProjectLabel(projectId?: string | number | null) {
   return resolveProjectName(authStore.projects, projectId);
+}
+
+function clusterLabel(clusterId?: EntityId, clusterCode?: string) {
+  return formatRuntimeClusterLabel(runtimeClusters.value, clusterId, clusterCode);
 }
 
 function resolveRuleSummary(row: RunRecordListView) {
@@ -377,7 +419,7 @@ watch(logDrawerVisible, (value) => {
 
 onMounted(async () => {
   syncFiltersFromRoute();
-  await Promise.all([loadQualityTasks(), loadTaskRuns()]);
+  await Promise.all([loadQualityTasks(), loadRuntimeClusters(), loadTaskRuns()]);
 });
 
 watch(
@@ -392,7 +434,7 @@ watch(
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
     resetPage();
-    await Promise.all([loadQualityTasks(), loadTaskRuns()]);
+    await Promise.all([loadQualityTasks(), loadRuntimeClusters(), loadTaskRuns()]);
   }
 });
 </script>

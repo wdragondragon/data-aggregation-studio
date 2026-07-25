@@ -41,6 +41,12 @@
             <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.SUCCESS)" :value="STUDIO_RUN_STATUS.SUCCESS" />
             <el-option :label="formatStatusLabel(t, STUDIO_RUN_STATUS.FAILED)" :value="STUDIO_RUN_STATUS.FAILED" />
           </el-select>
+          <el-select v-model="filters.requestedClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.targetCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`target-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="String(item.id)" />
+          </el-select>
+          <el-select v-model="filters.actualClusterId" clearable filterable :placeholder="t('web.runtimeClusterSelection.actualCluster')">
+            <el-option v-for="item in runtimeClusters" :key="`actual-${String(item.id)}`" :label="clusterLabel(item.id, item.code)" :value="String(item.id)" />
+          </el-select>
           <el-date-picker
             v-model="filters.timeRange"
             type="datetimerange"
@@ -78,7 +84,7 @@
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTaskRuns.runtimeTitle')" :description="t('web.collectionTaskRuns.runtimeDescription')">
-      <StudioTableShell min-width="1280px">
+      <StudioTableShell min-width="1480px">
         <el-table
           :data="pagedRunRecords"
           border
@@ -118,6 +124,14 @@
           <el-table-column :label="t('web.runs.worker')" width="170" show-overflow-tooltip>
             <template #default="{ row }">
               <span class="mono-ellipsis">{{ row.workerGroupCode || row.workerCode || t("common.none") }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runtimeClusterSelection.runtimePlacement')" min-width="220">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ t("web.runtimeClusterSelection.targetCluster") }}: {{ clusterLabel(row.requestedClusterId) }}</span>
+                <span class="cell-subtle">{{ t("web.runtimeClusterSelection.actualCluster") }}: {{ clusterLabel(row.actualClusterId, row.actualClusterCode) }}</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column :label="`${t('web.runs.startedAt')} / ${t('web.runs.duration')}`" width="200">
@@ -175,7 +189,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskOptionView, RunRecordListView } from "@studio/api-sdk";
+import type { CollectionTaskOptionView, EntityId, RunRecordListView, RuntimeClusterView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -187,6 +201,7 @@ import { usePageQuery } from "@/composables/usePageQuery";
 import { STUDIO_RESOURCE_TYPE, STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatStatusLabel, resolveProjectName, toneFromStatus } from "@/utils/studio";
 import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/runMetrics";
+import { formatRuntimeClusterLabel } from "@/utils/runtimeClusters";
 
 const { t } = useI18n();
 const route = useRoute();
@@ -201,14 +216,19 @@ const runningCount = ref(0);
 const successCount = ref(0);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
+const runtimeClusters = ref<RuntimeClusterView[]>([]);
 
 const filters = ref<{
   collectionTaskId: string;
   status: string;
+  requestedClusterId: string;
+  actualClusterId: string;
   timeRange: [string, string] | [];
 }>({
   collectionTaskId: "",
   status: "",
+  requestedClusterId: "",
+  actualClusterId: "",
   timeRange: [],
 });
 
@@ -222,12 +242,16 @@ function syncFiltersFromRoute() {
   const collectionTaskId = route.query.collectionTaskId;
   const runRecordId = route.query.runRecordId;
   const status = route.query.status;
+  const requestedClusterId = route.query.requestedClusterId;
+  const actualClusterId = route.query.actualClusterId;
   const startTime = route.query.startTime;
   const endTime = route.query.endTime;
   filters.value.collectionTaskId = Array.isArray(collectionTaskId) ? collectionTaskId[0] || "" : String(collectionTaskId || "");
   const runRecordValue = Array.isArray(runRecordId) ? runRecordId[0] : runRecordId;
   activeRunRecordId.value = runRecordValue == null || runRecordValue === "" ? undefined : String(runRecordValue);
   filters.value.status = Array.isArray(status) ? status[0] || "" : String(status || "");
+  filters.value.requestedClusterId = Array.isArray(requestedClusterId) ? requestedClusterId[0] || "" : String(requestedClusterId || "");
+  filters.value.actualClusterId = Array.isArray(actualClusterId) ? actualClusterId[0] || "" : String(actualClusterId || "");
   const startValue = Array.isArray(startTime) ? startTime[0] || "" : String(startTime || "");
   const endValue = Array.isArray(endTime) ? endTime[0] || "" : String(endTime || "");
   filters.value.timeRange = startValue && endValue ? [startValue, endValue] : [];
@@ -241,12 +265,22 @@ async function loadCollectionTasks() {
   }
 }
 
+async function loadRuntimeClusters() {
+  try {
+    runtimeClusters.value = await studioApi.runtimeClusters.options();
+  } catch {
+    runtimeClusters.value = [];
+  }
+}
+
 async function loadTaskRuns() {
   try {
     const response = await studioApi.runs.listPage({
       collectionTaskId: filters.value.collectionTaskId || undefined,
       collectionTaskOnly: true,
       status: filters.value.status || undefined,
+      requestedClusterId: filters.value.requestedClusterId || undefined,
+      actualClusterId: filters.value.actualClusterId || undefined,
       startTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[0] : undefined,
       endTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[1] : undefined,
       pageNo: pagination.page,
@@ -273,6 +307,8 @@ function applyFilters() {
   if (filters.value.status) {
     query.status = filters.value.status;
   }
+  if (filters.value.requestedClusterId) query.requestedClusterId = filters.value.requestedClusterId;
+  if (filters.value.actualClusterId) query.actualClusterId = filters.value.actualClusterId;
   if (filters.value.timeRange.length === 2) {
     query.startTime = filters.value.timeRange[0];
     query.endTime = filters.value.timeRange[1];
@@ -284,6 +320,8 @@ function applyFilters() {
 function resetFilters() {
   filters.value.collectionTaskId = "";
   filters.value.status = "";
+  filters.value.requestedClusterId = "";
+  filters.value.actualClusterId = "";
   filters.value.timeRange = [];
   resetPage();
   void navigateOrReload({});
@@ -311,6 +349,10 @@ function handlePageSizeChange(pageSize: number) {
 
 function resolveProjectLabel(projectId?: string | number | null) {
   return resolveProjectName(authStore.projects, projectId);
+}
+
+function clusterLabel(clusterId?: EntityId, clusterCode?: string) {
+  return formatRuntimeClusterLabel(runtimeClusters.value, clusterId, clusterCode);
 }
 
 function openCollectionTask(taskId: string | number) {
@@ -363,7 +405,7 @@ watch(logDrawerVisible, (value) => {
 
 onMounted(async () => {
   syncFiltersFromRoute();
-  await Promise.all([loadCollectionTasks(), loadTaskRuns()]);
+  await Promise.all([loadCollectionTasks(), loadRuntimeClusters(), loadTaskRuns()]);
 });
 
 watch(
@@ -378,7 +420,7 @@ watch(
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (authStore.isAuthenticated) {
     resetPage();
-    await Promise.all([loadCollectionTasks(), loadTaskRuns()]);
+    await Promise.all([loadCollectionTasks(), loadRuntimeClusters(), loadTaskRuns()]);
   }
 });
 </script>

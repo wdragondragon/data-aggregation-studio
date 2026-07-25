@@ -18,6 +18,8 @@
           </div>
           <div><strong>{{ t("web.runs.worker") }}:</strong> {{ activeRunRecord.workerGroupCode ?? activeRunRecord.workerCode ?? t("common.none") }}</div>
           <div v-if="activeRunRecord.workerInstanceId"><strong>Worker 实例:</strong> {{ activeRunRecord.workerInstanceId }}</div>
+          <div><strong>{{ t("web.runtimeClusterSelection.targetCluster") }}:</strong> {{ runClusterLabel(activeRunRecord.requestedClusterId) }}</div>
+          <div><strong>{{ t("web.runtimeClusterSelection.actualCluster") }}:</strong> {{ runClusterLabel(activeRunRecord.actualClusterId, activeRunRecord.actualClusterCode) }}</div>
           <div v-if="isCollectionTaskVariant || isQualityTaskVariant"><strong>{{ t("web.runs.startedAt") }}:</strong> {{ activeRunRecord.startedAt ?? t("common.none") }}</div>
         </div>
 
@@ -148,6 +150,13 @@ const runTargetName = computed(() => {
   }
   return activeRunRecord.value?.collectionTaskName ?? t("common.none");
 });
+
+function runClusterLabel(clusterId?: EntityId, clusterCode?: string) {
+  if (clusterCode?.trim()) {
+    return clusterCode.trim();
+  }
+  return clusterId == null ? t("common.none") : `#${clusterId}`;
+}
 
 const displayedLogContent = computed(() => {
   const content = activeRunLog.value?.content;

@@ -2,11 +2,20 @@
   <el-dialog
     :model-value="syncDialogOpen"
     :title="t('web.models.syncDialogTitle')"
-    width="72%"
+    width="min(1120px, 94vw)"
     @update:model-value="emit('update:syncDialogOpen', $event)"
   >
     <p class="dialog-description">{{ t("web.models.syncDialogDescription") }}</p>
     <div class="studio-form-grid">
+      <el-form-item :label="t('web.models.runtimeCluster')">
+        <el-select
+          v-model="syncForm.runtimeClusterId"
+          :placeholder="t('web.models.runtimeClusterPlaceholder')"
+          @change="actions.handleSyncRuntimeClusterChange"
+        >
+          <el-option v-for="cluster in runtimeClusters" :key="cluster.id" :label="cluster.name" :value="cluster.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item :label="t('web.models.syncDatasourceType')">
         <el-select
           v-model="syncForm.datasourceType"
@@ -26,6 +35,7 @@
         <el-select
           v-model="syncForm.datasourceId"
           clearable
+          :disabled="!syncForm.runtimeClusterId"
           :placeholder="t('web.models.syncDatasourcePlaceholder')"
           @change="actions.handleSyncDatasourceChange"
         >
@@ -41,6 +51,7 @@
 
     <ModelSyncTableSelector
       :model-value="selectedLocators"
+      :runtime-cluster-id="syncForm.runtimeClusterId"
       :datasource-id="syncForm.datasourceId"
       :disabled="syncing"
       @update:model-value="emit('update:selectedLocators', $event)"
@@ -55,11 +66,20 @@
   <el-dialog
     :model-value="syncTaskDialogOpen"
     title="新建模型同步任务"
-    width="76%"
+    width="min(1180px, 94vw)"
     @update:model-value="emit('update:syncTaskDialogOpen', $event)"
   >
     <p class="dialog-description">选择数据源与需要同步的表，提交后会立即在后台创建并执行同步任务。</p>
     <div class="studio-form-grid">
+      <el-form-item :label="t('web.models.runtimeCluster')">
+        <el-select
+          v-model="syncTaskForm.runtimeClusterId"
+          :placeholder="t('web.models.runtimeClusterPlaceholder')"
+          @change="actions.handleSyncTaskRuntimeClusterChange"
+        >
+          <el-option v-for="cluster in runtimeClusters" :key="cluster.id" :label="cluster.name" :value="cluster.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="数据源类型">
         <el-select
           v-model="syncTaskForm.datasourceType"
@@ -79,6 +99,7 @@
         <el-select
           v-model="syncTaskForm.datasourceId"
           clearable
+          :disabled="!syncTaskForm.runtimeClusterId"
           placeholder="选择数据源"
           @change="actions.handleSyncTaskFormDatasourceChange"
         >
@@ -94,6 +115,7 @@
 
     <ModelSyncTableSelector
       v-model="syncTaskForm.selectedLocators"
+      :runtime-cluster-id="syncTaskForm.runtimeClusterId"
       :datasource-id="syncTaskForm.datasourceId"
       :disabled="creatingSyncTask"
     />
@@ -106,14 +128,16 @@
 </template>
 
 <script setup lang="ts">
-import type { DataSourceOptionView } from "@studio/api-sdk";
+import type { DataSourceOptionView, RuntimeClusterView } from "@studio/api-sdk";
 import { useI18n } from "vue-i18n";
 import ModelSyncTableSelector from "@/components/ModelSyncTableSelector.vue";
 import type { ModelSyncFormState, ModelSyncTaskFormState } from "./modelViewTypes";
 
 interface ModelSyncDialogActions {
   handleSyncDatasourceTypeChange: () => void;
+  handleSyncRuntimeClusterChange: () => void;
   handleSyncDatasourceChange: () => void;
+  handleSyncTaskRuntimeClusterChange: () => void;
   handleSyncTaskFormDatasourceTypeChange: () => void;
   handleSyncTaskFormDatasourceChange: () => void;
   submitSync: () => void | Promise<void>;
@@ -129,6 +153,7 @@ defineProps<{
   syncing: boolean;
   creatingSyncTask: boolean;
   databaseDatasourceTypes: string[];
+  runtimeClusters: RuntimeClusterView[];
   syncDatasourceOptions: DataSourceOptionView[];
   syncTaskDatasourceOptions: DataSourceOptionView[];
   actions: ModelSyncDialogActions;

@@ -19,6 +19,7 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
+  ElIcon,
   ElOption,
   ElPagination,
   ElPopover,
@@ -64,6 +65,7 @@ import "element-plus/es/components/empty/style/css";
 import "element-plus/es/components/form/style/css";
 import "element-plus/es/components/form-item/style/css";
 import "element-plus/es/components/input/style/css";
+import "element-plus/es/components/icon/style/css";
 import "element-plus/es/components/message/style/css";
 import "element-plus/es/components/message-box/style/css";
 import "element-plus/es/components/option/style/css";
@@ -112,6 +114,7 @@ const components: Plugin[] = [
   ElForm,
   ElFormItem,
   ElInput,
+  ElIcon,
   ElOption,
   ElPagination,
   ElPopover,

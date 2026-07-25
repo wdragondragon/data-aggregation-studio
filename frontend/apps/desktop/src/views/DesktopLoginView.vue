@@ -35,8 +35,8 @@ const authStore = useDesktopAuthStore();
 const { t } = useI18n();
 const loading = ref(false);
 const form = reactive({
-  username: "admin",
-  password: "admin123",
+  username: "",
+  password: "",
 });
 
 async function submit() {

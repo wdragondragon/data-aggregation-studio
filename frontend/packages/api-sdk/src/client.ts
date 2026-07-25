@@ -65,11 +65,13 @@ import type {
   DataModelStatisticsChartView,
   DataModelStatisticsView,
   DataModelSaveRequest,
+  DatasourceClusterBindingImpactView,
   DatasourceConnectionTestRecordView,
   DatasourceTypeCapabilityView,
   DataSourceDefinition,
   DataSourceListView,
   DataSourceOptionView,
+  DataSourceSaveRequest,
   DataIngestionDebugRequest,
   DataIngestionAccessLogListView,
   DataIngestionApiMetricView,
@@ -173,6 +175,15 @@ import type {
   RunMetricDashboardQueryRequest,
   RunMetricDashboardResponse,
   RunMetricFilterOption,
+  RuntimeClusterProjectAuthorizationRequest,
+  RuntimeClusterProjectAuthorizationView,
+  RuntimeClusterInstanceView,
+  RuntimeClusterSaveRequest,
+  RuntimeClusterView,
+  RuntimeEndpointSaveRequest,
+  RuntimeEndpointView,
+  RuntimeValidationQueryRequest,
+  RuntimeValidationView,
   RunMetricOptionsView,
   RunListQuery,
   RunRecordPageQuery,
@@ -624,8 +635,21 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       list(config?: StudioRequestConfig) {
         return request<DataSourceListView[]>({ ...config, url: "/datasources", method: "GET" });
       },
-      options(config?: StudioRequestConfig) {
-        return request<DataSourceOptionView[]>({ ...config, url: "/datasources/options", method: "GET" });
+      options(runtimeClusterId: EntityId, config?: StudioRequestConfig) {
+        return request<DataSourceOptionView[]>({
+          ...config,
+          url: "/datasources/options",
+          method: "GET",
+          params: { runtimeClusterId },
+        });
+      },
+      optionsByRuntimeCluster(runtimeClusterId: EntityId, config?: StudioRequestConfig) {
+        return request<DataSourceOptionView[]>({
+          ...config,
+          url: "/datasources/options",
+          method: "GET",
+          params: { runtimeClusterId },
+        });
       },
       listPage(params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
         return requestPage<DataSourceListView>({ ...config, url: "/datasources/page", method: "GET", params }, params);
@@ -633,26 +657,39 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       get(id: EntityId) {
         return request<DataSourceDefinition>({ url: `/datasources/${id}`, method: "GET" });
       },
-      save(payload: Record<string, unknown>) {
+      save(payload: DataSourceSaveRequest) {
         return request<DataSourceDefinition>({ url: "/datasources", method: "POST", data: payload });
       },
-      test(id: EntityId) {
-        return request<ConnectionTestResult>({ url: `/datasources/${id}/test`, method: "POST" });
+      clusterBindingImpact(id: EntityId, applicableClusterIds: EntityId[]) {
+        return request<DatasourceClusterBindingImpactView>({
+          url: `/datasources/${id}/cluster-binding-impact`,
+          method: "POST",
+          data: { applicableClusterIds },
+        });
       },
-      testCurrent(payload: Record<string, unknown>) {
-        return request<ConnectionTestResult>({ url: "/datasources/test", method: "POST", data: payload });
+      test(id: EntityId, runtimeClusterId: EntityId) {
+        return request<ConnectionTestResult>({
+          url: `/datasources/${id}/test`,
+          method: "POST",
+          params: { runtimeClusterId },
+        });
       },
-      connectionHistory(id: EntityId, params?: { days?: number; limit?: number }) {
+      testCurrent(payload: DataSourceSaveRequest, runtimeClusterId: EntityId) {
+        return request<ConnectionTestResult>({
+          url: "/datasources/test",
+          method: "POST",
+          data: payload,
+          params: { runtimeClusterId },
+        });
+      },
+      connectionHistory(id: EntityId, params: { runtimeClusterId: EntityId; days?: number; limit?: number }) {
         return request<DatasourceConnectionTestRecordView[]>({
           url: `/datasources/${id}/connection-history`,
           method: "GET",
           params,
         });
       },
-      discover(id: EntityId, keywordOrOptions?: string | { keyword?: string; pageNo?: number; pageSize?: number }) {
-        const options = typeof keywordOrOptions === "string"
-          ? { keyword: keywordOrOptions }
-          : (keywordOrOptions ?? {});
+      discover(id: EntityId, options: { runtimeClusterId: EntityId; keyword?: string; pageNo?: number; pageSize?: number }) {
         const keyword = options.keyword?.trim();
         return request<ModelDiscoveryResult>({
           url: `/datasources/${id}/discover`,
@@ -661,13 +698,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             ...(keyword ? { keyword } : {}),
             ...(options.pageNo ? { pageNo: options.pageNo } : {}),
             ...(options.pageSize ? { pageSize: options.pageSize } : {}),
+            runtimeClusterId: options.runtimeClusterId,
           },
         });
       },
-      discoverOptions(id: EntityId, keywordOrOptions?: string | { keyword?: string; pageNo?: number; pageSize?: number }) {
-        const options = typeof keywordOrOptions === "string"
-          ? { keyword: keywordOrOptions }
-          : (keywordOrOptions ?? {});
+      discoverOptions(id: EntityId, options: { runtimeClusterId: EntityId; keyword?: string; pageNo?: number; pageSize?: number }) {
         const keyword = options.keyword?.trim();
         return request<ModelDiscoveryOptionResult>({
           url: `/datasources/${id}/discover-options`,
@@ -676,11 +711,79 @@ export function createStudioApi(options: StudioApiOptions = {}) {
             ...(keyword ? { keyword } : {}),
             ...(options.pageNo ? { pageNo: options.pageNo } : {}),
             ...(options.pageSize ? { pageSize: options.pageSize } : {}),
+            runtimeClusterId: options.runtimeClusterId,
           },
         });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/datasources/${id}`, method: "DELETE" });
+      },
+    },
+    runtimeClusters: {
+      list(config?: StudioRequestConfig) {
+        return request<RuntimeClusterView[]>({ ...config, url: "/runtime-clusters", method: "GET" });
+      },
+      options(projectId?: EntityId, config?: StudioRequestConfig) {
+        return request<RuntimeClusterView[]>({
+          ...config,
+          url: "/runtime-clusters/options",
+          method: "GET",
+          params: projectId == null ? undefined : { projectId },
+        });
+      },
+      get(id: EntityId) {
+        return request<RuntimeClusterView>({ url: `/runtime-clusters/${id}`, method: "GET" });
+      },
+      save(payload: RuntimeClusterSaveRequest) {
+        return request<RuntimeClusterView>({ url: "/runtime-clusters", method: "POST", data: payload });
+      },
+      enable(id: EntityId) {
+        return request<RuntimeClusterView>({ url: `/runtime-clusters/${id}/enable`, method: "POST" });
+      },
+      disable(id: EntityId) {
+        return request<RuntimeClusterView>({ url: `/runtime-clusters/${id}/disable`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/runtime-clusters/${id}`, method: "DELETE" });
+      },
+      instances(id: EntityId) {
+        return request<RuntimeClusterInstanceView[]>({ url: `/runtime-clusters/${id}/instances`, method: "GET" });
+      },
+      endpoints(runtimeClusterId: EntityId) {
+        return request<RuntimeEndpointView[]>({ url: `/runtime-clusters/${runtimeClusterId}/endpoints`, method: "GET" });
+      },
+      saveEndpoint(payload: RuntimeEndpointSaveRequest) {
+        return request<RuntimeEndpointView>({ url: "/runtime-clusters/endpoints", method: "POST", data: payload });
+      },
+      testEndpoint(id: EntityId) {
+        return request<RuntimeEndpointView>({ url: `/runtime-clusters/endpoints/${id}/test`, method: "POST" });
+      },
+      disableEndpoint(id: EntityId) {
+        return request<RuntimeEndpointView>({ url: `/runtime-clusters/endpoints/${id}/disable`, method: "POST" });
+      },
+      deleteEndpoint(id: EntityId) {
+        return request<void>({ url: `/runtime-clusters/endpoints/${id}`, method: "DELETE" });
+      },
+      projectAuthorizations(projectId: EntityId) {
+        return request<RuntimeClusterProjectAuthorizationView[]>({
+          url: "/runtime-clusters/project-authorizations",
+          method: "GET",
+          params: { projectId },
+        });
+      },
+      saveProjectAuthorization(payload: RuntimeClusterProjectAuthorizationRequest) {
+        return request<RuntimeClusterProjectAuthorizationView>({
+          url: "/runtime-clusters/project-authorizations",
+          method: "POST",
+          data: payload,
+        });
+      },
+      queryInvalidValidations(payload: RuntimeValidationQueryRequest = {}) {
+        return request<RuntimeValidationView[]>({
+          url: "/runtime-clusters/validations/query",
+          method: "POST",
+          data: payload,
+        });
       },
     },
     dataServices: {
@@ -964,9 +1067,10 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           normalizePageResult<DataModelOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
         );
       },
-      listSelectorOptions(params?: {
+      listSelectorOptions(params: {
         datasourceType?: string;
         datasourceId?: EntityId;
+        runtimeClusterId: EntityId;
         keyword?: string;
         pageNo?: number;
         pageSize?: number;
@@ -1190,8 +1294,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           method: "GET",
         });
       },
-      sync(datasourceId: EntityId) {
-        return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}/sync`, method: "POST" });
+      sync(datasourceId: EntityId, runtimeClusterId: EntityId) {
+        return request<DataModelDefinition[]>({
+          url: `/models/datasource/${datasourceId}/sync`,
+          method: "POST",
+          params: { runtimeClusterId },
+        });
       },
       syncSelected(datasourceId: EntityId, payload: ModelSyncRequest) {
         return request<DataModelDefinition[]>({ url: `/models/datasource/${datasourceId}/sync-selected`, method: "POST", data: payload });
@@ -1199,11 +1307,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       save(payload: DataModelSaveRequest) {
         return request<DataModelDefinition>({ url: "/models", method: "POST", data: payload });
       },
-      preview(modelId: EntityId, limit = 20) {
+      preview(modelId: EntityId, limit: number, runtimeClusterId: EntityId) {
         return request<Record<string, unknown>[]>({
           url: `/models/${modelId}/preview`,
           method: "GET",
-          params: { limit },
+          params: { limit, runtimeClusterId },
           studioSkipGlobalLoading: true,
         });
       },
@@ -1307,8 +1415,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       publish(id: EntityId) {
         return request<WorkflowDefinitionView>({ url: `/workflows/${id}/publish`, method: "POST" });
       },
-      trigger(id: EntityId) {
-        return request<void>({ url: `/workflows/${id}/trigger`, method: "POST" });
+      trigger(id: EntityId, runtimeClusterId?: EntityId | null) {
+        return request<void>({
+          url: `/workflows/${id}/trigger`,
+          method: "POST",
+          data: runtimeClusterId == null ? undefined : { runtimeClusterId },
+        });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/workflows/${id}`, method: "DELETE" });
@@ -1329,10 +1441,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       listOnline() {
         return request<CollectionTaskListView[]>({ url: "/collection-tasks/online", method: "GET" });
       },
-      workflowOptions(params?: {
+      workflowOptions(params: {
         pageNo?: number;
         pageSize?: number;
         keyword?: string;
+        runtimeClusterId: EntityId;
       }) {
         return request<unknown>({ url: "/collection-tasks/workflow-options", method: "GET", params }).then((payload) =>
           normalizePageResult<CollectionTaskWorkflowOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
@@ -1364,8 +1477,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           },
         });
       },
-      trigger(id: EntityId) {
-        return request<void>({ url: `/collection-tasks/${id}/trigger`, method: "POST" });
+      trigger(id: EntityId, runtimeClusterId?: EntityId | null) {
+        return request<void>({
+          url: `/collection-tasks/${id}/trigger`,
+          method: "POST",
+          data: runtimeClusterId == null ? undefined : { runtimeClusterId },
+        });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/collection-tasks/${id}`, method: "DELETE" });
@@ -1424,10 +1541,11 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       options() {
         return request<QualityTaskOptionView[]>({ url: "/quality-tasks/options", method: "GET" });
       },
-      workflowOptions(params?: {
+      workflowOptions(params: {
         pageNo?: number;
         pageSize?: number;
         keyword?: string;
+        runtimeClusterId: EntityId;
       }) {
         return request<unknown>({ url: "/quality-tasks/workflow-options", method: "GET", params }).then((payload) =>
           normalizePageResult<QualityTaskWorkflowOptionView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
@@ -1451,8 +1569,12 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       saveSchedule(id: EntityId, payload: CollectionTaskScheduleDefinition) {
         return request<QualityTaskDefinitionView>({ url: `/quality-tasks/${id}/schedule`, method: "POST", data: payload });
       },
-      trigger(id: EntityId) {
-        return request<void>({ url: `/quality-tasks/${id}/trigger`, method: "POST" });
+      trigger(id: EntityId, runtimeClusterId?: EntityId | null) {
+        return request<void>({
+          url: `/quality-tasks/${id}/trigger`,
+          method: "POST",
+          data: runtimeClusterId == null ? undefined : { runtimeClusterId },
+        });
       },
       delete(id: EntityId) {
         return request<void>({ url: `/quality-tasks/${id}`, method: "DELETE" });
@@ -1613,11 +1735,19 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       deleteScript(id: EntityId) {
         return request<void>({ url: `/data-development/scripts/${id}`, method: "DELETE" });
       },
-      listSqlDatasources() {
-        return request<DataSourceDefinition[]>({ url: "/data-development/datasources", method: "GET" });
+      listSqlDatasources(runtimeClusterId: EntityId) {
+        return request<DataSourceDefinition[]>({
+          url: "/data-development/datasources",
+          method: "GET",
+          params: { runtimeClusterId },
+        });
       },
-      listSqlDatasourceOptions() {
-        return request<DataSourceOptionView[]>({ url: "/data-development/datasource-options", method: "GET" });
+      listSqlDatasourceOptions(runtimeClusterId: EntityId) {
+        return request<DataSourceOptionView[]>({
+          url: "/data-development/datasource-options",
+          method: "GET",
+          params: { runtimeClusterId },
+        });
       },
       listSqlDatasourceTypes() {
         return request<string[]>({ url: "/data-development/datasource-types", method: "GET" });
@@ -1646,10 +1776,10 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           timeout: DATA_DEVELOPMENT_EXECUTION_TIMEOUT_MS,
         });
       },
-      javaImportHints(params?: { environmentId?: EntityId; keyword?: string; limit?: number }, config?: StudioRequestConfig) {
+      javaImportHints(params: { runtimeClusterId: EntityId; environmentId?: EntityId; keyword?: string; limit?: number }, config?: StudioRequestConfig) {
         return request<JavaImportHintResponse>({ ...config, url: "/data-development/java/import-hints", method: "GET", params });
       },
-      javaMemberHints(params: { environmentId?: EntityId; className: string; keyword?: string; staticOnly?: boolean; limit?: number }, config?: StudioRequestConfig) {
+      javaMemberHints(params: { runtimeClusterId: EntityId; environmentId?: EntityId; className: string; keyword?: string; staticOnly?: boolean; limit?: number }, config?: StudioRequestConfig) {
         return request<JavaMemberHintResponse>({ ...config, url: "/data-development/java/member-hints", method: "GET", params });
       },
     },
@@ -1743,6 +1873,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       queryIngestionEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
         return requestPage<OpsCenterServiceEventView>({ ...config, url: "/ops-center/ingestion-events/query", method: "POST", data: payload }, payload);
+      },
+      queryProtocolConversionEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
+        return requestPage<OpsCenterServiceEventView>({ ...config, url: "/ops-center/protocol-conversion-events/query", method: "POST", data: payload }, payload);
       },
       queryLogEvents(payload?: OpsCenterQueryRequest, config?: StudioRequestConfig) {
         return requestPage<OpsCenterLogEventView>({ ...config, url: "/ops-center/log-events/query", method: "POST", data: payload }, payload);

@@ -123,6 +123,8 @@ export interface BaseRecord {
   deleted?: boolean | number;
   createdAt?: string;
   updatedAt?: string;
+  runtimeValid?: boolean;
+  runtimeValidationMessage?: string;
 }
 
 export type MetadataScope = "TECHNICAL" | "BUSINESS";
@@ -286,6 +288,127 @@ export interface StudioDashboardView {
 
 export type DataSourceConnectionStatus = "UNKNOWN" | "AVAILABLE" | "UNAVAILABLE";
 
+export interface DatasourceClusterHealthView {
+  runtimeClusterId?: EntityId;
+  runtimeClusterCode?: string;
+  runtimeClusterName?: string;
+  connectionStatus?: DataSourceConnectionStatus;
+  lastConnectionTestAt?: string;
+  lastConnectionTestMessage?: string;
+  lastConnectionTestDurationMs?: number | string | null;
+  connectionTesting?: boolean;
+  connectionStale?: boolean;
+  nextConnectionProbeAt?: string;
+}
+
+export type RuntimeEndpointMode = "HTTP";
+export type RuntimeEndpointStoredMode = RuntimeEndpointMode | "LOCAL";
+
+export interface RuntimeClusterInstanceView {
+  instanceId?: string;
+  bootId?: string;
+  workerGroupCode?: string;
+  version?: string;
+  summary?: string;
+  heartbeatAt?: string;
+  status?: string;
+  online?: boolean;
+}
+
+export interface RuntimeClusterView {
+  id?: EntityId;
+  code?: string;
+  name?: string;
+  enabled?: boolean;
+  preferred?: boolean;
+  allowManualOverride?: boolean;
+  status?: string;
+  version?: string;
+  lastHeartbeatAt?: string;
+  onlineInstanceCount?: number;
+  instances?: RuntimeClusterInstanceView[];
+}
+
+export interface RuntimeEndpointView {
+  id?: EntityId;
+  runtimeClusterId?: EntityId;
+  mode?: RuntimeEndpointStoredMode;
+  endpointMasked?: string;
+  headerNames?: string[];
+  hasToken?: boolean;
+  connectTimeoutMillis?: number;
+  readTimeoutMillis?: number;
+  enabled?: boolean;
+  lastTestedAt?: string;
+  lastTestStatus?: string;
+  lastTestMessage?: string;
+}
+
+export interface RuntimeClusterProjectAuthorizationView {
+  projectId?: EntityId;
+  runtimeClusterId?: EntityId;
+  enabled?: boolean;
+  preferred?: boolean;
+  allowManualOverride?: boolean;
+}
+
+export interface RuntimeClusterSaveRequest {
+  id?: EntityId;
+  code: string;
+  name: string;
+  enabled?: boolean;
+  version?: string;
+}
+
+export interface RuntimeEndpointSaveRequest {
+  id?: EntityId;
+  runtimeClusterId: EntityId;
+  mode: RuntimeEndpointMode;
+  endpointUrl?: string;
+  headers?: Record<string, string>;
+  token?: string;
+  clearToken?: boolean;
+  connectTimeoutMillis?: number;
+  readTimeoutMillis?: number;
+  enabled?: boolean;
+}
+
+export interface RuntimeClusterProjectAuthorizationRequest {
+  projectId: EntityId;
+  runtimeClusterId: EntityId;
+  enabled?: boolean;
+  preferred?: boolean;
+  allowManualOverride?: boolean;
+}
+
+export interface RuntimeClusterTriggerRequest {
+  runtimeClusterId?: EntityId;
+}
+
+export interface RuntimeValidationQueryRequest {
+  resourceType?: string;
+  resourceIds?: EntityId[];
+}
+
+export interface RuntimeValidationView {
+  projectId?: EntityId;
+  resourceType?: string;
+  resourceId?: EntityId;
+  resourceName?: string;
+  runtimeClusterId?: EntityId;
+  valid?: boolean;
+  issueCode?: string;
+  issueMessage?: string;
+  details?: Record<string, unknown>;
+  validatedAt?: string;
+}
+
+export interface DatasourceClusterBindingImpactView {
+  datasourceId?: EntityId;
+  removedClusterIds?: EntityId[];
+  affectedResources?: RuntimeValidationView[];
+}
+
 export interface DatasourceConnectionTestRecordView {
   status?: DataSourceConnectionStatus;
   testedAt?: string;
@@ -297,6 +420,7 @@ export interface DatasourceConnectionTestRecordView {
   message?: string;
   datasourceId?: EntityId;
   datasourceName?: string;
+  runtimeClusterId?: EntityId;
 }
 
 export interface DatasourceConnectionTrendPointView {
@@ -321,6 +445,8 @@ export interface DataSourceDefinition extends BaseRecord {
   nextConnectionProbeAt?: string;
   manualConnectionTestTimeoutSeconds?: number;
   scheduledConnectionTestTimeoutSeconds?: number;
+  applicableClusterIds?: EntityId[];
+  applicableClusters?: RuntimeClusterView[];
   recentConnectionTests?: DatasourceConnectionTestRecordView[];
   technicalMetadata: Record<string, unknown>;
   businessMetadata: Record<string, unknown>;
@@ -332,6 +458,8 @@ export interface DataSourceOptionView extends BaseRecord {
   schemaVersionId?: EntityId;
   enabled?: boolean;
   executable?: boolean;
+  applicableClusterIds?: EntityId[];
+  applicableClusters?: RuntimeClusterView[];
 }
 
 export interface DataSourceListView extends BaseRecord {
@@ -350,7 +478,25 @@ export interface DataSourceListView extends BaseRecord {
   nextConnectionProbeAt?: string;
   manualConnectionTestTimeoutSeconds?: number;
   scheduledConnectionTestTimeoutSeconds?: number;
+  applicableClusterIds?: EntityId[];
+  applicableClusters?: RuntimeClusterView[];
+  clusterHealth?: DatasourceClusterHealthView[];
   recentConnectionTests?: DatasourceConnectionTrendPointView[];
+}
+
+export interface DataSourceSaveRequest {
+  id?: EntityId;
+  name: string;
+  typeCode: string;
+  schemaVersionId?: EntityId;
+  enabled?: boolean;
+  executable?: boolean;
+  manualConnectionTestTimeoutSeconds?: number;
+  scheduledConnectionTestTimeoutSeconds?: number;
+  applicableClusterIds: EntityId[];
+  confirmClusterBindingImpact?: boolean;
+  technicalMetadata: Record<string, unknown>;
+  businessMetadata: Record<string, unknown>;
 }
 
 export interface ConnectionTestResult {
@@ -501,6 +647,8 @@ export interface DataServiceDefinitionView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   serviceType?: DataServiceType;
   status?: DataServiceStatus;
   sourceType?: DataServiceSourceType;
@@ -529,6 +677,8 @@ export interface DataServiceListView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   serviceType?: DataServiceType;
   status?: DataServiceStatus;
   sourceType?: DataServiceSourceType;
@@ -551,6 +701,7 @@ export interface DataServiceSaveRequest {
   id?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId: EntityId;
   serviceType?: DataServiceType;
   sourceType?: DataServiceSourceType;
   datasourceId?: EntityId;
@@ -569,6 +720,7 @@ export interface DataServiceSaveRequest {
 }
 
 export interface DataServiceResolveFieldsRequest {
+  runtimeClusterId: EntityId;
   sourceType?: DataServiceSourceType;
   datasourceId?: EntityId;
   modelId?: EntityId;
@@ -638,6 +790,8 @@ export interface DataIngestionServiceView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   status?: DataIngestionStatus;
   requestFormat?: DataIngestionRequestFormat;
   payloadMode?: DataIngestionPayloadMode;
@@ -668,6 +822,8 @@ export interface DataIngestionServiceListView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   status?: DataIngestionStatus;
   requestFormat?: DataIngestionRequestFormat;
   payloadMode?: DataIngestionPayloadMode;
@@ -693,6 +849,7 @@ export interface DataIngestionServiceSaveRequest {
   id?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId: EntityId;
   requestFormat?: DataIngestionRequestFormat;
   payloadMode?: DataIngestionPayloadMode;
   dataNodePath?: string;
@@ -710,6 +867,7 @@ export interface DataIngestionServiceSaveRequest {
 }
 
 export interface DataIngestionResolveFieldsRequest {
+  runtimeClusterId: EntityId;
   datasourceId?: EntityId;
   modelId?: EntityId;
 }
@@ -787,6 +945,8 @@ export interface ProtocolConversionServiceView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   status?: ProtocolConversionStatus;
   endpointPath?: string;
   webserviceEndpointPath?: string;
@@ -822,6 +982,8 @@ export interface ProtocolConversionServiceListView extends BaseRecord {
   createdBy?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   status?: ProtocolConversionStatus;
   endpointPath?: string;
   webserviceEndpointPath?: string;
@@ -844,6 +1006,7 @@ export interface ProtocolConversionServiceSaveRequest {
   id?: EntityId;
   serviceCode: string;
   serviceName: string;
+  runtimeClusterId: EntityId;
   tokenRequired?: boolean;
   defaultSubscriptionName?: string;
   sourceProtocol?: ProtocolConversionProtocol;
@@ -926,6 +1089,8 @@ export interface ProtocolConversionDebugResult extends ProtocolConversionInvokeR
 export interface ProtocolConversionAccessLogListView {
   id?: EntityId;
   serviceId?: EntityId;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
   serviceStatus?: string;
@@ -1038,6 +1203,8 @@ export interface DataServiceMetricDistributionView {
 export interface DataServiceAccessLogListView {
   id?: EntityId;
   serviceId?: EntityId;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
   serviceStatus?: string;
@@ -1091,6 +1258,8 @@ export interface DataServiceMetricQueryRequest {
   serviceStatus?: string;
   success?: boolean;
   cacheHit?: boolean;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   granularity?: string;
@@ -1106,6 +1275,8 @@ export interface ProtocolConversionMetricQueryRequest {
   subscriptionId?: EntityId;
   serviceStatus?: string;
   success?: boolean;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   logFocus?: string;
@@ -1156,6 +1327,8 @@ export interface DataIngestionApiMetricView {
 export interface DataIngestionAccessLogListView {
   id?: EntityId;
   serviceId?: EntityId;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
   serviceStatus?: string;
@@ -1208,6 +1381,8 @@ export interface DataIngestionMetricQueryRequest {
   subscriptionId?: EntityId;
   serviceStatus?: string;
   success?: boolean;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   granularity?: string;
@@ -1476,6 +1651,7 @@ export interface DataModelStatisticsChartView {
 }
 
 export interface ModelSyncRequest {
+  runtimeClusterId: EntityId;
   physicalLocators: string[];
 }
 
@@ -1500,12 +1676,15 @@ export interface ModelDiscoveryOptionResult {
 }
 
 export interface ModelSyncTaskCreateRequest {
+  runtimeClusterId: EntityId;
   datasourceId: EntityId;
   physicalLocators: string[];
   source?: ModelSyncTaskSource | string;
 }
 
 export interface ModelSyncTaskView extends BaseRecord {
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   datasourceId?: EntityId;
   datasourceType?: string;
   datasourceNameSnapshot?: string;
@@ -1659,6 +1838,8 @@ export interface CollectionTaskScheduleDefinition {
 
 export interface CollectionTaskDefinitionView extends BaseRecord {
   name: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   taskType?: CollectionTaskType;
   status?: CollectionTaskStatus;
   sourceCount?: number;
@@ -1671,6 +1852,8 @@ export interface CollectionTaskDefinitionView extends BaseRecord {
 
 export interface CollectionTaskListView extends BaseRecord {
   name: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   taskType?: CollectionTaskType;
   status?: CollectionTaskStatus;
   sourceCount?: number;
@@ -1684,6 +1867,7 @@ export interface CollectionTaskListView extends BaseRecord {
 export interface CollectionTaskWorkflowOptionView {
   id?: EntityId;
   projectId?: EntityId;
+  runtimeClusterId?: EntityId;
   updatedAt?: string;
   name?: string;
   taskType?: CollectionTaskType | string;
@@ -1693,6 +1877,7 @@ export interface CollectionTaskWorkflowOptionView {
 export interface CollectionTaskOptionView {
   id?: EntityId;
   projectId?: EntityId;
+  runtimeClusterId?: EntityId;
   name?: string;
 }
 
@@ -1705,6 +1890,7 @@ export interface CollectionTaskListQuery {
 export interface CollectionTaskSaveRequest {
   id?: EntityId;
   name: string;
+  runtimeClusterId: EntityId;
   sourceBindings: CollectionTaskSourceBinding[];
   targetBinding: CollectionTaskTargetBinding;
   fieldMappings: FieldMappingDefinition[];
@@ -1820,6 +2006,7 @@ export interface AssistantToolExecutionResult<T = unknown> {
   resource?: string;
   entrypointId?: string;
   executedBy?: "backend" | string;
+  runtimeClusterId?: EntityId;
   mutation?: boolean;
   requiresConfirmation?: boolean;
   params?: Record<string, unknown>;
@@ -2048,6 +2235,8 @@ export interface QualityTaskAlertConfig {
 export interface QualityTaskDefinitionView extends BaseRecord {
   createdBy?: EntityId;
   taskName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   taskCode: string;
   status?: QualityTaskStatus;
   ruleId?: EntityId;
@@ -2073,6 +2262,8 @@ export interface QualityTaskDefinitionView extends BaseRecord {
 export interface QualityTaskListView extends BaseRecord {
   createdBy?: EntityId;
   taskName: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   taskCode: string;
   status?: QualityTaskStatus;
   ruleId?: EntityId;
@@ -2091,6 +2282,7 @@ export interface QualityTaskListView extends BaseRecord {
 export interface QualityTaskOptionView {
   id?: EntityId;
   projectId?: EntityId;
+  runtimeClusterId?: EntityId;
   taskName: string;
   ruleName?: string;
   ruleDimension?: QualityRuleDimension | string;
@@ -2100,6 +2292,7 @@ export interface QualityTaskOptionView {
 export interface QualityTaskWorkflowOptionView {
   id?: EntityId;
   projectId?: EntityId;
+  runtimeClusterId?: EntityId;
   updatedAt?: string;
   taskName: string;
   taskCode: string;
@@ -2117,6 +2310,7 @@ export interface QualityTaskWorkflowOptionView {
 export interface QualityTaskSaveRequest {
   id?: EntityId;
   taskName: string;
+  runtimeClusterId: EntityId;
   taskCode: string;
   ruleId: EntityId;
   granularity: QualityRuleGranularity;
@@ -2337,6 +2531,8 @@ export interface DataDevelopmentScript extends BaseRecord {
   directoryId?: EntityId;
   fileName: string;
   scriptType: ScriptType;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   datasourceId?: EntityId;
   datasourceName?: string;
   datasourceTypeCode?: string;
@@ -2351,6 +2547,8 @@ export interface DataDevelopmentScriptListView extends BaseRecord {
   directoryId?: EntityId;
   fileName: string;
   scriptType: ScriptType;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   datasourceId?: EntityId;
   datasourceName?: string;
   datasourceTypeCode?: string;
@@ -2369,6 +2567,7 @@ export interface DataDevelopmentTreeNode {
   name: string;
   permissionCode?: string;
   scriptType?: ScriptType;
+  runtimeClusterId?: EntityId;
   datasourceName?: string;
   environmentId?: EntityId;
   environmentName?: string;
@@ -2388,6 +2587,7 @@ export interface DataDevelopmentScriptSaveRequest {
   directoryId?: EntityId;
   fileName: string;
   scriptType: ScriptType;
+  runtimeClusterId: EntityId;
   datasourceId?: EntityId;
   environmentId?: EntityId;
   description?: string;
@@ -2401,6 +2601,7 @@ export interface DataDevelopmentMoveRequest {
 
 export interface SqlExecutionRequest {
   datasourceId: EntityId;
+  runtimeClusterId: EntityId;
   scriptType: ScriptType;
   content: string;
   maxRows?: number;
@@ -2408,6 +2609,7 @@ export interface SqlExecutionRequest {
 
 export interface DataScriptExecutionRequest {
   scriptType: ScriptType;
+  runtimeClusterId: EntityId;
   datasourceId?: EntityId;
   environmentId?: EntityId;
   content: string;
@@ -2417,6 +2619,7 @@ export interface DataScriptExecutionRequest {
 }
 
 export interface SavedDataScriptExecutionRequest {
+  runtimeClusterId?: EntityId;
   arguments?: Record<string, unknown>;
   executionConfig?: Record<string, unknown>;
   maxRows?: number;
@@ -2621,6 +2824,8 @@ export interface WorkflowScheduleDefinition {
 export interface WorkflowDefinitionView extends BaseRecord {
   code: string;
   name: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   versionId?: EntityId;
   versionNumber?: number;
   published?: boolean;
@@ -2632,6 +2837,8 @@ export interface WorkflowDefinitionView extends BaseRecord {
 export interface WorkflowListView extends BaseRecord {
   code: string;
   name: string;
+  runtimeClusterId?: EntityId;
+  runtimeClusterName?: string;
   versionId?: EntityId;
   versionNumber?: number;
   published?: boolean;
@@ -2641,6 +2848,7 @@ export interface WorkflowListView extends BaseRecord {
 export interface WorkflowOptionView {
   id?: EntityId;
   projectId?: EntityId;
+  runtimeClusterId?: EntityId;
   name?: string;
 }
 
@@ -2648,6 +2856,7 @@ export interface WorkflowSaveRequest {
   definitionId?: EntityId;
   code: string;
   name: string;
+  runtimeClusterId: EntityId;
   schedule?: WorkflowScheduleDefinition;
   nodes: WorkflowNodeDefinition[];
   edges: WorkflowEdgeDefinition[];
@@ -2664,6 +2873,7 @@ export interface QueuedTask extends BaseRecord {
   qualityTaskId?: EntityId;
   qualityTaskName?: string;
   nodeCode?: string;
+  targetClusterId?: EntityId;
   status?: string;
   workerGroupCode?: string;
   leaseOwner?: string;
@@ -2683,6 +2893,7 @@ export interface QueuedTaskListView extends BaseRecord {
   qualityTaskId?: EntityId;
   qualityTaskName?: string;
   nodeCode?: string;
+  targetClusterId?: EntityId;
   status?: string;
   workerGroupCode?: string;
   leaseOwner?: string;
@@ -2701,9 +2912,13 @@ export interface RunRecord extends BaseRecord {
   qualityTaskId?: EntityId;
   qualityTaskName?: string;
   nodeCode?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
+  actualClusterCode?: string;
   workerGroupCode?: string;
   workerCode?: string;
   workerInstanceId?: string;
+  workerBootId?: string;
   workerPodName?: string;
   workerNodeName?: string;
   status?: string;
@@ -2729,9 +2944,13 @@ export interface RunRecordListView extends BaseRecord {
   qualityTaskId?: EntityId;
   qualityTaskName?: string;
   nodeCode?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
+  actualClusterCode?: string;
   workerGroupCode?: string;
   workerCode?: string;
   workerInstanceId?: string;
+  workerBootId?: string;
   workerPodName?: string;
   workerNodeName?: string;
   status?: string;
@@ -2850,6 +3069,8 @@ export interface RunListQuery {
   collectionTaskId?: EntityId;
   qualityTaskId?: EntityId;
   workflowDefinitionId?: EntityId;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   includeRunRecords?: boolean;
@@ -2862,6 +3083,8 @@ export interface RunRecordPageQuery {
   collectionTaskOnly?: boolean;
   qualityTaskOnly?: boolean;
   status?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   pageNo?: number;
@@ -2882,6 +3105,8 @@ export interface OpsCenterQueryRequest {
   executionType?: string;
   status?: string;
   workerGroupCode?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   pageNo?: number;
   pageSize?: number;
 }
@@ -2917,6 +3142,8 @@ export interface OpsCenterOverviewView {
   serviceSlowCalls?: number | string | null;
   ingestionFailures?: number | string | null;
   ingestionSlowCalls?: number | string | null;
+  protocolConversionFailures?: number | string | null;
+  protocolConversionSlowCalls?: number | string | null;
   logFailures?: number | string | null;
   onlineWorkerInstances?: number | string | null;
   boundWorkerGroups?: number | string | null;
@@ -2932,6 +3159,7 @@ export interface OpsCenterQueueItemView extends BaseRecord {
   targetName?: string;
   nodeCode?: string;
   status?: string;
+  targetClusterId?: EntityId;
   workerGroupCode?: string;
   leaseOwner?: string;
   workerInstanceId?: string;
@@ -2952,6 +3180,9 @@ export interface OpsCenterRunIncidentView extends BaseRecord {
   nodeCode?: string;
   status?: string;
   message?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
+  actualClusterCode?: string;
   workerGroupCode?: string;
   workerCode?: string;
   workerInstanceId?: string;
@@ -2974,6 +3205,8 @@ export interface OpsCenterWorkerGroupView {
   enabled?: boolean;
   onlineInstanceCount?: number;
   recentInstanceCount?: number;
+  runtimeClusterIds?: EntityId[];
+  runtimeClusterCodes?: string[];
   latestHeartbeatAt?: string;
   latestWorkerCode?: string;
   latestWorkerInstanceId?: string;
@@ -2985,6 +3218,8 @@ export interface OpsCenterWorkerGroupView {
 export interface OpsCenterServiceEventView {
   id?: EntityId;
   serviceId?: EntityId;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   serviceCode?: string;
   serviceName?: string;
   serviceStatus?: string;
@@ -3012,6 +3247,9 @@ export interface OpsCenterLogEventView extends BaseRecord {
   qualityTaskId?: EntityId;
   nodeCode?: string;
   status?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
+  actualClusterCode?: string;
   workerGroupCode?: string;
   workerInstanceId?: string;
   startedAt?: string;
@@ -3033,6 +3271,9 @@ export interface WorkflowRunSummary {
   workflowDefinitionId?: EntityId;
   workflowVersionId?: EntityId;
   workflowName?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
+  actualClusterCode?: string;
   status?: string;
   startedAt?: string;
   endedAt?: string;
@@ -3073,6 +3314,8 @@ export interface WorkflowRunDetail extends WorkflowRunSummary {
 export interface WorkflowRunListQuery {
   workflowDefinitionId?: EntityId;
   status?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   pageNo?: number;
@@ -3309,6 +3552,8 @@ export interface AlertIncidentView extends BaseRecord {
   severity?: AlertSeverity | string;
   status?: AlertIncidentStatus | string;
   summary?: string;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   evidence?: Record<string, unknown>;
   occurrenceCount?: number;
   notificationCount?: number;
@@ -3334,6 +3579,8 @@ export interface AlertIncidentQueryRequest {
   ruleType?: string;
   subjectType?: string;
   activeOnly?: boolean;
+  requestedClusterId?: EntityId;
+  actualClusterId?: EntityId;
   startTime?: string;
   endTime?: string;
   pageNo?: number;

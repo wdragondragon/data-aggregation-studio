@@ -31,7 +31,7 @@
     </SectionCard>
 
     <SectionCard title="服务列表" description="服务发布后，需要创建订阅 Token 才能开放调用。">
-      <StudioTableShell min-width="1640px">
+      <StudioTableShell min-width="1820px">
         <el-table :data="services" border>
         <el-table-column label="序号" width="76" align="center" header-align="center">
           <template #default="{ $index }">{{ (pagination.page - 1) * pagination.pageSize + $index + 1 }}</template>
@@ -52,6 +52,9 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column :label="t('web.runtimeClusterSelection.runtimeCluster')" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.runtimeClusterName || (row.runtimeClusterId != null ? `#${row.runtimeClusterId}` : t('common.none')) }}</template>
+        </el-table-column>
         <el-table-column label="来源" min-width="260">
           <template #default="{ row }">
             <div class="source-cell">
@@ -71,7 +74,10 @@
         </el-table-column>
         <el-table-column label="状态" width="110" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="resolveStatusLabel(row.status)" :tone="resolveStatusTone(row.status)" />
+            <el-tooltip v-if="row.runtimeValid === false" :content="row.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')" placement="top">
+              <span><StatusPill :label="t('web.runtimeClusterSelection.invalid')" tone="danger" /></span>
+            </el-tooltip>
+            <StatusPill v-else :label="resolveStatusLabel(row.status)" :tone="resolveStatusTone(row.status)" />
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="180" />
@@ -145,6 +151,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { DataServiceListView, DataServiceSubscriptionView, EntityId } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
@@ -153,6 +160,7 @@ import { useAuthStore } from "@/stores/auth";
 import { isSharedFromAnotherProject, resolveProjectName } from "@/utils/studio";
 
 const router = useRouter();
+const { t } = useI18n();
 const authStore = useAuthStore();
 
 const filters = reactive({
@@ -210,10 +218,10 @@ function handlePageSizeChange() {
 function buildActions(row: DataServiceListView) {
   return [
     { key: "edit", label: "编辑", type: "primary", onClick: () => { void router.push(`/data-services/${row.id}/edit`); } },
-    { key: "debug", label: "调试", onClick: () => { void router.push(`/data-services/${row.id}/edit?debug=1`); } },
+    { key: "debug", label: "调试", disabled: row.runtimeValid === false, onClick: () => { void router.push(`/data-services/${row.id}/edit?debug=1`); } },
     { key: "metrics", label: "监控", onClick: () => { void router.push(`/data-service-metrics?serviceId=${row.id}`); } },
     { key: "accessLogs", label: "调用日志", onClick: () => { void router.push(`/data-service-metrics/access-logs?serviceId=${row.id}`); } },
-    { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", onClick: () => publishService(row) },
+    { key: "publish", label: row.status === "ONLINE" ? "重新发布" : "发布", disabled: row.runtimeValid === false, onClick: () => publishService(row) },
     { key: "offline", label: "下线", visible: row.status === "ONLINE", onClick: () => offlineService(row) },
     { key: "subscriptions", label: "订阅", onClick: () => openSubscriptions(row) },
     { key: "delete", label: "删除", type: "danger", onClick: () => deleteService(row) },

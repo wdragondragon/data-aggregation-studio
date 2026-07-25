@@ -75,6 +75,9 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column :label="t('web.runtimeClusterSelection.runtimeCluster')" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.runtimeClusterName || (row.runtimeClusterId != null ? `#${row.runtimeClusterId}` : t('common.none')) }}</template>
+        </el-table-column>
         <el-table-column :label="t('web.collectionTasks.schedule')" min-width="180">
           <template #default="{ row }">
             <div class="stack-cell">
@@ -85,7 +88,10 @@
         </el-table-column>
         <el-table-column :label="t('web.collectionTasks.status')" width="100" align="center" header-align="center">
           <template #default="{ row }">
-            <StatusPill :label="formatStatusLabel(t, row.status)" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'warning'" />
+            <el-tooltip v-if="row.runtimeValid === false" :content="row.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')" placement="top">
+              <span><StatusPill :label="t('web.runtimeClusterSelection.invalid')" tone="danger" /></span>
+            </el-tooltip>
+            <StatusPill v-else :label="formatStatusLabel(t, row.status)" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'warning'" />
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="180" show-overflow-tooltip />
@@ -189,6 +195,16 @@
     </el-drawer>
 
     <RunLogDrawer v-model="logDrawerVisible" :run-record-id="activeRunRecordId" variant="collection-task" />
+    <ManualRunClusterDialog
+      v-if="manualRunTask"
+      v-model="manualRunDialogVisible"
+      :resource-name="manualRunTask.name"
+      :default-cluster-id="manualRunTask.runtimeClusterId"
+      :default-cluster-name="manualRunTask.runtimeClusterName"
+      :shared="isSharedTask(manualRunTask)"
+      :submitting="manualRunSubmitting"
+      @confirm="confirmManualRun"
+    />
   </div>
 </template>
 
@@ -197,10 +213,11 @@ import { onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskListQuery, CollectionTaskListView, RunRecordListView } from "@studio/api-sdk";
+import type { CollectionTaskListQuery, CollectionTaskListView, EntityId, RunRecordListView } from "@studio/api-sdk";
 import { OverflowActionGroup, SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import FollowToggleButton from "@/components/FollowToggleButton.vue";
+import ManualRunClusterDialog from "@/components/ManualRunClusterDialog.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
@@ -208,6 +225,7 @@ import { getPaginatedRowNumber, useClientPagination } from "@/composables/useCli
 import { STUDIO_RESOURCE_TYPE, STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatCollectionTaskType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
 import { formatMetricNumber, metricLabel, metricSummaryValue } from "@/utils/runMetrics";
+import { isRuntimeManualTriggerDisabled, sameEntityId } from "@/utils/runtimeClusters";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -224,6 +242,9 @@ const { pagination: taskRunPagination, pagedItems: pagedTaskRunRecords, resetPag
 const logsVisible = ref(false);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
+const manualRunTask = ref<CollectionTaskListView | null>(null);
+const manualRunDialogVisible = ref(false);
+const manualRunSubmitting = ref(false);
 const filters = ref<CollectionTaskListQuery>({
   name: "",
   targetDatasource: "",
@@ -301,8 +322,8 @@ function buildTaskActions(task: CollectionTaskListView) {
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editTask(task) },
     { key: "schedule", label: t("web.collectionTasks.scheduleManage"), disabled: shared, onClick: () => manageSchedule(task) },
     { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => viewTaskRuns(task) },
-    { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || task.status === "ONLINE", onClick: () => publishTask(task) },
-    { key: "trigger", label: t("common.trigger"), type: "warning", onClick: () => triggerTask(task) },
+    { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || task.status === "ONLINE" || task.runtimeValid === false, onClick: () => publishTask(task) },
+    { key: "trigger", label: t("common.trigger"), type: "warning", disabled: isRuntimeManualTriggerDisabled(shared, task.runtimeValid === false), onClick: () => triggerTask(task) },
     { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteTask(task) },
   ];
 }
@@ -372,11 +393,23 @@ async function triggerTask(task: CollectionTaskListView) {
   if (!task.id) {
     return;
   }
+  manualRunTask.value = task;
+  manualRunDialogVisible.value = true;
+}
+
+async function confirmManualRun(runtimeClusterId?: EntityId) {
+  const task = manualRunTask.value;
+  if (!task?.id) return;
+  manualRunSubmitting.value = true;
   try {
-    await studioApi.collectionTasks.trigger(task.id);
+    const overrideId = sameEntityId(runtimeClusterId, task.runtimeClusterId) ? undefined : runtimeClusterId;
+    await studioApi.collectionTasks.trigger(task.id, overrideId);
+    manualRunDialogVisible.value = false;
     ElMessage.success(t("web.collectionTasks.triggerSuccess"));
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.triggerFailed"));
+  } finally {
+    manualRunSubmitting.value = false;
   }
 }
 
