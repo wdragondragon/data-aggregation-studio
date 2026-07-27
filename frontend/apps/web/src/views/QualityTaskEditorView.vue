@@ -302,6 +302,9 @@ const parameterBindingActions = {
 const sqlPreviewActions = {
   registerWhereClauseTextareaRef,
   syncWhereClauseSelection,
+  updateWhereClause: (value: string) => {
+    form.whereClause = value;
+  },
   openWhereClauseFunction: () => openDynamicFunctionDialog({ type: "whereClause" }),
   previewSql,
   validateTask,
@@ -1031,7 +1034,8 @@ function buildSavePayload() {
     datasourceId: form.datasourceId,
     modelId: form.modelId,
     columnName: form.granularity === "COLUMN" ? form.columnName.trim() : undefined,
-    whereClause: form.whereClause.trim() || undefined,
+    // Preserve an intentional clear when updating an existing quality task.
+    whereClause: form.whereClause.trim(),
     resolvedSqlPreview: form.resolvedSqlPreview.trim() || undefined,
     parameterBindings: form.parameterBindings.map((item) => ({
       paramOrder: item.paramOrder,
@@ -1159,11 +1163,11 @@ async function publishTask() {
     ElMessage.error(detailLoadError.value);
     return;
   }
-  let currentId = form.id;
-  if (!currentId) {
-    const saved = await saveTaskInternal();
-    currentId = saved?.id;
-  }
+  // Publishing must include edits made to an existing task. Previously only a
+  // brand-new task was saved here, so alert thresholds and other changes were
+  // silently discarded when users clicked "发布" directly.
+  const saved = await saveTaskInternal();
+  const currentId = saved?.id;
   if (!currentId) {
     return;
   }

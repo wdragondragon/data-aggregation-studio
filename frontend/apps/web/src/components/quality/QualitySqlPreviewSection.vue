@@ -14,10 +14,11 @@
     <el-form-item label="Where 子句">
       <textarea
         :ref="actions.registerWhereClauseTextareaRef"
-        v-model="form.whereClause"
+        :value="form.whereClause"
         class="task-where-textarea"
         placeholder="例如：dt = $getCurrentTime('yyyy-MM-dd', '-1d') 或 status = 'VALID'"
         spellcheck="false"
+        @input="handleWhereClauseInput"
         @click="actions.syncWhereClauseSelection"
         @focus="actions.syncWhereClauseSelection"
         @keyup="actions.syncWhereClauseSelection"
@@ -51,12 +52,13 @@ interface SqlPreviewForm {
 interface SqlPreviewActions {
   registerWhereClauseTextareaRef: (element: unknown) => void;
   syncWhereClauseSelection: () => void;
+  updateWhereClause: (value: string) => void;
   openWhereClauseFunction: () => void;
   previewSql: () => void | Promise<void>;
   validateTask: () => void | Promise<void>;
 }
 
-defineProps<{
+const props = defineProps<{
   form: SqlPreviewForm;
   previewLoading: boolean;
   validateLoading: boolean;
@@ -65,6 +67,10 @@ defineProps<{
   validationResult: QualityTaskValidationView | null;
   actions: SqlPreviewActions;
 }>();
+
+function handleWhereClauseInput(event: Event) {
+  props.actions.updateWhereClause((event.target as HTMLTextAreaElement).value);
+}
 </script>
 
 <style scoped>
