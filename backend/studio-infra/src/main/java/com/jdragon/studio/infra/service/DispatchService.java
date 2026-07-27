@@ -100,15 +100,18 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public void triggerManualRun(Long workflowDefinitionId, Long runtimeClusterOverrideId) {
-        WorkflowDefinitionView workflow = runtimeClusterOverrideId == null
-                ? requireWorkflow(workflowDefinitionId)
-                : workflowService.requireRunnableOnCluster(workflowDefinitionId, runtimeClusterOverrideId);
+        WorkflowDefinitionView workflow = requireWorkflow(workflowDefinitionId);
+        boolean manualOverride = runtimeClusterOverrideId != null
+                && !runtimeClusterOverrideId.equals(workflow.getRuntimeClusterId());
+        if (manualOverride) {
+            workflow = workflowService.requireRunnableOnCluster(workflowDefinitionId, runtimeClusterOverrideId);
+        }
         assertCurrentProjectOwnsResource(workflow.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), workflow.getProjectId());
         staleExecutionRecoveryService.recoverWorkflow(workflow.getTenantId(), runtimeProjectId, workflow.getId());
         if (triggerWorkflowIfIdleStatus(workflow, runtimeProjectId, true, null,
                 true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false,
-                runtimeClusterOverrideId != null) != DispatchTriggerStatus.TRIGGERED) {
+                manualOverride) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Workflow already has an active run");
         }
     }
@@ -135,15 +138,18 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public void triggerCollectionTask(Long collectionTaskId, Long runtimeClusterOverrideId) {
-        CollectionTaskDefinitionView definition = runtimeClusterOverrideId == null
-                ? collectionTaskService.requireOnline(collectionTaskId)
-                : collectionTaskService.requireRunnableOnCluster(collectionTaskId, runtimeClusterOverrideId);
+        CollectionTaskDefinitionView definition = collectionTaskService.requireOnline(collectionTaskId);
+        boolean manualOverride = runtimeClusterOverrideId != null
+                && !runtimeClusterOverrideId.equals(definition.getRuntimeClusterId());
+        if (manualOverride) {
+            definition = collectionTaskService.requireRunnableOnCluster(collectionTaskId, runtimeClusterOverrideId);
+        }
         assertCurrentProjectOwnsResource(definition.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         staleExecutionRecoveryService.recoverCollectionTask(definition.getTenantId(), runtimeProjectId, definition.getId());
         if (triggerCollectionTaskIfIdleStatus(definition, runtimeProjectId, true, null,
                 true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false,
-                runtimeClusterOverrideId != null) != DispatchTriggerStatus.TRIGGERED) {
+                manualOverride) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Collection task already has an active run");
         }
     }
@@ -170,15 +176,18 @@ public class DispatchService implements WorkflowDispatcher {
 
     @Transactional
     public void triggerQualityTask(Long qualityTaskId, Long runtimeClusterOverrideId) {
-        QualityTaskDefinitionView definition = runtimeClusterOverrideId == null
-                ? qualityTaskService.requireOnline(qualityTaskId)
-                : qualityTaskService.requireRunnableOnCluster(qualityTaskId, runtimeClusterOverrideId);
+        QualityTaskDefinitionView definition = qualityTaskService.requireOnline(qualityTaskId);
+        boolean manualOverride = runtimeClusterOverrideId != null
+                && !runtimeClusterOverrideId.equals(definition.getRuntimeClusterId());
+        if (manualOverride) {
+            definition = qualityTaskService.requireRunnableOnCluster(qualityTaskId, runtimeClusterOverrideId);
+        }
         assertCurrentProjectOwnsResource(definition.getProjectId());
         Long runtimeProjectId = resolveRuntimeProjectId(securityService.currentProjectId(), definition.getProjectId());
         staleExecutionRecoveryService.recoverQualityTask(definition.getTenantId(), runtimeProjectId, definition.getId());
         if (triggerQualityTaskIfIdleStatus(definition, runtimeProjectId, true, null,
                 true, MANUAL_TRIGGER_LOCK_LEASE_SECONDS, false,
-                runtimeClusterOverrideId != null) != DispatchTriggerStatus.TRIGGERED) {
+                manualOverride) != DispatchTriggerStatus.TRIGGERED) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Quality task already has an active run");
         }
     }

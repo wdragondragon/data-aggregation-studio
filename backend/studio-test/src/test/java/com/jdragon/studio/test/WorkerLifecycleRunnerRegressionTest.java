@@ -372,6 +372,39 @@ class WorkerLifecycleRunnerRegressionTest {
         verify(dispatchTaskMapper, never()).selectList(any());
     }
 
+    @Test
+    void shouldNormalizeTemporalExecutionResultsBeforeDispatchPersistence() {
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                mock(DispatchTaskMapper.class),
+                mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class),
+                Collections.<NodeExecutor>emptyList(),
+                mock(ExecutionEventPublisher.class),
+                new StudioPlatformProperties(),
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity("instance-a"),
+                mock(WorkflowDispatchNodeResolver.class)
+        );
+        Map<String, Object> row = new LinkedHashMap<String, Object>();
+        row.put("eventTime", LocalDateTime.of(2026, 7, 26, 23, 45, 0));
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("sqlResult", Collections.singletonMap("rows", Collections.singletonList(row)));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> normalized = (Map<String, Object>) ReflectionTestUtils.invokeMethod(
+                runner, "normalizePayloadForPersistence", payload);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sqlResult = (Map<String, Object>) normalized.get("sqlResult");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> normalizedRow = (Map<String, Object>) ((java.util.List<?>) sqlResult.get("rows")).get(0);
+        assertEquals("2026-07-26T23:45:00", normalizedRow.get("eventTime"));
+    }
+
     private ClusterInstanceIdentity clusterInstanceIdentity(String instanceId) {
         ClusterInstanceIdentity identity = mock(ClusterInstanceIdentity.class);
         when(identity.instanceId()).thenReturn(instanceId);

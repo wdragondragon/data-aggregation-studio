@@ -4,6 +4,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.QualityRuleOutputType;
 import com.jdragon.studio.dto.enums.QualityTaskAlertOperator;
+import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.QualityTaskAlertConfig;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
@@ -21,19 +22,23 @@ import java.util.Map;
 public class QualityTaskExecutionService {
 
     private final DataSourceService dataSourceService;
+    private final DataModelService dataModelService;
     private final DataDevelopmentSqlExecutor sqlExecutor;
     private final QualityTaskExecutionPlanService executionPlanService;
 
     public QualityTaskExecutionService(DataSourceService dataSourceService,
+                                       DataModelService dataModelService,
                                        DataDevelopmentSqlExecutor sqlExecutor,
                                        QualityTaskExecutionPlanService executionPlanService) {
         this.dataSourceService = dataSourceService;
+        this.dataModelService = dataModelService;
         this.sqlExecutor = sqlExecutor;
         this.executionPlanService = executionPlanService;
     }
 
     public Map<String, Object> execute(QualityTaskDefinitionView definition) {
         DataSourceDefinition datasource = requireSqlDatasource(definition.getDatasourceId());
+        requireBoundModel(definition, datasource);
         String resolvedSql = executionPlanService.buildResolvedSql(definition);
         SqlExecutionResultView sqlResult = sqlExecutor.executeSql(datasource, resolvedSql, null);
         List<Map<String, Object>> alertDetails = evaluateAlertDetails(definition.getAlertConfigs(), sqlResult.getRows());
@@ -53,14 +58,26 @@ public class QualityTaskExecutionService {
     }
 
     private DataSourceDefinition requireSqlDatasource(Long datasourceId) {
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
-        if (datasource == null) {
-            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
-        }
+        DataSourceDefinition datasource = dataSourceService.requireRunnableForExecution(datasourceId);
         if (!sqlExecutor.supports(datasource)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Selected datasource does not support SQL quality checks");
         }
         return datasource;
+    }
+
+    private void requireBoundModel(QualityTaskDefinitionView definition, DataSourceDefinition datasource) {
+        DataModelDefinition model = dataModelService.getInternalForProject(
+                definition == null ? null : definition.getProjectId(),
+                definition == null ? null : definition.getModelId());
+        if (model == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Quality task target model is no longer available");
+        }
+        if (datasource == null || model.getDatasourceId() == null
+                || !model.getDatasourceId().equals(datasource.getId())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Quality task target model no longer belongs to the selected datasource");
+        }
     }
 
     private List<Map<String, Object>> evaluateAlertDetails(List<QualityTaskAlertConfig> alertConfigs, List<Map<String, Object>> rows) {

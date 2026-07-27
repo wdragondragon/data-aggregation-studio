@@ -2,6 +2,8 @@ package com.jdragon.studio.test;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.exception.StudioErrorCode;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.infra.script.python.PythonBridgeConnectionInfo;
@@ -56,7 +58,7 @@ class DataDevelopmentRuntimeClusterIsolationTest {
         DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
         DataSourceDefinition clusterDatasource = datasource(11L, "cluster-a");
         DataSourceDefinition otherDatasource = datasource(12L, "cluster-b");
-        when(dataSourceService.list()).thenReturn(Arrays.asList(clusterDatasource, otherDatasource));
+        when(dataSourceService.listForProject(PROJECT_ID)).thenReturn(Arrays.asList(clusterDatasource, otherDatasource));
         when(bindingService.filterApplicableDatasourceIds(
                 eq(PROJECT_ID), eq(RUNTIME_CLUSTER_ID), anyCollection()))
                 .thenReturn(new LinkedHashSet<Long>(Collections.singleton(11L)));
@@ -83,6 +85,7 @@ class DataDevelopmentRuntimeClusterIsolationTest {
         DataModelService dataModelService = mock(DataModelService.class);
         DataDevelopmentSqlExecutor sqlExecutor = mock(DataDevelopmentSqlExecutor.class);
         DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        when(dataSourceService.getInternalForProject(PROJECT_ID, 12L)).thenReturn(datasource(12L, "cluster-b"));
         when(bindingService.filterApplicableDatasourceIds(
                 PROJECT_ID, RUNTIME_CLUSTER_ID, Collections.singleton(12L)))
                 .thenReturn(Collections.emptySet());
@@ -97,7 +100,6 @@ class DataDevelopmentRuntimeClusterIsolationTest {
             assertThat(result.getSuccess()).isFalse();
             assertThat(result.getMessage())
                     .isEqualTo("Datasource is not applicable to the selected runtime cluster");
-            verify(dataSourceService, never()).getInternal(12L);
             verify(sqlExecutor, never()).executeSql(
                     org.mockito.ArgumentMatchers.any(), anyString(), anyInt());
         }
@@ -111,7 +113,8 @@ class DataDevelopmentRuntimeClusterIsolationTest {
         DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
         DataSourceDefinition clusterDatasource = datasource(11L, "cluster-a");
         DataSourceDefinition otherDatasource = datasource(12L, "cluster-b");
-        when(dataSourceService.list()).thenReturn(Arrays.asList(clusterDatasource, otherDatasource));
+        when(dataSourceService.listForProject(PROJECT_ID)).thenReturn(Arrays.asList(clusterDatasource, otherDatasource));
+        when(dataSourceService.getInternalForProject(PROJECT_ID, 12L)).thenReturn(otherDatasource);
         when(bindingService.filterApplicableDatasourceIds(
                 eq(PROJECT_ID), eq(RUNTIME_CLUSTER_ID), anyCollection()))
                 .thenAnswer(invocation -> applicableDatasourceIds(invocation.getArgument(2)));
@@ -142,7 +145,6 @@ class DataDevelopmentRuntimeClusterIsolationTest {
             assertThat(sqlResponse.path("success").asBoolean()).isFalse();
             assertThat(sqlResponse.path("error").asText())
                     .isEqualTo("Datasource is not applicable to the selected runtime cluster");
-            verify(dataSourceService, never()).getInternal(12L);
             verify(sqlExecutor, never()).executeSql(
                     org.mockito.ArgumentMatchers.any(), anyString(), anyInt());
         }
@@ -167,11 +169,36 @@ class DataDevelopmentRuntimeClusterIsolationTest {
             assertThat(result.getSuccess()).isFalse();
             assertThat(result.getMessage())
                     .isEqualTo("Runtime cluster is required for data script execution");
-            verify(dataSourceService, never()).list();
+            verify(dataSourceService, never()).listForProject(PROJECT_ID);
             verify(bindingService, never()).filterApplicableDatasourceIds(
                     org.mockito.ArgumentMatchers.any(),
                     org.mockito.ArgumentMatchers.any(),
                     org.mockito.ArgumentMatchers.anyCollection());
+        }
+    }
+
+    @Test
+    void pythonBridgeShouldRejectDatasourceOutsideExecutionProject() throws Exception {
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService dataModelService = mock(DataModelService.class);
+        DataDevelopmentSqlExecutor sqlExecutor = mock(DataDevelopmentSqlExecutor.class);
+        DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        when(dataSourceService.getInternalForProject(PROJECT_ID, 88L))
+                .thenThrow(new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: 88"));
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        com.jdragon.studio.infra.script.java.DefaultJavaDataScriptServices services =
+                new com.jdragon.studio.infra.script.java.DefaultJavaDataScriptServices(
+                        dataSourceService, dataModelService, sqlExecutor, bindingService,
+                        PROJECT_ID, RUNTIME_CLUSTER_ID);
+        try (PythonExecutionServiceBridge bridge = new PythonExecutionServiceBridge(objectMapper, services)) {
+            JsonNode response = invokeBridge(objectMapper, bridge.buildConnectionInfo(),
+                    Map.of("action", "get_datasource", "payload", Map.of("datasourceId", 88L)));
+
+            assertThat(response.path("success").asBoolean()).isFalse();
+            assertThat(response.path("error").asText()).isEqualTo("Datasource not found: 88");
+            verify(bindingService, never()).filterApplicableDatasourceIds(
+                    org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), anyCollection());
         }
     }
 

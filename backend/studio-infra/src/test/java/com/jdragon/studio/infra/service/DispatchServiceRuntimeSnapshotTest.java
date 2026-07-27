@@ -13,6 +13,7 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -62,6 +63,23 @@ class DispatchServiceRuntimeSnapshotTest {
                 .hasMessageContaining("Collection task changed while dispatching");
 
         verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldTreatAnExplicitMatchingClusterAsNoManualOverride() {
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        RuntimeResourceRevisionService revisionService = mock(RuntimeResourceRevisionService.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        CollectionTaskDefinitionView definition = definition(LocalDateTime.of(2026, 7, 20, 10, 0));
+        when(collectionTaskService.requireOnline(200L)).thenReturn(definition);
+
+        DispatchService service = service(dispatchTaskMapper, collectionTaskService, revisionService);
+
+        service.triggerCollectionTask(200L, 46L);
+
+        verify(collectionTaskService, never()).requireRunnableOnCluster(any(Long.class), any(Long.class));
+        verify(dispatchTaskMapper).insert(argThat((DispatchTaskEntity task) ->
+                Long.valueOf(46L).equals(task.getTargetClusterId())));
     }
 
     private DispatchService service(DispatchTaskMapper dispatchTaskMapper,

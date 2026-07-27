@@ -1,7 +1,6 @@
 package com.jdragon.studio.infra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jdragon.aggregation.commons.util.Configuration;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -36,7 +35,6 @@ class CollectionTaskRuntimeOptionMerger {
                 reserved.add(reservedKey.trim().toLowerCase(Locale.ENGLISH));
             }
         }
-        Configuration configuration = Configuration.from(config);
         for (Map.Entry<String, Object> entry : runtimeOptions.entrySet()) {
             String key = entry.getKey();
             if (isBlank(key) || isReservedRuntimeOptionKey(key, reserved)) {
@@ -46,10 +44,8 @@ class CollectionTaskRuntimeOptionMerger {
             if (value == SKIP_VALUE) {
                 continue;
             }
-            configuration.set(key.trim(), value);
+            putNested(config, key.trim(), value);
         }
-        config.clear();
-        config.putAll(configuration.getMap("", Collections.<String, Object>emptyMap()));
     }
 
     Map<String, Object> toMap(Object value) {
@@ -73,6 +69,30 @@ class CollectionTaskRuntimeOptionMerger {
         }
         int dotIndex = normalized.indexOf('.');
         return dotIndex > 0 && reserved.contains(normalized.substring(0, dotIndex));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void putNested(Map<String, Object> target, String key, Object value) {
+        String[] segments = key.split("\\.");
+        Map<String, Object> current = target;
+        for (int index = 0; index < segments.length - 1; index++) {
+            String segment = segments[index].trim();
+            if (segment.isEmpty()) {
+                return;
+            }
+            Object existing = current.get(segment);
+            if (existing instanceof Map<?, ?>) {
+                current = (Map<String, Object>) existing;
+                continue;
+            }
+            Map<String, Object> nested = new LinkedHashMap<String, Object>();
+            current.put(segment, nested);
+            current = nested;
+        }
+        String leaf = segments[segments.length - 1].trim();
+        if (!leaf.isEmpty()) {
+            current.put(leaf, value);
+        }
     }
 
     private Object normalizeRuntimeOptionValue(String key, Object value, Set<String> preserveStringKeys) {

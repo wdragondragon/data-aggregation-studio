@@ -3,6 +3,10 @@ package com.jdragon.studio.worker.runtime.runner;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
@@ -40,6 +44,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -54,6 +59,17 @@ import java.util.UUID;
 @ConditionalOnProperty(name = "studio.worker.lifecycle.enabled", havingValue = "true", matchIfMissing = true)
 @Slf4j
 public class WorkerLifecycleRunner {
+
+    /**
+     * MyBatis-Plus' legacy Jackson type handler uses its own plain mapper.
+     * Normalize completed payloads before persistence so JDBC values such as
+     * LocalDateTime do not leave a dispatch permanently RUNNING.
+     */
+    private static final ObjectMapper DISPATCH_PAYLOAD_MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private static final TypeReference<LinkedHashMap<String, Object>> PAYLOAD_MAP_TYPE =
+            new TypeReference<LinkedHashMap<String, Object>>() { };
 
     private final DispatchTaskMapper dispatchTaskMapper;
     private final WorkerLeaseMapper workerLeaseMapper;
@@ -461,6 +477,7 @@ public class WorkerLifecycleRunner {
         if (task == null || task.getId() == null) {
             return false;
         }
+        task.setPayloadJson(normalizePayloadForPersistence(task.getPayloadJson()));
         LambdaUpdateWrapper<DispatchTaskEntity> update = new LambdaUpdateWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getId, task.getId())
                 .eq(DispatchTaskEntity::getStatus, "RUNNING")
@@ -473,6 +490,18 @@ public class WorkerLifecycleRunner {
             update.set(DispatchTaskEntity::getProtectedPayloadCiphertext, null);
         }
         return dispatchTaskMapper.update(task, update) == 1;
+    }
+
+    private Map<String, Object> normalizePayloadForPersistence(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            return payload == null ? null : new LinkedHashMap<String, Object>();
+        }
+        try {
+            return DISPATCH_PAYLOAD_MAPPER.readValue(
+                    DISPATCH_PAYLOAD_MAPPER.writeValueAsBytes(payload), PAYLOAD_MAP_TYPE);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Dispatch payload cannot be serialized for persistence", ex);
+        }
     }
 
     private void failQueuedUnauthorizedTask(DispatchTaskEntity task) {

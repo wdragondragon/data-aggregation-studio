@@ -42,7 +42,7 @@ public class DefaultJavaDataScriptServices implements JavaDataScriptServices {
     @Override
     public List<DataSourceDefinition> listDatasources() {
         assertRuntimeScope();
-        List<DataSourceDefinition> candidates = dataSourceService.list();
+        List<DataSourceDefinition> candidates = dataSourceService.listForProject(projectId);
         Set<Long> candidateIds = new LinkedHashSet<Long>();
         for (DataSourceDefinition candidate : candidates) {
             if (candidate != null && candidate.getId() != null) {
@@ -63,7 +63,7 @@ public class DefaultJavaDataScriptServices implements JavaDataScriptServices {
     @Override
     public DataSourceDefinition getDatasource(Long datasourceId) {
         assertDatasourceApplicable(datasourceId);
-        return dataSourceService.get(datasourceId);
+        return dataSourceService.getForProject(projectId, datasourceId);
     }
 
     @Override
@@ -81,7 +81,7 @@ public class DefaultJavaDataScriptServices implements JavaDataScriptServices {
     @Override
     public SqlExecutionResultView executeSql(Long datasourceId, String sql, Integer maxRows) {
         assertDatasourceApplicable(datasourceId);
-        DataSourceDefinition datasource = dataSourceService.getInternal(datasourceId);
+        DataSourceDefinition datasource = dataSourceService.getInternalForProject(projectId, datasourceId);
         return sqlExecutor.executeSql(datasource, sql, maxRows);
     }
 
@@ -89,6 +89,9 @@ public class DefaultJavaDataScriptServices implements JavaDataScriptServices {
         assertRuntimeScope();
         if (datasourceId == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Datasource is required");
+        }
+        if (dataSourceService.getInternalForProject(projectId, datasourceId) == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
         Set<Long> applicableIds = datasourceClusterBindingService.filterApplicableDatasourceIds(
                 projectId, runtimeClusterId, Collections.singleton(datasourceId));

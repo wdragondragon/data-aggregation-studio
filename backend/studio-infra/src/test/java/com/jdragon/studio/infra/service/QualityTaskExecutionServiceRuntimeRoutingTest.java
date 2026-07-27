@@ -9,11 +9,63 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class QualityTaskExecutionServiceRuntimeRoutingTest {
+
+    @Test
+    void executionShouldRejectDatasourceDisabledAfterDispatch() {
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService dataModelService = mock(DataModelService.class);
+        DataDevelopmentSqlExecutor sqlExecutor = mock(DataDevelopmentSqlExecutor.class);
+        QualityTaskExecutionPlanService planService = mock(QualityTaskExecutionPlanService.class);
+        QualityTaskDefinitionView definition = new QualityTaskDefinitionView();
+        definition.setDatasourceId(11L);
+        doThrow(new com.jdragon.studio.commons.exception.StudioException(
+                com.jdragon.studio.commons.exception.StudioErrorCode.BAD_REQUEST,
+                "Datasource must be enabled and executable before running"))
+                .when(dataSourceService).requireRunnableForExecution(11L);
+
+        QualityTaskExecutionService service = new QualityTaskExecutionService(
+                dataSourceService, dataModelService, sqlExecutor, planService);
+
+        assertThrows(com.jdragon.studio.commons.exception.StudioException.class,
+                () -> service.execute(definition));
+        verify(sqlExecutor, never()).executeSql(any(), any(), any());
+    }
+
+    @Test
+    void executionShouldRejectDeletedModelAfterDispatch() {
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        DataModelService dataModelService = mock(DataModelService.class);
+        DataDevelopmentSqlExecutor sqlExecutor = mock(DataDevelopmentSqlExecutor.class);
+        QualityTaskExecutionPlanService planService = mock(QualityTaskExecutionPlanService.class);
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(11L);
+        datasource.setTypeCode("mysql");
+        QualityTaskDefinitionView definition = new QualityTaskDefinitionView();
+        definition.setProjectId(22L);
+        definition.setDatasourceId(11L);
+        definition.setModelId(33L);
+        when(dataSourceService.requireRunnableForExecution(11L)).thenReturn(datasource);
+        when(sqlExecutor.supports(datasource)).thenReturn(true);
+        when(dataModelService.getInternalForProject(22L, 33L)).thenReturn(null);
+
+        QualityTaskExecutionService service = new QualityTaskExecutionService(
+                dataSourceService, dataModelService, sqlExecutor, planService);
+
+        com.jdragon.studio.commons.exception.StudioException exception = assertThrows(
+                com.jdragon.studio.commons.exception.StudioException.class,
+                () -> service.execute(definition));
+        assertTrue(exception.getMessage().contains("target model is no longer available"));
+        verify(sqlExecutor, never()).executeSql(any(), any(), any());
+    }
 
     @Test
     void validationShouldQueryTheExplicitRuntimeCluster() {

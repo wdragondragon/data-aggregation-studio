@@ -7,6 +7,7 @@ import ch.qos.logback.classic.PatternLayout;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
@@ -18,7 +19,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 final class OpenServiceInvocationLogSupport {
 
@@ -30,18 +30,6 @@ final class OpenServiceInvocationLogSupport {
             DataIngestionExecutionSupport.class.getName(),
             "com.jdragon.aggregation"
     );
-    private static final String SENSITIVE_NAME_PATTERN =
-            "[A-Za-z0-9_.-]*(?:password|access[_-]?key|secret|token|private[_-]?key|api[_-]?key|authorization|cookie|credential)[A-Za-z0-9_.-]*";
-    private static final Pattern SENSITIVE_JSON_VALUE = Pattern.compile(
-            "(?i)(\"(?:" + SENSITIVE_NAME_PATTERN + ")\"\\s*:\\s*\")([^\"]*)(\")");
-    private static final Pattern SENSITIVE_ASSIGNMENT_VALUE = Pattern.compile(
-            "(?i)(\\b(?:" + SENSITIVE_NAME_PATTERN + ")\\b\\s*[=:]\\s*)([^,&\"'\\s}\\]<]+)");
-    private static final String XML_NAME_PREFIX = "(?:[A-Za-z_][A-Za-z0-9_.-]*:)?";
-    private static final Pattern SENSITIVE_XML_ELEMENT_VALUE = Pattern.compile(
-            "(?is)(<\\s*" + XML_NAME_PREFIX + "(?:" + SENSITIVE_NAME_PATTERN + ")\\b[^>]*>)([^<]*)(</\\s*"
-                    + XML_NAME_PREFIX + "(?:" + SENSITIVE_NAME_PATTERN + ")\\s*>)");
-    private static final Pattern SENSITIVE_XML_ATTRIBUTE_VALUE = Pattern.compile(
-            "(?i)(\\b" + XML_NAME_PREFIX + "(?:" + SENSITIVE_NAME_PATTERN + ")\\s*=\\s*[\"'])([^\"']*)([\"'])");
 
     private final LoggerContext loggerContext;
     private final Logger rootLogger;
@@ -83,13 +71,7 @@ final class OpenServiceInvocationLogSupport {
     }
 
     static String sanitizeSensitiveLog(String value) {
-        if (value == null) {
-            return null;
-        }
-        String sanitized = SENSITIVE_JSON_VALUE.matcher(value).replaceAll("$1******$3");
-        sanitized = SENSITIVE_XML_ATTRIBUTE_VALUE.matcher(sanitized).replaceAll("$1******$3");
-        sanitized = SENSITIVE_ASSIGNMENT_VALUE.matcher(sanitized).replaceAll("$1******");
-        return SENSITIVE_XML_ELEMENT_VALUE.matcher(sanitized).replaceAll("$1******$3");
+        return StudioSensitiveLogSanitizer.sanitize(value);
     }
 
     private List<Logger> ensureInfoLogging() {

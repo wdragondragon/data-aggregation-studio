@@ -35,9 +35,11 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.ClassUtils;
 
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -141,6 +143,31 @@ class StudioServerPluginlessStartupTest {
         assertThat(ReflectionTestUtils.getField(ingestionService, "executionSupport")).isNull();
         assertThat(ReflectionTestUtils.getField(dataServiceService, "sqlExecutor")).isNull();
         assertThat(ReflectionTestUtils.getField(dataServiceService, "transformerExecutionSupport")).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void pluginlessServerCanBuildCollectionRuntimeOptionMaps() throws Exception {
+        Class<?> mergerType = Class.forName(
+                "com.jdragon.studio.infra.service.CollectionTaskRuntimeOptionMerger");
+        java.lang.reflect.Constructor<?> constructor = mergerType.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object merger = constructor.newInstance();
+        Method merge = mergerType.getDeclaredMethod("merge", Map.class, Map.class,
+                String.class, Iterable.class);
+        merge.setAccessible(true);
+
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("connect", new LinkedHashMap<String, Object>());
+        Map<String, Object> options = new LinkedHashMap<String, Object>();
+        options.put("test.param", "value");
+        options.put("connect.host", "must-not-override");
+
+        merge.invoke(merger, config, options, "reader", Collections.singleton("connect"));
+
+        assertThat(config).containsKey("test");
+        assertThat((Map<String, Object>) config.get("test")).containsEntry("param", "value");
+        assertThat((Map<String, Object>) config.get("connect")).doesNotContainKey("host");
     }
 
     private static void prepareDatabase() {

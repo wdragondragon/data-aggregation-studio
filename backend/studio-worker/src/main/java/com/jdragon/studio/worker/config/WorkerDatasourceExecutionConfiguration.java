@@ -103,9 +103,10 @@ public class WorkerDatasourceExecutionConfiguration {
     @Bean
     public QualityTaskExecutionService qualityTaskExecutionService(
             DataSourceService dataSourceService,
+            DataModelService dataModelService,
             DataDevelopmentSqlExecutor sqlExecutor,
             QualityTaskExecutionPlanService executionPlanService) {
-        return new QualityTaskExecutionService(dataSourceService, sqlExecutor, executionPlanService);
+        return new QualityTaskExecutionService(dataSourceService, dataModelService, sqlExecutor, executionPlanService);
     }
 
     @Bean
