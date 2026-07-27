@@ -910,6 +910,48 @@ public class CollectionTaskService {
                 throw new StudioException(StudioErrorCode.BAD_REQUEST, "Source alias must be unique");
             }
         }
+        validateFieldMappings(request.getFieldMappings(), aliases);
+    }
+
+    private void validateFieldMappings(List<FieldMappingDefinition> mappings, Set<String> sourceAliases) {
+        if (mappings == null || mappings.isEmpty()) {
+            return;
+        }
+        Set<String> targetFields = new HashSet<String>();
+        for (int index = 0; index < mappings.size(); index++) {
+            FieldMappingDefinition mapping = mappings.get(index);
+            int displayIndex = index + 1;
+            if (mapping == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Field mapping " + displayIndex + " is required");
+            }
+            String targetField = normalizeNullableText(mapping.getTargetField());
+            String sourceField = normalizeNullableText(mapping.getSourceField());
+            String sourceAlias = normalizeNullableText(mapping.getSourceAlias());
+            String expression = normalizeNullableText(mapping.getExpression());
+            if (!hasText(targetField)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Field mapping " + displayIndex + " requires a target field");
+            }
+            if (!targetFields.add(targetField.toLowerCase(Locale.ROOT))) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Field mapping target field must be unique: " + targetField);
+            }
+            if (!hasText(sourceField) && !hasText(expression)) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Field mapping " + displayIndex + " requires a source field or expression");
+            }
+            if (hasText(sourceField)) {
+                if (!hasText(sourceAlias)) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Field mapping " + displayIndex + " requires a source alias");
+                }
+                if (!sourceAliases.contains(sourceAlias.toLowerCase(Locale.ROOT))) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Field mapping " + displayIndex + " references an unknown source alias: " + sourceAlias);
+                }
+            }
+        }
     }
 
     private CollectionTaskDefinitionView toDefinitionView(CollectionTaskSaveRequest request) {

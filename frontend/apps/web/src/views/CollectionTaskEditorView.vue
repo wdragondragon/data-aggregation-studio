@@ -225,10 +225,12 @@ const canPreviewConfig = computed(() =>
   && form.sourceBindings.every((item) =>
     Boolean(item.datasourceId)
     && Boolean(item.modelId)
-    && (!isFusionTask.value || Boolean(item.sourceAlias?.trim())))
+  && (!isFusionTask.value || Boolean(item.sourceAlias?.trim())))
   && Boolean(form.targetBinding.datasourceId)
-  && Boolean(form.targetBinding.modelId),
+  && Boolean(form.targetBinding.modelId)
+  && hasValidFieldMappings.value,
 );
+const hasValidFieldMappings = computed(() => !fieldMappingValidationMessage());
 const sourceFieldOptionsByAlias = computed<Record<string, string[]>>(() => {
   const options: Record<string, string[]> = {};
   for (const source of form.sourceBindings) {
@@ -1510,6 +1512,9 @@ async function loadPreviewConfig() {
     previewConfig.value = null;
     return;
   }
+  if (!validateFieldMappings()) {
+    return;
+  }
   if (!validateHttpSoapRuntimeOptions()) {
     return;
   }
@@ -1531,6 +1536,9 @@ async function saveTask() {
   }
   if (!form.runtimeClusterId) {
     ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
+    return;
+  }
+  if (!validateFieldMappings()) {
     return;
   }
   if (!validateHttpSoapRuntimeOptions()) {
@@ -1566,6 +1574,42 @@ function validateHttpSoapRuntimeOptions() {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.saveFailed"));
     return false;
   }
+}
+
+function validateFieldMappings() {
+  const message = fieldMappingValidationMessage();
+  if (!message) {
+    return true;
+  }
+  ElMessage.warning(message);
+  return false;
+}
+
+function fieldMappingValidationMessage() {
+  const targetFields = new Set<string>();
+  for (let index = 0; index < form.fieldMappings.length; index += 1) {
+    const mapping = form.fieldMappings[index];
+    const displayIndex = index + 1;
+    const targetField = mapping.targetField?.trim() ?? "";
+    const sourceField = mapping.sourceField?.trim() ?? "";
+    const sourceAlias = mapping.sourceAlias?.trim() ?? "";
+    const expression = mapping.expression?.trim() ?? "";
+    if (!targetField) {
+      return t("web.collectionTasks.fieldMappingTargetRequired", { index: displayIndex });
+    }
+    const normalizedTarget = targetField.toLocaleLowerCase();
+    if (targetFields.has(normalizedTarget)) {
+      return t("web.collectionTasks.fieldMappingTargetDuplicate", { targetField });
+    }
+    targetFields.add(normalizedTarget);
+    if (!sourceField && !expression) {
+      return t("web.collectionTasks.fieldMappingSourceOrExpressionRequired", { index: displayIndex });
+    }
+    if (sourceField && !sourceAlias) {
+      return t("web.collectionTasks.fieldMappingSourceAliasRequired", { index: displayIndex });
+    }
+  }
+  return "";
 }
 
 function validateHttpSoapOptions(options: Record<string, unknown>, label: string, requireRecordsRepeat: boolean) {

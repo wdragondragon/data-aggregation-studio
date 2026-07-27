@@ -75,12 +75,67 @@
             <span>{{ t('web.collectionTaskRuns.runningRuns') }}</span>
             <strong>{{ runningCount }}</strong>
           </div>
+          <div class="status-metric queued">
+            <span>{{ t('web.collectionTaskRuns.queuedTasks') }}</span>
+            <strong>{{ queuedTasks.length }}</strong>
+          </div>
           <div class="status-metric success">
             <span>{{ t('web.collectionTaskRuns.successRuns') }}</span>
             <strong>{{ successCount }}</strong>
           </div>
         </div>
       </div>
+    </SectionCard>
+
+    <SectionCard
+      v-if="queuedTasks.length > 0"
+      :title="t('web.collectionTaskRuns.queuedTitle')"
+      :description="t('web.collectionTaskRuns.queuedDescription')"
+    >
+      <StudioTableShell min-width="1080px">
+        <el-table :data="queuedTasks" border size="small" table-layout="fixed" class="task-run-table">
+          <el-table-column :label="t('web.runs.collectionTask')" min-width="280">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <el-button
+                  v-if="row.collectionTaskId"
+                  link
+                  type="primary"
+                  class="run-link"
+                  @click="openCollectionTask(row.collectionTaskId)"
+                >
+                  {{ row.collectionTaskName || '--' }}
+                </el-button>
+                <span v-else>{{ row.collectionTaskName || '--' }}</span>
+                <span class="cell-subtle">{{ resolveProjectLabel(row.projectId) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runs.status')" width="108" align="center" header-align="center">
+            <template #default="{ row }">
+              <StatusPill :label="formatStatusLabel(t, row.status)" :tone="toneFromStatus(row.status)" />
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.runtimeClusterSelection.targetCluster')" min-width="220">
+            <template #default="{ row }">
+              {{ clusterLabel(row.targetClusterId) }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.collectionTaskRuns.queuedAt')" width="190">
+            <template #default="{ row }">
+              {{ row.createdAt || t('common.none') }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('web.collectionTaskRuns.dispatchState')" min-width="240">
+            <template #default="{ row }">
+              <div class="stack-cell">
+                <span>{{ row.workerGroupCode || row.leaseOwner || t('common.none') }}</span>
+                <span class="cell-subtle">{{ t('web.collectionTaskRuns.dispatchAttempts', { attempts: row.attempts || 0, maxRetries: row.maxRetries || 0 }) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </StudioTableShell>
     </SectionCard>
 
     <SectionCard :title="t('web.collectionTaskRuns.runtimeTitle')" :description="t('web.collectionTaskRuns.runtimeDescription')">
@@ -189,7 +244,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useI18n } from "vue-i18n";
-import type { CollectionTaskOptionView, EntityId, RunRecordListView, RuntimeClusterView } from "@studio/api-sdk";
+import type { CollectionTaskOptionView, EntityId, QueuedTaskListView, RunRecordListView, RuntimeClusterView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
@@ -209,6 +264,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const collectionTasks = ref<CollectionTaskOptionView[]>([]);
+const queuedTasks = ref<QueuedTaskListView[]>([]);
 const pagedRunRecords = ref<RunRecordListView[]>([]);
 const taskRunTotal = ref(0);
 const failedCount = ref(0);
@@ -275,17 +331,27 @@ async function loadRuntimeClusters() {
 
 async function loadTaskRuns() {
   try {
-    const response = await studioApi.runs.listPage({
+    const query = {
       collectionTaskId: filters.value.collectionTaskId || undefined,
-      collectionTaskOnly: true,
-      status: filters.value.status || undefined,
       requestedClusterId: filters.value.requestedClusterId || undefined,
       actualClusterId: filters.value.actualClusterId || undefined,
       startTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[0] : undefined,
       endTime: filters.value.timeRange.length === 2 ? filters.value.timeRange[1] : undefined,
-      pageNo: pagination.page,
-      pageSize: pagination.pageSize,
-    });
+    };
+    const [response, activeResponse] = await Promise.all([
+      studioApi.runs.listPage({
+        ...query,
+        collectionTaskOnly: true,
+        status: filters.value.status || undefined,
+        pageNo: pagination.page,
+        pageSize: pagination.pageSize,
+      }),
+      studioApi.runs.list({
+        ...query,
+        includeRunRecords: false,
+      }),
+    ]);
+    queuedTasks.value = activeResponse.queuedTasks.filter((item) => String(item.status ?? "").toUpperCase() === STUDIO_RUN_STATUS.QUEUED);
     pagedRunRecords.value = response.items;
     taskRunTotal.value = Number(response.total ?? 0);
     failedCount.value = Number(response.failedCount ?? 0);
@@ -507,6 +573,10 @@ p {
 
 .status-metric.running {
   background: rgba(37, 99, 235, 0.08);
+}
+
+.status-metric.queued {
+  background: rgba(196, 122, 15, 0.1);
 }
 
 .run-link {
