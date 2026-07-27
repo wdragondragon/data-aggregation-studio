@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
@@ -145,7 +146,9 @@ public class RunLogProxyService {
             if (dataNode.isMissingNode() || dataNode.isNull()) {
                 throw invalidWorkerResponse("Worker returned no run log data");
             }
-            return objectMapper.treeToValue(dataNode, RunLogView.class);
+            RunLogView log = objectMapper.treeToValue(dataNode, RunLogView.class);
+            log.setContent(StudioSensitiveLogSanitizer.sanitize(log.getContent()));
+            return log;
         } catch (StudioException exception) {
             throw exception;
         } catch (Exception exception) {

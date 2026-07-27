@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.jdragon.studio.dto.model.RunLogView;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import org.springframework.stereotype.Service;
@@ -121,7 +122,7 @@ public class RunLogStorageService {
         view.setRunRecordId(ownerId);
         view.setCharset(charset.name());
         view.setContentType("text/plain;charset=" + charset.name());
-        view.setContent(new String(pageBytes, charset));
+        view.setContent(StudioSensitiveLogSanitizer.sanitize(new String(pageBytes, charset)));
         view.setSizeBytes(Long.valueOf(bytes.length));
         view.setTruncated(false);
         view.setPaged(!full && totalPages > 1);

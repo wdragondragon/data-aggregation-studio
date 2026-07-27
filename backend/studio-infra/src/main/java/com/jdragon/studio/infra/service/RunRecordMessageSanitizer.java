@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,7 +23,7 @@ final class RunRecordMessageSanitizer {
     }
 
     static String sanitizeAndTruncateMessage(String message) {
-        return truncateMessage(sanitizeMessage(message));
+        return truncateMessage(StudioSensitiveLogSanitizer.sanitize(sanitizeMessage(message)));
     }
 
     static Map<String, Object> sanitizePayload(Map<String, Object> payload) {

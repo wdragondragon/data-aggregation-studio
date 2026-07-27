@@ -2,12 +2,12 @@ package com.jdragon.studio.worker.runtime.log;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.FileAppender;
 import ch.qos.logback.core.filter.Filter;
 import ch.qos.logback.core.spi.FilterReply;
 import com.jdragon.studio.commons.constant.StudioConstants;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.commons.util.StudioPathUtils;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
@@ -148,7 +148,7 @@ public class RunLogFileService {
         try {
             bucket = runLogStorageService.resolveBucket();
             objectKey = runLogStorageService.buildObjectKey(prepared.getRelativePath());
-            byte[] bytes = Files.readAllBytes(prepared.getAbsolutePath());
+            byte[] bytes = sanitizedFileBytes(prepared.getAbsolutePath(), prepared.getCharset());
             runLogStorageService.upload(bucket, objectKey, bytes, "text/plain;charset=" + prepared.getCharset());
             lastUploadErrorByPath.remove(prepared.getRelativePath());
             return RunLogStorageResult.objectStorage(size, bucket, objectKey, successStatus);
@@ -169,7 +169,7 @@ public class RunLogFileService {
         }
         String line = System.lineSeparator()
                 + "[Studio] Run log object storage upload failed: "
-                + (summary == null || summary.trim().isEmpty() ? "unknown error" : summary.trim())
+                + (summary == null || summary.trim().isEmpty() ? "unknown error" : StudioSensitiveLogSanitizer.sanitize(summary.trim()))
                 + System.lineSeparator();
         try {
             Files.write(prepared.getAbsolutePath(), line.getBytes(DEFAULT_CHARSET),
@@ -215,7 +215,7 @@ public class RunLogFileService {
             view.setRunRecordId(entity.getId());
             view.setCharset(charset.name());
             view.setContentType("text/plain;charset=" + view.getCharset());
-            view.setContent(decodeBytes(bytes, charset));
+            view.setContent(StudioSensitiveLogSanitizer.sanitize(decodeBytes(bytes, charset)));
             view.setSizeBytes(size);
             view.setTruncated(false);
             view.setPaged(!full && totalPages > 1);
@@ -356,8 +356,14 @@ public class RunLogFileService {
                 : properties.getTimezone().trim());
     }
 
+    private byte[] sanitizedFileBytes(Path path, String charsetName) throws IOException {
+        Charset charset = Charset.forName(charsetName == null || charsetName.trim().isEmpty()
+                ? DEFAULT_CHARSET.name() : charsetName.trim());
+        return StudioSensitiveLogSanitizer.sanitize(Files.readString(path, charset)).getBytes(charset);
+    }
+
     private FileAppender<ILoggingEvent> buildAppender(PreparedRunLog prepared) {
-        PatternLayoutEncoder encoder = new PatternLayoutEncoder();
+        SanitizingPatternLayoutEncoder encoder = new SanitizingPatternLayoutEncoder();
         encoder.setContext(loggerContext);
         encoder.setCharset(DEFAULT_CHARSET);
         encoder.setPattern("%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n");

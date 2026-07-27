@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RunLogStorageServiceRegressionTest {
 
@@ -33,6 +34,29 @@ class RunLogStorageServiceRegressionTest {
                 .readObjectLog(entity, 2, 4, false);
 
         assertFalse(view.getContent().contains("\uFFFD"));
+    }
+
+    @Test
+    void objectLogReadShouldDefensivelyRedactSensitiveValues() {
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.getRunLog().setStorageType(RunLogStorageService.STORAGE_OBJECT);
+        InMemoryObjectStore objectStore = new InMemoryObjectStore();
+        objectStore.put("logs", "run.log", "password=raw-secret\nAuthorization: Bearer raw-token"
+                .getBytes(StandardCharsets.UTF_8), "text/plain;charset=UTF-8");
+
+        RunRecordEntity entity = new RunRecordEntity();
+        entity.setId(2L);
+        entity.setLogObjectBucket("logs");
+        entity.setLogObjectKey("run.log");
+        entity.setLogCharset("UTF-8");
+
+        String content = new RunLogStorageService(properties, objectStore, null)
+                .readObjectLog(entity, 1, 64 * 1024, true).getContent();
+
+        assertTrue(content.contains("password=******"));
+        assertTrue(content.contains("Authorization: ******"));
+        assertFalse(content.contains("raw-secret"));
+        assertFalse(content.contains("raw-token"));
     }
 
     private static final class InMemoryObjectStore implements RunLogObjectStore {
