@@ -70,4 +70,21 @@ class RuntimeClusterSelectionServiceTest {
         assertThrows(com.jdragon.studio.commons.exception.StudioException.class,
                 () -> service.validateExplicitDatasourceSelection(100L, null, List.of(11L)));
     }
+
+    @Test
+    void shouldRequireReferencedDatasourceToRemainRunnableBeforeNewExecution() {
+        RuntimeClusterService runtimeClusterService = mock(RuntimeClusterService.class);
+        DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        RuntimeClusterEntity cluster = new RuntimeClusterEntity();
+        cluster.setId(46L);
+        when(runtimeClusterService.requireAuthorized(100L, 46L)).thenReturn(cluster);
+        RuntimeClusterSelectionService service = new RuntimeClusterSelectionService(runtimeClusterService, bindingService);
+        service.setDataSourceService(dataSourceService);
+
+        service.assertExistingResourceRunnable(100L, 46L, List.of(11L, 11L));
+
+        verify(bindingService).assertDatasourceApplicable(11L, 46L);
+        verify(dataSourceService).requireRunnableForExecution(11L);
+    }
 }

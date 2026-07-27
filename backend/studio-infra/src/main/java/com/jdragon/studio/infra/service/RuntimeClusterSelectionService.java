@@ -18,6 +18,7 @@ public class RuntimeClusterSelectionService {
     private final RuntimeClusterService runtimeClusterService;
     private final DatasourceClusterBindingService datasourceClusterBindingService;
     private RuntimeValidationService runtimeValidationService;
+    private DataSourceService dataSourceService;
 
     public RuntimeClusterSelectionService(RuntimeClusterService runtimeClusterService,
                                           DatasourceClusterBindingService datasourceClusterBindingService) {
@@ -28,6 +29,11 @@ public class RuntimeClusterSelectionService {
     @Autowired
     void setRuntimeValidationService(RuntimeValidationService runtimeValidationService) {
         this.runtimeValidationService = runtimeValidationService;
+    }
+
+    @Autowired
+    void setDataSourceService(DataSourceService dataSourceService) {
+        this.dataSourceService = dataSourceService;
     }
 
     public Long resolveForSave(Long projectId, Long runtimeClusterId) {
@@ -112,6 +118,7 @@ public class RuntimeClusterSelectionService {
 
     public void assertExistingResourceRunnable(Long projectId, Long runtimeClusterId, Collection<Long> datasourceIds) {
         validateDatasourceSelection(projectId, runtimeClusterId, datasourceIds);
+        assertDatasourcesRunnable(datasourceIds);
     }
 
     public void assertResourceValid(String resourceType, Long resourceId) {
@@ -125,7 +132,23 @@ public class RuntimeClusterSelectionService {
         for (Long datasourceId : datasourceIds == null ? new LinkedHashSet<Long>() : datasourceIds) {
             if (datasourceId != null) datasourceClusterBindingService.assertDatasourceApplicable(datasourceId, runtimeClusterId);
         }
+        assertDatasourcesRunnable(datasourceIds);
         return runtimeClusterId;
+    }
+
+    private void assertDatasourcesRunnable(Collection<Long> datasourceIds) {
+        if (dataSourceService == null || datasourceIds == null) {
+            return;
+        }
+        Set<Long> uniqueDatasourceIds = new LinkedHashSet<Long>();
+        for (Long datasourceId : datasourceIds) {
+            if (datasourceId != null) {
+                uniqueDatasourceIds.add(datasourceId);
+            }
+        }
+        for (Long datasourceId : uniqueDatasourceIds) {
+            dataSourceService.requireRunnableForExecution(datasourceId);
+        }
     }
 
     public void markResourceValid(String resourceType, Long resourceId) {

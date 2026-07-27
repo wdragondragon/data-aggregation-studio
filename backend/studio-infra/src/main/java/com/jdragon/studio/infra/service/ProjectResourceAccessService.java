@@ -63,18 +63,27 @@ public class ProjectResourceAccessService {
     }
 
     public boolean canRead(String resourceType, Long ownerProjectId, Long resourceId) {
-        Long currentProjectId = currentProjectId();
-        if (currentProjectId == null || ownerProjectId == null) {
+        return canReadFromProject(currentProjectId(), resourceType, ownerProjectId, resourceId);
+    }
+
+    /**
+     * Evaluates resource visibility for an explicit project. Worker-side script
+     * execution has no HTTP request context, so it must not fall back to an
+     * unrestricted tenant-wide lookup.
+     */
+    public boolean canReadFromProject(Long projectId, String resourceType,
+                                      Long ownerProjectId, Long resourceId) {
+        if (projectId == null || ownerProjectId == null) {
             return true;
         }
-        if (currentProjectId.longValue() == ownerProjectId.longValue()) {
+        if (projectId.longValue() == ownerProjectId.longValue()) {
             return true;
         }
         if (resourceId == null) {
             return false;
         }
         Long sharedCount = resourceShareMapper.selectCount(new LambdaQueryWrapper<ResourceShareEntity>()
-                .eq(ResourceShareEntity::getTargetProjectId, currentProjectId)
+                .eq(ResourceShareEntity::getTargetProjectId, projectId)
                 .eq(ResourceShareEntity::getResourceType, resourceType)
                 .eq(ResourceShareEntity::getResourceId, resourceId)
                 .eq(ResourceShareEntity::getEnabled, 1));
@@ -83,6 +92,14 @@ public class ProjectResourceAccessService {
 
     public void assertReadable(String resourceType, Long ownerProjectId, Long resourceId, String notFoundMessage) {
         if (!canRead(resourceType, ownerProjectId, resourceId)) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, notFoundMessage);
+        }
+    }
+
+    public void assertReadableFromProject(Long projectId, String resourceType,
+                                          Long ownerProjectId, Long resourceId,
+                                          String notFoundMessage) {
+        if (!canReadFromProject(projectId, resourceType, ownerProjectId, resourceId)) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, notFoundMessage);
         }
     }

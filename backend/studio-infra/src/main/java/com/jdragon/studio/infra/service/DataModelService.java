@@ -118,6 +118,21 @@ public class DataModelService {
         return toDefinition(entity);
     }
 
+    /**
+     * Resolves a persisted model for a Worker-owned dispatch without relying on
+     * the HTTP request context that is absent on the Worker thread.
+     */
+    public DataModelDefinition getInternalForProject(Long projectId, Long modelId) {
+        if (projectId == null || modelId == null) {
+            return null;
+        }
+        DataModelEntity entity = dataModelMapper.selectOne(new LambdaQueryWrapper<DataModelEntity>()
+                .eq(DataModelEntity::getId, modelId)
+                .eq(DataModelEntity::getProjectId, projectId)
+                .last("limit 1"));
+        return entity == null ? null : toDefinition(entity);
+    }
+
     public List<DataModelDefinition> query(DataModelQueryRequest request) {
         return queryPage(request, request == null ? null : request.getPageNo(), request == null ? null : request.getPageSize()).getItems();
     }

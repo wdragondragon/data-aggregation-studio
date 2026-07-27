@@ -168,6 +168,25 @@ class RuntimeClusterServiceTest {
     }
 
     @Test
+    void shouldRejectClusterManagementReadsForProjectMember() {
+        RuntimeClusterMapper clusterMapper = mock(RuntimeClusterMapper.class);
+        StudioSecurityService security = mock(StudioSecurityService.class);
+        when(security.currentTenantId()).thenReturn("tenant-a");
+        when(security.hasAnyRole(any(String[].class))).thenReturn(false);
+        RuntimeClusterService service = new RuntimeClusterService(clusterMapper, mock(RuntimeEndpointMapper.class),
+                mock(ProjectRuntimeClusterMapper.class), security, mock(EncryptionService.class), objectMapper(),
+                mock(RuntimeClusterReferenceRepository.class), mock(ProjectMapper.class));
+
+        StudioException listException = assertThrows(StudioException.class, service::list);
+        StudioException getException = assertThrows(StudioException.class, () -> service.get(10L));
+
+        assertEquals("Runtime cluster management requires tenant administrator permission", listException.getMessage());
+        assertEquals("Runtime cluster management requires tenant administrator permission", getException.getMessage());
+        verify(clusterMapper, never()).selectList(any());
+        verify(clusterMapper, never()).selectOne(any());
+    }
+
+    @Test
     void shouldKeepExplicitlyDisabledProjectAuthorizationRevoked() {
         RuntimeClusterMapper clusterMapper = mock(RuntimeClusterMapper.class);
         ProjectRuntimeClusterMapper authorizationMapper = mock(ProjectRuntimeClusterMapper.class);

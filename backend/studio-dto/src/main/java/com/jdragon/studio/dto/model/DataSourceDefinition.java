@@ -29,6 +29,11 @@ public class DataSourceDefinition extends BaseDefinition {
     private LocalDateTime nextConnectionProbeAt;
     private Integer manualConnectionTestTimeoutSeconds;
     private Integer scheduledConnectionTestTimeoutSeconds;
+    /**
+     * Sensitive technical-metadata fields that already have a stored value.
+     * Their values are intentionally omitted from public datasource responses.
+     */
+    private List<String> savedSensitiveFieldKeys = new ArrayList<String>();
     private List<Long> applicableClusterIds = new ArrayList<Long>();
     private List<RuntimeClusterView> applicableClusters = new ArrayList<RuntimeClusterView>();
     private List<DatasourceConnectionTestRecordView> recentConnectionTests = new ArrayList<DatasourceConnectionTestRecordView>();

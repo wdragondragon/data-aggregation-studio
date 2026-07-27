@@ -23,10 +23,15 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -123,6 +128,47 @@ class DatasourceClusterHealthHydrationTest {
         verify(healthService).hydrateClusterHealth(argThat(items -> items.size() == 1
                 && items.get(0).getApplicableClusters().size() == 1
                 && Long.valueOf(46L).equals(items.get(0).getApplicableClusters().get(0).getId())));
+    }
+
+    @Test
+    void shouldSkipUnreadableDatasourceInsteadOfStoppingScheduledHealthRound() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        DatasourceConnectionHealthService healthService = mock(DatasourceConnectionHealthService.class);
+        DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        DatasourceConnectionFingerprintService fingerprintService = mock(DatasourceConnectionFingerprintService.class);
+        DatasourceEntity unreadable = new DatasourceEntity();
+        unreadable.setId(91L);
+        unreadable.setTenantId("tenant-a");
+        unreadable.setEnabled(1);
+        unreadable.setExecutable(1);
+        unreadable.setTypeCode("mysql");
+        unreadable.setTechnicalMetadata(Map.of("password", "ENC(unreadable)"));
+        when(healthService.enabled()).thenReturn(true);
+        when(datasourceMapper.selectList(any())).thenReturn(List.of(unreadable));
+        when(bindingService.listApplicableClusterIds("tenant-a", List.of(91L)))
+                .thenReturn(Map.of(91L, List.of(46L)));
+        doThrow(new com.jdragon.studio.commons.exception.StudioException(
+                com.jdragon.studio.commons.exception.StudioErrorCode.INTERNAL_SERVER_ERROR,
+                "Failed to decrypt value"))
+                .when(fingerprintService).fingerprint("tenant-a", "mysql", unreadable.getTechnicalMetadata());
+        DataSourceService service = new DataSourceService(
+                datasourceMapper,
+                mock(DataModelMapper.class),
+                mock(EncryptionService.class),
+                mock(MetadataSchemaService.class),
+                mock(DataModelIndexRebuildQueueService.class),
+                mock(BusinessMetaModelMetadataService.class),
+                mock(StudioSecurityService.class),
+                mock(ProjectResourceAccessService.class),
+                mock(DatasourceTypeCapabilityService.class),
+                fingerprintService,
+                healthService);
+        service.setDatasourceClusterBindingService(bindingService);
+
+        assertDoesNotThrow(service::dispatchDueScheduledConnectionTests);
+
+        verify(healthService, never()).submitScheduledProbe(any(), anyLong(), any(), anyInt());
+        verify(healthService).cleanupExpiredHistory();
     }
 
     private RuntimeClusterView cluster(Long id, String code, String name) {

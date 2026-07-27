@@ -27,6 +27,8 @@ import com.jdragon.studio.infra.entity.DataModelEntity;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ import java.util.concurrent.Callable;
 
 @Service
 public class DataSourceService {
+    private static final Logger log = LoggerFactory.getLogger(DataSourceService.class);
     private static final int MAX_CONNECTION_TEST_MESSAGE_LENGTH = 1000;
     private static final int DEFAULT_PAGE_NO = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
@@ -112,6 +115,28 @@ public class DataSourceService {
         List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
         for (DatasourceEntity entity : entities) {
             result.add(toDefinition(entity, true));
+        }
+        datasourceConnectionHealthService.hydrateDefinitions(result);
+        hydrateApplicableClusters(result);
+        return result;
+    }
+
+    /**
+     * Worker-side scripts execute without an HTTP project context. Keep their
+     * datasource visibility tied to the dispatched resource project instead
+     * of allowing a tenant-wide fallback.
+     */
+    public List<DataSourceDefinition> listForProject(Long projectId) {
+        List<DatasourceEntity> entities = datasourceMapper.selectList(new LambdaQueryWrapper<DatasourceEntity>()
+                .eq(DatasourceEntity::getTenantId, securityService.currentTenantId())
+                .orderByAsc(DatasourceEntity::getProjectId)
+                .orderByAsc(DatasourceEntity::getName));
+        List<DataSourceDefinition> result = new ArrayList<DataSourceDefinition>();
+        for (DatasourceEntity entity : entities) {
+            if (projectResourceAccessService.canReadFromProject(projectId,
+                    StudioConstants.RESOURCE_TYPE_DATASOURCE, entity.getProjectId(), entity.getId())) {
+                result.add(toDefinition(entity, true));
+            }
         }
         datasourceConnectionHealthService.hydrateDefinitions(result);
         hydrateApplicableClusters(result);
@@ -286,8 +311,43 @@ public class DataSourceService {
         return definition;
     }
 
+    public DataSourceDefinition getForProject(Long projectId, Long id) {
+        DatasourceEntity entity = findReadableEntityForProject(projectId, id);
+        if (entity == null) {
+            return null;
+        }
+        DataSourceDefinition definition = toDefinition(entity, true);
+        List<DataSourceDefinition> definitions = new ArrayList<DataSourceDefinition>();
+        definitions.add(definition);
+        datasourceConnectionHealthService.hydrateDefinitions(definitions);
+        hydrateApplicableClusters(definitions);
+        return definition;
+    }
+
     public DataSourceDefinition getInternal(Long id) {
         DatasourceEntity entity = findAccessibleEntity(id);
+        return entity == null ? null : toDefinition(entity, false);
+    }
+
+    /**
+     * Guards a persisted datasource at the point a new execution is accepted.
+     * Editing a resource that refers to a disabled datasource remains allowed,
+     * but no new run may use that datasource until it is enabled again.
+     */
+    public DataSourceDefinition requireRunnableForExecution(Long id) {
+        DataSourceDefinition definition = getInternal(id);
+        if (definition == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + id);
+        }
+        if (!Boolean.TRUE.equals(definition.getEnabled()) || !Boolean.TRUE.equals(definition.getExecutable())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Datasource must be enabled and executable before running");
+        }
+        return definition;
+    }
+
+    public DataSourceDefinition getInternalForProject(Long projectId, Long id) {
+        DatasourceEntity entity = findReadableEntityForProject(projectId, id);
         return entity == null ? null : toDefinition(entity, false);
     }
 
@@ -529,21 +589,27 @@ public class DataSourceService {
             }
         }
         for (DatasourceEntity entity : entities) {
-            ensureConnectionFingerprint(entity);
-            if (!hasText(entity.getConnectionFingerprint())) {
-                continue;
-            }
-            DataSourceDefinition definition = toDefinition(entity, true);
-            int timeoutSeconds = datasourceConnectionHealthService.effectiveScheduledTimeout(definition);
-            List<Long> clusterIds = applicableClusters.get(entity.getId());
-            if (clusterIds == null || clusterIds.isEmpty()) {
-                continue;
-            }
-            for (Long runtimeClusterId : clusterIds) {
-                String key = entity.getTenantId() + "\n" + runtimeClusterId + "\n" + entity.getConnectionFingerprint();
-                ScheduledProbeCandidate candidate = candidates.get(key);
-                if (candidate == null) candidates.put(key, new ScheduledProbeCandidate(definition, runtimeClusterId, timeoutSeconds));
-                else if (timeoutSeconds > candidate.timeoutSeconds) candidate.timeoutSeconds = timeoutSeconds;
+            try {
+                ensureConnectionFingerprint(entity);
+                if (!hasText(entity.getConnectionFingerprint())) {
+                    continue;
+                }
+                DataSourceDefinition definition = toDefinition(entity, true);
+                int timeoutSeconds = datasourceConnectionHealthService.effectiveScheduledTimeout(definition);
+                List<Long> clusterIds = applicableClusters.get(entity.getId());
+                if (clusterIds == null || clusterIds.isEmpty()) {
+                    continue;
+                }
+                for (Long runtimeClusterId : clusterIds) {
+                    String key = entity.getTenantId() + "\n" + runtimeClusterId + "\n" + entity.getConnectionFingerprint();
+                    ScheduledProbeCandidate candidate = candidates.get(key);
+                    if (candidate == null) candidates.put(key, new ScheduledProbeCandidate(definition, runtimeClusterId, timeoutSeconds));
+                    else if (timeoutSeconds > candidate.timeoutSeconds) candidate.timeoutSeconds = timeoutSeconds;
+                }
+            } catch (StudioException exception) {
+                // A stale encrypted value must not stop health checks for other datasources.
+                log.warn("Skipping scheduled connection health probe for datasource {} because its configuration is unavailable: {}",
+                        entity.getId(), exception.getMessage());
             }
         }
         LocalDateTime roundStartedAt = LocalDateTime.now();
@@ -609,7 +675,13 @@ public class DataSourceService {
         definition.setConnectionStale(false);
         definition.setManualConnectionTestTimeoutSeconds(entity.getManualConnectionTestTimeoutSeconds());
         definition.setScheduledConnectionTestTimeoutSeconds(entity.getScheduledConnectionTestTimeoutSeconds());
-        definition.setTechnicalMetadata(maskSensitive ? maskSensitive(entity.getTechnicalMetadata()) : entity.getTechnicalMetadata());
+        if (maskSensitive) {
+            SensitiveMetadataView publicMetadata = publicSensitiveMetadata(entity.getTechnicalMetadata());
+            definition.setTechnicalMetadata(publicMetadata.metadata);
+            definition.setSavedSensitiveFieldKeys(publicMetadata.savedSensitiveFieldKeys);
+        } else {
+            definition.setTechnicalMetadata(entity.getTechnicalMetadata());
+        }
         definition.setBusinessMetadata(entity.getBusinessMetadata());
         return definition;
     }
@@ -987,6 +1059,17 @@ public class DataSourceService {
         return entity;
     }
 
+    private DatasourceEntity findReadableEntityForProject(Long projectId, Long id) {
+        DatasourceEntity entity = datasourceMapper.selectById(id);
+        if (entity == null || !Objects.equals(securityService.currentTenantId(), entity.getTenantId())) {
+            return null;
+        }
+        projectResourceAccessService.assertReadableFromProject(projectId,
+                StudioConstants.RESOURCE_TYPE_DATASOURCE,
+                entity.getProjectId(), entity.getId(), "Datasource not found: " + id);
+        return entity;
+    }
+
     private DatasourceEntity requireWritableEntity(Long id) {
         DatasourceEntity entity = datasourceMapper.selectById(id);
         if (entity == null || !Objects.equals(securityService.currentTenantId(), entity.getTenantId())) {
@@ -1033,21 +1116,22 @@ public class DataSourceService {
         return output;
     }
 
-    private Map<String, Object> maskSensitive(Map<String, Object> input) {
-        Map<String, Object> output = new LinkedHashMap<String, Object>();
+    private SensitiveMetadataView publicSensitiveMetadata(Map<String, Object> input) {
+        SensitiveMetadataView result = new SensitiveMetadataView();
         if (input == null) {
-            return output;
+            return result;
         }
         for (Map.Entry<String, Object> entry : input.entrySet()) {
             Object value = entry.getValue();
-            if (value instanceof String && isSensitive(entry.getKey()) && String.valueOf(value).startsWith("ENC(") && String.valueOf(value).endsWith(")")) {
-                String cipher = String.valueOf(value).substring(4, String.valueOf(value).length() - 1);
-                output.put(entry.getKey(), encryptionService.mask(encryptionService.decrypt(cipher)));
-            } else {
-                output.put(entry.getKey(), value);
+            if (isSensitive(entry.getKey())) {
+                if (value != null && !String.valueOf(value).trim().isEmpty()) {
+                    result.savedSensitiveFieldKeys.add(entry.getKey());
+                }
+                continue;
             }
+            result.metadata.put(entry.getKey(), value);
         }
-        return output;
+        return result;
     }
 
     private Map<String, Object> preserveSensitiveValues(Map<String, Object> existing,
@@ -1059,7 +1143,6 @@ public class DataSourceService {
         if (existing == null || existing.isEmpty()) {
             return output;
         }
-        Map<String, Object> maskedExisting = maskSensitive(existing);
         for (Map.Entry<String, Object> entry : existing.entrySet()) {
             String key = entry.getKey();
             if (!isSensitive(key)) {
@@ -1070,14 +1153,38 @@ public class DataSourceService {
                 continue;
             }
             Object incomingValue = output.get(key);
-            Object maskedValue = maskedExisting.get(key);
-            if (incomingValue instanceof String
-                    && maskedValue instanceof String
-                    && String.valueOf(incomingValue).equals(maskedValue)) {
+            if (isBlankSensitiveValue(incomingValue)
+                    || isExistingSensitiveMask(entry.getValue(), incomingValue)) {
                 output.put(key, entry.getValue());
             }
         }
         return output;
+    }
+
+    private boolean isBlankSensitiveValue(Object value) {
+        return value == null || (value instanceof String && ((String) value).trim().isEmpty());
+    }
+
+    /** Supports clients that were open before secret values stopped being returned. */
+    private boolean isExistingSensitiveMask(Object existingValue, Object incomingValue) {
+        if (!(existingValue instanceof String) || !(incomingValue instanceof String)) {
+            return false;
+        }
+        String existingText = String.valueOf(existingValue);
+        String incomingText = String.valueOf(incomingValue);
+        if (existingText.equals(incomingText)) {
+            return true;
+        }
+        if (!existingText.startsWith("ENC(") || !existingText.endsWith(")")) {
+            return false;
+        }
+        try {
+            String cipher = existingText.substring(4, existingText.length() - 1);
+            return incomingText.equals(encryptionService.mask(encryptionService.decrypt(cipher)));
+        } catch (RuntimeException ignored) {
+            // A damaged legacy ciphertext must not make an unrelated edit fail.
+            return false;
+        }
     }
 
     private boolean isSensitive(String key) {
@@ -1085,7 +1192,18 @@ public class DataSourceService {
         return normalized.contains("password")
                 || normalized.contains("secret")
                 || normalized.contains("token")
-                || normalized.contains("accesskey");
+                || normalized.contains("accesskey")
+                || normalized.contains("apikey")
+                || normalized.contains("api_key")
+                || normalized.contains("authorization")
+                || normalized.contains("credential")
+                || normalized.contains("privatekey")
+                || normalized.contains("cookie");
+    }
+
+    private static final class SensitiveMetadataView {
+        private final Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        private final List<String> savedSensitiveFieldKeys = new ArrayList<String>();
     }
 
     private boolean hasText(String value) {

@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.request.DataSourceSaveRequest;
+import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.infra.entity.DatasourceEntity;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DatasourceMapper;
@@ -32,6 +33,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -39,6 +41,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class DataSourceServiceRegressionTest {
 
@@ -47,6 +50,118 @@ class DataSourceServiceRegressionTest {
         if (TableInfoHelper.getTableInfo(DatasourceEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), DatasourceEntity.class);
         }
+    }
+
+    @Test
+    void shouldRejectDisabledDatasourceForNewExecution() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        DatasourceEntity entity = datasourceEntity("disabled_source", "mysql8", 7L, "db.example");
+        entity.setEnabled(0);
+        when(datasourceMapper.selectById(11L)).thenReturn(entity);
+        when(securityService.currentTenantId()).thenReturn("default");
+
+        DataSourceService service = new DataSourceService(
+                datasourceMapper,
+                mock(DataModelMapper.class),
+                mock(EncryptionService.class),
+                mock(MetadataSchemaService.class),
+                mock(DataModelIndexRebuildQueueService.class),
+                mock(BusinessMetaModelMetadataService.class),
+                securityService,
+                mock(ProjectResourceAccessService.class),
+                mock(DatasourceTypeCapabilityService.class),
+                mock(DatasourceConnectionFingerprintService.class),
+                mock(DatasourceConnectionHealthService.class));
+
+        assertThatThrownBy(() -> service.requireRunnableForExecution(11L))
+                .isInstanceOf(StudioException.class)
+                .hasMessageContaining("enabled and executable");
+    }
+
+    @Test
+    void shouldOmitSensitiveMetadataFromPublicDatasourceDetail() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        EncryptionService encryptionService = mock(EncryptionService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        DatasourceConnectionHealthService connectionHealthService = mock(DatasourceConnectionHealthService.class);
+        DatasourceEntity entity = datasourceEntity("mysql_source", "mysql8", 7L, "127.0.0.1");
+        entity.setTenantId("default");
+        entity.getTechnicalMetadata().put("password", "ENC(ciphertext)");
+        entity.getTechnicalMetadata().put("accessToken", "legacy-plain-token");
+        entity.getTechnicalMetadata().put("apiKey", "legacy-plain-api-key");
+
+        when(datasourceMapper.selectById(eq(11L))).thenReturn(entity);
+        when(securityService.currentTenantId()).thenReturn("default");
+
+        DataSourceService service = new DataSourceService(
+                datasourceMapper,
+                mock(DataModelMapper.class),
+                encryptionService,
+                mock(MetadataSchemaService.class),
+                mock(DataModelIndexRebuildQueueService.class),
+                mock(BusinessMetaModelMetadataService.class),
+                securityService,
+                mock(ProjectResourceAccessService.class),
+                mock(DatasourceTypeCapabilityService.class),
+                mock(DatasourceConnectionFingerprintService.class),
+                connectionHealthService
+        );
+
+        DataSourceDefinition actual = service.get(11L);
+
+        assertThat(actual.getTechnicalMetadata())
+                .containsEntry("host", "127.0.0.1")
+                .doesNotContainKeys("password", "accessToken", "apiKey");
+        assertThat(actual.getSavedSensitiveFieldKeys()).containsExactlyInAnyOrder("password", "accessToken", "apiKey");
+        verifyNoInteractions(encryptionService);
+    }
+
+    @Test
+    void shouldPreserveAndEncryptLegacySecretWhenPublicUpdateOmitsIt() {
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        EncryptionService encryptionService = mock(EncryptionService.class);
+        MetadataSchemaService metadataSchemaService = mock(MetadataSchemaService.class);
+        BusinessMetaModelMetadataService businessMetaModelMetadataService = mock(BusinessMetaModelMetadataService.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        ProjectResourceAccessService projectResourceAccessService = mock(ProjectResourceAccessService.class);
+        DatasourceConnectionFingerprintService fingerprintService = mock(DatasourceConnectionFingerprintService.class);
+        DatasourceConnectionHealthService connectionHealthService = mock(DatasourceConnectionHealthService.class);
+        DatasourceEntity existing = datasourceEntity("mysql_source", "mysql8", 7L, "127.0.0.1");
+        existing.getTechnicalMetadata().put("password", "legacy-plain-secret");
+
+        when(datasourceMapper.selectById(eq(11L))).thenReturn(existing);
+        when(datasourceMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(metadataSchemaService.findSchemaByVersionId(eq(7L))).thenReturn(null);
+        when(metadataSchemaService.listSchemas()).thenReturn(Collections.emptyList());
+        when(businessMetaModelMetadataService.normalizeForDatasource(any(Map.class))).thenReturn(new LinkedHashMap<String, Object>());
+        when(projectResourceAccessService.requireCurrentProjectId()).thenReturn(3L);
+        when(securityService.currentTenantId()).thenReturn("default");
+        when(fingerprintService.fingerprint(eq("default"), eq("mysql8"), any(Map.class))).thenReturn("fp-legacy-secret");
+        when(encryptionService.encrypt(eq("legacy-plain-secret"))).thenReturn("ciphertext");
+
+        DataSourceService service = new DataSourceService(
+                datasourceMapper,
+                mock(DataModelMapper.class),
+                encryptionService,
+                metadataSchemaService,
+                mock(DataModelIndexRebuildQueueService.class),
+                businessMetaModelMetadataService,
+                securityService,
+                projectResourceAccessService,
+                mock(DatasourceTypeCapabilityService.class),
+                fingerprintService,
+                connectionHealthService
+        );
+        DataSourceSaveRequest request = datasourceRequest(11L, "renamed_source", "mysql8", 7L, "127.0.0.1");
+
+        DataSourceDefinition saved = service.save(request);
+
+        ArgumentCaptor<DatasourceEntity> entityCaptor = ArgumentCaptor.forClass(DatasourceEntity.class);
+        verify(datasourceMapper).updateById(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getTechnicalMetadata()).containsEntry("password", "ENC(ciphertext)");
+        assertThat(saved.getTechnicalMetadata()).doesNotContainKey("password");
+        assertThat(saved.getSavedSensitiveFieldKeys()).contains("password");
     }
 
     @Test
