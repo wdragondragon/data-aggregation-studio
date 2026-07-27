@@ -445,6 +445,7 @@ export interface DataSourceDefinition extends BaseRecord {
   nextConnectionProbeAt?: string;
   manualConnectionTestTimeoutSeconds?: number;
   scheduledConnectionTestTimeoutSeconds?: number;
+  savedSensitiveFieldKeys?: string[];
   applicableClusterIds?: EntityId[];
   applicableClusters?: RuntimeClusterView[];
   recentConnectionTests?: DatasourceConnectionTestRecordView[];

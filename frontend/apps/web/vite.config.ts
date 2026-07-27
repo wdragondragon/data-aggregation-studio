@@ -72,12 +72,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '^/dfs/data-aggregation-studio/(api|openapi|v3/api-docs|swagger-ui|doc\.html)(/.*)?$': {
-        target: 'http://127.0.0.1:31649',
+        target: studioProxyTarget,
         changeOrigin: true,
-        rewrite: (proxyPath) => proxyPath.replace(/^\/dfs/, '')
+        rewrite: (proxyPath) => proxyPath.replace(/^\/dfs\/data-aggregation-studio/, '')
       },
       '/data-aggregation-studio': {
-        target: 'http://127.0.0.1:31649',
+        target: studioProxyTarget,
         changeOrigin: true
       },
       '/api': {

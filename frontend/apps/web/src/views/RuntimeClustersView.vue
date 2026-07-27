@@ -64,7 +64,7 @@
                 <template #default="{ row }"><el-switch v-model="row.authorized" :disabled="!row.clusterEnabled" /></template>
               </el-table-column>
               <el-table-column :label="t('web.runtimeClusters.preferred')" width="130" align="center" header-align="center">
-                <template #default="{ row }"><el-radio v-model="preferredClusterId" :label="String(row.id)" :disabled="!row.clusterEnabled || !row.authorized">{{ t("web.runtimeClusters.preferred") }}</el-radio></template>
+                <template #default="{ row }"><el-radio v-model="preferredClusterId" :value="String(row.id)" :disabled="!row.clusterEnabled || !row.authorized">{{ t("web.runtimeClusters.preferred") }}</el-radio></template>
               </el-table-column>
               <el-table-column :label="t('web.runtimeClusters.manualOverride')" width="170" align="center" header-align="center">
                 <template #default="{ row }"><el-switch v-model="row.allowManualOverride" :disabled="!row.clusterEnabled || !row.authorized" /></template>

@@ -223,6 +223,7 @@
         <MetaFormRenderer
           :fields="technicalFields"
           :model-value="form.technicalMetadata"
+          :saved-sensitive-field-keys="form.savedSensitiveFieldKeys"
           @update:model-value="form.technicalMetadata = $event"
         />
       </SectionCard>
@@ -1353,6 +1354,9 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
   try {
     const saved = await studioApi.datasources.save(payload);
     Object.assign(form, saved);
+    // Public save responses never include secrets. Replace rather than merge
+    // metadata so a newly entered password does not remain in the form state.
+    form.technicalMetadata = cloneDeep(saved.technicalMetadata ?? {});
     form.applicableClusterIds = (saved.applicableClusterIds ?? saved.applicableClusters?.map((cluster) => cluster.id).filter((id): id is EntityId => id != null) ?? []).map(String);
     form.applicableClusters = saved.applicableClusters ?? [];
     applySingleRuntimeClusterSelection();
@@ -1729,9 +1733,17 @@ async function deleteDatasource(item: DataSourceListView) {
   }
   setActiveDatasource(item);
   try {
+    const impact = await studioApi.datasources.clusterBindingImpact(item.id, []);
+    const affected = impact.affectedResources ?? [];
+    const preview = affected.slice(0, 5)
+      .map((resource) => resource.resourceName || `${resource.resourceType ?? "RESOURCE"}#${resource.resourceId ?? "-"}`)
+      .join("\n");
+    const message = affected.length > 0
+      ? `${t("web.datasources.deleteImpactConfirmMessage", { count: affected.length })}${preview ? `\n\n${preview}` : ""}`
+      : t("web.datasources.deleteConfirmMessage", { name: item.name });
     await ElMessageBox.confirm(
-      t("web.datasources.deleteConfirmMessage", { name: item.name }),
-      t("common.confirm"),
+      message,
+      affected.length > 0 ? t("web.datasources.deleteImpactConfirmTitle") : t("common.confirm"),
       { type: "warning" },
     );
     await studioApi.datasources.delete(item.id);

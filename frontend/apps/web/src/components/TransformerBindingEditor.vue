@@ -156,7 +156,7 @@
                       <el-radio
                         v-for="option in resolveParameterOptions(param)"
                         :key="String(option.value)"
-                        :label="option.value"
+                        :value="option.value"
                       >
                         {{ option.label }}
                       </el-radio>

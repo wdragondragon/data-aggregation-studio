@@ -11,7 +11,7 @@
             <el-radio-button
               v-for="option in assistantModeOptions"
               :key="option.value"
-              :label="option.value"
+              :value="option.value"
               :data-testid="`studio-assistant-mode-${option.value}`"
             >
               {{ option.label }}
@@ -21,7 +21,7 @@
             <el-radio-button
               v-for="option in responseLanguageOptions"
               :key="option.value"
-              :label="option.value"
+              :value="option.value"
               :data-testid="`studio-assistant-language-${option.value}`"
             >
               {{ option.label }}

@@ -61,6 +61,9 @@
               :model-value="fieldValue(field.fieldKey)"
               @update:model-value="updateField(field.fieldKey, $event)"
             />
+            <p v-if="isSavedSensitiveField(field.fieldKey)" class="meta-form__saved-sensitive-hint">
+              {{ t("metaForm.savedSensitiveHint") }}
+            </p>
           </el-form-item>
         </div>
       </el-form>
@@ -184,11 +187,13 @@ const props = withDefaults(
     fields: MetadataFieldDefinition[];
     modelValue: Record<string, unknown>;
     dynamicFunctionFields?: string[];
+    savedSensitiveFieldKeys?: string[];
   }>(),
   {
     fields: () => [],
     modelValue: () => ({}),
     dynamicFunctionFields: () => [],
+    savedSensitiveFieldKeys: () => [],
   },
 );
 
@@ -416,6 +421,10 @@ function fieldValue(fieldKey: string) {
     return normalizeArrayValue(value);
   }
   return value as string | number | boolean | Record<string, unknown> | string[] | undefined;
+}
+
+function isSavedSensitiveField(fieldKey: string) {
+  return props.savedSensitiveFieldKeys.includes(fieldKey);
 }
 
 function textFieldValue(fieldKey: string) {
@@ -679,6 +688,13 @@ watch(selectedDynamicFunctionName, () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
+}
+
+.meta-form__saved-sensitive-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--studio-text-soft);
 }
 
 .meta-form__dynamic-input {
