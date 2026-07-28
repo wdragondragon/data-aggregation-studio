@@ -1,5 +1,5 @@
 <template>
-  <el-popover placement="bottom-end" :width="360" trigger="click" popper-class="notification-bell-popover">
+  <el-popover v-model:visible="visible" placement="bottom-end" :width="360" trigger="click" popper-class="notification-bell-popover">
     <template #reference>
       <button class="notification-bell" type="button" :title="t('web.notifications.title')">
         <span class="notification-bell__icon">铃</span>
@@ -50,6 +50,7 @@
 
 <script setup lang="ts">
 import { ElMessage } from "element-plus";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import type { NotificationView } from "@studio/api-sdk";
@@ -61,6 +62,7 @@ const { t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const visible = ref(false);
 
 function formatUnreadCount(value: number) {
   return value > 99 ? "99+" : String(value);
@@ -76,6 +78,7 @@ async function markAllRead() {
 }
 
 function goToCenter() {
+  visible.value = false;
   router.push("/notifications");
 }
 
@@ -84,6 +87,7 @@ async function openNotification(notification: NotificationView) {
     if (notification.id && !notification.read) {
       await notificationStore.markRead(notification.id);
     }
+    visible.value = false;
     await openNotificationTarget(notification, authStore, router);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.notifications.loadFailed"));
