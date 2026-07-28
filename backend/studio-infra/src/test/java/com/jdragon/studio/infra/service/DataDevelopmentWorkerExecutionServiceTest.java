@@ -35,6 +35,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class DataDevelopmentWorkerExecutionServiceTest {
@@ -68,6 +69,7 @@ class DataDevelopmentWorkerExecutionServiceTest {
         when(securityService.currentProjectId()).thenReturn(10L);
         when(securityService.currentUserId()).thenReturn(20L);
         when(revisionService.scriptRevision(301L)).thenReturn("script-revision-301");
+        when(dispatchTaskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         doAnswer(invocation -> {
             DispatchTaskEntity task = invocation.getArgument(0);
             task.setId(1001L);
@@ -114,7 +116,7 @@ class DataDevelopmentWorkerExecutionServiceTest {
         verify(dispatchTaskMapper).insert(taskCaptor.capture());
         DispatchTaskEntity insertedTask = taskCaptor.getValue();
         assertThat(insertedTask.getExecutionType()).isEqualTo(DispatchExecutionType.DATA_SCRIPT_TEST.name());
-        assertThat(insertedTask.getNodeCode()).startsWith("data_script_test_301_");
+        assertThat(insertedTask.getNodeCode()).isEqualTo("data_script_test_301");
         assertThat(insertedTask.getStatus()).isEqualTo("QUEUED");
         assertThat(insertedTask.getTriggeredByUserId()).isEqualTo(20L);
         assertThat(insertedTask.getProjectId()).isEqualTo(10L);
@@ -184,6 +186,37 @@ class DataDevelopmentWorkerExecutionServiceTest {
                 .isInstanceOf(StudioException.class)
                 .hasMessageContaining("runtimeClusterId is required");
         verifyNoInteractions(dispatchTaskMapper);
+    }
+
+    @Test
+    void shouldRejectSavedScriptWhenItsPreviousDispatchIsActive() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        StudioSecurityService securityService = mock(StudioSecurityService.class);
+        DataDevelopmentWorkerExecutionService service = new DataDevelopmentWorkerExecutionService(
+                dispatchTaskMapper,
+                mock(RunRecordMapper.class),
+                mock(WorkerAuthorizationService.class),
+                securityService,
+                new ObjectMapper(),
+                protectedPayloadService(new ObjectMapper()));
+        when(securityService.currentProjectId()).thenReturn(10L);
+        when(securityService.currentUserId()).thenReturn(20L);
+        when(dispatchTaskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+
+        DataDevelopmentScriptEntity script = new DataDevelopmentScriptEntity();
+        script.setId(301L);
+        script.setTenantId("default");
+        script.setProjectId(10L);
+        script.setRuntimeClusterId(46L);
+        script.setFileName("demo.py");
+        script.setScriptType(ScriptType.PYTHON.name());
+
+        assertThatThrownBy(() -> service.executeSavedScript(
+                script, ScriptType.PYTHON, 46L, null, null, null, 1))
+                .isInstanceOf(StudioException.class)
+                .hasMessage("Data script already has an active run");
+        verify(dispatchTaskMapper).selectCount(any(LambdaQueryWrapper.class));
+        verifyNoMoreInteractions(dispatchTaskMapper);
     }
 
     @Test

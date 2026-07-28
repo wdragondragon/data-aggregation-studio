@@ -40,6 +40,7 @@ public class DataDevelopmentWorkerExecutionService {
     private final DispatchProtectedPayloadService protectedPayloadService;
     private RuntimeValidationService runtimeValidationService;
     private RuntimeResourceRevisionService runtimeResourceRevisionService;
+    private ClusterLockService clusterLockService;
 
     public DataDevelopmentWorkerExecutionService(DispatchTaskMapper dispatchTaskMapper,
                                                  RunRecordMapper runRecordMapper,
@@ -65,13 +66,21 @@ public class DataDevelopmentWorkerExecutionService {
         this.runtimeResourceRevisionService = runtimeResourceRevisionService;
     }
 
+    @Autowired
+    void setClusterLockService(ClusterLockService clusterLockService) {
+        this.clusterLockService = clusterLockService;
+    }
+
     public DataScriptExecutionResultView executeSavedScript(DataDevelopmentScriptEntity script,
                                                             ScriptType scriptType,
                                                             Long runtimeClusterId,
                                                             Map<String, Object> arguments,
-                                                            Map<String, Object> executionConfig,
-                                                            Integer maxRows,
-                                                            Integer waitTimeoutSeconds) {
+                                                             Map<String, Object> executionConfig,
+                                                             Integer maxRows,
+                                                             Integer waitTimeoutSeconds) {
+        if (runtimeClusterId == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "runtimeClusterId is required");
+        }
         Long runtimeProjectId = securityService.currentProjectId();
         if (runtimeProjectId == null) {
             runtimeProjectId = script.getProjectId();
@@ -84,7 +93,7 @@ public class DataDevelopmentWorkerExecutionService {
         task.setTenantId(script.getTenantId());
         task.setProjectId(runtimeProjectId);
         task.setExecutionType(DispatchExecutionType.DATA_SCRIPT_TEST.name());
-        task.setNodeCode("data_script_test_" + script.getId() + "_" + System.currentTimeMillis());
+        task.setNodeCode(savedScriptNodeCode(script.getId()));
         task.setStatus("QUEUED");
         task.setTargetClusterId(runtimeClusterId);
         task.setResourceRevision(runtimeResourceRevisionService == null
@@ -96,7 +105,7 @@ public class DataDevelopmentWorkerExecutionService {
         task.setPayloadJson(buildPayload(script, scriptType, runtimeClusterId, runtimeProjectId));
         task.setProtectedPayloadCiphertext(protectedPayloadService.protect(
                 buildProtectedConfig(arguments, executionConfig, maxRows)));
-        insertDispatchTask(task);
+        insertSavedScriptDispatchTaskIfIdle(task, script.getId());
 
         return waitForCompletion(task, scriptType, waitTimeoutSeconds);
     }
@@ -144,6 +153,51 @@ public class DataDevelopmentWorkerExecutionService {
                     "runtimeClusterId is required before a script can be dispatched");
         }
         dispatchTaskMapper.insert(task);
+    }
+
+    private void insertSavedScriptDispatchTaskIfIdle(DispatchTaskEntity task, Long scriptId) {
+        if (task == null || scriptId == null) {
+            insertDispatchTask(task);
+            return;
+        }
+        String lockName = "dispatch:data-script:"
+                + safePart(task.getTenantId()) + ":"
+                + safePart(task.getProjectId()) + ":"
+                + safePart(scriptId);
+        Runnable insertIfIdle = () -> {
+            if (hasActiveSavedScriptDispatch(task.getTenantId(), task.getProjectId(), task.getNodeCode())) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Data script already has an active run");
+            }
+            insertDispatchTask(task);
+        };
+        if (clusterLockService == null) {
+            insertIfIdle.run();
+            return;
+        }
+        clusterLockService.executeIfAcquiredNonReentrant(lockName, () -> {
+            insertIfIdle.run();
+            return Boolean.TRUE;
+        }, () -> {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Data script already has an active run");
+        });
+    }
+
+    private boolean hasActiveSavedScriptDispatch(String tenantId, Long projectId, String nodeCode) {
+        Long count = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, tenantId)
+                .eq(DispatchTaskEntity::getProjectId, projectId)
+                .eq(DispatchTaskEntity::getExecutionType, DispatchExecutionType.DATA_SCRIPT_TEST.name())
+                .eq(DispatchTaskEntity::getNodeCode, nodeCode)
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
+        return count != null && count.longValue() > 0L;
+    }
+
+    private String savedScriptNodeCode(Long scriptId) {
+        return "data_script_test_" + scriptId;
+    }
+
+    private String safePart(Object value) {
+        return value == null ? "none" : String.valueOf(value);
     }
 
     private Map<String, Object> buildPayload(DataDevelopmentScriptEntity script,
