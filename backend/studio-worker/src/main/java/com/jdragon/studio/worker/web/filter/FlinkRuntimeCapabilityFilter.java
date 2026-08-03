@@ -20,6 +20,7 @@ public class FlinkRuntimeCapabilityFilter extends OncePerRequestFilter {
 
     private static final String RESOLVE_PATH = "/api/flink/runtime/resolve";
     private static final String AUDIT_PATH = "/api/flink/runtime/audit";
+    private static final String ARTIFACT_PATH = "/api/flink/runtime/plugin/artifact";
 
     private final ObjectMapper objectMapper;
 
@@ -37,7 +38,7 @@ public class FlinkRuntimeCapabilityFilter extends OncePerRequestFilter {
                 path = path.substring(contextPath.length());
             }
         }
-        return !RESOLVE_PATH.equals(path) && !AUDIT_PATH.equals(path);
+        return !RESOLVE_PATH.equals(path) && !AUDIT_PATH.equals(path) && !ARTIFACT_PATH.equals(path);
     }
 
     @Override

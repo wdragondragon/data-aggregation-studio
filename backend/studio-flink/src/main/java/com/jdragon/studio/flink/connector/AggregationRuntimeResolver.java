@@ -14,6 +14,8 @@ final class AggregationRuntimeResolver {
         } else if (handle.isRemote()) {
             runtime = copyWithoutRuntimeState(
                     AggregationRemoteRuntimeClient.resolve(handle.getRuntimeEndpoint(), handle.getRuntimeToken()));
+            runtime.setPluginRuntimeEndpoint(handle.getRuntimeEndpoint());
+            runtime.setPluginRuntimeToken(handle.getRuntimeToken());
         } else {
             throw new IllegalStateException("DataAggregation Flink runtime ref or endpoint/token is required");
         }

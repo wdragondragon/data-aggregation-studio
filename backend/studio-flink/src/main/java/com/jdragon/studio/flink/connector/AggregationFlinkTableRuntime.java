@@ -20,6 +20,9 @@ public class AggregationFlinkTableRuntime implements Serializable {
     private String scanSql;
     private String scanMode = "bounded";
     private Integer maxRows;
+    // Only populated from the existing task-scoped capability, never serialized into audit payloads.
+    private transient String pluginRuntimeEndpoint;
+    private transient String pluginRuntimeToken;
     private DataType producedDataType;
     private List<String> fieldNames = new ArrayList<String>();
     private BaseDataSourceDTO dataSourceDTO;
@@ -104,6 +107,22 @@ public class AggregationFlinkTableRuntime implements Serializable {
 
     public void setMaxRows(Integer maxRows) {
         this.maxRows = maxRows;
+    }
+
+    public String getPluginRuntimeEndpoint() {
+        return pluginRuntimeEndpoint;
+    }
+
+    public void setPluginRuntimeEndpoint(String pluginRuntimeEndpoint) {
+        this.pluginRuntimeEndpoint = pluginRuntimeEndpoint;
+    }
+
+    public String getPluginRuntimeToken() {
+        return pluginRuntimeToken;
+    }
+
+    public void setPluginRuntimeToken(String pluginRuntimeToken) {
+        this.pluginRuntimeToken = pluginRuntimeToken;
     }
 
     public DataType getProducedDataType() {

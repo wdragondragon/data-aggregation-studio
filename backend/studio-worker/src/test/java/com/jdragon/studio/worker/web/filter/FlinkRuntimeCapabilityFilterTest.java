@@ -49,6 +49,28 @@ class FlinkRuntimeCapabilityFilterTest {
         }
     }
 
+    @Test
+    void shouldProtectPluginArtifactWithTheSameCapability() throws Exception {
+        String capability = AggregationFlinkRuntimeRegistry.register(new AggregationFlinkTableRuntime(), 30);
+        try {
+            FlinkRuntimeCapabilityFilter filter = new FlinkRuntimeCapabilityFilter(
+                    new ObjectMapper().findAndRegisterModules());
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/api/flink/runtime/plugin/artifact");
+            request.setServletPath("/api/flink/runtime/plugin/artifact");
+            request.addHeader(AggregationFlinkRuntimeRegistry.CAPABILITY_TOKEN_HEADER, capability);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            AtomicBoolean invoked = new AtomicBoolean(false);
+
+            filter.doFilter(request, response, (servletRequest, servletResponse) -> invoked.set(true));
+
+            assertTrue(invoked.get());
+            assertEquals(200, response.getStatus());
+        } finally {
+            AggregationFlinkRuntimeRegistry.remove(capability);
+        }
+    }
+
     private MockHttpServletRequest request(String capability) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/flink/runtime/resolve");
         request.setServletPath("/api/flink/runtime/resolve");

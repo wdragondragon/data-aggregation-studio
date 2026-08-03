@@ -408,9 +408,11 @@ public class AggregationLookupFunction extends TableFunction<RowData> {
         return index < 0 ? value : value.substring(index + 1);
     }
 
-    private AggregationFlinkTableRuntime copyForLookup(AggregationFlinkTableRuntime source, String lookupSql) {
+    static AggregationFlinkTableRuntime copyForLookup(AggregationFlinkTableRuntime source, String lookupSql) {
         AggregationFlinkTableRuntime runtime = new AggregationFlinkTableRuntime();
         runtime.setRuntimeRef(source.getRuntimeRef());
+        runtime.setPluginRuntimeEndpoint(source.getPluginRuntimeEndpoint());
+        runtime.setPluginRuntimeToken(source.getPluginRuntimeToken());
         runtime.setDatasourceId(source.getDatasourceId());
         runtime.setModelId(source.getModelId());
         runtime.setPluginName(source.getPluginName());

@@ -27,6 +27,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FlinkExecutionModeTest {
 
     @Test
+    void defaultsLeaveEnoughTimeForRemotePluginColdStart() {
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+
+        assertEquals(120, properties.getFlink().getQueryTimeoutSeconds());
+        assertEquals(120, properties.getFlink().getGateway().getFetchTimeoutSeconds());
+    }
+
+    @Test
     void buildsDifferentRuntimeOptionsForEmbeddedAndGatewayDdl() {
         AggregationFlinkTableRuntime runtime = runtime();
 

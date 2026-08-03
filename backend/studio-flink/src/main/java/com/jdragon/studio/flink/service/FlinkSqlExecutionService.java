@@ -1,5 +1,8 @@
 package com.jdragon.studio.flink.service;
 
+import com.jdragon.aggregation.datasource.SourcePluginType;
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
+import com.jdragon.aggregation.pluginloader.runtime.ResolvedPlugin;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataModelDefinition;
@@ -76,6 +79,7 @@ public class FlinkSqlExecutionService {
         List<String> runtimeRefs = new ArrayList<String>();
         List<String> createTableDdls = new ArrayList<String>();
         List<FlinkModelRefView> modelRefs = new ArrayList<FlinkModelRefView>();
+        PluginRuntimeSession capabilityPluginSelection = null;
         try {
             List<DataModelDefinition> models = new ArrayList<DataModelDefinition>();
             List<DataSourceDefinition> datasources = new ArrayList<DataSourceDefinition>();
@@ -106,13 +110,22 @@ public class FlinkSqlExecutionService {
             }
             boolean streamingMode = runtimes.stream()
                     .anyMatch(runtime -> "unbounded".equalsIgnoreCase(runtime.getScanMode()));
+            boolean remoteConnector = "gateway".equals(executionMode);
+            List<ResolvedPlugin> selectedCapabilityPlugins = new ArrayList<ResolvedPlugin>();
+            if (remoteConnector) {
+                capabilityPluginSelection = PluginRuntimeSession.createDetached();
+                selectedCapabilityPlugins = selectCapabilityPlugins(runtimes, capabilityPluginSelection);
+            }
             for (int i = 0; i < runtimes.size(); i++) {
                 AggregationFlinkTableRuntime runtime = runtimes.get(i);
-                String runtimeRef = AggregationFlinkRuntimeRegistry.register(runtime,
+                String runtimeRef = remoteConnector
+                        ? AggregationFlinkRuntimeRegistry.registerCapability(runtime,
+                        properties.getFlink().getRuntimeRegistryTtlSeconds(), selectedCapabilityPlugins.get(i))
+                        : AggregationFlinkRuntimeRegistry.register(runtime,
                         properties.getFlink().getRuntimeRegistryTtlSeconds());
                 runtimeRefs.add(runtimeRef);
                 String flinkTableName = flinkTableNames.get(i);
-                FlinkRuntimeConnectorAccess access = "gateway".equals(executionMode)
+                FlinkRuntimeConnectorAccess access = remoteConnector
                         ? FlinkRuntimeConnectorAccess.remote(requiredRuntimeEndpoint(), runtimeRef)
                         : FlinkRuntimeConnectorAccess.local(runtimeRef);
                 createTableDdls.add(FlinkTableDdlBuilder.buildCreateTemporaryTableDdl(flinkTableName, runtime, access));
@@ -151,7 +164,32 @@ public class FlinkSqlExecutionService {
             for (String ref : runtimeRefs) {
                 AggregationFlinkRuntimeRegistry.remove(ref);
             }
+            if (capabilityPluginSelection != null) {
+                capabilityPluginSelection.close();
+            }
         }
+    }
+
+    private List<ResolvedPlugin> selectCapabilityPlugins(List<AggregationFlinkTableRuntime> runtimes,
+                                                          PluginRuntimeSession selection) {
+        Map<String, ResolvedPlugin> selectedByCoordinate = new LinkedHashMap<String, ResolvedPlugin>();
+        List<ResolvedPlugin> selected = new ArrayList<ResolvedPlugin>();
+        for (AggregationFlinkTableRuntime runtime : runtimes) {
+            String pluginName = runtime == null ? null : runtime.getPluginName();
+            if (pluginName == null || pluginName.trim().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "DataAggregation Flink runtime plugin is required for a remote capability");
+            }
+            pluginName = pluginName.trim();
+            String coordinate = SourcePluginType.SOURCE.getName() + "/" + pluginName;
+            ResolvedPlugin plugin = selectedByCoordinate.get(coordinate);
+            if (plugin == null) {
+                plugin = selection.resolve(SourcePluginType.SOURCE, pluginName);
+                selectedByCoordinate.put(coordinate, plugin);
+            }
+            selected.add(plugin);
+        }
+        return selected;
     }
 
     public static String tableNameFor(DataModelDefinition model) {

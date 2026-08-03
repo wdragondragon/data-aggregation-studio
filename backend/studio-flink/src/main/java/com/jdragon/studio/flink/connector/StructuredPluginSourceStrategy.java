@@ -17,22 +17,25 @@ class StructuredPluginSourceStrategy implements AggregationSourceStrategy {
 
     @Override
     public void readRows(AggregationFlinkTableRuntime runtime, AggregationRowEmitter emitter) throws Exception {
-        if (runtime != null && runtime.isHttpFilterAlwaysFalse()) {
+        // Validate and short-circuit before resolving a plugin. These paths are pure connector
+        // semantics and must remain usable when the bundled runtime is intentionally absent.
+        if (runtime.isHttpFilterAlwaysFalse()) {
             return;
         }
         HttpBodyPushdownValidator.validate(runtime, runtime.getHttpPushdownFilters());
-        ConnectorPluginRuntimeBootstrap.ensureReady(runtime.getPluginName());
-        try (PluginClassLoaderCloseable loader =
-                     PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
-            AbstractDataSourcePlugin plugin = loader.loadPlugin();
-            BaseDataSourceDTO dto = AggregationSourceUtil.copyDataSource(runtime.getDataSourceDTO());
-            attachHttpRuntimeParams(runtime, dto);
-            String query = AggregationSourceUtil.buildQuery(runtime, runtime.getProducedDataType());
-            plugin.scanQuery(dto, query, true,
-                    row -> emitOrStop(emitter, attachHttpResultContext(runtime, row)));
-        } catch (StopSourceScanException stop) {
-            // used to stop plugins whose scan callback cannot otherwise be interrupted
-        }
+        ConnectorPluginRuntimeBootstrap.runWithReady(runtime, () -> {
+            try (PluginClassLoaderCloseable loader =
+                         PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
+                AbstractDataSourcePlugin plugin = loader.loadPlugin();
+                BaseDataSourceDTO dto = AggregationSourceUtil.copyDataSource(runtime.getDataSourceDTO());
+                attachHttpRuntimeParams(runtime, dto);
+                String query = AggregationSourceUtil.buildQuery(runtime, runtime.getProducedDataType());
+                plugin.scanQuery(dto, query, true,
+                        row -> emitOrStop(emitter, attachHttpResultContext(runtime, row)));
+            } catch (StopSourceScanException stop) {
+                // Used to stop plugins whose scan callback cannot otherwise be interrupted.
+            }
+        });
     }
 
     static void emitOrStop(AggregationRowEmitter emitter, Map<String, Object> row) {

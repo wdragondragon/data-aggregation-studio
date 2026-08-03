@@ -12,36 +12,37 @@ import java.util.Map;
 class FilePluginSourceStrategy implements AggregationSourceStrategy {
     @Override
     public void readRows(AggregationFlinkTableRuntime runtime, AggregationRowEmitter emitter) throws Exception {
-        ConnectorPluginRuntimeBootstrap.ensureReady(runtime.getPluginName());
-        try (PluginClassLoaderCloseable loader =
-                     PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
-            FileHelper fileHelper = loader.loadPlugin();
-            if (!fileHelper.connect(runtime.getConnectionConfig())) {
-                throw new IllegalStateException("Failed to connect file source: " + runtime.getPluginName());
-            }
-            List<ResolvedFilePath> paths = FilePathPushdownResolver.resolve(runtime);
-            for (ResolvedFilePath resolvedPath : paths) {
-                for (ResolvedFilePath concretePath : FilePathExpansion.expand(fileHelper, runtime, resolvedPath)) {
-                    String path = concretePath.getPath();
-                    runtime.addResolvedFilePath(path);
-                    String fileType = resolveFileType(runtime, path);
-                    Map<String, LocalDate> contextValues = concretePath.getContextValues();
-                    try {
-                        fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, enrichPathContext(row, contextValues)),
-                                runtime.getExtConfig());
-                    } catch (Exception ex) {
-                        if (!FilePathExpansion.isMissingFile(ex)) {
-                            throw ex;
+        ConnectorPluginRuntimeBootstrap.runWithReady(runtime, () -> {
+            try (PluginClassLoaderCloseable loader =
+                         PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
+                FileHelper fileHelper = loader.loadPlugin();
+                if (!fileHelper.connect(runtime.getConnectionConfig())) {
+                    throw new IllegalStateException("Failed to connect file source: " + runtime.getPluginName());
+                }
+                List<ResolvedFilePath> paths = FilePathPushdownResolver.resolve(runtime);
+                for (ResolvedFilePath resolvedPath : paths) {
+                    for (ResolvedFilePath concretePath : FilePathExpansion.expand(fileHelper, runtime, resolvedPath)) {
+                        String path = concretePath.getPath();
+                        runtime.addResolvedFilePath(path);
+                        String fileType = resolveFileType(runtime, path);
+                        Map<String, LocalDate> contextValues = concretePath.getContextValues();
+                        try {
+                            fileHelper.readFile(path, fileType, row -> emitOrStop(emitter, enrichPathContext(row, contextValues)),
+                                    runtime.getExtConfig());
+                        } catch (Exception ex) {
+                            if (!FilePathExpansion.isMissingFile(ex)) {
+                                throw ex;
+                            }
                         }
                     }
                 }
+            } catch (Exception ex) {
+                if (!isStopSourceScan(ex)) {
+                    throw ex;
+                }
+                // Stop requested by Flink reader limit.
             }
-        } catch (Exception ex) {
-            if (!isStopSourceScan(ex)) {
-                throw ex;
-            }
-            // stop requested by Flink reader limit
-        }
+        });
     }
 
     private boolean isStopSourceScan(Throwable ex) {

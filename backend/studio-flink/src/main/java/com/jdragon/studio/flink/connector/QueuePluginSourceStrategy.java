@@ -14,18 +14,19 @@ class QueuePluginSourceStrategy implements AggregationSourceStrategy {
 
     @Override
     public void readRows(AggregationFlinkTableRuntime runtime, AggregationRowEmitter emitter) throws Exception {
-        ConnectorPluginRuntimeBootstrap.ensureReady(runtime.getPluginName());
-        try (PluginClassLoaderCloseable loader =
-                     PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
-            QueueAbstract queue = loader.loadPlugin();
-            queue.setPluginQueueConf(runtime.getConnectionConfig());
-            queue.init();
-            try {
-                queue.receiveMessage(message -> emitter.emit(toRow(message)));
-            } finally {
-                queue.destroy();
+        ConnectorPluginRuntimeBootstrap.runWithReady(runtime, () -> {
+            try (PluginClassLoaderCloseable loader =
+                         PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, runtime.getPluginName())) {
+                QueueAbstract queue = loader.loadPlugin();
+                queue.setPluginQueueConf(runtime.getConnectionConfig());
+                queue.init();
+                try {
+                    queue.receiveMessage(message -> emitter.emit(toRow(message)));
+                } finally {
+                    queue.destroy();
+                }
             }
-        }
+        });
     }
 
     private Map<String, Object> toRow(String message) {

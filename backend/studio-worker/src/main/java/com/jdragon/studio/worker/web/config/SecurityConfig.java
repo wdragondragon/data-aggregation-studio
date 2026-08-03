@@ -27,7 +27,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health/**", "/actuator/info/**", "/internal/**",
-                                "/api/flink/runtime/resolve", "/api/flink/runtime/audit")
+                                "/api/flink/runtime/resolve", "/api/flink/runtime/audit",
+                                "/api/flink/runtime/plugin/artifact")
                         .permitAll()
                         .anyRequest()
                         .denyAll());
