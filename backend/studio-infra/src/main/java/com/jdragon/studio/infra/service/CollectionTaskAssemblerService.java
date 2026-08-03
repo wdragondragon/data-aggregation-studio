@@ -16,7 +16,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +30,13 @@ public class CollectionTaskAssemblerService {
     private static final CollectionTaskRuntimeOptionMerger RUNTIME_OPTION_MERGER = new CollectionTaskRuntimeOptionMerger();
     private static final String CATEGORY_FILE_SYSTEM = "FILE_SYSTEM";
     private static final String MYSQL_BATCH_REWRITE_KEY = "rewriteBatchedStatements";
+    private static final List<String> CONSISTENCY_OUTPUT_COLUMNS = Collections.unmodifiableList(Arrays.asList(
+            "rule_id", "record_id", "match_keys", "conflict_type", "differences", "payload"));
+    private static final Set<String> CONSISTENCY_RUNTIME_OPTION_KEYS = Collections.unmodifiableSet(
+            new LinkedHashSet<String>(Arrays.asList(
+                    "description", "enabled", "parallelFetch", "toleranceThreshold",
+                    "conflictResolutionStrategy", "resolutionParams", "outputConfig", "cache",
+                    "performance", "adaptiveMerge", "maxRecords")));
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<LinkedHashMap<String, String>> STRING_MAP_TYPE =
             new TypeReference<LinkedHashMap<String, String>>() {
@@ -103,6 +112,284 @@ public class CollectionTaskAssemblerService {
         binding.setModelId(modelId);
         binding.setWriterOptions(writerOptions == null ? new LinkedHashMap<String, Object>() : writerOptions);
         return buildStandardWriter(binding, targetDatasource, targetModel, targetFields);
+    }
+
+    /**
+     * Hydrates a resource-bound Studio consistency node into the legacy
+     * DataAggregation reader/writer shape. Raw reader/writer configurations
+     * remain untouched for standalone and existing workflow compatibility.
+     */
+    public Map<String, Object> assembleConsistency(Map<String, Object> definition) {
+        Map<String, Object> stored = definition == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(definition);
+        boolean hasReader = stored.get("reader") instanceof Map<?, ?>;
+        boolean hasWriter = stored.get("writer") instanceof Map<?, ?>;
+        if (hasReader || hasWriter) {
+            if (!hasReader || !hasWriter) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Consistency raw configuration requires both reader and writer");
+            }
+            return stored;
+        }
+
+        Map<String, Object> left = requiredConsistencyBinding(stored, "leftBinding");
+        Map<String, Object> right = requiredConsistencyBinding(stored, "rightBinding");
+        Map<String, Object> output = requiredConsistencyBinding(stored, "outputBinding");
+        List<String> matchKeys = requiredStringList(stored.get("matchKeys"), "Consistency matchKeys are required");
+        List<String> compareFields = requiredStringList(stored.get("compareFields"),
+                "Consistency compareFields are required");
+        String ruleId = requiredText(stored.get("ruleId"), "Consistency ruleId is required");
+
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        readerConfig.put("ruleId", ruleId);
+        String ruleName = text(stored.get("ruleName"));
+        if (ruleName != null) {
+            readerConfig.put("ruleName", ruleName);
+        }
+        for (String key : CONSISTENCY_RUNTIME_OPTION_KEYS) {
+            if (stored.containsKey(key)) {
+                readerConfig.put(key, stored.get(key));
+            }
+        }
+        readerConfig.put("autoApplyResolutions", Boolean.FALSE);
+        readerConfig.put("allowDelete", Boolean.FALSE);
+        readerConfig.put("matchKeys", matchKeys);
+        readerConfig.put("compareFields", compareFields);
+        Map<String, Object> leftSource = buildConsistencySource(
+                left, "left", 10, 1.0d, matchKeys, compareFields);
+        Map<String, Object> rightSource = buildConsistencySource(
+                right, "right", 5, 0.8d, matchKeys, compareFields);
+        if (String.valueOf(leftSource.get("sourceId")).equals(String.valueOf(rightSource.get("sourceId")))) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Consistency source aliases must be different");
+        }
+        readerConfig.put("dataSources", Arrays.asList(leftSource, rightSource));
+
+        Map<String, Object> reader = new LinkedHashMap<String, Object>();
+        reader.put("type", "consistency");
+        reader.put("config", readerConfig);
+
+        Long outputDatasourceId = requiredLong(output.get("datasourceId"),
+                "Consistency output datasourceId is required");
+        Long outputModelId = requiredLong(output.get("modelId"),
+                "Consistency output modelId is required");
+        DataSourceDefinition outputDatasource = requiredRunnableDatasource(outputDatasourceId);
+        DataModelDefinition outputModel = requiredModel(outputModelId);
+        assertModelDatasource(outputModel, outputDatasourceId, "outputBinding");
+        assertModelFields(outputModel, CONSISTENCY_OUTPUT_COLUMNS, "outputBinding columns");
+        CollectionTaskTargetBinding outputTarget = new CollectionTaskTargetBinding();
+        outputTarget.setDatasourceId(outputDatasourceId);
+        outputTarget.setModelId(outputModelId);
+        outputTarget.setWriterOptions(objectMap(output.get("writerOptions")));
+
+        Map<String, Object> runtime = new LinkedHashMap<String, Object>();
+        runtime.put("reader", reader);
+        runtime.put("writer", buildStandardWriter(
+                outputTarget, outputDatasource, outputModel, CONSISTENCY_OUTPUT_COLUMNS));
+        return runtime;
+    }
+
+    private Map<String, Object> buildConsistencySource(Map<String, Object> binding,
+                                                        String defaultAlias,
+                                                        int defaultPriority,
+                                                        double defaultWeight,
+                                                        List<String> matchKeys,
+                                                        List<String> compareFields) {
+        Long datasourceId = requiredLong(binding.get("datasourceId"),
+                "Consistency " + defaultAlias + " datasourceId is required");
+        Long modelId = requiredLong(binding.get("modelId"),
+                "Consistency " + defaultAlias + " modelId is required");
+        DataSourceDefinition datasource = requiredRunnableDatasource(datasourceId);
+        DataModelDefinition model = requiredModel(modelId);
+        assertModelDatasource(model, datasourceId, defaultAlias + "Binding");
+        assertModelFields(model, matchKeys, defaultAlias + "Binding matchKeys");
+        assertModelFields(model, compareFields, defaultAlias + "Binding compareFields");
+
+        Map<String, Object> source = new LinkedHashMap<String, Object>();
+        String alias = text(binding.get("sourceAlias"));
+        source.put("sourceId", alias == null ? defaultAlias : alias);
+        source.put("sourceName", model.getName() == null ? model.getPhysicalLocator() : model.getName());
+        source.put("datasourceType", datasource.getTypeCode());
+        source.put("pluginName", pluginRuntimeOptionSchemaService.resolveSourcePlugin(datasource.getTypeCode()));
+        source.put("connectionConfig", buildConnectionConfig(datasource));
+        source.put("tableName", requiredText(model.getPhysicalLocator(),
+                "Consistency source model physical locator is required"));
+        source.put("priority", integerValue(binding.get("priority"), defaultPriority));
+        source.put("confidenceWeight", doubleValue(binding.get("confidenceWeight"), defaultWeight));
+        Map<String, Object> fieldMappings = objectMap(binding.get("fieldMappings"));
+        if (!fieldMappings.isEmpty()) {
+            source.put("fieldMappings", fieldMappings);
+        }
+        if (binding.get("maxRecords") != null) {
+            source.put("maxRecords", integerValue(binding.get("maxRecords"), 0));
+        }
+        return source;
+    }
+
+    private void assertModelDatasource(DataModelDefinition model, Long datasourceId, String bindingName) {
+        if (model.getDatasourceId() != null && !datasourceId.equals(model.getDatasourceId())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Consistency " + bindingName + " model does not belong to datasource");
+        }
+    }
+
+    private void assertModelFields(DataModelDefinition model, List<String> requiredFields, String label) {
+        Set<String> available = modelFields(model);
+        if (available.isEmpty()) {
+            return;
+        }
+        List<String> missing = new ArrayList<String>();
+        for (String field : requiredFields) {
+            if (!available.contains(field)) {
+                missing.add(field);
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    label + " were not found in model: " + String.join(", ", missing));
+        }
+    }
+
+    private Set<String> modelFields(DataModelDefinition model) {
+        Set<String> fields = new LinkedHashSet<String>();
+        Object columns = model == null || model.getTechnicalMetadata() == null
+                ? null : model.getTechnicalMetadata().get("columns");
+        if (!(columns instanceof List<?>)) {
+            return fields;
+        }
+        for (Object column : (List<?>) columns) {
+            if (column instanceof Map<?, ?>) {
+                Map<?, ?> item = (Map<?, ?>) column;
+                String name = firstText(item.get("name"), item.get("columnName"), item.get("fieldName"));
+                if (name != null) {
+                    fields.add(name);
+                }
+            } else if (column != null && !String.valueOf(column).trim().isEmpty()) {
+                fields.add(String.valueOf(column).trim());
+            }
+        }
+        return fields;
+    }
+
+    private Map<String, Object> requiredConsistencyBinding(Map<String, Object> definition, String key) {
+        Map<String, Object> binding = objectMap(definition.get(key));
+        if (binding.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Consistency " + key + " is required");
+        }
+        return binding;
+    }
+
+    private List<String> requiredStringList(Object value, String message) {
+        List<String> result = new ArrayList<String>();
+        if (value instanceof List<?>) {
+            for (Object item : (List<?>) value) {
+                String text = text(item);
+                if (text != null && !result.contains(text)) {
+                    result.add(text);
+                }
+            }
+        } else if (value instanceof String) {
+            for (String item : ((String) value).split(",")) {
+                String text = text(item);
+                if (text != null && !result.contains(text)) {
+                    result.add(text);
+                }
+            }
+        }
+        if (result.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, message);
+        }
+        return result;
+    }
+
+    private Long requiredLong(Object value, String message) {
+        if (value instanceof Number) {
+            return Long.valueOf(((Number) value).longValue());
+        }
+        String text = text(value);
+        if (text != null) {
+            try {
+                return Long.valueOf(text);
+            } catch (NumberFormatException ignored) {
+                // handled below
+            }
+        }
+        throw new StudioException(StudioErrorCode.BAD_REQUEST, message);
+    }
+
+    private String requiredText(Object value, String message) {
+        String text = text(value);
+        if (text == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, message);
+        }
+        return text;
+    }
+
+    private String firstText(Object... values) {
+        for (Object value : values) {
+            String candidate = text(value);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private String text(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
+    }
+
+    private int integerValue(Object value, int defaultValue) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        String text = text(value);
+        if (text == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private double doubleValue(Object value, double defaultValue) {
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        String text = text(value);
+        if (text == null) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private Map<String, Object> objectMap(Object value) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (!(value instanceof Map<?, ?>)) {
+            return result;
+        }
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+            if (entry.getKey() != null) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private DataSourceDefinition requiredRunnableDatasource(Long datasourceId) {
+        return dataSourceService.requireRunnableForExecution(datasourceId);
     }
 
     private Map<String, Object> assembleSingle(CollectionTaskDefinitionView definition,

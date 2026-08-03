@@ -75,6 +75,7 @@ public class WorkflowService {
     private QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
     private DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
     private DataModelMapper dataModelMapper;
+    private WorkflowConsistencyBindingValidator workflowConsistencyBindingValidator;
 
     public WorkflowService(WorkflowDefinitionMapper definitionMapper,
                            WorkflowVersionMapper versionMapper,
@@ -123,6 +124,12 @@ public class WorkflowService {
         this.qualityTaskDefinitionMapper = qualityTaskDefinitionMapper;
         this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
         this.dataModelMapper = dataModelMapper;
+    }
+
+    @Autowired
+    void setWorkflowConsistencyBindingValidator(
+            WorkflowConsistencyBindingValidator workflowConsistencyBindingValidator) {
+        this.workflowConsistencyBindingValidator = workflowConsistencyBindingValidator;
     }
 
     public List<WorkflowListView> listSummaries() {
@@ -425,6 +432,9 @@ public class WorkflowService {
     @Transactional
     public WorkflowDefinitionView save(WorkflowSaveRequest request) {
         validateGraph(request);
+        if (workflowConsistencyBindingValidator != null) {
+            workflowConsistencyBindingValidator.validate(securityService.currentTenantId(), request.getNodes());
+        }
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         WorkflowDefinitionEntity definition = request.getDefinitionId() == null
                 ? new WorkflowDefinitionEntity()

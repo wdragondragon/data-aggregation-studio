@@ -75,6 +75,16 @@ public class PluginRuntimeOptionSchemaService {
         return normalizedType;
     }
 
+    public String resolveSourcePlugin(String datasourceType) {
+        String normalizedType = normalize(datasourceType);
+        DatasourceTypeCapabilityView capability = findCapability(normalizedType);
+        if (capability != null && capability.getSourcePlugin() != null
+                && !capability.getSourcePlugin().trim().isEmpty()) {
+            return normalizePlugin(capability.getSourcePlugin());
+        }
+        return normalizedType;
+    }
+
     public String sourceCategory(String datasourceType) {
         DatasourceTypeCapabilityView capability = findCapability(normalize(datasourceType));
         return capability == null ? null : capability.getSourceCategory();

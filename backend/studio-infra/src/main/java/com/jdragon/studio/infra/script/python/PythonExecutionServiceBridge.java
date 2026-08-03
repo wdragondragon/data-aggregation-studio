@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.script.python;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
@@ -13,6 +14,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -31,6 +33,7 @@ public class PythonExecutionServiceBridge implements AutoCloseable {
     private final JavaDataScriptServices services;
     private final HttpServer server;
     private final ExecutorService executorService;
+    private final PluginRuntimeSession pluginRuntimeSession;
     private final String token;
     private final String baseUrl;
 
@@ -38,6 +41,7 @@ public class PythonExecutionServiceBridge implements AutoCloseable {
                                         JavaDataScriptServices services) throws IOException {
         this.objectMapper = objectMapper;
         this.services = services;
+        this.pluginRuntimeSession = PluginRuntimeSession.current();
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         this.executorService = Executors.newSingleThreadExecutor();
         this.server.createContext("/invoke", new InvokeHandler());
@@ -63,6 +67,25 @@ public class PythonExecutionServiceBridge implements AutoCloseable {
     private final class InvokeHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            if (pluginRuntimeSession == null) {
+                handleWithPluginRuntimeSession(exchange);
+                return;
+            }
+            try {
+                pluginRuntimeSession.call(() -> {
+                    try {
+                        handleWithPluginRuntimeSession(exchange);
+                        return null;
+                    } catch (IOException exception) {
+                        throw new UncheckedIOException(exception);
+                    }
+                });
+            } catch (UncheckedIOException exception) {
+                throw exception.getCause();
+            }
+        }
+
+        private void handleWithPluginRuntimeSession(HttpExchange exchange) throws IOException {
             PythonExecutionBridgeResponse response = new PythonExecutionBridgeResponse();
             int statusCode = 200;
             try {

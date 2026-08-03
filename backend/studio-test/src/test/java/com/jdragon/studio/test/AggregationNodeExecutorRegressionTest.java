@@ -9,18 +9,27 @@ import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.worker.runtime.AggregationNodeExecutor;
+import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
+import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AggregationNodeExecutorRegressionTest {
 
@@ -103,6 +112,112 @@ class AggregationNodeExecutorRegressionTest {
         Map<String, Object> cursor = (Map<String, Object>) cursors.get("src1");
         assertThat(cursor.get("incrColumn")).isEqualTo("id");
         assertThat(cursor.get("pkValue")).isEqualTo(Long.valueOf(108L));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldExposePinnedPluginRevisionsInRunPayload() {
+        AggregationNodeExecutor executor = new AggregationNodeExecutor() {
+            @Override
+            protected JobContainer createJobContainer(Map<String, Object> config) {
+                return new StubJobContainer(State.SUCCEEDED, null) {
+                    @Override
+                    public void start() {
+                        setRunContext("pluginRevisions", Map.of(
+                                "reader/mysql8reader", "codex-e2e-v2-identity",
+                                "writer/mysql8writer", "codex-e2e-v2-identity"));
+                    }
+                };
+            }
+        };
+
+        WorkflowNodeDefinition node = new WorkflowNodeDefinition();
+        node.setNodeType(NodeType.ETL_SINGLE);
+        node.setConfig(Map.of(
+                "reader", Map.of("type", "mysql8reader"),
+                "writer", Map.of("type", "mysql8writer")));
+
+        Map<String, Object> result = executor.execute(node, new LinkedHashMap<String, Object>());
+
+        assertThat(result.get("pluginRevisions")).isEqualTo(Map.of(
+                "reader/mysql8reader", "codex-e2e-v2-identity",
+                "writer/mysql8writer", "codex-e2e-v2-identity"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldPreservePinnedPluginRevisionsInRuntimeContextWhenJobStartThrows() {
+        AggregationNodeExecutor executor = new AggregationNodeExecutor() {
+            @Override
+            protected JobContainer createJobContainer(Map<String, Object> config) {
+                return new StubJobContainer(State.FAILED, new IllegalStateException("writer failed")) {
+                    @Override
+                    public void start() {
+                        setRunContext("pluginRevisions", Map.of(
+                                "reader/mysql8reader", "codex-e2e-v1-identity",
+                                "writer/mysql8writer", "codex-e2e-v1-identity"));
+                        throw new IllegalStateException("job start failed");
+                    }
+                };
+            }
+        };
+        WorkflowNodeDefinition node = new WorkflowNodeDefinition();
+        node.setNodeType(NodeType.ETL_SINGLE);
+        node.setConfig(Map.of(
+                "reader", Map.of("type", "mysql8reader"),
+                "writer", Map.of("type", "mysql8writer")));
+        Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> executor.execute(node, runtimeContext));
+
+        assertThat(failure.getMessage()).isEqualTo("job start failed");
+        assertThat((Map<String, String>) runtimeContext.get("pluginRevisions")).containsExactlyInAnyOrderEntriesOf(
+                Map.of(
+                        "reader/mysql8reader", "codex-e2e-v1-identity",
+                        "writer/mysql8writer", "codex-e2e-v1-identity"));
+    }
+
+    @Test
+    void shouldHydrateConsistencyResourceBindingsBeforeCreatingJobContainer() {
+        CollectionTaskAssemblerService assembler = mock(CollectionTaskAssemblerService.class);
+        Map<String, Object> stored = Map.of(
+                "ruleId", "studio-consistency",
+                "leftBinding", Map.of("datasourceId", 1L, "modelId", 10L),
+                "rightBinding", Map.of("datasourceId", 2L, "modelId", 11L),
+                "outputBinding", Map.of("datasourceId", 3L, "modelId", 20L),
+                "matchKeys", Collections.singletonList("id"),
+                "compareFields", Collections.singletonList("value"));
+        Map<String, Object> hydrated = Map.of(
+                "reader", Map.of("type", "consistency", "config", Map.of(
+                        "ruleId", "studio-consistency",
+                        "dataSources", Arrays.asList(
+                                Map.of("datasourceType", "mysql8"),
+                                Map.of("datasourceType", "mysql8")))),
+                "writer", Map.of("type", "mysql8", "config", Collections.emptyMap()));
+        when(assembler.assembleConsistency(stored)).thenReturn(hydrated);
+        AtomicReference<Map<String, Object>> captured = new AtomicReference<Map<String, Object>>();
+        DatasourceTypeCapabilityService capabilities = mock(DatasourceTypeCapabilityService.class);
+        AggregationNodeExecutor executor = new AggregationNodeExecutor(
+                capabilities, assembler) {
+            @Override
+            protected JobContainer createJobContainer(Map<String, Object> config) {
+                captured.set(config);
+                return new StubJobContainer(State.SUCCEEDED, null);
+            }
+        };
+        WorkflowNodeDefinition node = new WorkflowNodeDefinition();
+        node.setNodeType(NodeType.CONSISTENCY);
+        node.setConfig(stored);
+
+        Map<String, Object> result = executor.execute(node, new LinkedHashMap<String, Object>());
+
+        assertThat(result.get("status")).isEqualTo("SUCCESS");
+        assertThat(captured.get()).isEqualTo(hydrated);
+        verify(assembler).assembleConsistency(stored);
+        verify(capabilities, times(2)).ensureReadable("mysql8");
+        verify(capabilities).ensureWritable("mysql8");
+        verify(capabilities, never()).ensureReadable("consistency");
     }
 
     private static class StubJobContainer extends JobContainer {

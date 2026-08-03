@@ -26,8 +26,13 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -175,6 +180,8 @@ class DataIngestionInvocationLogSupportTest {
         }
 
         assertEquals(Long.valueOf(1L), result.getSuccessCount());
+        assertTrue(result.getPluginRevisions().containsKey("writer/consolewriter"));
+        assertTrue(result.getSourceResults().get(0).getPluginRevisions().containsKey("writer/consolewriter"));
         String capturedLog = scope.content();
         assertContains(capturedLog, "DataIngestion-JobContainer-" + jobId);
         assertContains(capturedLog, "Starting data ingestion JobContainer");
@@ -204,6 +211,48 @@ class DataIngestionInvocationLogSupportTest {
 
         assertTrue(System.currentTimeMillis() - startedAt >= 75L,
                 "Slow successful writes should wait for the final job state instead of returning timeout");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldAwaitInterruptedJobCleanupBeforeReturningToCaller() throws Exception {
+        configureAggregationHome();
+        DataIngestionExecutionSupport executionSupport = new DataIngestionExecutionSupport(
+                new ConsoleWriterAssembler(),
+                new ObjectMapper());
+        InterruptCleanupJobContainer container = new InterruptCleanupJobContainer();
+        AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
+        AtomicReference<Map<String, String>> revisionsAtReturn = new AtomicReference<Map<String, String>>();
+        AtomicBoolean cleanupFinishedAtReturn = new AtomicBoolean(false);
+        AtomicBoolean interruptedAtReturn = new AtomicBoolean(false);
+        Thread caller = new Thread(() -> {
+            try {
+                executionSupport.startAndAssertJob(container,
+                        "request-interrupted-cleanup",
+                        Long.valueOf(2026073101L),
+                        null);
+            } catch (Throwable ex) {
+                failure.set(ex);
+                cleanupFinishedAtReturn.set(container.cleanupFinished.getCount() == 0L);
+                interruptedAtReturn.set(Thread.currentThread().isInterrupted());
+                Object revisions = container.getRunContext().get("pluginRevisions");
+                if (revisions instanceof Map<?, ?>) {
+                    revisionsAtReturn.set(new LinkedHashMap<String, String>((Map<String, String>) revisions));
+                }
+            }
+        }, "DataIngestion-Interrupted-Caller-Test");
+
+        caller.start();
+        assertTrue(container.started.await(5, TimeUnit.SECONDS));
+        caller.interrupt();
+        caller.join(5000L);
+
+        assertFalse(caller.isAlive(), "Interrupted caller must not hang during JobContainer cleanup");
+        assertTrue(failure.get() instanceof StudioException);
+        assertTrue(cleanupFinishedAtReturn.get(), "Job cleanup must finish before interruption is returned");
+        assertTrue(interruptedAtReturn.get(), "Caller interrupted status must be restored after cleanup");
+        assertEquals("interrupted-revision",
+                revisionsAtReturn.get().get("writer/mysql8writer"));
     }
 
     @Test
@@ -493,6 +542,40 @@ class DataIngestionInvocationLogSupportTest {
                 communication.setThrowable(e);
                 communication.setState(State.FAILED);
                 throw new RuntimeException(e);
+            }
+        }
+    }
+
+    private static final class InterruptCleanupJobContainer extends JobContainer {
+        private final CountDownLatch started = new CountDownLatch(1);
+        private final CountDownLatch cleanupFinished = new CountDownLatch(1);
+
+        private InterruptCleanupJobContainer() {
+            super(Configuration.newDefault());
+        }
+
+        @Override
+        public void start() {
+            started.countDown();
+            try {
+                new CountDownLatch(1).await();
+            } catch (InterruptedException expected) {
+                waitForCleanupWork();
+                setRunContext("pluginRevisions",
+                        Map.of("writer/mysql8writer", "interrupted-revision"));
+            } finally {
+                cleanupFinished.countDown();
+            }
+        }
+
+        private void waitForCleanupWork() {
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(150L);
+            while (System.nanoTime() < deadline) {
+                try {
+                    TimeUnit.NANOSECONDS.sleep(deadline - System.nanoTime());
+                } catch (InterruptedException ignored) {
+                    // Cancellation can signal more than once; cleanup remains bounded.
+                }
             }
         }
     }

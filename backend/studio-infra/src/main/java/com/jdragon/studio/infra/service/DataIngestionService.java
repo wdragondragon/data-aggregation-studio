@@ -514,7 +514,8 @@ public class DataIngestionService {
             String capturedLog = logScope == null ? null : logScope.content();
             Map<String, String> targetLogs = logScope == null ? new LinkedHashMap<String, String>() : logScope.sectionContents();
             String systemLog = buildInvocationSystemLog(entity, subscription, defaultSubscriptionNameForLog(entity), requestId, requestMethod,
-                    occurredAt, startedAt, success, httpStatus, errorCode, errorMessage, receivedCount, successCount, failedCount);
+                    occurredAt, startedAt, success, httpStatus, errorCode, errorMessage, receivedCount, successCount, failedCount,
+                    result == null ? Collections.<String, String>emptyMap() : result.getPluginRevisions());
             String mainObjectKey = invocationLogService.buildArchiveObjectKey(
                     OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
                     "data-ingestion",
@@ -1318,7 +1319,8 @@ public class DataIngestionService {
                                             String errorMessage,
                                             long receivedCount,
                                             long successCount,
-                                            long failedCount) {
+                                            long failedCount,
+                                            Map<String, String> pluginRevisions) {
         Map<String, Object> values = new LinkedHashMap<String, Object>();
         values.put("requestId", requestId);
         values.put("occurredAt", occurredAt == null ? null : occurredAt.toString());
@@ -1336,6 +1338,9 @@ public class DataIngestionService {
         values.put("receivedCount", receivedCount);
         values.put("successCount", successCount);
         values.put("failedCount", failedCount);
+        if (pluginRevisions != null && !pluginRevisions.isEmpty()) {
+            values.put("pluginRevisions", pluginRevisions);
+        }
         values.put("httpStatus", httpStatus);
         values.put("result", success ? "SUCCESS" : "FAILED");
         if (hasText(errorCode) || hasText(errorMessage)) {
@@ -1394,6 +1399,7 @@ public class DataIngestionService {
             invocationLogService.appendLine(index, "status", sourceResult.getStatus());
             invocationLogService.appendLine(index, "message", sourceResult.getMessage());
             invocationLogService.appendLine(index, "jobId", sourceResult.getJobId());
+            invocationLogService.appendLine(index, "pluginRevisions", sourceResult.getPluginRevisions());
             invocationLogService.appendLine(index, "logObjectBucket", inlineFallback || targetArchiveResult == null ? null : targetArchiveResult.getLogObjectBucket());
             invocationLogService.appendLine(index, "logObjectKey", inlineFallback || targetArchiveResult == null ? null : targetArchiveResult.getLogObjectKey());
             invocationLogService.appendLine(index, "logSizeBytes", targetArchiveResult == null ? null : targetArchiveResult.getLogSizeBytes());
@@ -1499,6 +1505,7 @@ public class DataIngestionService {
         values.put("status", sourceResult.getStatus());
         values.put("message", sourceResult.getMessage());
         values.put("jobId", sourceResult.getJobId());
+        values.put("pluginRevisions", sourceResult.getPluginRevisions());
         return invocationLogService.summaryLog(null, values);
     }
 

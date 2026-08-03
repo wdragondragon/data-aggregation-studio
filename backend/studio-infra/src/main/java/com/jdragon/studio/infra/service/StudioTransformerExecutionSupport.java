@@ -14,6 +14,7 @@ import com.jdragon.aggregation.core.transformer.TransformerExecution;
 import com.jdragon.aggregation.core.transport.exchanger.TransformerExchanger;
 import com.jdragon.aggregation.core.transport.record.DefaultRecord;
 import com.jdragon.aggregation.core.utils.TransformerUtil;
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataServiceResponseParamView;
@@ -44,6 +45,26 @@ public final class StudioTransformerExecutionSupport {
         if (orderedFields.isEmpty()) {
             return rows;
         }
+
+        /*
+         * TransformerUtil resolves external transformers lazily.  Their loader
+         * lease must remain alive from construction through every evaluate call,
+         * rather than ending when TransformerInfo is cached.  Data-service
+         * execution normally supplies the enclosing session; standalone Worker
+         * operations receive a short-lived operation session here.
+         */
+        if (PluginRuntimeSession.current() != null) {
+            return applyOnlineResponseTransformersInRuntimeSession(rows, responseParams, orderedFields);
+        }
+        try (PluginRuntimeSession operationSession = PluginRuntimeSession.open()) {
+            return applyOnlineResponseTransformersInRuntimeSession(rows, responseParams, orderedFields);
+        }
+    }
+
+    private List<Map<String, Object>> applyOnlineResponseTransformersInRuntimeSession(
+            List<Map<String, Object>> rows,
+            List<DataServiceResponseParamView> responseParams,
+            List<String> orderedFields) {
         List<Map<String, Object>> transformerConfigs = transformerSupport.buildAggregationTransformersForResponses(
                 responseParams, orderedFields, true);
         if (transformerConfigs.isEmpty()) {

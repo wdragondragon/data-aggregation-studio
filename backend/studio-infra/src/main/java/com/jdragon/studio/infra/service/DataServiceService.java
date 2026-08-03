@@ -43,6 +43,7 @@ import com.jdragon.studio.infra.mapper.DataServicePublishParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceRequestParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceResponseParamMapper;
 import com.jdragon.studio.infra.mapper.DataServiceSubscriptionMapper;
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -826,6 +827,28 @@ public class DataServiceService {
                 return new DataServiceExecutionResult(dataServiceInvocationSupport.copyResponseData(cached.getData()), true, cached.getRowCount());
             }
         }
+
+        /*
+         * A data-service invocation is one plugin operation even though it needs
+         * two SQL statements (count and page data) followed by response
+         * transformers.  Keep one runtime session around the complete operation
+         * so a background revision switch cannot make the count/data/transform
+         * stages observe different plugin directories.  Reuse an enclosing
+         * session when a caller (for example a job worker) already pinned one.
+         */
+        PluginRuntimeSession currentSession = PluginRuntimeSession.current();
+        if (currentSession != null) {
+            return executeWithPluginRuntimeSession(service, plan, cacheKey);
+        }
+        try (PluginRuntimeSession operationSession = PluginRuntimeSession.open()) {
+            return executeWithPluginRuntimeSession(service, plan, cacheKey);
+        }
+    }
+
+    private DataServiceExecutionResult executeWithPluginRuntimeSession(
+            DataServiceDefinitionView service,
+            DataServiceInvocationSupport.InvocationPlan plan,
+            String cacheKey) {
         DataSourceDefinition datasource = dataSourceService.getInternal(service.getDatasourceId());
         DataDevelopmentSqlExecutor localSqlExecutor = requireLocalSqlExecutor();
         SqlExecutionResultView countResult = localSqlExecutor.executePreparedQuery(

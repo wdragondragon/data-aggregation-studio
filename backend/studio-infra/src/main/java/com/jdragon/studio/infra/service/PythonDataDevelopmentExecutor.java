@@ -1,6 +1,7 @@
 package com.jdragon.studio.infra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
@@ -63,6 +64,15 @@ public class PythonDataDevelopmentExecutor implements DataDevelopmentScriptExecu
 
     @Override
     public DataScriptExecutionResultView execute(DataDevelopmentExecutionContext context) {
+        if (PluginRuntimeSession.current() != null) {
+            return executeWithPluginRuntimeSession(context);
+        }
+        try (PluginRuntimeSession operationSession = PluginRuntimeSession.open()) {
+            return executeWithPluginRuntimeSession(context);
+        }
+    }
+
+    private DataScriptExecutionResultView executeWithPluginRuntimeSession(DataDevelopmentExecutionContext context) {
         long startedAt = System.currentTimeMillis();
         DataScriptExecutionResultView result = new DataScriptExecutionResultView();
         result.setScriptType(ScriptType.PYTHON);

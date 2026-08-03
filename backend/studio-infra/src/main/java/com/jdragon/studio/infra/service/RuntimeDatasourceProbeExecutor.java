@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataModelDefinition;
@@ -44,7 +45,18 @@ public class RuntimeDatasourceProbeExecutor {
     }
 
     public RuntimeDatasourceHydrationResultView hydrate(DataSourceDefinition datasource,
-                                                        List<String> physicalLocators) {
+                                                         List<String> physicalLocators) {
+        if (PluginRuntimeSession.current() != null) {
+            return hydrateWithPluginRuntimeSession(datasource, physicalLocators);
+        }
+        try (PluginRuntimeSession operationSession = PluginRuntimeSession.open()) {
+            return hydrateWithPluginRuntimeSession(datasource, physicalLocators);
+        }
+    }
+
+    private RuntimeDatasourceHydrationResultView hydrateWithPluginRuntimeSession(
+            DataSourceDefinition datasource,
+            List<String> physicalLocators) {
         List<DataModelDefinition> candidates = new ArrayList<DataModelDefinition>();
         if (physicalLocators == null || physicalLocators.isEmpty()) {
             candidates.addAll(provider.discoverModels(datasource).getModels());

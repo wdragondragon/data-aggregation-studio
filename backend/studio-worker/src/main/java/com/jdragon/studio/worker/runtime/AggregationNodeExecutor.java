@@ -11,6 +11,7 @@ import com.jdragon.aggregation.core.statistics.communication.Communication;
 import com.jdragon.aggregation.core.statistics.communication.CommunicationTool;
 import com.jdragon.aggregation.core.statistics.communication.RunStatus;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
+import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -23,14 +24,18 @@ import java.util.Map;
 public class AggregationNodeExecutor implements NodeExecutor {
 
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+    private final CollectionTaskAssemblerService collectionTaskAssemblerService;
 
     public AggregationNodeExecutor() {
         this.datasourceTypeCapabilityService = null;
+        this.collectionTaskAssemblerService = null;
     }
 
     @Autowired
-    public AggregationNodeExecutor(DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+    public AggregationNodeExecutor(DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                                   CollectionTaskAssemblerService collectionTaskAssemblerService) {
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
+        this.collectionTaskAssemblerService = collectionTaskAssemblerService;
     }
 
     @Override
@@ -48,6 +53,9 @@ public class AggregationNodeExecutor implements NodeExecutor {
         Map<String, Object> config = definition.getConfig() == null
                 ? Collections.<String, Object>emptyMap()
                 : definition.getConfig();
+        if (definition.getNodeType() == NodeType.CONSISTENCY && collectionTaskAssemblerService != null) {
+            config = collectionTaskAssemblerService.assembleConsistency(config);
+        }
         validateDatasourceCapabilities(config);
         long startedAt = System.currentTimeMillis();
         JobContainer container = createJobContainer(config);
@@ -57,7 +65,15 @@ public class AggregationNodeExecutor implements NodeExecutor {
             }
         }
         seedInitialIncrementalCursor(container, config);
-        container.start();
+        try {
+            container.start();
+        } catch (RuntimeException | Error failure) {
+            Map<String, String> pluginRevisions = pluginRevisions(container);
+            if (runtimeContext != null && !pluginRevisions.isEmpty()) {
+                runtimeContext.put("pluginRevisions", pluginRevisions);
+            }
+            throw failure;
+        }
         long endedAt = System.currentTimeMillis();
         Communication communication = resolveCommunication(container);
         JobPointReporter reporter = container.getJobPointReporter();
@@ -77,12 +93,38 @@ public class AggregationNodeExecutor implements NodeExecutor {
             result.put("error", failure.getMessage());
             result.put("exceptionType", failure.getClass().getName());
         }
+        Map<String, String> pluginRevisions = pluginRevisions(container);
+        if (!pluginRevisions.isEmpty()) {
+            result.put("pluginRevisions", pluginRevisions);
+        }
         Map<String, Object> incrementalCursors = extractIncrementalCursors(config, reporter);
         if (!incrementalCursors.isEmpty()) {
             result.put("incrementalCursors", incrementalCursors);
         }
         result.put("summary", buildSummary(config, communication, runStatus, jobState));
         return result;
+    }
+
+    private Map<String, String> pluginRevisions(JobContainer container) {
+        Map<String, String> revisions = new LinkedHashMap<String, String>();
+        if (container == null || container.getRunContext() == null) {
+            return revisions;
+        }
+        Object rawRevisions = container.getRunContext().get("pluginRevisions");
+        if (!(rawRevisions instanceof Map<?, ?>)) {
+            return revisions;
+        }
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) rawRevisions).entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            String coordinate = String.valueOf(entry.getKey()).trim();
+            String identity = String.valueOf(entry.getValue()).trim();
+            if (!coordinate.isEmpty() && !identity.isEmpty()) {
+                revisions.put(coordinate, identity);
+            }
+        }
+        return revisions;
     }
 
     private void seedInitialIncrementalCursor(JobContainer container, Map<String, Object> config) {
@@ -159,6 +201,15 @@ public class AggregationNodeExecutor implements NodeExecutor {
             List<Map<String, Object>> sources = valueAsList(readerConfig.get("sources"));
             for (Map<String, Object> source : sources) {
                 String sourceType = asString(source.get("type"));
+                if (sourceType != null) {
+                    datasourceTypeCapabilityService.ensureReadable(sourceType);
+                }
+            }
+        } else if ("consistency".equalsIgnoreCase(readerType)) {
+            Map<String, Object> readerConfig = valueAsMap(reader.get("config"));
+            List<Map<String, Object>> sources = valueAsList(readerConfig.get("dataSources"));
+            for (Map<String, Object> source : sources) {
+                String sourceType = asString(source.get("datasourceType"));
                 if (sourceType != null) {
                     datasourceTypeCapabilityService.ensureReadable(sourceType);
                 }

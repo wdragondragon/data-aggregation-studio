@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeSession;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.DataScriptExecutionResultView;
 import com.jdragon.studio.infra.script.java.BufferingJavaDataScriptLogger;
@@ -56,6 +57,15 @@ public class JavaDataDevelopmentExecutor implements DataDevelopmentScriptExecuto
 
     @Override
     public DataScriptExecutionResultView execute(DataDevelopmentExecutionContext context) {
+        if (PluginRuntimeSession.current() != null) {
+            return executeWithPluginRuntimeSession(context);
+        }
+        try (PluginRuntimeSession operationSession = PluginRuntimeSession.open()) {
+            return executeWithPluginRuntimeSession(context);
+        }
+    }
+
+    private DataScriptExecutionResultView executeWithPluginRuntimeSession(DataDevelopmentExecutionContext context) {
         long startedAt = System.currentTimeMillis();
         BufferingJavaDataScriptLogger logger = new BufferingJavaDataScriptLogger(log);
         DataScriptExecutionResultView result = new DataScriptExecutionResultView();

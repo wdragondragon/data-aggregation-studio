@@ -133,6 +133,37 @@ class ExecutionEventServiceRegressionTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void shouldPersistPluginRevisionsInExistingRunPayloadAndResult() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity existingRun = new RunRecordEntity();
+        existingRun.setId(103L);
+        existingRun.setStatus("RUNNING");
+        when(runRecordMapper.selectById(eq(103L))).thenReturn(existingRun);
+
+        ExecutionEventService service = service(runRecordMapper);
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(103L);
+        event.setEventType("SUCCESS");
+        event.setOccurredAt(LocalDateTime.of(2026, 7, 31, 16, 30, 0));
+        event.getPayload().put("pluginRevisions", Map.of(
+                "reader/mysql8reader", "codex-e2e-v2-identity",
+                "writer/mysql8writer", "codex-e2e-v2-identity"));
+
+        service.publish(event);
+
+        ArgumentCaptor<RunRecordEntity> captor = ArgumentCaptor.forClass(RunRecordEntity.class);
+        verify(runRecordMapper).updateById(captor.capture());
+        RunRecordEntity updatedRun = captor.getValue();
+        assertEquals("codex-e2e-v2-identity",
+                ((Map<String, String>) updatedRun.getPayloadJson().get("pluginRevisions"))
+                        .get("reader/mysql8reader"));
+        assertEquals("codex-e2e-v2-identity",
+                ((Map<String, String>) updatedRun.getResultJson().get("pluginRevisions"))
+                        .get("writer/mysql8writer"));
+    }
+
+    @Test
     void sharedWorkflowFollowerNotificationShouldTargetReadableProject() {
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         RunRecordEntity existingRun = new RunRecordEntity();

@@ -2,6 +2,9 @@ package com.jdragon.studio.dto.model;
 
 import lombok.Data;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Data
 public class DataIngestionSourceInvokeResult {
     private String sourceCode;
@@ -15,4 +18,6 @@ public class DataIngestionSourceInvokeResult {
     private String message;
     private Long jobId;
     private String logSectionKey;
+    /** Runtime plugin identities for this target job instance. */
+    private Map<String, String> pluginRevisions = new LinkedHashMap<String, String>();
 }

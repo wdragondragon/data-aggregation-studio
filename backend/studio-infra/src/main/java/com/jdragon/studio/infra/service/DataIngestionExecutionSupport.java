@@ -50,6 +50,8 @@ public final class DataIngestionExecutionSupport {
     private static final Logger log = LoggerFactory.getLogger(DataIngestionExecutionSupport.class);
     private static final int DEFAULT_MAX_PARALLEL_TARGETS = 4;
     private static final long DEFAULT_WRITE_SLOW_THRESHOLD_MS = 10000L;
+    private static final long JOB_CANCELLATION_WAIT_MS = 5000L;
+    private static final long TARGET_CANCELLATION_WAIT_MS = JOB_CANCELLATION_WAIT_MS + 1000L;
 
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
     private final ObjectMapper objectMapper;
@@ -188,10 +190,14 @@ public final class DataIngestionExecutionSupport {
                 try {
                     sourceResult = futures.get(index).get().sourceResult;
                 } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
                     for (Future<IndexedSourceResult> future : futures) {
                         future.cancel(true);
                     }
+                    executor.shutdownNow();
+                    if (!awaitTerminationUninterruptibly(executor, TARGET_CANCELLATION_WAIT_MS)) {
+                        log.warn("Data ingestion target dispatchers did not stop after cancellation requestId={}", requestId);
+                    }
+                    Thread.currentThread().interrupt();
                     throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
                 } catch (ExecutionException ex) {
                     sourceResult = failedResult(binding, sourceJobId, logSectionKey, ex.getCause());
@@ -213,6 +219,7 @@ public final class DataIngestionExecutionSupport {
         result.setSuccessCount(Long.valueOf(successCount));
         result.setFailedCount(Long.valueOf(failedCount));
         result.setSourceResults(sourceResults);
+        result.setPluginRevisions(mergePluginRevisions(sourceResults));
         if (failedSources == 0) {
             result.setStatus("SUCCESS");
         } else if (successSources == 0) {
@@ -268,6 +275,7 @@ public final class DataIngestionExecutionSupport {
         sourceResult.setJobId(jobId);
         sourceResult.setLogSectionKey(logSectionKey);
         long receivedCount = preparedBinding.sourceRows.size();
+        JobContainer container = null;
         try {
             List<DataIngestionFieldMapping> mappings = preparedBinding.mappings;
             List<Map<String, Object>> sourceRows = preparedBinding.sourceRows;
@@ -290,17 +298,19 @@ public final class DataIngestionExecutionSupport {
                 reader.put("config", new LinkedHashMap<String, Object>());
                 jobConfig.put("reader", reader);
                 jobConfig.put("writer", writer);
-                JobContainer container = new JobContainer(Configuration.from(jobConfig));
+                container = new JobContainer(Configuration.from(jobConfig));
                 container.setRunContext("jobId", jobId);
                 container.addConsumerPlugin(PluginType.READER, new InMemoryRecordReader(writerRows, targetFields, mappings));
                 startAndAssertJob(container, requestId, jobId, logCaptureId);
             }
+            sourceResult.setPluginRevisions(pluginRevisions(container));
             sourceResult.setReceivedCount(Long.valueOf(receivedCount));
             sourceResult.setSuccessCount(Long.valueOf(sourceRows.size()));
             sourceResult.setFailedCount(Long.valueOf(0L));
             sourceResult.setStatus("SUCCESS");
             return sourceResult;
         } catch (RuntimeException ex) {
+            sourceResult.setPluginRevisions(pluginRevisions(container));
             sourceResult.setReceivedCount(Long.valueOf(receivedCount));
             sourceResult.setSuccessCount(Long.valueOf(0L));
             sourceResult.setFailedCount(Long.valueOf(receivedCount));
@@ -327,6 +337,48 @@ public final class DataIngestionExecutionSupport {
         result.setStatus("FAILED");
         result.setMessage(safeFailureMessage(throwable));
         return result;
+    }
+
+    private Map<String, String> mergePluginRevisions(List<DataIngestionSourceInvokeResult> sourceResults) {
+        Map<String, String> revisions = new LinkedHashMap<String, String>();
+        if (sourceResults == null) {
+            return revisions;
+        }
+        for (DataIngestionSourceInvokeResult sourceResult : sourceResults) {
+            if (sourceResult == null || sourceResult.getPluginRevisions() == null) {
+                continue;
+            }
+            for (Map.Entry<String, String> entry : sourceResult.getPluginRevisions().entrySet()) {
+                String coordinate = entry.getKey();
+                String identity = entry.getValue();
+                if (hasText(coordinate) && hasText(identity) && !revisions.containsKey(coordinate)) {
+                    revisions.put(coordinate, identity);
+                }
+            }
+        }
+        return revisions;
+    }
+
+    private Map<String, String> pluginRevisions(JobContainer container) {
+        Map<String, String> revisions = new LinkedHashMap<String, String>();
+        if (container == null || container.getRunContext() == null) {
+            return revisions;
+        }
+        Object rawRevisions = container.getRunContext().get("pluginRevisions");
+        if (!(rawRevisions instanceof Map<?, ?>)) {
+            return revisions;
+        }
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) rawRevisions).entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            String coordinate = String.valueOf(entry.getKey()).trim();
+            String identity = String.valueOf(entry.getValue()).trim();
+            if (hasText(coordinate) && hasText(identity)) {
+                revisions.put(coordinate, identity);
+            }
+        }
+        return revisions;
     }
 
     private String buildLogSectionKey(DataIngestionSourceBinding binding, int index, Long jobId) {
@@ -395,10 +447,10 @@ public final class DataIngestionExecutionSupport {
         } catch (TimeoutException e) {
             log.warn("Data ingestion write exceeded {} ms; waiting for final state requestId={}, jobId={}",
                     writeSlowThresholdMs, requestId, jobId);
-            waitForJobCompletion(future);
+            waitForJobCompletion(future, executor, requestId, jobId);
         } catch (InterruptedException e) {
+            cancelJobAndAwait(future, executor, requestId, jobId);
             Thread.currentThread().interrupt();
-            future.cancel(true);
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
         } catch (ExecutionException e) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
@@ -409,16 +461,56 @@ public final class DataIngestionExecutionSupport {
         assertJobSucceeded(container);
     }
 
-    private void waitForJobCompletion(Future<?> future) {
+    private void waitForJobCompletion(Future<?> future,
+                                      ExecutorService executor,
+                                      String requestId,
+                                      Long jobId) {
         try {
             future.get();
         } catch (InterruptedException e) {
+            cancelJobAndAwait(future, executor, requestId, jobId);
             Thread.currentThread().interrupt();
-            future.cancel(true);
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR, "Data ingestion write was interrupted");
         } catch (ExecutionException e) {
             throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
                     "Data ingestion write failed: " + safeFailureMessage(e.getCause()));
+        }
+    }
+
+    private void cancelJobAndAwait(Future<?> future,
+                                   ExecutorService executor,
+                                   String requestId,
+                                   Long jobId) {
+        future.cancel(true);
+        executor.shutdownNow();
+        if (!awaitTerminationUninterruptibly(executor, JOB_CANCELLATION_WAIT_MS)) {
+            log.warn("Data ingestion JobContainer did not stop after cancellation requestId={}, jobId={}",
+                    requestId, jobId);
+        }
+    }
+
+    private boolean awaitTerminationUninterruptibly(ExecutorService executor, long timeoutMs) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0L, timeoutMs));
+        boolean interrupted = false;
+        try {
+            while (!executor.isTerminated()) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0L) {
+                    return executor.isTerminated();
+                }
+                try {
+                    if (executor.awaitTermination(remaining, TimeUnit.NANOSECONDS)) {
+                        return true;
+                    }
+                } catch (InterruptedException ex) {
+                    interrupted = true;
+                }
+            }
+            return true;
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
