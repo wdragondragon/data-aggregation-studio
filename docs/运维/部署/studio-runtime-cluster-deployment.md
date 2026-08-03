@@ -1,6 +1,6 @@
 # Studio 多运行集群部署说明
 
-更新时间：2026-07-22
+更新时间：2026-07-30
 
 ## 1. 目标拓扑
 
@@ -52,7 +52,7 @@ OMS 也需要执行能力时，再部署一个属于 OMS 运行集群的 Worker�
 
 - 连接同一 Studio 元数据库。
 - 配置本集群 `STUDIO_CLUSTER_CODE`。
-- 挂载完整 `STUDIO_AGGREGATION_HOME`。
+- `EAGER_LOCAL` 挂载完整 `STUDIO_AGGREGATION_HOME`；`LAZY_OBJECT_STORAGE` 只挂载可写缓存目录并从对象存储按需加载插件。
 - 使用与 Server 一致的 `STUDIO_INTERNAL_API_TOKEN` 和 `STUDIO_ENCRYPTION_SECRET`。
 - 具备访问本集群适用数据源的网络权限。
 
@@ -69,6 +69,18 @@ OMS 也需要执行能力时，再部署一个属于 OMS 运行集群的 Worker�
 | `STUDIO_WORKER_API_BASE_URL` | 不使用 | 必填 | Worker 上报的内部诊断地址。 |
 | `STUDIO_RUNTIME_VERSION` | 不使用 | 建议 | Worker 版本观测值。 |
 | `STUDIO_PLUGIN_FINGERPRINT` | 不使用 | 建议 | Worker 插件指纹。 |
+| `STUDIO_PLUGIN_RUNTIME_MODE` | 不配置 | `EAGER_LOCAL` | `EAGER_LOCAL` 使用完整本地目录；`LAZY_OBJECT_STORAGE` 启用按需缓存和无重启热更新。 |
+| `STUDIO_PLUGIN_BUCKET` | 不配置 | 按需 | 懒加载插件仓库 Bucket；为空时使用 `STUDIO_OBJECT_BUCKET`。 |
+| `STUDIO_PLUGIN_PREFIX` | 不配置 | `aggregation-plugins` | 插件仓库相对前缀，不能包含父目录跳转。 |
+| `STUDIO_PLUGIN_CHANNEL` | 不配置 | `production` | Worker 订阅的插件发布通道。 |
+| `STUDIO_PLUGIN_REFRESH_INTERVAL_SECONDS` | 不配置 | `30` | 已使用或已缓存插件的后台刷新周期。 |
+| `STUDIO_PLUGIN_REFRESH_JITTER_SECONDS` | 不配置 | `10` | 后台刷新随机抖动上限。 |
+| `STUDIO_PLUGIN_COLD_LOAD_TIMEOUT_SECONDS` | 不配置 | `300` | 首次无缓存时等待单飞下载的最长秒数。 |
+| `STUDIO_PLUGIN_MAX_ARTIFACT_BYTES` | 不配置 | `536870912` | 单插件 ZIP 上限。 |
+| `STUDIO_PLUGIN_MAX_EXTRACTED_BYTES` | 不配置 | `1073741824` | 单插件解压后总量上限。 |
+| `STUDIO_PLUGIN_MAX_ENTRY_COUNT` | 不配置 | `5000` | 单插件 ZIP 文件项上限。 |
+| `STUDIO_PLUGIN_CACHE_MAX_BYTES` | 不配置 | `10737418240` | Worker 插件缓存软上限。 |
+| `STUDIO_PLUGIN_RETAINED_RELEASES` | 不配置 | `2` | 每个插件默认保留的最近已验证版本数；活动和使用中版本不会删除。 |
 | `STUDIO_SCRIPT_ARTIFACT_CONNECT_TIMEOUT_SECONDS` | 不使用 | `5` | HTTP/HTTPS 脚本环境依赖连接超时。 |
 | `STUDIO_SCRIPT_ARTIFACT_READ_TIMEOUT_SECONDS` | 不使用 | `30` | HTTP/HTTPS 脚本环境依赖读取超时。 |
 | `STUDIO_SCRIPT_ARTIFACT_MAX_BYTES` | 不使用 | `67108864` | 单个制品及 ZIP 解压后 JAR 总量上限，最大 64 MiB。 |
@@ -87,6 +99,48 @@ STUDIO_RUNTIME_CLUSTER_BACKFILL_DRY_RUN
 ```
 
 完整变量说明见 [Studio Server / Worker 配置说明](./studio-server-worker-configuration.md)。
+
+### Worker OSS 按需插件模式
+
+该模式只在 `studio-worker` 注册 OSS resolver，不改变独立 DataAggregation、Studio Server 或远程 Flink Connector/TaskManager。`STUDIO_AGGREGATION_HOME` 是可写运行目录，启动时会自动创建 `conf/core.json`、插件分类骨架、`.staging`、`.state` 和 `cache`，镜像无需携带完整 `aggregation/plugin`。
+
+对象键固定为：
+
+```text
+{prefix}/{channel}/{type}/{name}/current.json
+{prefix}/{channel}/{type}/{name}/releases/{release}/plugin.zip
+```
+
+每个 `release` 不可变。发布或回滚时先上传目标 `plugin.zip`，最后原子覆盖 `current.json`；不要覆盖已有 release 的 ZIP。运行中的任务实例继续持有旧 identity，新任务实例自动取得后台校验成功的新 identity。刷新失败时 Worker 保留最后有效版本并在心跳 `capabilities.pluginRuntime` 中报告 `DEGRADED`。
+
+可从完整本地插件目录生成一个插件或全部仓库。构建机需要安装 `bash`、`jq`、`zip`，以及 `sha256sum` 或 `shasum`：
+
+```bash
+bash package_all/build_plugin_repository.sh \
+  --type source --name mysql8 --release 20260730-v1 \
+  --output-root /tmp/release/aggregation-plugins
+
+bash package_all/build_plugin_repository.sh \
+  --all --release 20260730-v1 \
+  --output-root /tmp/release/aggregation-plugins
+```
+
+生成结果已包含 `plugin.zip`、SHA-256、大小和固定字段 `current.json`。本机验收统一使用 `C:\Users\jdrag\Desktop\oss-browser-win32-x64\oss-browser.exe` 上传：先上传不可变的 `releases/{release}/plugin.zip`，核对大小和 SHA-256，最后上传 `current.json`。生产 Worker 还需配置对象存储 provider、endpoint、access key、secret key，以及插件 Bucket 或通用对象存储 Bucket。
+
+### 插件更新与应用代码重启
+
+普通插件发布不重启 Worker。后台刷新校验成功后只切换 active identity；运行中的任务实例固定原 identity，新任务实例使用新 identity。回滚同样只把 `current.json` 指向已存在且校验通过的不可变 release。
+
+Worker 应用代码变化时不承诺保留进程内任务，按以下顺序重启：
+
+1. 停止接收新任务并等待已有任务结束。
+2. 使用 Java 17 执行 DataAggregation 的 `plugins-loader-center,core` 定向测试和安装，再执行 Studio `studio-worker -am` 测试和安装。
+3. 停止 IDEA 中现有的 `StudioWorkerApplication`。
+4. 确认 Nacos 配置已经发布，并确认 IDEA 运行配置中的 `-Daggregation.home` 与 Nacos `studio.aggregation-home` 完全相同。`LAZY_OBJECT_STORAGE` 必须指向独立可写缓存目录，不能继续指向旧的完整 `package_all/aggregation`。
+5. 使用 IDEA 原 `StudioWorkerApplication` 运行配置重新启动，保留原 JVM 内存参数和 `STUDIO_CLUSTER_CODE`；不要改用参数不一致的临时 `java -jar` 或 `spring-boot:run`。
+6. 验证启动守门通过、Worker 重新上线、心跳报告 `LAZY_OBJECT_STORAGE`，并确认 `.state` 和 `cache` 中的 active release 已恢复且没有重新下载。
+
+插件模式、Bucket、prefix、channel 和刷新参数只保留一个配置来源。本机 Nacos 验收时将它们放在 Nacos，不在 IDEA 环境变量中重复设置。
 
 ## 5. 控制面配置步骤
 
@@ -143,7 +197,7 @@ STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS=studio-worker.default.svc,worker-slb.inter
 1. 执行数据库初始化或升级。升级已有库时，必须在启动新 Server/Worker 前完成 `20260720-runtime-cluster.sql`、`20260722-runtime-invocation-idempotency.sql` 和 `20260723-dispatch-protected-payload.sql` 对应结构升级。
 2. 启动 Server，配置共享密钥，不配置集群代码和插件目录。
 3. 创建或保留 `DEFAULT-LOCAL` 集群和项目授权。
-4. 启动 `default-local` Worker，挂载完整插件，等待实例心跳和 Lease 在线。
+4. 启动 `default-local` Worker：选择 `EAGER_LOCAL` 并挂载完整插件，或选择 `LAZY_OBJECT_STORAGE` 并挂载可写缓存目录、配置插件仓库；等待实例心跳和 Lease 在线。
 5. 配置该 Worker 的 HTTP 端点并测试。
 6. 为数据源绑定 `DEFAULT-LOCAL`，逐项测试。
 7. 创建资源并验证同步探测、SQL、任务和开放服务均经过 Worker。
@@ -152,7 +206,7 @@ STUDIO_RUNTIME_ENDPOINT_ALLOWED_HOSTS=studio-worker.default.svc,worker-slb.inter
 ## 9. 多集群扩容顺序
 
 1. 创建新运行集群记录。
-2. 在目标网络部署相同版本和完整插件的 Worker。
+2. 在目标网络部署相同运行版本和插件通道的 Worker；本地模式挂载完整插件，懒加载模式使用相同 OSS 仓库配置。
 3. 等待实例心跳和 Lease 在线。
 4. 配置并测试 HTTP/SLB 端点。
 5. 为项目授权新集群。
@@ -215,13 +269,14 @@ powershell -ExecutionPolicy Bypass -File backend/scripts/check-studio-deployment
 powershell -ExecutionPolicy Bypass -File backend/scripts/check-studio-deployment.ps1 -Role Worker -RequireSharedObjectStorage
 ```
 
-脚本检查当前进程环境中的稳态配置、不输出秘密，并核对 Worker 的 `conf/core.json` 与四类核心插件目录。若配置由 Nacos 注入，应在渲染后的部署配置中做等价校验。预检通过只说明静态配置和挂载完整，生产 SLB Header、网络隔离、对象存储连通性/容量/生命周期/高可用仍须按[生产运行面验收](./studio-production-runtime-acceptance.md)在最终 Pod 和受控执行器中实测。目标环境验收工具只从环境变量读取 Token、Cookie、Header 值和对象存储凭据，输出报告不保存这些秘密。
+脚本检查当前进程环境中的稳态配置且不输出秘密。`EAGER_LOCAL` 会核对 `conf/core.json` 与四类核心插件目录；`LAZY_OBJECT_STORAGE` 会核对缓存根目录可创建/可写以及 OSS 配置完整性，但不会调用会写健康探针对象的连通性检查。若配置由 Nacos 注入，应在渲染后的部署配置中做等价校验。预检通过只说明静态配置正确，生产 SLB Header、网络隔离、对象存储连通性/容量/生命周期/高可用仍须按[生产运行面验收](./studio-production-runtime-acceptance.md)在最终 Pod 和受控执行器中实测。目标环境验收工具只从环境变量读取 Token、Cookie、Header 值和对象存储凭据，输出报告不保存这些秘密。
 
 ```text
 [ ] Server 未配置 STUDIO_CLUSTER_CODE 和 STUDIO_AGGREGATION_HOME
 [ ] Server 镜像/Pod 没有 aggregation/plugin 和 conf/core.json
 [ ] 每个启用集群至少有一个在线 Worker
 [ ] Worker 集群编码与登记记录一致
+[ ] 懒加载 Worker 镜像未携带完整 aggregation/plugin，缓存目录可写，插件仓库 release 不可变且 current.json 最后更新
 [ ] Server/Worker 使用相同且非默认的内部 Token 和加密密钥
 [ ] 若发生密钥切换，已停机备份并完成离线轮换；全部进程统一使用新密钥，数据源、运行端点、告警通道和同步服务已逐集群验证
 [ ] 未接入可信网关时已显式关闭 gateway trust；启用时 shared secret 不是默认值

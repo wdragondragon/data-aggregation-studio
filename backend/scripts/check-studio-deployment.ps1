@@ -101,6 +101,18 @@ if ($Role -in @("Server", "Flink")) {
             "STUDIO_WORKER_API_BASE_URL",
             "STUDIO_RUNTIME_VERSION",
             "STUDIO_PLUGIN_FINGERPRINT",
+            "STUDIO_PLUGIN_RUNTIME_MODE",
+            "STUDIO_PLUGIN_BUCKET",
+            "STUDIO_PLUGIN_PREFIX",
+            "STUDIO_PLUGIN_CHANNEL",
+            "STUDIO_PLUGIN_REFRESH_INTERVAL_SECONDS",
+            "STUDIO_PLUGIN_REFRESH_JITTER_SECONDS",
+            "STUDIO_PLUGIN_COLD_LOAD_TIMEOUT_SECONDS",
+            "STUDIO_PLUGIN_MAX_ARTIFACT_BYTES",
+            "STUDIO_PLUGIN_MAX_EXTRACTED_BYTES",
+            "STUDIO_PLUGIN_MAX_ENTRY_COUNT",
+            "STUDIO_PLUGIN_CACHE_MAX_BYTES",
+            "STUDIO_PLUGIN_RETAINED_RELEASES",
             "STUDIO_PYTHON_EXECUTABLE",
             "STUDIO_PYTHON_TEMP_DIR",
             "STUDIO_PYTHON_TIMEOUT_SECONDS",
@@ -115,11 +127,30 @@ if ($Role -in @("Server", "Flink")) {
     }
 } else {
     Require-EnvironmentValue -Name "STUDIO_CLUSTER_CODE" | Out-Null
+    $pluginRuntimeMode = Get-ProcessEnvironmentValue -Name "STUDIO_PLUGIN_RUNTIME_MODE"
+    if (-not (Has-Text -Value $pluginRuntimeMode)) {
+        $pluginRuntimeMode = "EAGER_LOCAL"
+    } else {
+        $pluginRuntimeMode = $pluginRuntimeMode.Trim().ToUpperInvariant()
+    }
+    if ($pluginRuntimeMode -notin @("EAGER_LOCAL", "LAZY_OBJECT_STORAGE")) {
+        Add-DeploymentError "STUDIO_PLUGIN_RUNTIME_MODE must be EAGER_LOCAL or LAZY_OBJECT_STORAGE."
+    }
     $aggregationHomeValue = Require-EnvironmentValue -Name "STUDIO_AGGREGATION_HOME"
     if (Has-Text -Value $aggregationHomeValue) {
         try {
             $aggregationHome = [IO.Path]::GetFullPath($aggregationHomeValue.Trim())
-            if (-not (Test-Path -LiteralPath $aggregationHome -PathType Container)) {
+            if ($pluginRuntimeMode -eq "LAZY_OBJECT_STORAGE") {
+                [void](New-Item -ItemType Directory -Path $aggregationHome -Force)
+                $cacheRoot = Join-Path $aggregationHome "cache"
+                [void](New-Item -ItemType Directory -Path $cacheRoot -Force)
+                $probePath = Join-Path $cacheRoot (".studio-plugin-write-probe-" + [Guid]::NewGuid().ToString("N") + ".tmp")
+                try {
+                    [IO.File]::WriteAllText($probePath, "ok", [Text.UTF8Encoding]::new($false))
+                } finally {
+                    Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+                }
+            } elseif (-not (Test-Path -LiteralPath $aggregationHome -PathType Container)) {
                 Add-DeploymentError "STUDIO_AGGREGATION_HOME must point to an existing directory."
             } else {
                 $requiredPaths = @(
@@ -140,7 +171,41 @@ if ($Role -in @("Server", "Flink")) {
             Add-DeploymentError "STUDIO_AGGREGATION_HOME is not a valid filesystem path."
         }
     }
-    if (-not (Has-Text -Value (Get-ProcessEnvironmentValue -Name "STUDIO_PLUGIN_FINGERPRINT"))) {
+    if ($pluginRuntimeMode -eq "LAZY_OBJECT_STORAGE") {
+        Require-EnvironmentValue -Name "STUDIO_RUNTIME_VERSION" | Out-Null
+        $pluginPrefix = Get-ProcessEnvironmentValue -Name "STUDIO_PLUGIN_PREFIX"
+        if ((Has-Text -Value $pluginPrefix) -and $pluginPrefix.Trim() -match '(^/|\\|\.\.)') {
+            Add-DeploymentError "STUDIO_PLUGIN_PREFIX must be a relative object-storage prefix without backslashes or parent traversal."
+        }
+        $pluginChannel = Get-ProcessEnvironmentValue -Name "STUDIO_PLUGIN_CHANNEL"
+        if ((Has-Text -Value $pluginChannel) -and $pluginChannel.Trim() -notmatch '^[A-Za-z0-9._-]+$') {
+            Add-DeploymentError "STUDIO_PLUGIN_CHANNEL contains unsupported path characters."
+        }
+        $storageProvider = Get-ProcessEnvironmentValue -Name "STUDIO_OBJECT_PROVIDER"
+        if (-not (Has-Text -Value $storageProvider)) {
+            $storageProvider = Get-ProcessEnvironmentValue -Name "STUDIO_RUN_LOG_OBJECT_PROVIDER"
+        }
+        if (-not (Has-Text -Value $storageProvider)) {
+            Add-DeploymentError "STUDIO_OBJECT_PROVIDER must explicitly select MINIO or OSS for LAZY_OBJECT_STORAGE."
+        } else {
+            $normalizedProvider = $storageProvider.Trim().ToUpperInvariant()
+            if ($normalizedProvider -in @("ALIYUN", "ALIYUN_OSS", "ALIYUN-OSS")) {
+                $normalizedProvider = "OSS"
+            }
+            if ($normalizedProvider -notin @("MINIO", "OSS")) {
+                Add-DeploymentError "Object storage provider must be MINIO or OSS."
+            }
+        }
+        Require-ObjectStorageValue -PrimaryName "STUDIO_OBJECT_ENDPOINT" -FallbackName "STUDIO_RUN_LOG_OBJECT_ENDPOINT"
+        Require-ObjectStorageValue -PrimaryName "STUDIO_OBJECT_ACCESS_KEY" -FallbackName "STUDIO_RUN_LOG_OBJECT_ACCESS_KEY"
+        Require-ObjectStorageValue -PrimaryName "STUDIO_OBJECT_SECRET_KEY" -FallbackName "STUDIO_RUN_LOG_OBJECT_SECRET_KEY"
+        $pluginBucket = Get-ProcessEnvironmentValue -Name "STUDIO_PLUGIN_BUCKET"
+        $objectBucket = Get-ProcessEnvironmentValue -Name "STUDIO_OBJECT_BUCKET"
+        $legacyBucket = Get-ProcessEnvironmentValue -Name "STUDIO_RUN_LOG_OBJECT_BUCKET"
+        if (-not (Has-Text -Value $pluginBucket) -and -not (Has-Text -Value $objectBucket) -and -not (Has-Text -Value $legacyBucket)) {
+            Add-DeploymentError "STUDIO_PLUGIN_BUCKET (or STUDIO_OBJECT_BUCKET) is required for LAZY_OBJECT_STORAGE."
+        }
+    } elseif (-not (Has-Text -Value (Get-ProcessEnvironmentValue -Name "STUDIO_PLUGIN_FINGERPRINT"))) {
         Add-DeploymentWarning "STUDIO_PLUGIN_FINGERPRINT is empty; production cannot prove that Worker plugin manifests are identical."
     }
 }

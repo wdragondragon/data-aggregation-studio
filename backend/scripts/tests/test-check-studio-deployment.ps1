@@ -25,6 +25,18 @@ $managedEnvironmentNames = @(
     "STUDIO_WORKER_API_BASE_URL",
     "STUDIO_RUNTIME_VERSION",
     "STUDIO_PLUGIN_FINGERPRINT",
+    "STUDIO_PLUGIN_RUNTIME_MODE",
+    "STUDIO_PLUGIN_BUCKET",
+    "STUDIO_PLUGIN_PREFIX",
+    "STUDIO_PLUGIN_CHANNEL",
+    "STUDIO_PLUGIN_REFRESH_INTERVAL_SECONDS",
+    "STUDIO_PLUGIN_REFRESH_JITTER_SECONDS",
+    "STUDIO_PLUGIN_COLD_LOAD_TIMEOUT_SECONDS",
+    "STUDIO_PLUGIN_MAX_ARTIFACT_BYTES",
+    "STUDIO_PLUGIN_MAX_EXTRACTED_BYTES",
+    "STUDIO_PLUGIN_MAX_ENTRY_COUNT",
+    "STUDIO_PLUGIN_CACHE_MAX_BYTES",
+    "STUDIO_PLUGIN_RETAINED_RELEASES",
     "STUDIO_PYTHON_EXECUTABLE",
     "STUDIO_PYTHON_TEMP_DIR",
     "STUDIO_PYTHON_TIMEOUT_SECONDS",
@@ -184,6 +196,31 @@ try {
     Assert-True -Condition ($incompleteResult.Output.Contains("Worker execution home is incomplete")) `
         -Message "Incomplete Worker rejection should explain the plugin-home failure."
 
+    $lazyHome = Join-Path $temporaryRoot "lazy-aggregation-home"
+    $lazyEnvironment = New-BaseEnvironment
+    $lazyEnvironment.STUDIO_CLUSTER_CODE = "DEFAULT-LOCAL"
+    $lazyEnvironment.STUDIO_AGGREGATION_HOME = $lazyHome
+    $lazyEnvironment.STUDIO_RUNTIME_VERSION = "1.0_jdk17-SNAPSHOT"
+    $lazyEnvironment.STUDIO_PLUGIN_RUNTIME_MODE = "LAZY_OBJECT_STORAGE"
+    $lazyEnvironment.STUDIO_PLUGIN_PREFIX = "aggregation-plugins"
+    $lazyEnvironment.STUDIO_PLUGIN_CHANNEL = "production"
+    $lazyEnvironment.STUDIO_OBJECT_PROVIDER = "OSS"
+    $lazyEnvironment.STUDIO_OBJECT_ENDPOINT = "https://oss.example.invalid"
+    $lazyEnvironment.STUDIO_OBJECT_ACCESS_KEY = $secretMarkers[2]
+    $lazyEnvironment.STUDIO_OBJECT_SECRET_KEY = $secretMarkers[3]
+    $lazyEnvironment.STUDIO_PLUGIN_BUCKET = "test-plugin-bucket"
+    $lazyResult = Invoke-DeploymentPreflight -Role Worker -Environment $lazyEnvironment
+    Assert-True -Condition ($lazyResult.ExitCode -eq 0) -Message "Lazy OSS Worker environment should pass preflight."
+    Assert-True -Condition (Test-Path -LiteralPath (Join-Path $lazyHome "cache") -PathType Container) `
+        -Message "Lazy Worker preflight should initialize the writable cache root."
+
+    $incompleteLazyEnvironment = $lazyEnvironment.Clone()
+    [void]$incompleteLazyEnvironment.Remove("STUDIO_OBJECT_SECRET_KEY")
+    $incompleteLazyResult = Invoke-DeploymentPreflight -Role Worker -Environment $incompleteLazyEnvironment
+    Assert-True -Condition ($incompleteLazyResult.ExitCode -ne 0) -Message "Lazy Worker must reject incomplete OSS configuration."
+    Assert-True -Condition ($incompleteLazyResult.Output.Contains("STUDIO_OBJECT_SECRET_KEY")) `
+        -Message "Lazy Worker OSS rejection should identify the missing variable."
+
     $ossEnvironment = New-BaseEnvironment
     $ossEnvironment.STUDIO_CLUSTER_CODE = "DEFAULT-LOCAL"
     $ossEnvironment.STUDIO_AGGREGATION_HOME = $completeHome
@@ -204,7 +241,7 @@ try {
     Assert-True -Condition ($missingOssResult.Output.Contains("STUDIO_OBJECT_SECRET_KEY")) `
         -Message "Incomplete OSS rejection should identify the missing variable name."
 
-    Write-Host "Studio deployment preflight tests passed (10/10)."
+    Write-Host "Studio deployment preflight tests passed (12/12)."
 } finally {
     if (Test-Path -LiteralPath $temporaryRoot) {
         $verifiedRoot = [IO.Path]::GetFullPath($temporaryRoot)

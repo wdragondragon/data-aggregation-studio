@@ -102,7 +102,7 @@ Servlet 请求线程与 Dispatch 调度线程池相互独立，慢同步调用�
 - Server 收到 `/question/ask` 后先获取计划，再把最终 SQL 按 `runtimeClusterId` 路由到 Worker。
 - Worker 内嵌 Flink 执行组件，并通过 `/internal/runtime/flink/sql/execute` 执行。
 - Gateway 模式的运行时回调地址来自 Worker 的 `studio.worker-api-base-url`。
-- Worker 依赖的是不含 DataAggregation 插件资源的轻量 `studio-flink` 主制品，运行插件统一来自 Worker 的 `STUDIO_AGGREGATION_HOME`。只有构建需要上传到 Flink 集群的 Connector 时才启用 `flink-connector-bundle` Maven profile，将外部插件 ZIP 打入单独的 `connector` 制品；日常 Server/Worker 构建不读取 Reactor 外部 `target` 目录。
+- Worker 依赖的是不含 DataAggregation 插件资源的轻量 `studio-flink` 主制品，运行插件统一来自 Worker 的 `STUDIO_AGGREGATION_HOME`。Flink 集群默认使用 `flink-connector-remote` profile 生成的轻量 connector，通过任务级 capability 从 Worker 获取固定 identity 的 source 插件；只有完全离线部署才使用 `flink-connector-bundle` 将全部插件 ZIP 打入兼容制品。日常 Server/Worker 构建不读取 Reactor 外部 `target` 目录。
 
 ### 3.4 studio-desktop-runtime
 

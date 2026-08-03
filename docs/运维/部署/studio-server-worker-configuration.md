@@ -118,12 +118,24 @@ Server 所在网络可以禁止访问业务数据库、消息队列、文件系�
 | --- | --- | --- |
 | `SERVER_PORT` | `18081` | Worker 内部 HTTP 端口。 |
 | `STUDIO_CLUSTER_CODE` | 空 | Worker 所属运行集群的稳定编码，必须显式配置并与控制面登记值一致，例如 `DEFAULT-LOCAL`。 |
-| `STUDIO_AGGREGATION_HOME` | `../../package_all/aggregation` | DataAggregation 运行目录，必须包含该 Worker 的完整插件。 |
+| `STUDIO_AGGREGATION_HOME` | 空 | DataAggregation 运行目录。`EAGER_LOCAL` 必须包含完整插件；`LAZY_OBJECT_STORAGE` 只要求目录可创建、可写。 |
 | `STUDIO_WORKER_GROUP_CODE` | 由 `worker-code` 回退 | 集群内部技术池和观测标识，不替代集群编码。 |
 | `STUDIO_INSTANCE_ID` | Pod UID/主机名 | Worker 实例标识。多副本必须唯一。 |
 | `STUDIO_WORKER_API_BASE_URL` | 当前 Worker 地址 | Worker 上报的诊断地址。生产填写 Pod 可达地址或内部服务地址。 |
 | `STUDIO_RUNTIME_VERSION` | 空 | 运行版本观测值。 |
 | `STUDIO_PLUGIN_FINGERPRINT` | 空 | 插件集合指纹，建议发布时固定生成。 |
+| `STUDIO_PLUGIN_RUNTIME_MODE` | `EAGER_LOCAL` | 本地完整目录或 Worker OSS 按需插件模式。 |
+| `STUDIO_PLUGIN_BUCKET` | 空 | 插件仓库 Bucket；为空时回退 `STUDIO_OBJECT_BUCKET`。 |
+| `STUDIO_PLUGIN_PREFIX` | `aggregation-plugins` | 插件仓库相对前缀。 |
+| `STUDIO_PLUGIN_CHANNEL` | `production` | 插件发布通道。 |
+| `STUDIO_PLUGIN_REFRESH_INTERVAL_SECONDS` | `30` | 后台检查已使用/缓存插件的周期。 |
+| `STUDIO_PLUGIN_REFRESH_JITTER_SECONDS` | `10` | 后台检查随机抖动上限。 |
+| `STUDIO_PLUGIN_COLD_LOAD_TIMEOUT_SECONDS` | `300` | 首次无缓存时等待同一下载 Future 的最长秒数。 |
+| `STUDIO_PLUGIN_MAX_ARTIFACT_BYTES` | `536870912` | 单插件 ZIP 上限。 |
+| `STUDIO_PLUGIN_MAX_EXTRACTED_BYTES` | `1073741824` | 单插件解压总量上限。 |
+| `STUDIO_PLUGIN_MAX_ENTRY_COUNT` | `5000` | 单插件 ZIP 文件项上限。 |
+| `STUDIO_PLUGIN_CACHE_MAX_BYTES` | `10737418240` | 本地插件缓存软上限。 |
+| `STUDIO_PLUGIN_RETAINED_RELEASES` | `2` | 每个插件默认保留版本数，活动/使用中版本始终受保护。 |
 | `STUDIO_WORKER_SCHEDULER_POOL_SIZE` | `4` | 异步 Dispatch 执行线程池大小。 |
 | `STUDIO_DISPATCH_LEASE_MINUTES` | `10` | 已领取任务租约。 |
 | `STUDIO_WORKER_OFFLINE_GRACE_MINUTES` | `120` | 离线实例保留窗口。 |
@@ -144,6 +156,8 @@ Server 所在网络可以禁止访问业务数据库、消息队列、文件系�
 | `STUDIO_FLINK_RUNTIME_ENDPOINT` | 当前 Worker 地址 | Flink Gateway 运行时回调到当前 Worker 的内部地址，不能填写 Server 地址。 |
 
 同一运行集群可部署多个 Worker，所有实例使用相同 `STUDIO_CLUSTER_CODE`，但 `STUDIO_INSTANCE_ID` 不同。Worker 只领取 `target_cluster_id` 指向自身集群的任务；没有目标集群的历史任务不会被领取。
+
+`LAZY_OBJECT_STORAGE` 还必须完整配置对象存储 provider、endpoint、access key、secret key，以及插件 Bucket 或通用 Bucket。`STUDIO_RUNTIME_VERSION` 在该模式下必填，用于拒绝不兼容插件。Worker 启动只验证缓存路径和配置，不调用会写对象的 `available()`；首次插件请求才按 `current.json` 下载，之后后台异步刷新。OSS 目录和发布操作见[多运行集群部署说明](./studio-runtime-cluster-deployment.md#worker-oss-按需插件模式)。
 
 Worker 内部 HTTP 接口不应暴露给用户网络。Server 到 Worker 的路由端点可以是单 Worker 地址、Kubernetes Service 或 SLB；多实例负载均衡由 Service/SLB 完成，Studio 不在应用内轮询多个端点。
 
@@ -314,13 +328,28 @@ STUDIO_ASSISTANT_LLM_MODEL=<model-name>
 
 `studio-server` 还需把 `STUDIO_FLINK_BASE_URL` 指向该服务；若走 Nacos，则留空固定 URL 并配置相同的 Nacos namespace/group。
 
-普通后端和 Worker 构建不会再把 DataAggregation 插件压入 `studio-flink` 主制品；Worker 始终使用 `STUDIO_AGGREGATION_HOME` 中的外部插件目录。只有需要生成上传到 Flink 集群的 Connector 制品时，才显式启用打包 profile：
+普通后端和 Worker 构建不会再把 DataAggregation 插件压入 `studio-flink` 主制品；Worker 始终使用 `STUDIO_AGGREGATION_HOME` 中的外部插件目录。生产 Flink 集群推荐使用 remote connector：
+
+```bash
+mvn -pl studio-flink -Pflink-connector-remote -DskipTests package
+```
+
+该命令生成 `studio-flink-*-connector-remote.jar` 和可直接放入 Flink `lib` 的 `studio-flink-*-connector-remote-upload.jar`。remote connector 不包含 `dataaggregation-plugin-runtime` 或任何具体 source 插件；每个 Flink 任务通过 Worker 签发的短期 capability 获取任务实例固定的插件制品，并按插件 identity 缓存到 TaskManager 本地。运行中的任务继续使用原 identity，后续任务可使用 Worker 已激活的新版本。TaskManager 必须能够访问 Worker 上报的内部 API 地址，不能把 capability 或对象存储凭证写入 DDL、配置文件和日志。
+
+部署前执行制品门禁：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File backend/scripts/tests/test-flink-remote-connector-artifact.ps1
+```
+
+仅在 Flink 集群无法访问 Worker、必须完全离线携带所有 source 插件时使用兼容 bundle：
 
 ```bash
 mvn -pl studio-flink -Pflink-connector-bundle -DskipTests package
 ```
 
-该命令会生成 `studio-flink-*-connector.jar` 和 `studio-flink-*-connector-upload.jar`，并要求相关 `data-source-plugins/*/target/*.zip` 已提前构建。日常 `mvn package`、Server 构建和 Worker 构建不读取这些 Reactor 外部 `target` 目录，避免控制面/Worker 制品被内嵌插件放大。
+bundle 会生成原有 `studio-flink-*-connector.jar` 和 `studio-flink-*-connector-upload.jar`，并要求相关 `data-source-plugins/*/target/*.zip` 已提前构建，因此制品体积较大。两个 profile 不应同时启用。日常 `mvn package`、Server 构建和 Worker 构建都不会读取这些 Reactor 外部 `target` 目录。
 
 ## 11. 插件要求
 

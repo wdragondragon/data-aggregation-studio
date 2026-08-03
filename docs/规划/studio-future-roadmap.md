@@ -1,6 +1,6 @@
 # Data Aggregation Studio 未来规划路线图
 
-更新时间：2026-07-24
+更新时间：2026-08-02
 
 规划依据：当前 Web 系统实机浏览、现有代码与项目文档、当前测试数据基线，以及 DataWorks、Apache SeaTunnel、OpenMetadata、Apache APISIX 等同类产品能力边界。
 
@@ -115,6 +115,7 @@ Data Aggregation Studio 的目标定位是：
 | 本地实施已完成（待环境验收） | 代码、自动化和本地真实拓扑已关闭，只剩目标环境才能产生的生产证据。 |
 | 实现中（待最终验证） | 已进入实现，但尚未完成全部回归、联调和验收，不能按已完成对外承诺。 |
 | 部分完成 | 已有基础能力，但关键闭环未完成。 |
+| 已规划（延期实施） | 已完成设计并登记路线图，但当前阶段明确不进入代码实现。 |
 | 未开始 | 尚未形成可验收功能。 |
 
 ## 5. 具体实现优先级
@@ -138,6 +139,7 @@ Data Aggregation Studio 的目标定位是：
 | 13 | P2-01 | CDC 与持续流式接入 | 未开始 | CDC、持续消费、Checkpoint、位点、重试、死信和幂等。 | 高 |
 | 14 | P2-02 | 多租户配额、容量和成本治理 | 部分完成 | 并发配额、Worker 容量、日志容量、服务配额和租户报表。 | 高 |
 | 15 | P2-03 | AI 数据运营与智能问数 | 部分完成 | 故障分析、发布检查、影响分析、Text-to-Flink SQL 和审批执行。 | 中高 |
+| 16 | P2-04 | 插件运行时统一缓存淘汰 | 已规划（延期实施） | Worker/Flink 统一制品缓存、运行期保护、TTL/LRU、容量准入和跨进程安全淘汰。 | 高 |
 
 ## 6. P0：生产可交付
 
@@ -510,6 +512,31 @@ AI 能力必须建立在权限、审计、版本和回滚基础上，高风险�
 - 根据自然语言生成采集、质量和工作流草稿，不直接发布。
 - 所有 AI 工具调用写入审计，并支持查看输入摘要、工具结果和最终动作。
 
+### 8.4 P2-04 插件运行时统一缓存淘汰
+
+#### 当前决策
+
+- 该项已完成技术设计，但按 2026-08-02 决策延期实施。
+- 现阶段不修改 Worker/Flink 缓存代码、配置、部署参数和现有淘汰行为。
+- 不把该项计入当前 P0-MC-02 收尾，也不阻塞当前生产环境验收。
+
+#### 后续实施范围
+
+- 在 `plugins-loader-center` 抽取 Worker 与 Flink TaskManager 共用的制品缓存组件。
+- 统一 `coordinate + identity` 缓存键、容量预留、TTL、LRU 和每插件版本保留策略。
+- 保护 Worker active/pending/`.state`、`JarLoaderCenter` lease 和 Flink operation/task lease。
+- 支持多 TaskManager JVM 文件锁、崩溃恢复、Windows 文件占用重试、指标和容量告警。
+- 按“共享组件、Worker 等价迁移、Flink remote cache、内置 runtime 与运维收口”分阶段上线。
+
+#### 启动条件
+
+1. 当前生产化主线和目标环境验收已经收口，且该项被重新排入具体迭代。
+2. 明确 Worker 与 TaskManager 的本地磁盘容量、cache root 和共享文件系统边界。
+3. 先完成 scan-only 决策对照、跨 JVM lease 测试和 legacy cache 迁移/回滚方案。
+4. 获得明确实施确认后才开始代码改造，不根据本文档自动启动开发。
+
+完整技术方案见 [插件运行时统一缓存淘汰设计](./studio-plugin-runtime-cache-eviction-design.md)。
+
 ## 9. 实施依赖与推荐顺序
 
 ```mermaid
@@ -525,6 +552,9 @@ flowchart LR
     CONTRACT --> GATEWAY[P1-03 服务网关]
     ALERT --> QUALITY[P1-04 质量问题闭环]
     CONNECTOR[P1-05 连接器规范] --> CDC[P2-01 CDC 与流式接入]
+    WORKER --> CACHE[P2-04 插件缓存淘汰]
+    CONNECTOR --> CACHE
+    CACHE --> COST[P2-02 容量成本治理]
     PERMISSION --> AI[P2-03 AI 数据运营]
     VERSION --> AI
 ```
@@ -537,6 +567,7 @@ flowchart LR
 4. 第四轮完成 P0-05，形成生产部署、备份恢复和外部监控基线。
 5. P1 按“数据契约 → 资产目录 → 服务网关 → 质量闭环”的顺序推进。
 6. P2 不阻塞当前生产化交付，在 P0/P1 稳定后进入。
+7. P2-04 已有设计但明确延期，不得在当前阶段提前启动 Worker/Flink 缓存重构。
 
 ## 10. 里程碑
 

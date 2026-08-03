@@ -37,6 +37,7 @@
 - `运维/`
   - 运维、监控、排障和运行策略说明。
   - 当前包含：
+    - [Studio 完整部署指南](./运维/部署/studio-complete-deployment-guide.md)：从 MySQL、Nacos、OSS 插件仓库到 Server、Worker、studio-flink、Flink 和 Web 的完整部署顺序。
     - [环境初始化说明.md](./运维/部署/环境初始化说明.md)
     - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：纯控制面 Server、全能力 Worker、内部调用、运行日志和插件边界说明。
     - [studio-runtime-cluster-deployment.md](./运维/部署/studio-runtime-cluster-deployment.md)：OMS 纯控制面、统一 Worker 执行面、单/多集群部署与历史迁移说明。
