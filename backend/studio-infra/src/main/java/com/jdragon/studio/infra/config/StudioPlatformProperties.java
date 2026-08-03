@@ -45,6 +45,7 @@ public class StudioPlatformProperties {
     private AlertProperties alert = new AlertProperties();
     private AssistantProperties assistant = new AssistantProperties();
     private FlinkProperties flink = new FlinkProperties();
+    private PluginRuntimeProperties pluginRuntime = new PluginRuntimeProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -202,7 +203,7 @@ public class StudioPlatformProperties {
         private String runtimeEndpoint;
         private Integer defaultParallelism = 1;
         private Integer maxRows = 500;
-        private Integer queryTimeoutSeconds = 30;
+        private Integer queryTimeoutSeconds = 120;
         private Integer runtimeRegistryTtlSeconds = 300;
         private FlinkClientProperties client = new FlinkClientProperties();
         private FlinkGatewayProperties gateway = new FlinkGatewayProperties();
@@ -223,7 +224,7 @@ public class StudioPlatformProperties {
         private String restAddress;
         private Integer restPort;
         private Integer connectTimeoutSeconds = 10;
-        private Integer fetchTimeoutSeconds = 30;
+        private Integer fetchTimeoutSeconds = 120;
         private Integer maxResultPages = 1000;
     }
 
@@ -284,6 +285,26 @@ public class StudioPlatformProperties {
         private String region;
         private String prefix;
         private boolean createBucket = true;
+    }
+
+    @Data
+    public static class PluginRuntimeProperties {
+        private String mode = "EAGER_LOCAL";
+        private String bucket;
+        private String prefix = "aggregation-plugins";
+        private String channel = "production";
+        private Integer refreshIntervalSeconds = 30;
+        private Integer refreshJitterSeconds = 10;
+        private Integer coldLoadTimeoutSeconds = 300;
+        private Long maxArtifactBytes = 512L * 1024L * 1024L;
+        private Long maxExtractedBytes = 1024L * 1024L * 1024L;
+        private Integer maxEntryCount = 5000;
+        private Long cacheMaxBytes = 10L * 1024L * 1024L * 1024L;
+        private Integer retainedReleases = 2;
+
+        public boolean isLazyObjectStorage() {
+            return "LAZY_OBJECT_STORAGE".equalsIgnoreCase(mode == null ? "" : mode.trim());
+        }
     }
 
     @Data

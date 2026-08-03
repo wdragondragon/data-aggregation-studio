@@ -29,6 +29,8 @@ import com.jdragon.aggregation.datasource.queue.QueueAbstract;
 import com.jdragon.aggregation.pluginloader.LoadUtil;
 import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
 import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
+import com.jdragon.aggregation.pluginloader.runtime.PluginRuntimeResolvers;
+import com.jdragon.aggregation.pluginloader.runtime.ResolvedPlugin;
 import com.jdragon.aggregation.pluginloader.spi.AbstractPlugin;
 import lombok.extern.slf4j.Slf4j;
 
@@ -584,12 +586,15 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     private void requireHttpSourcePlugin(String pluginName) {
         String name = isBlank(pluginName) ? "http" : pluginName.trim();
-        File pluginDirectory = new File(new File(SystemConstants.PLUGIN_HOME, SourcePluginType.SOURCE.getName()), name);
+        ResolvedPlugin resolvedPlugin = LoadUtil.resolvePlugin(SourcePluginType.SOURCE, name);
+        File pluginDirectory = resolvedPlugin.getDirectory().toFile();
         if (!pluginDirectory.isDirectory()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "HTTP source plugin directory does not exist: " + pluginDirectory.getAbsolutePath());
         }
-        LoadUtil.updateJarLoader(SourcePluginType.SOURCE, name);
+        if (PluginRuntimeResolvers.isLocalResolver()) {
+            LoadUtil.updateJarLoader(SourcePluginType.SOURCE, name);
+        }
     }
 
     private void attachHttpReaderConfig(BaseDataSourceDTO dto,

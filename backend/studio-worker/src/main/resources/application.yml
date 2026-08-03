@@ -66,6 +66,19 @@ studio:
   runtime-cluster-code: ${STUDIO_CLUSTER_CODE:}
   runtime-version: ${STUDIO_RUNTIME_VERSION:}
   plugin-fingerprint: ${STUDIO_PLUGIN_FINGERPRINT:}
+  plugin-runtime:
+    mode: ${STUDIO_PLUGIN_RUNTIME_MODE:EAGER_LOCAL}
+    bucket: ${STUDIO_PLUGIN_BUCKET:}
+    prefix: ${STUDIO_PLUGIN_PREFIX:aggregation-plugins}
+    channel: ${STUDIO_PLUGIN_CHANNEL:production}
+    refresh-interval-seconds: ${STUDIO_PLUGIN_REFRESH_INTERVAL_SECONDS:30}
+    refresh-jitter-seconds: ${STUDIO_PLUGIN_REFRESH_JITTER_SECONDS:10}
+    cold-load-timeout-seconds: ${STUDIO_PLUGIN_COLD_LOAD_TIMEOUT_SECONDS:300}
+    max-artifact-bytes: ${STUDIO_PLUGIN_MAX_ARTIFACT_BYTES:536870912}
+    max-extracted-bytes: ${STUDIO_PLUGIN_MAX_EXTRACTED_BYTES:1073741824}
+    max-entry-count: ${STUDIO_PLUGIN_MAX_ENTRY_COUNT:5000}
+    cache-max-bytes: ${STUDIO_PLUGIN_CACHE_MAX_BYTES:10737418240}
+    retained-releases: ${STUDIO_PLUGIN_RETAINED_RELEASES:2}
   worker-group-code: ${STUDIO_WORKER_GROUP_CODE:${STUDIO_WORKER_CODE:${HOSTNAME:studio-online-worker-01}}}
   worker-code: ${STUDIO_WORKER_CODE:${HOSTNAME:studio-online-worker-01}}
   runtime-log-dir: ${STUDIO_RUNTIME_LOG_DIR:./runtime/run-logs}
@@ -75,6 +88,14 @@ studio:
     enabled: ${STUDIO_FLINK_ENABLED:true}
     execution-mode: ${STUDIO_FLINK_EXECUTION_MODE:embedded}
     runtime-endpoint: ${STUDIO_FLINK_RUNTIME_ENDPOINT:${studio.worker-api-base-url}}
+    query-timeout-seconds: ${STUDIO_FLINK_QUERY_TIMEOUT_SECONDS:120}
+    gateway:
+      base-url: ${STUDIO_FLINK_GATEWAY_BASE_URL:http://127.0.0.1:8083}
+      rest-address: ${STUDIO_FLINK_GATEWAY_REST_ADDRESS:}
+      rest-port: ${STUDIO_FLINK_GATEWAY_REST_PORT:}
+      connect-timeout-seconds: ${STUDIO_FLINK_GATEWAY_CONNECT_TIMEOUT_SECONDS:10}
+      fetch-timeout-seconds: ${STUDIO_FLINK_GATEWAY_FETCH_TIMEOUT_SECONDS:120}
+      max-result-pages: ${STUDIO_FLINK_GATEWAY_MAX_RESULT_PAGES:1000}
   runtime-invocation-max-body-bytes: ${STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES:10485760}
   runtime-invocation-max-concurrency: ${STUDIO_RUNTIME_INVOCATION_MAX_CONCURRENCY:32}
   runtime-invocation-idempotency:

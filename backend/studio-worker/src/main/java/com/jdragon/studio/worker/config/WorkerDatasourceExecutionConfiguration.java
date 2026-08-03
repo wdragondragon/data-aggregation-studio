@@ -26,6 +26,8 @@ import com.jdragon.studio.infra.service.CloudObjectStorageService;
 import com.jdragon.studio.infra.service.StudioTransformerExecutionSupport;
 import com.jdragon.studio.infra.service.StudioTransformerSupport;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import com.jdragon.studio.worker.plugin.ObjectStoragePluginRuntimeResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -113,7 +115,9 @@ public class WorkerDatasourceExecutionConfiguration {
     public AggregationSourceCapabilityProvider aggregationSourceCapabilityProvider(
             StudioPlatformProperties properties,
             EncryptionService encryptionService,
-            BusinessMetaModelMetadataService businessMetaModelMetadataService) {
+            BusinessMetaModelMetadataService businessMetaModelMetadataService,
+            ObjectProvider<ObjectStoragePluginRuntimeResolver> pluginRuntimeResolverProvider) {
+        pluginRuntimeResolverProvider.getIfAvailable();
         return new AggregationSourceCapabilityProvider(
                 properties, encryptionService, businessMetaModelMetadataService);
     }

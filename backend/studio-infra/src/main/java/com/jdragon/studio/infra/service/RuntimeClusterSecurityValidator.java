@@ -11,7 +11,9 @@ import org.springframework.util.StringUtils;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 @Component
@@ -88,7 +90,7 @@ public class RuntimeClusterSecurityValidator implements ApplicationRunner, Order
             validateControlPlaneBoundary(normalizedApplicationName);
         }
         if (WORKER_APPLICATIONS.contains(normalizedApplicationName)) {
-            validateWorkerExecutionPlane();
+            validateWorkerExecutionPlane(normalizedApplicationName);
         }
     }
 
@@ -107,7 +109,7 @@ public class RuntimeClusterSecurityValidator implements ApplicationRunner, Order
         }
     }
 
-    private void validateWorkerExecutionPlane() {
+    private void validateWorkerExecutionPlane(String applicationName) {
         if (!StringUtils.hasText(properties.getRuntimeClusterCode())) {
             throw new IllegalStateException(
                     "STUDIO_CLUSTER_CODE must be configured explicitly for every Worker runtime");
@@ -123,6 +125,24 @@ public class RuntimeClusterSecurityValidator implements ApplicationRunner, Order
         } catch (InvalidPathException ex) {
             throw new IllegalStateException("STUDIO_AGGREGATION_HOME is not a valid path", ex);
         }
+        StudioPlatformProperties.PluginRuntimeProperties pluginRuntime = properties.getPluginRuntime();
+        String mode = pluginRuntime == null || !StringUtils.hasText(pluginRuntime.getMode())
+                ? "EAGER_LOCAL" : pluginRuntime.getMode().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("EAGER_LOCAL", "LAZY_OBJECT_STORAGE").contains(mode)) {
+            throw new IllegalStateException(
+                    "STUDIO_PLUGIN_RUNTIME_MODE must be EAGER_LOCAL or LAZY_OBJECT_STORAGE");
+        }
+        if ("LAZY_OBJECT_STORAGE".equals(mode)) {
+            if (!"studio-worker".equals(applicationName)) {
+                throw new IllegalStateException("LAZY_OBJECT_STORAGE is supported only by studio-worker");
+            }
+            validateLazyPluginRuntime(aggregationHome, pluginRuntime);
+            return;
+        }
+        validateEagerPluginRuntime(aggregationHome);
+    }
+
+    private void validateEagerPluginRuntime(Path aggregationHome) {
         if (!Files.isDirectory(aggregationHome)) {
             throw new IllegalStateException(
                     "STUDIO_AGGREGATION_HOME must point to an existing directory: " + aggregationHome);
@@ -140,5 +160,68 @@ public class RuntimeClusterSecurityValidator implements ApplicationRunner, Order
                                 + " under " + aggregationHome);
             }
         }
+    }
+
+    private void validateLazyPluginRuntime(Path aggregationHome,
+                                           StudioPlatformProperties.PluginRuntimeProperties pluginRuntime) {
+        Path cacheRoot = aggregationHome.resolve("cache").toAbsolutePath().normalize();
+        Path probe = null;
+        try {
+            Files.createDirectories(cacheRoot);
+            if (!Files.isDirectory(cacheRoot) || !Files.isWritable(cacheRoot)) {
+                throw new IllegalStateException("Worker plugin cache root is not writable: " + cacheRoot);
+            }
+            probe = Files.createTempFile(cacheRoot, ".studio-plugin-write-probe-", ".tmp");
+        } catch (IOException | SecurityException ex) {
+            throw new IllegalStateException("Worker plugin cache root cannot be created or written: " + cacheRoot, ex);
+        } finally {
+            if (probe != null) {
+                try {
+                    Files.deleteIfExists(probe);
+                } catch (IOException ignored) {
+                    // Best-effort cleanup; inability to delete does not invalidate the successful write probe.
+                }
+            }
+        }
+        if (pluginRuntime == null || !StringUtils.hasText(pluginRuntime.getPrefix())
+                || !StringUtils.hasText(pluginRuntime.getChannel())) {
+            throw new IllegalStateException(
+                    "STUDIO_PLUGIN_PREFIX and STUDIO_PLUGIN_CHANNEL are required for LAZY_OBJECT_STORAGE");
+        }
+        if (!StringUtils.hasText(properties.getRuntimeVersion())) {
+            throw new IllegalStateException(
+                    "STUDIO_RUNTIME_VERSION is required for LAZY_OBJECT_STORAGE compatibility checks");
+        }
+        StudioPlatformProperties.ObjectStorageProperties storage = effectiveObjectStorage();
+        if (storage == null || !StringUtils.hasText(storage.getProvider())
+                || !StringUtils.hasText(storage.getEndpoint())
+                || !StringUtils.hasText(storage.getAccessKey())
+                || !StringUtils.hasText(storage.getSecretKey())) {
+            throw new IllegalStateException(
+                    "Object storage provider, endpoint, access key and secret key are required for LAZY_OBJECT_STORAGE");
+        }
+        String provider = storage.getProvider().trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if ("ALIYUN".equals(provider) || "ALIYUN_OSS".equals(provider)) {
+            provider = "OSS";
+        }
+        if (!Set.of("MINIO", "OSS").contains(provider)) {
+            throw new IllegalStateException("Object storage provider must be MINIO or OSS");
+        }
+        if (!StringUtils.hasText(pluginRuntime.getBucket()) && !StringUtils.hasText(storage.getBucket())) {
+            throw new IllegalStateException(
+                    "STUDIO_PLUGIN_BUCKET or STUDIO_OBJECT_BUCKET is required for LAZY_OBJECT_STORAGE");
+        }
+    }
+
+    private StudioPlatformProperties.ObjectStorageProperties effectiveObjectStorage() {
+        StudioPlatformProperties.ObjectStorageProperties storage = properties.getObjectStorage();
+        if (storage != null && (StringUtils.hasText(storage.getEndpoint())
+                || StringUtils.hasText(storage.getAccessKey())
+                || StringUtils.hasText(storage.getSecretKey())
+                || StringUtils.hasText(storage.getBucket()))) {
+            return storage;
+        }
+        StudioPlatformProperties.RunLogProperties runLog = properties.getRunLog();
+        return runLog == null ? storage : runLog.getObjectStorage();
     }
 }

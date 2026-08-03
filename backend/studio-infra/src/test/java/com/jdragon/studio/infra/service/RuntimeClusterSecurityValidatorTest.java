@@ -86,6 +86,27 @@ class RuntimeClusterSecurityValidatorTest {
     }
 
     @Test
+    void shouldAcceptLazyWorkerAndInitializeWritableCacheRoot(@TempDir Path tempDirectory) {
+        Path runtimeHome = tempDirectory.resolve("lazy-runtime-home");
+        StudioPlatformProperties properties = validLazyWorkerProperties();
+        properties.setAggregationHome(runtimeHome.toString());
+        RuntimeClusterSecurityValidator validator = runtimeValidator(properties, "studio-worker");
+
+        assertDoesNotThrow(validator::validateRuntimeSecurity);
+        org.junit.jupiter.api.Assertions.assertTrue(Files.isDirectory(runtimeHome.resolve("cache")));
+    }
+
+    @Test
+    void shouldRejectLazyWorkerWithIncompleteObjectStorage(@TempDir Path tempDirectory) {
+        StudioPlatformProperties properties = validLazyWorkerProperties();
+        properties.setAggregationHome(tempDirectory.resolve("lazy-runtime-home").toString());
+        properties.getObjectStorage().setSecretKey(null);
+        RuntimeClusterSecurityValidator validator = runtimeValidator(properties, "studio-worker");
+
+        assertThrows(IllegalStateException.class, validator::validateRuntimeSecurity);
+    }
+
+    @Test
     void shouldNotRequireRuntimeClusterCodeForServer() {
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.setInternalApiToken("non-default-internal-token");
@@ -243,6 +264,18 @@ class RuntimeClusterSecurityValidatorTest {
     private StudioPlatformProperties validWorkerProperties() {
         StudioPlatformProperties properties = validServerProperties();
         properties.setRuntimeClusterCode("DEFAULT-LOCAL");
+        return properties;
+    }
+
+    private StudioPlatformProperties validLazyWorkerProperties() {
+        StudioPlatformProperties properties = validWorkerProperties();
+        properties.setRuntimeVersion("1.0_jdk17-SNAPSHOT");
+        properties.getPluginRuntime().setMode("LAZY_OBJECT_STORAGE");
+        properties.getObjectStorage().setProvider("OSS");
+        properties.getObjectStorage().setEndpoint("https://oss.example.invalid");
+        properties.getObjectStorage().setAccessKey("test-access-key");
+        properties.getObjectStorage().setSecretKey("test-secret-key");
+        properties.getObjectStorage().setBucket("test-plugin-bucket");
         return properties;
     }
 

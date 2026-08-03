@@ -35,6 +35,7 @@ import com.jdragon.studio.infra.security.StudioRequestContext;
 import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
+import com.jdragon.studio.worker.plugin.ObjectStoragePluginRuntimeResolver;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,6 +89,7 @@ public class WorkerLifecycleRunner {
     private RuntimeResourceRevisionService runtimeResourceRevisionService;
     private RuntimeClusterHeartbeatService runtimeClusterHeartbeatService;
     private DispatchProtectedPayloadService dispatchProtectedPayloadService;
+    private ObjectStoragePluginRuntimeResolver pluginRuntimeResolver;
     private volatile boolean acceptingTasks = false;
 
     public WorkerLifecycleRunner(DispatchTaskMapper dispatchTaskMapper,
@@ -136,6 +138,11 @@ public class WorkerLifecycleRunner {
     @Autowired
     void setRuntimeClusterHeartbeatService(RuntimeClusterHeartbeatService runtimeClusterHeartbeatService) {
         this.runtimeClusterHeartbeatService = runtimeClusterHeartbeatService;
+    }
+
+    @Autowired(required = false)
+    void setPluginRuntimeResolver(ObjectStoragePluginRuntimeResolver pluginRuntimeResolver) {
+        this.pluginRuntimeResolver = pluginRuntimeResolver;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -226,7 +233,15 @@ public class WorkerLifecycleRunner {
         lease.setInstanceId(clusterInstanceIdentity.instanceId());
         lease.setBootId(clusterInstanceIdentity.bootId());
         lease.setRuntimeVersion(properties.getRuntimeVersion());
-        lease.setPluginFingerprint(properties.getPluginFingerprint());
+        String pluginFingerprint = properties.getPluginFingerprint();
+        Map<String, Object> pluginRuntimeStatus = null;
+        if (pluginRuntimeResolver != null) {
+            pluginRuntimeStatus = pluginRuntimeResolver.statusSnapshot();
+            if (pluginRuntimeResolver.lazyEnabled()) {
+                pluginFingerprint = pluginRuntimeResolver.fingerprint();
+            }
+        }
+        lease.setPluginFingerprint(pluginFingerprint);
         lease.setHostName(clusterInstanceIdentity.hostName());
         lease.setPodName(clusterInstanceIdentity.podName());
         lease.setNodeName(clusterInstanceIdentity.nodeName());
@@ -244,6 +259,9 @@ public class WorkerLifecycleRunner {
         capabilities.put("runtimeClusterCode", runtimeClusterCode());
         capabilities.put("podName", clusterInstanceIdentity.podName());
         capabilities.put("nodeName", clusterInstanceIdentity.nodeName());
+        if (pluginRuntimeStatus != null) {
+            capabilities.put("pluginRuntime", pluginRuntimeStatus);
+        }
         lease.setCapabilitiesJson(capabilities);
         workerLeaseMapper.updateById(lease);
     }
@@ -289,6 +307,7 @@ public class WorkerLifecycleRunner {
             RunRecordEntity runRecord = null;
             RunLogFileService.PreparedRunLog preparedRunLog = null;
             RunLogFileService.RunLogScope runLogScope = null;
+            Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
             try {
                 DispatchTaskEntity claimedTask = dispatchTaskMapper.selectById(task.getId());
                 if (claimedTask != null) {
@@ -314,7 +333,6 @@ public class WorkerLifecycleRunner {
                 }
                 runLogScope = runLogFileService.openScope(preparedRunLog);
                 log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
-                Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
                 runtimeContext.put("jobId", runRecord.getId());
                 runtimeContext.put("runRecordId", runRecord.getId());
                 runtimeContext.put("runLogId", String.valueOf(runRecord.getId()));
@@ -374,6 +392,7 @@ public class WorkerLifecycleRunner {
                 payload.put("error", e.getMessage());
                 payload.put("exceptionType", e.getClass().getName());
                 payload.put("stackTrace", stackTraceOf(e));
+                copyPluginRevisions(payload, runtimeContext);
                 task.setPayloadJson(payload);
                 boolean failureCommitted = updateOwnedRunningTask(task);
                 if (!failureCommitted) {
@@ -501,6 +520,30 @@ public class WorkerLifecycleRunner {
                     DISPATCH_PAYLOAD_MAPPER.writeValueAsBytes(payload), PAYLOAD_MAP_TYPE);
         } catch (IOException ex) {
             throw new IllegalStateException("Dispatch payload cannot be serialized for persistence", ex);
+        }
+    }
+
+    private void copyPluginRevisions(Map<String, Object> target, Map<String, Object> runtimeContext) {
+        if (target == null || runtimeContext == null) {
+            return;
+        }
+        Object rawRevisions = runtimeContext.get("pluginRevisions");
+        if (!(rawRevisions instanceof Map<?, ?>)) {
+            return;
+        }
+        Map<String, String> revisions = new LinkedHashMap<String, String>();
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) rawRevisions).entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            String coordinate = String.valueOf(entry.getKey()).trim();
+            String identity = String.valueOf(entry.getValue()).trim();
+            if (!coordinate.isEmpty() && !identity.isEmpty()) {
+                revisions.put(coordinate, identity);
+            }
+        }
+        if (!revisions.isEmpty()) {
+            target.put("pluginRevisions", revisions);
         }
     }
 

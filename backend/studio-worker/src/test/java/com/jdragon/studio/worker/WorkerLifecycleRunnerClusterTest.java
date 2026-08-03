@@ -7,6 +7,10 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.core.spi.ExecutionEventPublisher;
 import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.dto.enums.DispatchExecutionType;
+import com.jdragon.studio.dto.enums.NodeType;
+import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
+import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
@@ -24,6 +28,7 @@ import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
+import com.jdragon.studio.worker.plugin.ObjectStoragePluginRuntimeResolver;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -33,7 +38,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -343,7 +350,7 @@ class WorkerLifecycleRunnerClusterTest {
     }
 
     @Test
-    void shouldWriteOneLeaseForEachTenantRuntimeCluster() {
+    void shouldWriteOneLeaseForEachTenantRuntimeClusterWithDynamicPluginRuntimeStatus() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
         ClusterInstanceIdentity identity = mock(ClusterInstanceIdentity.class);
@@ -360,6 +367,15 @@ class WorkerLifecycleRunnerClusterTest {
         ReflectionTestUtils.invokeMethod(runner, "setRuntimeClusterMapper", runtimeClusterMapper);
         RuntimeClusterHeartbeatService heartbeatService = mock(RuntimeClusterHeartbeatService.class);
         ReflectionTestUtils.invokeMethod(runner, "setRuntimeClusterHeartbeatService", heartbeatService);
+        ObjectStoragePluginRuntimeResolver pluginRuntimeResolver = mock(ObjectStoragePluginRuntimeResolver.class);
+        Map<String, Object> pluginRuntimeStatus = Map.of(
+                "mode", "LAZY_OBJECT_STORAGE",
+                "cachedReleaseCount", 3,
+                "state", "UP");
+        when(pluginRuntimeResolver.statusSnapshot()).thenReturn(pluginRuntimeStatus);
+        when(pluginRuntimeResolver.lazyEnabled()).thenReturn(true);
+        when(pluginRuntimeResolver.fingerprint()).thenReturn("dynamic-plugin-fingerprint");
+        ReflectionTestUtils.invokeMethod(runner, "setPluginRuntimeResolver", pluginRuntimeResolver);
         when(workerLeaseMapper.selectOne(any())).thenReturn(null);
 
         runner.heartbeat();
@@ -370,10 +386,119 @@ class WorkerLifecycleRunnerClusterTest {
                 .map(WorkerLeaseEntity::getTenantId).toList());
         assertEquals(List.of(50L, 60L), leases.getAllValues().stream()
                 .map(WorkerLeaseEntity::getRuntimeClusterId).toList());
+        assertTrue(leases.getAllValues().stream()
+                .allMatch(lease -> "dynamic-plugin-fingerprint".equals(lease.getPluginFingerprint())));
+        assertTrue(leases.getAllValues().stream()
+                .allMatch(lease -> pluginRuntimeStatus.equals(
+                        lease.getCapabilitiesJson().get("pluginRuntime"))));
         verify(heartbeatService).recordById(eq("tenant-a"), eq(50L), eq("instance-50"),
                 any(), any(), any(), any());
         verify(heartbeatService).recordById(eq("tenant-b"), eq(60L), eq("instance-50"),
                 any(), any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldCarryPluginRevisionsFromWorkerExecutionIntoTerminalEventPayload() {
+        assertPluginRevisionsInTerminalEvent(false);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldCarryPluginRevisionsFromThrownWorkerExecutionIntoFailurePayload() {
+        assertPluginRevisionsInTerminalEvent(true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertPluginRevisionsInTerminalEvent(boolean failExecution) {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        ExecutionEventPublisher publisher = mock(ExecutionEventPublisher.class);
+        RunLogFileService runLogFileService = mock(RunLogFileService.class);
+        WorkerAuthorizationService authorization = mock(WorkerAuthorizationService.class);
+        when(authorization.isProjectRuntimeClusterGrantEnabled(any(), any(), any())).thenReturn(true);
+        when(authorization.isRuntimeClusterAuthorizedForProject(any(), any(), any())).thenReturn(true);
+
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setRuntimeClusterCode("C50");
+        properties.setWorkerGroupCode("group-50");
+        properties.setWorkerCode("worker-50");
+        properties.setInstanceId("instance-50");
+        ClusterInstanceIdentity identity = new ClusterInstanceIdentity(properties);
+
+        Map<String, Object> taskPayload = new LinkedHashMap<String, Object>();
+        taskPayload.put("nodeType", NodeType.ETL_SINGLE.name());
+        taskPayload.put("config", new LinkedHashMap<String, Object>());
+        DispatchTaskEntity task = new DispatchTaskEntity();
+        task.setId(1101L);
+        task.setTenantId("tenant-a");
+        task.setProjectId(10L);
+        task.setStatus("QUEUED");
+        task.setExecutionType(DispatchExecutionType.DATA_SCRIPT_TEST.name());
+        task.setTargetClusterId(50L);
+        task.setPayloadJson(taskPayload);
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
+        when(dispatchTaskMapper.selectById(1101L)).thenReturn(task);
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class)))
+                .thenReturn(1, 1, 1);
+        when(workerLeaseMapper.selectOne(any())).thenReturn(activeLease());
+        doAnswer(invocation -> {
+            RunRecordEntity runRecord = invocation.getArgument(0);
+            runRecord.setId(2201L);
+            return 1;
+        }).when(runRecordMapper).insert(any(RunRecordEntity.class));
+        when(runLogFileService.prepare(2201L)).thenReturn(
+                new RunLogFileService.PreparedRunLog(2201L, "run-2201.log", Path.of("run-2201.log"), "UTF-8"));
+        when(runLogFileService.finalizeLog(any())).thenReturn(RunLogFileService.RunLogStorageResult.local(0L));
+
+        NodeExecutor executor = new NodeExecutor() {
+            @Override
+            public boolean supports(WorkflowNodeDefinition definition) {
+                return true;
+            }
+
+            @Override
+            public Map<String, Object> execute(WorkflowNodeDefinition definition, Map<String, Object> runtimeContext) {
+                if (failExecution) {
+                    runtimeContext.put("pluginRevisions",
+                            Map.of("writer/mysql8writer", "codex-e2e-v2-identity"));
+                    throw new IllegalStateException("expected plugin execution failure");
+                }
+                return new LinkedHashMap<String, Object>(Map.of(
+                        "status", "SUCCESS",
+                        "pluginRevisions", Map.of("writer/mysql8writer", "codex-e2e-v2-identity")));
+            }
+        };
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(dispatchTaskMapper, workerLeaseMapper,
+                runRecordMapper, Collections.singletonList(executor), publisher, properties,
+                mock(CollectionTaskService.class), mock(QualityTaskService.class), mock(CollectionTaskAssemblerService.class),
+                runLogFileService, authorization, identity, mock(WorkflowDispatchNodeResolver.class));
+        RuntimeClusterMapper clusterMapper = mock(RuntimeClusterMapper.class);
+        when(clusterMapper.selectList(any())).thenReturn(Collections.singletonList(runtimeCluster(50L, "tenant-a")));
+        ReflectionTestUtils.invokeMethod(runner, "setRuntimeClusterMapper", clusterMapper);
+        ReflectionTestUtils.setField(runner, "acceptingTasks", true);
+
+        runner.pollAndExecute();
+
+        assertEquals(failExecution ? "FAILED" : "SUCCESS", task.getStatus());
+        assertEquals("codex-e2e-v2-identity",
+                ((Map<String, String>) task.getPayloadJson().get("pluginRevisions")).get("writer/mysql8writer"));
+        if (failExecution) {
+            assertEquals(IllegalStateException.class.getName(), task.getPayloadJson().get("exceptionType"));
+        }
+        ArgumentCaptor<ExecutionEvent> eventCaptor = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(publisher).publish(eventCaptor.capture());
+        assertEquals("codex-e2e-v2-identity",
+                ((Map<String, String>) eventCaptor.getValue().getPayload().get("pluginRevisions"))
+                        .get("writer/mysql8writer"));
+    }
+
+    private WorkerLeaseEntity activeLease() {
+        WorkerLeaseEntity lease = new WorkerLeaseEntity();
+        lease.setStatus("ONLINE");
+        lease.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(1));
+        return lease;
     }
 
     private DispatchTaskEntity interruptedTask() {
