@@ -21,10 +21,12 @@ import com.jdragon.studio.infra.entity.ProjectEntity;
 import com.jdragon.studio.infra.entity.ProjectRuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.RuntimeEndpointEntity;
+import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.ProjectRuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.RuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.RuntimeEndpointMapper;
+import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,7 @@ public class RuntimeClusterService {
     private RuntimeEndpointSecurityService runtimeEndpointSecurityService;
     private RuntimeEndpointHttpClient runtimeEndpointHttpClient;
     private RuntimeEndpointHeaderPolicy runtimeEndpointHeaderPolicy;
+    private WorkerLeaseMapper workerLeaseMapper;
 
     public RuntimeClusterService(RuntimeClusterMapper clusterMapper, RuntimeEndpointMapper endpointMapper,
                                  ProjectRuntimeClusterMapper authorizationMapper, StudioSecurityService security,
@@ -104,6 +107,11 @@ public class RuntimeClusterService {
     @Autowired
     void setRuntimeEndpointHeaderPolicy(RuntimeEndpointHeaderPolicy runtimeEndpointHeaderPolicy) {
         this.runtimeEndpointHeaderPolicy = runtimeEndpointHeaderPolicy;
+    }
+
+    @Autowired
+    void setWorkerLeaseMapper(WorkerLeaseMapper workerLeaseMapper) {
+        this.workerLeaseMapper = workerLeaseMapper;
     }
 
     public List<RuntimeClusterView> options(Long projectId) {
@@ -212,7 +220,24 @@ public class RuntimeClusterService {
             return false;
         }
         LocalDateTime now = LocalDateTime.now();
-        return onlineInstanceCount(cluster, now) > 0 || isRecentHeartbeat(cluster.getLastHeartbeatAt(), now);
+        return hasActiveWorkerLease(cluster, now)
+                || onlineInstanceCount(cluster, now) > 0
+                || isRecentHeartbeat(cluster.getLastHeartbeatAt(), now);
+    }
+
+    private boolean hasActiveWorkerLease(RuntimeClusterEntity cluster, LocalDateTime now) {
+        if (workerLeaseMapper == null || cluster.getId() == null || !StringUtils.hasText(cluster.getTenantId())) {
+            return false;
+        }
+        LocalDateTime heartbeatThreshold = heartbeatThreshold(now);
+        Long count = workerLeaseMapper.selectCount(new LambdaQueryWrapper<WorkerLeaseEntity>()
+                .eq(WorkerLeaseEntity::getTenantId, cluster.getTenantId())
+                .eq(WorkerLeaseEntity::getRuntimeClusterId, cluster.getId())
+                .eq(WorkerLeaseEntity::getStatus, StudioConstants.WORKER_STATUS_ONLINE)
+                .and(wrapper -> wrapper.gt(WorkerLeaseEntity::getLeaseExpiresAt, now)
+                        .or()
+                        .ge(WorkerLeaseEntity::getLastHeartbeatAt, heartbeatThreshold)));
+        return count != null && count.longValue() > 0L;
     }
 
     public List<RuntimeEndpointView> endpoints(Long clusterId) { requireManage(); requireCluster(clusterId); return endpointViews(endpointMapper.selectList(new LambdaQueryWrapper<RuntimeEndpointEntity>()

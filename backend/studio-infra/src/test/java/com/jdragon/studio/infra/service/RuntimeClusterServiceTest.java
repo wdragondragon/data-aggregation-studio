@@ -21,6 +21,7 @@ import com.jdragon.studio.infra.mapper.ProjectRuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.ProjectMapper;
 import com.jdragon.studio.infra.mapper.RuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.RuntimeEndpointMapper;
+import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
@@ -348,6 +349,26 @@ class RuntimeClusterServiceTest {
         assertEquals(1, clusterView.getOnlineInstanceCount());
         assertTrue(clusterView.getInstances().get(0).isOnline());
         assertTrue(service.hasOnlineInstance(entity));
+    }
+
+    @Test
+    void shouldTreatActiveWorkerLeaseAsOnlineWhenClusterSummaryHeartbeatIsExpired() {
+        RuntimeClusterMapper clusterMapper = mock(RuntimeClusterMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        RuntimeClusterEntity entity = cluster(10L, "C50", "50 cluster", 1);
+        entity.setLastHeartbeatAt(LocalDateTime.now().minusMinutes(2));
+        entity.getInstancesJson().put("worker-1", Map.of(
+                "instanceId", "worker-1",
+                "heartbeatAt", LocalDateTime.now().minusMinutes(2).toString()));
+        when(workerLeaseMapper.selectCount(any())).thenReturn(1L);
+        RuntimeClusterService service = new RuntimeClusterService(clusterMapper, mock(RuntimeEndpointMapper.class),
+                mock(ProjectRuntimeClusterMapper.class), mock(StudioSecurityService.class),
+                mock(EncryptionService.class), objectMapper(), mock(RuntimeClusterReferenceRepository.class),
+                mock(ProjectMapper.class));
+        service.setWorkerLeaseMapper(workerLeaseMapper);
+
+        assertTrue(service.hasOnlineInstance(entity));
+        verify(workerLeaseMapper).selectCount(any());
     }
 
     @Test

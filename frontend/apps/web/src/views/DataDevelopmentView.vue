@@ -403,7 +403,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type {
@@ -418,11 +418,13 @@ import type {
   DataDevelopmentTreeNode,
   DataSourceOptionView,
   EntityId,
+  RuntimeClusterView,
   ScriptEnvironmentOption,
   SqlExecutionResult,
 } from "@studio/api-sdk";
 import { SectionCard, StudioTableShell } from "@studio/ui";
 import { studioApi } from "@/api/studio";
+import { clearAssistantPageContext, setAssistantPageContext, type AssistantPageBusinessObject } from "@/components/assistant/assistantPageContext";
 import { useAuthStore } from "@/stores/auth";
 import { formatScriptType, formatStatusLabel, isSharedFromAnotherProject, prettyJson, resolveProjectName, sameEntityId } from "@/utils/studio";
 import ScriptEditorPanel from "../components/data-development/ScriptEditorPanel.vue";
@@ -524,6 +526,7 @@ const currentDirectoryLabel = computed(() => {
 });
 const currentProjectLabel = computed(() => authStore.currentProjectName || t("common.none"));
 const hasCurrentProject = computed(() => Boolean(authStore.currentProjectId));
+const currentRuntimeCluster = computed(() => runtimeClusters.value.find((item) => sameEntityId(item.id, scriptForm.runtimeClusterId)));
 const currentScriptRegistryEntry = computed(() => resolveScriptEditorEntry(scriptForm.scriptType));
 const isCurrentScriptShared = computed(() => Boolean(
   scriptForm.id && isSharedFromAnotherProject(authStore.currentProjectId, scriptForm.projectId),
@@ -553,6 +556,87 @@ const scriptTemplateTitle = computed(() => isPythonScriptType.value
 const scriptTemplateDescription = computed(() => isPythonScriptType.value
   ? t("web.dataDevelopment.pythonTemplateDescription")
   : t("web.dataDevelopment.javaTemplateDescription"));
+
+function runtimeClusterToAssistantObject(cluster: RuntimeClusterView): AssistantPageBusinessObject {
+  return {
+    type: "runtimeCluster",
+    path: "/runtime-clusters",
+    id: cluster.id,
+    name: cluster.name || cluster.code || String(cluster.id),
+    label: runtimeClusterOptionLabel(cluster),
+    typeCode: cluster.code,
+    status: cluster.status,
+    metadata: {
+      enabled: cluster.enabled,
+      preferred: cluster.preferred,
+      allowManualOverride: cluster.allowManualOverride,
+      onlineInstanceCount: cluster.onlineInstanceCount,
+    },
+  };
+}
+
+function currentScriptToAssistantObject(): AssistantPageBusinessObject | undefined {
+  if (!scriptEditorVisible.value) {
+    return undefined;
+  }
+  return {
+    type: "script",
+    path: "/data-development",
+    id: scriptForm.id,
+    name: scriptForm.fileName || "未命名脚本",
+    label: scriptForm.fileName || "未命名脚本",
+    typeCode: scriptForm.scriptType,
+    status: scriptForm.runtimeValid === false ? "RUNTIME_INVALID" : "EDITING",
+    metadata: {
+      runtimeClusterId: scriptForm.runtimeClusterId,
+      runtimeClusterName: currentRuntimeCluster.value?.name,
+      datasourceId: scriptForm.datasourceId,
+      datasourceName: scriptForm.datasourceName,
+      modelIds: isFlinkQuestionSqlType.value ? [...flinkQuestionModelIds.value] : undefined,
+    },
+  };
+}
+
+function updateAssistantPageContext() {
+  const cluster = currentRuntimeCluster.value;
+  const clusterObject = cluster ? runtimeClusterToAssistantObject(cluster) : undefined;
+  const scriptObject = currentScriptToAssistantObject();
+  const selectedModels: AssistantPageBusinessObject[] = isFlinkQuestionSqlType.value
+    ? flinkQuestionModelIds.value.map((modelId) => {
+      const model = flinkQuestionModelMap.value[String(modelId)];
+      return {
+        type: "model",
+        path: "/models",
+        id: model?.id ?? modelId,
+        name: model?.name || String(modelId),
+        label: model?.name || String(modelId),
+        physicalLocator: model?.physicalLocator,
+        metadata: {
+          datasourceId: model?.datasourceId,
+          runtimeClusterId: scriptForm.runtimeClusterId,
+        },
+      };
+    })
+    : [];
+  setAssistantPageContext({
+    source: "data-development-view",
+    path: "/data-development",
+    label: t("web.dataDevelopment.heading"),
+    summary: cluster
+      ? `当前数据开发页选择的运行集群是 ${runtimeClusterOptionLabel(cluster)}${scriptObject ? `，正在编辑 ${scriptObject.name}` : ""}。`
+      : "当前数据开发页尚未选择运行集群。",
+    activeObject: scriptObject || clusterObject,
+    selectedObjects: [scriptObject, clusterObject].filter((item): item is AssistantPageBusinessObject => Boolean(item)),
+    relatedObjects: [clusterObject, ...selectedModels].filter((item): item is AssistantPageBusinessObject => Boolean(item)),
+    filters: {
+      runtimeClusterId: scriptForm.runtimeClusterId,
+      scriptType: scriptForm.scriptType,
+      datasourceId: scriptForm.datasourceId,
+      modelIds: isFlinkQuestionSqlType.value ? [...flinkQuestionModelIds.value] : undefined,
+    },
+  });
+}
+
 const currentSqlHints = computed<SqlEditorHintSource | undefined>(() => {
   if (!scriptForm.datasourceId) {
     return undefined;
@@ -1684,6 +1768,8 @@ onMounted(async () => {
   await refreshAll();
 });
 
+onBeforeUnmount(() => clearAssistantPageContext("data-development-view"));
+
 watch([() => authStore.currentTenantId, () => authStore.currentProjectId], async () => {
   if (!authStore.isAuthenticated) {
     return;
@@ -1749,6 +1835,24 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  [
+    runtimeClusters,
+    () => scriptEditorVisible.value,
+    () => scriptForm.id,
+    () => scriptForm.fileName,
+    () => scriptForm.scriptType,
+    () => scriptForm.runtimeClusterId,
+    () => scriptForm.runtimeValid,
+    () => scriptForm.datasourceId,
+    () => scriptForm.datasourceName,
+    () => flinkQuestionModelIds.value.join(","),
+    flinkQuestionModelMap,
+  ],
+  updateAssistantPageContext,
+  { deep: true, immediate: true },
 );
 
 </script>

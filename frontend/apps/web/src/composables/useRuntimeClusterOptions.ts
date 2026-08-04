@@ -39,10 +39,6 @@ export function useRuntimeClusterOptions() {
     if (current != null && selectableClusters.some((item) => String(item.id) === String(current))) {
       return current;
     }
-    const preferred = selectableClusters.find((item) => item.preferred);
-    if (preferred?.id != null) {
-      return preferred.id;
-    }
     return selectableClusters.length === 1 ? selectableClusters[0]?.id : undefined;
   }
 
