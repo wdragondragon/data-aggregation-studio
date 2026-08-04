@@ -383,10 +383,14 @@ interface AssistantCapability {
   writePolicy: string;
 }
 
-const MAX_TOOL_FOLLOW_UP_DEPTH = 4;
+const MAX_TOOL_FOLLOW_UP_DEPTH = 8;
 const ASSISTANT_STREAM_IDLE_TIMEOUT_MS = 45_000;
 
 const FORBIDDEN_ASSISTANT_ACTION_PATTERN = /(?:^|[._-])(delete|remove|drop|truncate|purge|destroy|batchdelete|unfollow|cancel)(?:$|[._-])|删除|移除|清空|销毁|批量删除/i;
+const UNFINISHED_ASSISTANT_OPERATION_PATTERNS = [
+  /(?:^|[\n。！？；，,])\s*(?:我(?:先|会先|将先|现在|这就)|正在|将|即将|继续|接下来(?:我会|我将)?|然后(?:我会|我将)?)\s*(?:为你|帮你)?\s*(?:先)?\s*(?:确认|查询|读取|获取|查找|搜索|检查|检索|加载|调用|打开|预览|执行|处理|发现)/u,
+  /(?:^|[\n.!?;,])\s*(?:i(?:'ll| will)(?: first)?|i(?:'m| am) (?:now )?|let me|now|next i(?:'ll| will)|continuing to)\s+(?:first\s+)?(?:check|query|read|fetch|retrieve|search|look up|inspect|load|call|open|preview|execute|run)/i,
+];
 
 const ASSISTANT_FRONTEND_TOOL_DEFINITIONS: AssistantFrontendToolDefinition[] = [
   {
@@ -855,7 +859,7 @@ function applyAssistantStreamFailure(message: AssistantLogMessage, error: string
   message.content = partial
     ? `${partial}\n\n${reason}。已完成的后台接口结果会继续保留，你可以选择继续处理或重新生成本次回复。`
     : `${reason}。已完成的后台接口结果会继续保留，你可以选择继续处理或重新生成本次回复。`;
-  message.controls = [createStreamRecoveryControl()];
+  appendControlsToMessage(message, [createStreamRecoveryControl()]);
 }
 
 function summarizeStreamFailure(error: string) {
@@ -886,6 +890,38 @@ function createStreamRecoveryControl(): AssistantChatControl {
   };
 }
 
+function createLoopRecoveryControl(): AssistantChatControl {
+  return {
+    id: `assistant-loop-recovery-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: "choices",
+    title: "助手还没有完成当前任务，下一步怎么处理？",
+    detail: "已完成的接口结果会保留，继续处理不会从头开始。",
+    paramKey: "assistantRecoveryAction",
+    options: [
+      { label: "继续处理", value: "continue", description: "基于现有上下文和工具结果继续。" },
+      { label: "重新生成", value: "retry", description: "重新规划当前任务的后续步骤。" },
+    ],
+  };
+}
+
+function appendControlsToMessage(message: AssistantLogMessage, controls: AssistantChatControl[]) {
+  message.controls = controls;
+  messages.value = [...messages.value];
+}
+
+function appendAssistantLoopLimitRecovery(content: string, detail: string) {
+  const message = createAssistantMessage("assistant", content);
+  message.controls = [createLoopRecoveryControl()];
+  messages.value.push(message);
+  pushProcessEvent({
+    stage: `assistant.loop.limit.${Date.now()}`,
+    title: "自动处理达到安全上限",
+    detail,
+    status: "warning",
+  });
+  void nextTick(scrollThreadToBottom);
+}
+
 onBeforeUnmount(() => {
   chatAbortController?.abort();
 });
@@ -896,6 +932,10 @@ async function handleAssistantActions(message: AssistantLogMessage, depth: numbe
   appendAssistantLoopProcessEvents(parsed.loop, parsed.toolCalls.length, parsed.uiControls.length);
   if (parsed.protocolViolations.length > 0) {
     await continueAfterProtocolViolation(parsed.protocolViolations[0], depth + 1);
+    return;
+  }
+  if (shouldRepairUnfinishedAssistantReply(message, parsed)) {
+    await continueAfterUnfinishedAssistantReply(message, parsed.content, depth + 1);
     return;
   }
   const actionOnly = parsed.toolCalls.length > 0 && parsed.uiControls.length === 0 && !parsed.content.trim();
@@ -965,13 +1005,21 @@ async function handleAssistantActions(message: AssistantLogMessage, depth: numbe
   );
   finalizeAssistantLoopProcessEvent(parsed.loop, executedCount, failedCount, confirmationCount, waitingForUser);
 
-  if (failedCount > 0 && !waitingForUser && confirmationCount === 0 && depth < MAX_TOOL_FOLLOW_UP_DEPTH) {
-    await continueAfterToolFailure(depth + 1);
+  if (failedCount > 0 && !waitingForUser && confirmationCount === 0) {
+    if (depth < MAX_TOOL_FOLLOW_UP_DEPTH) {
+      await continueAfterToolFailure(depth + 1);
+    } else {
+      appendAssistantLoopLimitRecovery("最近一次接口调用仍未恢复，自动处理已达到安全上限。", "保留已有工具结果，等待你决定继续处理或重新生成。");
+    }
     return;
   }
 
-  if (executedCount > 0 && !waitingForUser && confirmationCount === 0 && depth < MAX_TOOL_FOLLOW_UP_DEPTH) {
-    await continueAfterToolResults(depth + 1);
+  if (executedCount > 0 && !waitingForUser && confirmationCount === 0) {
+    if (depth < MAX_TOOL_FOLLOW_UP_DEPTH) {
+      await continueAfterToolResults(depth + 1);
+    } else {
+      appendAssistantLoopLimitRecovery("本步接口已经完成，但助手尚未给出最终答复，自动处理已达到安全上限。", "已完成的接口结果不会丢失，可从当前结果继续。");
+    }
   }
 }
 
@@ -1024,6 +1072,7 @@ async function continueAfterProtocolViolation(violation: AssistantProtocolViolat
     status: "warning",
   });
   if (depth >= MAX_TOOL_FOLLOW_UP_DEPTH) {
+    appendAssistantLoopLimitRecovery("助手连续返回了不完整的执行协议，自动修复已达到安全上限。", "现有对话和工具结果已保留，等待你决定继续处理或重新生成。");
     return;
   }
   const instruction = `上一条助手回复输出了 studio-assistant.v1 协议块，但协议结构缺失、不完整、包含旧执行字段，或没有放入 fenced studio-assistant-protocol 代码块。协议问题：${violation.detail} 请基于最新用户问题、currentContext、assistantCapabilities、assistantMemory 和 toolResults 重新判断，并只输出一个包含完整 plan{intent,basis,requiredObjects,nextActions}、loop{mode,status,autoContinue,questions,next,evidence,stopReason}、actions、controls 的 fenced studio-assistant-protocol；即使没有下一步动作、只是结束 loop，也必须保留 actions: []、controls: []、结构化计划和 loop 决策；每个 action 必须显式包含 type、tool、params；每个 control 必须显式包含 type、title、paramKey；不要使用 toolCalls、backendToolCalls 或 uiControls。`;
@@ -1033,6 +1082,38 @@ async function continueAfterProtocolViolation(violation: AssistantProtocolViolat
   );
   markProcessDone("llm.protocol.invalid", "协议自检完成", "已要求模型补齐结构化计划后再继续。", "warning");
   await handleAssistantActions(assistantMessage, depth);
+}
+
+async function continueAfterUnfinishedAssistantReply(message: AssistantLogMessage, content: string, depth: number) {
+  pushProcessEvent({
+    stage: `llm.protocol.missing-action.${Date.now()}`,
+    title: "执行承诺缺少动作",
+    detail: "模型只描述了将要执行的 Studio 步骤，没有返回可执行协议；正在自动要求补齐动作或用户控件。",
+    status: "warning",
+  });
+  if (depth >= MAX_TOOL_FOLLOW_UP_DEPTH) {
+    appendControlsToMessage(message, [createLoopRecoveryControl()]);
+    return;
+  }
+  removeAssistantMessage(message);
+  const unfinishedSummary = String(content ?? "").trim().slice(0, 500);
+  const instruction = `上一条助手回复只有执行承诺或进度描述，却没有提供可执行的 studio-assistant.v1 协议动作，也没有提供需要用户回答的 controls，因此任务尚未完成。未完成回复：${JSON.stringify(unfinishedSummary)}。请基于最新用户问题、currentContext、assistantCapabilities、assistantMemory 和 toolResults 立即继续：如果还需要 Studio 操作，只输出一个包含完整 plan{intent,basis,requiredObjects,nextActions}、loop{mode,status,autoContinue,questions,next,evidence,stopReason}、actions、controls 的 fenced studio-assistant-protocol；如果必须由用户决定，输出 controls；如果已有足够证据，直接给出最终结果，不要再次只说“我先查询”“正在读取”或“继续获取”。`;
+  const assistantMessage = await streamAssistantReply(
+    instruction,
+    conversationForRequest(instruction),
+  );
+  await handleAssistantActions(assistantMessage, depth);
+}
+
+function shouldRepairUnfinishedAssistantReply(
+  message: AssistantLogMessage,
+  parsed: { content: string } & AssistantActionPayload,
+) {
+  if (message.controls?.length || parsed.toolCalls.length || parsed.uiControls.length) {
+    return false;
+  }
+  const visible = String(parsed.content ?? "").trim();
+  return Boolean(visible) && UNFINISHED_ASSISTANT_OPERATION_PATTERNS.some((pattern) => pattern.test(visible));
 }
 
 function extractAssistantActions(content: string): { content: string } & AssistantActionPayload {
@@ -1151,12 +1232,21 @@ function appendAssistantActionPayload(
       return;
     }
     const plan = normalizeAssistantProtocolPlan(payload.plan);
+    const loop = normalizeAssistantProtocolLoop(payload.loop);
+    const flowValidation = validateAssistantProtocolFlow(
+      loop,
+      Array.isArray(payload.actions) ? payload.actions.length : 0,
+      localControls.length,
+    );
+    if (!flowValidation.ok) {
+      appendPlanViolation(protocolViolations, flowValidation.code, flowValidation.detail);
+      return;
+    }
     toolCalls.push(...localToolCalls);
     uiControls.push(...localControls);
     if (plan) {
       plans.push(plan);
     }
-    const loop = normalizeAssistantProtocolLoop(payload.loop);
     if (loop) {
       loops.push(loop);
     }
@@ -1398,6 +1488,38 @@ function validateAssistantProtocolLoop(value: unknown): { ok: true } | { ok: fal
     invalid.length ? `loop 字段不合规：${invalid.join(", ")}` : "",
   ].filter(Boolean);
   return { ok: false, code: missing.length ? "missingLoop" : "invalidLoop", detail: parts.join("；") };
+}
+
+function validateAssistantProtocolFlow(
+  loop: AssistantProtocolLoop | undefined,
+  actionCount: number,
+  controlCount: number,
+): { ok: true } | { ok: false; code: AssistantProtocolViolation["code"]; detail: string } {
+  if (!loop) {
+    return { ok: false, code: "missingLoop", detail: "缺少可执行的 loop 决策" };
+  }
+  if (loop.autoContinue && actionCount === 0) {
+    return {
+      ok: false,
+      code: "invalidLoop",
+      detail: "loop.autoContinue=true 时必须至少提供一个 action，否则客户端没有可继续执行的步骤。",
+    };
+  }
+  if (isUserWaitingLoop(loop) && actionCount === 0 && controlCount === 0) {
+    return {
+      ok: false,
+      code: "invalidLoop",
+      detail: "loop 声明等待用户输入时必须提供 action 或 controls，否则用户无法恢复任务。",
+    };
+  }
+  if (!isCompletedLoop(loop) && !isUserWaitingLoop(loop) && actionCount === 0 && controlCount === 0) {
+    return {
+      ok: false,
+      code: "invalidLoop",
+      detail: "未完成的 loop 必须提供 action 或 control，不能在没有后续步骤时停止。",
+    };
+  }
+  return { ok: true };
 }
 
 function toProtocolArray(value: unknown) {

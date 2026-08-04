@@ -725,6 +725,52 @@ async function main() {
   assert(missingProtocolAfter.lastToolExecute?.params?.path === "/datasources", "Repaired missing-protocol should read /datasources.");
   assert(missingProtocolAfter.lastToolExecute?.params?.keyword !== "missing-protocol-original", "Original missing-protocol tool call should not execute.");
 
+  const progressOnlyBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const progressOnlyBefore = progressOnlyBeforePayload.data ?? progressOnlyBeforePayload;
+  const progressOnlyToolExecuteBefore = Number(progressOnlyBefore.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "Run progress-only loop guard probe.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  await waitForAudit(
+    (audit) => Number(audit.toolExecuteRequests || 0) >= progressOnlyToolExecuteBefore + 1,
+    "progress-only response automatic protocol repair",
+  );
+  await waitForAssistantReady(page, 25000);
+  await sleep(500);
+  const progressOnlyAfterPayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const progressOnlyAfter = progressOnlyAfterPayload.data ?? progressOnlyAfterPayload;
+  const visibleTextAfterProgressOnly = await textContent(page);
+  assert(
+    Number(progressOnlyAfter.toolExecuteRequests || 0) === progressOnlyToolExecuteBefore + 1,
+    `Progress-only reply should be repaired with exactly one datasource tool call. before=${progressOnlyToolExecuteBefore}, after=${progressOnlyAfter.toolExecuteRequests}`,
+  );
+  assert(progressOnlyAfter.lastChatBranch === "tool-follow-up-default", "Progress-only reply repair should continue through tool result feedback to the final answer.");
+  assert(progressOnlyAfter.lastToolExecute?.interfaceCode === "studio.feature.list", "Progress-only reply repair should execute the datasource list tool.");
+  assert(progressOnlyAfter.lastToolExecute?.params?.path === "/datasources", "Progress-only reply repair should read /datasources.");
+  assert(!visibleTextAfterProgressOnly.includes("正在读取当前项目已登记的数据源列表。"), "Incomplete progress-only narration should be removed after automatic repair.");
+
+  const stalledLoopBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const stalledLoopBefore = stalledLoopBeforePayload.data ?? stalledLoopBeforePayload;
+  const stalledLoopToolExecuteBefore = Number(stalledLoopBefore.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "Run stalled-loop protocol probe.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  await waitForAudit(
+    (audit) => Number(audit.toolExecuteRequests || 0) >= stalledLoopToolExecuteBefore + 1,
+    "autoContinue protocol without actions repair",
+  );
+  await waitForAssistantReady(page, 25000);
+  await sleep(500);
+  const stalledLoopAfterPayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const stalledLoopAfter = stalledLoopAfterPayload.data ?? stalledLoopAfterPayload;
+  assert(
+    Number(stalledLoopAfter.toolExecuteRequests || 0) === stalledLoopToolExecuteBefore + 1,
+    `autoContinue protocol without actions should be repaired with exactly one datasource tool call. before=${stalledLoopToolExecuteBefore}, after=${stalledLoopAfter.toolExecuteRequests}`,
+  );
+  assert(stalledLoopAfter.lastChatBranch === "tool-follow-up-default", "Stalled loop repair should continue through tool result feedback to the final answer.");
+  assert(stalledLoopAfter.lastToolExecute?.interfaceCode === "studio.feature.list", "Stalled loop repair should execute the datasource list tool.");
+  assert(stalledLoopAfter.lastToolExecute?.params?.path === "/datasources", "Stalled loop repair should read /datasources.");
+
   const looseProtocolBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
   const looseProtocolBefore = looseProtocolBeforePayload.data ?? looseProtocolBeforePayload;
   const looseProtocolToolExecuteBefore = Number(looseProtocolBefore.toolExecuteRequests || 0);

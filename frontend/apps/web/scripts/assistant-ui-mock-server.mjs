@@ -1798,6 +1798,46 @@ function sendAssistantStream(response, body) {
     response.end();
     return;
   }
+  if (/progress-only loop guard probe/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "progress-only-loop-guard-probe";
+    writeSse(response, "delta", {
+      content: language === "en"
+        ? "I will first read the datasources registered in the current project."
+        : "正在读取当前项目已登记的数据源列表。",
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (/stalled-loop protocol probe/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "stalled-loop-protocol-probe";
+    const protocol = {
+      protocol: "studio-assistant.v1",
+      plan: {
+        intent: "Read datasource records without silently stopping",
+        basis: ["The user requested a stalled-loop protocol probe"],
+        requiredObjects: [{ type: "feature", path: "/datasources" }],
+        nextActions: [{ type: "tool", tool: "studio.feature.list", reason: "Read datasource records" }],
+      },
+      loop: {
+        mode: "goal",
+        status: "tool_pending",
+        autoContinue: true,
+        questions: [{ id: "q1", input: "Which datasource records are visible?", status: "needs_tool", output: "pending" }],
+        next: [{ id: "step1", type: "tool", status: "pending", description: "Read datasource records" }],
+        evidence: [],
+        stopReason: "waiting_for_tool_result",
+      },
+      actions: [],
+      controls: [],
+    };
+    writeSse(response, "delta", {
+      content: `I will continue reading datasource records.\n\n\`\`\`studio-assistant-protocol\n${JSON.stringify(protocol)}\n\`\`\``,
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
   if (isProtocolRepairRequest) {
     assistantPayloadAudit.lastChatBranch = "protocol-repair";
     if (/assistant-action|旧 assistant-action|旧格式动作|legacy assistant-action/i.test(message)) {
