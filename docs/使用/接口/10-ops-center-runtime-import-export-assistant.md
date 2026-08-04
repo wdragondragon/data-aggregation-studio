@@ -19,6 +19,7 @@
 2. 日志联动：从 /ops-center/runs/query 取 runRecordId -> GET /runs/{runRecordId}/log；从 service/ingestion/protocol 日志取 accessLogId -> GET /invocation-logs/{domain}/{accessLogId}。
 3. 导出项目：GET /exports/project，返回 metaSchemas、workflows 等项目包；导入模板：GET /imports/template。
 4. AI 助手：GET /assistant/config -> GET /assistant/operations -> POST /assistant/tools/execute；流式聊天使用 POST /assistant/chat/stream，Accept 为 text/event-stream。
+5. AI 模型预览：`studio.feature.list` 查询 `/runtime-clusters` -> `studio.feature.list` 查询 `/models` 并携带 `runtimeClusterId/keyword` -> `studio.feature.action` 对 `/models` 执行只读 `preview`，提交 `id/runtimeClusterId` 和可选 `limit`。
 
 ## 2026-07-20 多集群增量契约
 
@@ -27,6 +28,8 @@
 - 运行事件和日志事件返回 `requestedClusterId/actualClusterId/actualClusterCode`；队列项返回 `targetClusterId`；Worker 组摘要返回 `runtimeClusterIds/runtimeClusterCodes`；三类同步服务事件返回请求/实际集群。
 - AI operation catalog 增加运行集群选项查询，并为数据源测试/发现/同步、七类资源保存、脚本执行和手动触发增加 `runtimeClusterId`。运行、运维和告警查询支持目标/实际集群参数。
 - `assistant.script.execute` 属于未绑定持久化资源的即时执行，必须显式提交项目已授权的 `runtimeClusterId`；即使项目只有一个运行集群，前端也应自动选中后把真实 ID 放入请求，后端不再推断唯一或首选集群。
+- 模型样例数据预览不再使用 `studio.feature.get view=preview`。操作目录把它声明为 `studio.feature.action` 的只读 `preview` 动作，必填 `path=/models`、`id`、`runtimeClusterId`，可选 `limit`，且 `mutation=false`。
+- `/models` 的普通列表仍可不带集群；当助手要选择可预览或可执行 Flink SQL 的模型时，必须携带 `runtimeClusterId`，工具网关将其路由到集群范围的 `listSelectorOptions`。数据开发 SQL 数据源候选同样必须先确定集群再查询。
 - 助手不能绕过项目授权、数据源适用范围或手动覆盖许可，也不能创建或修改包含运行端点秘密的配置。所有写操作仍要求确认。
 
 运行集群管理接口独立记录在 [12-runtime-clusters.md](./12-runtime-clusters.md)。以上增量字段优先于下方历史自动抽取表中的旧参数摘要。
@@ -52,6 +55,7 @@
 | `opsCenter.queryRuns()` | POST | `/ops-center/runs/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterRunIncidentView` | `frontend/apps/web/src/views/OpsCenterView.vue:407` | `frontend/packages/api-sdk/src/client.ts:1675` |
 | `opsCenter.queryServiceEvents()` | POST | `/ops-center/service-events/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterServiceEventView` | `frontend/apps/web/src/views/OpsCenterView.vue:416` | `frontend/packages/api-sdk/src/client.ts:1684` |
 | `opsCenter.queryWorkers()` | POST | `/ops-center/workers/query` | payload?: OpsCenterQueryRequest<br>config?: StudioRequestConfig<br>body: `payload` | `OpsCenterWorkerGroupView` | `frontend/apps/web/src/views/OpsCenterView.vue:398` | `frontend/packages/api-sdk/src/client.ts:1681` |
+| `runtimeClusters.options()` | GET | `/runtime-clusters/options` | projectId?: EntityId<br>query: projectId 为空时使用当前 `X-Project-Id` | `RuntimeClusterView[]` | 运行集群选择器和 AI 助手 | `frontend/packages/api-sdk/src/client.ts` |
 | `runtime.mode()` | GET | `/runtime/mode` | - | `RuntimeModeResponse` | - | `frontend/packages/api-sdk/src/client.ts:1949` |
 
 
@@ -78,6 +82,7 @@
 | OpsCenterController | POST | `/api/v1/ops-center/runs/query` | `queryRuns()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:46` |
 | OpsCenterController | POST | `/api/v1/ops-center/service-events/query` | `queryServiceEvents()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:64` |
 | OpsCenterController | POST | `/api/v1/ops-center/workers/query` | `queryWorkers()` | body: `@RequestBody(required = false) OpsCenterQueryRequest request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/OpsCenterController.java:58` |
+| RuntimeClusterController | GET | `/api/v1/runtime-clusters/options` | `options()` | query: `projectId?: Long`；省略时使用当前项目上下文 | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RuntimeClusterController.java` |
 | DesktopRuntimeController | GET | `/api/v1/runtime/mode` | `mode()` | - | `backend/studio-desktop-runtime/src/main/java/com/jdragon/studio/desktopruntime/runtime/DesktopRuntimeController.java:19` |
 
 
@@ -144,6 +149,16 @@ curl -X POST "${BASE_URL}/assistant/tools/execute" \
   -H "Content-Type: application/json" \
   -d '<json-body>'
 ```
+
+模型预览的三次工具请求参数如下。前两次均为只读列表；最后一次虽然使用 `studio.feature.action`，但操作目录中的 `mutation=false`，前端不应弹出写操作确认：
+
+```json
+{"interfaceCode":"studio.feature.list","params":{"path":"/runtime-clusters"}}
+{"interfaceCode":"studio.feature.list","params":{"path":"/models","runtimeClusterId":7,"keyword":"orders","pageNo":1,"pageSize":20}}
+{"interfaceCode":"studio.feature.action","params":{"path":"/models","action":"preview","id":5,"runtimeClusterId":7,"limit":20}}
+```
+
+缺少模型 ID 时返回 `assistant tool id is required`；缺少运行集群时返回 `assistant tool runtimeClusterId is required`。调用方应根据真实缺参补齐选择，不要把两种错误都当成模型 ID 丢失后重复查询详情。
 
 ### exports.project()
 

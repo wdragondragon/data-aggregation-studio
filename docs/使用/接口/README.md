@@ -30,18 +30,19 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 |---|---:|---:|
 | [公共约定、认证与 cURL 模板](./00-common-auth-and-conventions.md) | 7 | 7 |
 | [工作台与目录能力接口](./01-dashboard-catalog.md) | 4 | 4 |
-| [数据资产、数据源、元模型与模型中心接口](./02-assets-datasources-models.md) | 61 | 54 |
+| [数据资产、数据源、元模型与模型中心接口](./02-assets-datasources-models.md) | 63 | 54 |
 | [字段映射规则、采集任务和采集运行接口](./03-collection-and-field-mapping.md) | 27 | 27 |
-| [数据开发、工作流与运行日志接口](./04-data-development-workflows-runs.md) | 56 | 57 |
-| [数据服务开放接口](./05-open-data-services.md) | 24 | 28 |
+| [数据开发、工作流与运行日志接口](./04-data-development-workflows-runs.md) | 57 | 57 |
+| [数据服务开放接口](./05-open-data-services.md) | 25 | 28 |
 | [数据接入服务接口](./06-data-ingestion-services.md) | 25 | 28 |
 | [协议转换服务接口](./07-protocol-conversions.md) | 21 | 24 |
 | [数据质量规则、任务、指标和问题接口](./08-quality.md) | 46 | 45 |
 | [系统管理、权限、访问申请、通知和关注接口](./09-system-access-notifications.md) | 58 | 59 |
-| [运维中心、运行时、导入导出和 AI 助手接口](./10-ops-center-runtime-import-export-assistant.md) | 18 | 20 |
-| [统一告警中心接口](./11-alert-center.md) | 26 | 26 |
-| [运行集群与数据源适用范围接口](./12-runtime-clusters.md) | 14 | 16 |
+| [运维中心、运行时、导入导出和 AI 助手接口](./10-ops-center-runtime-import-export-assistant.md) | 19 | 20 |
+| [统一告警中心接口](./11-alert-center.md) | 28 | 26 |
+| [运行集群与数据源适用范围接口](./12-runtime-clusters.md) | 16 | 16 |
 | [运行调用幂等保护](./13-runtime-invocation-idempotency.md) | 0（公共写入口增量） | 0（既有入口增量） |
+| [业务接口运行集群 ID 下推分析](./14-runtime-cluster-id-pushdown-analysis.md) | 0（分析记录） | 0（既有接口分析） |
 
 ## 界面路由覆盖
 
@@ -102,9 +103,9 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 
 ## 抽取覆盖说明
 
-- 前端 SDK 接口总数：360
-- 后端 Controller 方法总数：373
+- 前端 SDK 接口总数：368
+- 后端产品 Controller 方法总数：374（375 个标准 Mapping 方法 + 2 个通用 `@RequestMapping` 方法，再排除仅用于开发期冒烟测试的 `HttpWriterSinkController` 3 个临时接收接口）
 - 文档覆盖方式：管理端界面优先按前端 SDK 分组，开放访问接口按后端 Controller 路径补充到对应服务模块。
-- 生成日期：2026-07-20
+- 最新校准日期：2026-08-03
 
 2026-07-20 的多集群增量同时修改了多个既有接口的参数和 DTO，但没有增加对应方法数量。各模块开头的“多集群增量契约”优先于历史自动抽取表中的旧参数摘要；源码行号可能随本轮实现漂移，联调时以接口路径、方法名和增量契约为准。

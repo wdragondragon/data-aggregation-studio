@@ -19,27 +19,36 @@
 
 ## SDK 与接口
 
-| SDK | 方法 | 路径 | 返回 |
-|---|---|---|---|
-| `alerts.options()` | GET | `/alerts/options` | `AlertOptionsView` |
-| `alerts.subjects()` | GET | `/alerts/subjects` | `PageResult<AlertSelectOptionView>` |
-| `alerts.recipientOptions()` | GET | `/alerts/recipient-options` | `PageResult<AlertSelectOptionView>` |
-| `alerts.summary()` | GET | `/alerts/summary` | `AlertSummaryView` |
-| `alerts.tenantSummary()` | POST | `/alerts/tenant-summary/query` | `PageResult<AlertTenantProjectSummaryView>` |
-| `alerts.queryRules()` | POST | `/alerts/rules/query` | `PageResult<AlertRuleView>` |
-| `alerts.getRule()` | GET | `/alerts/rules/{id}` | `AlertRuleView` |
-| `alerts.saveRule()` | POST | `/alerts/rules` | `AlertRuleView` |
-| `alerts.deleteRule()` | DELETE | `/alerts/rules/{id}` | `void` |
-| `alerts.enableRule()` / `disableRule()` / `testRule()` | POST | `/alerts/rules/{id}/enable|disable|test` | 规则或测试事件 |
-| `alerts.queryIncidents()` | POST | `/alerts/incidents/query` | `PageResult<AlertIncidentView>` |
-| `alerts.getIncident()` | GET | `/alerts/incidents/{id}` | `AlertIncidentView`，含最近事件和投递 |
-| `alerts.incidentEvents()` | GET | `/alerts/incidents/{id}/events` | `PageResult<AlertEventView>` |
-| `alerts.acknowledgeIncident()` / `closeIncident()` | POST | `/alerts/incidents/{id}/acknowledge|close` | `AlertIncidentView` |
-| `alerts.queryChannels()` | POST | `/alerts/channels/query` | `PageResult<AlertChannelView>` |
-| `alerts.getChannel()` / `saveChannel()` / `deleteChannel()` | GET/POST/DELETE | `/alerts/channels...` | 通道详情或 `void` |
-| `alerts.enableChannel()` / `disableChannel()` / `testChannel()` | POST | `/alerts/channels/{id}/enable|disable|test` | 通道或测试事件 |
-| `alerts.queryDeliveries()` | POST | `/alerts/deliveries/query` | `PageResult<AlertDeliveryView>` |
-| `alerts.retryDelivery()` | POST | `/alerts/deliveries/{id}/retry` | `AlertDeliveryView` |
+| SDK 调用 | 方法 | 路径 | 参数/请求体 | 返回类型 |
+|---|---|---|---|---|
+| `alerts.options()` | GET | `/alerts/options` | - | `AlertOptionsView` |
+| `alerts.subjects()` | GET | `/alerts/subjects` | params: { subjectType: string; keyword?: string; pageNo?: number; pageSize?: number } | `PageResult<AlertSelectOptionView>` |
+| `alerts.recipientOptions()` | GET | `/alerts/recipient-options` | params?: { keyword?: string; pageNo?: number; pageSize?: number } | `PageResult<AlertSelectOptionView>` |
+| `alerts.summary()` | GET | `/alerts/summary` | - | `AlertSummaryView` |
+| `alerts.tenantSummary()` | POST | `/alerts/tenant-summary/query` | payload?: { keyword?: string; pageNo?: number; pageSize?: number }<br>body: `payload` | `PageResult<AlertTenantProjectSummaryView>` |
+| `alerts.queryRules()` | POST | `/alerts/rules/query` | payload?: AlertRuleQueryRequest<br>body: `payload` | `PageResult<AlertRuleView>` |
+| `alerts.getRule()` | GET | ``/alerts/rules/${id}`` | id: EntityId | `AlertRuleView` |
+| `alerts.saveRule()` | POST | `/alerts/rules` | payload: AlertRuleSaveRequest<br>body: `payload` | `AlertRuleView` |
+| `alerts.deleteRule()` | DELETE | ``/alerts/rules/${id}`` | id: EntityId | `void` |
+| `alerts.enableRule()` | POST | ``/alerts/rules/${id}/enable`` | id: EntityId | `AlertRuleView` |
+| `alerts.disableRule()` | POST | ``/alerts/rules/${id}/disable`` | id: EntityId | `AlertRuleView` |
+| `alerts.testRule()` | POST | ``/alerts/rules/${id}/test`` | id: EntityId | `AlertEventView` |
+| `alerts.queryIncidents()` | POST | `/alerts/incidents/query` | payload?: AlertIncidentQueryRequest<br>body: `payload` | `PageResult<AlertIncidentView>` |
+| `alerts.getIncident()` | GET | ``/alerts/incidents/${id}`` | id: EntityId | `AlertIncidentView`，含最近事件和投递 |
+| `alerts.incidentEvents()` | GET | ``/alerts/incidents/${id}/events`` | id: EntityId<br>params?: { pageNo?: number; pageSize?: number } | `PageResult<AlertEventView>` |
+| `alerts.acknowledgeIncident()` | POST | ``/alerts/incidents/${id}/acknowledge`` | id: EntityId<br>payload?: { comment?: string }<br>body: `payload` | `AlertIncidentView` |
+| `alerts.closeIncident()` | POST | ``/alerts/incidents/${id}/close`` | id: EntityId<br>payload?: { comment?: string }<br>body: `payload` | `AlertIncidentView` |
+| `alerts.queryChannels()` | POST | `/alerts/channels/query` | payload?: AlertChannelQueryRequest<br>body: `payload` | `PageResult<AlertChannelView>` |
+| `alerts.getChannel()` | GET | ``/alerts/channels/${id}`` | id: EntityId | `AlertChannelView` |
+| `alerts.saveChannel()` | POST | `/alerts/channels` | payload: AlertChannelSaveRequest<br>body: `payload` | `AlertChannelView` |
+| `alerts.deleteChannel()` | DELETE | ``/alerts/channels/${id}`` | id: EntityId | `void` |
+| `alerts.enableChannel()` | POST | ``/alerts/channels/${id}/enable`` | id: EntityId | `AlertChannelView` |
+| `alerts.disableChannel()` | POST | ``/alerts/channels/${id}/disable`` | id: EntityId | `AlertChannelView` |
+| `alerts.testChannel()` | POST | ``/alerts/channels/${id}/test`` | id: EntityId | `AlertEventView` |
+| `alerts.queryDeliveries()` | POST | `/alerts/deliveries/query` | payload?: AlertDeliveryQueryRequest<br>body: `payload` | `PageResult<AlertDeliveryView>` |
+| `alerts.retryDelivery()` | POST | ``/alerts/deliveries/${id}/retry`` | id: EntityId | `AlertDeliveryView` |
+| `elink.queryUsers()` | GET | `/elink/users` | params?: { keyword?: string; pageNo?: number; pageSize?: number } | `PageResult<ElinkUserOptionView>` |
+| `elink.queryGroups()` | GET | `/elink/groups` | params?: { keyword?: string; pageNo?: number; pageSize?: number } | `PageResult<ElinkGroupOptionView>` |
 
 ## 权限能力与租户摘要
 

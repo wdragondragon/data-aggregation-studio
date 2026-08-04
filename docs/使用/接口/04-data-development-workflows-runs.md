@@ -58,6 +58,7 @@
 | `environmentDependencies.queryPage()` | POST | `/environment-dependencies/queryPage` | params?: { pageNum?: number; pageSize?: number; keyword?: string; enabled?: boolean } | `EnvironmentDependencyListView` | `frontend/apps/web/src/views/ScriptEnvironmentsView.vue:355` | `frontend/packages/api-sdk/src/client.ts:1473` |
 | `environmentDependencies.saveOrUpdateCheck()` | POST | `/environment-dependencies/saveOrUpdateCheck` | payload: EnvironmentDependencySaveRequest<br>body: `payload` | `EnvironmentDependency` | - | `frontend/packages/api-sdk/src/client.ts:1485` |
 | `environmentDependencies.saveOrUpdateCheckForm()` | POST | `/environment-dependencies/saveOrUpdateCheck` | payload: FormData<br>body: `payload` | `EnvironmentDependency` | `frontend/apps/web/src/views/ScriptEnvironmentsView.vue:501` | `frontend/packages/api-sdk/src/client.ts:1488` |
+| `environmentDependencies.downloadFile()` | GET | ``/environment-dependencies/${dependencyId}/files/${fileId}/download`` | dependencyId: EntityId<br>fileId: EntityId | `Blob` | 环境依赖文件下载 | `frontend/packages/api-sdk/src/client.ts:1655` |
 | `runs.list()` | GET | `/runs` | params?: RunListQuery | `RunListResponse` | `frontend/apps/web/src/views/CollectionTasksView.vue:322` | `frontend/packages/api-sdk/src/client.ts:1605` |
 | `runs.listPage()` | GET | `/runs/page` | params?: RunRecordPageQuery | `RunRecordPageResponse` | `frontend/apps/web/src/views/CollectionTaskRunsView.vue:243`<br>`frontend/apps/web/src/views/QualityTaskRunsView.vue:231` | `frontend/packages/api-sdk/src/client.ts:1612` |
 | `schedules.list()` | GET | `/schedules` | - | `WorkflowListView[]` | - | `frontend/packages/api-sdk/src/client.ts:1600` |
@@ -325,6 +326,18 @@ curl -X POST "${BASE_URL}/environment-dependencies/saveOrUpdateCheck" \
   -H "X-Project-Id: ${PROJECT_ID}" \
   -H "Content-Type: application/json" \
   -d '<json-body>'
+```
+
+### environmentDependencies.downloadFile()
+
+该方法直接以 `responseType: "blob"` 请求文件并返回 `response.data`，不经过普通 JSON `Result<T>` 解包流程。
+
+```bash
+curl -X GET "${BASE_URL}/environment-dependencies/{dependencyId}/files/{fileId}/download" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "X-Tenant-Id: ${TENANT_ID}" \
+  -H "X-Project-Id: ${PROJECT_ID}" \
+  --output "environment-dependency-file.bin"
 ```
 
 ### runs.list()
@@ -644,7 +657,7 @@ interface RunLogView
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | runRecordId | 否 | `EntityId` | |
-| content | 否 | `string` | |
+| content | 否 | `string` | 服务端返回前会使用 `StudioSensitiveLogSanitizer` 对密码、Token、Secret 等敏感内容脱敏；自动化不得依赖响应中出现原始敏感值。 |
 | truncated | 否 | `boolean` | |
 | paged | 否 | `boolean` | |
 | sizeBytes | 否 | `number` | |

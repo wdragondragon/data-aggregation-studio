@@ -439,7 +439,31 @@ interface DataIngestionInvokeResult
 | successCount | 否 | `number` | |
 | failedCount | 否 | `number` | |
 | status | 否 | `string` | |
+| pluginRevisions | 否 | `Record<string, string>` | 后端响应已包含：本次调用实际使用的目标作业插件身份和修订信息，仅属于运行时元数据，不写入服务定义。当前前端 SDK 类型声明暂未补齐此字段。 |
 | sourceResults | 否 | `DataIngestionSourceInvokeResult[]` | |
+
+### DataIngestionSourceInvokeResult
+
+来源：`frontend/packages/api-sdk/src/types.ts:898`；`pluginRevisions` 来源于后端 `DataIngestionSourceInvokeResult`。
+
+```ts
+interface DataIngestionSourceInvokeResult
+```
+
+| 字段 | 必填 | 类型 | 说明/自动化取值提示 |
+|---|---:|---|---|
+| sourceCode | 否 | `string` | |
+| sourceName | 否 | `string` | |
+| targetDatasourceName | 否 | `string` | |
+| targetModelName | 否 | `string` | |
+| receivedCount | 否 | `number` | |
+| successCount | 否 | `number` | |
+| failedCount | 否 | `number` | |
+| status | 否 | `string` | |
+| message | 否 | `string` | |
+| jobId | 否 | `EntityId` | |
+| logSectionKey | 否 | `string` | 用于定位该来源目标作业的调用日志分段。 |
+| pluginRevisions | 否 | `Record<string, string>` | 后端响应已包含：该来源目标作业实例实际使用的插件身份和修订信息。当前前端 SDK 类型声明暂未补齐此字段。 |
 
 ### DataIngestionMetricDashboardView
 
@@ -670,7 +694,7 @@ interface RunLogView
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | runRecordId | 否 | `EntityId` | |
-| content | 否 | `string` | |
+| content | 否 | `string` | 服务端返回前会使用 `StudioSensitiveLogSanitizer` 对密码、Token、Secret 等敏感内容脱敏；自动化不得依赖响应中出现原始敏感值。 |
 | truncated | 否 | `boolean` | |
 | paged | 否 | `boolean` | |
 | sizeBytes | 否 | `number` | |

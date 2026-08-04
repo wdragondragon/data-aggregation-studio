@@ -242,4 +242,3 @@ interface WorkspaceAccessRequestView
 | reviewComment | 否 | `string` | |
 | createdAt | 否 | `string` | |
 | reviewedAt | 否 | `string \| null` | |
-

@@ -23,6 +23,14 @@
 4. Worker 绑定：GET /system/project-worker-options?projectId=<id> -> POST /system/project-workers -> 运维 GET /ops-center/workers/query 校验在线实例。
 5. 资源共享：GET /system/resource-share-options?resourceType=<type>&projectId=<source> -> POST /system/resource-shares -> 目标项目查询对应资源列表。
 6. 通知关注：POST /follows 关注目标 -> GET /notifications/snapshot 或 /notifications -> POST /notifications/{id}/read。
+7. 用户 eLink 绑定：GET /elink/users?keyword=<keyword> 获取 Manager 候选 -> POST /users 保存 `mobilePhone/elinkUserId`；显式解绑时提交 `clearElinkUserBinding=true`。
+
+## 2026-07-18 用户通知绑定增量契约
+
+- `POST /users` 新增 `mobilePhone`、`elinkUserId`、`elinkUserName` 和 `clearElinkUserBinding`。`mobilePhone` 接受中国大陆手机号及常见 `+86`、空格、短横线格式，服务端规范化保存；空字符串表示清除，省略表示保留。
+- `elinkUserId` 必须来自 `GET /elink/users` 候选。Studio 用户与 eLink 账号是一对一关系；`elinkUserName` 仅作显示快照，服务端优先使用 Manager 返回名称。
+- `clearElinkUserBinding=true` 表示显式解绑。绑定字段全部省略时保留原绑定，不要用空 `elinkUserId` 代替解绑动作。
+- `GET /users` 和 `GET /users/page` 返回 `mobilePhone/elinkUserId/elinkUserName`，不会返回 `clearElinkUserBinding`。
 
 ## 前端 SDK 接口清单
 
@@ -509,6 +517,10 @@ interface StudioUser extends BaseRecord
 | enabled | 否 | `number \| boolean` | |
 | authSource | 否 | `string` | |
 | externalAccount | 否 | `string` | |
+| mobilePhone | 否 | `string \| null` | 空字符串表示清除；省略表示保留已有手机号。 |
+| elinkUserId | 否 | `string \| null` | 必须来自 eLink 用户候选；与其他 Studio 用户不可重复绑定。 |
+| elinkUserName | 否 | `string` | eLink 用户显示名快照，服务端优先采用 Manager 返回值。 |
+| clearElinkUserBinding | 否 | `boolean` | `true` 时显式解除当前 eLink 绑定。 |
 
 ### StudioUserListView
 
@@ -522,7 +534,10 @@ interface StudioUserListView extends BaseRecord
 |---|---:|---|---|
 | username | 是 | `string` | |
 | displayName | 否 | `string` | |
+| mobilePhone | 否 | `string \| null` | 已规范化的用户手机号。 |
 | enabled | 否 | `number \| boolean` | |
+| elinkUserId | 否 | `string \| null` | 当前绑定的 eLink 用户 ID。 |
+| elinkUserName | 否 | `string \| null` | 当前绑定的 eLink 用户显示名。 |
 
 ### SystemProject
 
@@ -718,4 +733,3 @@ interface WorkspaceAccessRequestView
 | reviewComment | 否 | `string` | |
 | createdAt | 否 | `string` | |
 | reviewedAt | 否 | `string \| null` | |
-

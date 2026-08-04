@@ -513,7 +513,7 @@ interface RunLogView
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | runRecordId | 否 | `EntityId` | |
-| content | 否 | `string` | |
+| content | 否 | `string` | `RunLogProxyService` 和日志存储服务会在返回前使用 `StudioSensitiveLogSanitizer` 对密码、Token、Secret 等敏感内容脱敏；自动化不得依赖响应中出现原始敏感值。 |
 | truncated | 否 | `boolean` | |
 | paged | 否 | `boolean` | |
 | sizeBytes | 否 | `number` | |

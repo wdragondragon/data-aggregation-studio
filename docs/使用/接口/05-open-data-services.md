@@ -44,6 +44,7 @@
 | `dataServices.list()` | GET | `/data-services` | params?: { pageNo?: number; pageSize?: number; keyword?: string; status?: string; serviceType?: string; }<br>config?: StudioRequestConfig | `DataServiceListView` | `frontend/apps/web/src/views/DataServicesView.vue:178` | `frontend/packages/api-sdk/src/client.ts:668` |
 | `dataServices.save()` | POST | `/data-services` | payload: DataServiceSaveRequest<br>body: `payload` | `DataServiceDefinitionView` | `frontend/apps/web/src/views/DataServiceEditorView.vue:1140` | `frontend/packages/api-sdk/src/client.ts:680` |
 | `dataServices.resolveFields()` | POST | `/data-services/resolve-fields` | payload: DataServiceResolveFieldsRequest<br>body: `payload` | `DataServiceResolveFieldsView` | `frontend/apps/web/src/views/DataServiceEditorView.vue:963` | `frontend/packages/api-sdk/src/client.ts:698` |
+| `dataServices.debug()` | POST | ``/data-services/${id}/debug`` | id: EntityId<br>payload: DataServiceDebugRequest<br>body: `payload`（HTTP Body 可省略；SDK 无调试入参时传 `{}`） | `Result<DataServiceInvokeResponse>` 完整响应包 | `frontend/apps/web/src/views/DataServiceEditorView.vue` | `frontend/packages/api-sdk/src/client.ts:823` |
 | `dataServices.offlineSummary()` | POST | ``/data-services/${id}/offline-summary`` | id: EntityId | `DataServiceListView` | `frontend/apps/web/src/views/DataServicesView.vue:241` | `frontend/packages/api-sdk/src/client.ts:695` |
 | `dataServices.offline()` | POST | ``/data-services/${id}/offline`` | id: EntityId | `DataServiceDefinitionView` | - | `frontend/packages/api-sdk/src/client.ts:692` |
 | `dataServices.publishSummary()` | POST | ``/data-services/${id}/publish-summary`` | id: EntityId | `DataServiceListView` | `frontend/apps/web/src/views/DataServicesView.vue:228` | `frontend/packages/api-sdk/src/client.ts:689` |
@@ -174,6 +175,19 @@ curl -X POST "${BASE_URL}/data-services/resolve-fields" \
   -H "X-Project-Id: ${PROJECT_ID}" \
   -H "Content-Type: application/json" \
   -d '<json-body>'
+```
+
+### dataServices.debug()
+
+HTTP Body 可省略；通过 SDK 调用时 `payload` 参数必传，无额外调试参数可传 `{}`。该方法直接调用 Axios 实例并返回完整的 `Result<DataServiceInvokeResponse>`，不会像通用 `request<T>` 一样只返回 `data`，调用方应从 `result.data` 读取调试结果。
+
+```bash
+curl -X POST "${BASE_URL}/data-services/{id}/debug" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "X-Tenant-Id: ${TENANT_ID}" \
+  -H "X-Project-Id: ${PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d '{"headers":{},"query":{},"body":{}}'
 ```
 
 ### dataServices.offlineSummary()
@@ -341,6 +355,36 @@ curl -X POST "${STUDIO_ORIGIN}/openapi/ws/data-services/{serviceCode}/{serviceKe
 
 
 ## 主要 DTO 字段
+
+### DataServiceDebugRequest
+
+来源：`frontend/packages/api-sdk/src/types.ts:731`
+
+```ts
+interface DataServiceDebugRequest
+```
+
+| 字段 | 必填 | 类型 | 说明/自动化取值提示 |
+|---|---:|---|---|
+| headers | 否 | `Record<string, unknown>` | 模拟调用时附加的请求头。 |
+| query | 否 | `Record<string, unknown>` | 模拟调用时附加的 Query 参数。 |
+| body | 否 | `Record<string, unknown>` | 模拟调用时发送的业务请求体。 |
+
+### DataServiceInvokeResponse
+
+来源：`frontend/packages/api-sdk/src/types.ts:737`
+
+```ts
+interface DataServiceInvokeResponse
+```
+
+| 字段 | 必填 | 类型 | 说明/自动化取值提示 |
+|---|---:|---|---|
+| pageNum | 否 | `number` | 当前页码。 |
+| pageSize | 否 | `number` | 分页大小。 |
+| pages | 否 | `number` | 总页数。 |
+| table | 否 | `{ bodies?: Record<string, unknown>[] }` | 调试返回行位于 `table.bodies`；通过 `dataServices.debug()` 调用时完整路径为 `result.data.table.bodies`。 |
+| `[key: string]` | 否 | `unknown` | 不同服务响应可附带其它业务字段。 |
 
 ### DataServiceAccessLogListView
 
@@ -634,7 +678,7 @@ interface RunLogView
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | runRecordId | 否 | `EntityId` | |
-| content | 否 | `string` | |
+| content | 否 | `string` | 服务端返回前会使用 `StudioSensitiveLogSanitizer` 对密码、Token、Secret 等敏感内容脱敏；自动化不得依赖响应中出现原始敏感值。 |
 | truncated | 否 | `boolean` | |
 | paged | 否 | `boolean` | |
 | sizeBytes | 否 | `number` | |

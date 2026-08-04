@@ -23,14 +23,36 @@ Studio 只有一种显式运行集群语义。所有新增、保存和执行请�
 | GET | `/runtime-clusters/{id}/endpoints` | 查询端点脱敏视图。 |
 | POST | `/runtime-clusters/endpoints` | 保存 Worker `HTTP/SLB` 端点。旧 `LOCAL` 记录只能查看、获得固定测试失败提示、停用和删除。 |
 | POST | `/runtime-clusters/endpoints/{id}/test` | 测试端点并更新最近测试结果。 |
+| POST | `/runtime-clusters/endpoints/{id}/disable` | 停用端点；删除端点前必须先停用。 |
 | DELETE | `/runtime-clusters/endpoints/{id}` | 删除已停用的端点。 |
 | GET | `/runtime-clusters/project-authorizations?projectId={id}` | 查询项目授权。 |
 | POST | `/runtime-clusters/project-authorizations` | 保存项目对集群的授权、首选及手动覆盖许可。 |
 | POST | `/runtime-clusters/validations/query` | 查询当前项目失效的运行配置；支持按资源类型和资源 ID 集合过滤。 |
 
+### 前端 SDK 方法
+
+| SDK 调用 | 方法 | 路径 | 参数/请求体 | 返回类型 |
+|---|---|---|---|---|
+| `runtimeClusters.list()` | GET | `/runtime-clusters` | config?: StudioRequestConfig | `RuntimeClusterView[]` |
+| `runtimeClusters.options()` | GET | `/runtime-clusters/options` | projectId?: EntityId<br>config?: StudioRequestConfig | `RuntimeClusterView[]` |
+| `runtimeClusters.get()` | GET | ``/runtime-clusters/${id}`` | id: EntityId | `RuntimeClusterView` |
+| `runtimeClusters.save()` | POST | `/runtime-clusters` | payload: RuntimeClusterSaveRequest<br>body: `payload` | `RuntimeClusterView` |
+| `runtimeClusters.enable()` | POST | ``/runtime-clusters/${id}/enable`` | id: EntityId | `RuntimeClusterView` |
+| `runtimeClusters.disable()` | POST | ``/runtime-clusters/${id}/disable`` | id: EntityId | `RuntimeClusterView` |
+| `runtimeClusters.delete()` | DELETE | ``/runtime-clusters/${id}`` | id: EntityId | `void` |
+| `runtimeClusters.instances()` | GET | ``/runtime-clusters/${id}/instances`` | id: EntityId | `RuntimeClusterInstanceView[]` |
+| `runtimeClusters.endpoints()` | GET | ``/runtime-clusters/${runtimeClusterId}/endpoints`` | runtimeClusterId: EntityId | `RuntimeEndpointView[]` |
+| `runtimeClusters.saveEndpoint()` | POST | `/runtime-clusters/endpoints` | payload: RuntimeEndpointSaveRequest<br>body: `payload` | `RuntimeEndpointView` |
+| `runtimeClusters.testEndpoint()` | POST | ``/runtime-clusters/endpoints/${id}/test`` | id: EntityId | `RuntimeEndpointView` |
+| `runtimeClusters.disableEndpoint()` | POST | ``/runtime-clusters/endpoints/${id}/disable`` | id: EntityId | `RuntimeEndpointView` |
+| `runtimeClusters.deleteEndpoint()` | DELETE | ``/runtime-clusters/endpoints/${id}`` | id: EntityId | `void` |
+| `runtimeClusters.projectAuthorizations()` | GET | `/runtime-clusters/project-authorizations` | projectId: EntityId<br>query: `{ projectId }` | `RuntimeClusterProjectAuthorizationView[]` |
+| `runtimeClusters.saveProjectAuthorization()` | POST | `/runtime-clusters/project-authorizations` | payload: RuntimeClusterProjectAuthorizationRequest<br>body: `payload` | `RuntimeClusterProjectAuthorizationView` |
+| `runtimeClusters.queryInvalidValidations()` | POST | `/runtime-clusters/validations/query` | payload?: RuntimeValidationQueryRequest<br>body: `payload` | `RuntimeValidationView[]` |
+
 Controller 另保留 `POST /runtime-clusters/internal/heartbeat` 作为内部兼容入口，请求头必须携带 `X-Studio-Internal-Token`，Body 为 `{ tenantId, clusterCode, instanceId, version, summary }`。它不属于前端 SDK，也不应暴露给浏览器；当前标准 Worker 的主心跳直接写共享数据库，不通过该 HTTP 接口。
 
-`GET /runtime-clusters/{id}` 返回的 `instances` 是心跳上报的实例摘要，不是静态部署清单。`GET /runtime-clusters/{id}/instances` 返回相同的实例结构，适合实例抽屉独立刷新。Worker 当前每 5 秒上报一次；服务端以 30 秒为心跳有效期，并每 10 秒刷新一次数据库中的集群 `OFFLINE` 状态。查询接口还会实时计算 `status`、`online` 和 `onlineInstanceCount`，前端不能自行推导在线状态：
+`GET /runtime-clusters/{id}` 返回的 `instances` 是兼容心跳上报的实例摘要，不是静态部署清单。`GET /runtime-clusters/{id}/instances` 返回相同的实例结构，适合实例抽屉独立刷新。Worker 当前每 5 秒续租；服务端兼容 30 秒心跳有效期，并每 10 秒刷新一次数据库中的集群 `OFFLINE` 状态。资源执行和删除保护还会检查共享数据库中的有效 Worker lease，因此不能只根据旧实例摘要判断集群是否仍在使用。查询接口返回的 `status`、`online` 和 `onlineInstanceCount` 仍由服务端计算，前端不能自行推导：
 
 ```json
 {
@@ -246,7 +268,7 @@ OMS 同步代理的请求体上限由 `STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES`
 
 1. 调用 `/runtime-clusters/options` 加载当前项目选项；只有一个选项时自动选中并将选择器设为只读。
 2. 用户选定 `runtimeClusterId` 后，再调用 `/datasources/options?runtimeClusterId=...`。
-3. 数据源、模型或关联任务下拉在集群未选择前保持禁用。
+3. 数据源、模型或关联任务下拉在集群未选择前保持禁用；模型预览和 Flink SQL 模型选择统一调用 `/models/selector-options?runtimeClusterId=...`，不要使用无集群的普通模型列表替代。
 4. 切换集群前要求用户确认；确认后清理不兼容的数据源、模型、字段映射、SQL 预览和运行参数缓存。
 5. 保存、发布、调试和触发失败时直接展示后端 `message`，不要把集群授权、数据源不适用或运行配置失效错误替换成通用文案。
 
@@ -259,7 +281,7 @@ OMS 同步代理的请求体上限由 `STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES`
 | `Disable the runtime cluster before deleting it` | 删除前先停用集群。 |
 | `Only HTTP runtime endpoints are supported; migrate legacy LOCAL endpoints to a Worker HTTP/SLB endpoint` | 新建和编辑端点只支持 `HTTP`；旧 `LOCAL` 记录应迁移到 Worker HTTP/SLB 端点后停用并删除。 |
 | `Legacy LOCAL runtime endpoints are no longer executable; configure and test a Worker HTTP/SLB endpoint, then remove this record` | 对旧 `LOCAL` 记录执行端点测试时固定失败；先配置并测试 Worker HTTP/SLB 端点，再清理旧记录。 |
-| `Stop all runtime cluster instances before deleting it` | 仍有 30 秒有效期内的实例心跳，停止实例并等待状态刷新。 |
+| `Stop all runtime cluster instances before deleting it` | 仍有有效 Worker lease、30 秒有效期内的兼容实例心跳或最近集群心跳；停止 Worker 并等待租约/状态过期。 |
 | `Remove runtime endpoints, project authorizations, datasource bindings and resource references before deleting this cluster` | 集群仍被当前配置或活动任务引用，先解除引用。 |
 | `Disable the runtime endpoint before deleting it` | 先编辑端点并关闭启用状态。 |
 | `Runtime cluster is disabled` / `Runtime cluster is unavailable` | 目标集群已停用或不在当前租户可用范围。 |
