@@ -42,6 +42,10 @@ class AssistantStudioOperationRegistryTest {
         assertEquals(Boolean.FALSE, listTool.get("mutation"));
         assertTrue(((List<?>) listTool.get("optionalValues")).contains("view"));
         assertTrue(((List<?>) listTool.get("optionalValues")).contains("scriptType"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> requiredValuesByView = (Map<String, Object>) listTool.get("requiredValuesByView");
+        assertTrue(((List<?>) requiredValuesByView.get("datasources")).contains("runtimeClusterId"));
+        assertTrue(String.valueOf(listTool.get("purpose")).contains("explicit project-authorized runtimeClusterId"));
         Map<String, Object> getTool = readTools.stream()
                 .filter(item -> "studio.feature.get".equals(item.get("tool")))
                 .findFirst()
@@ -55,10 +59,17 @@ class AssistantStudioOperationRegistryTest {
                 .orElseThrow(AssertionError::new);
         assertEquals("studio.feature.action", executeSqlAction.get("tool"));
         assertTrue(((List<?>) executeSqlAction.get("requiredValues")).contains("payload"));
+        assertTrue(((List<?>) executeSqlAction.get("requiredValues")).contains("payload.runtimeClusterId"));
         @SuppressWarnings("unchecked")
         Map<String, Object> params = (Map<String, Object>) executeSqlAction.get("params");
         assertEquals("/data-development", params.get("path"));
         assertEquals("executeSql", params.get("action"));
+        Map<String, Object> executeScriptAction = featureActions.stream()
+                .filter(item -> "executeScript".equals(item.get("action")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertEquals("scripts", executeScriptAction.get("resource"));
+        assertTrue(((List<?>) executeScriptAction.get("requiredValues")).contains("payload.runtimeClusterId"));
     }
 
     @Test
@@ -181,6 +192,17 @@ class AssistantStudioOperationRegistryTest {
         assertEquals(Boolean.TRUE, operation.get("supportsList"));
         assertEquals(Boolean.FALSE, operation.get("supportsGet"));
         assertTrue(String.valueOf(operation.get("writePolicy")).contains("Read-only"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> readTools = (List<Map<String, Object>>) operation.get("readTools");
+        Map<String, Object> listTool = readTools.stream()
+                .filter(item -> "studio.feature.list".equals(item.get("tool")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        List<?> optionalValues = (List<?>) listTool.get("optionalValues");
+        assertTrue(optionalValues.contains("datasourceIds"));
+        assertTrue(optionalValues.contains("modelIds"));
+        assertTrue(optionalValues.contains("applicableClusterIds"));
+        assertTrue(String.valueOf(listTool.get("purpose")).contains("authorized"));
     }
 
     @Test
@@ -345,8 +367,39 @@ class AssistantStudioOperationRegistryTest {
 
         assertTrue(optionalValues.contains("keyword"));
         assertTrue(optionalValues.contains("datasourceId"));
+        assertTrue(optionalValues.contains("runtimeClusterId"));
         assertFalse(optionalValues.contains("name"));
         assertFalse(optionalValues.contains("tableName"));
+    }
+
+    @Test
+    void modelPreviewShouldBeAReadOnlyClusterScopedAction() {
+        AssistantStudioOperationRegistry registry = new AssistantStudioOperationRegistry();
+
+        Map<String, Object> modelOperation = registry.allOperations().stream()
+                .filter(item -> "/models".equals(item.get("path")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> readTools = (List<Map<String, Object>>) modelOperation.get("readTools");
+        Map<String, Object> getTool = readTools.stream()
+                .filter(item -> "studio.feature.get".equals(item.get("tool")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertFalse(((List<?>) getTool.get("optionalValues")).contains("preview"));
+        assertFalse(((List<?>) getTool.get("optionalValues")).contains("runtimeClusterId"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) modelOperation.get("featureActions");
+        Map<String, Object> preview = actions.stream()
+                .filter(item -> "preview".equals(item.get("action")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertEquals("studio.feature.action", preview.get("tool"));
+        assertEquals(Boolean.FALSE, preview.get("mutation"));
+        assertTrue(((List<?>) preview.get("requiredValues")).contains("id"));
+        assertTrue(((List<?>) preview.get("requiredValues")).contains("runtimeClusterId"));
+        assertTrue(((List<?>) preview.get("optionalValues")).contains("limit"));
     }
 
     @Test
@@ -395,6 +448,20 @@ class AssistantStudioOperationRegistryTest {
 
         assertTrue(((List<?>) save.get("requiredValues")).contains("payload.runtimeClusterId"));
         assertTrue(((List<?>) trigger.get("optionalValues")).contains("runtimeClusterId"));
+        assertTrue(String.valueOf(trigger.get("purpose")).contains("省略 runtimeClusterId 继承保存值"));
+
+        Map<String, Object> scripts = registry.allOperations().stream()
+                .filter(item -> "/data-development".equals(item.get("path")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> scriptActions = (List<Map<String, Object>>) scripts.get("featureActions");
+        Map<String, Object> executeSavedScript = scriptActions.stream()
+                .filter(item -> "executeSavedScript".equals(item.get("action")))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertTrue(String.valueOf(executeSavedScript.get("purpose")).contains("省略 payload 继承保存"));
+        assertTrue(String.valueOf(executeSavedScript.get("purpose")).contains("任何显式 runtimeClusterId"));
 
         Map<String, Object> datasources = registry.allOperations().stream()
                 .filter(item -> "/datasources".equals(item.get("path")))

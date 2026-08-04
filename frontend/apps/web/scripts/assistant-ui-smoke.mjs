@@ -1140,6 +1140,22 @@ async function main() {
   assert(visibleTextAfterQualityMetrics.includes("Quality Issues Result"), "Quality metrics backend result was not rendered.");
   assert(visibleTextAfterQualityMetrics.includes("QI-91"), "Quality issue result was not rendered.");
 
+  const runtimeClusterResolutionBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const runtimeClusterResolutionBefore = runtimeClusterResolutionBeforePayload.data ?? runtimeClusterResolutionBeforePayload;
+  const runtimeClusterResolutionToolExecuteBefore = Number(runtimeClusterResolutionBefore.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "Resolve model preview runtime cluster probe.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  await waitForText(page, "Runtime Cluster Resolution Result", 25000);
+  const runtimeClusterResolutionAfter = await waitForAudit(
+    (audit) => audit.lastChatBranch === "tool-follow-up-runtime-cluster-resolved"
+      && Number(audit.toolExecuteRequests || 0) === runtimeClusterResolutionToolExecuteBefore + 1
+      && audit.lastToolExecute?.interfaceCode === "studio.feature.list"
+      && audit.lastToolExecute?.params?.path === "/runtime-clusters",
+    "unique runtime cluster resolution should complete before model preview",
+  );
+  assert(runtimeClusterResolutionAfter.lastToolExecute?.params?.modelIds?.[0] === 5, "Runtime cluster resolution should use model applicability evidence.");
+
   await waitForAssistantReady(page);
   await setField(page, `[data-testid="studio-assistant-prompt"]`, "Suggest field mappings from id, order_no, amount to ID, orderNo, missing_col.");
   await click(page, `[data-testid="studio-assistant-send"]`);
@@ -1195,6 +1211,40 @@ async function main() {
   assert(String(missingDatasourceIdAfter.lastToolResult?.params?.id) === "11", "Missing datasourceId probe should preserve the LLM-provided generic id.");
   assert(!Object.prototype.hasOwnProperty.call(missingDatasourceIdAfter.lastToolResult?.params || {}, "datasourceId"), "Missing datasourceId probe should not inject datasourceId from id.");
 
+  const missingPreviewClusterBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const missingPreviewClusterBefore = missingPreviewClusterBeforePayload.data ?? missingPreviewClusterBeforePayload;
+  const missingPreviewClusterToolExecuteBefore = Number(missingPreviewClusterBefore.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "Run missing model preview cluster probe.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  await waitForText(page, "Model Preview Cluster Validation Result", 25000);
+  const missingPreviewClusterAfter = await waitForAudit(
+    (audit) => audit.lastChatBranch === "tool-follow-up-missing-model-preview-cluster"
+      && Number(audit.toolExecuteRequests || 0) === missingPreviewClusterToolExecuteBefore
+      && audit.lastToolResult?.ok === false
+      && String(audit.lastToolResult?.error || "").includes("runtimeClusterId"),
+    "missing model preview runtimeClusterId should be rejected before backend gateway execution",
+  );
+  assert(missingPreviewClusterAfter.lastToolResult?.params?.path === "/models", "Missing preview cluster probe should target models.");
+  assert(missingPreviewClusterAfter.lastToolResult?.params?.action === "preview", "Missing preview cluster probe should use preview action.");
+  assert(String(missingPreviewClusterAfter.lastToolResult?.params?.id) === "5", "Missing preview cluster probe should preserve model id.");
+
+  const validPreviewBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const validPreviewBefore = validPreviewBeforePayload.data ?? validPreviewBeforePayload;
+  const validPreviewToolExecuteBefore = Number(validPreviewBefore.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "Run model preview with runtime cluster probe.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  const validPreviewAfter = await waitForAudit(
+    (audit) => Number(audit.toolExecuteRequests || 0) === validPreviewToolExecuteBefore + 1
+      && audit.lastToolExecute?.interfaceCode === "studio.feature.action"
+      && audit.lastToolExecute?.params?.path === "/models"
+      && audit.lastToolExecute?.params?.action === "preview",
+    "cluster-scoped model preview should reach backend gateway",
+  );
+  assert(String(validPreviewAfter.lastToolExecute?.params?.runtimeClusterId) === "7", "Model preview should preserve runtimeClusterId.");
+  assert(validPreviewAfter.lastToolExecute?.params?.limit === 20, "Model preview should preserve limit.");
+
   const missingDataDevelopmentPayloadBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
   const missingDataDevelopmentPayloadBefore = missingDataDevelopmentPayloadBeforePayload.data ?? missingDataDevelopmentPayloadBeforePayload;
   const missingDataDevelopmentPayloadToolExecuteBefore = Number(missingDataDevelopmentPayloadBefore.toolExecuteRequests || 0);
@@ -1249,6 +1299,47 @@ async function main() {
   assert(!visibleTextAfterRejection.includes("user_confirmation_pending"), "Loop confirmation status leaked after backend rejection.");
   assert(visibleTextAfterRejection.includes("Backend Gateway Rejection"), "Backend rejection recovery was not rendered.");
   assert(!visibleTextAfterRejection.includes("FRONTEND_FALLBACK_SHOULD_NOT_RUN"), "Frontend fallback ran after backend rejection.");
+
+  const multiClusterBeforePayload = await fetch(`${mockBaseUrl}/__assistant-ui-smoke/state`).then((response) => response.json());
+  const multiClusterBefore = multiClusterBeforePayload.data ?? multiClusterBeforePayload;
+  const multiClusterToolExecuteBefore = Number(multiClusterBefore.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "List runtime cluster candidates for user selection.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  await waitForText(page, "选择运行集群", 25000);
+  await click(page, ".assistant-chat-control__select .el-select__wrapper");
+  await waitForText(page, "assistant-online | code=CLUSTER_A | id=7 | status=ONLINE", 25000);
+  await waitForText(page, "assistant-offline | code=CLUSTER_B | id=8 | status=OFFLINE", 25000);
+  const multiClusterAfter = await waitForAudit(
+    (audit) => Number(audit.toolExecuteRequests || 0) === multiClusterToolExecuteBefore + 1
+      && audit.lastToolExecute?.interfaceCode === "studio.feature.list"
+      && audit.lastToolExecute?.params?.path === "/runtime-clusters",
+    "multiple runtime cluster candidates should be returned before user selection",
+  );
+  assert(!multiClusterAfter.lastToolExecute?.params?.datasourceIds, "Multiple-candidate probe should not inject datasource evidence.");
+  await clickByText(page, ".el-select-dropdown__item", "assistant-offline");
+  await waitForText(page, "Runtime Cluster Selection Result", 25000);
+  const offlineSelectionAfter = await waitForAudit(
+    (audit) => audit.lastChatBranch === "runtime-cluster-selection-complete"
+      && String(audit.lastAssistantMemory?.selectedRuntimeCluster?.id || "") === "8",
+    "explicit offline runtime cluster selection should remain in assistant memory",
+  );
+  assert(offlineSelectionAfter.lastAssistantMemory?.selectedRuntimeCluster?.name === "assistant-offline", "The explicitly selected offline cluster should not be replaced by the online candidate.");
+
+  const clusterMismatchToolExecuteBefore = Number(offlineSelectionAfter.toolExecuteRequests || 0);
+  await waitForAssistantReady(page);
+  await setField(page, `[data-testid="studio-assistant-prompt"]`, "Run model preview with runtime cluster probe.");
+  await click(page, `[data-testid="studio-assistant-send"]`);
+  await waitForText(page, "Model Preview Cluster Validation Result", 25000);
+  const clusterMismatchAfter = await waitForAudit(
+    (audit) => Number(audit.toolExecuteRequests || 0) === clusterMismatchToolExecuteBefore
+      && audit.lastToolResult?.ok === false
+      && String(audit.lastToolResult?.params?.runtimeClusterId || "") === "7"
+      && String(audit.lastToolResult?.error || "").includes("用户已选择的集群 8")
+      && String(audit.lastAssistantMemory?.selectedRuntimeCluster?.id || "") === "8",
+    "explicit offline selection should block an unconfirmed cluster switch",
+  );
+  assert(Number(clusterMismatchAfter.toolExecuteRequests || 0) === clusterMismatchToolExecuteBefore, "Cluster mismatch must fail before backend gateway execution.");
 
   await waitForAssistantReady(page);
   await click(page, `[data-testid="studio-assistant-mode-plan"]`);

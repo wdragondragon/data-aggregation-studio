@@ -8,6 +8,9 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.enums.LineageLevel;
 import com.jdragon.studio.dto.enums.ScriptType;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
+import com.jdragon.studio.dto.model.DataModelDefinition;
+import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.RuntimeClusterView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowScheduleDefinition;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
@@ -378,7 +381,7 @@ public class AssistantStudioToolExecutionService {
             if (runtimeClusterService == null) {
                 throw new IllegalStateException("Runtime cluster service is unavailable");
             }
-            return runtimeClusterService.options(null);
+            return runtimeClusterOptions(params);
         }
         if ("/metadata".equals(path)) {
             return metadataSchemaService.listSchemas(booleanParam(params, "includeFields", true));
@@ -389,7 +392,13 @@ public class AssistantStudioToolExecutionService {
         }
         if ("/models".equals(path)) {
             Long datasourceId = optionalLongParam(params, "datasourceId");
+            Long runtimeClusterId = optionalLongParam(params, "runtimeClusterId");
             String keyword = stringParam(params, "keyword");
+            if (runtimeClusterId != null) {
+                return dataModelService.listSelectorOptions(
+                        stringParam(params, "datasourceType"), datasourceId, runtimeClusterId, keyword,
+                        pageNo(params), pageSize(params));
+            }
             if (StringUtils.hasText(keyword)) {
                 if (datasourceId != null) {
                     return dataModelService.listDatasourceOptions(datasourceId, keyword,
@@ -483,7 +492,7 @@ public class AssistantStudioToolExecutionService {
             }
             if ("datasources".equals(view)) {
                 return dataDevelopmentService.listSqlCapableDatasourceOptions(
-                        optionalLongParam(params, "runtimeClusterId"));
+                        longParam(params, "runtimeClusterId"));
             }
             if ("datasourceTypes".equals(view)) {
                 return dataDevelopmentService.listSqlDatasourceTypes();
@@ -633,16 +642,6 @@ public class AssistantStudioToolExecutionService {
             return dataSourceService.get(id);
         }
         if ("/models".equals(path)) {
-            if ("preview".equals(view) || booleanParam(params, "preview", false)) {
-                Map<String, Object> result = new LinkedHashMap<String, Object>();
-                result.put("detail", dataModelService.maskSensitiveReaderOptions(dataModelService.get(id)));
-                List<Map<String, Object>> previewRows = dataModelService.preview(id,
-                        intParam(params, "limit", 20, 1, 100), longParam(params, "runtimeClusterId"));
-                result.put("previewRows", previewRows);
-                result.put("sampleRows", previewRows);
-                result.put("previewRowCount", Integer.valueOf(previewRows.size()));
-                return result;
-            }
             if ("lineage".equals(view)) {
                 return dataModelLineageService.getModelLineage(id, lineageLevel(params));
             }
@@ -922,6 +921,18 @@ public class AssistantStudioToolExecutionService {
     }
 
     private Object executeModelAction(String action, Map<String, Object> params) {
+        if ("preview".equals(action)) {
+            Long id = longParam(params, "id");
+            Long runtimeClusterId = longParam(params, "runtimeClusterId");
+            int limit = intParam(params, "limit", 20, 1, 100);
+            Map<String, Object> result = new LinkedHashMap<String, Object>();
+            result.put("detail", dataModelService.maskSensitiveReaderOptions(dataModelService.get(id)));
+            List<Map<String, Object>> previewRows = dataModelService.preview(id, limit, runtimeClusterId);
+            result.put("previewRows", previewRows);
+            result.put("sampleRows", previewRows);
+            result.put("previewRowCount", Integer.valueOf(previewRows.size()));
+            return result;
+        }
         if ("save".equals(action)) {
             return dataModelService.maskSensitiveReaderOptions(
                     dataModelService.save(requiredPayload(params, DataModelSaveRequest.class)));
@@ -1791,7 +1802,8 @@ public class AssistantStudioToolExecutionService {
             }
             return Long.valueOf(String.valueOf(value));
         }
-        throw new IllegalArgumentException("assistant tool id is required");
+        throw new IllegalArgumentException("assistant tool "
+                + (keys.length == 0 ? "id" : keys[0]) + " is required");
     }
 
     private Long optionalLongParam(Map<String, Object> params, String... keys) {
@@ -1806,6 +1818,73 @@ public class AssistantStudioToolExecutionService {
             return Long.valueOf(String.valueOf(value));
         }
         return null;
+    }
+
+    private List<RuntimeClusterView> runtimeClusterOptions(Map<String, Object> params) {
+        List<RuntimeClusterView> authorizedOptions = runtimeClusterService.options(null);
+        Set<Long> applicableClusterIds = null;
+
+        List<Long> requestedApplicableClusterIds = optionalLongListParam(params, "applicableClusterIds");
+        if (params.containsKey("applicableClusterIds")) {
+            applicableClusterIds = new LinkedHashSet<Long>(requestedApplicableClusterIds);
+        }
+
+        Set<Long> datasourceIds = new LinkedHashSet<Long>(optionalLongListParam(params, "datasourceIds"));
+        for (Long modelId : optionalLongListParam(params, "modelIds")) {
+            DataModelDefinition model = dataModelService.get(modelId);
+            if (model.getDatasourceId() != null) {
+                datasourceIds.add(model.getDatasourceId());
+            }
+        }
+        for (Long datasourceId : datasourceIds) {
+            DataSourceDefinition datasource = dataSourceService.get(datasourceId);
+            if (datasource == null) {
+                throw new IllegalArgumentException("assistant runtime cluster datasource was not found: " + datasourceId);
+            }
+            Set<Long> datasourceClusterIds = datasource.getApplicableClusterIds() == null
+                    ? new LinkedHashSet<Long>()
+                    : new LinkedHashSet<Long>(datasource.getApplicableClusterIds());
+            if (applicableClusterIds == null) {
+                applicableClusterIds = datasourceClusterIds;
+            } else {
+                applicableClusterIds.retainAll(datasourceClusterIds);
+            }
+        }
+
+        if (applicableClusterIds == null) {
+            return authorizedOptions;
+        }
+        List<RuntimeClusterView> result = new ArrayList<RuntimeClusterView>();
+        for (RuntimeClusterView option : authorizedOptions) {
+            if (option != null && option.getId() != null && applicableClusterIds.contains(option.getId())) {
+                result.add(option);
+            }
+        }
+        return result;
+    }
+
+    private List<Long> optionalLongListParam(Map<String, Object> params, String key) {
+        Object value = params.get(key);
+        if (value == null || !StringUtils.hasText(String.valueOf(value))) {
+            return Collections.emptyList();
+        }
+        List<Long> result = new ArrayList<Long>();
+        if (value instanceof List<?>) {
+            for (Object item : (List<?>) value) {
+                if (item != null && StringUtils.hasText(String.valueOf(item))) {
+                    result.add(item instanceof Number
+                            ? Long.valueOf(((Number) item).longValue())
+                            : Long.valueOf(String.valueOf(item)));
+                }
+            }
+        } else {
+            for (String item : String.valueOf(value).split(",")) {
+                if (StringUtils.hasText(item)) {
+                    result.add(Long.valueOf(item.trim()));
+                }
+            }
+        }
+        return result;
     }
 
     private List<String> stringListParam(Map<String, Object> params, String... keys) {

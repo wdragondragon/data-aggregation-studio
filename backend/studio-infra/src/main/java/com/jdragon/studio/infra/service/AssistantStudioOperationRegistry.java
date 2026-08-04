@@ -205,8 +205,8 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
                 true, false, "Read-only metrics.",
                 "run", "metric", "运行指标"));
         result.add(operation("Data development", "studio.dataDevelopment.manage", "Development", "/data-development",
-                "List script directories, inspect scripts, execute SQL, run scripts, and save scripts.",
-                true, true, "SQL/script execution and saves require explicit confirmation and concrete datasource/script inputs.",
+                "List script directories, inspect scripts, select cluster-compatible datasources, execute SQL, run scripts, and save scripts.",
+                true, true, "Datasource selection requires an explicit runtime cluster; SQL/script execution and saves require explicit confirmation and concrete datasource/script inputs.",
                 "development", "sql", "script", "python", "java", "数据开发", "脚本"));
         result.add(operation("Workflows", "studio.workflows.manage", "Orchestration", "/workflows",
                 "List workflows, inspect definitions, bind tasks, publish, schedule, and trigger workflows.",
@@ -353,6 +353,11 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         defaults.put("path", path);
         defaults.putAll(defaultParams);
         item.put("defaultParams", defaults);
+        if ("studio.feature.list".equals(tool) && "/data-development".equals(path)) {
+            Map<String, Object> requirementsByView = new LinkedHashMap<String, Object>();
+            requirementsByView.put("datasources", list("runtimeClusterId"));
+            item.put("requiredValuesByView", requirementsByView);
+        }
         return item;
     }
 
@@ -367,7 +372,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             return "Read datasource capability matrix and runtime option capability catalog.";
         }
         if ("/runtime-clusters".equals(path)) {
-            return "List runtime clusters authorized for the current project.";
+            return "List runtime clusters authorized for the current project, optionally intersected by datasourceIds, modelIds, or applicableClusterIds.";
         }
         if ("/metadata".equals(path)) {
             return "List meta model definitions.";
@@ -394,7 +399,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             return "Read task run metric overview.";
         }
         if ("/data-development".equals(path)) {
-            return "Read script tree, script list, or datasource candidates for data development.";
+            return "Read script tree or script list. Datasource candidates require view=datasources and an explicit project-authorized runtimeClusterId.";
         }
         if ("/workflows".equals(path)) {
             return "Page workflow definitions.";
@@ -449,7 +454,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
 
     private String getToolPurpose(String path, String label) {
         if ("/models".equals(path)) {
-            return "Read model details, fields, preview data, or lineage.";
+            return "Read model details, fields, or lineage.";
         }
         if ("/collection-task-runs".equals(path)
                 || "/runs".equals(path)
@@ -478,6 +483,9 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
         if ("/catalog".equals(path)) {
             return list("view", "role", "datasourceType", "typeCode", "protocolMode");
         }
+        if ("/runtime-clusters".equals(path)) {
+            return list("datasourceIds", "modelIds", "applicableClusterIds");
+        }
         if ("/metadata".equals(path)) {
             return list("includeFields");
         }
@@ -485,7 +493,8 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             return list("pageNo", "pageSize", "keyword");
         }
         if ("/models".equals(path)) {
-            return list("keyword", "datasourceId", "datasourceType", "pageNo", "pageSize", "sortField", "sortOrder");
+            return list("keyword", "datasourceId", "datasourceType", "runtimeClusterId",
+                    "pageNo", "pageSize", "sortField", "sortOrder");
         }
         if ("/statistics".equals(path)) {
             return list("view", "datasourceId", "datasourceType", "targetScope", "targetMetaSchemaCode",
@@ -564,7 +573,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             return list("view", "days", "limit", "runtimeClusterId");
         }
         if ("/models".equals(path)) {
-            return list("view", "preview", "lineageLevel", "limit", "runtimeClusterId");
+            return list("view", "lineageLevel");
         }
         if ("/collection-task-runs".equals(path)
                 || "/runs".equals(path)
@@ -631,6 +640,8 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             result.add(action(path, "discover", null, "在指定运行集群发现数据源下的真实物理表/视图候选，不等同于已登记模型列表。", false,
                     list("id", "runtimeClusterId"), list("keyword", "pageNo", "pageSize"), list("discoverTables", "listPhysicalTables")));
         } else if ("/models".equals(path)) {
+            result.add(action(path, "preview", null, "在指定运行集群预览模型样例数据。", false,
+                    list("id", "runtimeClusterId"), list("limit"), emptyList()));
             result.add(action(path, "save", null, "保存模型定义。", true, list("payload"), emptyList(), emptyList()));
             result.add(action(path, "sync", null, "在指定运行集群同步指定数据源的模型。", true,
                     list("datasourceId", "runtimeClusterId"), emptyList(), list("syncDatasource")));
@@ -645,7 +656,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             result.add(action(path, "save", null, "保存采集任务草稿或配置。", true,
                     list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "publish", null, "上线采集任务。", true, list("id"), emptyList(), list("online")));
-            result.add(action(path, "trigger", null, "立即触发采集任务，可按项目授权覆盖运行集群。", true,
+            result.add(action(path, "trigger", null, "立即触发采集任务；省略 runtimeClusterId 继承保存值，显式不同值才按手动覆盖校验。", true,
                     list("id"), list("runtimeClusterId"), list("run", "execute")));
             result.add(action(path, "schedule", null, "保存采集任务调度配置。", true, list("id", "payload"), emptyList(), emptyList()));
             result.add(action(path, "resetIncrementalCursor", null, "重置采集任务增量游标。", true, list("id"), list("sourceAlias", "incrColumn", "incrModel"), emptyList()));
@@ -659,12 +670,14 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
                     list("payload", "payload.runtimeClusterId"), emptyList(), list("execute", "run")));
             result.add(action(path, "executeScript", "scripts", "在指定运行集群执行未保存脚本内容。", true,
                     list("payload", "payload.runtimeClusterId"), emptyList(), list("executeContent")));
-            result.add(action(path, "executeSavedScript", "scripts", "执行已保存脚本。", true, list("id"), list("payload"), list("executeSaved", "runSaved")));
+            result.add(action(path, "executeSavedScript", "scripts",
+                    "执行已保存脚本；省略 payload 继承保存的运行集群，任何显式 runtimeClusterId 都按手动覆盖校验。",
+                    true, list("id"), list("payload"), list("executeSaved", "runSaved")));
         } else if ("/workflows".equals(path)) {
             result.add(action(path, "save", null, "保存工作流定义。", true,
                     list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "publish", null, "发布工作流。", true, list("id"), emptyList(), emptyList()));
-            result.add(action(path, "trigger", null, "立即触发工作流，可按项目授权覆盖运行集群。", true,
+            result.add(action(path, "trigger", null, "立即触发工作流；省略 runtimeClusterId 继承保存值，显式不同值才按手动覆盖校验。", true,
                     list("id"), list("runtimeClusterId"), list("run", "execute")));
             result.add(action(path, "schedule", null, "保存工作流调度配置。", true, list("id", "payload"), emptyList(), list("timing", "cron")));
         } else if ("/quality-rules".equals(path)) {
@@ -681,7 +694,7 @@ public class AssistantStudioOperationRegistry implements AssistantSkillProvider 
             result.add(action(path, "save", null, "保存质量任务。", true,
                     list("payload", "payload.runtimeClusterId"), emptyList(), emptyList()));
             result.add(action(path, "publish", null, "上线质量任务。", true, list("id"), emptyList(), list("online")));
-            result.add(action(path, "trigger", null, "立即触发质量任务，可按项目授权覆盖运行集群。", true,
+            result.add(action(path, "trigger", null, "立即触发质量任务；省略 runtimeClusterId 继承保存值，显式不同值才按手动覆盖校验。", true,
                     list("id"), list("runtimeClusterId"), list("run", "execute")));
             result.add(action(path, "schedule", null, "保存质量任务调度配置。", true, list("id", "payload"), emptyList(), emptyList()));
         } else if ("/script-environments".equals(path)) {

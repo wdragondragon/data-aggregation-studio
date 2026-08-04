@@ -115,4 +115,76 @@ assert.doesNotMatch(
   "Quality rule type metadata must not call a cluster-scoped datasource option API without a cluster selection.",
 );
 
+const assistantDrawerSource = await readFile(resolve(appRoot, "src/components/assistant/StudioAssistantDrawer.vue"), "utf8");
+assert.match(
+  assistantDrawerSource,
+  /type AssistantMemoryEntityKind =[\s\S]{0,120}\| "runtimeCluster"/,
+  "Assistant memory must identify runtime clusters as a first-class entity kind.",
+);
+assert.match(
+  assistantDrawerSource,
+  /normalizedPath === "\/runtime-clusters"[\s\S]{0,160}return "runtimeCluster"/,
+  "Runtime cluster tool results must be recognized and reusable from assistant memory.",
+);
+assert.match(
+  assistantDrawerSource,
+  /selectedRuntimeClusterId: assistantMemory\.selectedRuntimeCluster\?\.id/,
+  "The selected runtime cluster must be included in assistant request inputs.",
+);
+assert.match(
+  assistantDrawerSource,
+  /watch\(\[\(\) => authStore\.currentTenantId, \(\) => authStore\.currentProjectId\][\s\S]{0,500}clearRuntimeClusterMemorySelection\(\)/,
+  "Assistant runtime cluster memory must be cleared when the tenant or project changes.",
+);
+assert.match(
+  assistantDrawerSource,
+  /function clearRuntimeClusterMemorySelection\(\)[\s\S]{0,500}selectedRuntimeCluster = undefined[\s\S]{0,500}selectedEntitiesByPath\["\/runtime-clusters"\][\s\S]{0,500}selectedEntity = undefined/,
+  "The shared assistant runtime cluster cleanup must clear direct, path-scoped, and generic selections.",
+);
+
+const dataDevelopmentSource = await readFile(resolve(appRoot, "src/views/DataDevelopmentView.vue"), "utf8");
+assert.match(
+  dataDevelopmentSource,
+  /source: "data-development-view"[\s\S]{0,700}runtimeClusterId: scriptForm\.runtimeClusterId/,
+  "Data Development page context must expose the selected runtime cluster to the assistant.",
+);
+assert.match(
+  dataDevelopmentSource,
+  /type: "runtimeCluster"[\s\S]{0,120}path: "\/runtime-clusters"/,
+  "Data Development must publish its selected runtime cluster as an assistant business object.",
+);
+
+const runtimeClusterComposable = await readFile(resolve(appRoot, "src/composables/useRuntimeClusterOptions.ts"), "utf8");
+assert.doesNotMatch(
+  runtimeClusterComposable,
+  /const preferred = selectableClusters\.find\(\(item\) => item\.preferred\)/,
+  "Multiple runtime clusters must not auto-select the preferred option.",
+);
+assert.match(
+  runtimeClusterComposable,
+  /return selectableClusters\.length === 1 \? selectableClusters\[0\]\?\.id : undefined/,
+  "Runtime cluster initial selection must only resolve a unique candidate.",
+);
+
+assert.match(
+  assistantDrawerSource,
+  /handleRuntimeClusterListResult[\s\S]{0,5000}默认标记、在线状态和列表顺序仅供参考/,
+  "Assistant runtime cluster results must stop on multiple candidates and explain that metadata cannot choose one.",
+);
+assert.match(
+  assistantDrawerSource,
+  /runtimeClusterCandidateLabel[\s\S]{0,1000}code=\$\{code\}[\s\S]{0,1000}status=\$\{status\}/,
+  "Assistant cluster controls must expose the candidate code and status.",
+);
+assert.match(
+  assistantDrawerSource,
+  /validateAssistantRuntimeClusterDecision[\s\S]{0,2500}候选不唯一，不能按 preferred、在线状态或列表顺序自动选择/,
+  "Cluster-scoped assistant actions must be blocked until an ambiguous selection is resolved.",
+);
+assert.match(
+  assistantDrawerSource,
+  /handleRuntimeClusterListResult[\s\S]{0,3500}clearRuntimeClusterMemorySelection\(\)[\s\S]{0,1200}title: "选择运行集群"/,
+  "Ambiguous runtime cluster results must clear stale inferred selections before asking the user.",
+);
+
 console.log("runtime cluster selection regression passed");

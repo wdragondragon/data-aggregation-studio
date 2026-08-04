@@ -271,6 +271,7 @@ interface ToolCacheState {
 }
 
 type AssistantMemoryEntityKind =
+  | "runtimeCluster"
   | "datasource"
   | "physicalTable"
   | "model"
@@ -296,6 +297,8 @@ interface AssistantMemoryEntity {
 }
 
 interface AssistantWorkingMemory {
+  lastRuntimeClusterList: AssistantMemoryEntity[];
+  selectedRuntimeCluster?: AssistantMemoryEntity;
   lastDatasourceList: AssistantMemoryEntity[];
   selectedDatasource?: AssistantMemoryEntity;
   lastPhysicalTableList: AssistantMemoryEntity[];
@@ -488,6 +491,7 @@ const toolCache = reactive<ToolCacheState>({
   runtimeSchemas: {},
 });
 const assistantMemory = reactive<AssistantWorkingMemory>({
+  lastRuntimeClusterList: [],
   lastDatasourceList: [],
   lastPhysicalTableList: [],
   lastModelList: [],
@@ -574,6 +578,12 @@ watch(drawerVisible, (visible) => {
     void ensureAssistantOperationCatalog();
   }
 }, { immediate: true });
+
+watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () => {
+  assistantMemory.lastRuntimeClusterList = [];
+  delete assistantMemory.recentEntitiesByPath["/runtime-clusters"];
+  clearRuntimeClusterMemorySelection();
+});
 
 async function ensureAssistantOperationCatalog(force = false) {
   if (assistantOperationCatalogLoaded.value && !force) {
@@ -895,7 +905,7 @@ async function handleAssistantActions(message: AssistantLogMessage, depth: numbe
     message.content = resolveVisibleActionMessage(parsed, message.content);
   }
 
-  const waitingForUser = appendActionControls(parsed.uiControls);
+  let waitingForUser = appendActionControls(parsed.uiControls);
   if (!parsed.toolCalls.length) {
     return;
   }
@@ -932,6 +942,14 @@ async function handleAssistantActions(message: AssistantLogMessage, depth: numbe
     }
     executedCount += 1;
     appendToolResultMessage(call.interfaceCode, params.value, result.data);
+    const runtimeClusterDecision = handleRuntimeClusterListResult(call.interfaceCode, params.value);
+    if (runtimeClusterDecision === "waiting_for_user") {
+      waitingForUser = true;
+      break;
+    }
+    if (runtimeClusterDecision === "blocked") {
+      break;
+    }
   }
 
   markProcessDone(
@@ -1777,6 +1795,70 @@ function appendActionControls(controls: AssistantActionControl[]) {
   return appended;
 }
 
+function handleRuntimeClusterListResult(
+  interfaceCode: string,
+  params: Record<string, unknown>,
+): "not_applicable" | "resolved" | "waiting_for_user" | "blocked" {
+  if (interfaceCode !== "studio.feature.list" || normalizeRoutePath(String(params.path ?? "")) !== "/runtime-clusters") {
+    return "not_applicable";
+  }
+  const candidates = assistantMemory.lastRuntimeClusterList;
+  if (candidates.length === 1) {
+    selectGenericMemoryEntity("/runtime-clusters", candidates[0], "unique-runtime-cluster");
+    pushProcessEvent({
+      stage: `runtime-cluster.unique.${Date.now()}`,
+      title: "运行集群已唯一确定",
+      detail: `已根据项目授权与资源适用范围唯一确定 ${runtimeClusterCandidateLabel(candidates[0])}。`,
+      status: "done",
+    });
+    return "resolved";
+  }
+  if (candidates.length === 0) {
+    clearRuntimeClusterMemorySelection();
+    messages.value.push(createAssistantMessage(
+      "assistant",
+      "没有找到同时满足项目授权和关联数据源适用范围的运行集群。请先修复项目集群授权或数据源适用集群绑定。",
+    ));
+    void nextTick(scrollThreadToBottom);
+    return "blocked";
+  }
+  clearRuntimeClusterMemorySelection();
+  const appended = appendActionControls([{
+    type: "select",
+    title: "选择运行集群",
+    detail: "存在多个可用候选，请明确选择。默认标记、在线状态和列表顺序仅供参考，不会自动代选。",
+    paramKey: "assistantMemory.selectedEntity:/runtime-clusters",
+    options: candidates.map((candidate) => ({
+      label: runtimeClusterCandidateLabel(candidate),
+      value: String(candidate.id),
+      description: runtimeClusterCandidateDescription(candidate),
+    })),
+  }]);
+  return appended ? "waiting_for_user" : "blocked";
+}
+
+function clearRuntimeClusterMemorySelection() {
+  assistantMemory.selectedRuntimeCluster = undefined;
+  delete assistantMemory.selectedEntitiesByPath["/runtime-clusters"];
+  if (normalizeMemoryEntityPath(assistantMemory.selectedEntity?.sourcePath || "") === "/runtime-clusters") {
+    assistantMemory.selectedEntity = undefined;
+  }
+}
+
+function runtimeClusterCandidateLabel(candidate: AssistantMemoryEntity) {
+  const raw = isPlainRecord(candidate.raw) ? (candidate.raw as Record<string, unknown>) : {};
+  const id = candidate.id || firstText(raw, ["id"]) || "-";
+  const name = candidate.name || firstText(raw, ["name"]) || "未命名集群";
+  const code = firstText(raw, ["code", "typeCode"]) || candidate.typeCode || "-";
+  const status = firstText(raw, ["status"]) || "UNKNOWN";
+  return `${name} | code=${code} | id=${id} | status=${status}`;
+}
+
+function runtimeClusterCandidateDescription(candidate: AssistantMemoryEntity) {
+  const raw = isPlainRecord(candidate.raw) ? (candidate.raw as Record<string, unknown>) : {};
+  return `preferred=${String(raw.preferred === true)}; allowManualOverride=${String(raw.allowManualOverride === true)}`;
+}
+
 function appendToolResultMessage(interfaceCode: string, params: Record<string, unknown>, data: unknown) {
   const summary = describeToolChatResult(interfaceCode, params, data);
   if (summary) {
@@ -1939,7 +2021,9 @@ function resolveToolParams(call: AssistantToolCall): { ok: true; value: Record<s
     if (declaredParamError) {
       return { ok: false, error: declaredParamError };
     }
-    return { ok: true, value: normalizeFeatureToolParams(params, path) };
+    const value = normalizeFeatureToolParams(params, path);
+    const runtimeClusterError = validateAssistantRuntimeClusterDecision(readRuntimeClusterId(value));
+    return runtimeClusterError ? { ok: false, error: runtimeClusterError } : { ok: true, value };
   }
   if (code === "studio.feature.get") {
     const path = normalizeRoutePath(firstText(params, ["path"]));
@@ -1959,7 +2043,9 @@ function resolveToolParams(call: AssistantToolCall): { ok: true; value: Record<s
     if (declaredParamError) {
       return { ok: false, error: declaredParamError };
     }
-    return { ok: true, value: normalizeFeatureToolParams({ ...params, id }, path) };
+    const value = normalizeFeatureToolParams({ ...params, id }, path);
+    const runtimeClusterError = validateAssistantRuntimeClusterDecision(readRuntimeClusterId(value));
+    return runtimeClusterError ? { ok: false, error: runtimeClusterError } : { ok: true, value };
   }
   if (code === "studio.feature.action") {
     return resolveFeatureActionParams(params);
@@ -1979,6 +2065,10 @@ function resolveToolParams(call: AssistantToolCall): { ok: true; value: Record<s
     }
     if (params.runtimeClusterId != null && params.runtimeClusterId !== "" && runtimeClusterId == null) {
       return { ok: false, error: "执行助手脚本时 runtimeClusterId 必须是正整数。" };
+    }
+    const runtimeClusterError = validateAssistantRuntimeClusterDecision(runtimeClusterId);
+    if (runtimeClusterError) {
+      return { ok: false, error: runtimeClusterError };
     }
     return {
       ok: true,
@@ -2477,7 +2567,54 @@ function resolveFeatureActionParams(params: Record<string, unknown>): { ok: true
     return { ok: false, error: errors.join(" ") };
   }
 
-  return { ok: true, value: cleanObject(normalizedParams) };
+  const value = cleanObject(normalizedParams);
+  const runtimeClusterError = validateAssistantRuntimeClusterDecision(readRuntimeClusterId(value));
+  return runtimeClusterError ? { ok: false, error: runtimeClusterError } : { ok: true, value };
+}
+
+function readRuntimeClusterId(params: Record<string, unknown>) {
+  const direct = params.runtimeClusterId;
+  if (direct != null && String(direct).trim()) {
+    return direct;
+  }
+  const payload = isPlainRecord(params.payload) ? (params.payload as Record<string, unknown>) : undefined;
+  return payload?.runtimeClusterId;
+}
+
+function validateAssistantRuntimeClusterDecision(runtimeClusterId: unknown) {
+  if (runtimeClusterId == null || !String(runtimeClusterId).trim()) {
+    return "";
+  }
+  const requestedId = String(runtimeClusterId).trim();
+  const selected = assistantMemory.selectedRuntimeCluster
+    || assistantMemory.selectedEntitiesByPath["/runtime-clusters"];
+  if (selected?.id) {
+    if (String(selected.id) === requestedId) {
+      return "";
+    }
+    return `请求运行集群 ${requestedId} 与用户已选择的集群 ${selected.id} 不一致，请先让用户明确选择覆盖目标。`;
+  }
+
+  const pageFilters = isPlainRecord(assistantPageContext.value?.filters)
+    ? (assistantPageContext.value?.filters as Record<string, unknown>)
+    : {};
+  const pageRuntimeClusterId = pageFilters.runtimeClusterId;
+  const activeObject = assistantPageContext.value?.activeObject;
+  const pageRuntimeInvalid = String(activeObject?.status ?? "").toUpperCase() === "RUNTIME_INVALID"
+    || activeObject?.metadata?.runtimeValid === false;
+  if (!pageRuntimeInvalid && pageRuntimeClusterId != null && String(pageRuntimeClusterId) === requestedId) {
+    return "";
+  }
+
+  const candidates = assistantMemory.lastRuntimeClusterList;
+  if (candidates.length === 1 && String(candidates[0]?.id ?? "") === requestedId) {
+    selectGenericMemoryEntity("/runtime-clusters", candidates[0], "unique-runtime-cluster");
+    return "";
+  }
+  if (candidates.length > 1) {
+    return "运行集群候选不唯一，不能按 preferred、在线状态或列表顺序自动选择。请先输出 assistantMemory.selectedEntity:/runtime-clusters 选择控件并等待用户。";
+  }
+  return "执行集群范围操作前必须先读取 /runtime-clusters，并依据关联数据源/模型适用范围得到唯一候选或让用户选择。";
 }
 
 function normalizeFeatureActionPayload(
@@ -2889,12 +3026,14 @@ function summarizeAssistantMemory() {
       entity: entity ? summarizeMemoryEntity(entity) : undefined,
     }));
   return {
+    selectedRuntimeCluster: assistantMemory.selectedRuntimeCluster ? summarizeMemoryEntity(assistantMemory.selectedRuntimeCluster) : undefined,
     selectedDatasource: assistantMemory.selectedDatasource ? summarizeMemoryEntity(assistantMemory.selectedDatasource) : undefined,
     selectedPhysicalTable: assistantMemory.selectedPhysicalTable ? summarizeMemoryEntity(assistantMemory.selectedPhysicalTable) : undefined,
     selectedModel: assistantMemory.selectedModel ? summarizeMemoryEntity(assistantMemory.selectedModel) : undefined,
     selectedEntity: assistantMemory.selectedEntity ? summarizeMemoryEntity(assistantMemory.selectedEntity) : undefined,
     selectedBusinessObjects,
     lastEntityListPath: assistantMemory.lastEntityListPath,
+    recentRuntimeClusters: assistantMemory.lastRuntimeClusterList.slice(0, 10).map(summarizeMemoryEntity),
     recentDatasources: assistantMemory.lastDatasourceList.slice(0, 10).map(summarizeMemoryEntity),
     recentPhysicalTables: assistantMemory.lastPhysicalTableList.slice(0, 20).map(summarizeMemoryEntity),
     recentModels: assistantMemory.lastModelList.slice(0, 20).map(summarizeMemoryEntity),
@@ -3056,6 +3195,9 @@ function pageBusinessObjectKind(type: string): AssistantMemoryEntityKind | undef
   if (!normalized) {
     return undefined;
   }
+  if (normalized.includes("runtimecluster") || normalized.includes("executioncluster")) {
+    return "runtimeCluster";
+  }
   if (normalized.includes("datasource")) {
     return "datasource";
   }
@@ -3121,6 +3263,12 @@ function updateAssistantMemoryFromToolData(interfaceCode: string, params: Record
       .filter((item) => item.id || item.name);
     return;
   }
+  if (interfaceCode === "studio.feature.list" && normalizeRoutePath(String(params.path ?? "")) === "/runtime-clusters") {
+    assistantMemory.lastRuntimeClusterList = extractResultItems(data)
+      .map((item) => toGenericMemoryEntity(item, "/runtime-clusters"))
+      .filter((item) => item.id || item.name);
+    return;
+  }
   if (interfaceCode === "studio.feature.list" && normalizeRoutePath(String(params.path ?? "")) === "/models") {
     assistantMemory.lastModelList = extractResultItems(data)
       .map((item) => toModelMemoryEntity(item, "/models"))
@@ -3176,7 +3324,9 @@ function selectGenericMemoryEntity(path: string, entity: AssistantMemoryEntity, 
   if (normalizedPath) {
     assistantMemory.selectedEntitiesByPath[normalizedPath] = selected;
   }
-  if (selected.kind === "datasource") {
+  if (selected.kind === "runtimeCluster") {
+    assistantMemory.selectedRuntimeCluster = selected;
+  } else if (selected.kind === "datasource") {
     assistantMemory.selectedDatasource = selected;
   } else if (selected.kind === "model") {
     assistantMemory.selectedModel = selected;
@@ -3263,6 +3413,9 @@ function toModelMemoryEntity(item: Record<string, unknown>, sourcePath: string):
 function inferMemoryEntityKind(path: string, item: Record<string, unknown>): AssistantMemoryEntityKind {
   const normalizedPath = normalizeMemoryEntityPath(path);
   const text = normalizeMemoryText(`${normalizedPath} ${firstText(item, ["type", "kind", "modelKind", "taskType", "serviceType", "ruleCode", "status"])}`);
+  if (normalizedPath === "/runtime-clusters" || /runtimecluster|executioncluster|运行集群|执行集群/.test(text)) {
+    return "runtimeCluster";
+  }
   if (normalizedPath === "/datasources") {
     return "datasource";
   }
@@ -3300,6 +3453,9 @@ function resolveMemoryEntityPathFromText(text: string) {
   }
   if (/真实表|物理表|库表|表发现/.test(normalized)) {
     return "/datasources:discover";
+  }
+  if (/运行集群|执行集群|runtimecluster|executioncluster/.test(normalized)) {
+    return "/runtime-clusters";
   }
   if (/数据源|datasource|连接/.test(normalized)) {
     return "/datasources";
@@ -3357,6 +3513,7 @@ function normalizeMemoryEntityPath(path: string) {
 function memoryPathLabel(path: string) {
   const normalizedPath = normalizeMemoryEntityPath(path);
   const labels: Record<string, string> = {
+    "/runtime-clusters": "运行集群",
     "/datasources": "数据源",
     "/datasources:discover": "物理表/视图",
     "/models": "模型",
@@ -3531,6 +3688,8 @@ function collectCurrentInputs() {
     cachedDatasourceModelGroups: Object.keys(toolCache.modelOptions).length,
     cachedModelDetails: Object.keys(toolCache.modelDetails).length,
     cachedRuntimeSchemas: Object.keys(toolCache.runtimeSchemas).length,
+    selectedRuntimeClusterId: assistantMemory.selectedRuntimeCluster?.id,
+    selectedRuntimeClusterName: assistantMemory.selectedRuntimeCluster?.name,
     selectedDatasourceId: assistantMemory.selectedDatasource?.id,
     selectedDatasourceName: assistantMemory.selectedDatasource?.name,
     selectedPhysicalTable: assistantMemory.selectedPhysicalTable?.physicalLocator || assistantMemory.selectedPhysicalTable?.name,

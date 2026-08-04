@@ -26,6 +26,7 @@ const assistantPayloadAudit = {
   lastChatMessage: "",
   lastChatBranch: "",
   lastPageContext: null,
+  lastAssistantMemory: null,
   lastToolExecute: null,
   toolExecuteHistory: [],
   lastToolResult: null,
@@ -68,6 +69,48 @@ const datasourceDetail = {
   databaseName: "studio_smoke",
   description: "Datasource detail returned by the assistant backend gateway.",
 };
+
+const runtimeClusterOptions = [
+  {
+    id: 7,
+    code: "CLUSTER_A",
+    name: "assistant-online",
+    enabled: true,
+    preferred: true,
+    allowManualOverride: false,
+    status: "ONLINE",
+    onlineInstanceCount: 1,
+  },
+  {
+    id: 8,
+    code: "CLUSTER_B",
+    name: "assistant-offline",
+    enabled: true,
+    preferred: false,
+    allowManualOverride: true,
+    status: "OFFLINE",
+    onlineInstanceCount: 0,
+  },
+];
+
+function runtimeClusterResult(params) {
+  const datasourceIds = Array.isArray(params?.datasourceIds)
+    ? params.datasourceIds.map((value) => Number(value))
+    : [];
+  const modelIds = Array.isArray(params?.modelIds)
+    ? params.modelIds.map((value) => Number(value))
+    : [];
+  const applicableClusterIds = Array.isArray(params?.applicableClusterIds)
+    ? params.applicableClusterIds.map((value) => Number(value))
+    : [];
+  let items = runtimeClusterOptions;
+  if (datasourceIds.includes(11) || modelIds.includes(5)) {
+    items = [runtimeClusterOptions[0]];
+  } else if (applicableClusterIds.length) {
+    items = runtimeClusterOptions.filter((item) => applicableClusterIds.includes(Number(item.id)));
+  }
+  return items;
+}
 
 const datasourceLoopPages = {
   1: {
@@ -366,6 +409,25 @@ const operationCatalog = [
     writePolicy: "Notification mark-read actions require explicit frontend confirmation.",
   },
   {
+    capabilityCode: "studio.runtimeClusters.options",
+    group: "Operations",
+    path: "/runtime-clusters",
+    label: "Runtime clusters",
+    description: "List project-authorized runtime clusters and intersect them with datasource/model applicability before execution placement.",
+    supportsList: true,
+    supportsGet: false,
+    readTools: [
+      {
+        tool: "studio.feature.list",
+        purpose: "List authorized runtime clusters, optionally intersected by datasourceIds, modelIds, or applicableClusterIds.",
+        mutation: false,
+        optionalValues: ["datasourceIds", "modelIds", "applicableClusterIds"],
+      },
+    ],
+    featureActions: [],
+    writePolicy: "Read-only project runtime cluster options.",
+  },
+  {
     capabilityCode: "studio.datasources.manage",
     group: "Data assets",
     path: "/datasources",
@@ -415,7 +477,7 @@ const operationCatalog = [
         tool: "studio.feature.list",
         purpose: "Read registered model list or datasource model candidates.",
         mutation: false,
-        optionalValues: ["keyword", "datasourceId", "datasourceType", "pageNo", "pageSize", "sortField", "sortOrder"],
+        optionalValues: ["keyword", "datasourceId", "datasourceType", "runtimeClusterId", "pageNo", "pageSize", "sortField", "sortOrder"],
         defaultParams: { path: "/models", pageNo: 1, pageSize: 20 },
       },
       {
@@ -423,10 +485,19 @@ const operationCatalog = [
         purpose: "Read model detail.",
         mutation: false,
         requiredValues: ["id"],
-        optionalValues: ["view", "preview", "lineageLevel"],
+        optionalValues: ["view", "lineageLevel"],
       },
     ],
     featureActions: [
+      {
+        tool: "studio.feature.action",
+        path: "/models",
+        action: "preview",
+        purpose: "Preview model sample rows in a selected runtime cluster.",
+        mutation: false,
+        requiredValues: ["id", "runtimeClusterId"],
+        optionalValues: ["limit"],
+      },
       {
         tool: "studio.feature.action",
         path: "/models",
@@ -751,6 +822,19 @@ const server = http.createServer(async (request, response) => {
         interfaceCode,
         params,
       });
+      if (interfaceCode === "studio.feature.list" && String(params.path || "") === "/runtime-clusters") {
+        sendJson(response, {
+          schema: "studio.tool-result.v1",
+          interfaceCode,
+          path: "/runtime-clusters",
+          executedBy: "backend",
+          mutation: false,
+          requiresConfirmation: false,
+          params,
+          data: runtimeClusterResult(params),
+        });
+        return;
+      }
       if (interfaceCode === "studio.feature.list" && String(params.path || "") === "/datasources") {
         if (String(params.keyword || "") === "loop-pages") {
           const pageNo = Number(params.pageNo || 1);
@@ -888,7 +972,7 @@ const server = http.createServer(async (request, response) => {
           interfaceCode,
           entrypointId: "field-mapping-suggester",
           executedBy: "worker",
-          runtimeClusterId: 50,
+          runtimeClusterId: 7,
           mutation: false,
           requiresConfirmation: false,
           params,
@@ -927,6 +1011,27 @@ const server = http.createServer(async (request, response) => {
           requiresConfirmation: false,
           params,
           data: datasourceDiscoverResult,
+        });
+        return;
+      }
+      if (interfaceCode === "studio.feature.action"
+        && String(params.path || "") === "/models"
+        && String(params.action || "") === "preview") {
+        sendJson(response, {
+          schema: "studio.tool-result.v1",
+          interfaceCode,
+          path: "/models",
+          action: "preview",
+          executedBy: "backend",
+          mutation: false,
+          requiresConfirmation: false,
+          params,
+          data: {
+            detail: { id: params.id, name: "orders", physicalName: "orders" },
+            previewRows: [{ id: 1, order_no: "A-001" }],
+            sampleRows: [{ id: 1, order_no: "A-001" }],
+            previewRowCount: 1,
+          },
         });
         return;
       }
@@ -1110,6 +1215,31 @@ function sendAssistantStream(response, body) {
     || message.includes("previous tool")
     || message.includes("latest tool"));
   if (isToolFollowUp
+    && latestToolResult?.ok === true
+    && latestToolResult?.interfaceCode === "studio.feature.list"
+    && latestToolResult?.params?.path === "/runtime-clusters") {
+    assistantPayloadAudit.lastChatBranch = "tool-follow-up-runtime-cluster-resolved";
+    writeSse(response, "delta", {
+      content: language === "en"
+        ? "Runtime Cluster Resolution Result\nThe authorized runtime cluster candidates were resolved from the supplied resource evidence. The unique candidate is now available in assistant memory for the next cluster-scoped action."
+        : "运行集群解析结果\n已根据提供的资源证据得到项目授权的运行集群候选。唯一候选已写入助手记忆，可用于下一步集群范围操作。",
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (/用户已经选择当前运行集群|selected runtime cluster|runtime cluster selection/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "runtime-cluster-selection-complete";
+    writeSse(response, "delta", {
+      content: language === "en"
+        ? "Runtime Cluster Selection Result\nThe explicitly selected runtime cluster remains in assistant memory. No preferred or online fallback was applied."
+        : "运行集群选择结果\n用户明确选择的运行集群已保留在助手记忆中，没有按首选标记、在线状态或列表顺序改投其他集群。",
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (isToolFollowUp
     && latestToolResult?.ok === false
     && legacyFrontendToolCodes.has(String(latestToolResult.interfaceCode || ""))) {
     assistantPayloadAudit.lastChatBranch = "tool-follow-up-legacy-tool-repair";
@@ -1193,6 +1323,22 @@ function sendAssistantStream(response, body) {
       content: language === "en"
         ? "Question Breakdown\n1. Did the browser treat operation as action?\n2. What happens when the LLM omits the canonical action field?\n\nAction Parameter Validation Result\nThe frontend did not treat operation as action. It returned the missing action error to the LLM before confirmation or backend gateway execution."
         : "问题拆解\n1. 浏览器是否把 operation 当成 action？\n2. LLM 缺少规范 action 字段时应该怎样处理？\n\n动作参数校验结果\n前端没有把 operation 当成 action，而是在确认或后端网关执行前把缺少 action 的错误回灌给 LLM。",
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (isToolFollowUp
+    && latestToolResult?.ok === false
+    && latestToolResult?.interfaceCode === "studio.feature.action"
+    && latestToolResult?.params?.path === "/models"
+    && latestToolResult?.params?.action === "preview"
+    && /runtimeClusterId/.test(String(latestToolResult.error || ""))) {
+    assistantPayloadAudit.lastChatBranch = "tool-follow-up-missing-model-preview-cluster";
+    writeSse(response, "delta", {
+      content: language === "en"
+        ? "Question Breakdown\n1. Did the browser send model preview without a runtime cluster?\n2. Was it blocked before backend execution?\n\nModel Preview Cluster Validation Result\nThe frontend rejected the preview before the backend gateway because runtimeClusterId is required by the operation catalog."
+        : "问题拆解\n1. 浏览器是否发送了缺少运行集群的模型预览？\n2. 是否在后端执行前被拦截？\n\n模型预览集群校验结果\noperation catalog 将 runtimeClusterId 声明为必填，前端已在后端网关执行前拒绝本次预览。",
     });
     writeSse(response, "done", {});
     response.end();
@@ -2618,6 +2764,130 @@ function sendAssistantStream(response, body) {
     response.end();
     return;
   }
+  if (/resolve model preview runtime cluster|model preview cluster resolution|解析.*模型预览.*集群|模型预览.*集群.*唯一/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "model-preview-runtime-cluster-resolution-probe";
+    const content = language === "en"
+      ? "I will resolve the runtime cluster from the selected model evidence before previewing it.\n\n"
+      : "我会先依据模型证据解析模型预览使用的运行集群，再执行预览。\n\n";
+    const protocol = {
+      protocol: "studio-assistant.v1",
+      loop: statefulLoop({
+        status: "tool_pending",
+        autoContinue: true,
+        stopReason: "waiting_for_tool_result",
+        questions: ["Which project-authorized runtime cluster applies to model 5?"],
+        next: ["Resolve the runtime cluster candidates for model 5."],
+      }),
+      actions: [
+        {
+          type: "frontendTool",
+          tool: "studio.feature.list",
+          reason: "Intersect project authorization with model applicability before cluster-scoped preview.",
+          params: { path: "/runtime-clusters", modelIds: [5] },
+        },
+      ],
+      controls: [],
+    };
+    writeSse(response, "delta", {
+      content: `${content}\`\`\`studio-assistant-protocol\n${JSON.stringify(withProtocolPlan(protocol))}\n\`\`\``,
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (/list runtime cluster candidates|runtime cluster choice|multiple runtime clusters|多候选.*集群|选择.*运行集群/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "runtime-cluster-multiple-candidates-probe";
+    const content = language === "en"
+      ? "I found multiple authorized runtime cluster candidates. I will wait for an explicit selection instead of choosing by preferred flag, online status, or list order.\n\n"
+      : "当前有多个项目授权的运行集群候选。我会等待你明确选择，不会按首选标记、在线状态或列表顺序自动选择。\n\n";
+    const protocol = {
+      protocol: "studio-assistant.v1",
+      loop: statefulLoop({
+        status: "waiting_for_user",
+        autoContinue: false,
+        stopReason: "missing_user_input",
+        questions: ["Which runtime cluster should be used?"],
+        next: ["Wait for an explicit runtime cluster selection."],
+      }),
+      actions: [
+        {
+          type: "frontendTool",
+          tool: "studio.feature.list",
+          reason: "Read all project-authorized runtime cluster candidates before asking the user.",
+          params: { path: "/runtime-clusters" },
+        },
+      ],
+      controls: [],
+    };
+    writeSse(response, "delta", {
+      content: `${content}\`\`\`studio-assistant-protocol\n${JSON.stringify(withProtocolPlan(protocol))}\n\`\`\``,
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (/missing model preview cluster|model preview missing cluster|missing-preview-cluster|模型预览.*缺少.*集群/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "missing-model-preview-cluster-probe";
+    const content = language === "en"
+      ? "I will intentionally omit runtimeClusterId from a model preview action to verify catalog validation.\n\n"
+      : "我会故意在模型预览动作中省略 runtimeClusterId，用来验证目录参数校验。\n\n";
+    const protocol = {
+      protocol: "studio-assistant.v1",
+      loop: statefulLoop({
+        status: "tool_pending",
+        autoContinue: true,
+        stopReason: "waiting_for_tool_result",
+        questions: ["Does model preview require runtimeClusterId before backend execution?"],
+        next: ["Try the read-only model preview action without runtimeClusterId and feed validation back to the LLM."],
+      }),
+      actions: [
+        {
+          type: "frontendTool",
+          tool: "studio.feature.action",
+          reason: "Verify cluster-scoped model preview validation.",
+          params: { path: "/models", action: "preview", id: 5, limit: 20 },
+        },
+      ],
+      controls: [],
+    };
+    writeSse(response, "delta", {
+      content: `${content}\`\`\`studio-assistant-protocol\n${JSON.stringify(withProtocolPlan(protocol))}\n\`\`\``,
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
+  if (/model preview with runtime cluster|cluster-scoped model preview|preview model in cluster|携带.*集群.*模型预览/i.test(message)) {
+    assistantPayloadAudit.lastChatBranch = "model-preview-with-cluster-probe";
+    const content = language === "en"
+      ? "I will preview the selected model through the read-only cluster-scoped action.\n\n"
+      : "我会通过只读的集群范围模型预览动作读取样例数据。\n\n";
+    const protocol = {
+      protocol: "studio-assistant.v1",
+      loop: statefulLoop({
+        status: "tool_pending",
+        autoContinue: true,
+        stopReason: "waiting_for_tool_result",
+        questions: ["Can model preview reach the backend with an explicit runtimeClusterId?"],
+        next: ["Preview model 5 in runtime cluster 7."],
+      }),
+      actions: [
+        {
+          type: "frontendTool",
+          tool: "studio.feature.action",
+          reason: "Preview the selected model in an authorized runtime cluster.",
+          params: { path: "/models", action: "preview", id: 5, runtimeClusterId: 7, limit: 20 },
+        },
+      ],
+      controls: [],
+    };
+    writeSse(response, "delta", {
+      content: `${content}\`\`\`studio-assistant-protocol\n${JSON.stringify(withProtocolPlan(protocol))}\n\`\`\``,
+    });
+    writeSse(response, "done", {});
+    response.end();
+    return;
+  }
   if (/missing feature get id inference|feature get id inference|missing-feature-get-id|recordId.*id.*inference|详情.*id.*推断/i.test(message)) {
     assistantPayloadAudit.lastChatBranch = "missing-feature-get-id-probe";
     const content = language === "en"
@@ -2919,6 +3189,7 @@ function sendAssistantStream(response, body) {
           reason: "Run registered field mapping helper.",
           params: {
             entrypointId: "field-mapping-suggester",
+            runtimeClusterId: 7,
             input: {
               sourceFields: ["id", "order_no", "amount"],
               targetFields: ["ID", "orderNo", "missing_col"],
@@ -3397,6 +3668,9 @@ function recordAssistantPayload(body) {
   if (isRecord(context.pageContext)) {
     assistantPayloadAudit.pageContextContexts += 1;
     assistantPayloadAudit.lastPageContext = context.pageContext;
+  }
+  if (isRecord(context.assistantMemory)) {
+    assistantPayloadAudit.lastAssistantMemory = context.assistantMemory;
   }
   const latestToolResult = latestToolResultFromBody(body);
   assistantPayloadAudit.lastToolResult = latestToolResult;
