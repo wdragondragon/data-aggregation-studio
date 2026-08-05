@@ -173,3 +173,21 @@ studio:
       service-name: ${STUDIO_FLINK_SERVICE_NAME:studio-flink}
       base-url: ${STUDIO_FLINK_BASE_URL:http://127.0.0.1:18084}
       path: ${STUDIO_FLINK_CONTEXT_PATH:}
+
+
+arthas:
+  ip: ${ARTHAS_IP:127.0.0.1}
+  telnet-port: ${ARTHAS_TELNET_PORT:3658}
+  http-port: ${ARTHAS_HTTP_PORT:8563}
+
+  app-name: ${spring.application.name}
+  agent-id: ${ARTHAS_AGENT_ID:${spring.application.name}_${studio.instance-id}}
+
+  tunnel-server: ${ARTHAS_TUNNEL_SERVER:ws://127.0.0.1:7777/ws}
+
+  # 开启 MCP Server
+  mcp-endpoint: ${ARTHAS_MCP_ENDPOINT:/mcp}
+  mcp-protocol: ${ARTHAS_MCP_PROTOCOL:STREAMABLE}
+
+  # 建议通过 Secret 注入，远程暴露时必须配置
+  password: ${ARTHAS_PASSWORD:951753}
