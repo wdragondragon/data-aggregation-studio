@@ -13,16 +13,18 @@
     @logout="handleLogout"
   >
     <template #header-actions>
-      <el-button
-        v-if="assistantVisible"
-        class="studio-layout__assistant-button"
-        data-testid="studio-assistant-open"
-        @click="assistantOpen = true"
-      >
-        <el-icon><ChatLineRound /></el-icon>
-        <span>AI 助手</span>
-      </el-button>
-      <NotificationBell v-if="authStore.isAuthenticated" />
+      <div class="studio-layout__header-actions">
+        <el-button
+          v-if="assistantVisible"
+          class="studio-layout__assistant-button"
+          data-testid="studio-assistant-open"
+          @click="assistantOpen = true"
+        >
+          <el-icon><ChatLineRound /></el-icon>
+          <span>AI 助手</span>
+        </el-button>
+        <NotificationBell v-if="authStore.isAuthenticated" />
+      </div>
     </template>
     <template #sidebar-context>
       <div class="studio-layout__context">
@@ -292,9 +294,43 @@ function resolveActiveMenuPath(items: StudioNavItem[], currentPath: string): str
 
 <style scoped>
 .studio-layout__assistant-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 98px;
+  height: 40px;
+  padding: 0 16px;
   border-radius: 999px;
   font-weight: 700;
+  line-height: 1;
   box-shadow: var(--studio-shadow);
+}
+
+.studio-layout__header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.studio-layout__header-actions :deep(.notification-bell) {
+  justify-content: center;
+  min-width: 104px;
+  height: 40px;
+  padding: 0 14px;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.studio-layout__header-actions :deep(.notification-bell__icon) {
+  width: 24px;
+  height: 24px;
+}
+
+.studio-layout__header-actions :deep(.notification-bell__label) {
+  font-size: 14px;
 }
 
 .studio-layout__context {
@@ -391,6 +427,11 @@ function resolveActiveMenuPath(items: StudioNavItem[], currentPath: string): str
 }
 
 @media (max-width: 980px) {
+  .studio-layout__header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .studio-layout__context {
     gap: 8px;
   }

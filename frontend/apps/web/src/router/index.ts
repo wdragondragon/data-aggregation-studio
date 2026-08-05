@@ -25,6 +25,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     labelKey: "routes.web.menuGroups.workspace.title",
     captionKey: "routes.web.menuGroups.workspace.caption",
     items: [
+      { path: "/guide", labelKey: "routes.web.guide.title", captionKey: "routes.web.guide.menuCaption", requiresProject: true },
       { path: "/dashboard", labelKey: "routes.web.dashboard.title", captionKey: "routes.web.dashboard.menuCaption", requiresProject: true },
       { path: "/catalog", labelKey: "routes.web.catalog.title", captionKey: "routes.web.catalog.menuCaption", requiresProject: true },
       { path: "/access-center", labelKey: "routes.web.accessCenter.title", captionKey: "routes.web.accessCenter.subtitle", visibleWhenNoProject: true },
@@ -185,7 +186,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/",
     component: StudioLayout,
-    redirect: "/dashboard",
+    redirect: "/guide",
     children: [
       {
         path: "/access-center",
@@ -195,6 +196,19 @@ const routes: RouteRecordRaw[] = [
           titleKey: "routes.web.accessCenter.title",
           subtitleKey: "routes.web.accessCenter.subtitle",
         },
+      },
+      {
+        path: "/guide",
+        name: "guide",
+        component: () => import("@/views/ArchitectureView.vue"),
+        meta: {
+          titleKey: "routes.web.guide.title",
+          subtitleKey: "routes.web.guide.subtitle",
+        },
+      },
+      {
+        path: "/roadmap",
+        redirect: "/guide",
       },
       {
         path: "/dashboard",
@@ -649,6 +663,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/architecture",
+        name: "architecture",
+        component: () => import("@/views/ArchitectureView.vue"),
+        meta: {
+          titleKey: "routes.web.architecture.title",
+          subtitleKey: "routes.web.architecture.subtitle",
+        },
+      },
+      {
         path: "/runtime-clusters",
         name: "runtime-clusters",
         component: () => import("@/views/RuntimeClustersView.vue"),
@@ -672,7 +695,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: "/:pathMatch(.*)*",
-    redirect: "/dashboard",
+    redirect: "/guide",
   },
 ];
 
@@ -703,7 +726,7 @@ router.beforeEach(async (to) => {
     const normalizedRoles = (authStore.systemRoleCodes ?? []).map((item) => item.toUpperCase());
     if (!normalizedRoles.includes("SUPER_ADMIN")) {
       return {
-        path: "/dashboard",
+        path: "/guide",
       };
     }
   }
@@ -717,7 +740,7 @@ router.beforeEach(async (to) => {
     const canAccessRoute = requiredRoleCodes.some((roleCode) => normalizedRoles.includes(String(roleCode).toUpperCase()));
     if (!canAccessRoute) {
       return {
-        path: "/dashboard",
+        path: "/guide",
       };
     }
   }

@@ -1,47 +1,73 @@
 <template>
   <div class="studio-page dashboard-page">
-    <section class="dashboard-hero">
-      <div class="dashboard-hero__content">
-        <span class="dashboard-hero__eyebrow">{{ t("web.dashboard.heroEyebrow") }}</span>
-        <h2 class="dashboard-hero__title">
-          {{ authStore.username ? t("web.dashboard.heroGreetingUser", { username: authStore.username }) : t("web.dashboard.heroGreeting") }}
-        </h2>
-        <p class="dashboard-hero__description">{{ t("web.dashboard.heroDescription") }}</p>
-
-        <div class="dashboard-hero__actions">
-          <el-button type="primary" @click="router.push('/datasources')">{{ t("web.dashboard.heroActionDatasource") }}</el-button>
-          <el-button plain @click="router.push('/collection-tasks/new')">{{ t("web.dashboard.heroActionCollectionTask") }}</el-button>
-          <el-button plain @click="router.push('/workflows/new')">{{ t("web.dashboard.heroActionWorkflow") }}</el-button>
-          <el-button plain @click="router.push('/data-development')">{{ t("web.dashboard.heroActionScript") }}</el-button>
-        </div>
-      </div>
-
-      <div class="dashboard-hero__stats">
-        <article class="dashboard-highlight">
-          <span class="dashboard-highlight__label">{{ t("web.dashboard.heroPublishedTitle") }}</span>
-          <strong class="dashboard-highlight__value">{{ publishedWorkflowCount }}</strong>
-          <p class="dashboard-highlight__hint">{{ t("web.dashboard.heroPublishedHint") }}</p>
-        </article>
-        <article class="dashboard-highlight">
-          <span class="dashboard-highlight__label">{{ t("web.dashboard.heroOnlineTitle") }}</span>
-          <strong class="dashboard-highlight__value">{{ onlineCollectionTaskCount }}</strong>
-          <p class="dashboard-highlight__hint">{{ t("web.dashboard.heroOnlineHint") }}</p>
-        </article>
-        <article class="dashboard-highlight">
-          <span class="dashboard-highlight__label">{{ t("web.dashboard.heroScriptsTitle") }}</span>
-          <strong class="dashboard-highlight__value">{{ scriptTotalCount }}</strong>
-          <p class="dashboard-highlight__hint">{{ t("web.dashboard.heroScriptsHint") }}</p>
-        </article>
-      </div>
-    </section>
-
     <div class="metrics-grid">
       <MetricCard :label="t('web.dashboard.datasources')" :value="datasourceCount" tone="accent" :hint="t('web.dashboard.datasourcesHint')" :description="t('web.dashboard.datasourcesDescription')" />
       <MetricCard :label="t('web.dashboard.publishedWorkflows')" :value="publishedWorkflowCount" tone="success" :hint="t('web.dashboard.publishedWorkflowsHint')" :description="t('web.dashboard.publishedWorkflowsDescription')" />
       <MetricCard :label="t('web.dashboard.onlineTasks')" :value="onlineCollectionTaskCount" tone="warning" :hint="t('web.dashboard.onlineTasksHint')" :description="t('web.dashboard.onlineTasksDescription')" />
+      <MetricCard :label="t('web.dashboard.heroScriptsTitle')" :value="scriptTotalCount" tone="primary" :hint="t('routes.web.dataDevelopment.title')" :description="t('web.dashboard.heroScriptsHint')" />
     </div>
 
-    <div class="studio-grid columns-2">
+    <SectionCard
+      class="dashboard-readiness-card"
+      :title="t('web.dashboard.executionTitle')"
+      :description="t('web.dashboard.executionDescription')"
+      :show-description="true"
+    >
+      <div class="dashboard-readiness">
+        <div class="soft-panel">
+          <div class="dashboard-readiness__header">
+            <strong>{{ t("web.dashboard.readyTypes") }}</strong>
+            <span>{{ executableDatasourceTypes.length }}</span>
+          </div>
+          <div class="tag-row">
+            <StatusPill
+              v-for="type in executableDatasourceTypes.slice(0, 10)"
+              :key="type"
+              :label="type"
+              tone="primary"
+            />
+            <span v-if="executableDatasourceTypes.length === 0">{{ t("web.dashboard.noExecutableSourceMapping") }}</span>
+          </div>
+        </div>
+
+        <div class="dashboard-readiness__summary">
+          <div class="dashboard-readiness-stat">
+            <span>{{ t("web.dashboard.scheduledWorkflowsLabel") }}</span>
+            <strong>{{ scheduledWorkflowCount }}</strong>
+          </div>
+          <div class="dashboard-readiness-stat">
+            <span>{{ t("web.dashboard.onlineTasksLabel") }}</span>
+            <strong>{{ onlineCollectionTaskCount }}</strong>
+          </div>
+          <div class="dashboard-readiness-stat">
+            <span>{{ t("web.dashboard.scriptMixLabel") }}</span>
+            <strong>{{ scriptTotalCount }}</strong>
+          </div>
+        </div>
+
+        <div class="dashboard-script-mix">
+          <div class="dashboard-script-mix__legend">
+            <StatusPill :label="`${t('web.dataDevelopment.scriptTypeSql')} · ${scriptTypeCounts.SQL}`" tone="primary" />
+            <StatusPill :label="`${t('web.dataDevelopment.scriptTypeFlinkQuestionSql')} · ${scriptTypeCounts.FLINK_QUESTION_SQL}`" tone="neutral" />
+            <StatusPill :label="`${t('web.dataDevelopment.scriptTypeJava')} · ${scriptTypeCounts.JAVA}`" tone="success" />
+            <StatusPill :label="`${t('web.dataDevelopment.scriptTypePython')} · ${scriptTypeCounts.PYTHON}`" tone="warning" />
+          </div>
+
+          <div v-if="recentScripts.length === 0" class="dashboard-empty">{{ t("web.dashboard.emptyScripts") }}</div>
+          <div v-else class="dashboard-script-list">
+            <div v-for="script in recentScripts" :key="String(script.id ?? script.fileName)" class="dashboard-script-item">
+              <div>
+                <strong>{{ script.fileName }}</strong>
+                <p>{{ script.description || t("common.none") }}</p>
+              </div>
+              <StatusPill :label="formatScriptType(t, script.scriptType)" :tone="scriptTone(script.scriptType)" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+
+    <div class="dashboard-detail-grid">
       <SectionCard
         :title="t('web.dashboard.operationalTitle')"
         :description="t('web.dashboard.operationalDescription')"
@@ -94,30 +120,6 @@
       </SectionCard>
 
       <SectionCard
-        :title="t('web.dashboard.workspaceTitle')"
-        :description="t('web.dashboard.workspaceDescription')"
-        :show-description="true"
-      >
-        <div class="dashboard-links">
-          <button
-            v-for="link in workspaceLinks"
-            :key="link.path"
-            type="button"
-            class="dashboard-link-card"
-            @click="router.push(link.path)"
-          >
-            <div class="dashboard-link-card__body">
-              <strong>{{ link.label }}</strong>
-              <p>{{ link.caption }}</p>
-            </div>
-            <span class="dashboard-link-card__metric">{{ link.metric }}</span>
-          </button>
-        </div>
-      </SectionCard>
-    </div>
-
-    <div class="studio-grid columns-2">
-      <SectionCard
         :title="t('web.dashboard.recentDefinitionsTitle')"
         :description="t('web.dashboard.recentDefinitionsDescription')"
         :show-description="true"
@@ -149,64 +151,6 @@
         </div>
       </SectionCard>
 
-      <SectionCard
-        :title="t('web.dashboard.executionTitle')"
-        :description="t('web.dashboard.executionDescription')"
-        :show-description="true"
-      >
-        <div class="dashboard-readiness">
-          <div class="soft-panel">
-            <div class="dashboard-readiness__header">
-              <strong>{{ t("web.dashboard.readyTypes") }}</strong>
-              <span>{{ executableDatasourceTypes.length }}</span>
-            </div>
-            <div class="tag-row">
-              <StatusPill
-                v-for="type in executableDatasourceTypes.slice(0, 10)"
-                :key="type"
-                :label="type"
-                tone="primary"
-              />
-              <span v-if="executableDatasourceTypes.length === 0">{{ t("web.dashboard.noExecutableSourceMapping") }}</span>
-            </div>
-          </div>
-
-          <div class="dashboard-readiness__summary">
-            <div class="dashboard-readiness-stat">
-              <span>{{ t("web.dashboard.scheduledWorkflowsLabel") }}</span>
-              <strong>{{ scheduledWorkflowCount }}</strong>
-            </div>
-            <div class="dashboard-readiness-stat">
-              <span>{{ t("web.dashboard.onlineTasksLabel") }}</span>
-              <strong>{{ onlineCollectionTaskCount }}</strong>
-            </div>
-            <div class="dashboard-readiness-stat">
-              <span>{{ t("web.dashboard.scriptMixLabel") }}</span>
-              <strong>{{ scriptTotalCount }}</strong>
-            </div>
-          </div>
-
-          <div class="dashboard-script-mix">
-            <div class="dashboard-script-mix__legend">
-              <StatusPill :label="`${t('web.dataDevelopment.scriptTypeSql')} · ${scriptTypeCounts.SQL}`" tone="primary" />
-              <StatusPill :label="`${t('web.dataDevelopment.scriptTypeFlinkQuestionSql')} · ${scriptTypeCounts.FLINK_QUESTION_SQL}`" tone="neutral" />
-              <StatusPill :label="`${t('web.dataDevelopment.scriptTypeJava')} · ${scriptTypeCounts.JAVA}`" tone="success" />
-              <StatusPill :label="`${t('web.dataDevelopment.scriptTypePython')} · ${scriptTypeCounts.PYTHON}`" tone="warning" />
-            </div>
-
-            <div v-if="recentScripts.length === 0" class="dashboard-empty">{{ t("web.dashboard.emptyScripts") }}</div>
-            <div v-else class="dashboard-script-list">
-              <div v-for="script in recentScripts" :key="String(script.id ?? script.fileName)" class="dashboard-script-item">
-                <div>
-                  <strong>{{ script.fileName }}</strong>
-                  <p>{{ script.description || t("common.none") }}</p>
-                </div>
-                <StatusPill :label="formatScriptType(t, script.scriptType)" :tone="scriptTone(script.scriptType)" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
     </div>
   </div>
 </template>
@@ -253,33 +197,6 @@ const runningWorkflowRunCount = computed(() => recentWorkflowRuns.value.filter((
 const failedWorkflowRunCount = computed(() => recentWorkflowRuns.value.filter((item) => ["FAILED", "ERROR"].includes(String(item.status ?? "").toUpperCase())).length);
 const scriptTotalCount = computed(() =>
   scriptTypeCounts.SQL + scriptTypeCounts.FLINK_QUESTION_SQL + scriptTypeCounts.JAVA + scriptTypeCounts.PYTHON);
-
-const workspaceLinks = computed(() => [
-  {
-    path: "/datasources",
-    label: t("routes.web.datasources.title"),
-    caption: t("routes.web.datasources.menuCaption"),
-    metric: t("web.dashboard.linkMetricCount", { count: datasourceCount.value }),
-  },
-  {
-    path: "/collection-tasks",
-    label: t("routes.web.collectionTasks.title"),
-    caption: t("routes.web.collectionTasks.menuCaption"),
-    metric: t("web.dashboard.linkMetricCount", { count: onlineCollectionTaskCount.value }),
-  },
-  {
-    path: "/workflows",
-    label: t("routes.web.workflows.title"),
-    caption: t("routes.web.workflows.menuCaption"),
-    metric: t("web.dashboard.linkMetricCount", { count: publishedWorkflowCount.value }),
-  },
-  {
-    path: "/data-development",
-    label: t("routes.web.dataDevelopment.title"),
-    caption: t("routes.web.dataDevelopment.menuCaption"),
-    metric: t("web.dashboard.linkMetricCount", { count: scriptTotalCount.value }),
-  },
-]);
 
 async function loadDashboard() {
   const loadToken = ++dashboardLoadToken;
@@ -365,130 +282,45 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
 
 <style scoped>
 .dashboard-page {
-  gap: 18px;
-}
-
-.dashboard-hero {
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.9fr);
-  gap: 18px;
-  padding: 24px;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.24), transparent 28%),
-    linear-gradient(135deg, rgba(18, 57, 122, 0.98), rgba(37, 99, 235, 0.92));
-  color: #f5f9ff;
-  box-shadow: 0 24px 56px rgba(24, 67, 142, 0.22);
-}
-
-.dashboard-hero::after {
-  content: "";
-  position: absolute;
-  inset: auto -48px -48px auto;
-  width: 220px;
-  height: 220px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.09);
-}
-
-.dashboard-hero__content,
-.dashboard-hero__stats {
-  position: relative;
-  z-index: 1;
-}
-
-.dashboard-hero__content {
-  display: grid;
   gap: 12px;
-  align-content: start;
-}
-
-.dashboard-hero__eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(234, 244, 255, 0.74);
-}
-
-.dashboard-hero__title {
-  margin: 0;
-  font-size: clamp(28px, 4vw, 38px);
-  line-height: 1.06;
-}
-
-.dashboard-hero__description {
-  margin: 0;
-  max-width: 720px;
-  color: rgba(234, 244, 255, 0.82);
-  font-size: 14px;
-  line-height: 1.65;
-}
-
-.dashboard-hero__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 6px;
-}
-
-.dashboard-hero__actions :deep(.el-button) {
-  --el-button-text-color: #f5f9ff;
-  --el-button-border-color: rgba(255, 255, 255, 0.22);
-  --el-button-hover-text-color: #f5f9ff;
-  --el-button-hover-border-color: rgba(255, 255, 255, 0.34);
-  --el-button-hover-bg-color: rgba(255, 255, 255, 0.12);
-  --el-button-bg-color: rgba(255, 255, 255, 0.08);
-}
-
-.dashboard-hero__actions :deep(.el-button--primary) {
-  --el-button-text-color: #12397a;
-  --el-button-bg-color: #f5f9ff;
-  --el-button-border-color: #f5f9ff;
-  --el-button-hover-text-color: #12397a;
-  --el-button-hover-bg-color: #eaf2ff;
-  --el-button-hover-border-color: #eaf2ff;
-}
-
-.dashboard-hero__stats {
-  display: grid;
-  gap: 12px;
-  align-content: center;
-}
-
-.dashboard-highlight {
-  padding: 16px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(12px);
-}
-
-.dashboard-highlight__label {
-  display: block;
-  font-size: 12px;
-  color: rgba(234, 244, 255, 0.72);
-}
-
-.dashboard-highlight__value {
-  display: block;
-  margin-top: 10px;
-  font-size: 30px;
-  line-height: 1;
-}
-
-.dashboard-highlight__hint {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: rgba(234, 244, 255, 0.76);
 }
 
 .metrics-grid {
   display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.dashboard-page :deep(.metric-card) {
+  padding: 16px 18px;
+  border-radius: 18px;
+}
+
+.dashboard-page :deep(.metric-card__value) {
+  margin-top: 12px;
+  font-size: 34px;
+}
+
+.dashboard-page :deep(.metric-card__description) {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dashboard-page :deep(.section-card__header) {
+  padding: 14px 16px 0;
+}
+
+.dashboard-page :deep(.section-card__body) {
+  padding: 12px 16px 16px;
 }
 
 .dashboard-pulse,
@@ -527,21 +359,19 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
   line-height: 1;
 }
 
-.dashboard-links,
 .dashboard-list,
 .dashboard-script-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
-.dashboard-link-card,
 .dashboard-list-item {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 11px 13px;
   border: 1px solid var(--studio-border);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.68);
@@ -551,27 +381,23 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.dashboard-link-card:hover,
 .dashboard-list-item:hover {
   transform: translateY(-1px);
   border-color: rgba(37, 99, 235, 0.26);
   box-shadow: 0 14px 28px rgba(37, 99, 235, 0.08);
 }
 
-.dashboard-link-card__body,
 .dashboard-list-item__main {
   min-width: 0;
   flex: 1;
 }
 
-.dashboard-link-card strong,
 .dashboard-list-item strong,
 .dashboard-script-item strong {
   display: block;
   font-size: 14px;
 }
 
-.dashboard-link-card p,
 .dashboard-list-item__message,
 .dashboard-script-item p {
   margin: 6px 0 0;
@@ -580,7 +406,6 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
   line-height: 1.55;
 }
 
-.dashboard-link-card__metric,
 .dashboard-list-item__action {
   white-space: nowrap;
   font-size: 12px;
@@ -644,27 +469,19 @@ watch([() => authStore.currentTenantId, () => authStore.currentProjectId], () =>
 }
 
 @media (max-width: 1260px) {
-  .dashboard-hero {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
-  .dashboard-hero {
-    padding: 20px;
-  }
-
   .metrics-grid,
+  .dashboard-detail-grid,
   .dashboard-pulse__stats,
   .dashboard-readiness__summary {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .dashboard-link-card,
   .dashboard-list-item,
   .dashboard-script-item {
     flex-direction: column;

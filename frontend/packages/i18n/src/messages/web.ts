@@ -143,11 +143,11 @@ export const webMessages = {
         loadFailed: "Failed to load notifications",
       },
       dashboard: {
-        heroEyebrow: "Control Center",
+        heroEyebrow: "Start with Studio",
         heroGreeting: "Shape integrations, scripts and runtime from one place.",
         heroGreetingUser: "Welcome back, {username}",
         heroDescription:
-          "Create connections, publish collection tasks, bind workflow schedules and inspect the latest runtime health without hopping across pages.",
+          "Follow the data delivery journey from connections to published services, or jump directly into a common workspace to begin.",
         heroActionDatasource: "Open datasources",
         heroActionCollectionTask: "Create task",
         heroActionWorkflow: "Create workflow",
@@ -1880,10 +1880,10 @@ export const webMessages = {
         loadFailed: "加载消息失败",
       },
       dashboard: {
-        heroEyebrow: "控制中心",
+        heroEyebrow: "从这里开始",
         heroGreeting: "把集成配置、脚本开发和运行态放在同一个首页里管理。",
         heroGreetingUser: "欢迎回来，{username}",
-        heroDescription: "从这里可以直接创建数据源、发布采集任务、配置工作流调度，并快速查看最近的运行健康状态。",
+        heroDescription: "沿着数据建设路线了解从数据接入到服务发布的完整过程，也可以直接进入常用页面开始工作。",
         heroActionDatasource: "进入数据源",
         heroActionCollectionTask: "新建采集任务",
         heroActionWorkflow: "新建工作流",
@@ -1951,7 +1951,7 @@ export const webMessages = {
         createdColumn: "创建时间",
         workerColumn: "Worker",
         messageColumn: "消息",
-        loadFailed: "加载总览失败",
+        loadFailed: "加载运行总览失败",
       },
       catalog: {
         heading: "能力矩阵",

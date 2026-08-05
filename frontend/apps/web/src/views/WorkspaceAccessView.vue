@@ -205,7 +205,7 @@ async function refreshPermissions() {
   try {
     await authStore.refreshProfile();
     if (authStore.currentProjectId) {
-      await router.replace("/dashboard");
+      await router.replace("/guide");
       return;
     }
     ElMessage.info(t("web.accessCenter.refreshPending"));
@@ -249,7 +249,7 @@ function setProjectPendingState(projectId: WorkspaceAccessProjectView["projectId
 
 onMounted(async () => {
   if (authStore.currentProjectId) {
-    await router.replace("/dashboard");
+    await router.replace("/guide");
     return;
   }
   await loadOverview();

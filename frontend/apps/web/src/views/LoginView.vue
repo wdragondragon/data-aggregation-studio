@@ -173,7 +173,7 @@ async function submit() {
   try {
     await authStore.login(form);
     ElMessage.success(t("web.login.success"));
-    const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard";
+    const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/guide";
     router.push(redirect);
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.login.failed"));
@@ -188,7 +188,7 @@ async function submitGateway() {
     if (isGatewayStudioMode()) {
       await authStore.loginWithGateway();
       ElMessage.success(t("web.login.gatewaySuccess"));
-      const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard";
+      const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/guide";
       router.push(redirect);
       return;
     }

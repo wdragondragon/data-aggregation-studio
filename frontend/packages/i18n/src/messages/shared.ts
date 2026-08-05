@@ -110,7 +110,7 @@ export const sharedMessages = {
         menuGroups: {
           workspace: {
             title: "Workspace",
-            caption: "Overview and capability entry points",
+            caption: "Platform guidance, live overview and capability entry points",
           },
           assets: {
             title: "Data Assets",
@@ -154,9 +154,14 @@ export const sharedMessages = {
           subtitle: "Request access when your account has not joined any tenant project yet.",
         },
         dashboard: {
-          title: "Dashboard",
-          subtitle: "Observe workflow health, execution readiness and runtime activity at a glance.",
-          menuCaption: "Control tower and runtime summary",
+          title: "Runtime Overview",
+          subtitle: "Review critical runtime metrics, workflow activity and execution readiness at a glance.",
+          menuCaption: "Runtime metrics and execution details",
+        },
+        guide: {
+          title: "Platform Guide",
+          subtitle: "Start here to understand platform capabilities, the data delivery journey and the underlying architecture.",
+          menuCaption: "Understand the platform and its delivery journey",
         },
         catalog: {
           title: "Capability Matrix",
@@ -203,6 +208,11 @@ export const sharedMessages = {
           title: "Runtime Clusters",
           subtitle: "Manage executable cluster identities, internal endpoints and project authorization.",
           menuCaption: "Cluster endpoints and project authorization",
+        },
+        architecture: {
+          title: "Technical Architecture",
+          subtitle: "Explore the Studio control plane, Worker-only execution plane, runtime clusters, object storage and middleware responsibilities.",
+          menuCaption: "Control plane, clusters, plugins and middleware",
         },
         dataServices: {
           title: "Data Services",
@@ -474,7 +484,7 @@ export const sharedMessages = {
         menuGroups: {
           workspace: {
             title: "工作台",
-            caption: "总览与能力入口",
+            caption: "平台导览、运行总览与能力入口",
           },
           assets: {
             title: "数据资产",
@@ -518,9 +528,14 @@ export const sharedMessages = {
           subtitle: "当账号尚未加入任何租户项目时，在这里申请访问权限。",
         },
         dashboard: {
-          title: "总览",
-          subtitle: "快速查看工作流健康度、执行就绪度与运行态活动。",
-          menuCaption: "控制塔与运行概览",
+          title: "运行总览",
+          subtitle: "集中查看关键运行指标、工作流活动与执行就绪状态。",
+          menuCaption: "运行指标与执行明细",
+        },
+        guide: {
+          title: "平台导览",
+          subtitle: "从这里开始了解平台能力、数据建设流程以及背后的技术架构。",
+          menuCaption: "认识平台与数据建设流程",
         },
         catalog: {
           title: "能力矩阵",
@@ -567,6 +582,11 @@ export const sharedMessages = {
           title: "运行集群管理",
           subtitle: "管理可执行集群身份、内部端点和项目授权。",
           menuCaption: "集群端点与项目授权",
+        },
+        architecture: {
+          title: "技术架构",
+          subtitle: "交互查看 Studio 控制面、Worker 唯一执行面、运行集群、对象存储和中间件职责。",
+          menuCaption: "控制面、集群、插件与中间件",
         },
         dataServices: {
           title: "数据服务",
