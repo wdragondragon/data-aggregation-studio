@@ -44,6 +44,8 @@ spring:
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:1}
       password: '${REDIS_PASSWORD:&gGEa4E3ea4#5}'
+  arthas:
+    enabled: ${SPRING_ARTHAS_ENABLED:true}
 
 mybatis-plus:
   configuration:
