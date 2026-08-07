@@ -80,7 +80,7 @@ studio:
     auto-upgrade-on-startup: false
   auth:
     token-expiration-seconds: ${STUDIO_AUTH_TOKEN_EXPIRATION_SECONDS:43200}
-    cookie-path: ${STUDIO_AUTH_COOKIE_PATH:/dfs/data-aggregation-studio}
+    cookie-path: ${STUDIO_AUTH_COOKIE_PATH:/}
     cookie-secure: ${STUDIO_AUTH_COOKIE_SECURE:false}
     cookie-same-site: ${STUDIO_AUTH_COOKIE_SAME_SITE:Lax}
   web:
