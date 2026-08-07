@@ -83,6 +83,7 @@ studio:
     cookie-path: ${STUDIO_AUTH_COOKIE_PATH:/}
     cookie-secure: ${STUDIO_AUTH_COOKIE_SECURE:false}
     cookie-same-site: ${STUDIO_AUTH_COOKIE_SAME_SITE:Lax}
+    cookie-csrf-enabled: ${STUDIO_AUTH_COOKIE_CSRF_ENABLED:false}
   web:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
   encryption-secret: ${STUDIO_ENCRYPTION_SECRET:}

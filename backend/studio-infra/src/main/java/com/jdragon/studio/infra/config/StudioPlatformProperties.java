@@ -321,5 +321,6 @@ public class StudioPlatformProperties {
         private String cookiePath = "/dfs/data-aggregation-studio";
         private boolean cookieSecure = false;
         private String cookieSameSite = "Lax";
+        private boolean cookieCsrfEnabled = false;
     }
 }

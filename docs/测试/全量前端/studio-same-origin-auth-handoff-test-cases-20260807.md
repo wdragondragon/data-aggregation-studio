@@ -20,11 +20,12 @@
 | AUTH-HO-006 | 只发送旧 `Authorization: Bearer <studio-jwt>` | 原 Studio 客户端保持可用 |
 | AUTH-HO-007 | `returnPath=https://evil.example/x`、`//evil.example/x` 或反斜线外域路径 | 拒绝外部地址并返回 Studio 导览页 |
 | AUTH-HO-008 | 使用兼容参数 `redirect` 或 `redict` 传入同源相对路径 | 完成换票并返回对应同源路径 |
-| AUTH-HO-009 | Cookie 认证发起同源 `POST/PUT/PATCH/DELETE` | 请求通过 Fetch Metadata 和 Origin 校验 |
-| AUTH-HO-010 | Cookie 认证发起跨站写请求 | 返回 `403`，业务 Controller 不执行 |
-| AUTH-HO-011 | 调用 `POST /api/v1/auth/logout` | 响应以相同 Path 写入 `Max-Age=0`，后续 Cookie 认证失败 |
-| AUTH-HO-012 | HTTPS 经 Nginx 换票 | Cookie 包含 `Secure; HttpOnly; SameSite=Lax`，Path 为公开 Studio 基座 |
-| AUTH-HO-013 | 升级前浏览器仅存在旧 `studio_token` 本地存储 | Studio Web 首次读取后迁移为 `studio-token` 并删除旧键，现有登录态继续可用 |
+| AUTH-HO-009 | `STUDIO_AUTH_COOKIE_CSRF_ENABLED=false` 时，Cookie 认证发起同源或跨站写请求 | 默认关闭 CSRF 过滤器，业务请求按普通认证流程处理 |
+| AUTH-HO-010 | `STUDIO_AUTH_COOKIE_CSRF_ENABLED=true` 时，Cookie 认证发起同源 `POST/PUT/PATCH/DELETE` | 请求通过 Fetch Metadata 和 Origin 校验 |
+| AUTH-HO-011 | `STUDIO_AUTH_COOKIE_CSRF_ENABLED=true` 时，Cookie 认证发起跨站写请求 | 返回 `403`，业务 Controller 不执行 |
+| AUTH-HO-012 | 调用 `POST /api/v1/auth/logout` | 响应以相同 Path 写入 `Max-Age=0`，后续 Cookie 认证失败 |
+| AUTH-HO-013 | HTTPS 经 Nginx 换票 | Cookie 包含 `Secure; HttpOnly; SameSite=Lax`，Path 为公开 Studio 基座 |
+| AUTH-HO-014 | 升级前浏览器仅存在旧 `studio_token` 本地存储 | Studio Web 首次读取后迁移为 `studio-token` 并删除旧键，现有登录态继续可用 |
 
 ## 3. 自动化验证
 
@@ -39,4 +40,4 @@ npm run test:auth-handoff -w @studio/web
 npm run build -w @studio/web
 ```
 
-后端定向测试覆盖凭证优先级、横线 Cookie 名、Path/HttpOnly/SameSite/Secure、退出清理和 Cookie 写请求同源限制。前端测试覆盖同源回跳、外域拒绝和三个查询参数名；Web 构建同时校验 `studio-token` 主键及旧键迁移实现可正常编译。
+后端定向测试覆盖凭证优先级、横线 Cookie 名、Path/HttpOnly/SameSite/Secure、退出清理、Cookie CSRF 开关和开启后的同源限制。前端测试覆盖同源回跳、外域拒绝和三个查询参数名；Web 构建同时校验 `studio-token` 主键及旧键迁移实现可正常编译。

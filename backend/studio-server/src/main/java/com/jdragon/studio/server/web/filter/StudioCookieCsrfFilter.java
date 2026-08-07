@@ -5,6 +5,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.infra.security.StudioTokenResolver.ResolvedStudioToken;
 import com.jdragon.studio.infra.security.StudioTokenResolver.StudioTokenSource;
+import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.server.web.security.StudioHttpTokenResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -24,16 +25,24 @@ public class StudioCookieCsrfFilter extends OncePerRequestFilter {
 
     private final StudioHttpTokenResolver tokenResolver;
     private final ObjectMapper objectMapper;
+    private final StudioPlatformProperties.AuthProperties authProperties;
 
-    public StudioCookieCsrfFilter(StudioHttpTokenResolver tokenResolver, ObjectMapper objectMapper) {
+    public StudioCookieCsrfFilter(StudioHttpTokenResolver tokenResolver,
+                                  ObjectMapper objectMapper,
+                                  StudioPlatformProperties platformProperties) {
         this.tokenResolver = tokenResolver;
         this.objectMapper = objectMapper;
+        this.authProperties = platformProperties.getAuth();
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        if (!authProperties.isCookieCsrfEnabled()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         ResolvedStudioToken resolved = tokenResolver.resolve(request);
         if (resolved != null
                 && resolved.getSource() == StudioTokenSource.STUDIO_COOKIE
