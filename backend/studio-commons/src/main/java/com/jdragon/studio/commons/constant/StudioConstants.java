@@ -51,6 +51,8 @@ public final class StudioConstants {
     public static final String MEMBER_REQUEST_CANCELLED = "CANCELLED";
     public static final String REQUEST_TENANT_HEADER = "X-Tenant-Id";
     public static final String REQUEST_PROJECT_HEADER = "X-Project-Id";
+    public static final String STUDIO_TOKEN_HEADER = "X-Studio-Token";
+    public static final String STUDIO_TOKEN_COOKIE = "studio-token";
     public static final String INTERNAL_API_TOKEN_HEADER = "X-Studio-Internal-Token";
     public static final String GATEWAY_PROVIDER_CODE = "GATEWAY";
     public static final String ELINK_PROVIDER_CODE = "ELINK";

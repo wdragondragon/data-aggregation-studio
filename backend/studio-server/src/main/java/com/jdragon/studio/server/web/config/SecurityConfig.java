@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.server.web.filter.JwtAuthenticationFilter;
+import com.jdragon.studio.server.web.filter.StudioCookieCsrfFilter;
 import com.jdragon.studio.server.web.filter.StudioRequestContextFilter;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
@@ -26,6 +27,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtAuthenticationFilter jwtAuthenticationFilter,
+                                                   StudioCookieCsrfFilter studioCookieCsrfFilter,
                                                    StudioRequestContextFilter studioRequestContextFilter,
                                                    ObjectMapper objectMapper) throws Exception {
         http.csrf(csrf -> csrf.disable())
@@ -60,6 +62,7 @@ public class SecurityConfig {
                         .anyRequest()
                         .authenticated());
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(studioCookieCsrfFilter, JwtAuthenticationFilter.class);
         http.addFilterAfter(studioRequestContextFilter, JwtAuthenticationFilter.class);
         return http.build();
     }

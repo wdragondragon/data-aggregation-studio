@@ -16,11 +16,16 @@ import java.util.Date;
 public class JwtTokenService {
 
     private final SecretKey secretKey;
+    private final long tokenExpirationSeconds;
 
     public JwtTokenService(StudioPlatformProperties properties) {
         byte[] secret = (properties.getEncryptionSecret() + "-jwt-sign-key-2026")
                 .getBytes(StandardCharsets.UTF_8);
         this.secretKey = Keys.hmacShaKeyFor(secret.length >= 32 ? secret : pad(secret));
+        Long configuredExpiration = properties.getAuth().getTokenExpirationSeconds();
+        this.tokenExpirationSeconds = configuredExpiration == null || configuredExpiration.longValue() <= 0L
+                ? 12L * 3600L
+                : configuredExpiration.longValue();
     }
 
     public String createToken(String username) {
@@ -28,9 +33,13 @@ public class JwtTokenService {
         return Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(12 * 3600)))
+                .setExpiration(Date.from(now.plusSeconds(tokenExpirationSeconds)))
                 .signWith(secretKey, SignatureAlgorithm.HS256)
                 .compact();
+    }
+
+    public long getTokenExpirationSeconds() {
+        return tokenExpirationSeconds;
     }
 
     public String parseUsername(String token) {

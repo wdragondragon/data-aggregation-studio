@@ -107,6 +107,49 @@ Nginx 至少需要：
 /dfs/data-aggregation-studio/openapi/、/v3/、/swagger-ui/ -> studio-server:18080 对应路径
 ```
 
+### 3.4 同源系统无感换票
+
+Studio 与宿主系统经同一 Nginx Origin 暴露时，宿主不需要自行调用换票接口或注入 Studio Header。宿主只需在缺少 Studio 会话或收到 Studio `401` 后跳转：
+
+```text
+/dfs/data-aggregation-studio/auth/handoff?returnPath=%2Fother-system%2Foriginal-page
+```
+
+`handoff` 路由会使用平台 `access-token` 登录态调用 `POST /api/v1/auth/gateway/exchange`。换票成功后，Server 返回：
+
+```http
+Set-Cookie: studio-token=<studio-jwt>; Path=/dfs/data-aggregation-studio; HttpOnly; SameSite=Lax
+```
+
+随后页面通过 `location.replace` 返回同源 `returnPath`。浏览器访问 `/dfs/data-aggregation-studio/api/**` 时自动携带 `studio-token` Cookie，宿主前端不需要 Axios/Fetch token 拦截器。`returnPath`、兼容参数 `redirect` 和历史拼写 `redict` 都只接受解析后仍属于当前 Origin 的相对路径；不得传入完整外部 URL、`//host/path` 或 token 查询参数。
+
+Studio 认证凭证解析顺序固定为：
+
+```text
+X-Studio-Token -> studio-token Cookie -> Authorization: Bearer <legacy-studio-jwt>
+```
+
+找到高优先级凭证后即以该凭证完成校验；凭证无效时返回 `401`，不再降级尝试低优先级凭证。显式 `X-Studio-Token` 保留给 CLI、自动化和无 Cookie 客户端；原 `Authorization` 入口继续兼容现有 Studio Web/Desktop 客户端。
+
+Server 相关环境变量：
+
+```text
+STUDIO_AUTH_TOKEN_EXPIRATION_SECONDS=43200
+STUDIO_AUTH_COOKIE_PATH=/dfs/data-aggregation-studio
+STUDIO_AUTH_COOKIE_SAME_SITE=Lax
+STUDIO_AUTH_COOKIE_SECURE=true
+```
+
+生产 HTTPS 必须设置 `STUDIO_AUTH_COOKIE_SECURE=true`。Server 也会在 `X-Forwarded-Proto=https` 时自动写入 `Secure`，因此 Nginx 必须透传真实协议和 Host，且不能丢弃 `Set-Cookie`：
+
+```nginx
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header Host $http_host;
+```
+
+Cookie 认证会由浏览器自动携带。当前实现对使用 `studio-token` Cookie 的 `POST/PUT/PATCH/DELETE` 增加同源 `Origin` 和 Fetch Metadata 校验；跨站写请求返回 `403`。退出必须调用 `POST /api/v1/auth/logout`，由 Server 使用相同 Path 清除 HttpOnly Cookie。
+
 ## 4. MySQL 初始化与升级
 
 ### 4.1 全新数据库
@@ -189,7 +232,7 @@ Nacos 配置正文和 Secret 注入策略由运维平台管理；密钥、Token�
 
 | 进程 | 必须项 |
 | --- | --- |
-| Server | `SPRING_DATASOURCE_URL`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD`、`NACOS_SERVER`、`NACOS_NAMESPACE`、`NACOS_GROUP`、`NACOS_USER`、`NACOS_PASSWORD`、`STUDIO_ENCRYPTION_SECRET`、`STUDIO_INTERNAL_API_TOKEN`、`STUDIO_GATEWAY_TRUST_ENABLED=false` |
+| Server | `SPRING_DATASOURCE_URL`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD`、`NACOS_SERVER`、`NACOS_NAMESPACE`、`NACOS_GROUP`、`NACOS_USER`、`NACOS_PASSWORD`、`STUDIO_ENCRYPTION_SECRET`、`STUDIO_INTERNAL_API_TOKEN`、`STUDIO_GATEWAY_TRUST_ENABLED=false`；同源无感换票再配置 `STUDIO_AUTH_COOKIE_PATH`、`STUDIO_AUTH_COOKIE_SECURE`、`STUDIO_AUTH_COOKIE_SAME_SITE` |
 | Worker | Server 全部共享项、`STUDIO_CLUSTER_CODE`、`STUDIO_AGGREGATION_HOME`、`STUDIO_INSTANCE_ID`、`STUDIO_WORKER_API_BASE_URL`、`STUDIO_RUNTIME_VERSION`；Lazy 模式再加 OSS provider/endpoint/AK/SK/bucket、`STUDIO_PLUGIN_RUNTIME_MODE=LAZY_OBJECT_STORAGE`、prefix 和 channel |
 | studio-flink | Server 的数据库/Nacos/共享密钥项、`STUDIO_GATEWAY_TRUST_ENABLED=false`；启用问数时再加 LLM provider、模型和 API key |
 

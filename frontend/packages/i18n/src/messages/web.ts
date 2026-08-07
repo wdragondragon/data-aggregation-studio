@@ -67,6 +67,14 @@ export const webMessages = {
         success: "Login succeeded",
         failed: "Login failed",
       },
+      authHandoff: {
+        pageTitle: "Connecting to Studio",
+        title: "Connecting to Studio",
+        description: "Verifying the unified platform identity and returning to the previous page.",
+        failedTitle: "Unable to connect to Studio",
+        authenticationFailed: "The unified identity could not be exchanged for a Studio session. Return to Studio and sign in again.",
+        returnToStudio: "Open Studio",
+      },
       register: {
         eyebrow: "Access Request",
         title: "Submit registration request",
@@ -1803,6 +1811,14 @@ export const webMessages = {
         footerNote: "登录后进入总览页，可查看资产、任务、运行和质量概览，并在顶部切换租户与项目。",
         success: "登录成功",
         failed: "登录失败",
+      },
+      authHandoff: {
+        pageTitle: "正在连接 Studio",
+        title: "正在连接 Studio",
+        description: "正在校验平台统一身份，完成后将返回原页面。",
+        failedTitle: "无法连接 Studio",
+        authenticationFailed: "平台统一身份未能换取 Studio 会话，请返回 Studio 后重新登录。",
+        returnToStudio: "进入 Studio",
       },
       register: {
         eyebrow: "访问申请",

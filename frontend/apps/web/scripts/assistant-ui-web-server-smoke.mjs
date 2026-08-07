@@ -1460,7 +1460,7 @@ async function login(page) {
   await waitForDom(page, `location.href.includes("/dashboard") || document.querySelector('input[autocomplete="username"]')`, 30000);
   const authState = await evaluate(page, `({
     onDashboard: location.href.includes("/dashboard"),
-    tokenPresent: Boolean(window.localStorage.getItem("studio_token")),
+    tokenPresent: Boolean(window.localStorage.getItem("studio-token") || window.localStorage.getItem("studio_token")),
     hasLoginForm: Boolean(document.querySelector('input[autocomplete="username"]'))
   })`).catch(() => ({ onDashboard: false, tokenPresent: false, hasLoginForm: false }));
   if (authState.onDashboard && authState.tokenPresent) {
@@ -1514,7 +1514,7 @@ async function waitForAssistantHiddenInUi(page, timeoutMs) {
     latest = await evaluate(page, `
       ({
         onDashboard: location.href.includes("/dashboard"),
-        tokenPresent: Boolean(window.localStorage.getItem("studio_token")),
+        tokenPresent: Boolean(window.localStorage.getItem("studio-token") || window.localStorage.getItem("studio_token")),
         tenantPresent: Boolean(window.localStorage.getItem("studio_current_tenant")),
         projectPresent: Boolean(window.localStorage.getItem("studio_current_project")),
         assistantButtonCount: document.querySelectorAll('[data-testid="studio-assistant-open"]').length,
@@ -1538,7 +1538,7 @@ async function waitForAssistantEnabledConfig(page, timeoutMs) {
   while (Date.now() - startedAt < timeoutMs) {
     latest = await evaluate(page, `
       (async () => {
-        const token = window.localStorage.getItem("studio_token");
+        const token = window.localStorage.getItem("studio-token") || window.localStorage.getItem("studio_token");
         const response = await fetch("/api/v1/assistant/config", {
           headers: token ? { Authorization: "Bearer " + token } : {}
         });

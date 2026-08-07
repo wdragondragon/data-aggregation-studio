@@ -33,6 +33,7 @@ public class StudioPlatformProperties {
     private RuntimeInvocationIdempotencyProperties runtimeInvocationIdempotency =
             new RuntimeInvocationIdempotencyProperties();
     private RuntimeEndpointProperties runtimeEndpoint = new RuntimeEndpointProperties();
+    private AuthProperties auth = new AuthProperties();
     private GatewayProperties gateway = new GatewayProperties();
     private PythonProperties python = new PythonProperties();
     private ScriptEnvironmentProperties scriptEnvironment = new ScriptEnvironmentProperties();
@@ -312,5 +313,13 @@ public class StudioPlatformProperties {
         private boolean trustEnabled = false;
         private String sharedSecret = "change-me";
         private Long signatureExpireSeconds = 300L;
+    }
+
+    @Data
+    public static class AuthProperties {
+        private Long tokenExpirationSeconds = 12L * 3600L;
+        private String cookiePath = "/dfs/data-aggregation-studio";
+        private boolean cookieSecure = false;
+        private String cookieSameSite = "Lax";
     }
 }

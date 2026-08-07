@@ -174,6 +174,14 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: "/auth/handoff",
+    name: "auth-handoff",
+    component: () => import("@/views/AuthHandoffView.vue"),
+    meta: {
+      titleKey: "web.authHandoff.pageTitle",
+    },
+  },
+  {
     path: "/register",
     name: "register",
     component: () => import("@/views/RegisterView.vue"),
@@ -759,6 +767,9 @@ function canAccessWithoutProject(path: string, authStore: ReturnType<typeof useA
     return false;
   }
   if (path === "/access-center" || path.startsWith("/access-center/")) {
+    return true;
+  }
+  if (path === "/auth/handoff") {
     return true;
   }
   if (path === "/notifications" || path.startsWith("/notifications/")) {

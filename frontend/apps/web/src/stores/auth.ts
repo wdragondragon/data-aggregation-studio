@@ -146,11 +146,15 @@ export const useAuthStore = defineStore("studio-auth", () => {
     window.localStorage.removeItem(STUDIO_USERNAME_KEY);
   }
 
-  function logout() {
-    clearStoredToken();
-    markManualLogout();
-    gatewayExchangeAttempted.value = false;
-    resetState();
+  async function logout() {
+    try {
+      await studioApi.auth.logout();
+    } finally {
+      clearStoredToken();
+      markManualLogout();
+      gatewayExchangeAttempted.value = false;
+      resetState();
+    }
   }
 
   return {

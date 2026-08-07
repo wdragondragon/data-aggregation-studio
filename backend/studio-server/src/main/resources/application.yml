@@ -49,6 +49,8 @@ spring:
         file-extension: yaml
         import-check:
           enabled: false
+  arthas:
+    enabled: ${SPRING_ARTHAS_ENABLED:true}
 
 mybatis-plus:
   configuration:
@@ -76,6 +78,11 @@ management:
 studio:
   schema:
     auto-upgrade-on-startup: false
+  auth:
+    token-expiration-seconds: ${STUDIO_AUTH_TOKEN_EXPIRATION_SECONDS:43200}
+    cookie-path: ${STUDIO_AUTH_COOKIE_PATH:/dfs/data-aggregation-studio}
+    cookie-secure: ${STUDIO_AUTH_COOKIE_SECURE:false}
+    cookie-same-site: ${STUDIO_AUTH_COOKIE_SAME_SITE:Lax}
   web:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
   encryption-secret: ${STUDIO_ENCRYPTION_SECRET:}

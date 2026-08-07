@@ -115,7 +115,7 @@ async function main() {
 
   const skillsProbe = await evaluate(page, `
     (() => {
-      const token = window.localStorage.getItem("studio_token");
+      const token = window.localStorage.getItem("studio-token") || window.localStorage.getItem("studio_token");
       const projectId = window.localStorage.getItem("studio_current_project");
       const tenantId = window.localStorage.getItem("studio_current_tenant");
       return fetch("/api/v1/assistant/skills", {

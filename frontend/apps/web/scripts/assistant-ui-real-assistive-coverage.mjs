@@ -2474,7 +2474,7 @@ async function waitForAssistantEnabledConfig(page, timeoutMs = 60000) {
 async function fetchAssistantConfigProbe(page) {
   return evaluate(page, `
     (async () => {
-      const token = window.localStorage.getItem("studio_token") || "";
+      const token = window.localStorage.getItem("studio-token") || window.localStorage.getItem("studio_token") || "";
       const projectId = window.localStorage.getItem("studio_current_project") || "";
       const tenantId = window.localStorage.getItem("studio_current_tenant") || "";
       const headers = { Accept: "application/json" };
@@ -2519,7 +2519,7 @@ async function fetchAssistantOperations(page) {
   const authContext = await evaluate(page, `
     (() => {
       return {
-        token: window.localStorage.getItem("studio_token") || "",
+        token: window.localStorage.getItem("studio-token") || window.localStorage.getItem("studio_token") || "",
         projectId: window.localStorage.getItem("studio_current_project") || "",
         tenantId: window.localStorage.getItem("studio_current_tenant") || ""
       };

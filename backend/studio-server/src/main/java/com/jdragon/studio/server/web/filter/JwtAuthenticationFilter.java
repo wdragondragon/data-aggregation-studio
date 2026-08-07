@@ -2,6 +2,8 @@ package com.jdragon.studio.server.web.filter;
 
 import com.jdragon.studio.infra.service.JwtTokenService;
 import com.jdragon.studio.infra.service.StudioUserDetailsService;
+import com.jdragon.studio.infra.security.StudioTokenResolver.ResolvedStudioToken;
+import com.jdragon.studio.server.web.security.StudioHttpTokenResolver;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,19 +22,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenService jwtTokenService;
     private final StudioUserDetailsService userDetailsService;
+    private final StudioHttpTokenResolver tokenResolver;
 
-    public JwtAuthenticationFilter(JwtTokenService jwtTokenService, StudioUserDetailsService userDetailsService) {
+    public JwtAuthenticationFilter(JwtTokenService jwtTokenService,
+                                   StudioUserDetailsService userDetailsService,
+                                   StudioHttpTokenResolver tokenResolver) {
         this.jwtTokenService = jwtTokenService;
         this.userDetailsService = userDetailsService;
+        this.tokenResolver = tokenResolver;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String header = request.getHeader("Authorization");
-        if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
+        ResolvedStudioToken resolvedToken = tokenResolver.resolve(request);
+        if (resolvedToken != null) {
+            String token = resolvedToken.getToken();
             if (jwtTokenService.isValid(token) && SecurityContextHolder.getContext().getAuthentication() == null) {
                 String username = jwtTokenService.parseUsername(token);
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);

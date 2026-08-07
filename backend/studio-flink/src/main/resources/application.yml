@@ -75,6 +75,8 @@ management:
 studio:
   schema:
     auto-upgrade-on-startup: false
+  auth:
+    token-expiration-seconds: ${STUDIO_AUTH_TOKEN_EXPIRATION_SECONDS:43200}
   web:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
   aggregation-home: ${STUDIO_AGGREGATION_HOME:}

@@ -11,6 +11,7 @@ import com.jdragon.studio.infra.service.GatewayAuthExchangeService;
 import com.jdragon.studio.infra.service.JwtTokenService;
 import com.jdragon.studio.infra.service.StudioAccessService;
 import com.jdragon.studio.infra.service.UserRegistrationRequestService;
+import com.jdragon.studio.server.web.security.StudioAuthCookieService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Tag(name = "Auth", description = "Authentication APIs")
 @RestController
@@ -35,34 +37,40 @@ public class AuthController {
     private final StudioAccessService studioAccessService;
     private final UserRegistrationRequestService userRegistrationRequestService;
     private final GatewayAuthExchangeService gatewayAuthExchangeService;
+    private final StudioAuthCookieService authCookieService;
 
     public AuthController(AuthenticationManager authenticationManager,
                           JwtTokenService jwtTokenService,
                           StudioAccessService studioAccessService,
                           UserRegistrationRequestService userRegistrationRequestService,
-                          GatewayAuthExchangeService gatewayAuthExchangeService) {
+                          GatewayAuthExchangeService gatewayAuthExchangeService,
+                          StudioAuthCookieService authCookieService) {
         this.authenticationManager = authenticationManager;
         this.jwtTokenService = jwtTokenService;
         this.studioAccessService = studioAccessService;
         this.userRegistrationRequestService = userRegistrationRequestService;
         this.gatewayAuthExchangeService = gatewayAuthExchangeService;
+        this.authCookieService = authCookieService;
     }
 
     @Operation(summary = "Login and get JWT token")
     @PostMapping("/login")
     public Result<AuthProfileView> login(@Valid @RequestBody LoginRequest request,
-                                         HttpServletRequest servletRequest) {
+                                         HttpServletRequest servletRequest,
+                                         HttpServletResponse servletResponse) {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
         String token = jwtTokenService.createToken(authentication.getName());
         StudioUserPrincipal principal = authentication.getPrincipal() instanceof StudioUserPrincipal
                 ? (StudioUserPrincipal) authentication.getPrincipal()
                 : null;
-        return Result.success(studioAccessService.buildProfile(
+        AuthProfileView profile = studioAccessService.buildProfile(
                 principal,
                 servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
                 servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER),
-                token));
+                token);
+        authCookieService.writeTokenCookie(servletRequest, servletResponse, token);
+        return Result.success(profile);
     }
 
     @Operation(summary = "Get current login user")
@@ -81,14 +89,25 @@ public class AuthController {
 
     @Operation(summary = "Exchange trusted gateway identity for studio JWT")
     @PostMapping("/gateway/exchange")
-    public Result<AuthProfileView> gatewayExchange(HttpServletRequest servletRequest) {
-        return Result.success(gatewayAuthExchangeService.exchange(
+    public Result<AuthProfileView> gatewayExchange(HttpServletRequest servletRequest,
+                                                   HttpServletResponse servletResponse) {
+        AuthProfileView profile = gatewayAuthExchangeService.exchange(
                 servletRequest.getHeader(StudioConstants.GATEWAY_USER_INFO_HEADER),
                 servletRequest.getHeader(StudioConstants.GATEWAY_TIMESTAMP_HEADER),
                 servletRequest.getHeader(StudioConstants.GATEWAY_REQUEST_PATH_HEADER),
                 servletRequest.getHeader(StudioConstants.GATEWAY_SIGNATURE_HEADER),
                 servletRequest.getHeader(StudioConstants.REQUEST_TENANT_HEADER),
-                servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER)));
+                servletRequest.getHeader(StudioConstants.REQUEST_PROJECT_HEADER));
+        authCookieService.writeTokenCookie(servletRequest, servletResponse, profile.getToken());
+        return Result.success(profile);
+    }
+
+    @Operation(summary = "Clear the Studio browser session")
+    @PostMapping("/logout")
+    public Result<Void> logout(HttpServletRequest servletRequest,
+                               HttpServletResponse servletResponse) {
+        authCookieService.clearTokenCookie(servletRequest, servletResponse);
+        return Result.success(null);
     }
 
     @Operation(summary = "Submit registration request")

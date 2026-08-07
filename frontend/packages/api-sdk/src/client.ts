@@ -441,6 +441,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       gatewayExchange() {
         return request<LoginResponse>({ url: "/auth/gateway/exchange", method: "POST" });
       },
+      logout() {
+        return request<void>({ url: "/auth/logout", method: "POST" });
+      },
       me() {
         return request<AuthProfile>({ url: "/auth/me", method: "GET" });
       },

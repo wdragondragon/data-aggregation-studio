@@ -175,7 +175,7 @@ function handleLocaleChange(nextLocale: string) {
 }
 
 async function handleLogout() {
-  authStore.logout();
+  await authStore.logout();
   await router.replace("/login");
 }
 
