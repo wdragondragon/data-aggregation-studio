@@ -298,10 +298,10 @@ $workerIdeaEnvironment = Get-IdeaRunConfigurationEnvironment -ConfigurationName 
 $frontendApiBaseUrl = if ($env:VITE_API_BASE_URL) { $env:VITE_API_BASE_URL } else { "/api/v1" }
 $studioInternalToken = Resolve-ConfiguredValue -ProcessValue $env:STUDIO_INTERNAL_API_TOKEN `
     -IdeaEnvironments @($serverIdeaEnvironment, $workerIdeaEnvironment) `
-    -Name "STUDIO_INTERNAL_API_TOKEN" -DefaultValue "studio-local-internal-token-20260721"
+    -Name "STUDIO_INTERNAL_API_TOKEN" -DefaultValue "studio-api-token"
 $studioEncryptionSecret = Resolve-ConfiguredValue -ProcessValue $env:STUDIO_ENCRYPTION_SECRET `
     -IdeaEnvironments @($serverIdeaEnvironment, $workerIdeaEnvironment) `
-    -Name "STUDIO_ENCRYPTION_SECRET" -DefaultValue "studio-local-encryption-secret-20260721"
+    -Name "STUDIO_ENCRYPTION_SECRET" -DefaultValue "studio-encryption-key"
 $studioAggregationHome = Resolve-ConfiguredValue -ProcessValue $env:STUDIO_AGGREGATION_HOME `
     -IdeaEnvironments @($workerIdeaEnvironment) -Name "STUDIO_AGGREGATION_HOME" `
     -DefaultValue (Join-Path (Split-Path -Parent $StudioRoot) "package_all\aggregation")
