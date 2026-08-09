@@ -25,6 +25,7 @@ import com.jdragon.aggregation.datasource.ColumnInfo;
 import com.jdragon.aggregation.datasource.SourcePluginType;
 import com.jdragon.aggregation.datasource.TableInfo;
 import com.jdragon.aggregation.datasource.file.FileHelper;
+import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
 import com.jdragon.aggregation.datasource.queue.QueueAbstract;
 import com.jdragon.aggregation.pluginloader.LoadUtil;
 import com.jdragon.aggregation.pluginloader.PluginClassLoaderCloseable;
@@ -116,6 +117,48 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
     @Override
     public boolean supports(String typeCode) {
         return typeCode != null && !typeCode.trim().isEmpty();
+    }
+
+    /** Opens a binary file session using Worker-only decrypted datasource metadata. */
+    public TransferFileSystem openTransferFileSystem(DataSourceDefinition definition) throws Exception {
+        if (definition == null || definition.getTypeCode() == null) {
+            throw new IllegalArgumentException("File datasource definition is required");
+        }
+        AbstractPlugin plugin;
+        try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable
+                .newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
+            plugin = loader.loadPlugin();
+        }
+        if (!(plugin instanceof TransferFileSystem)) {
+            closeQuietly(plugin);
+            throw new IllegalArgumentException("Datasource plugin does not support binary file transfer: "
+                    + definition.getTypeCode());
+        }
+        TransferFileSystem fileSystem = (TransferFileSystem) plugin;
+        try {
+            Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(),
+                    decryptMetadata(definition.getTechnicalMetadata()));
+            if (!fileSystem.connect(Configuration.from(metadata))) {
+                closeQuietly(fileSystem);
+                throw new IllegalStateException("File datasource connection returned false: "
+                        + definition.getTypeCode());
+            }
+            return fileSystem;
+        } catch (Exception exception) {
+            closeQuietly(fileSystem);
+            throw exception;
+        }
+    }
+
+    private void closeQuietly(Object value) {
+        if (!(value instanceof AutoCloseable)) {
+            return;
+        }
+        try {
+            ((AutoCloseable) value).close();
+        } catch (Exception exception) {
+            log.warn("Failed to close file transfer datasource plugin", exception);
+        }
     }
 
     @Override

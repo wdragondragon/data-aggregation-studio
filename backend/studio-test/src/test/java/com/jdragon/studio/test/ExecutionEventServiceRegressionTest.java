@@ -1,12 +1,17 @@
 package com.jdragon.studio.test;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.service.CollectionTaskIncrementalStateService;
@@ -19,6 +24,8 @@ import com.jdragon.studio.infra.service.NotificationService;
 import com.jdragon.studio.infra.service.QualityIssueService;
 import com.jdragon.studio.infra.service.RunMetricSummaryMapper;
 import com.jdragon.studio.infra.service.StaleExecutionRecoveryService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -32,11 +39,22 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 class ExecutionEventServiceRegressionTest {
+
+    @BeforeAll
+    static void initializeFileTransferRunMetadata() {
+        if (TableInfoHelper.getTableInfo(FileTransferRunEntity.class) == null) {
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), "execution-event-file-transfer-test"),
+                    FileTransferRunEntity.class);
+        }
+    }
 
     @Test
     void shouldTruncateLongRunRecordMessageBeforePersistingTerminalEvent() {
@@ -164,6 +182,36 @@ class ExecutionEventServiceRegressionTest {
     }
 
     @Test
+    void shouldMarkFileTransferRunFailedWhenDispatchFailsBeforeExecutor() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity existingRun = new RunRecordEntity();
+        existingRun.setId(104L);
+        existingRun.setStatus("RUNNING");
+        when(runRecordMapper.selectById(eq(104L))).thenReturn(existingRun);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        ExecutionEventService service = service(runRecordMapper, fileTransferRunMapper);
+
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(104L);
+        event.setFileTransferRunId(204L);
+        event.setProjectId(10L);
+        event.setExecutionType(DispatchExecutionType.FILE_TRANSFER);
+        event.setEventType("FAILED");
+        event.setOccurredAt(LocalDateTime.of(2026, 8, 8, 9, 18, 58));
+        event.getPayload().put("error", "File transfer dispatch run identity is incomplete");
+
+        service.publish(event);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(fileTransferRunMapper, times(2)).update(isNull(), captor.capture());
+        assertTrue(captor.getAllValues().stream().anyMatch(update ->
+                update.getParamNameValuePairs().containsValue("FAILED")
+                        && update.getSqlSet().contains("status")));
+    }
+
+    @Test
     void sharedWorkflowFollowerNotificationShouldTargetReadableProject() {
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         RunRecordEntity existingRun = new RunRecordEntity();
@@ -223,7 +271,15 @@ class ExecutionEventServiceRegressionTest {
     }
 
     private ExecutionEventService service(RunRecordMapper runRecordMapper) {
-        return service(runRecordMapper,
+        return service(runRecordMapper, mock(FileTransferRunMapper.class),
+                mock(WorkflowDefinitionMapper.class),
+                mock(FollowSubscriptionService.class),
+                mock(NotificationService.class));
+    }
+
+    private ExecutionEventService service(RunRecordMapper runRecordMapper,
+                                          FileTransferRunMapper fileTransferRunMapper) {
+        return service(runRecordMapper, fileTransferRunMapper,
                 mock(WorkflowDefinitionMapper.class),
                 mock(FollowSubscriptionService.class),
                 mock(NotificationService.class));
@@ -233,8 +289,18 @@ class ExecutionEventServiceRegressionTest {
                                           WorkflowDefinitionMapper workflowDefinitionMapper,
                                           FollowSubscriptionService followSubscriptionService,
                                           NotificationService notificationService) {
+        return service(runRecordMapper, mock(FileTransferRunMapper.class), workflowDefinitionMapper,
+                followSubscriptionService, notificationService);
+    }
+
+    private ExecutionEventService service(RunRecordMapper runRecordMapper,
+                                          FileTransferRunMapper fileTransferRunMapper,
+                                          WorkflowDefinitionMapper workflowDefinitionMapper,
+                                          FollowSubscriptionService followSubscriptionService,
+                                          NotificationService notificationService) {
         return new ExecutionEventService(
                 runRecordMapper,
+                fileTransferRunMapper,
                 mock(DispatchTaskMapper.class),
                 mock(CollectionTaskDefinitionMapper.class),
                 workflowDefinitionMapper,

@@ -38,8 +38,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -498,6 +500,24 @@ public class RuntimeClusterService {
                 .eq(RuntimeClusterEntity::getTenantId, security.currentTenantId())
                 .last("limit 1"));
         return cluster == null ? null : cluster.getName();
+    }
+    public Map<Long, String> clusterNames(Collection<Long> clusterIds) {
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (clusterIds == null || clusterIds.isEmpty()) return result;
+        LinkedHashSet<Long> uniqueIds = new LinkedHashSet<Long>();
+        for (Long clusterId : clusterIds) {
+            if (clusterId != null) uniqueIds.add(clusterId);
+        }
+        if (uniqueIds.isEmpty()) return result;
+        List<RuntimeClusterEntity> clusters = clusterMapper.selectList(
+                new LambdaQueryWrapper<RuntimeClusterEntity>()
+                        .select(RuntimeClusterEntity::getId, RuntimeClusterEntity::getName)
+                        .eq(RuntimeClusterEntity::getTenantId, security.currentTenantId())
+                        .in(RuntimeClusterEntity::getId, uniqueIds));
+        for (RuntimeClusterEntity cluster : clusters) {
+            result.put(cluster.getId(), cluster.getName());
+        }
+        return result;
     }
     private Long resolveProjectIdForOptions(Long requestedProjectId) {
         Long currentProjectId = security.currentProjectId();

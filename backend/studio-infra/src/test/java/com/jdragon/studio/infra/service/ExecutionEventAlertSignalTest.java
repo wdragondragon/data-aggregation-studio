@@ -11,6 +11,7 @@ import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
@@ -60,7 +61,7 @@ class ExecutionEventAlertSignalTest {
         when(followService.followerUserProjectIds(any(), any(), any(), any())).thenReturn(Collections.emptyMap());
         when(followService.followerUserIds(any(), any(), any(), any())).thenReturn(Collections.emptyList());
 
-        ExecutionEventService service = new ExecutionEventService(runRecordMapper, mock(DispatchTaskMapper.class),
+        ExecutionEventService service = new ExecutionEventService(runRecordMapper, mock(FileTransferRunMapper.class), mock(DispatchTaskMapper.class),
                 collectionMapper, mock(WorkflowDefinitionMapper.class), mock(DispatchService.class),
                 mock(RunMetricSummaryMapper.class), followService, mock(NotificationService.class),
                 mock(DataModelLineageService.class), mock(QualityIssueService.class),
@@ -117,7 +118,7 @@ class ExecutionEventAlertSignalTest {
         when(qualityMapper.selectOne(any())).thenReturn(task);
         FollowSubscriptionService followService = mock(FollowSubscriptionService.class);
 
-        ExecutionEventService service = new ExecutionEventService(runRecordMapper, mock(DispatchTaskMapper.class),
+        ExecutionEventService service = new ExecutionEventService(runRecordMapper, mock(FileTransferRunMapper.class), mock(DispatchTaskMapper.class),
                 mock(CollectionTaskDefinitionMapper.class), mock(WorkflowDefinitionMapper.class), mock(DispatchService.class),
                 mock(RunMetricSummaryMapper.class), followService, mock(NotificationService.class),
                 mock(DataModelLineageService.class), mock(QualityIssueService.class),
@@ -169,7 +170,7 @@ class ExecutionEventAlertSignalTest {
         when(followService.followerUserProjectIds(any(), any(), any(), any())).thenReturn(Collections.emptyMap());
         when(followService.followerUserIds(any(), any(), any(), any())).thenReturn(Collections.emptyList());
 
-        ExecutionEventService service = new ExecutionEventService(runRecordMapper, mock(DispatchTaskMapper.class),
+        ExecutionEventService service = new ExecutionEventService(runRecordMapper, mock(FileTransferRunMapper.class), mock(DispatchTaskMapper.class),
                 collectionMapper, workflowMapper, mock(DispatchService.class), mock(RunMetricSummaryMapper.class),
                 followService, mock(NotificationService.class), mock(DataModelLineageService.class),
                 mock(QualityIssueService.class), mock(CollectionTaskIncrementalStateService.class),

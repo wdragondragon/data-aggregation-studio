@@ -729,6 +729,7 @@ create table if not exists datasource_definition (
     deleted integer default 0,
     created_at text,
     updated_at text,
+    created_by integer,
     name text,
     type_code text,
     schema_version_id integer,
@@ -747,6 +748,30 @@ create table if not exists datasource_definition (
 create unique index if not exists uk_datasource_definition_project_name on datasource_definition(project_id, name);
 create index if not exists idx_datasource_definition_project on datasource_definition(project_id);
 create index if not exists idx_datasource_definition_connection on datasource_definition(tenant_id, connection_fingerprint);
+
+create table if not exists unstructured_source_acl (
+    id integer primary key, tenant_id text default 'default', project_id integer not null,
+    deleted integer default 0, created_at text, updated_at text, datasource_id integer not null,
+    principal_type text not null, user_id integer, permission text not null, effect text not null, created_by integer
+);
+create unique index if not exists uk_unstructured_source_acl on unstructured_source_acl(tenant_id, datasource_id, principal_type, user_id, permission);
+create index if not exists idx_unstructured_source_acl_source on unstructured_source_acl(tenant_id, project_id, datasource_id);
+
+create table if not exists unstructured_path_acl (
+    id integer primary key, tenant_id text default 'default', project_id integer not null,
+    deleted integer default 0, created_at text, updated_at text, datasource_id integer not null,
+    path text not null, directory integer default 1, principal_type text not null, user_id integer, permission text not null, effect text not null, created_by integer
+);
+create unique index if not exists uk_unstructured_path_acl on unstructured_path_acl(tenant_id, datasource_id, path, principal_type, user_id, permission);
+create index if not exists idx_unstructured_path_acl_source on unstructured_path_acl(tenant_id, project_id, datasource_id, path);
+
+create table if not exists unstructured_op_audit (
+    id integer primary key, tenant_id text default 'default', project_id integer not null,
+    deleted integer default 0, created_at text, updated_at text, datasource_id integer not null,
+    runtime_cluster_id integer not null, user_id integer, username text, operation text not null,
+    source_path text, target_path text, `recursive` integer default 0, status text not null, message text
+);
+create index if not exists idx_unstructured_op_audit_source on unstructured_op_audit(tenant_id, project_id, datasource_id, created_at);
 
 create table if not exists datasource_cluster_binding (
     id integer primary key, tenant_id text default 'default', deleted integer default 0,
@@ -1643,6 +1668,8 @@ create table if not exists dispatch_task (
     workflow_version_id integer,
     collection_task_id integer,
     quality_task_id integer,
+    file_transfer_task_id integer,
+    file_transfer_run_id integer,
     triggered_by_user_id integer,
     run_record_id integer,
     node_code text,
@@ -1664,6 +1691,7 @@ create table if not exists dispatch_task (
 create index if not exists idx_dispatch_task_project_status on dispatch_task(project_id, status);
 create index if not exists idx_dispatch_task_project_workflow_run on dispatch_task(project_id, workflow_run_id);
 create index if not exists idx_dispatch_task_project_quality_task_status on dispatch_task(project_id, quality_task_id, status);
+create index if not exists idx_dispatch_task_file_transfer_run on dispatch_task(file_transfer_run_id, status);
 create index if not exists idx_dispatch_task_project_status_created on dispatch_task(project_id, status, created_at);
 create index if not exists idx_dispatch_task_group_status_created on dispatch_task(worker_group_code, status, created_at);
 create index if not exists idx_dispatch_task_cluster_status_created on dispatch_task(target_cluster_id, status, created_at);
@@ -1681,6 +1709,8 @@ create table if not exists run_record (
     workflow_version_id integer,
     collection_task_id integer,
     quality_task_id integer,
+    file_transfer_task_id integer,
+    file_transfer_run_id integer,
     triggered_by_user_id integer,
     node_code text,
     status text,
@@ -1723,7 +1753,156 @@ create index if not exists idx_run_record_project_created on run_record(project_
 create index if not exists idx_run_record_project_workflow_run on run_record(project_id, workflow_run_id);
 create index if not exists idx_run_record_project_collection_task_ended on run_record(project_id, collection_task_id, ended_at);
 create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at);
+create index if not exists idx_run_record_file_transfer_run on run_record(file_transfer_run_id);
 create index if not exists idx_run_record_project_cluster_created on run_record(project_id, requested_cluster_id, created_at);
+
+create table if not exists file_transfer_task_definition (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    created_by integer,
+    name text not null,
+    code text not null,
+    status text not null,
+    version integer not null default 1,
+    published_version integer,
+    runtime_cluster_id integer,
+    source_runtime_cluster_id integer not null,
+    source_datasource_id integer not null,
+    source_datasource_name_snapshot text,
+    source_datasource_type_snapshot text,
+    target_runtime_cluster_id integer not null,
+    target_datasource_id integer not null,
+    target_datasource_name_snapshot text,
+    target_datasource_type_snapshot text,
+    selection_json text,
+    mapping_json text,
+    policy_json text,
+    runtime_json text,
+    published_snapshot_json text,
+    schedule_enabled integer default 0,
+    cron_expression text,
+    timezone text,
+    last_triggered_at text
+);
+create unique index if not exists uk_ft_task_project_code on file_transfer_task_definition(tenant_id, project_id, code) where deleted = 0;
+create index if not exists idx_ft_task_project_status on file_transfer_task_definition(project_id, status);
+create index if not exists idx_ft_task_schedule on file_transfer_task_definition(status, schedule_enabled, last_triggered_at);
+
+create table if not exists file_transfer_run (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    run_record_id integer,
+    task_id integer,
+    task_name_snapshot text,
+    trigger_type text,
+    direction text,
+    channel text,
+    status text not null,
+    runtime_cluster_id integer,
+    source_runtime_cluster_id integer,
+    source_datasource_id integer,
+    target_runtime_cluster_id integer not null,
+    target_datasource_id integer,
+    total_files integer default 0,
+    success_files integer default 0,
+    skipped_files integer default 0,
+    failed_files integer default 0,
+    conflict_files integer default 0,
+    resumed_files integer default 0,
+    post_action_failed_files integer default 0,
+    total_bytes integer default 0,
+    transferred_bytes integer default 0,
+    failed_bytes integer default 0,
+    resumed_bytes integer default 0,
+    current_bytes_per_second integer default 0,
+    peak_bytes_per_second integer default 0,
+    active_files integer default 0,
+    retry_count integer default 0,
+    message text,
+    started_at text,
+    ended_at text,
+    resolved_spec_json text
+);
+create unique index if not exists uk_ft_run_record on file_transfer_run(run_record_id) where run_record_id is not null;
+create index if not exists idx_ft_run_project_created on file_transfer_run(project_id, created_at);
+create index if not exists idx_ft_run_task_status on file_transfer_run(task_id, status);
+create index if not exists idx_ft_run_target_status on file_transfer_run(target_runtime_cluster_id, status);
+
+create table if not exists file_transfer_run_item (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    run_id integer not null,
+    core_item_id text not null,
+    direction text,
+    channel text,
+    runtime_cluster_id integer,
+    source_runtime_cluster_id integer not null,
+    source_datasource_id integer not null,
+    source_path text not null,
+    target_runtime_cluster_id integer not null,
+    target_datasource_id integer not null,
+    target_path text not null,
+    temporary_path text,
+    status text not null,
+    file_size integer default 0,
+    transferred_bytes integer default 0,
+    resumed_bytes integer default 0,
+    current_bytes_per_second integer default 0,
+    source_checksum text,
+    target_checksum text,
+    attempts integer default 0,
+    error_code text,
+    error_message text,
+    conflict_action text,
+    source_action text,
+    post_action_status text,
+    started_at text,
+    ended_at text,
+    source_snapshot_json text,
+    checkpoint_json text
+);
+create unique index if not exists uk_ft_item_run_core on file_transfer_run_item(run_id, core_item_id);
+create index if not exists idx_ft_item_run_status on file_transfer_run_item(run_id, status);
+create index if not exists idx_ft_item_project_updated on file_transfer_run_item(project_id, updated_at);
+
+create table if not exists file_transfer_metric_sample (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    run_id integer not null,
+    run_record_id integer,
+    task_id integer,
+    runtime_cluster_id integer,
+    source_datasource_id integer,
+    target_datasource_id integer,
+    channel text,
+    status text,
+    sampled_at text not null,
+    transferred_bytes integer default 0,
+    bytes_per_second integer default 0,
+    completed_files integer default 0,
+    failed_files integer default 0,
+    active_files integer default 0,
+    retry_count integer default 0
+);
+create index if not exists idx_ft_metric_project_time on file_transfer_metric_sample(project_id, sampled_at);
+create index if not exists idx_ft_metric_run_time on file_transfer_metric_sample(run_id, sampled_at);
+create index if not exists idx_ft_metric_task_time on file_transfer_metric_sample(task_id, sampled_at);
 
 create table if not exists data_model_lineage_relation (
     id integer primary key,

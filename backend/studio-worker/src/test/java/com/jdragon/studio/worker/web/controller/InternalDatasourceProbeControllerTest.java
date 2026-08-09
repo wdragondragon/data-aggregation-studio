@@ -26,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -125,6 +126,27 @@ class InternalDatasourceProbeControllerTest {
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.getCode()).isEqualTo(StudioErrorCode.BAD_REQUEST);
         assertThat(result.getMessage()).isEqualTo("Datasource configuration is invalid");
+        assertThat(StudioRequestContextHolder.getContext()).isNull();
+    }
+
+    @Test
+    void shouldReturnFileOperationFailureAsAuthenticatedBusinessEnvelope() {
+        Fixture fixture = fixture();
+        RuntimeDatasourceProbeRequest request = storedRequest();
+        request.setFileOperation("CREATE_DIRECTORY");
+        request.setOperationPath("/existing");
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        doThrow(new IllegalStateException("File operation failed: /existing"))
+                .when(fixture.executor).operate(canonical, "CREATE_DIRECTORY",
+                        "/existing", null, null);
+
+        Result<Void> result = fixture.controller.fileOperation("internal-secret", request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getCode()).isEqualTo(StudioErrorCode.BUSINESS_ERROR);
+        assertThat(result.getMessage()).isEqualTo("File operation failed: /existing");
         assertThat(StudioRequestContextHolder.getContext()).isNull();
     }
 

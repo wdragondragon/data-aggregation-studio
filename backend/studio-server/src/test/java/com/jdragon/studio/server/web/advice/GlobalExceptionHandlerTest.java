@@ -4,9 +4,15 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class GlobalExceptionHandlerTest {
 
@@ -46,5 +52,50 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo(StudioErrorCode.BAD_REQUEST);
         assertThat(response.getBody().getMessage()).contains("runtimeClusterId");
+    }
+
+    @Test
+    void shouldIgnoreAsyncStreamingClientDisconnect() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+        assertThatCode(() -> handler.handleAsyncRequestNotUsableException(
+                new AsyncRequestNotUsableException("Response not usable after client disconnect")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldNotWriteErrorBodyForEventStreamIOException() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
+
+        var result = handler.handleIOException(new IOException("Connection aborted"), response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    void shouldNotWriteErrorBodyAfterResponseIsCommitted() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setCommitted(true);
+
+        var result = handler.handleIOException(new IOException("Connection reset"), response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    void shouldPreserveInternalServerErrorForOrdinaryIOException() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        var result = handler.handleIOException(new IOException("Read failed"), response);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(result.getBody()).isNotNull();
+        assertThat(result.getBody().getCode()).isEqualTo(StudioErrorCode.INTERNAL_SERVER_ERROR);
+        assertThat(result.getBody().getMessage()).isEqualTo("Read failed");
     }
 }

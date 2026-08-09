@@ -13,4 +13,5 @@ public class RunMetricDashboardView {
     private List<RunMetricTopNItemView> sourceModelTopN = new ArrayList<RunMetricTopNItemView>();
     private List<RunMetricTopNItemView> targetModelTopN = new ArrayList<RunMetricTopNItemView>();
     private Long legacyRunCount;
+    private FileTransferMetricDashboardView fileTransfer;
 }

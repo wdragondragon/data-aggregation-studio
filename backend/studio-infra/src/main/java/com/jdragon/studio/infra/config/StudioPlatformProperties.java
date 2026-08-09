@@ -47,6 +47,7 @@ public class StudioPlatformProperties {
     private AssistantProperties assistant = new AssistantProperties();
     private FlinkProperties flink = new FlinkProperties();
     private PluginRuntimeProperties pluginRuntime = new PluginRuntimeProperties();
+    private FileTransferProperties fileTransfer = new FileTransferProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -306,6 +307,11 @@ public class StudioPlatformProperties {
         public boolean isLazyObjectStorage() {
             return "LAZY_OBJECT_STORAGE".equalsIgnoreCase(mode == null ? "" : mode.trim());
         }
+    }
+
+    @Data
+    public static class FileTransferProperties {
+        private boolean enabled = true;
     }
 
     @Data

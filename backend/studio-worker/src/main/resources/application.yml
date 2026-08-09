@@ -13,6 +13,8 @@ spring:
     formcontent:
       filter:
         enabled: false
+    async:
+      request-timeout: ${STUDIO_MVC_ASYNC_REQUEST_TIMEOUT:300000}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://192.168.188.129:3306/data_aggregation_studio?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:root}
@@ -86,6 +88,8 @@ studio:
   runtime-log-dir: ${STUDIO_RUNTIME_LOG_DIR:./runtime/run-logs}
   worker-api-base-url: ${STUDIO_WORKER_API_BASE_URL:http://127.0.0.1:${server.port}}
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:}
+  file-transfer:
+    enabled: ${STUDIO_FILE_TRANSFER_ENABLED:true}
   flink:
     enabled: ${STUDIO_FLINK_ENABLED:true}
     execution-mode: ${STUDIO_FLINK_EXECUTION_MODE:embedded}

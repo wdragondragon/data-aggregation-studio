@@ -1,15 +1,18 @@
 package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.core.spi.ExecutionEventPublisher;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
@@ -32,6 +35,7 @@ import java.util.Set;
 public class ExecutionEventService implements ExecutionEventPublisher {
 
     private final RunRecordMapper runRecordMapper;
+    private final FileTransferRunMapper fileTransferRunMapper;
     private final DispatchTaskMapper dispatchTaskMapper;
     private final CollectionTaskDefinitionMapper collectionTaskDefinitionMapper;
     private final WorkflowDefinitionMapper workflowDefinitionMapper;
@@ -47,6 +51,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
 
     public ExecutionEventService(RunRecordMapper runRecordMapper,
+                                 FileTransferRunMapper fileTransferRunMapper,
                                  DispatchTaskMapper dispatchTaskMapper,
                                  CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                                  WorkflowDefinitionMapper workflowDefinitionMapper,
@@ -59,6 +64,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                                  CollectionTaskIncrementalStateService collectionTaskIncrementalStateService,
                                  StaleExecutionRecoveryService staleExecutionRecoveryService) {
         this.runRecordMapper = runRecordMapper;
+        this.fileTransferRunMapper = fileTransferRunMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
         this.workflowDefinitionMapper = workflowDefinitionMapper;
@@ -88,6 +94,8 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setWorkflowVersionId(event.getWorkflowVersionId());
         entity.setCollectionTaskId(event.getCollectionTaskId());
         entity.setQualityTaskId(event.getQualityTaskId());
+        entity.setFileTransferTaskId(event.getFileTransferTaskId());
+        entity.setFileTransferRunId(event.getFileTransferRunId());
         entity.setProjectId(event.getProjectId());
         entity.setNodeCode(event.getNodeCode());
         entity.setRequestedClusterId(event.getRequestedClusterId());
@@ -124,6 +132,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         } else {
             runRecordMapper.updateById(entity);
         }
+        updateFileTransferRun(event, entity.getMessage());
         dispatchService.continueWorkflowRun(event);
         dataModelLineageService.updateCollectionTaskRunStatus(event);
         maybeUpdateCollectionIncrementalState(entity, event);
@@ -132,6 +141,43 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         maybeNotifyWorkflowRun(entity, event);
         maybePublishTaskAlertSignal(entity, event);
         maybePublishRunLogAlertSignal(entity, event);
+    }
+
+    private void updateFileTransferRun(ExecutionEvent event, String message) {
+        if (event == null || event.getFileTransferRunId() == null) {
+            return;
+        }
+        LambdaUpdateWrapper<FileTransferRunEntity> identityUpdate =
+                new LambdaUpdateWrapper<FileTransferRunEntity>()
+                        .set(FileTransferRunEntity::getRunRecordId, event.getRunRecordId())
+                        .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
+                        .eq(FileTransferRunEntity::getId, event.getFileTransferRunId());
+        if (event.getProjectId() != null) {
+            identityUpdate.eq(FileTransferRunEntity::getProjectId, event.getProjectId());
+        }
+        fileTransferRunMapper.update(null, identityUpdate);
+
+        if (!"FAILED".equalsIgnoreCase(event.getEventType())
+                && !"ERROR".equalsIgnoreCase(event.getEventType())) {
+            return;
+        }
+        LambdaUpdateWrapper<FileTransferRunEntity> failureUpdate =
+                new LambdaUpdateWrapper<FileTransferRunEntity>()
+                        .set(FileTransferRunEntity::getStatus, "FAILED")
+                        .set(FileTransferRunEntity::getMessage,
+                                message == null || message.trim().isEmpty()
+                                        ? "File transfer execution failed" : message)
+                        .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                        .set(FileTransferRunEntity::getActiveFiles, 0)
+                        .set(FileTransferRunEntity::getEndedAt,
+                                event.getEndedAt() == null ? event.getOccurredAt() : event.getEndedAt())
+                        .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
+                        .eq(FileTransferRunEntity::getId, event.getFileTransferRunId())
+                        .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING", "PAUSED");
+        if (event.getProjectId() != null) {
+            failureUpdate.eq(FileTransferRunEntity::getProjectId, event.getProjectId());
+        }
+        fileTransferRunMapper.update(null, failureUpdate);
     }
 
     @Autowired(required = false)

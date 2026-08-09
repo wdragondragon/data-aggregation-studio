@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
@@ -96,6 +97,56 @@ public class RuntimeEndpointHttpClient {
         return client.execute(request, response -> new Response(
                 response.getCode(), responseHeaders(response.getHeaders()),
                 readResponse(response.getEntity(), maxBytes, deadlineNanos)));
+    }
+
+    public StreamingResponse executeStreaming(RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target,
+                                               String method,
+                                               Map<String, List<String>> headers,
+                                               byte[] body,
+                                               int connectTimeoutMillis,
+                                               int readTimeoutMillis,
+                                               OutputStream output) throws Exception {
+        int connectTimeout = timeout(connectTimeoutMillis, 3000);
+        int readTimeout = timeout(readTimeoutMillis, 60000);
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(Timeout.ofMilliseconds(connectTimeout))
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(connectTimeout))
+                .setResponseTimeout(Timeout.ofMilliseconds(readTimeout))
+                .setRedirectsEnabled(false)
+                .build();
+        dnsResolver.pin(target);
+        connectionManager.closeExpired();
+        connectionManager.closeIdle(IDLE_CONNECTION_AGE);
+        HttpUriRequestBase request = new HttpUriRequestBase(method, target.getUri());
+        request.setConfig(requestConfig);
+        if (body != null && body.length > 0) {
+            request.setEntity(new ByteArrayEntity(body, null));
+        }
+        if (headers != null) {
+            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                for (String value : entry.getValue()) {
+                    if (value != null) {
+                        request.addHeader(entry.getKey(), value);
+                    }
+                }
+            }
+        }
+        return client.execute(request, response -> {
+            Map<String, List<String>> responseHeaders = responseHeaders(response.getHeaders());
+            if (response.getCode() >= 200 && response.getCode() < 300) {
+                HttpEntity entity = response.getEntity();
+                if (entity != null) {
+                    entity.writeTo(output);
+                }
+                return new StreamingResponse(response.getCode(), responseHeaders);
+            }
+            byte[] errorBody = readResponse(response.getEntity(), 1024 * 1024,
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(readTimeout));
+            return new StreamingResponse(response.getCode(), responseHeaders, errorBody);
+        });
     }
 
     @PreDestroy
@@ -184,6 +235,34 @@ public class RuntimeEndpointHttpClient {
                         values == null ? new ArrayList<String>() : new ArrayList<String>(values)));
             }
             return copy;
+        }
+    }
+
+    public static final class StreamingResponse {
+        private final int statusCode;
+        private final Map<String, List<String>> headers;
+        private final byte[] errorBody;
+
+        private StreamingResponse(int statusCode, Map<String, List<String>> headers) {
+            this(statusCode, headers, new byte[0]);
+        }
+
+        private StreamingResponse(int statusCode, Map<String, List<String>> headers, byte[] errorBody) {
+            this.statusCode = statusCode;
+            this.headers = Response.copyHeaders(headers);
+            this.errorBody = errorBody == null ? new byte[0] : Arrays.copyOf(errorBody, errorBody.length);
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
+
+        public Map<String, List<String>> getHeaders() {
+            return Response.copyHeaders(headers);
+        }
+
+        public byte[] getErrorBody() {
+            return Arrays.copyOf(errorBody, errorBody.length);
         }
     }
 

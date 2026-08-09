@@ -9,7 +9,9 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Private control-plane to runtime request. It is authenticated by the internal runtime token. */
 @Data
@@ -32,6 +34,15 @@ public class RuntimeDatasourceProbeRequest {
     private String keyword;
     private Integer pageNo;
     private Integer pageSize;
+    private String path;
+    private String cursor;
+    private String fileOperation;
+    private String operationPath;
+    private String operationTargetPath;
+    private Boolean recursiveConfirmed;
+    private Map<String, Object> fileTransferSpec = new LinkedHashMap<String, Object>();
+    private Map<String, String> fileTransferParameters = new LinkedHashMap<String, String>();
+    private Integer fileTransferPreviewLimit;
     private List<String> physicalLocators = new ArrayList<String>();
     private DataModelDefinition model;
     private Integer limit;

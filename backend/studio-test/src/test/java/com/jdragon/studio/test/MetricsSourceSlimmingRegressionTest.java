@@ -20,6 +20,8 @@ import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.QualityAssetRiskView;
 import com.jdragon.studio.dto.model.QualityIssueAssigneeOptionView;
 import com.jdragon.studio.dto.model.QualityTaskListView;
+import com.jdragon.studio.dto.model.RunMetricFilterOptionView;
+import com.jdragon.studio.dto.model.RunMetricOptionsView;
 import com.jdragon.studio.dto.model.request.QualityAssetQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueQueryRequest;
 import com.jdragon.studio.dto.model.request.QualityIssueStatusRequest;
@@ -41,6 +43,7 @@ import com.jdragon.studio.infra.mapper.RunMetricSqlProvider;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.FileTransferMetricService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.QualityIssueService;
 import com.jdragon.studio.infra.service.QualityMetricsService;
@@ -92,9 +95,11 @@ class MetricsSourceSlimmingRegressionTest {
     @Test
     void runMetricsDashboardShouldUseSourceAggregatesInsteadOfFullRunRecordRows() {
         CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
-        RunMetricsService service = new RunMetricsService(collectionTaskService, runRecordMapper, securityService, new RunMetricSummaryMapper());
+        RunMetricsService service = new RunMetricsService(collectionTaskService, dataSourceService, runRecordMapper,
+                securityService, new RunMetricSummaryMapper(), mock(FileTransferMetricService.class));
         when(securityService.currentTenantId()).thenReturn("default");
         when(securityService.currentProjectId()).thenReturn(100L);
         when(collectionTaskService.listMetricBindings()).thenReturn(Collections.singletonList(collectionTask()));
@@ -118,6 +123,60 @@ class MetricsSourceSlimmingRegressionTest {
         assertFalse(taskSql.contains("payload_json"));
         assertFalse(taskSql.contains("result_json"));
         assertFalse(taskSql.contains("log_file_path"));
+    }
+
+    @Test
+    void runMetricOptionsShouldIncludeAccessibleDatasourcesWithoutTaskBindings() {
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        RunMetricFilterOptionView datasource = new RunMetricFilterOptionView();
+        datasource.setId(11L);
+        datasource.setName("采集测试源");
+        datasource.setLabel("采集测试源 / mysql8");
+        datasource.setTypeCode("mysql8");
+        when(dataSourceService.listMetricFilterOptions()).thenReturn(Collections.singletonList(datasource));
+        when(collectionTaskService.listMetricBindings()).thenReturn(Collections.emptyList());
+        RunMetricsService service = new RunMetricsService(collectionTaskService, dataSourceService,
+                mock(RunRecordMapper.class), mock(StudioSecurityService.class),
+                new RunMetricSummaryMapper(), mock(FileTransferMetricService.class));
+
+        RunMetricOptionsView options = service.options();
+
+        assertEquals(Collections.singletonList(datasource), options.getDatasources());
+        assertTrue(options.getSourceModels().isEmpty());
+        assertTrue(options.getTargetModels().isEmpty());
+        verify(dataSourceService).listMetricFilterOptions();
+        verify(dataSourceService, never()).list();
+        verify(collectionTaskService).listMetricBindings();
+    }
+
+    @Test
+    void runMetricOptionsShouldPreferCurrentDatasourceAndKeepTaskModelOptions() {
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        DataSourceService dataSourceService = mock(DataSourceService.class);
+        RunMetricFilterOptionView datasource = new RunMetricFilterOptionView();
+        datasource.setId(1L);
+        datasource.setName("当前客户库");
+        datasource.setLabel("当前客户库 / mysql8");
+        datasource.setTypeCode("mysql8");
+        when(dataSourceService.listMetricFilterOptions()).thenReturn(Collections.singletonList(datasource));
+        when(collectionTaskService.listMetricBindings()).thenReturn(Collections.singletonList(collectionTask()));
+        RunMetricsService service = new RunMetricsService(collectionTaskService, dataSourceService,
+                mock(RunRecordMapper.class), mock(StudioSecurityService.class),
+                new RunMetricSummaryMapper(), mock(FileTransferMetricService.class));
+
+        RunMetricOptionsView options = service.options();
+
+        assertEquals(2, options.getDatasources().size());
+        assertEquals("当前客户库", options.getDatasources().stream()
+                .filter(item -> Long.valueOf(1L).equals(item.getId()))
+                .findFirst()
+                .orElseThrow()
+                .getName());
+        assertEquals(1, options.getSourceModels().size());
+        assertEquals(Long.valueOf(2L), options.getSourceModels().get(0).getId());
+        assertEquals(1, options.getTargetModels().size());
+        assertEquals(Long.valueOf(4L), options.getTargetModels().get(0).getId());
     }
 
     @Test

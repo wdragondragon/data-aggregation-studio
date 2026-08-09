@@ -298,6 +298,20 @@ public class DataSourceService {
         return result;
     }
 
+    public Map<Long, String> listBasicNameMap(Set<Long> datasourceIds) {
+        Map<Long, String> result = new LinkedHashMap<Long, String>();
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return result;
+        }
+        List<DatasourceEntity> entities = datasourceMapper.selectList(buildAccessibleQuery()
+                .select(DatasourceEntity::getId, DatasourceEntity::getName)
+                .in(DatasourceEntity::getId, datasourceIds));
+        for (DatasourceEntity entity : entities) {
+            result.put(entity.getId(), entity.getName());
+        }
+        return result;
+    }
+
     public DataSourceDefinition get(Long id) {
         DatasourceEntity entity = findAccessibleEntity(id);
         if (entity == null) {
@@ -401,6 +415,9 @@ public class DataSourceService {
         ensureUniqueName(currentProjectId, request.getName(), entity.getId());
         entity.setTenantId(currentTenantId);
         entity.setProjectId(currentProjectId);
+        if (newEntity) {
+            entity.setCreatedBy(securityService.currentUserId());
+        }
         entity.setName(request.getName());
         entity.setTypeCode(request.getTypeCode());
         entity.setSchemaVersionId(resolvedSchemaVersionId);
@@ -661,6 +678,7 @@ public class DataSourceService {
         definition.setDeleted(entity.getDeleted() != null && entity.getDeleted() == 1);
         definition.setCreatedAt(entity.getCreatedAt());
         definition.setUpdatedAt(entity.getUpdatedAt());
+        definition.setCreatedBy(entity.getCreatedBy());
         definition.setName(entity.getName());
         definition.setTypeCode(entity.getTypeCode());
         definition.setSchemaVersionId(resolveReadableSchemaVersionId(entity));

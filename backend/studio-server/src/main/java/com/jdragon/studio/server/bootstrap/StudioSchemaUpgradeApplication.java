@@ -17,6 +17,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 public class StudioSchemaUpgradeApplication {
 
     public static void main(String[] args) {
+        System.setProperty("spring.arthas.enabled", "false");
         ConfigurableApplicationContext context = new SpringApplicationBuilder(StudioSchemaUpgradeApplication.class)
                 .web(WebApplicationType.NONE)
                 .logStartupInfo(false)

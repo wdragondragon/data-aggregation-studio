@@ -8,6 +8,7 @@ public enum NodeType {
     FUSION,
     CONSISTENCY,
     HTTP,
-    SHELL
+    SHELL,
+    FILE_TRANSFER
 }
 

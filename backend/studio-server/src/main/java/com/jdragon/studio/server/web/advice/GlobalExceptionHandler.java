@@ -3,9 +3,12 @@ package com.jdragon.studio.server.web.advice;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.common.Result;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.core.AuthenticationException;
@@ -16,9 +19,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
-import jakarta.validation.ConstraintViolationException;
-
+import java.io.IOException;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
@@ -100,10 +103,30 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Result.error(StudioErrorCode.BAD_REQUEST, ex.getMessage()));
     }
 
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException ex) {
+        log.debug("Streaming client disconnected: {}", ex.getMessage());
+    }
+
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<Result<Void>> handleIOException(IOException ex, HttpServletResponse response) {
+        if (response.isCommitted() || isEventStream(response.getContentType())) {
+            log.debug("Streaming client disconnected: {}", ex.getMessage());
+            return null;
+        }
+        log.error("Unhandled server I/O exception", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Result.error(StudioErrorCode.INTERNAL_SERVER_ERROR, ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<Void>> handleUnexpectedException(Exception ex) {
         log.error("Unhandled server exception", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Result.error(StudioErrorCode.INTERNAL_SERVER_ERROR, ex.getMessage()));
+    }
+
+    private boolean isEventStream(String contentType) {
+        return contentType != null && contentType.startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
     }
 }

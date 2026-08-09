@@ -14,6 +14,7 @@ import java.util.Map;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "datasource_definition", autoResultMap = true)
 public class DatasourceEntity extends BaseProjectTenantEntity {
+    private Long createdBy;
     private String name;
     private String typeCode;
     private Long schemaVersionId;

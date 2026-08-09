@@ -27,6 +27,7 @@ import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.QualityTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.DataDevelopmentScriptEntity;
 import com.jdragon.studio.infra.entity.DataModelEntity;
+import com.jdragon.studio.infra.entity.FileTransferTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.mapper.CollectionTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.QualityTaskDefinitionMapper;
@@ -34,6 +35,7 @@ import com.jdragon.studio.infra.mapper.DataDevelopmentScriptMapper;
 import com.jdragon.studio.infra.mapper.DataModelMapper;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
+import com.jdragon.studio.infra.mapper.FileTransferTaskDefinitionMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.mapper.WorkflowEdgeMapper;
 import com.jdragon.studio.infra.mapper.WorkflowNodeMapper;
@@ -75,6 +77,7 @@ public class WorkflowService {
     private QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
     private DataDevelopmentScriptMapper dataDevelopmentScriptMapper;
     private DataModelMapper dataModelMapper;
+    private FileTransferTaskDefinitionMapper fileTransferTaskDefinitionMapper;
     private WorkflowConsistencyBindingValidator workflowConsistencyBindingValidator;
 
     public WorkflowService(WorkflowDefinitionMapper definitionMapper,
@@ -119,11 +122,13 @@ public class WorkflowService {
     void setWorkflowResourceMappers(CollectionTaskDefinitionMapper collectionTaskDefinitionMapper,
                                     QualityTaskDefinitionMapper qualityTaskDefinitionMapper,
                                     DataDevelopmentScriptMapper dataDevelopmentScriptMapper,
-                                    DataModelMapper dataModelMapper) {
+                                    DataModelMapper dataModelMapper,
+                                    FileTransferTaskDefinitionMapper fileTransferTaskDefinitionMapper) {
         this.collectionTaskDefinitionMapper = collectionTaskDefinitionMapper;
         this.qualityTaskDefinitionMapper = qualityTaskDefinitionMapper;
         this.dataDevelopmentScriptMapper = dataDevelopmentScriptMapper;
         this.dataModelMapper = dataModelMapper;
+        this.fileTransferTaskDefinitionMapper = fileTransferTaskDefinitionMapper;
     }
 
     @Autowired
@@ -616,6 +621,12 @@ public class WorkflowService {
                         resource.getTenantId(), resource.getProjectId(), resource.getId(),
                         "Workflow data script was not found");
                 collectScriptDatasourceIds(workflowTenantId, resource, datasourceIds);
+            } else if (node.getNodeType() == NodeType.FILE_TRANSFER && fileTransferTaskDefinitionMapper != null) {
+                FileTransferTaskDefinitionEntity resource = requirePublishedFileTransferTask(
+                        workflowTenantId, node);
+                if (resource.getTargetDatasourceId() != null) {
+                    datasourceIds.add(resource.getTargetDatasourceId());
+                }
             }
         }
         return datasourceIds;
@@ -657,6 +668,11 @@ public class WorkflowService {
                         StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, resource.getTenantId(),
                         resource.getProjectId(), resource.getId(), "Workflow data script was not found");
                 currentRevision = scriptRevision(resource);
+            } else if (node.getNodeType() == NodeType.FILE_TRANSFER
+                    && fileTransferTaskDefinitionMapper != null) {
+                FileTransferTaskDefinitionEntity resource = requirePublishedFileTransferTask(
+                        securityService.currentTenantId(), node);
+                currentRevision = fileTransferRevision(resource);
             }
             applyResourceRevision(node, currentRevision, false);
         }
@@ -707,9 +723,20 @@ public class WorkflowService {
                             StudioConstants.RESOURCE_TYPE_DATA_DEVELOPMENT_SCRIPT, resource.getId());
                 }
                 applyResourceRevision(node, resource == null ? null : scriptRevision(resource), refreshResourceRevision);
+            } else if (node.getNodeType() == NodeType.FILE_TRANSFER
+                    && fileTransferTaskDefinitionMapper != null) {
+                FileTransferTaskDefinitionEntity resource = requirePublishedFileTransferTask(
+                        securityService.currentTenantId(), node);
+                resourceClusterId = resource.getTargetRuntimeClusterId();
+                runtimeClusterSelectionService.assertExistingResourceRunnable(resource.getProjectId(),
+                        resource.getSourceRuntimeClusterId(), List.of(resource.getSourceDatasourceId()));
+                runtimeClusterSelectionService.assertExistingResourceRunnable(resource.getProjectId(),
+                        resource.getTargetRuntimeClusterId(), List.of(resource.getTargetDatasourceId()));
+                applyResourceRevision(node, fileTransferRevision(resource), refreshResourceRevision);
             }
             if (resourceClusterId != null || node.getNodeType() == NodeType.COLLECTION_TASK
-                    || node.getNodeType() == NodeType.QUALITY_TASK || node.getNodeType() == NodeType.DATA_SCRIPT) {
+                    || node.getNodeType() == NodeType.QUALITY_TASK || node.getNodeType() == NodeType.DATA_SCRIPT
+                    || node.getNodeType() == NodeType.FILE_TRANSFER) {
                 if (runtimeClusterId == null ? resourceClusterId != null : !runtimeClusterId.equals(resourceClusterId)) {
                     throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
                             "Workflow node resource must use the same runtime cluster as the workflow");
@@ -757,6 +784,37 @@ public class WorkflowService {
         return runtimeResourceRevisionService == null
                 ? (resource.getUpdatedAt() == null ? null : resource.getUpdatedAt().toString())
                 : runtimeResourceRevisionService.scriptRevision(resource.getId());
+    }
+
+    private String fileTransferRevision(FileTransferTaskDefinitionEntity resource) {
+        return resource == null || resource.getId() == null || resource.getPublishedVersion() == null
+                ? null
+                : "file-transfer:" + resource.getId() + ":" + resource.getPublishedVersion();
+    }
+
+    private FileTransferTaskDefinitionEntity requirePublishedFileTransferTask(
+            String workflowTenantId, WorkflowNodeDefinition node) {
+        Long taskId = parseLong(node == null ? null : node.getConfig(), "fileTransferTaskId");
+        FileTransferTaskDefinitionEntity resource = taskId == null || fileTransferTaskDefinitionMapper == null
+                ? null : fileTransferTaskDefinitionMapper.selectById(taskId);
+        if (resource == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND,
+                    "Workflow file transfer task was not found");
+        }
+        assertWorkflowResourceReadable(workflowTenantId,
+                StudioConstants.RESOURCE_TYPE_FILE_TRANSFER_TASK, resource.getTenantId(),
+                resource.getProjectId(), resource.getId(), "Workflow file transfer task was not found");
+        if (!"ONLINE".equalsIgnoreCase(resource.getStatus()) || resource.getPublishedVersion() == null
+                || resource.getPublishedSnapshotJson() == null || resource.getPublishedSnapshotJson().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Workflow file transfer task must be published before use");
+        }
+        if (resource.getSourceRuntimeClusterId() == null || resource.getSourceDatasourceId() == null
+                || resource.getTargetRuntimeClusterId() == null || resource.getTargetDatasourceId() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Workflow file transfer task placement is incomplete");
+        }
+        return resource;
     }
 
     private void collectScriptDatasourceIds(String workflowTenantId,

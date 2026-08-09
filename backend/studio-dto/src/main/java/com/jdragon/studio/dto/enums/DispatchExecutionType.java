@@ -4,5 +4,6 @@ public enum DispatchExecutionType {
     WORKFLOW_NODE,
     COLLECTION_TASK,
     QUALITY_TASK,
-    DATA_SCRIPT_TEST
+    DATA_SCRIPT_TEST,
+    FILE_TRANSFER
 }

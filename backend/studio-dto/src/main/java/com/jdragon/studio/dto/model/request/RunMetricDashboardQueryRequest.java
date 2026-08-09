@@ -11,4 +11,6 @@ public class RunMetricDashboardQueryRequest {
     private String endTime;
     private String granularity;
     private Integer topN;
+    private String executionType;
+    private String status;
 }

@@ -21,6 +21,8 @@ public class DispatchTaskEntity extends BaseProjectTenantEntity {
     private Long workflowVersionId;
     private Long collectionTaskId;
     private Long qualityTaskId;
+    private Long fileTransferTaskId;
+    private Long fileTransferRunId;
     private Long triggeredByUserId;
     private Long runRecordId;
     private String nodeCode;

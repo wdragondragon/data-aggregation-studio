@@ -46,6 +46,8 @@ public class StudioSchemaUpgradeService {
     private void upgradeMysql() {
         ensureRuntimeClusterTablesMysql();
         ensureRuntimeClusterColumnsMysql();
+        ensureFileTransferTablesMysql();
+        ensureUnstructuredManagementTablesMysql();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
                 "alter table studio_external_user_binding add unique key " +
                         "uk_studio_external_user_binding_provider_user (provider_code, studio_user_id)");
@@ -55,6 +57,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("meta_field_definition", "query_operators", "alter table meta_field_definition add column query_operators json");
         ensureColumn("meta_field_definition", "query_default_operator", "alter table meta_field_definition add column query_default_operator varchar(64)");
         ensureColumn("datasource_definition", "project_id", "alter table datasource_definition add column project_id bigint");
+        ensureColumn("datasource_definition", "created_by", "alter table datasource_definition add column created_by bigint");
         ensureColumn("data_model", "project_id", "alter table data_model add column project_id bigint");
         ensureColumn("data_model_attr_index", "project_id", "alter table data_model_attr_index add column project_id bigint");
         ensureColumn("workflow_definition", "project_id", "alter table workflow_definition add column project_id bigint");
@@ -694,6 +697,8 @@ public class StudioSchemaUpgradeService {
         // Re-run the additive cluster DDL after those tables exist.
         ensureRuntimeClusterColumnsMysql();
         ensureAlertTablesMysql();
+        ensureFileTransferTablesMysql();
+        ensureUnstructuredManagementTablesMysql();
 
         backfillProjectIdsMysql();
         backfillWorkerGroupColumnsMysql();
@@ -704,6 +709,8 @@ public class StudioSchemaUpgradeService {
     private void upgradeSqlite() {
         ensureRuntimeClusterTablesSqlite();
         ensureRuntimeClusterColumnsSqlite();
+        ensureFileTransferTablesSqlite();
+        ensureUnstructuredManagementTablesSqlite();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
                 "create unique index if not exists uk_studio_external_user_binding_provider_user " +
                         "on studio_external_user_binding(provider_code, studio_user_id)");
@@ -714,6 +721,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("meta_field_definition", "query_operators", "alter table meta_field_definition add column query_operators text");
         ensureColumn("meta_field_definition", "query_default_operator", "alter table meta_field_definition add column query_default_operator text");
         ensureColumn("datasource_definition", "project_id", "alter table datasource_definition add column project_id integer");
+        ensureColumn("datasource_definition", "created_by", "alter table datasource_definition add column created_by integer");
         ensureColumn("data_model", "project_id", "alter table data_model add column project_id integer");
         ensureColumn("data_model_attr_index", "project_id", "alter table data_model_attr_index add column project_id integer");
         ensureColumn("workflow_definition", "project_id", "alter table workflow_definition add column project_id integer");
@@ -1233,6 +1241,8 @@ public class StudioSchemaUpgradeService {
 
         ensureRuntimeClusterColumnsSqlite();
         ensureAlertTablesSqlite();
+        ensureFileTransferTablesSqlite();
+        ensureUnstructuredManagementTablesSqlite();
         backfillProjectIdsSqlite();
         backfillWorkerGroupColumnsSqlite();
         backfillCollectionTaskTargetSnapshots();
@@ -4003,6 +4013,242 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_so_pf_script_env_enabled on so_pf_script_env(tenant_id, enabled)");
         jdbcTemplate.execute("create index if not exists idx_so_pf_env_dep_rel_env on so_pf_env_dep_rel(environment_id, sort_order)");
         jdbcTemplate.execute("create unique index if not exists uk_so_pf_env_dep_rel on so_pf_env_dep_rel(environment_id, dependency_id)");
+    }
+
+    private void ensureFileTransferTablesMysql() {
+        ensureColumnIfTableExists("file_transfer_task_definition", "runtime_cluster_id",
+                "alter table file_transfer_task_definition add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("file_transfer_run", "runtime_cluster_id",
+                "alter table file_transfer_run add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("file_transfer_run_item", "runtime_cluster_id",
+                "alter table file_transfer_run_item add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("dispatch_task", "file_transfer_task_id",
+                "alter table dispatch_task add column file_transfer_task_id bigint");
+        ensureColumnIfTableExists("dispatch_task", "file_transfer_run_id",
+                "alter table dispatch_task add column file_transfer_run_id bigint");
+        ensureColumnIfTableExists("run_record", "file_transfer_task_id",
+                "alter table run_record add column file_transfer_task_id bigint");
+        ensureColumnIfTableExists("run_record", "file_transfer_run_id",
+                "alter table run_record add column file_transfer_run_id bigint");
+        ensureIndexIfTableExists("dispatch_task", "idx_dispatch_task_file_transfer_run",
+                "alter table dispatch_task add key idx_dispatch_task_file_transfer_run (file_transfer_run_id, status)");
+        ensureIndexIfTableExists("run_record", "idx_run_record_file_transfer_run",
+                "alter table run_record add key idx_run_record_file_transfer_run (file_transfer_run_id)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_task_definition (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint, " +
+                "deleted int default 0, created_at datetime default current_timestamp, " +
+                "updated_at datetime default current_timestamp, created_by bigint, name varchar(255) not null, " +
+                "code varchar(128) not null, status varchar(32) not null, version int not null default 1, " +
+                "published_version int, runtime_cluster_id bigint, source_runtime_cluster_id bigint not null, source_datasource_id bigint not null, " +
+                "source_datasource_name_snapshot varchar(255), source_datasource_type_snapshot varchar(128), " +
+                "target_runtime_cluster_id bigint not null, target_datasource_id bigint not null, " +
+                "target_datasource_name_snapshot varchar(255), target_datasource_type_snapshot varchar(128), " +
+                "selection_json json, mapping_json json, policy_json json, runtime_json json, " +
+                "published_snapshot_json json, schedule_enabled int default 0, cron_expression varchar(255), " +
+                "timezone varchar(64), last_triggered_at datetime)");
+        ensureIndex("file_transfer_task_definition", "uk_ft_task_project_code",
+                "alter table file_transfer_task_definition add unique key uk_ft_task_project_code (tenant_id, project_id, code)");
+        ensureIndex("file_transfer_task_definition", "idx_ft_task_project_status",
+                "alter table file_transfer_task_definition add key idx_ft_task_project_status (project_id, status)");
+        ensureIndex("file_transfer_task_definition", "idx_ft_task_schedule",
+                "alter table file_transfer_task_definition add key idx_ft_task_schedule (status, schedule_enabled, last_triggered_at)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_run (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint, deleted int default 0, " +
+                "created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
+                "run_record_id bigint, task_id bigint, task_name_snapshot varchar(255), trigger_type varchar(32), " +
+                "direction varchar(32), channel varchar(32), status varchar(32) not null, runtime_cluster_id bigint, " +
+                "source_runtime_cluster_id bigint, source_datasource_id bigint, target_runtime_cluster_id bigint not null, " +
+                "target_datasource_id bigint, total_files bigint default 0, success_files bigint default 0, " +
+                "skipped_files bigint default 0, failed_files bigint default 0, conflict_files bigint default 0, " +
+                "resumed_files bigint default 0, post_action_failed_files bigint default 0, total_bytes bigint default 0, " +
+                "transferred_bytes bigint default 0, failed_bytes bigint default 0, resumed_bytes bigint default 0, " +
+                "current_bytes_per_second bigint default 0, peak_bytes_per_second bigint default 0, " +
+                "active_files int default 0, retry_count int default 0, message varchar(2000), " +
+                "started_at datetime, ended_at datetime, resolved_spec_json json)");
+        ensureIndex("file_transfer_run", "uk_ft_run_record",
+                "alter table file_transfer_run add unique key uk_ft_run_record (run_record_id)");
+        ensureIndex("file_transfer_run", "idx_ft_run_project_created",
+                "alter table file_transfer_run add key idx_ft_run_project_created (project_id, created_at)");
+        ensureIndex("file_transfer_run", "idx_ft_run_task_status",
+                "alter table file_transfer_run add key idx_ft_run_task_status (task_id, status)");
+        ensureIndex("file_transfer_run", "idx_ft_run_target_status",
+                "alter table file_transfer_run add key idx_ft_run_target_status (target_runtime_cluster_id, status)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_run_item (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint, deleted int default 0, " +
+                "created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
+                "run_id bigint not null, core_item_id varchar(64) not null, direction varchar(32), channel varchar(32), runtime_cluster_id bigint, " +
+                "source_runtime_cluster_id bigint not null, source_datasource_id bigint not null, source_path varchar(2000) not null, " +
+                "target_runtime_cluster_id bigint not null, target_datasource_id bigint not null, target_path varchar(2000) not null, " +
+                "temporary_path varchar(2000), status varchar(32) not null, file_size bigint default 0, " +
+                "transferred_bytes bigint default 0, resumed_bytes bigint default 0, current_bytes_per_second bigint default 0, " +
+                "source_checksum varchar(128), target_checksum varchar(128), attempts int default 0, error_code varchar(128), " +
+                "error_message varchar(2000), conflict_action varchar(32), source_action varchar(32), " +
+                "post_action_status varchar(32), started_at datetime, ended_at datetime, source_snapshot_json json, checkpoint_json json)");
+        ensureIndex("file_transfer_run_item", "uk_ft_item_run_core",
+                "alter table file_transfer_run_item add unique key uk_ft_item_run_core (run_id, core_item_id)");
+        ensureIndex("file_transfer_run_item", "idx_ft_item_run_status",
+                "alter table file_transfer_run_item add key idx_ft_item_run_status (run_id, status)");
+        ensureIndex("file_transfer_run_item", "idx_ft_item_project_updated",
+                "alter table file_transfer_run_item add key idx_ft_item_project_updated (project_id, updated_at)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_metric_sample (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint, deleted int default 0, " +
+                "created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
+                "run_id bigint not null, run_record_id bigint, task_id bigint, runtime_cluster_id bigint, " +
+                "source_datasource_id bigint, target_datasource_id bigint, channel varchar(32), status varchar(32), " +
+                "sampled_at datetime not null, transferred_bytes bigint default 0, bytes_per_second bigint default 0, " +
+                "completed_files bigint default 0, failed_files bigint default 0, active_files int default 0, retry_count int default 0)");
+        ensureIndex("file_transfer_metric_sample", "idx_ft_metric_project_time",
+                "alter table file_transfer_metric_sample add key idx_ft_metric_project_time (project_id, sampled_at)");
+        ensureIndex("file_transfer_metric_sample", "idx_ft_metric_run_time",
+                "alter table file_transfer_metric_sample add key idx_ft_metric_run_time (run_id, sampled_at)");
+        ensureIndex("file_transfer_metric_sample", "idx_ft_metric_task_time",
+                "alter table file_transfer_metric_sample add key idx_ft_metric_task_time (task_id, sampled_at)");
+    }
+
+    private void ensureFileTransferTablesSqlite() {
+        ensureColumnIfTableExists("file_transfer_task_definition", "runtime_cluster_id",
+                "alter table file_transfer_task_definition add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("file_transfer_run", "runtime_cluster_id",
+                "alter table file_transfer_run add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("file_transfer_run_item", "runtime_cluster_id",
+                "alter table file_transfer_run_item add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("dispatch_task", "file_transfer_task_id",
+                "alter table dispatch_task add column file_transfer_task_id integer");
+        ensureColumnIfTableExists("dispatch_task", "file_transfer_run_id",
+                "alter table dispatch_task add column file_transfer_run_id integer");
+        ensureColumnIfTableExists("run_record", "file_transfer_task_id",
+                "alter table run_record add column file_transfer_task_id integer");
+        ensureColumnIfTableExists("run_record", "file_transfer_run_id",
+                "alter table run_record add column file_transfer_run_id integer");
+        ensureIndexIfTableExists("dispatch_task", "idx_dispatch_task_file_transfer_run",
+                "create index if not exists idx_dispatch_task_file_transfer_run on dispatch_task(file_transfer_run_id, status)");
+        ensureIndexIfTableExists("run_record", "idx_run_record_file_transfer_run",
+                "create index if not exists idx_run_record_file_transfer_run on run_record(file_transfer_run_id)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_task_definition (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer, deleted integer default 0, " +
+                "created_at text, updated_at text, created_by integer, name text not null, code text not null, status text not null, " +
+                "version integer not null default 1, published_version integer, runtime_cluster_id integer, source_runtime_cluster_id integer not null, " +
+                "source_datasource_id integer not null, source_datasource_name_snapshot text, source_datasource_type_snapshot text, " +
+                "target_runtime_cluster_id integer not null, target_datasource_id integer not null, " +
+                "target_datasource_name_snapshot text, target_datasource_type_snapshot text, selection_json text, mapping_json text, " +
+                "policy_json text, runtime_json text, published_snapshot_json text, schedule_enabled integer default 0, " +
+                "cron_expression text, timezone text, last_triggered_at text)");
+        jdbcTemplate.execute("create unique index if not exists uk_ft_task_project_code on " +
+                "file_transfer_task_definition(tenant_id, project_id, code) where deleted = 0");
+        jdbcTemplate.execute("create index if not exists idx_ft_task_project_status on file_transfer_task_definition(project_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_ft_task_schedule on file_transfer_task_definition(status, schedule_enabled, last_triggered_at)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_run (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer, deleted integer default 0, " +
+                "created_at text, updated_at text, run_record_id integer, task_id integer, task_name_snapshot text, trigger_type text, " +
+                "direction text, channel text, status text not null, runtime_cluster_id integer, source_runtime_cluster_id integer, source_datasource_id integer, " +
+                "target_runtime_cluster_id integer not null, target_datasource_id integer, total_files integer default 0, " +
+                "success_files integer default 0, skipped_files integer default 0, failed_files integer default 0, " +
+                "conflict_files integer default 0, resumed_files integer default 0, post_action_failed_files integer default 0, " +
+                "total_bytes integer default 0, transferred_bytes integer default 0, failed_bytes integer default 0, " +
+                "resumed_bytes integer default 0, current_bytes_per_second integer default 0, peak_bytes_per_second integer default 0, " +
+                "active_files integer default 0, retry_count integer default 0, message text, started_at text, ended_at text, resolved_spec_json text)");
+        jdbcTemplate.execute("create unique index if not exists uk_ft_run_record on file_transfer_run(run_record_id) where run_record_id is not null");
+        jdbcTemplate.execute("create index if not exists idx_ft_run_project_created on file_transfer_run(project_id, created_at)");
+        jdbcTemplate.execute("create index if not exists idx_ft_run_task_status on file_transfer_run(task_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_ft_run_target_status on file_transfer_run(target_runtime_cluster_id, status)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_run_item (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer, deleted integer default 0, " +
+                "created_at text, updated_at text, run_id integer not null, core_item_id text not null, direction text, channel text, runtime_cluster_id integer, " +
+                "source_runtime_cluster_id integer not null, source_datasource_id integer not null, source_path text not null, " +
+                "target_runtime_cluster_id integer not null, target_datasource_id integer not null, target_path text not null, " +
+                "temporary_path text, status text not null, file_size integer default 0, transferred_bytes integer default 0, " +
+                "resumed_bytes integer default 0, current_bytes_per_second integer default 0, source_checksum text, target_checksum text, " +
+                "attempts integer default 0, error_code text, error_message text, conflict_action text, source_action text, " +
+                "post_action_status text, started_at text, ended_at text, source_snapshot_json text, checkpoint_json text)");
+        jdbcTemplate.execute("create unique index if not exists uk_ft_item_run_core on file_transfer_run_item(run_id, core_item_id)");
+        jdbcTemplate.execute("create index if not exists idx_ft_item_run_status on file_transfer_run_item(run_id, status)");
+        jdbcTemplate.execute("create index if not exists idx_ft_item_project_updated on file_transfer_run_item(project_id, updated_at)");
+
+        jdbcTemplate.execute("create table if not exists file_transfer_metric_sample (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer, deleted integer default 0, " +
+                "created_at text, updated_at text, run_id integer not null, run_record_id integer, task_id integer, " +
+                "runtime_cluster_id integer, source_datasource_id integer, target_datasource_id integer, channel text, status text, " +
+                "sampled_at text not null, transferred_bytes integer default 0, bytes_per_second integer default 0, " +
+                "completed_files integer default 0, failed_files integer default 0, active_files integer default 0, retry_count integer default 0)");
+        jdbcTemplate.execute("create index if not exists idx_ft_metric_project_time on file_transfer_metric_sample(project_id, sampled_at)");
+        jdbcTemplate.execute("create index if not exists idx_ft_metric_run_time on file_transfer_metric_sample(run_id, sampled_at)");
+        jdbcTemplate.execute("create index if not exists idx_ft_metric_task_time on file_transfer_metric_sample(task_id, sampled_at)");
+    }
+
+    private void ensureUnstructuredManagementTablesMysql() {
+        jdbcTemplate.execute("create table if not exists unstructured_source_acl (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint not null, " +
+                "deleted int default 0, created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
+                "datasource_id bigint not null, principal_type varchar(32) not null, user_id bigint, " +
+                "permission varchar(32) not null, effect varchar(32) not null, created_by bigint)");
+        ensureIndex("unstructured_source_acl", "uk_unstructured_source_acl",
+                "alter table unstructured_source_acl add unique key uk_unstructured_source_acl " +
+                        "(tenant_id, datasource_id, principal_type, user_id, permission)");
+        ensureIndex("unstructured_source_acl", "idx_unstructured_source_acl_source",
+                "alter table unstructured_source_acl add key idx_unstructured_source_acl_source " +
+                        "(tenant_id, project_id, datasource_id)");
+
+        jdbcTemplate.execute("create table if not exists unstructured_path_acl (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint not null, " +
+                "deleted int default 0, created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
+                "datasource_id bigint not null, path varchar(2000) not null, directory int default 1, principal_type varchar(32) not null, " +
+                "user_id bigint, permission varchar(32) not null, effect varchar(32) not null, created_by bigint)");
+        ensureColumn("unstructured_path_acl", "directory",
+                "alter table unstructured_path_acl add column directory int default 1 after path");
+        ensureIndex("unstructured_path_acl", "uk_unstructured_path_acl",
+                "alter table unstructured_path_acl add unique key uk_unstructured_path_acl " +
+                        "(tenant_id, datasource_id, path(255), principal_type, user_id, permission)");
+        ensureIndex("unstructured_path_acl", "idx_unstructured_path_acl_source",
+                "alter table unstructured_path_acl add key idx_unstructured_path_acl_source " +
+                        "(tenant_id, project_id, datasource_id, path(255))");
+
+        jdbcTemplate.execute("create table if not exists unstructured_op_audit (" +
+                "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint not null, " +
+                "deleted int default 0, created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
+                "datasource_id bigint not null, runtime_cluster_id bigint not null, user_id bigint, username varchar(255), " +
+                "operation varchar(32) not null, source_path varchar(2000), target_path varchar(2000), " +
+                "`recursive` int default 0, status varchar(32) not null, message varchar(2000))");
+        ensureIndex("unstructured_op_audit", "idx_unstructured_op_audit_source",
+                "alter table unstructured_op_audit add key idx_unstructured_op_audit_source " +
+                        "(tenant_id, project_id, datasource_id, created_at)");
+    }
+
+    private void ensureUnstructuredManagementTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists unstructured_source_acl (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer not null, " +
+                "deleted integer default 0, created_at text, updated_at text, datasource_id integer not null, " +
+                "principal_type text not null, user_id integer, permission text not null, effect text not null, created_by integer)");
+        jdbcTemplate.execute("create unique index if not exists uk_unstructured_source_acl on " +
+                "unstructured_source_acl(tenant_id, datasource_id, principal_type, user_id, permission)");
+        jdbcTemplate.execute("create index if not exists idx_unstructured_source_acl_source on " +
+                "unstructured_source_acl(tenant_id, project_id, datasource_id)");
+
+        jdbcTemplate.execute("create table if not exists unstructured_path_acl (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer not null, " +
+                "deleted integer default 0, created_at text, updated_at text, datasource_id integer not null, " +
+                "path text not null, directory integer default 1, principal_type text not null, user_id integer, permission text not null, " +
+                "effect text not null, created_by integer)");
+        ensureColumn("unstructured_path_acl", "directory",
+                "alter table unstructured_path_acl add column directory integer default 1");
+        jdbcTemplate.execute("create unique index if not exists uk_unstructured_path_acl on " +
+                "unstructured_path_acl(tenant_id, datasource_id, path, principal_type, user_id, permission)");
+        jdbcTemplate.execute("create index if not exists idx_unstructured_path_acl_source on " +
+                "unstructured_path_acl(tenant_id, project_id, datasource_id, path)");
+
+        jdbcTemplate.execute("create table if not exists unstructured_op_audit (" +
+                "id integer primary key, tenant_id text default 'default', project_id integer not null, " +
+                "deleted integer default 0, created_at text, updated_at text, datasource_id integer not null, " +
+                "runtime_cluster_id integer not null, user_id integer, username text, operation text not null, " +
+                "source_path text, target_path text, `recursive` integer default 0, status text not null, message text)");
+        jdbcTemplate.execute("create index if not exists idx_unstructured_op_audit_source on " +
+                "unstructured_op_audit(tenant_id, project_id, datasource_id, created_at)");
     }
 
     private void ensureRuntimeClusterTablesMysql() {

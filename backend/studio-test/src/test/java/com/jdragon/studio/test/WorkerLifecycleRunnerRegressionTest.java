@@ -1,5 +1,7 @@
 package com.jdragon.studio.test;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
@@ -23,6 +25,8 @@ import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -45,6 +49,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkerLifecycleRunnerRegressionTest {
+
+    @BeforeAll
+    static void initTableInfo() {
+        if (TableInfoHelper.getTableInfo(DispatchTaskEntity.class) == null) {
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), "worker-lifecycle-regression-test"),
+                    DispatchTaskEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(RunRecordEntity.class) == null) {
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), "worker-lifecycle-regression-test"),
+                    RunRecordEntity.class);
+        }
+    }
 
     @Test
     void shouldResolveCollectionTaskFromDispatchColumnWithoutPayloadConfig() {
@@ -98,6 +116,45 @@ class WorkerLifecycleRunnerRegressionTest {
     }
 
     @Test
+    void shouldAllowManualFileTransferDispatchWithoutPresetTaskIdentity() {
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                mock(DispatchTaskMapper.class),
+                mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class),
+                Collections.<NodeExecutor>emptyList(),
+                mock(com.jdragon.studio.core.spi.ExecutionEventPublisher.class),
+                new StudioPlatformProperties(),
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity("manual-transfer-worker"),
+                mock(WorkflowDispatchNodeResolver.class)
+        );
+
+        DispatchTaskEntity dispatchTask = new DispatchTaskEntity();
+        dispatchTask.setExecutionType("FILE_TRANSFER");
+        dispatchTask.setNodeCode("file_transfer_run_42");
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("nodeType", NodeType.FILE_TRANSFER.name());
+        payload.put("fileTransferRunId", 42L);
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("fileTransferRunId", 42L);
+        config.put("fileTransferTaskId", null);
+        payload.put("config", config);
+        dispatchTask.setPayloadJson(payload);
+
+        WorkflowNodeDefinition node = (WorkflowNodeDefinition) ReflectionTestUtils.invokeMethod(
+                runner, "toNode", dispatchTask);
+
+        assertNotNull(node);
+        assertEquals(NodeType.FILE_TRANSFER, node.getNodeType());
+        assertEquals(42L, node.getConfig().get("fileTransferRunId"));
+        assertNull(node.getConfig().get("fileTransferTaskId"));
+    }
+
+    @Test
     void shouldRecoverInterruptedRunningTasksOwnedByCurrentWorkerOnStartup() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
@@ -141,7 +198,7 @@ class WorkerLifecycleRunnerRegressionTest {
         staleRunRecord.setLogFilePath("2026-04-05/run-2.log");
         staleRunRecord.setLogCharset("UTF-8");
 
-        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(staleTask));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(staleTask), Collections.emptyList());
         when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(1);
         when(runRecordMapper.selectById(eq(2L))).thenReturn(staleRunRecord);
         when(runRecordMapper.update(any(RunRecordEntity.class), any())).thenReturn(1);

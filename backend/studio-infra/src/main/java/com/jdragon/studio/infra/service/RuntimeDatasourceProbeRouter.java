@@ -8,6 +8,9 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.FileTransferBrowserPageView;
+import com.jdragon.studio.dto.model.FileTransferFileEntryView;
+import com.jdragon.studio.dto.model.FileTransferSelectionPreviewView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.RuntimeDatasourceHydrationResultView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
@@ -28,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -165,6 +169,119 @@ public class RuntimeDatasourceProbeRouter {
             throw unavailable();
         }
     }
+
+    public FileTransferBrowserPageView browse(DataSourceDefinition datasource, Long clusterId,
+                                              String path, String cursor, Integer pageSize) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
+        payload.setPath(path);
+        payload.setCursor(cursor);
+        payload.setPageSize(pageSize);
+        try {
+            return post(endpoint, payload, "/internal/runtime/datasource/file-browser",
+                    FileTransferBrowserPageView.class);
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
+    public FileTransferFileEntryView stat(DataSourceDefinition datasource, Long clusterId, String path) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
+        payload.setPath(path);
+        try {
+            return post(endpoint, payload, "/internal/runtime/datasource/file-stat",
+                    FileTransferFileEntryView.class);
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
+    public void operate(DataSourceDefinition datasource, Long clusterId, String operation,
+                        String sourcePath, String targetPath, Boolean recursiveConfirmed) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
+        payload.setFileOperation(operation);
+        payload.setOperationPath(sourcePath);
+        payload.setOperationTargetPath(targetPath);
+        payload.setRecursiveConfirmed(recursiveConfirmed);
+        try {
+            postPayload(endpoint, payload, "/internal/runtime/datasource/file-operation");
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
+    public void download(DataSourceDefinition datasource, Long clusterId, String path,
+                         OutputStream output) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
+        payload.setPath(path);
+        try {
+            String endpointUrl = encryption.decrypt(endpoint.getEndpointCiphertext());
+            String baseUrl = runtimeEndpointSecurityService.validate(endpointUrl).toString().replaceAll("/+$", "");
+            RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target =
+                    runtimeEndpointSecurityService.validateRequestTarget(baseUrl + "/internal/runtime/datasource/file-download");
+            if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
+            RuntimeEndpointHttpClient.StreamingResponse response = runtimeEndpointHttpClient.executeStreaming(
+                    target, "POST", runtimeRequestHeaders(endpoint),
+                    serializePayload(payload).getBytes(StandardCharsets.UTF_8),
+                    timeout(endpoint.getConnectTimeoutMillis(), 3000),
+                    timeout(endpoint.getReadTimeoutMillis(), 60000), output);
+            if (!RuntimeInternalHeaders.isAuthenticatedRuntimeResponse(response.getHeaders())) throw unavailable();
+            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                Map<String, Object> envelope = objectMapper.readValue(response.getErrorBody(),
+                        new TypeReference<LinkedHashMap<String, Object>>() { });
+                throw remoteError(response.getStatusCode(), envelope);
+            }
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (StudioException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
+    public FileTransferSelectionPreviewView previewFileSelection(
+            DataSourceDefinition datasource,
+            Long clusterId,
+            Map<String, Object> spec,
+            Map<String, String> parameters,
+            Integer limit) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
+        payload.setFileTransferSpec(spec == null
+                ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(spec));
+        payload.setFileTransferParameters(parameters == null
+                ? new LinkedHashMap<String, String>() : new LinkedHashMap<String, String>(parameters));
+        payload.setFileTransferPreviewLimit(limit);
+        try {
+            return post(endpoint, payload, "/internal/runtime/datasource/file-transfer-preview",
+                    FileTransferSelectionPreviewView.class);
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
     private RuntimeClusterEntity requireCluster(DataSourceDefinition datasource, Long id) {
         if (id == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Runtime cluster is required");
@@ -271,25 +388,7 @@ public class RuntimeDatasourceProbeRouter {
                 runtimeEndpointSecurityService.validateRequestTarget(baseUrl + path);
         if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
         String requestBody = serializePayload(payload);
-        Map<String, List<String>> requestHeaders = new LinkedHashMap<String, List<String>>();
-        addHeader(requestHeaders, "Content-Type", "application/json");
-        addHeader(requestHeaders, INTERNAL_TOKEN_HEADER, properties.getInternalApiToken());
-        String headers = endpoint.getHeadersCiphertext() == null
-                ? null : encryption.decrypt(endpoint.getHeadersCiphertext());
-        Map<String, String> configuredHeaders = new LinkedHashMap<String, String>();
-        if (StringUtils.hasText(headers)) {
-            configuredHeaders.putAll(objectMapper.readValue(headers,
-                    new TypeReference<LinkedHashMap<String, String>>() {}));
-            configuredHeaders = runtimeEndpointHeaderPolicy.sanitizeConfiguredHeaders(
-                    configuredHeaders, Set.of("content-type"));
-            for (Map.Entry<String, String> header : configuredHeaders.entrySet()) {
-                addHeader(requestHeaders, header.getKey(), header.getValue());
-            }
-        }
-        if (StringUtils.hasText(endpoint.getTokenCiphertext()) && !containsHeader(configuredHeaders, "Authorization")) {
-            addHeader(requestHeaders, "Authorization",
-                    "Bearer " + encryption.decrypt(endpoint.getTokenCiphertext()));
-        }
+        Map<String, List<String>> requestHeaders = runtimeRequestHeaders(endpoint);
         RuntimeEndpointHttpClient.Response response = runtimeEndpointHttpClient.execute(
                 target, "POST", requestHeaders, requestBody.getBytes(StandardCharsets.UTF_8),
                 timeout(endpoint.getConnectTimeoutMillis(), 3000),
@@ -307,6 +406,29 @@ public class RuntimeDatasourceProbeRouter {
         }
         if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) throw unavailable();
         return envelope.get("data");
+    }
+
+    private Map<String, List<String>> runtimeRequestHeaders(RuntimeEndpointEntity endpoint) throws Exception {
+        Map<String, List<String>> requestHeaders = new LinkedHashMap<String, List<String>>();
+        addHeader(requestHeaders, "Content-Type", "application/json");
+        addHeader(requestHeaders, INTERNAL_TOKEN_HEADER, properties.getInternalApiToken());
+        String headers = endpoint.getHeadersCiphertext() == null
+                ? null : encryption.decrypt(endpoint.getHeadersCiphertext());
+        Map<String, String> configuredHeaders = new LinkedHashMap<String, String>();
+        if (StringUtils.hasText(headers)) {
+            configuredHeaders.putAll(objectMapper.readValue(headers,
+                    new TypeReference<LinkedHashMap<String, String>>() {}));
+            configuredHeaders = runtimeEndpointHeaderPolicy.sanitizeConfiguredHeaders(
+                    configuredHeaders, Set.of("content-type"));
+            for (Map.Entry<String, String> entry : configuredHeaders.entrySet()) {
+                addHeader(requestHeaders, entry.getKey(), entry.getValue());
+            }
+        }
+        if (StringUtils.hasText(endpoint.getTokenCiphertext()) && !containsHeader(configuredHeaders, "Authorization")) {
+            addHeader(requestHeaders, "Authorization",
+                    "Bearer " + encryption.decrypt(endpoint.getTokenCiphertext()));
+        }
+        return requestHeaders;
     }
 
     private String serializePayload(RuntimeDatasourceProbeRequest payload) throws Exception {

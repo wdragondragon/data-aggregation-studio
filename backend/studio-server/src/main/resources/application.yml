@@ -91,6 +91,8 @@ studio:
   pod-name: ${POD_NAME:${HOSTNAME:studio-server-local}}
   node-name: ${NODE_NAME:}
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:}
+  file-transfer:
+    enabled: ${STUDIO_FILE_TRANSFER_ENABLED:true}
   runtime-invocation-max-body-bytes: ${STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES:10485760}
   runtime-invocation-idempotency:
     mode: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MODE:OPTIONAL}

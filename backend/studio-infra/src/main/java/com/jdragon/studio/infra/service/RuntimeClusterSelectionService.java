@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Single server-side guard for explicit runtime placement. */
@@ -114,6 +115,10 @@ public class RuntimeClusterSelectionService {
 
     public String runtimeClusterName(Long projectId, Long runtimeClusterId) {
         return runtimeClusterService.clusterName(runtimeClusterId);
+    }
+
+    public Map<Long, String> runtimeClusterNames(Collection<Long> runtimeClusterIds) {
+        return runtimeClusterService.clusterNames(runtimeClusterIds);
     }
 
     public void assertExistingResourceRunnable(Long projectId, Long runtimeClusterId, Collection<Long> datasourceIds) {

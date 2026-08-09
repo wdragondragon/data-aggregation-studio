@@ -14,6 +14,7 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataSourceDefinition extends BaseDefinition {
+    private Long createdBy;
     private String name;
     private String typeCode;
     private Long schemaVersionId;

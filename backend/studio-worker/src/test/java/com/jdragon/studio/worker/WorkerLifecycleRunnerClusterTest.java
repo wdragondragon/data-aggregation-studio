@@ -12,10 +12,12 @@ import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.RuntimeClusterMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
@@ -63,6 +65,9 @@ class WorkerLifecycleRunnerClusterTest {
         }
         if (TableInfoHelper.getTableInfo(RunRecordEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), RunRecordEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(FileTransferRunEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), FileTransferRunEntity.class);
         }
     }
 
@@ -272,7 +277,7 @@ class WorkerLifecycleRunnerClusterTest {
         runRecord.setId(2001L);
         runRecord.setStatus("RUNNING");
         runRecord.setStartedAt(LocalDateTime.now().minusMinutes(3));
-        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task), Collections.emptyList());
         when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
         when(runRecordMapper.selectById(2001L)).thenReturn(runRecord);
         when(runRecordMapper.update(any(RunRecordEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
@@ -281,10 +286,13 @@ class WorkerLifecycleRunnerClusterTest {
                 publisher, runLogFileService, identity);
         runner.recoverLeasedRunningTasks();
 
-        ArgumentCaptor<LambdaQueryWrapper<DispatchTaskEntity>> recoveryQuery = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
-        verify(dispatchTaskMapper).selectList(recoveryQuery.capture());
-        assertTrue(recoveryQuery.getValue().getSqlSegment().contains("worker_boot_id <>"));
-        assertTrue(recoveryQuery.getValue().getSqlSegment().contains("target_cluster_id"));
+        ArgumentCaptor<LambdaQueryWrapper<DispatchTaskEntity>> dispatchQueries = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(dispatchTaskMapper, times(2)).selectList(dispatchQueries.capture());
+        LambdaQueryWrapper<DispatchTaskEntity> recoveryQuery = dispatchQueries.getAllValues().stream()
+                .filter(candidate -> candidate.getSqlSegment().contains("worker_boot_id <>"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(recoveryQuery.getSqlSegment().contains("target_cluster_id"));
         ArgumentCaptor<LambdaUpdateWrapper<DispatchTaskEntity>> dispatchCas = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
         verify(dispatchTaskMapper).update(any(DispatchTaskEntity.class), dispatchCas.capture());
         String dispatchConditions = dispatchCas.getValue().getSqlSegment();
@@ -299,6 +307,38 @@ class WorkerLifecycleRunnerClusterTest {
         verify(runRecordMapper).update(any(RunRecordEntity.class), runRecordCas.capture());
         assertTrue(runRecordCas.getValue().getSqlSegment().contains("status"));
         verify(publisher).publish(any());
+    }
+
+    @Test
+    void shouldFailInterruptedFileTransferRunWithoutTouchingItemCheckpoints() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        ClusterInstanceIdentity identity = mock(ClusterInstanceIdentity.class);
+        when(identity.instanceId()).thenReturn("instance-50");
+        when(identity.bootId()).thenReturn("boot-new");
+
+        DispatchTaskEntity task = interruptedTask();
+        task.setFileTransferRunId(3001L);
+        RunRecordEntity runRecord = new RunRecordEntity();
+        runRecord.setId(2001L);
+        runRecord.setStatus("RUNNING");
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(runRecordMapper.selectById(2001L)).thenReturn(runRecord);
+        when(runRecordMapper.update(any(RunRecordEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
+                runRecordMapper, mock(ExecutionEventPublisher.class), mock(RunLogFileService.class), identity);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        runner.recoverLeasedRunningTasks();
+
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(fileTransferRunMapper).update(eq(null), update.capture());
+        assertTrue(update.getValue().getSqlSegment().contains("id"));
+        assertTrue(update.getValue().getSqlSegment().contains("status"));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue(3001L));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("FAILED"));
     }
 
     @Test

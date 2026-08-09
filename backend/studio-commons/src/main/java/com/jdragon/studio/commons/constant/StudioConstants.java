@@ -24,6 +24,7 @@ public final class StudioConstants {
     public static final String RESOURCE_TYPE_DATA_SERVICE = "DATA_SERVICE";
     public static final String RESOURCE_TYPE_DATA_INGESTION_SERVICE = "DATA_INGESTION_SERVICE";
     public static final String RESOURCE_TYPE_PROTOCOL_CONVERSION_SERVICE = "PROTOCOL_CONVERSION_SERVICE";
+    public static final String RESOURCE_TYPE_FILE_TRANSFER_TASK = "FILE_TRANSFER_TASK";
     public static final String FOLLOW_TARGET_MODEL_SYNC_TASK = "MODEL_SYNC_TASK";
     public static final String FOLLOW_TARGET_COLLECTION_TASK = "COLLECTION_TASK";
     public static final String FOLLOW_TARGET_COLLECTION_TASK_RUN = "COLLECTION_TASK_RUN";

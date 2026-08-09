@@ -1,6 +1,8 @@
 package com.jdragon.studio.worker;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.core.spi.ExecutionEventPublisher;
 import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.studio.dto.enums.NodeType;
@@ -24,6 +26,8 @@ import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Collections;
@@ -40,6 +44,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkerResourceRevisionGuardTest {
+
+    @BeforeAll
+    static void initTableInfo() {
+        if (TableInfoHelper.getTableInfo(DispatchTaskEntity.class) == null) {
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), "worker-resource-revision-test"),
+                    DispatchTaskEntity.class);
+        }
+    }
 
     @Test
     void shouldRejectQueuedCollectionTaskWhenCompositeRevisionChanged() {

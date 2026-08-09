@@ -8,6 +8,7 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.core.spi.WorkflowDispatcher;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.enums.EdgeCondition;
+import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.QualityTaskDefinitionView;
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
@@ -15,6 +16,7 @@ import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
 import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
@@ -31,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -50,6 +53,7 @@ public class DispatchService implements WorkflowDispatcher {
     private final ClusterLockService clusterLockService;
     private RuntimeValidationService runtimeValidationService;
     private RuntimeResourceRevisionService runtimeResourceRevisionService;
+    private FileTransferRunService fileTransferRunService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
@@ -81,6 +85,11 @@ public class DispatchService implements WorkflowDispatcher {
     @Autowired
     void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
         this.runtimeResourceRevisionService = runtimeResourceRevisionService;
+    }
+
+    @Autowired
+    void setFileTransferRunService(FileTransferRunService fileTransferRunService) {
+        this.fileTransferRunService = fileTransferRunService;
     }
 
     @Override
@@ -335,11 +344,26 @@ public class DispatchService implements WorkflowDispatcher {
         task.setWorkflowVersionId(workflow.getVersionId());
         task.setCollectionTaskId(resolveCollectionTaskId(node));
         task.setQualityTaskId(resolveQualityTaskId(node));
+        String resourceRevision = node.getConfig() == null || node.getConfig().get("_resourceRevision") == null
+                ? null : String.valueOf(node.getConfig().get("_resourceRevision"));
+        Long fileTransferTaskId = null;
+        FileTransferRunEntity fileTransferRun = null;
+        if (node.getNodeType() == NodeType.FILE_TRANSFER) {
+            fileTransferTaskId = resolveFileTransferTaskId(node)
+                    .orElseThrow(() -> new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "Workflow file transfer task id is required"));
+            if (fileTransferRunService == null) {
+                throw new IllegalStateException("File transfer run service is unavailable");
+            }
+            fileTransferRun = fileTransferRunService.createWorkflowRunSkeleton(
+                    fileTransferTaskId, runtimeProjectId, runtimeClusterId, "WORKFLOW", resourceRevision);
+            task.setFileTransferTaskId(fileTransferTaskId);
+            task.setFileTransferRunId(fileTransferRun.getId());
+        }
         task.setNodeCode(node.getNodeCode());
         task.setStatus("QUEUED");
         task.setTargetClusterId(runtimeClusterId);
-        task.setResourceRevision(node.getConfig() == null || node.getConfig().get("_resourceRevision") == null
-                ? null : String.valueOf(node.getConfig().get("_resourceRevision")));
+        task.setResourceRevision(resourceRevision);
         task.setScheduledFireTime(scheduledFireTime);
         task.setAttempts(0);
         task.setMaxRetries(3);
@@ -350,6 +374,14 @@ public class DispatchService implements WorkflowDispatcher {
         payload.put("projectId", runtimeProjectId);
         payload.put("runtimeClusterId", runtimeClusterId);
         payload.put("scheduledFireTime", scheduledFireTime == null ? null : scheduledFireTime.toString());
+        if (fileTransferRun != null) {
+            payload.put("fileTransferTaskId", fileTransferTaskId);
+            payload.put("fileTransferRunId", fileTransferRun.getId());
+            LinkedHashMap<String, Object> config = new LinkedHashMap<String, Object>();
+            config.put("fileTransferTaskId", fileTransferTaskId);
+            config.put("fileTransferRunId", fileTransferRun.getId());
+            payload.put("config", config);
+        }
         task.setPayloadJson(payload);
         return task;
     }
@@ -719,6 +751,13 @@ public class DispatchService implements WorkflowDispatcher {
         }
         Object qualityTaskId = node.getConfig().get("qualityTaskId");
         return parseLong(qualityTaskId);
+    }
+
+    private Optional<Long> resolveFileTransferTaskId(WorkflowNodeDefinition node) {
+        if (node == null || node.getNodeType() != NodeType.FILE_TRANSFER || node.getConfig() == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(parseLong(node.getConfig().get("fileTransferTaskId")));
     }
 
     private String triggerLockName(String type, String tenantId, Long projectId, Long businessId, LocalDateTime scheduledFireTime) {

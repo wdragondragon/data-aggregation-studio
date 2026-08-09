@@ -54,18 +54,24 @@ public class RunMetricsService {
     );
 
     private final CollectionTaskService collectionTaskService;
+    private final DataSourceService dataSourceService;
     private final RunRecordMapper runRecordMapper;
     private final StudioSecurityService securityService;
     private final RunMetricSummaryMapper runMetricSummaryMapper;
+    private final FileTransferMetricService fileTransferMetricService;
 
     public RunMetricsService(CollectionTaskService collectionTaskService,
+                             DataSourceService dataSourceService,
                              RunRecordMapper runRecordMapper,
                              StudioSecurityService securityService,
-                             RunMetricSummaryMapper runMetricSummaryMapper) {
+                             RunMetricSummaryMapper runMetricSummaryMapper,
+                             FileTransferMetricService fileTransferMetricService) {
         this.collectionTaskService = collectionTaskService;
+        this.dataSourceService = dataSourceService;
         this.runRecordMapper = runRecordMapper;
         this.securityService = securityService;
         this.runMetricSummaryMapper = runMetricSummaryMapper;
+        this.fileTransferMetricService = fileTransferMetricService;
     }
 
     public RunMetricOptionsView options() {
@@ -74,6 +80,18 @@ public class RunMetricsService {
         Map<Long, RunMetricFilterOptionView> datasourceOptions = new LinkedHashMap<Long, RunMetricFilterOptionView>();
         Map<Long, RunMetricFilterOptionView> sourceModelOptions = new LinkedHashMap<Long, RunMetricFilterOptionView>();
         Map<Long, RunMetricFilterOptionView> targetModelOptions = new LinkedHashMap<Long, RunMetricFilterOptionView>();
+        List<RunMetricFilterOptionView> accessibleDatasources = dataSourceService.listMetricFilterOptions();
+        if (accessibleDatasources != null) {
+            for (RunMetricFilterOptionView datasource : accessibleDatasources) {
+                if (datasource != null) {
+                    registerOption(datasourceOptions,
+                            datasource.getId(),
+                            datasource.getName(),
+                            datasource.getLabel(),
+                            datasource.getTypeCode());
+                }
+            }
+        }
         for (CollectionTaskDefinitionView task : tasks) {
             if (task == null) {
                 continue;
@@ -119,6 +137,18 @@ public class RunMetricsService {
         RunMetricDashboardView view = new RunMetricDashboardView();
         view.setTrend(createEmptyTrend(timeWindow, granularity));
         view.setLegacyRunCount(Long.valueOf(0L));
+        if (request == null || request.getExecutionType() == null
+                || "FILE_TRANSFER".equalsIgnoreCase(request.getExecutionType())) {
+            com.jdragon.studio.dto.model.FileTransferMetricDashboardView fileTransfer =
+                    fileTransferMetricService.dashboard(fileTransferQuery(request, timeWindow, topN));
+            view.setFileTransfer(fileTransfer);
+            if (request != null && "FILE_TRANSFER".equalsIgnoreCase(request.getExecutionType())) {
+                view.setTrend(fileTransferTrend(fileTransfer));
+                view.setSourceDatasourceTopN(fileTransfer.getSourceDatasourceTopN());
+                view.setTargetDatasourceTopN(fileTransfer.getTargetDatasourceTopN());
+                return view;
+            }
+        }
         if (matchedTasks.isEmpty()) {
             return view;
         }
@@ -248,6 +278,46 @@ public class RunMetricsService {
             return;
         }
         values.set(bucketIndex, Long.valueOf(values.get(bucketIndex).longValue() + safeValue(value)));
+    }
+
+    private com.jdragon.studio.dto.model.request.FileTransferMetricQueryRequest fileTransferQuery(
+            RunMetricDashboardQueryRequest request, TimeWindow timeWindow, int topN) {
+        com.jdragon.studio.dto.model.request.FileTransferMetricQueryRequest query =
+                new com.jdragon.studio.dto.model.request.FileTransferMetricQueryRequest();
+        query.setDatasourceId(request == null ? null : request.getDatasourceId());
+        query.setStatus(request == null ? null : request.getStatus());
+        query.setStartedAt(timeWindow.getStart());
+        query.setEndedAt(timeWindow.getEnd());
+        query.setTopN(topN);
+        return query;
+    }
+
+    private RunMetricTrendView fileTransferTrend(
+            com.jdragon.studio.dto.model.FileTransferMetricDashboardView dashboard) {
+        RunMetricTrendView trend = new RunMetricTrendView();
+        RunMetricTrendSeriesView transferred = series("transferredBytes", "Transferred bytes");
+        RunMetricTrendSeriesView speed = series("bytesPerSecond", "Bytes per second");
+        RunMetricTrendSeriesView completed = series("completedFiles", "Completed files");
+        RunMetricTrendSeriesView failed = series("failedFiles", "Failed files");
+        for (com.jdragon.studio.dto.model.FileTransferMetricPointView point : dashboard.getTrend()) {
+            trend.getXAxis().add(point.getSampledAt() == null ? "" : point.getSampledAt().toString());
+            transferred.getData().add(safeValue(point.getTransferredBytes()));
+            speed.getData().add(safeValue(point.getBytesPerSecond()));
+            completed.getData().add(safeValue(point.getCompletedFiles()));
+            failed.getData().add(safeValue(point.getFailedFiles()));
+        }
+        trend.getSeries().add(transferred);
+        trend.getSeries().add(speed);
+        trend.getSeries().add(completed);
+        trend.getSeries().add(failed);
+        return trend;
+    }
+
+    private RunMetricTrendSeriesView series(String key, String name) {
+        RunMetricTrendSeriesView series = new RunMetricTrendSeriesView();
+        series.setKey(key);
+        series.setName(name);
+        return series;
     }
 
     private RunMetricSummaryView toSummary(RunMetricBucketAggregate aggregate) {
