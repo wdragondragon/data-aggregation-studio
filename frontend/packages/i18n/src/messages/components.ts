@@ -65,6 +65,10 @@ export const componentMessages = {
           label: "Quality Task",
           caption: "Run a quality validation job",
         },
+        FILE_TRANSFER: {
+          label: "File Transfer",
+          caption: "Run a published file transfer preset",
+        },
         DATA_SCRIPT: {
           label: "Data Script",
           caption: "Run a saved SQL script",
@@ -157,6 +161,10 @@ export const componentMessages = {
         QUALITY_TASK: {
           label: "质量任务",
           caption: "执行数据质量校验任务",
+        },
+        FILE_TRANSFER: {
+          label: "文件传输",
+          caption: "执行已发布文件传输任务",
         },
         DATA_SCRIPT: {
           label: "数据脚本",

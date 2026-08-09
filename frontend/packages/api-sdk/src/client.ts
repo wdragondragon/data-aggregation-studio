@@ -105,6 +105,25 @@ import type {
   FieldMappingRuleListView,
   FieldMappingRuleOptionView,
   FieldMappingRuleView,
+  FileTransferBrowserPageView,
+  FileTransferBrowserRequest,
+  FileTransferManualItemRequest,
+  FileTransferManualRunRequest,
+  FileTransferMetricDashboardView,
+  FileTransferMetricQueryRequest,
+  FileTransferPreviewRequest,
+  FileTransferRunItemView,
+  FileTransferRunView,
+  FileTransferSelectionPreviewView,
+  FileTransferTaskDefinitionView,
+  FileTransferTaskSaveRequest,
+  UnstructuredAclEntryView,
+  UnstructuredOperationRequest,
+  UnstructuredOperationResultView,
+  UnstructuredPathAclRequest,
+  UnstructuredPermissionView,
+  UnstructuredSourceAclRequest,
+  UnstructuredSourceView,
   FollowRequest,
   FollowStatusView,
   JobContainerConfig,
@@ -1489,6 +1508,151 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       delete(id: EntityId) {
         return request<void>({ url: `/collection-tasks/${id}`, method: "DELETE" });
+      },
+    },
+    fileTransfer: {
+      browser: {
+        list(payload: FileTransferBrowserRequest, config?: StudioRequestConfig) {
+          return request<FileTransferBrowserPageView>({
+            ...config,
+            url: "/file-transfer/browser/list",
+            method: "POST",
+            data: payload,
+          });
+        },
+      },
+      runs: {
+        createManual(payload: FileTransferManualRunRequest) {
+          return request<FileTransferRunView>({ url: "/file-transfer/runs/manual", method: "POST", data: payload });
+        },
+        addItems(runId: EntityId, payload: FileTransferManualItemRequest[]) {
+          return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/items`, method: "POST", data: payload });
+        },
+        list(params?: { pageNo?: number; pageSize?: number; taskId?: EntityId; status?: string }, config?: StudioRequestConfig) {
+          return requestPage<FileTransferRunView>({
+            ...config,
+            url: "/file-transfer/runs",
+            method: "GET",
+            params,
+          }, params);
+        },
+        get(runId: EntityId, config?: StudioRequestConfig) {
+          return request<FileTransferRunView>({ ...config, url: `/file-transfer/runs/${runId}`, method: "GET" });
+        },
+        items(runId: EntityId, params?: { pageNo?: number; pageSize?: number }, config?: StudioRequestConfig) {
+          return requestPage<FileTransferRunItemView>({
+            ...config,
+            url: `/file-transfer/runs/${runId}/items`,
+            method: "GET",
+            params,
+          }, params);
+        },
+        pause(runId: EntityId) {
+          return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/pause`, method: "POST" });
+        },
+        resume(runId: EntityId) {
+          return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/resume`, method: "POST" });
+        },
+        cancel(runId: EntityId) {
+          return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/cancel`, method: "POST" });
+        },
+        remove(runId: EntityId) {
+          return request<void>({ url: `/file-transfer/runs/${runId}`, method: "DELETE" });
+        },
+        retryItem(runId: EntityId, itemId: EntityId) {
+          return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/items/${itemId}/retry`, method: "POST" });
+        },
+        removeItem(runId: EntityId, itemId: EntityId) {
+          return request<void>({ url: `/file-transfer/runs/${runId}/items/${itemId}`, method: "DELETE" });
+        },
+      },
+      tasks: {
+        list(params?: { pageNo?: number; pageSize?: number; keyword?: string; status?: string }, config?: StudioRequestConfig) {
+          return requestPage<FileTransferTaskDefinitionView>({
+            ...config,
+            url: "/file-transfer-tasks",
+            method: "GET",
+            params,
+          }, params);
+        },
+        get(id: EntityId, config?: StudioRequestConfig) {
+          return request<FileTransferTaskDefinitionView>({ ...config, url: `/file-transfer-tasks/${id}`, method: "GET" });
+        },
+        create(payload: FileTransferTaskSaveRequest) {
+          return request<FileTransferTaskDefinitionView>({ url: "/file-transfer-tasks", method: "POST", data: payload });
+        },
+        update(id: EntityId, payload: FileTransferTaskSaveRequest) {
+          return request<FileTransferTaskDefinitionView>({ url: `/file-transfer-tasks/${id}`, method: "PUT", data: payload });
+        },
+        delete(id: EntityId) {
+          return request<void>({ url: `/file-transfer-tasks/${id}`, method: "DELETE" });
+        },
+        validate(id: EntityId) {
+          return request<Record<string, unknown>>({ url: `/file-transfer-tasks/${id}/validate`, method: "POST" });
+        },
+        preview(id: EntityId, payload?: FileTransferPreviewRequest) {
+          return request<FileTransferSelectionPreviewView>({
+            url: `/file-transfer-tasks/${id}/preview-selection`,
+            method: "POST",
+            data: payload,
+          });
+        },
+        publish(id: EntityId) {
+          return request<FileTransferTaskDefinitionView>({ url: `/file-transfer-tasks/${id}/publish`, method: "POST" });
+        },
+        offline(id: EntityId) {
+          return request<FileTransferTaskDefinitionView>({ url: `/file-transfer-tasks/${id}/offline`, method: "POST" });
+        },
+        trigger(id: EntityId) {
+          return request<FileTransferRunView>({ url: `/file-transfer-tasks/${id}/trigger`, method: "POST" });
+        },
+      },
+      metrics: {
+        dashboard(payload?: FileTransferMetricQueryRequest, config?: StudioRequestConfig) {
+          return request<FileTransferMetricDashboardView>({
+            ...config,
+            url: "/file-transfer-metrics/dashboard",
+            method: "POST",
+            data: payload,
+          });
+        },
+      },
+    },
+    unstructuredManagement: {
+      sources(runtimeClusterId: EntityId, config?: StudioRequestConfig) {
+        return request<UnstructuredSourceView[]>({ ...config, url: "/unstructured-management/sources", method: "GET", params: { runtimeClusterId } });
+      },
+      browser: {
+        list(payload: FileTransferBrowserRequest, config?: StudioRequestConfig) {
+          return request<FileTransferBrowserPageView>({ ...config, url: "/unstructured-management/browser/list", method: "POST", data: payload });
+        },
+      },
+      download(params: { runtimeClusterId: EntityId; datasourceId: EntityId; path: string }, config?: StudioRequestConfig) {
+        return instance.request<Blob>({ ...config, url: "/unstructured-management/download", method: "GET", params, responseType: "blob" }).then((response) => response.data);
+      },
+      operate(payload: UnstructuredOperationRequest) {
+        return request<UnstructuredOperationResultView>({ url: "/unstructured-management/operations", method: "POST", data: payload });
+      },
+      sourceAcl(datasourceId: EntityId) {
+        return request<UnstructuredAclEntryView[]>({ url: `/unstructured-management/acl/source/${datasourceId}`, method: "GET" });
+      },
+      replaceSourceAcl(datasourceId: EntityId, payload: UnstructuredSourceAclRequest) {
+        return request<UnstructuredAclEntryView[]>({ url: `/unstructured-management/acl/source/${datasourceId}`, method: "PUT", data: payload });
+      },
+      pathAcl(datasourceId: EntityId, path: string) {
+        return request<UnstructuredAclEntryView[]>({ url: "/unstructured-management/acl/path", method: "GET", params: { datasourceId, path } });
+      },
+      replacePathAcl(payload: UnstructuredPathAclRequest) {
+        return request<UnstructuredAclEntryView[]>({ url: "/unstructured-management/acl/path", method: "PUT", data: payload });
+      },
+      deleteAcl(id: EntityId) {
+        return request<void>({ url: `/unstructured-management/acl/${id}`, method: "DELETE" });
+      },
+      userOptions() {
+        return request<StudioUserOption[]>( { url: "/unstructured-management/users/options", method: "GET" });
+      },
+      permissions(datasourceId: EntityId, path = "/") {
+        return request<UnstructuredPermissionView>({ url: "/unstructured-management/permissions", method: "GET", params: { datasourceId, path }, studioSkipGlobalLoading: true });
       },
     },
     qualityTasks: {

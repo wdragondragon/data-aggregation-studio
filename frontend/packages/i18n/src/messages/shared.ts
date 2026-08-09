@@ -331,6 +331,16 @@ export const sharedMessages = {
           subtitle: "Inspect collection task run indicators with trends and TopN rankings.",
           menuCaption: "Run indicators and historical monitoring",
         },
+        fileTransfer: {
+          title: "File Transfer",
+          subtitle: "Browse file datasources, operate persistent transfer queues, manage presets and inspect byte-level metrics.",
+          menuCaption: "Bidirectional file transfer and preset jobs",
+        },
+        unstructuredManagement: {
+          title: "Unstructured Management",
+          subtitle: "Browse and operate files in one datasource with project ACL controls.",
+          menuCaption: "Single-source file browser and operations",
+        },
         opsCenter: {
           title: "Unified Operations Center",
           subtitle: "Observe task runs, dispatch queues, workers, services and run logs in one place.",
@@ -704,6 +714,16 @@ export const sharedMessages = {
           title: "指标监控",
           subtitle: "查看采集任务运行指标、趋势和 TopN 排行。",
           menuCaption: "运行指标与历史监控",
+        },
+        fileTransfer: {
+          title: "文件传输",
+          subtitle: "浏览文件数据源、操作持久化双向队列、管理预设任务并查看字节级指标。",
+          menuCaption: "双向文件传输与预设任务",
+        },
+        unstructuredManagement: {
+          title: "非结构化管理",
+          subtitle: "按单数据源浏览和操作文件，并管理项目 ACL。",
+          menuCaption: "单源文件浏览与操作",
         },
         opsCenter: {
           title: "统一运维中心",

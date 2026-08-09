@@ -3,7 +3,7 @@
     <WorkflowCanvas
       :nodes="nodes"
       :edges="edges"
-      :palette-types="['COLLECTION_TASK', 'QUALITY_TASK', 'DATA_SCRIPT', 'HTTP', 'SHELL']"
+      :palette-types="['COLLECTION_TASK', 'QUALITY_TASK', 'FILE_TRANSFER', 'DATA_SCRIPT', 'HTTP', 'SHELL']"
       @update:nodes="emit('update:nodes', $event)"
       @update:edges="emit('update:edges', $event)"
       @select-node="emit('select-node', $event)"

@@ -150,7 +150,7 @@ export type FieldComponentType =
   | "CRON";
 export type SchemaStatus = "DRAFT" | "PUBLISHED";
 export type ModelKind = "TABLE" | "VIEW" | "FILE" | "TOPIC" | "MEASUREMENT" | "DATASET";
-export type NodeType = "COLLECTION_TASK" | "QUALITY_TASK" | "DATA_SCRIPT" | "ETL_SINGLE" | "FUSION" | "CONSISTENCY" | "HTTP" | "SHELL";
+export type NodeType = "COLLECTION_TASK" | "QUALITY_TASK" | "FILE_TRANSFER" | "DATA_SCRIPT" | "ETL_SINGLE" | "FUSION" | "CONSISTENCY" | "HTTP" | "SHELL";
 export type EdgeCondition = "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS";
 export type QueryOperator = "EQ" | "LIKE" | "IN" | "GT" | "GE" | "LT" | "LE" | "BETWEEN";
 export type RowMatchMode = "SAME_ITEM" | "ANY_ITEM";
@@ -1899,6 +1899,350 @@ export interface CollectionTaskSaveRequest {
   schedule?: CollectionTaskScheduleDefinition;
 }
 
+export type FileTransferDirection = "LEFT_TO_RIGHT" | "RIGHT_TO_LEFT" | string;
+export type FileTransferTaskStatus = "DRAFT" | "ONLINE" | "OFFLINE" | string;
+export type FileTransferRunStatus = "QUEUED" | "RUNNING" | "PAUSED" | "SUCCESS" | "PARTIAL_SUCCESS" | "FAILED" | "CANCELED" | string;
+export type FileTransferItemStatus =
+  | "DISCOVERING"
+  | "QUEUED"
+  | "TRANSFERRING"
+  | "VERIFYING"
+  | "COMMITTING"
+  | "POST_ACTION"
+  | "SUCCESS"
+  | "SKIPPED"
+  | "CONFLICT"
+  | "POST_ACTION_FAILED"
+  | "FAILED"
+  | "PAUSED"
+  | "CANCELED"
+  | string;
+export type FileTransferConflictPolicy = "FAIL" | "OVERWRITE" | "BACKUP_THEN_OVERWRITE";
+export type FileTransferSourceSuccessAction = "KEEP" | "DELETE" | "BACKUP";
+
+export interface FileTransferBrowserRequest {
+  runtimeClusterId: EntityId;
+  datasourceId: EntityId;
+  path?: string;
+  cursor?: string;
+  pageSize?: number;
+}
+
+export interface FileTransferFileEntryView {
+  path: string;
+  name: string;
+  directory?: boolean;
+  size?: number | string | null;
+  modifiedAtMillis?: number | string | null;
+  etag?: string;
+}
+
+export interface FileTransferBrowserPageView {
+  path: string;
+  nextCursor?: string;
+  pageSize?: number;
+  hasMore?: boolean;
+  entries: FileTransferFileEntryView[];
+  capabilities: Record<string, unknown>;
+}
+
+export interface UnstructuredSourceView {
+  id: EntityId;
+  name: string;
+  typeCode?: string;
+  runtimeClusterId?: EntityId;
+  createdBy?: EntityId;
+  aclManageable?: boolean;
+  effectivePermissions?: string[];
+}
+
+export interface UnstructuredAclEntryView {
+  id?: EntityId;
+  datasourceId?: EntityId;
+  path?: string;
+  directory?: boolean;
+  principalType: string;
+  userId?: EntityId;
+  username?: string;
+  displayName?: string;
+  permission: string;
+  effect: string;
+}
+
+export interface UnstructuredPermissionView {
+  datasourceId?: EntityId;
+  path?: string;
+  effectivePermissions?: string[];
+  ownerOrAdmin?: boolean;
+}
+
+export interface UnstructuredOperationRequest {
+  runtimeClusterId: EntityId;
+  datasourceId: EntityId;
+  operation: "CREATE_DIRECTORY" | "RENAME" | "MOVE" | "DELETE" | string;
+  sourcePath: string;
+  targetPath?: string;
+  recursiveConfirmed?: boolean;
+}
+
+export interface UnstructuredOperationResultView {
+  operation?: string;
+  sourcePath?: string;
+  targetPath?: string;
+  recursive?: boolean;
+  message?: string;
+}
+
+export interface UnstructuredAclEntryRequest {
+  principalType: "PROJECT" | "USER" | string;
+  userId?: EntityId;
+  permission: "BROWSE" | "DOWNLOAD" | "EDIT" | "DELETE" | string;
+  effect: "ALLOW" | "DENY" | "INHERIT" | string;
+}
+
+export interface UnstructuredSourceAclRequest {
+  datasourceId?: EntityId;
+  entries: UnstructuredAclEntryRequest[];
+}
+
+export interface UnstructuredPathAclRequest {
+  datasourceId?: EntityId;
+  path: string;
+  directory?: boolean;
+  entries: UnstructuredAclEntryRequest[];
+}
+
+export interface FileTransferManualItemRequest {
+  runtimeClusterId?: EntityId;
+  /** Legacy field retained only for compatibility with historical records. */
+  sourceRuntimeClusterId?: EntityId;
+  sourceDatasourceId: EntityId;
+  sourcePath: string;
+  /** Legacy field retained only for compatibility with historical records. */
+  targetRuntimeClusterId?: EntityId;
+  targetDatasourceId: EntityId;
+  targetPath: string;
+  recursive?: boolean;
+}
+
+export interface FileTransferManualRunRequest {
+  runtimeClusterId?: EntityId;
+  items: FileTransferManualItemRequest[];
+  policy?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
+  parameters?: Record<string, string>;
+  autoStart?: boolean;
+}
+
+export interface FileTransferScheduleDefinition {
+  enabled?: boolean;
+  cronExpression?: string;
+  timezone?: string;
+}
+
+export interface FileTransferTaskSaveRequest {
+  id?: EntityId;
+  name: string;
+  code: string;
+  runtimeClusterId?: EntityId;
+  sourceRuntimeClusterId?: EntityId;
+  sourceDatasourceId: EntityId;
+  targetRuntimeClusterId?: EntityId;
+  targetDatasourceId: EntityId;
+  selection?: Record<string, unknown>;
+  mapping?: Record<string, unknown>;
+  policy?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
+  schedule?: FileTransferScheduleDefinition;
+}
+
+export interface FileTransferTaskDefinitionView extends BaseRecord {
+  name: string;
+  code: string;
+  status?: FileTransferTaskStatus;
+  version?: number;
+  publishedVersion?: number;
+  runtimeClusterId?: EntityId;
+  sourceRuntimeClusterId?: EntityId;
+  sourceRuntimeClusterName?: string;
+  sourceDatasourceId?: EntityId;
+  sourceDatasourceName?: string;
+  sourceDatasourceType?: string;
+  targetRuntimeClusterId?: EntityId;
+  targetRuntimeClusterName?: string;
+  targetDatasourceId?: EntityId;
+  targetDatasourceName?: string;
+  targetDatasourceType?: string;
+  selection: Record<string, unknown>;
+  mapping: Record<string, unknown>;
+  policy: Record<string, unknown>;
+  runtime: Record<string, unknown>;
+  schedule?: FileTransferScheduleDefinition;
+}
+
+export interface FileTransferPreviewRequest {
+  limit?: number;
+  parameters?: Record<string, string>;
+}
+
+export interface FileTransferPreviewItemView {
+  sourcePath: string;
+  targetPath: string;
+  relativePath?: string;
+  size?: number | string | null;
+  modifiedAtMillis?: number | string | null;
+  etag?: string;
+}
+
+export interface FileTransferSelectionPreviewView {
+  resolvedAtRuntime?: boolean;
+  previewId?: string;
+  plannedAtMillis?: number | string | null;
+  totalFiles?: number | string | null;
+  totalBytes?: number | string | null;
+  sampleCount?: number;
+  hasMore?: boolean;
+  resolvedSelection: Record<string, unknown>;
+  resolvedMapping: Record<string, unknown>;
+  sample: FileTransferPreviewItemView[];
+}
+
+export interface FileTransferRunView extends BaseRecord {
+  runRecordId?: EntityId;
+  taskId?: EntityId;
+  taskName?: string;
+  triggerType?: string;
+  direction?: FileTransferDirection;
+  channel?: string;
+  status?: FileTransferRunStatus;
+  runtimeClusterId?: EntityId;
+  sourceRuntimeClusterId?: EntityId;
+  sourceRuntimeClusterName?: string;
+  sourceDatasourceId?: EntityId;
+  sourceDatasourceName?: string;
+  targetRuntimeClusterId?: EntityId;
+  targetRuntimeClusterName?: string;
+  targetDatasourceId?: EntityId;
+  targetDatasourceName?: string;
+  totalFiles?: number | string | null;
+  successFiles?: number | string | null;
+  skippedFiles?: number | string | null;
+  failedFiles?: number | string | null;
+  conflictFiles?: number | string | null;
+  resumedFiles?: number | string | null;
+  postActionFailedFiles?: number | string | null;
+  totalBytes?: number | string | null;
+  transferredBytes?: number | string | null;
+  failedBytes?: number | string | null;
+  resumedBytes?: number | string | null;
+  currentBytesPerSecond?: number | string | null;
+  peakBytesPerSecond?: number | string | null;
+  activeFiles?: number;
+  retryCount?: number;
+  message?: string;
+  startedAt?: string;
+  endedAt?: string;
+  resolvedSpec: Record<string, unknown>;
+}
+
+export interface FileTransferRunItemView {
+  id?: EntityId;
+  runId?: EntityId;
+  coreItemId?: string;
+  direction?: FileTransferDirection;
+  channel?: string;
+  runtimeClusterId?: EntityId;
+  sourceRuntimeClusterId?: EntityId;
+  sourceRuntimeClusterName?: string;
+  sourceDatasourceId?: EntityId;
+  sourceDatasourceName?: string;
+  sourcePath?: string;
+  targetRuntimeClusterId?: EntityId;
+  targetRuntimeClusterName?: string;
+  targetDatasourceId?: EntityId;
+  targetDatasourceName?: string;
+  targetPath?: string;
+  temporaryPath?: string;
+  status?: FileTransferItemStatus;
+  fileSize?: number | string | null;
+  transferredBytes?: number | string | null;
+  resumedBytes?: number | string | null;
+  currentBytesPerSecond?: number | string | null;
+  sourceChecksum?: string;
+  targetChecksum?: string;
+  attempts?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  conflictAction?: string;
+  sourceAction?: string;
+  postActionStatus?: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt?: string;
+}
+
+export type FileTransferQueueEventType =
+  | "SNAPSHOT_REQUIRED"
+  | "RUN_CHANGED"
+  | "RUN_REMOVED"
+  | "ITEM_REMOVED";
+
+export interface FileTransferQueueEventView {
+  type?: FileTransferQueueEventType | string;
+  runId?: EntityId;
+  itemId?: EntityId;
+  run?: FileTransferRunView;
+  items?: FileTransferRunItemView[];
+  occurredAt?: string;
+}
+
+export interface FileTransferMetricQueryRequest {
+  taskId?: EntityId;
+  runtimeClusterId?: EntityId;
+  datasourceId?: EntityId;
+  channel?: string;
+  status?: string;
+  startedAt?: string;
+  endedAt?: string;
+  topN?: number;
+}
+
+export interface FileTransferMetricPointView {
+  sampledAt?: string;
+  transferredBytes?: number | string | null;
+  bytesPerSecond?: number | string | null;
+  completedFiles?: number | string | null;
+  failedFiles?: number | string | null;
+  activeFiles?: number;
+  retryCount?: number;
+}
+
+export interface FileTransferMetricDashboardView {
+  runCount?: number | string | null;
+  successRunCount?: number | string | null;
+  failedRunCount?: number | string | null;
+  totalFiles?: number | string | null;
+  successFiles?: number | string | null;
+  failedFiles?: number | string | null;
+  skippedFiles?: number | string | null;
+  conflictFiles?: number | string | null;
+  resumedFiles?: number | string | null;
+  postActionFailedFiles?: number | string | null;
+  totalBytes?: number | string | null;
+  transferredBytes?: number | string | null;
+  failedBytes?: number | string | null;
+  resumedBytes?: number | string | null;
+  currentBytesPerSecond?: number | string | null;
+  averageBytesPerSecond?: number | string | null;
+  peakBytesPerSecond?: number | string | null;
+  estimatedRemainingSeconds?: number | string | null;
+  activeFiles?: number | string | null;
+  retryCount?: number | string | null;
+  trend: FileTransferMetricPointView[];
+  sourceDatasourceTopN: RunMetricTopNItem[];
+  targetDatasourceTopN: RunMetricTopNItem[];
+}
+
 export type JobContainerConfig = Record<string, unknown>;
 
 export interface AssistantInputOption {
@@ -3015,6 +3359,7 @@ export interface RunMetricDashboardResponse {
   sourceModelTopN: RunMetricTopNItem[];
   targetModelTopN: RunMetricTopNItem[];
   legacyRunCount?: number | string | null;
+  fileTransfer?: FileTransferMetricDashboardView;
 }
 
 export interface RunMetricDashboardQueryRequest {
@@ -3025,6 +3370,8 @@ export interface RunMetricDashboardQueryRequest {
   endTime?: string;
   granularity?: "DAY" | "WEEK" | "MONTH" | string;
   topN?: number;
+  executionType?: string;
+  status?: string;
 }
 
 export interface RunLogView {

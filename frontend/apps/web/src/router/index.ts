@@ -38,6 +38,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     items: [
       { path: "/metadata", labelKey: "routes.web.metadata.title", captionKey: "routes.web.metadata.menuCaption", requiresProject: true },
       { path: "/datasources", labelKey: "routes.web.datasources.title", captionKey: "routes.web.datasources.menuCaption", requiresProject: true },
+      { path: "/unstructured-management", labelKey: "routes.web.unstructuredManagement.title", captionKey: "routes.web.unstructuredManagement.menuCaption", requiresProject: true },
       { path: "/models", labelKey: "routes.web.models.title", captionKey: "routes.web.models.menuCaption", requiresProject: true },
       { path: "/statistics", labelKey: "routes.web.statistics.title", captionKey: "routes.web.statistics.menuCaption", requiresProject: true },
     ],
@@ -56,6 +57,7 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
       },
       { path: "/collection-tasks", labelKey: "routes.web.collectionTasks.title", captionKey: "routes.web.collectionTasks.menuCaption", requiresProject: true },
       { path: "/collection-task-runs", labelKey: "routes.web.collectionTaskRuns.title", captionKey: "routes.web.collectionTaskRuns.menuCaption", requiresProject: true },
+      { path: "/file-transfer", labelKey: "routes.web.fileTransfer.title", captionKey: "routes.web.fileTransfer.menuCaption", requiresProject: true },
       { path: "/run-metrics", labelKey: "routes.web.runMetrics.title", captionKey: "routes.web.runMetrics.menuCaption", requiresProject: true },
     ],
   },
@@ -641,6 +643,24 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.runMetrics.title",
           subtitleKey: "routes.web.runMetrics.subtitle",
+        },
+      },
+      {
+        path: "/unstructured-management",
+        name: "unstructured-management",
+        component: () => import("@/views/UnstructuredManagementView.vue"),
+        meta: {
+          titleKey: "routes.web.unstructuredManagement.title",
+          subtitleKey: "routes.web.unstructuredManagement.subtitle",
+        },
+      },
+      {
+        path: "/file-transfer",
+        name: "file-transfer",
+        component: () => import("@/views/FileTransferView.vue"),
+        meta: {
+          titleKey: "routes.web.fileTransfer.title",
+          subtitleKey: "routes.web.fileTransfer.subtitle",
         },
       },
       {

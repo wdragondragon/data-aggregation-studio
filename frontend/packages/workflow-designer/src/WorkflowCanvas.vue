@@ -48,7 +48,7 @@ const props = withDefaults(
   {
     nodes: () => [],
     edges: () => [],
-    paletteTypes: () => ["COLLECTION_TASK", "QUALITY_TASK", "DATA_SCRIPT", "HTTP", "SHELL"],
+    paletteTypes: () => ["COLLECTION_TASK", "QUALITY_TASK", "FILE_TRANSFER", "DATA_SCRIPT", "HTTP", "SHELL"],
     nodeStatuses: () => ({}),
     readonly: false,
     hidePalette: false,
@@ -75,6 +75,12 @@ const paletteRegistry = computed<Partial<Record<NodeType, PaletteItem>>>(() => (
     label: t("workflowCanvas.nodeTypes.QUALITY_TASK.label"),
     caption: t("workflowCanvas.nodeTypes.QUALITY_TASK.caption"),
     color: "#2563eb",
+  },
+  FILE_TRANSFER: {
+    type: "FILE_TRANSFER",
+    label: t("workflowCanvas.nodeTypes.FILE_TRANSFER.label"),
+    caption: t("workflowCanvas.nodeTypes.FILE_TRANSFER.caption"),
+    color: "#0f766e",
   },
   DATA_SCRIPT: {
     type: "DATA_SCRIPT",
@@ -230,11 +236,14 @@ function buildNodeLabel(node: WorkflowNodeDefinition, typeLabel: string) {
   const qualityTaskName = typeof node.config?.qualityTaskName === "string"
     ? node.config.qualityTaskName.trim()
     : "";
+  const fileTransferTaskName = typeof node.config?.fileTransferTaskName === "string"
+    ? node.config.fileTransferTaskName.trim()
+    : "";
   const scriptName = typeof node.config?.scriptName === "string"
     ? node.config.scriptName.trim()
     : "";
   const nodeName = typeof node.nodeName === "string" ? node.nodeName.trim() : "";
-  const primary = taskName || qualityTaskName || scriptName || nodeName || typeLabel || node.nodeCode;
+  const primary = taskName || qualityTaskName || fileTransferTaskName || scriptName || nodeName || typeLabel || node.nodeCode;
   const secondary = typeLabel && typeLabel !== primary ? typeLabel : "";
   return secondary ? `${primary}\n${secondary}` : primary;
 }

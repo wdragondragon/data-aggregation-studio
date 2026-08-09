@@ -55,9 +55,12 @@
         :selected-node="selectedNode"
         :selected-bound-task="selectedBoundTask"
         :selected-bound-quality-task="selectedBoundQualityTask"
+        :selected-bound-file-transfer-task="selectedBoundFileTransferTask"
         :selected-bound-script="selectedBoundScript"
+        :file-transfer-tasks="onlineFileTransferTasks"
         :collection-tasks-loading="collectionTasksLoading"
         :quality-tasks-loading="qualityTasksLoading"
+        :file-transfer-tasks-loading="fileTransferTasksLoading"
         :scripts-loading="scriptsLoading"
         :script-tree-loading="scriptTreeLoading"
         :selected-script-max-rows="selectedScriptMaxRows"
@@ -130,6 +133,7 @@ import type {
   DataDevelopmentScriptListView,
   DataDevelopmentTreeNode,
   DataSourceOptionView,
+  FileTransferTaskDefinitionView,
   MetadataFieldDefinition,
   QualityTaskWorkflowOptionView,
   WorkflowDefinitionView,
@@ -193,6 +197,7 @@ const { acceptedRuntimeClusterId, acceptRuntimeCluster, confirmRuntimeClusterCha
 const datasources = ref<DataSourceOptionView[]>([]);
 const onlineCollectionTasks = ref<CollectionTaskWorkflowOptionView[]>([]);
 const onlineQualityTasks = ref<QualityTaskWorkflowOptionView[]>([]);
+const onlineFileTransferTasks = ref<FileTransferTaskDefinitionView[]>([]);
 const scripts = ref<DataDevelopmentScriptListView[]>([]);
 const selectedNodeCode = ref<string | null>(null);
 const saving = ref(false);
@@ -202,15 +207,18 @@ let editorLoadSequence = 0;
 let datasourceLoadSequence = 0;
 let collectionTaskRequestSequence = 0;
 let qualityTaskRequestSequence = 0;
+let fileTransferTaskRequestSequence = 0;
 let scriptTreeRequestSequence = 0;
 let scriptPreviewRequestSequence = 0;
 const collectionTasksLoading = ref(false);
 const collectionTaskReloadPending = ref(false);
 const qualityTasksLoading = ref(false);
 const qualityTaskReloadPending = ref(false);
+const fileTransferTasksLoading = ref(false);
 const scriptsLoading = ref(false);
 const collectionTasksLoaded = ref(false);
 const qualityTasksLoaded = ref(false);
+const fileTransferTasksLoaded = ref(false);
 const collectionTaskDialogVisible = ref(false);
 const qualityTaskDialogVisible = ref(false);
 const scriptDialogVisible = ref(false);
@@ -275,6 +283,16 @@ const selectedQualityTaskId = computed(() => {
 });
 const selectedBoundQualityTask = computed(() =>
   onlineQualityTasks.value.find((item) => String(item.id) === selectedQualityTaskId.value) ?? buildSelectedQualityTaskFallback(),
+);
+const selectedFileTransferTaskId = computed(() => {
+  if (!selectedNode.value?.config?.fileTransferTaskId) {
+    return undefined;
+  }
+  return String(selectedNode.value.config.fileTransferTaskId);
+});
+const selectedBoundFileTransferTask = computed(() =>
+  onlineFileTransferTasks.value.find((item) => String(item.id) === selectedFileTransferTaskId.value)
+    ?? buildSelectedFileTransferTaskFallback(),
 );
 const selectedScriptId = computed(() => {
   if (!selectedNode.value?.config?.scriptId) {
@@ -383,6 +401,32 @@ function buildSelectedQualityTaskFallback(): QualityTaskWorkflowOptionView | und
   };
 }
 
+function buildSelectedFileTransferTaskFallback(): FileTransferTaskDefinitionView | undefined {
+  const config = selectedNode.value?.config;
+  if (!config?.fileTransferTaskId) {
+    return undefined;
+  }
+  const name = readSelectedNodeConfigText("fileTransferTaskName") ?? String(config.fileTransferTaskId);
+  return {
+    id: config.fileTransferTaskId as FileTransferTaskDefinitionView["id"],
+    name,
+    code: readSelectedNodeConfigText("fileTransferTaskCode") ?? name,
+    status: "ONLINE",
+    version: Number(config.fileTransferTaskVersion ?? 1),
+    publishedVersion: Number(config.fileTransferTaskPublishedVersion ?? config.fileTransferTaskVersion ?? 1),
+    sourceRuntimeClusterId: config.fileTransferSourceRuntimeClusterId as FileTransferTaskDefinitionView["sourceRuntimeClusterId"],
+    sourceDatasourceId: config.fileTransferSourceDatasourceId as FileTransferTaskDefinitionView["sourceDatasourceId"],
+    sourceDatasourceName: readSelectedNodeConfigText("fileTransferSourceDatasourceName"),
+    targetRuntimeClusterId: config.fileTransferTargetRuntimeClusterId as FileTransferTaskDefinitionView["targetRuntimeClusterId"],
+    targetDatasourceId: config.fileTransferTargetDatasourceId as FileTransferTaskDefinitionView["targetDatasourceId"],
+    targetDatasourceName: readSelectedNodeConfigText("fileTransferTargetDatasourceName"),
+    selection: {},
+    mapping: {},
+    policy: {},
+    runtime: {},
+  };
+}
+
 function buildSelectedScriptFallback(scriptId = selectedScriptId.value): DataDevelopmentScriptListView | undefined {
   const config = selectedNode.value?.config;
   if (!scriptId || !config?.scriptId || String(config.scriptId) !== String(scriptId)) {
@@ -445,6 +489,10 @@ async function refreshSelectedNodeCandidates() {
   }
   if (selectedNode.value?.nodeType === "QUALITY_TASK") {
     await ensureQualityTasksLoaded(true);
+    return;
+  }
+  if (selectedNode.value?.nodeType === "FILE_TRANSFER") {
+    await ensureFileTransferTasksLoaded(true);
   }
 }
 
@@ -592,6 +640,44 @@ async function loadQualityTasks() {
         qualityTaskReloadPending.value = false;
         await loadQualityTasks();
       }
+    }
+  }
+}
+
+async function ensureFileTransferTasksLoaded(force = false) {
+  if ((fileTransferTasksLoaded.value && !force) || fileTransferTasksLoading.value) {
+    return;
+  }
+  const runtimeClusterId = form.runtimeClusterId;
+  if (!runtimeClusterId) {
+    fileTransferTaskRequestSequence += 1;
+    onlineFileTransferTasks.value = [];
+    fileTransferTasksLoaded.value = false;
+    fileTransferTasksLoading.value = false;
+    return;
+  }
+  const requestSequence = ++fileTransferTaskRequestSequence;
+  fileTransferTasksLoading.value = true;
+  try {
+    const page = await studioApi.fileTransfer.tasks.list({
+      pageNo: 1,
+      pageSize: 200,
+      status: "ONLINE",
+    });
+    if (requestSequence !== fileTransferTaskRequestSequence
+        || String(form.runtimeClusterId ?? "") !== String(runtimeClusterId)) {
+      return;
+    }
+    onlineFileTransferTasks.value = page.items.filter((task) =>
+      String(task.targetRuntimeClusterId ?? "") === String(runtimeClusterId));
+    fileTransferTasksLoaded.value = true;
+  } catch (error) {
+    if (requestSequence === fileTransferTaskRequestSequence) {
+      ElMessage.error(error instanceof Error ? error.message : t("web.workflows.loadFailed"));
+    }
+  } finally {
+    if (requestSequence === fileTransferTaskRequestSequence) {
+      fileTransferTasksLoading.value = false;
     }
   }
 }
@@ -829,26 +915,30 @@ async function handleRuntimeClusterChange() {
   form.runtimeClusterId = acceptedRuntimeClusterId.value ?? nextRuntimeClusterId ?? "";
   collectionTaskRequestSequence += 1;
   qualityTaskRequestSequence += 1;
+  fileTransferTaskRequestSequence += 1;
   scriptTreeRequestSequence += 1;
   scriptPreviewRequestSequence += 1;
   collectionTasksLoading.value = false;
   qualityTasksLoading.value = false;
+  fileTransferTasksLoading.value = false;
   scriptTreeLoading.value = false;
   scriptPreviewLoading.value = false;
   collectionTaskReloadPending.value = false;
   qualityTaskReloadPending.value = false;
   datasources.value = [];
   form.nodes = form.nodes.map((node) => (
-    node.nodeType === "COLLECTION_TASK" || node.nodeType === "QUALITY_TASK" || node.nodeType === "DATA_SCRIPT"
+    node.nodeType === "COLLECTION_TASK" || node.nodeType === "QUALITY_TASK" || node.nodeType === "FILE_TRANSFER" || node.nodeType === "DATA_SCRIPT"
       ? { ...node, config: {} }
       : node
   ));
   onlineCollectionTasks.value = [];
   onlineQualityTasks.value = [];
+  onlineFileTransferTasks.value = [];
   scripts.value = [];
   scriptTreeData.value = [];
   collectionTasksLoaded.value = false;
   qualityTasksLoaded.value = false;
+  fileTransferTasksLoaded.value = false;
   scriptTreeLoaded.value = false;
   await loadDatasourcesForRuntimeCluster();
 }
@@ -930,6 +1020,38 @@ function bindQualityTask(value?: string) {
             modelId: task.modelId,
             modelName: task.modelName,
             columnName: task.columnName,
+          },
+        }
+      : node,
+  );
+}
+
+function bindFileTransferTask(value?: string | number) {
+  if (value == null || value === "") {
+    return;
+  }
+  const task = onlineFileTransferTasks.value.find((item) => String(item.id) === String(value));
+  if (!selectedNode.value || !task) {
+    return;
+  }
+  form.nodes = form.nodes.map((node) =>
+    node.nodeCode === selectedNodeCode.value
+      ? {
+          ...node,
+          nodeName: task.name,
+          config: {
+            ...(node.config ?? {}),
+            fileTransferTaskId: task.id,
+            fileTransferTaskName: task.name,
+            fileTransferTaskCode: task.code,
+            fileTransferTaskVersion: task.version,
+            fileTransferTaskPublishedVersion: task.publishedVersion,
+            fileTransferSourceRuntimeClusterId: task.sourceRuntimeClusterId,
+            fileTransferSourceDatasourceId: task.sourceDatasourceId,
+            fileTransferSourceDatasourceName: task.sourceDatasourceName,
+            fileTransferTargetRuntimeClusterId: task.targetRuntimeClusterId,
+            fileTransferTargetDatasourceId: task.targetDatasourceId,
+            fileTransferTargetDatasourceName: task.targetDatasourceName,
           },
         }
       : node,
@@ -1109,6 +1231,10 @@ watch(
       void ensureQualityTasksLoaded();
       return;
     }
+    if (nodeType === "FILE_TRANSFER") {
+      void ensureFileTransferTasksLoaded();
+      return;
+    }
   },
   { immediate: true },
 );
@@ -1194,6 +1320,7 @@ const selectedNodePanelActions = {
   updateSelectedNodeConfig,
   openCollectionTaskDialog,
   openQualityTaskDialog,
+  bindFileTransferTask,
   openScriptDialog,
   updateSelectedDataScriptMaxRows,
   applySelectedDataScriptArguments,

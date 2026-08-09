@@ -46,6 +46,34 @@
         </div>
       </template>
 
+      <template v-else-if="selectedNode.nodeType === 'FILE_TRANSFER'">
+        <el-form-item :label="t('web.workflows.fileTransferTaskBinding')">
+          <el-select
+            :model-value="selectedBoundFileTransferTask?.id"
+            filterable
+            :loading="fileTransferTasksLoading"
+            :disabled="!runtimeClusterSelected"
+            :placeholder="t('web.workflows.selectFileTransferTask')"
+            @update:model-value="nodeActions.bindFileTransferTask"
+          >
+            <el-option
+              v-for="task in fileTransferTasks"
+              :key="String(task.id)"
+              :label="`${task.name} (${task.code})`"
+              :value="task.id"
+            />
+          </el-select>
+        </el-form-item>
+        <div v-if="selectedBoundFileTransferTask" class="soft-panel">
+          <strong>{{ selectedBoundFileTransferTask.name }}</strong>
+          <p>
+            {{ selectedBoundFileTransferTask.sourceDatasourceName || `#${selectedBoundFileTransferTask.sourceDatasourceId}` }}
+            → {{ selectedBoundFileTransferTask.targetDatasourceName || `#${selectedBoundFileTransferTask.targetDatasourceId}` }}
+          </p>
+          <p>v{{ selectedBoundFileTransferTask.publishedVersion || selectedBoundFileTransferTask.version || 1 }}</p>
+        </div>
+      </template>
+
       <template v-else-if="selectedNode.nodeType === 'DATA_SCRIPT'">
         <el-form-item :label="t('web.workflows.dataScriptBinding')">
           <el-button type="primary" plain :loading="scriptsLoading || scriptTreeLoading" :disabled="!runtimeClusterSelected" @click="nodeActions.openScriptDialog">
@@ -229,6 +257,7 @@ import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskWorkflowOptionView,
   DataDevelopmentScriptListView,
+  FileTransferTaskDefinitionView,
   MetadataFieldDefinition,
   QualityTaskWorkflowOptionView,
   WorkflowNodeDefinition,
@@ -256,6 +285,7 @@ interface WorkflowSelectedNodeActions {
   updateSelectedNodeConfig: (value: Record<string, unknown>) => void;
   openCollectionTaskDialog: () => void | Promise<void>;
   openQualityTaskDialog: () => void | Promise<void>;
+  bindFileTransferTask: (value?: string | number) => void;
   openScriptDialog: () => void | Promise<void>;
   updateSelectedDataScriptMaxRows: (value: number | undefined) => void;
   applySelectedDataScriptArguments: () => void;
@@ -272,9 +302,12 @@ const props = defineProps<{
   selectedNode?: WorkflowNodeDefinition;
   selectedBoundTask?: CollectionTaskWorkflowOptionView;
   selectedBoundQualityTask?: QualityTaskWorkflowOptionView;
+  selectedBoundFileTransferTask?: FileTransferTaskDefinitionView;
   selectedBoundScript?: DataDevelopmentScriptListView;
+  fileTransferTasks: FileTransferTaskDefinitionView[];
   collectionTasksLoading: boolean;
   qualityTasksLoading: boolean;
+  fileTransferTasksLoading: boolean;
   scriptsLoading: boolean;
   scriptTreeLoading: boolean;
   dataScriptArgumentsText: string;

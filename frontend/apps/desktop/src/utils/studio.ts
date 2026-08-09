@@ -120,6 +120,7 @@ export function formatNodeType(t: TranslateFn, nodeType?: string | null) {
   const mapping: Record<string, string> = {
     COLLECTION_TASK: "web.workflows.nodeTypeCollectionTask",
     QUALITY_TASK: "routes.web.qualityTasks.title",
+    FILE_TRANSFER: "routes.web.fileTransfer.title",
     DATA_SCRIPT: "web.workflows.nodeTypeDataScript",
     ETL_SINGLE: "web.workflows.nodeTypeEtlSingle",
     FUSION: "web.workflows.nodeTypeFusion",
