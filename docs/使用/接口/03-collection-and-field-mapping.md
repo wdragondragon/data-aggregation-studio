@@ -23,6 +23,8 @@
 3. 手动触发采集：POST /collection-tasks/{id}/trigger -> GET /runs/page?collectionTaskId=<id> -> GET /runs/{runRecordId}/log?pageNo=1&pageSizeBytes=65536。
 4. 采集指标：GET /run-metrics/options -> POST /run-metrics/query，按 datasourceId/sourceModelId/targetModelId/startTime/endTime/topN 聚合。
 
+`GET /run-metrics/options` 中的 `data.datasources` 返回当前租户、项目可访问的轻量数据源选项，不要求数据源已经被采集任务绑定；`data.sourceModels` 和 `data.targetModels` 仍来自采集任务指标绑定快照。这样项目只有数据源、尚未生成任务绑定时，指标页面的数据源下拉也可正常选择。
+
 ## 2026-07-20 多集群增量契约
 
 - `CollectionTaskSaveRequest.runtimeClusterId` 为新建、编辑和预览的必填字段。来源和目标数据源、模型必须全部适用于同一运行集群。

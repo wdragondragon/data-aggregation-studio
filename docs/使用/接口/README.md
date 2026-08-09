@@ -43,6 +43,7 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 | [运行集群与数据源适用范围接口](./12-runtime-clusters.md) | 16 | 16 |
 | [运行调用幂等保护](./13-runtime-invocation-idempotency.md) | 0（公共写入口增量） | 0（既有入口增量） |
 | [业务接口运行集群 ID 下推分析](./14-runtime-cluster-id-pushdown-analysis.md) | 0（分析记录） | 0（既有接口分析） |
+| [Studio 非结构化文件传输接口](./15-file-transfer.md) | 21 | 21 |
 
 ## 界面路由覆盖
 
@@ -95,6 +96,7 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 - `/runs` -> `frontend/apps/web/src/views/RunsView.vue`
 - `/runs/:workflowRunId` -> `frontend/apps/web/src/views/WorkflowRunDetailView.vue`
 - `/run-metrics` -> `frontend/apps/web/src/views/RunMetricsView.vue`
+- `/file-transfer?view=center|tasks|runs|metrics` -> `frontend/apps/web/src/views/FileTransferView.vue`
 - `/ops-center` -> `frontend/apps/web/src/views/OpsCenterView.vue`
 - `/alerts` -> `frontend/apps/web/src/views/AlertsView.vue`
 - `/runtime-clusters` -> `frontend/apps/web/src/views/RuntimeClustersView.vue`
@@ -107,5 +109,6 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 - 后端产品 Controller 方法总数：374（375 个标准 Mapping 方法 + 2 个通用 `@RequestMapping` 方法，再排除仅用于开发期冒烟测试的 `HttpWriterSinkController` 3 个临时接收接口）
 - 文档覆盖方式：管理端界面优先按前端 SDK 分组，开放访问接口按后端 Controller 路径补充到对应服务模块。
 - 最新校准日期：2026-08-03
+- 文件传输增量校准日期：2026-08-07；上方历史总数未包含本次新增的 21 个文件传输 SDK/Controller 方法。
 
 2026-07-20 的多集群增量同时修改了多个既有接口的参数和 DTO，但没有增加对应方法数量。各模块开头的“多集群增量契约”优先于历史自动抽取表中的旧参数摘要；源码行号可能随本轮实现漂移，联调时以接口路径、方法名和增量契约为准。

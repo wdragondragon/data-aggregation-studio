@@ -10,6 +10,7 @@
     - [功能模块文档](./使用/功能模块/README.md)：按业务能力拆分的模块使用说明。
     - [统一告警中心使用指南](./使用/功能模块/13-统一告警中心.md)：九类告警、状态流转、通知投递、权限和安全边界的图文操作说明。
     - [Studio 界面接口文档](./使用/接口/README.md)：按界面模块拆分的接口、DTO、Controller 对照和 cURL 调用链模板。
+    - [Studio 非结构化文件传输接口联调指南](./使用/接口/15-file-transfer.md)：单集群文件浏览、即时队列、预设任务、运行、非结构化管理、ACL 和指标接口契约。
     - [studio-user-whitepaper.md](./使用/studio-user-whitepaper.md)
     - [studio-user-whitepaper.docx](./使用/studio-user-whitepaper.docx)
 
@@ -26,6 +27,8 @@
     - [studio-future-roadmap.md](./规划/studio-future-roadmap.md)
     - [可配置多集群运行与数据源适用范围](./规划/studio-configurable-runtime-cluster-plan-20260720.md)
     - [统一 Worker 执行面与纯控制面计划](./规划/studio-worker-only-execution-plane-plan-20260721.md)
+    - [Studio 非结构化文件传输三阶段实施计划](./规划/studio-unstructured-file-transfer-plan-20260807.md)
+    - [Studio 单集群文件传输与非结构化管理改造变更跟踪](./规划/studio-unstructured-file-transfer-change-log-20260809.md)
 
 - `交接/`
   - 交接类文档，面向项目接手人和维护人。
@@ -42,6 +45,7 @@
     - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：纯控制面 Server、全能力 Worker、内部调用、运行日志和插件边界说明。
     - [studio-runtime-cluster-deployment.md](./运维/部署/studio-runtime-cluster-deployment.md)：OMS 纯控制面、统一 Worker 执行面、单/多集群部署与历史迁移说明。
     - [studio-production-runtime-acceptance.md](./运维/部署/studio-production-runtime-acceptance.md)：生产 SLB、OMS/Worker 网络边界和共享对象存储的无秘密验收工具与证据模板。
+    - [Studio 单集群非结构化文件传输部署与安全边界](./运维/部署/studio-file-transfer-deployment.md)：单 Worker、文件插件、SSE、FTP/OSS 网络边界和发布验收。
     - [data-service-metrics-retention-impact.md](./运维/监控/data-service-metrics-retention-impact.md)
     - [alert-webhook-security.md](./运维/监控/alert-webhook-security.md)：告警 Webhook 的 SSRF、签名、秘密与投递安全配置。
 
@@ -54,12 +58,17 @@
       - [data-service-test-result-20260416-二轮复测.md](./测试/数据服务/data-service-test-result-20260416-%E4%BA%8C%E8%BD%AE%E5%A4%8D%E6%B5%8B.md)
     - 数据资产：
       - [datasource-connection-status-test-cases.md](./测试/数据资产/datasource-connection-status-test-cases.md)
+    - 数据采集：
+      - [指标监控数据源选项回归记录（2026-08-09）](./测试/数据采集/run-metrics-datasource-options-regression-20260809.md)
     - 多运行集群：
       - [P0-MC-01 多集群运行验收执行记录](./测试/长期跟踪/records/20260720-P0-MC-01多集群运行验收执行记录.md)
     - 质量指标：
       - [quality-metrics-ui-test-cases.md](./测试/质量指标/quality-metrics-ui-test-cases.md)
       - [quality-metrics-test-cases.md](./测试/质量指标/quality-metrics-test-cases.md)
       - [quality-metrics-test-result-20260417.md](./测试/质量指标/quality-metrics-test-result-20260417.md)
+    - 文件传输：
+      - [Studio 非结构化文件传输测试用例](./测试/文件传输/studio-file-transfer-test-cases.md)
+      - [Studio 非结构化文件传输验收记录（2026-08-07）](./测试/文件传输/studio-file-transfer-acceptance-record-20260807.md)
 
 - `数据库/`
   - 数据库结构快照、恢复参考和结构校验资料。
@@ -67,6 +76,7 @@
     - [MySQL Schema Snapshots](./数据库/结构快照/mysql/README.md)
     - [alert-center-upgrade.md](./数据库/alert-center-upgrade.md)：统一告警中心增量升级、核验和回滚说明。
     - [runtime-cluster-upgrade.md](./数据库/runtime-cluster-upgrade.md)：多运行集群和数据源适用范围增量升级、回填和回滚说明。
+    - [Studio 非结构化文件传输数据库升级指南](./数据库/studio-file-transfer-upgrade.md)：MySQL/SQLite 表、列、索引、增量脚本和回滚边界。
 
 - `规范/`
   - 文档规范、归档约定、模板和团队协作标准。
@@ -90,6 +100,7 @@
 | 运维中心、运行时、导入导出和 AI 助手 | [10-ops-center-runtime-import-export-assistant.md](./使用/接口/10-ops-center-runtime-import-export-assistant.md) |
 | 统一告警中心 | [11-alert-center.md](./使用/接口/11-alert-center.md) |
 | 运行集群与数据源适用范围 | [12-runtime-clusters.md](./使用/接口/12-runtime-clusters.md) |
+| Studio 非结构化文件传输 | [15-file-transfer.md](./使用/接口/15-file-transfer.md) |
 
 ## 功能模块文档
 
