@@ -13,6 +13,8 @@ public class ScriptEnvironmentListView extends BaseDefinition {
     private String environmentCode;
     private Boolean enabled;
     private Boolean useApplicationParent;
+    private String pythonInstallMode;
+    private Long pythonRepositoryId;
     private Long environmentVersion;
     private List<Long> dependencyIds = new ArrayList<Long>();
     private List<EnvironmentDependencyOptionView> dependencies = new ArrayList<EnvironmentDependencyOptionView>();

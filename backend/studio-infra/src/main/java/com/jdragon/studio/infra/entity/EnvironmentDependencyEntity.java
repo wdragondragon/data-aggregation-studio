@@ -11,6 +11,7 @@ public class EnvironmentDependencyEntity extends BaseTenantEntity {
     private String name;
     private String version;
     private String scriptType;
+    private Long artifactStoreId;
     private String artifactUrl;
     private String artifactType;
     private String checksum;

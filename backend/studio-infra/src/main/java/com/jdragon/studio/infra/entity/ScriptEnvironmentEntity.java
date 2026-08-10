@@ -13,5 +13,7 @@ public class ScriptEnvironmentEntity extends BaseTenantEntity {
     private Integer enabled;
     private Integer useApplicationParent;
     private Long environmentVersion;
+    private String pythonInstallMode;
+    private Long pythonRepositoryId;
     private String description;
 }

@@ -1,6 +1,7 @@
 package com.jdragon.studio.server.web.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.infra.security.StudioTokenResolver.ResolvedStudioToken;
@@ -22,6 +23,8 @@ import java.nio.charset.StandardCharsets;
 
 @Component
 public class StudioCookieCsrfFilter extends OncePerRequestFilter {
+
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final StudioHttpTokenResolver tokenResolver;
     private final ObjectMapper objectMapper;
@@ -46,12 +49,36 @@ public class StudioCookieCsrfFilter extends OncePerRequestFilter {
         ResolvedStudioToken resolved = tokenResolver.resolve(request);
         if (resolved != null
                 && resolved.getSource() == StudioTokenSource.STUDIO_COOKIE
+                && !hasExplicitCredential(request)
                 && isUnsafeMethod(request.getMethod())
                 && !isTrustedBrowserRequest(request)) {
             writeForbidden(response);
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * A request that already carries an explicit non-cookie credential is not an ambient-cookie
+     * CSRF vector: a cross-site attacker cannot attach the X-Studio-Token header or an
+     * Authorization bearer token without a CORS preflight. Such requests keep the cookie-based
+     * flow usable in cross-origin development topologies (e.g. Vite dev server proxying to the
+     * backend) while cookie-only cross-site writes remain blocked.
+     */
+    private boolean hasExplicitCredential(HttpServletRequest request) {
+        if (hasText(request.getHeader(StudioConstants.STUDIO_TOKEN_HEADER))) {
+            return true;
+        }
+        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authorization != null) {
+            String trimmed = authorization.trim();
+            return trimmed.length() > BEARER_PREFIX.length() && trimmed.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length());
+        }
+        return false;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private boolean isUnsafeMethod(String method) {

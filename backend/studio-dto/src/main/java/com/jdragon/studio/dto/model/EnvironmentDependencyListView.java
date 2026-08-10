@@ -12,6 +12,7 @@ public class EnvironmentDependencyListView extends BaseDefinition {
     private String name;
     private String version;
     private String scriptType;
+    private Long artifactStoreId;
     private Boolean enabled;
     private List<EnvironmentDependencyFileListView> files = new ArrayList<EnvironmentDependencyFileListView>();
 }

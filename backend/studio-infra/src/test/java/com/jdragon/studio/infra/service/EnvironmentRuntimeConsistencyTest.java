@@ -44,6 +44,10 @@ class EnvironmentRuntimeConsistencyTest {
     private ScriptEnvironmentRuntimeService runtimeService;
     @Mock
     private CloudObjectStorageService cloudObjectStorageService;
+    @Mock
+    private ArtifactRepositoryPublisher artifactRepositoryPublisher;
+    @Mock
+    private PythonPackageDownloadCountService pythonPackageDownloadCountService;
 
     @AfterEach
     void tearDown() {
@@ -70,7 +74,9 @@ class EnvironmentRuntimeConsistencyTest {
                 environmentMapper,
                 securityService,
                 runtimeServiceProvider,
-                cloudObjectStorageService);
+                cloudObjectStorageService,
+                artifactRepositoryPublisher,
+                pythonPackageDownloadCountService);
 
         service.disable(10L);
 

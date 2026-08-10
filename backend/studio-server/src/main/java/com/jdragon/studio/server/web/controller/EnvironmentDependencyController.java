@@ -5,6 +5,7 @@ import com.jdragon.studio.dto.model.EnvironmentDependencyListView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.request.EnvironmentDependencyBatchDeleteRequest;
 import com.jdragon.studio.dto.model.request.EnvironmentDependencySaveRequest;
 import com.jdragon.studio.infra.service.EnvironmentDependencyService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -73,6 +74,7 @@ public class EnvironmentDependencyController {
                                                                         @RequestParam(value = "version", required = false) String version,
                                                                         @RequestParam(value = "scriptType", required = false) String scriptType,
                                                                         @RequestParam(value = "enabled", required = false) Boolean enabled,
+                                                                        @RequestParam(value = "artifactStoreId", required = false) Long artifactStoreId,
                                                                         @RequestParam(value = "description", required = false) String description,
                                                                         @RequestParam(value = "file", required = false) MultipartFile file,
                                                                         @RequestParam(value = "files", required = false) List<MultipartFile> files) {
@@ -83,7 +85,7 @@ public class EnvironmentDependencyController {
         if (files != null) {
             uploadFiles.addAll(files);
         }
-        return Result.success(environmentDependencyService.saveOrUpdateCheck(id, name, version, scriptType, enabled, description, uploadFiles));
+        return Result.success(environmentDependencyService.saveOrUpdateCheck(id, name, version, scriptType, enabled, description, uploadFiles, artifactStoreId));
     }
 
     @Operation(summary = "Download uploaded dependency file")
@@ -105,6 +107,13 @@ public class EnvironmentDependencyController {
     public Result<Void> deleteFile(@PathVariable("dependencyId") Long dependencyId,
                                    @PathVariable("fileId") Long fileId) {
         environmentDependencyService.deleteFile(dependencyId, fileId);
+        return Result.success(null);
+    }
+
+    @Operation(summary = "Batch delete environment dependencies")
+    @PostMapping("/batch-delete")
+    public Result<Void> batchDelete(@RequestBody EnvironmentDependencyBatchDeleteRequest request) {
+        environmentDependencyService.batchDelete(request);
         return Result.success(null);
     }
 

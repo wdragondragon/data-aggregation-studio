@@ -24,6 +24,9 @@ import type {
   AlertSelectOptionView,
   AlertSummaryView,
   AlertTenantProjectSummaryView,
+  ArtifactStore,
+  ArtifactStoreSaveRequest,
+  ArtifactStoreTestResult,
   AuthProfile,
   CapabilityMatrix,
   CollectionTaskDefinitionView,
@@ -133,6 +136,8 @@ import type {
   PermissionEntity,
   PageResult,
   PluginRuntimeOptionSchemaView,
+  PythonPackageQueryRequest,
+  PythonPackageSummary,
   ProtocolConversionAccessLogListView,
   ProtocolConversionDebugResult,
   ProtocolConversionDebugRequest,
@@ -1674,6 +1679,55 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       delete(id: EntityId) {
         return request<void>({ url: `/environment-dependencies/${id}`, method: "DELETE" });
+      },
+      batchDelete(ids: EntityId[]) {
+        return request<void>({ url: "/environment-dependencies/batch-delete", method: "POST", data: { ids } });
+      },
+    },
+    artifactStores: {
+      list(params?: { enabledOnly?: boolean }) {
+        return request<ArtifactStore[]>({ url: "/artifact-stores", method: "GET", params });
+      },
+      get(id: EntityId) {
+        return request<ArtifactStore>({ url: `/artifact-stores/${id}`, method: "GET" });
+      },
+      save(payload: ArtifactStoreSaveRequest) {
+        return request<ArtifactStore>({ url: "/artifact-stores", method: "POST", data: payload });
+      },
+      test(id: EntityId) {
+        return request<ArtifactStoreTestResult>({ url: `/artifact-stores/${id}/test`, method: "POST" });
+      },
+      enable(id: EntityId) {
+        return request<ArtifactStore>({ url: `/artifact-stores/${id}/enable`, method: "POST" });
+      },
+      disable(id: EntityId) {
+        return request<ArtifactStore>({ url: `/artifact-stores/${id}/disable`, method: "POST" });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/artifact-stores/${id}`, method: "DELETE" });
+      },
+    },
+    pythonPackages: {
+      queryPage(payload: PythonPackageQueryRequest) {
+        return requestPage<PythonPackageSummary>(
+          { url: "/python-packages/queryPage", method: "POST", params: payload },
+          { pageNo: payload?.pageNum, pageSize: payload?.pageSize },
+        );
+      },
+      versions(packageName: string) {
+        return request<EnvironmentDependencyListView[]>({ url: `/python-packages/${encodeURIComponent(packageName)}/versions`, method: "GET" });
+      },
+      async exportRequirements(params?: { keyword?: string; enabled?: boolean }) {
+        const response = await instance.request<Blob>({
+          url: "/python-packages/export",
+          method: "GET",
+          params,
+          responseType: "blob",
+        });
+        return response.data;
+      },
+      todayDownloadCount() {
+        return request<number>({ url: "/python-packages/download-count/today", method: "GET" });
       },
     },
     scriptEnvironments: {
