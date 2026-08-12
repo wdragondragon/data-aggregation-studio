@@ -2,10 +2,12 @@ package com.jdragon.studio.server.web.scheduler;
 
 import com.jdragon.studio.dto.model.WorkflowDefinitionView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.entity.WorkflowScheduleEntity;
 import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.DispatchTriggerStatus;
+import com.jdragon.studio.infra.service.StudioExecutionContextService;
 import com.jdragon.studio.infra.service.WorkflowService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,17 +24,20 @@ public class WorkflowScheduleRunner {
     private final DispatchService dispatchService;
     private final CronScheduleDueEvaluator cronScheduleDueEvaluator;
     private final ClusterLockService clusterLockService;
+    private final StudioExecutionContextService executionContextService;
     private final StudioPlatformProperties properties;
 
     public WorkflowScheduleRunner(WorkflowService workflowService,
                                   DispatchService dispatchService,
                                   CronScheduleDueEvaluator cronScheduleDueEvaluator,
                                   ClusterLockService clusterLockService,
+                                  StudioExecutionContextService executionContextService,
                                   StudioPlatformProperties properties) {
         this.workflowService = workflowService;
         this.dispatchService = dispatchService;
         this.cronScheduleDueEvaluator = cronScheduleDueEvaluator;
         this.clusterLockService = clusterLockService;
+        this.executionContextService = executionContextService;
         this.properties = properties;
     }
 
@@ -51,8 +56,9 @@ public class WorkflowScheduleRunner {
                 log.info("Workflow scheduler reached batch limit {}", batchSize);
                 break;
             }
-            WorkflowDefinitionView workflow = workflowService.get(schedule.getWorkflowDefinitionId());
-            if (workflow == null || !Boolean.TRUE.equals(workflow.getPublished())) {
+            WorkflowDefinitionEntity definition = workflowService.findScheduledDefinition(
+                    schedule.getWorkflowDefinitionId(), schedule.getTenantId(), schedule.getProjectId());
+            if (definition == null || !Integer.valueOf(1).equals(definition.getPublished())) {
                 continue;
             }
             LocalDateTime scheduledFireTime = cronScheduleDueEvaluator.nextDueTime(
@@ -63,7 +69,24 @@ public class WorkflowScheduleRunner {
             if (scheduledFireTime == null) {
                 continue;
             }
-            DispatchTriggerStatus status = dispatchService.triggerScheduledWorkflowIfIdle(schedule.getWorkflowDefinitionId(), scheduledFireTime);
+            DispatchTriggerStatus status;
+            try {
+                status = executionContextService.callAs(definition.getCreatedBy(), definition.getTenantId(),
+                        definition.getProjectId(), () -> {
+                            WorkflowDefinitionView workflow = workflowService.get(schedule.getWorkflowDefinitionId());
+                            if (workflow == null || !Boolean.TRUE.equals(workflow.getPublished())) {
+                                return null;
+                            }
+                            return dispatchService.triggerScheduledWorkflowIfIdle(
+                                    schedule.getWorkflowDefinitionId(), scheduledFireTime);
+                        });
+            } catch (RuntimeException exception) {
+                log.info("Skip workflow {}: {}", schedule.getWorkflowDefinitionId(), exception.getMessage());
+                continue;
+            }
+            if (status == null) {
+                continue;
+            }
             if (status == DispatchTriggerStatus.LOCK_BUSY) {
                 log.info("Skip workflow {} because another instance is dispatching it", schedule.getWorkflowDefinitionId());
                 continue;

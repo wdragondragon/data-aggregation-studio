@@ -5,9 +5,8 @@ import com.jdragon.studio.infra.entity.FileTransferTaskDefinitionEntity;
 import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.FileTransferRunService;
 import com.jdragon.studio.infra.service.FileTransferTaskService;
+import com.jdragon.studio.infra.service.StudioExecutionContextService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
-import com.jdragon.studio.infra.security.StudioRequestContext;
-import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -24,6 +23,7 @@ public class FileTransferTaskScheduleRunner {
     private final CronScheduleDueEvaluator dueEvaluator;
     private final WorkerAuthorizationService workerAuthorizationService;
     private final ClusterLockService clusterLockService;
+    private final StudioExecutionContextService executionContextService;
     private final StudioPlatformProperties properties;
 
     public FileTransferTaskScheduleRunner(FileTransferTaskService taskService,
@@ -31,12 +31,14 @@ public class FileTransferTaskScheduleRunner {
                                           CronScheduleDueEvaluator dueEvaluator,
                                           WorkerAuthorizationService workerAuthorizationService,
                                           ClusterLockService clusterLockService,
+                                          StudioExecutionContextService executionContextService,
                                           StudioPlatformProperties properties) {
         this.taskService = taskService;
         this.runService = runService;
         this.dueEvaluator = dueEvaluator;
         this.workerAuthorizationService = workerAuthorizationService;
         this.clusterLockService = clusterLockService;
+        this.executionContextService = executionContextService;
         this.properties = properties;
     }
 
@@ -75,23 +77,10 @@ public class FileTransferTaskScheduleRunner {
     private void dispatchTaskInContext(FileTransferTaskDefinitionEntity task,
                                        LocalDateTime fireTime,
                                        LocalDateTime triggeredAt) {
-        StudioRequestContext previous = StudioRequestContextHolder.getContext();
-        StudioRequestContext context = new StudioRequestContext();
-        context.setTenantId(task.getTenantId());
-        context.setProjectId(task.getProjectId());
-        context.setUserId(task.getCreatedBy());
-        context.setUsername("file-transfer-scheduler");
-        StudioRequestContextHolder.setContext(context);
-        try {
+        executionContextService.runAs(task.getCreatedBy(), task.getTenantId(), task.getProjectId(), () -> {
             runService.triggerTask(task.getId(), "SCHEDULED", fireTime);
             taskService.markScheduleTriggered(task.getId(), triggeredAt);
-        } finally {
-            if (previous == null) {
-                StudioRequestContextHolder.clear();
-            } else {
-                StudioRequestContextHolder.setContext(previous);
-            }
-        }
+        });
     }
 
     private int schedulerBatchSize() {

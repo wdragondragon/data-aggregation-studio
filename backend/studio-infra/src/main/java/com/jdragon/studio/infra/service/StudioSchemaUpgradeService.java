@@ -4214,7 +4214,10 @@ public class StudioSchemaUpgradeService {
                 "deleted int default 0, created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
                 "datasource_id bigint not null, runtime_cluster_id bigint not null, user_id bigint, username varchar(255), " +
                 "operation varchar(32) not null, source_path varchar(2000), target_path varchar(2000), " +
-                "`recursive` int default 0, status varchar(32) not null, message varchar(2000))");
+                "`recursive` int default 0, status varchar(32) not null, message text)");
+        // Older 20260809 deployments created this field as VARCHAR. Upgrade it before
+        // recording remote file-operation failures so audit persistence cannot hide them.
+        jdbcTemplate.execute("alter table unstructured_op_audit modify column message text");
         ensureIndex("unstructured_op_audit", "idx_unstructured_op_audit_source",
                 "alter table unstructured_op_audit add key idx_unstructured_op_audit_source " +
                         "(tenant_id, project_id, datasource_id, created_at)");

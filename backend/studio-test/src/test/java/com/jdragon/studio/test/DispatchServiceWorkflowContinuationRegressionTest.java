@@ -9,36 +9,52 @@ import com.jdragon.studio.dto.model.WorkflowEdgeDefinition;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
 import com.jdragon.studio.dto.model.dto.ExecutionEvent;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
+import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.WorkflowDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.RunRecordMapper;
 import com.jdragon.studio.infra.mapper.WorkflowDefinitionMapper;
 import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
+import com.jdragon.studio.infra.service.FileTransferRunService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.StaleExecutionRecoveryService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
+import com.jdragon.studio.infra.service.StudioAccessService;
+import com.jdragon.studio.infra.service.StudioExecutionContextService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.service.WorkflowService;
+import com.jdragon.studio.infra.security.StudioRequestContext;
+import com.jdragon.studio.infra.security.StudioRequestContextHolder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DispatchServiceWorkflowContinuationRegressionTest {
+
+    @AfterEach
+    void clearContext() {
+        StudioRequestContextHolder.clear();
+    }
 
     @Test
     void shouldQueueDirectDownstreamNodeAfterSuccessfulPredecessor() {
@@ -192,6 +208,114 @@ class DispatchServiceWorkflowContinuationRegressionTest {
 
         assertThrows(StudioException.class, () -> dispatchService.continueWorkflowRun(event));
         verify(dispatchTaskMapper, never()).insert(org.mockito.ArgumentMatchers.<DispatchTaskEntity>any());
+    }
+
+    @Test
+    void shouldRebuildTriggerUserRolesBeforeCreatingDownstreamFileTransferRun() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowNodeDefinition fileTransfer = node("B");
+        fileTransfer.setNodeType(NodeType.FILE_TRANSFER);
+        fileTransfer.setConfig(Map.of("fileTransferTaskId", 700L));
+        WorkflowDefinitionView workflow = workflow(10L, 101L,
+                node("A"), fileTransfer, edge("A", "B", EdgeCondition.ON_SUCCESS));
+        WorkflowDefinitionEntity definition = new WorkflowDefinitionEntity();
+        definition.setId(10L);
+        definition.setTenantId("default");
+        definition.setProjectId(501L);
+        definition.setCreatedBy(66L);
+        when(workflowDefinitionMapper.selectById(10L)).thenReturn(definition);
+        when(workflowService.getVersion(10L, 101L)).thenReturn(workflow);
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+        when(runRecordMapper.selectCount(any())).thenReturn(0L);
+        when(dispatchTaskMapper.selectList(any()))
+                .thenReturn(Collections.singletonList(task(5000L, "A", "SUCCESS")));
+        when(runRecordMapper.selectList(any()))
+                .thenReturn(Collections.singletonList(record(5000L, "A", "SUCCESS")));
+
+        DispatchService dispatchService = new DispatchService(
+                dispatchTaskMapper, runRecordMapper, workflowDefinitionMapper, workflowService,
+                mock(CollectionTaskService.class), mock(QualityTaskService.class),
+                new StudioSecurityService(), mock(WorkerAuthorizationService.class),
+                mock(StaleExecutionRecoveryService.class), mock(ClusterLockService.class));
+        StudioAccessService accessService = mock(StudioAccessService.class);
+        StudioRequestContext context = new StudioRequestContext();
+        context.setUserId(77L);
+        context.setTenantId("default");
+        context.setProjectId(501L);
+        context.setEffectiveRoleCodes(List.of("PROJECT_ADMIN"));
+        when(accessService.buildExecutionContext(77L, "default", 501L)).thenReturn(context);
+        ReflectionTestUtils.setField(dispatchService, "executionContextService",
+                new StudioExecutionContextService(accessService));
+        FileTransferRunService fileTransferRunService = mock(FileTransferRunService.class);
+        FileTransferRunEntity fileTransferRun = new FileTransferRunEntity();
+        fileTransferRun.setId(900L);
+        doAnswer(invocation -> {
+            assertEquals(List.of("PROJECT_ADMIN"),
+                    StudioRequestContextHolder.getContext().getEffectiveRoleCodes());
+            return fileTransferRun;
+        }).when(fileTransferRunService).createWorkflowRunSkeleton(700L, 501L, 901L,
+                "WORKFLOW", null);
+        ReflectionTestUtils.setField(dispatchService, "fileTransferRunService", fileTransferRunService);
+        ExecutionEvent event = successEvent(5000L, 10L, "A");
+        event.setTriggeredByUserId(77L);
+
+        dispatchService.continueWorkflowRun(event);
+
+        verify(fileTransferRunService).createWorkflowRunSkeleton(700L, 501L, 901L,
+                "WORKFLOW", null);
+        verify(dispatchTaskMapper).insert(argThat((DispatchTaskEntity task) ->
+                Long.valueOf(900L).equals(task.getFileTransferRunId())
+                        && Long.valueOf(77L).equals(task.getTriggeredByUserId())));
+    }
+
+    @Test
+    void shouldRebuildCreatorContextWhenDispatchingReadyWorkflows() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        WorkflowDefinitionMapper workflowDefinitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowService workflowService = mock(WorkflowService.class);
+        WorkflowDefinitionEntity definition = new WorkflowDefinitionEntity();
+        definition.setId(10L);
+        definition.setTenantId("tenant-a");
+        definition.setProjectId(501L);
+        definition.setCreatedBy(77L);
+        definition.setPublished(1);
+        when(workflowDefinitionMapper.selectList(any())).thenReturn(List.of(definition));
+        WorkflowDefinitionView workflow = new WorkflowDefinitionView();
+        workflow.setId(10L);
+        workflow.setTenantId("tenant-a");
+        workflow.setProjectId(501L);
+        workflow.setNodes(List.of());
+        workflow.setEdges(List.of());
+        when(workflowService.requireRunnable(10L)).thenAnswer(invocation -> {
+            assertEquals(77L, StudioRequestContextHolder.getContext().getUserId());
+            assertEquals(List.of("PROJECT_ADMIN"),
+                    StudioRequestContextHolder.getContext().getEffectiveRoleCodes());
+            return workflow;
+        });
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+        when(runRecordMapper.selectCount(any())).thenReturn(0L);
+        DispatchService dispatchService = new DispatchService(
+                dispatchTaskMapper, runRecordMapper, workflowDefinitionMapper, workflowService,
+                mock(CollectionTaskService.class), mock(QualityTaskService.class),
+                new StudioSecurityService(), mock(WorkerAuthorizationService.class),
+                mock(StaleExecutionRecoveryService.class), mock(ClusterLockService.class));
+        StudioAccessService accessService = mock(StudioAccessService.class);
+        StudioRequestContext context = new StudioRequestContext();
+        context.setUserId(77L);
+        context.setTenantId("tenant-a");
+        context.setProjectId(501L);
+        context.setEffectiveRoleCodes(List.of("PROJECT_ADMIN"));
+        when(accessService.buildExecutionContext(77L, "tenant-a", 501L)).thenReturn(context);
+        ReflectionTestUtils.setField(dispatchService, "executionContextService",
+                new StudioExecutionContextService(accessService));
+
+        dispatchService.dispatchReadyNodes();
+
+        verify(workflowService).requireRunnable(10L);
     }
 
     private WorkflowDefinitionView workflow(Long id,

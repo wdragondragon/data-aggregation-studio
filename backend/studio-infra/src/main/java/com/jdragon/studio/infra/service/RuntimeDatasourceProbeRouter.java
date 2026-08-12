@@ -43,6 +43,7 @@ import java.util.Set;
 @Service
 public class RuntimeDatasourceProbeRouter {
     private static final String INTERNAL_TOKEN_HEADER = "X-Studio-Internal-Token";
+    private static final String TARGET_CLUSTER_ID_HEADER = "X-Studio-Target-Cluster-Id";
     private final RuntimeClusterMapper clusterMapper;
     private final RuntimeEndpointMapper endpointMapper;
     private final EncryptionService encryption;
@@ -409,6 +410,9 @@ public class RuntimeDatasourceProbeRouter {
     }
 
     private Map<String, List<String>> runtimeRequestHeaders(RuntimeEndpointEntity endpoint) throws Exception {
+        if (endpoint == null || endpoint.getRuntimeClusterId() == null) {
+            throw unavailable();
+        }
         Map<String, List<String>> requestHeaders = new LinkedHashMap<String, List<String>>();
         addHeader(requestHeaders, "Content-Type", "application/json");
         addHeader(requestHeaders, INTERNAL_TOKEN_HEADER, properties.getInternalApiToken());
@@ -428,6 +432,10 @@ public class RuntimeDatasourceProbeRouter {
             addHeader(requestHeaders, "Authorization",
                     "Bearer " + encryption.decrypt(endpoint.getTokenCiphertext()));
         }
+        // The worker validates the target cluster independently of the request body. Keep this
+        // identity owned by the selected endpoint so configured endpoint headers cannot spoof it.
+        addHeader(requestHeaders, TARGET_CLUSTER_ID_HEADER,
+                String.valueOf(endpoint.getRuntimeClusterId()));
         return requestHeaders;
     }
 

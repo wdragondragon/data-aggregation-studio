@@ -60,6 +60,8 @@ class UnstructuredManagementSchemaIntegrationTest {
         String sqlite = backendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
         String migration = backendFile(
                 "studio-server/src/main/resources/update/20260809/20260809-unstructured-management.sql");
+        String auditMessageMigration = backendFile(
+                "studio-server/src/main/resources/update/20260811/20260811-unstructured-op-audit-message.sql");
         String upgrade = Files.readString(Path.of(
                 "src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java"),
                 StandardCharsets.UTF_8);
@@ -87,6 +89,10 @@ class UnstructuredManagementSchemaIntegrationTest {
         assertTrue(sqlite.contains("directory integer default 1"));
         assertTrue(migration.contains("column_name = 'directory'"));
         assertTrue(upgrade.contains("unstructured_path_acl add column directory"));
+        assertTrue(mysql.contains("message text"));
+        assertTrue(auditMessageMigration.contains("modify column message text"));
+        assertTrue(auditMessageMigration.contains("information_schema.columns"));
+        assertTrue(upgrade.contains("alter table unstructured_op_audit modify column message text"));
     }
 
     private void invoke(Object target, String methodName) throws Exception {

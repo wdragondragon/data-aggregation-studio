@@ -200,6 +200,8 @@ class FileTransferRunRemovalTest {
                 runtimeClusterSelectionService,
                 projectAccess,
                 securityService,
+                mock(UnstructuredManagementService.class),
+                mock(ClusterLockService.class),
                 new ObjectMapper());
         return new Fixture(service, runMapper, itemMapper, dispatchTaskMapper,
                 runtimeClusterSelectionService, dataSourceService, run);

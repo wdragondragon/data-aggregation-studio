@@ -9,6 +9,7 @@ import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.enums.NodeType;
+import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
 import com.jdragon.studio.dto.model.FileTransferRunItemView;
 import com.jdragon.studio.dto.model.FileTransferRunView;
 import com.jdragon.studio.dto.model.PageView;
@@ -38,6 +39,8 @@ import java.util.Set;
 public class FileTransferRunService {
 
     private static final List<String> ACTIVE_STATUSES = List.of("QUEUED", "RUNNING", "PAUSED");
+    private static final List<String> TERMINAL_STATUSES = List.of(
+            "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "CANCELED");
     private static final List<String> ACTIVE_ITEM_STATUSES = List.of(
             "QUEUED", "DISCOVERING", "TRANSFERRING", "VERIFYING", "COMMITTING", "POST_ACTION", "PAUSED");
     private static final List<String> BUSY_ITEM_STATUSES = List.of(
@@ -51,6 +54,8 @@ public class FileTransferRunService {
     private final RuntimeClusterSelectionService runtimeClusterSelectionService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final StudioSecurityService securityService;
+    private final UnstructuredManagementService unstructuredManagementService;
+    private final ClusterLockService clusterLockService;
     private final ObjectMapper objectMapper;
 
     public FileTransferRunService(FileTransferRunMapper runMapper,
@@ -61,6 +66,8 @@ public class FileTransferRunService {
                                   RuntimeClusterSelectionService runtimeClusterSelectionService,
                                   ProjectResourceAccessService projectResourceAccessService,
                                   StudioSecurityService securityService,
+                                  UnstructuredManagementService unstructuredManagementService,
+                                  ClusterLockService clusterLockService,
                                   ObjectMapper objectMapper) {
         this.runMapper = runMapper;
         this.itemMapper = itemMapper;
@@ -70,6 +77,8 @@ public class FileTransferRunService {
         this.runtimeClusterSelectionService = runtimeClusterSelectionService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.securityService = securityService;
+        this.unstructuredManagementService = unstructuredManagementService;
+        this.clusterLockService = clusterLockService;
         this.objectMapper = objectMapper;
     }
 
@@ -123,6 +132,16 @@ public class FileTransferRunService {
 
     @Transactional
     public FileTransferRunView triggerTask(Long taskId, String triggerType, LocalDateTime scheduledFireTime) {
+        return clusterLockService.executeIfAcquiredNonReentrant(
+                "file-transfer-task-run:" + taskId, 30L, true,
+                () -> triggerTaskLocked(taskId, triggerType, scheduledFireTime),
+                () -> {
+                    throw bad("File transfer task trigger is already in progress");
+                });
+    }
+
+    private FileTransferRunView triggerTaskLocked(Long taskId, String triggerType,
+                                                  LocalDateTime scheduledFireTime) {
         FileTransferTaskDefinitionEntity task = taskService.requireOnlineForExecution(taskId);
         Long active = runMapper.selectCount(new LambdaQueryWrapper<FileTransferRunEntity>()
                 .eq(FileTransferRunEntity::getTenantId, task.getTenantId())
@@ -186,7 +205,7 @@ public class FileTransferRunService {
     }
 
     public PageView<FileTransferRunView> listPage(Integer pageNo, Integer pageSize, Long taskId,
-                                                   String status) {
+                                                   String status, String triggerType, String statusGroup) {
         int safePageNo = pageNo == null || pageNo < 1 ? 1 : pageNo;
         int safePageSize = pageSize == null ? 20 : Math.max(1, Math.min(200, pageSize));
         LambdaQueryWrapper<FileTransferRunEntity> query = new LambdaQueryWrapper<FileTransferRunEntity>()
@@ -198,6 +217,20 @@ public class FileTransferRunService {
         }
         if (status != null && !status.trim().isEmpty()) {
             query.eq(FileTransferRunEntity::getStatus, status.trim().toUpperCase());
+        }
+        if (statusGroup != null && !statusGroup.trim().isEmpty()) {
+            String normalizedStatusGroup = statusGroup.trim().toUpperCase();
+            if ("ACTIVE".equals(normalizedStatusGroup)) {
+                query.in(FileTransferRunEntity::getStatus, ACTIVE_STATUSES);
+            } else if ("TERMINAL".equals(normalizedStatusGroup)) {
+                query.in(FileTransferRunEntity::getStatus, TERMINAL_STATUSES);
+            } else {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "File transfer run statusGroup must be ACTIVE or TERMINAL");
+            }
+        }
+        if (triggerType != null && !triggerType.trim().isEmpty()) {
+            query.eq(FileTransferRunEntity::getTriggerType, triggerType.trim().toUpperCase());
         }
         query.orderByDesc(FileTransferRunEntity::getCreatedAt);
         Page<FileTransferRunEntity> page = runMapper.selectPage(
@@ -453,6 +486,10 @@ public class FileTransferRunService {
                     runtimeClusterId, List.of(item.getSourceDatasourceId()));
             runtimeClusterSelectionService.assertExistingResourceRunnable(projectId,
                     runtimeClusterId, List.of(item.getTargetDatasourceId()));
+            item.setSourcePath(unstructuredManagementService.assertPermission(runtimeClusterId,
+                    item.getSourceDatasourceId(), item.getSourcePath(), UnstructuredAclPermission.DOWNLOAD));
+            item.setTargetPath(unstructuredManagementService.assertPermission(runtimeClusterId,
+                    item.getTargetDatasourceId(), item.getTargetPath(), UnstructuredAclPermission.EDIT));
         }
         if (runtimeClusterId == null) {
             throw bad("Runtime cluster is required");

@@ -46,6 +46,8 @@ final class TechnicalMetadataFieldBuilder {
             fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
             fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
             fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 50, "60000"));
+            fields.add(field("allowLegacyAlgorithms", "允许旧 SSH 算法（兼容旧服务器，降低安全性）",
+                    FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "false"));
             return fields;
         }
         if ("minio".equals(normalized) || "oss".equals(normalized)) {
@@ -173,6 +175,8 @@ final class TechnicalMetadataFieldBuilder {
             fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 30, null));
             fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, true, true, 40, null));
             fields.add(field("timeout", "超时时间(毫秒)", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 50, "60000"));
+            fields.add(field("allowLegacyAlgorithms", "允许旧 SSH 算法（兼容旧服务器，降低安全性）",
+                    FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "false"));
             return fields;
         }
         if (isMinioType(normalized)) {

@@ -74,6 +74,37 @@ class UnstructuredManagementOperationAuditTest {
     }
 
     @Test
+    void shouldTruncateLongFailureAuditWithoutReplacingTheOriginalError() {
+        String originalMessage = "x".repeat(3000);
+        doThrow(new StudioException(StudioErrorCode.BUSINESS_ERROR, originalMessage))
+                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any());
+
+        assertThatThrownBy(() -> service.operate(request()))
+                .isInstanceOf(StudioException.class)
+                .hasMessage(originalMessage);
+
+        UnstructuredOpAuditEntity audit = capturedAudit();
+        assertThat(audit.getStatus()).isEqualTo("FAILED");
+        assertThat(audit.getMessage()).hasSize(1800).endsWith(" ...[truncated]");
+    }
+
+    @Test
+    void shouldPreserveOperationResultWhenAuditPersistenceFails() {
+        doThrow(new RuntimeException("audit database unavailable"))
+                .when(auditMapper).insert(any(UnstructuredOpAuditEntity.class));
+
+        assertThat(service.operate(request()).getMessage()).isEqualTo("Operation completed");
+
+        StudioException operationFailure = new StudioException(
+                StudioErrorCode.BUSINESS_ERROR, "SFTP permission denied");
+        doThrow(operationFailure)
+                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any());
+
+        assertThatThrownBy(() -> service.operate(request()))
+                .isSameAs(operationFailure);
+    }
+
+    @Test
     void shouldCommitFailureAuditWhenOperationThrows() throws Exception {
         Method method = UnstructuredManagementService.class.getMethod(
                 "operate", UnstructuredOperationRequest.class);

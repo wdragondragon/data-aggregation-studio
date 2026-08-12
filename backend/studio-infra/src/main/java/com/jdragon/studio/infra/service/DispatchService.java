@@ -54,6 +54,7 @@ public class DispatchService implements WorkflowDispatcher {
     private RuntimeValidationService runtimeValidationService;
     private RuntimeResourceRevisionService runtimeResourceRevisionService;
     private FileTransferRunService fileTransferRunService;
+    private StudioExecutionContextService executionContextService;
 
     public DispatchService(DispatchTaskMapper dispatchTaskMapper,
                            RunRecordMapper runRecordMapper,
@@ -92,12 +93,23 @@ public class DispatchService implements WorkflowDispatcher {
         this.fileTransferRunService = fileTransferRunService;
     }
 
+    @Autowired
+    void setExecutionContextService(StudioExecutionContextService executionContextService) {
+        this.executionContextService = executionContextService;
+    }
+
     @Override
     public void dispatchReadyNodes() {
         List<WorkflowDefinitionEntity> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinitionEntity>()
                 .eq(WorkflowDefinitionEntity::getPublished, 1));
         for (WorkflowDefinitionEntity definition : definitions) {
-            triggerWorkflowIfIdle(definition.getId(), definition.getProjectId());
+            if (executionContextService == null) {
+                triggerWorkflowIfIdle(definition.getId(), definition.getProjectId());
+            } else {
+                executionContextService.runAs(definition.getCreatedBy(), definition.getTenantId(),
+                        definition.getProjectId(),
+                        () -> triggerWorkflowIfIdle(definition.getId(), definition.getProjectId()));
+            }
         }
     }
 
@@ -310,6 +322,23 @@ public class DispatchService implements WorkflowDispatcher {
             return;
         }
 
+        if (executionContextService == null) {
+            continueWorkflowRunInContext(event);
+            return;
+        }
+        WorkflowDefinitionEntity definition = workflowDefinitionMapper.selectById(event.getWorkflowDefinitionId());
+        if (definition == null) {
+            return;
+        }
+        Long executionUserId = event.getTriggeredByUserId() == null
+                ? definition.getCreatedBy() : event.getTriggeredByUserId();
+        Long executionProjectId = event.getProjectId() == null
+                ? definition.getProjectId() : event.getProjectId();
+        executionContextService.runAs(executionUserId, definition.getTenantId(), executionProjectId,
+                () -> continueWorkflowRunInContext(event));
+    }
+
+    private void continueWorkflowRunInContext(ExecutionEvent event) {
         WorkflowDefinitionView workflow = workflowService.getVersion(event.getWorkflowDefinitionId(),
                 event.getWorkflowVersionId());
         if (workflow == null) {

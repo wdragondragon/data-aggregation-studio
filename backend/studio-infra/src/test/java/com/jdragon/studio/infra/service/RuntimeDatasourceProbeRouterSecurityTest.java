@@ -164,6 +164,7 @@ class RuntimeDatasourceProbeRouterSecurityTest {
         AtomicReference<String> contentLength = new AtomicReference<String>();
         AtomicReference<String> dynamicHop = new AtomicReference<String>();
         AtomicReference<String> reservedStudioHeader = new AtomicReference<String>();
+        AtomicReference<String> targetClusterHeader = new AtomicReference<String>();
         AtomicReference<String> allowedHeader = new AtomicReference<String>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/internal/runtime/datasource/probe", exchange -> {
@@ -171,6 +172,7 @@ class RuntimeDatasourceProbeRouterSecurityTest {
             contentLength.set(exchange.getRequestHeaders().getFirst("Content-Length"));
             dynamicHop.set(exchange.getRequestHeaders().getFirst("X-Remove-Me"));
             reservedStudioHeader.set(exchange.getRequestHeaders().getFirst("X-Studio-Custom"));
+            targetClusterHeader.set(exchange.getRequestHeaders().getFirst("X-Studio-Target-Cluster-Id"));
             allowedHeader.set(exchange.getRequestHeaders().getFirst("X-SLB-Access-Token"));
             markAuthenticated(exchange);
             exchange.sendResponseHeaders(200, body.length);
@@ -189,6 +191,7 @@ class RuntimeDatasourceProbeRouterSecurityTest {
                     + "\"Host\":\"spoofed.example\","
                     + "\"Content-Length\":\"999\","
                     + "\"X-Studio-Custom\":\"reserved\","
+                    + "\"X-Studio-Target-Cluster-Id\":\"999\","
                     + "\"X-SLB-Access-Token\":\"slb-token\"}");
 
             ConnectionTestResult result = fixture.router.test(datasource(), 46L);
@@ -198,6 +201,7 @@ class RuntimeDatasourceProbeRouterSecurityTest {
             assertFalse("999".equals(contentLength.get()));
             assertNull(dynamicHop.get());
             assertNull(reservedStudioHeader.get());
+            assertEquals("46", targetClusterHeader.get());
             assertEquals("slb-token", allowedHeader.get());
         } finally {
             server.stop(0);

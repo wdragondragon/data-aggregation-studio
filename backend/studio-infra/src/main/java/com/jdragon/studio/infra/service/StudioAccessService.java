@@ -111,6 +111,33 @@ public class StudioAccessService {
                                                     String requestedTenantId,
                                                     String requestedProjectId) {
         AuthProfileView profile = buildProfile(principal, requestedTenantId, requestedProjectId, null);
+        return toRequestContext(profile);
+    }
+
+    public StudioRequestContext buildExecutionContext(Long userId,
+                                                      String tenantId,
+                                                      Long projectId) {
+        if (userId == null) {
+            throw new StudioException(StudioErrorCode.UNAUTHORIZED,
+                    "Background execution user is required");
+        }
+        StudioUserEntity executionUser = userMapper.selectById(userId);
+        if (executionUser == null || !Integer.valueOf(1).equals(executionUser.getEnabled())) {
+            throw new StudioException(StudioErrorCode.UNAUTHORIZED,
+                    "Background execution user is disabled or missing: " + userId);
+        }
+        StudioUserPrincipal principal = new StudioUserPrincipal(userId, tenantId,
+                "background-execution-" + userId, "", true, Collections.emptyList());
+        AuthProfileView profile = buildProfile(principal, tenantId,
+                projectId == null ? null : String.valueOf(projectId), null);
+        if (projectId != null && !projectId.equals(profile.getCurrentProjectId())) {
+            throw new StudioException(StudioErrorCode.FORBIDDEN,
+                    "Project access denied: " + projectId);
+        }
+        return toRequestContext(profile);
+    }
+
+    private StudioRequestContext toRequestContext(AuthProfileView profile) {
         StudioRequestContext context = new StudioRequestContext();
         context.setUserId(profile.getUserId());
         context.setUsername(profile.getUsername());

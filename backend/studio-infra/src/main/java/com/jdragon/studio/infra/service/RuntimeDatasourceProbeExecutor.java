@@ -62,6 +62,7 @@ public class RuntimeDatasourceProbeExecutor {
             TransferFilePage page = fileSystem.listPage(resolvedPath, cursor, resolvedPageSize);
             FileTransferBrowserPageView view = new FileTransferBrowserPageView();
             view.setPath(resolvedPath);
+            view.setInitialPath(fileSystem.initialPath());
             view.setNextCursor(page.nextCursor());
             view.setPageSize(resolvedPageSize);
             view.setHasMore(page.truncated());
@@ -207,7 +208,13 @@ public class RuntimeDatasourceProbeExecutor {
     }
 
     private boolean directoryEmpty(TransferFileSystem fileSystem, String path) throws IOException {
-        return fileSystem.listPage(path, null, 1).entries().isEmpty();
+        // Object stores may return a directory marker as the first page item. A
+        // one-item page can therefore look empty after the marker is filtered,
+        // even though descendants remain on the next page. Treat a truncated
+        // or otherwise non-empty page as non-empty so an unconfirmed delete
+        // always fails closed.
+        TransferFilePage page = fileSystem.listPage(path, null, 1_000);
+        return !page.truncated() && page.entries().isEmpty();
     }
 
     private void ensureMissing(TransferFileSystem fileSystem, String path) throws IOException {

@@ -955,6 +955,18 @@ public class WorkflowService {
                 .eq(WorkflowScheduleEntity::getEnabled, 1));
     }
 
+    public WorkflowDefinitionEntity findScheduledDefinition(Long definitionId,
+                                                            String tenantId,
+                                                            Long projectId) {
+        WorkflowDefinitionEntity definition = definitionMapper.selectById(definitionId);
+        if (definition == null
+                || !java.util.Objects.equals(tenantId, definition.getTenantId())
+                || !java.util.Objects.equals(projectId, definition.getProjectId())) {
+            return null;
+        }
+        return definition;
+    }
+
     @Transactional
     public void markScheduleTriggered(Long workflowDefinitionId, LocalDateTime triggeredAt) {
         WorkflowScheduleEntity scheduleEntity = scheduleMapper.selectOne(new LambdaQueryWrapper<WorkflowScheduleEntity>()

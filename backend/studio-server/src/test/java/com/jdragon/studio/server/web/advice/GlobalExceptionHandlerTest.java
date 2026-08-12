@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 import java.io.IOException;
 
@@ -61,6 +62,32 @@ class GlobalExceptionHandlerTest {
         assertThatCode(() -> handler.handleAsyncRequestNotUsableException(
                 new AsyncRequestNotUsableException("Response not usable after client disconnect")))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldNotWriteErrorBodyForEventStreamTimeout() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE);
+
+        var result = handler.handleAsyncRequestTimeoutException(
+                new AsyncRequestTimeoutException(), response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    void shouldReturnServiceUnavailableForOrdinaryAsyncTimeout() {
+        GlobalExceptionHandler handler = new GlobalExceptionHandler();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        var result = handler.handleAsyncRequestTimeoutException(
+                new AsyncRequestTimeoutException(), response);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(result.getBody()).isNotNull();
+        assertThat(result.getBody().getCode()).isEqualTo(StudioErrorCode.SERVICE_UNAVAILABLE);
     }
 
     @Test

@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.model.FileTransferScheduleDefinition;
 import com.jdragon.studio.dto.model.FileTransferTaskDefinitionView;
 import com.jdragon.studio.dto.model.PageView;
 import com.jdragon.studio.dto.model.request.FileTransferTaskSaveRequest;
+import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
 import com.jdragon.studio.infra.entity.FileTransferTaskDefinitionEntity;
 import com.jdragon.studio.infra.mapper.FileTransferTaskDefinitionMapper;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class FileTransferTaskService {
     private final RuntimeClusterSelectionService runtimeClusterSelectionService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final StudioSecurityService securityService;
+    private final UnstructuredManagementService unstructuredManagementService;
     private final ObjectMapper objectMapper;
 
     public FileTransferTaskService(FileTransferTaskDefinitionMapper mapper,
@@ -47,12 +49,14 @@ public class FileTransferTaskService {
                                    RuntimeClusterSelectionService runtimeClusterSelectionService,
                                    ProjectResourceAccessService projectResourceAccessService,
                                    StudioSecurityService securityService,
+                                   UnstructuredManagementService unstructuredManagementService,
                                    ObjectMapper objectMapper) {
         this.mapper = mapper;
         this.dataSourceService = dataSourceService;
         this.runtimeClusterSelectionService = runtimeClusterSelectionService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.securityService = securityService;
+        this.unstructuredManagementService = unstructuredManagementService;
         this.objectMapper = objectMapper;
     }
 
@@ -102,6 +106,8 @@ public class FileTransferTaskService {
                 runtimeClusterId, List.of(entity.getSourceDatasourceId()));
         runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(),
                 runtimeClusterId, List.of(entity.getTargetDatasourceId()));
+        assertTransferPermissions(runtimeClusterId, entity.getSourceDatasourceId(), entity.getSelectionJson(),
+                entity.getTargetDatasourceId(), entity.getMappingJson());
         return entity;
     }
 
@@ -120,6 +126,8 @@ public class FileTransferTaskService {
                 runtimeClusterId, List.of(source.getId()));
         runtimeClusterSelectionService.validateDatasourceSelection(projectId,
                 runtimeClusterId, List.of(target.getId()));
+        assertTransferPermissions(runtimeClusterId, source.getId(), request.getSelection(),
+                target.getId(), request.getMapping());
 
         boolean created = entity.getId() == null;
         entity.setProjectId(projectId);
@@ -172,6 +180,8 @@ public class FileTransferTaskService {
                 runtimeClusterId, List.of(entity.getSourceDatasourceId()));
         runtimeClusterSelectionService.validateDatasourceSelection(entity.getProjectId(),
                 runtimeClusterId, List.of(entity.getTargetDatasourceId()));
+        assertTransferPermissions(runtimeClusterId, entity.getSourceDatasourceId(), entity.getSelectionJson(),
+                entity.getTargetDatasourceId(), entity.getMappingJson());
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("valid", Boolean.TRUE);
         result.put("version", entity.getVersion());
@@ -276,6 +286,19 @@ public class FileTransferTaskService {
             throw bad("Datasource type does not support binary file transfer: " + datasource.getTypeCode());
         }
         return datasource;
+    }
+
+    private void assertTransferPermissions(Long runtimeClusterId,
+                                           Long sourceDatasourceId,
+                                           Map<String, Object> selection,
+                                           Long targetDatasourceId,
+                                           Map<String, Object> mapping) {
+        unstructuredManagementService.assertPermission(runtimeClusterId, sourceDatasourceId,
+                asString(selection == null ? null : selection.get("rootPath")),
+                UnstructuredAclPermission.DOWNLOAD);
+        unstructuredManagementService.assertPermission(runtimeClusterId, targetDatasourceId,
+                asString(mapping == null ? null : mapping.get("targetRootPath")),
+                UnstructuredAclPermission.EDIT);
     }
 
     private void ensureUnique(Long projectId, String name, String code, Long selfId) {

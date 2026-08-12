@@ -32,6 +32,8 @@ import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.UnstructuredOpAuditMapper;
 import com.jdragon.studio.infra.mapper.UnstructuredPathAclMapper;
 import com.jdragon.studio.infra.mapper.UnstructuredSourceAclMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,8 +50,11 @@ import java.util.Set;
 
 @Service
 public class UnstructuredManagementService {
+    private static final Logger log = LoggerFactory.getLogger(UnstructuredManagementService.class);
     private static final Set<String> FILE_TYPES = Set.of(
             "local", "local_file", "file", "ftp", "sftp", "minio", "oss", "aliyun", "aliyun_oss", "aliyun-oss");
+    private static final int MAX_AUDIT_MESSAGE_LENGTH = 1800;
+    private static final String AUDIT_MESSAGE_TRUNCATED_SUFFIX = " ...[truncated]";
 
     private final DataSourceService dataSourceService;
     private final RuntimeClusterSelectionService runtimeClusterSelectionService;
@@ -118,6 +123,14 @@ public class UnstructuredManagementService {
         return runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
     }
 
+    public String assertPermission(Long runtimeClusterId, Long datasourceId, String path,
+                                   UnstructuredAclPermission permission) {
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        String normalizedPath = normalizePath(path);
+        assertPermission(datasource, normalizedPath, permission);
+        return normalizedPath;
+    }
+
     @Transactional(noRollbackFor = RuntimeException.class)
     public UnstructuredOperationResultView operate(UnstructuredOperationRequest request) {
         DataSourceDefinition datasource = requireDatasource(request.getDatasourceId(), request.getRuntimeClusterId());
@@ -134,7 +147,7 @@ public class UnstructuredManagementService {
         try {
             runtimeRouter.operate(datasource, request.getRuntimeClusterId(), operation.name(),
                     sourcePath, targetPath, request.getRecursiveConfirmed());
-            recordAudit(datasource, request, operation.name(), sourcePath, targetPath, "SUCCESS", "");
+            recordAuditSafely(datasource, request, operation.name(), sourcePath, targetPath, "SUCCESS", "");
             UnstructuredOperationResultView result = new UnstructuredOperationResultView();
             result.setOperation(operation.name());
             result.setSourcePath(sourcePath);
@@ -143,7 +156,7 @@ public class UnstructuredManagementService {
             result.setMessage("Operation completed");
             return result;
         } catch (RuntimeException exception) {
-            recordAudit(datasource, request, operation.name(), sourcePath, targetPath,
+            recordAuditSafely(datasource, request, operation.name(), sourcePath, targetPath,
                     "FAILED", message(exception));
             throw exception;
         }
@@ -328,7 +341,13 @@ public class UnstructuredManagementService {
             Boolean decision = ruleDecision(rule.getPrincipalType(), rule.getUserId(), rule.getEffect(), userId);
             if (decision != null) return decision;
         }
-        List<UnstructuredSourceAclEntity> sourceRules = sourceAclMapper.selectList(sourceAclQuery(datasource, permission.name()));
+        List<UnstructuredSourceAclEntity> sourceRules = new ArrayList<>(
+                sourceAclMapper.selectList(sourceAclQuery(datasource, permission.name())));
+        sourceRules.sort(Comparator
+                .comparingInt((UnstructuredSourceAclEntity rule) ->
+                        UnstructuredAclPrincipalType.USER.name().equalsIgnoreCase(rule.getPrincipalType()) ? 0 : 1)
+                .thenComparingInt(rule ->
+                        UnstructuredAclEffect.DENY.name().equalsIgnoreCase(rule.getEffect()) ? 0 : 1));
         for (UnstructuredSourceAclEntity rule : sourceRules) {
             Boolean decision = ruleDecision(rule.getPrincipalType(), rule.getUserId(), rule.getEffect(), userId);
             if (decision != null) return decision;
@@ -473,8 +492,37 @@ public class UnstructuredManagementService {
         audit.setDatasourceId(datasource.getId()); audit.setRuntimeClusterId(request.getRuntimeClusterId());
         audit.setUserId(securityService.currentUserId()); audit.setUsername(securityService.currentUsername());
         audit.setOperation(operation); audit.setSourcePath(sourcePath); audit.setTargetPath(targetPath);
-        audit.setRecursive(Boolean.TRUE.equals(request.getRecursiveConfirmed()) ? 1 : 0); audit.setStatus(status); audit.setMessage(message);
+        audit.setRecursive(Boolean.TRUE.equals(request.getRecursiveConfirmed()) ? 1 : 0); audit.setStatus(status);
+        audit.setMessage(auditMessage(message));
         auditMapper.insert(audit);
+    }
+
+    /**
+     * Auditing must never replace the result of the remote file operation. A
+     * schema/connection problem in the audit database is logged and allowed to
+     * surface through operations/audit health checks instead.
+     */
+    private void recordAuditSafely(DataSourceDefinition datasource, UnstructuredOperationRequest request,
+                                   String operation, String sourcePath, String targetPath,
+                                   String status, String message) {
+        try {
+            recordAudit(datasource, request, operation, sourcePath, targetPath, status, message);
+        } catch (RuntimeException auditException) {
+            log.warn("Unable to persist unstructured operation audit: operation={}, datasourceId={}, status={}",
+                    operation, datasource == null ? null : datasource.getId(), status, auditException);
+        }
+    }
+
+    private String auditMessage(String message) {
+        if (message == null) {
+            return null;
+        }
+        String normalized = message.trim();
+        if (normalized.length() <= MAX_AUDIT_MESSAGE_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, MAX_AUDIT_MESSAGE_LENGTH - AUDIT_MESSAGE_TRUNCATED_SUFFIX.length())
+                + AUDIT_MESSAGE_TRUNCATED_SUFFIX;
     }
 
     private String message(RuntimeException exception) {

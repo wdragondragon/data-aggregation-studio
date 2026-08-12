@@ -1,13 +1,12 @@
 package com.jdragon.studio.server.web.controller;
 
-import com.jdragon.studio.infra.service.DataSourceService;
-import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.FileTransferMetricService;
 import com.jdragon.studio.infra.service.FileTransferEventService;
 import com.jdragon.studio.infra.service.FileTransferRunService;
 import com.jdragon.studio.infra.service.FileTransferTaskService;
-import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
 import com.jdragon.studio.infra.service.RuntimeDatasourceProbeRouter;
+import com.jdragon.studio.infra.service.DataSourceService;
+import com.jdragon.studio.infra.service.UnstructuredManagementService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -27,11 +26,7 @@ class FileTransferPublicRouteContractTest {
     void shouldExposeAllPublicFileTransferRoutesBelowApiV1() throws Exception {
         FileTransferEventService eventService = mock(FileTransferEventService.class);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
-                new FileTransferBrowserController(
-                        mock(DataSourceService.class),
-                        mock(RuntimeClusterSelectionService.class),
-                        mock(DatasourceClusterBindingService.class),
-                        mock(RuntimeDatasourceProbeRouter.class)),
+                new FileTransferBrowserController(mock(UnstructuredManagementService.class)),
                 new FileTransferRunController(mock(FileTransferRunService.class), eventService),
                 new FileTransferTaskController(
                         mock(FileTransferTaskService.class),

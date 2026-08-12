@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.service;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
+import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,7 +13,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.List;
+import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.anyBoolean;
@@ -49,6 +52,21 @@ class RuntimeDatasourceProbeExecutorFileOperationTest {
     }
 
     @Test
+    void browseExposesTheRemoteInitialWorkingDirectoryWithoutRewritingTheRequestedPath() throws Exception {
+        when(fileSystem.listPage("/", null, 200)).thenReturn(
+                new TransferFilePage(List.of(directory("/upload")), null, false));
+        when(fileSystem.initialPath()).thenReturn("/upload");
+        when(fileSystem.capabilities()).thenReturn(
+                new StorageCapabilities(true, true, true, false, false, false, Set.of("SHA-256"), true));
+
+        var result = executor.browse(datasource, "/", null, 200);
+
+        assertEquals("/", result.getPath());
+        assertEquals("/upload", result.getInitialPath());
+        assertEquals("/upload", result.getEntries().get(0).getPath());
+    }
+
+    @Test
     void renameStatsSourceAndMovesWithinSameParent() throws Exception {
         TransferFileEntry source = file("/folder/source.txt");
         when(fileSystem.transferExists("/folder/renamed.txt")).thenReturn(false);
@@ -77,7 +95,7 @@ class RuntimeDatasourceProbeExecutorFileOperationTest {
     @Test
     void deleteStatsSourceAndRequiresConfirmationForNonEmptyDirectory() throws Exception {
         when(fileSystem.stat("/folder")).thenReturn(directory("/folder"));
-        when(fileSystem.listPage("/folder", null, 1)).thenReturn(
+        when(fileSystem.listPage("/folder", null, 1_000)).thenReturn(
                 new TransferFilePage(List.of(file("/folder/item.txt")), null, false));
 
         assertThrows(IllegalStateException.class,
@@ -89,9 +107,23 @@ class RuntimeDatasourceProbeExecutorFileOperationTest {
     }
 
     @Test
+    void deleteRejectsTruncatedPageEvenWhenDirectoryMarkerWasFiltered() throws Exception {
+        when(fileSystem.stat("/folder")).thenReturn(directory("/folder"));
+        when(fileSystem.listPage("/folder", null, 1_000)).thenReturn(
+                new TransferFilePage(List.of(), "next-marker", true));
+
+        assertThrows(IllegalStateException.class,
+                () -> executor.operate(datasource, "DELETE", "/folder",
+                        null, false));
+
+        verify(fileSystem).listPage("/folder", null, 1_000);
+        verify(fileSystem, never()).delete("/folder");
+    }
+
+    @Test
     void recursiveDeleteRemovesNonEmptyDirectory() throws Exception {
         when(fileSystem.stat("/folder")).thenReturn(directory("/folder"));
-        when(fileSystem.listPage("/folder", null, 1)).thenReturn(
+        when(fileSystem.listPage("/folder", null, 1_000)).thenReturn(
                 new TransferFilePage(List.of(file("/folder/item.txt")), null, false));
 
         executor.operate(datasource, "DELETE", "/folder", null, true);

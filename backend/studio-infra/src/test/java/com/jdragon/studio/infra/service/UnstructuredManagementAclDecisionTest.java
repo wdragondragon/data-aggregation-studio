@@ -77,6 +77,15 @@ class UnstructuredManagementAclDecisionTest {
     }
 
     @Test
+    void userSourceDenyWinsRegardlessOfDatabaseOrder() {
+        when(sourceAclMapper.selectList(any())).thenReturn(List.of(
+                sourceRule("PROJECT", null, "ALLOW"),
+                sourceRule("USER", 20L, "DENY")));
+
+        assertFalse(service.hasPermission(datasource, "/", UnstructuredAclPermission.BROWSE));
+    }
+
+    @Test
     void inactiveProjectMemberHasNoPermission() {
         when(projectMemberMapper.selectCount(any())).thenReturn(0L);
 

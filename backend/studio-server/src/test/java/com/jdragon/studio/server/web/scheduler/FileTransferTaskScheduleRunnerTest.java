@@ -2,10 +2,13 @@ package com.jdragon.studio.server.web.scheduler;
 
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.FileTransferTaskDefinitionEntity;
+import com.jdragon.studio.infra.security.StudioRequestContext;
 import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.FileTransferRunService;
 import com.jdragon.studio.infra.service.FileTransferTaskService;
+import com.jdragon.studio.infra.service.StudioAccessService;
+import com.jdragon.studio.infra.service.StudioExecutionContextService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -47,17 +50,26 @@ class FileTransferTaskScheduleRunnerTest {
         when(dueEvaluator.nextDueTime(any(), any(), any(), any()))
                 .thenReturn(LocalDateTime.of(2026, 8, 7, 10, 0));
         when(authorization.hasAvailableWorker("tenant-b", 300L)).thenReturn(true);
+        StudioAccessService accessService = mock(StudioAccessService.class);
+        StudioRequestContext executionContext = new StudioRequestContext();
+        executionContext.setTenantId("tenant-b");
+        executionContext.setProjectId(300L);
+        executionContext.setUserId(88L);
+        executionContext.setEffectiveRoleCodes(List.of("PROJECT_ADMIN"));
+        when(accessService.buildExecutionContext(88L, "tenant-b", 300L)).thenReturn(executionContext);
         doAnswer(invocation -> {
             assertEquals("tenant-b", StudioRequestContextHolder.getContext().getTenantId());
             assertEquals(300L, StudioRequestContextHolder.getContext().getProjectId());
             assertEquals(88L, StudioRequestContextHolder.getContext().getUserId());
+            assertEquals(List.of("PROJECT_ADMIN"),
+                    StudioRequestContextHolder.getContext().getEffectiveRoleCodes());
             return null;
         }).when(runService).triggerTask(eq(700L), eq("SCHEDULED"), any());
         StudioPlatformProperties properties = new StudioPlatformProperties();
         properties.getDispatch().setSchedulerBatchSize(null);
         FileTransferTaskScheduleRunner runner = new FileTransferTaskScheduleRunner(
                 taskService, runService, dueEvaluator, authorization,
-                mock(ClusterLockService.class), properties);
+                mock(ClusterLockService.class), new StudioExecutionContextService(accessService), properties);
 
         ReflectionTestUtils.invokeMethod(runner, "dispatchLocked");
 

@@ -52,8 +52,10 @@ public class FileTransferRunController {
             @RequestParam(value = "pageNo", required = false) Integer pageNo,
             @RequestParam(value = "pageSize", required = false) Integer pageSize,
             @RequestParam(value = "taskId", required = false) Long taskId,
-            @RequestParam(value = "status", required = false) String status) {
-        return Result.success(runService.listPage(pageNo, pageSize, taskId, status));
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "triggerType", required = false) String triggerType,
+            @RequestParam(value = "statusGroup", required = false) String statusGroup) {
+        return Result.success(runService.listPage(pageNo, pageSize, taskId, status, triggerType, statusGroup));
     }
 
     @GetMapping("/{runId}")

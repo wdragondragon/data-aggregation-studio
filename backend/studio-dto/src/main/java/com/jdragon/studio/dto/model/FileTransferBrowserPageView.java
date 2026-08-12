@@ -10,6 +10,7 @@ import java.util.Map;
 @Data
 public class FileTransferBrowserPageView {
     private String path;
+    private String initialPath;
     private String nextCursor;
     private Integer pageSize;
     private Boolean hasMore;

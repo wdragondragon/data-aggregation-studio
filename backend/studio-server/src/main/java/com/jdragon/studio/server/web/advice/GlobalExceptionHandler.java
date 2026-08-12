@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 import java.io.IOException;
 import java.util.stream.Collectors;
@@ -106,6 +107,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException ex) {
         log.debug("Streaming client disconnected: {}", ex.getMessage());
+    }
+
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<Result<Void>> handleAsyncRequestTimeoutException(
+            AsyncRequestTimeoutException ex, HttpServletResponse response) {
+        if (response.isCommitted() || isEventStream(response.getContentType())) {
+            log.debug("Streaming request timed out or disconnected: {}", ex.getMessage());
+            return null;
+        }
+        log.warn("Async request timed out: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Result.error(StudioErrorCode.SERVICE_UNAVAILABLE, ex.getMessage()));
     }
 
     @ExceptionHandler(IOException.class)

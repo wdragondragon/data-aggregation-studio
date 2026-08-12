@@ -544,7 +544,7 @@ create table if not exists unstructured_op_audit (
     target_path varchar(2000),
     `recursive` int default 0,
     status varchar(32) not null,
-    message varchar(2000),
+    message text,
     key idx_unstructured_op_audit_source (tenant_id, project_id, datasource_id, created_at)
 );
 
