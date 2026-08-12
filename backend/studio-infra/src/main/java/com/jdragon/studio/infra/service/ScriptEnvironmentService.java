@@ -12,6 +12,7 @@ import com.jdragon.studio.dto.model.ScriptEnvironmentListView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentOptionView;
 import com.jdragon.studio.dto.model.ScriptEnvironmentView;
 import com.jdragon.studio.dto.model.request.ScriptEnvironmentSaveRequest;
+import com.jdragon.studio.infra.entity.ArtifactStoreEntity;
 import com.jdragon.studio.infra.entity.EnvironmentDependencyEntity;
 import com.jdragon.studio.infra.entity.ScriptEnvironmentDependencyRelEntity;
 import com.jdragon.studio.infra.entity.ScriptEnvironmentEntity;
@@ -33,11 +34,14 @@ import java.util.Set;
 public class ScriptEnvironmentService {
 
     public static final String DEFAULT_ENVIRONMENT_CODE = "default-application";
+    public static final String PYTHON_INSTALL_MODE_LOCAL_ARTIFACT = "LOCAL_ARTIFACT";
+    public static final String PYTHON_INSTALL_MODE_PYPI_LIVE = "PYPI_LIVE";
 
     private final ScriptEnvironmentMapper environmentMapper;
     private final ScriptEnvironmentDependencyRelMapper relationMapper;
     private final EnvironmentDependencyMapper dependencyMapper;
     private final EnvironmentDependencyService dependencyService;
+    private final ArtifactStoreService artifactStoreService;
     private final StudioSecurityService securityService;
     private final ObjectProvider<ScriptEnvironmentRuntimeService> runtimeServiceProvider;
 
@@ -45,12 +49,14 @@ public class ScriptEnvironmentService {
                                     ScriptEnvironmentDependencyRelMapper relationMapper,
                                     EnvironmentDependencyMapper dependencyMapper,
                                     EnvironmentDependencyService dependencyService,
+                                    ArtifactStoreService artifactStoreService,
                                     StudioSecurityService securityService,
                                     ObjectProvider<ScriptEnvironmentRuntimeService> runtimeServiceProvider) {
         this.environmentMapper = environmentMapper;
         this.relationMapper = relationMapper;
         this.dependencyMapper = dependencyMapper;
         this.dependencyService = dependencyService;
+        this.artifactStoreService = artifactStoreService;
         this.securityService = securityService;
         this.runtimeServiceProvider = runtimeServiceProvider;
     }
@@ -144,6 +150,7 @@ public class ScriptEnvironmentService {
     public ScriptEnvironmentView saveOrUpdateCheck(ScriptEnvironmentSaveRequest request) {
         requireManager();
         validateRequest(request);
+        validatePythonRepository(request);
         ScriptEnvironmentEntity entity = request.getId() == null
                 ? new ScriptEnvironmentEntity()
                 : requireEntity(request.getId());
@@ -156,15 +163,16 @@ public class ScriptEnvironmentService {
         entity.setEnvironmentCode(environmentCode);
         entity.setEnabled(Boolean.FALSE.equals(request.getEnabled()) ? Integer.valueOf(0) : Integer.valueOf(1));
         entity.setUseApplicationParent(Boolean.FALSE.equals(request.getUseApplicationParent()) ? Integer.valueOf(0) : Integer.valueOf(1));
+        entity.setPythonInstallMode(normalizePythonInstallMode(request.getPythonInstallMode()));
+        entity.setPythonRepositoryId(request.getPythonRepositoryId());
         entity.setEnvironmentVersion(entity.getEnvironmentVersion() == null ? Long.valueOf(1L) : Long.valueOf(entity.getEnvironmentVersion().longValue() + 1L));
         entity.setDescription(normalizeNullableText(request.getDescription()));
         if (entity.getId() == null) {
             environmentMapper.insert(entity);
         } else {
             environmentMapper.updateById(entity);
-            deleteRelations(entity.getId());
         }
-        saveRelations(entity.getId(), normalizeDependencyIds(request.getDependencyIds()));
+        syncRelations(entity.getId(), normalizeDependencyIds(request.getDependencyIds()));
         invalidateEnvironment(entity.getId());
         return get(entity.getId());
     }
@@ -259,23 +267,46 @@ public class ScriptEnvironmentService {
         }
     }
 
-    private void saveRelations(Long environmentId, List<Long> dependencyIds) {
+    private void syncRelations(Long environmentId, List<Long> dependencyIds) {
+        String tenantId = securityService.currentTenantId();
+        relationMapper.softDeleteActiveByEnvironment(tenantId, environmentId);
         int sortOrder = 1;
         for (Long dependencyId : dependencyIds) {
             EnvironmentDependencyEntity dependency = dependencyService.requireEnabledDependency(dependencyId);
-            ScriptEnvironmentDependencyRelEntity relation = new ScriptEnvironmentDependencyRelEntity();
-            relation.setTenantId(securityService.currentTenantId());
-            relation.setEnvironmentId(environmentId);
-            relation.setDependencyId(dependency.getId());
-            relation.setSortOrder(Integer.valueOf(sortOrder++));
-            relationMapper.insert(relation);
+            int reactivated = relationMapper.reactivateOrUpdate(tenantId, environmentId, dependency.getId(), Integer.valueOf(sortOrder++));
+            if (reactivated == 0) {
+                ScriptEnvironmentDependencyRelEntity relation = new ScriptEnvironmentDependencyRelEntity();
+                relation.setTenantId(tenantId);
+                relation.setEnvironmentId(environmentId);
+                relation.setDependencyId(dependency.getId());
+                relation.setSortOrder(Integer.valueOf(sortOrder - 1));
+                relationMapper.insert(relation);
+            }
         }
     }
 
-    private void deleteRelations(Long environmentId) {
-        relationMapper.delete(new LambdaQueryWrapper<ScriptEnvironmentDependencyRelEntity>()
-                .eq(ScriptEnvironmentDependencyRelEntity::getTenantId, securityService.currentTenantId())
-                .eq(ScriptEnvironmentDependencyRelEntity::getEnvironmentId, environmentId));
+    private void validatePythonRepository(ScriptEnvironmentSaveRequest request) {
+        String installMode = normalizePythonInstallMode(request.getPythonInstallMode());
+        if (!PYTHON_INSTALL_MODE_PYPI_LIVE.equals(installMode)) {
+            return;
+        }
+        if (request.getPythonRepositoryId() == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "PYPI_LIVE environment requires a Python artifact repository");
+        }
+        ArtifactStoreEntity repository = artifactStoreService.requireEnabled(request.getPythonRepositoryId());
+        if ("OSS".equalsIgnoreCase(repository.getProvider())
+                || !hasText(repository.getSimpleIndexUrl())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "PYPI_LIVE requires an enabled PyPI repository with a Simple index URL");
+        }
+    }
+
+    private String normalizePythonInstallMode(String value) {
+        String normalized = normalizeText(value);
+        return PYTHON_INSTALL_MODE_PYPI_LIVE.equalsIgnoreCase(normalized)
+                ? PYTHON_INSTALL_MODE_PYPI_LIVE
+                : PYTHON_INSTALL_MODE_LOCAL_ARTIFACT;
     }
 
     private ScriptEnvironmentView toView(ScriptEnvironmentEntity entity, boolean includeDependencies) {
@@ -289,6 +320,8 @@ public class ScriptEnvironmentService {
         view.setEnvironmentCode(entity.getEnvironmentCode());
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         view.setUseApplicationParent(entity.getUseApplicationParent() == null || entity.getUseApplicationParent().intValue() == 1);
+        view.setPythonInstallMode(entity.getPythonInstallMode());
+        view.setPythonRepositoryId(entity.getPythonRepositoryId());
         view.setEnvironmentVersion(entity.getEnvironmentVersion());
         view.setDescription(entity.getDescription());
         if (includeDependencies) {
@@ -311,6 +344,8 @@ public class ScriptEnvironmentService {
         view.setEnvironmentCode(entity.getEnvironmentCode());
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         view.setUseApplicationParent(entity.getUseApplicationParent() == null || entity.getUseApplicationParent().intValue() == 1);
+        view.setPythonInstallMode(entity.getPythonInstallMode());
+        view.setPythonRepositoryId(entity.getPythonRepositoryId());
         view.setEnvironmentVersion(entity.getEnvironmentVersion());
         if (dependencies != null) {
             view.setDependencyIds(dependencies.dependencyIds);

@@ -3044,6 +3044,76 @@ export interface ScriptEnvironment extends BaseRecord {
   dependencies: EnvironmentDependency[];
 }
 
+export type ArtifactStoreProvider =
+  | "OSS"
+  | "GITLAB"
+  | "PYPISERVER"
+  | "NEXUS"
+  | "PYPI";
+
+export interface ArtifactStore extends BaseRecord {
+  storeName?: string;
+  storeCode?: string;
+  provider?: ArtifactStoreProvider;
+  scopeType?: "TENANT" | "PLATFORM";
+  configVersion?: number;
+  endpoint?: string;
+  uploadUrl?: string;
+  simpleIndexUrl?: string;
+  bucket?: string;
+  region?: string;
+  rootPrefix?: string;
+  hasUsername?: boolean;
+  hasSecret?: boolean;
+  verifySsl?: boolean;
+  enabled?: boolean;
+  description?: string;
+}
+
+export interface ArtifactStoreSaveRequest {
+  id?: EntityId;
+  storeName: string;
+  storeCode: string;
+  provider: ArtifactStoreProvider;
+  scopeType: "TENANT" | "PLATFORM";
+  endpoint: string;
+  uploadUrl?: string;
+  simpleIndexUrl?: string;
+  bucket?: string;
+  region?: string;
+  rootPrefix?: string;
+  username?: string;
+  secret?: string;
+  clearCredential?: boolean;
+  verifySsl?: boolean;
+  enabled?: boolean;
+  description?: string;
+}
+
+export interface ArtifactStoreTestResult {
+  success: boolean;
+  message?: string;
+}
+
+export interface PythonPackageSummary extends BaseRecord {
+  name: string;
+  normalizedName: string;
+  latestVersion: string;
+  artifactType?: string;
+  versionCount?: number;
+  latestSizeBytes?: number;
+  artifactStoreId?: EntityId;
+  enabled?: boolean;
+  latestUploadedAt?: string;
+}
+
+export interface PythonPackageQueryRequest {
+  pageNum?: number;
+  pageSize?: number;
+  keyword?: string;
+  enabled?: boolean;
+}
+
 export interface ScriptEnvironmentListView extends BaseRecord {
   environmentName: string;
   environmentCode: string;

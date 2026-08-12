@@ -12,6 +12,8 @@ import com.jdragon.studio.dto.model.EnvironmentDependencyListView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyOptionView;
 import com.jdragon.studio.dto.model.EnvironmentDependencyView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.PythonPackageSummaryView;
+import com.jdragon.studio.dto.model.request.EnvironmentDependencyBatchDeleteRequest;
 import com.jdragon.studio.dto.model.request.EnvironmentDependencySaveRequest;
 import com.jdragon.studio.infra.entity.EnvironmentDependencyEntity;
 import com.jdragon.studio.infra.entity.EnvironmentDependencyFileEntity;
@@ -34,8 +36,11 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -59,6 +64,8 @@ public class EnvironmentDependencyService {
     private final StudioSecurityService securityService;
     private final ObjectProvider<ScriptEnvironmentRuntimeService> runtimeServiceProvider;
     private final CloudObjectStorageService cloudObjectStorageService;
+    private final ArtifactRepositoryPublisher artifactRepositoryPublisher;
+    private final PythonPackageDownloadCountService pythonPackageDownloadCountService;
 
     public EnvironmentDependencyService(EnvironmentDependencyMapper dependencyMapper,
                                          EnvironmentDependencyFileMapper dependencyFileMapper,
@@ -66,7 +73,9 @@ public class EnvironmentDependencyService {
                                          ScriptEnvironmentMapper environmentMapper,
                                          StudioSecurityService securityService,
                                          ObjectProvider<ScriptEnvironmentRuntimeService> runtimeServiceProvider,
-                                         CloudObjectStorageService cloudObjectStorageService) {
+                                         CloudObjectStorageService cloudObjectStorageService,
+                                         ArtifactRepositoryPublisher artifactRepositoryPublisher,
+                                         PythonPackageDownloadCountService pythonPackageDownloadCountService) {
         this.dependencyMapper = dependencyMapper;
         this.dependencyFileMapper = dependencyFileMapper;
         this.relationMapper = relationMapper;
@@ -74,6 +83,8 @@ public class EnvironmentDependencyService {
         this.securityService = securityService;
         this.runtimeServiceProvider = runtimeServiceProvider;
         this.cloudObjectStorageService = cloudObjectStorageService;
+        this.artifactRepositoryPublisher = artifactRepositoryPublisher;
+        this.pythonPackageDownloadCountService = pythonPackageDownloadCountService;
     }
 
     public PageView<EnvironmentDependencyListView> queryPage(Integer pageNum, Integer pageSize, String keyword, Boolean enabled) {
@@ -90,6 +101,7 @@ public class EnvironmentDependencyService {
                         EnvironmentDependencyEntity::getName,
                         EnvironmentDependencyEntity::getVersion,
                         EnvironmentDependencyEntity::getScriptType,
+                        EnvironmentDependencyEntity::getArtifactStoreId,
                         EnvironmentDependencyEntity::getArtifactUrl,
                         EnvironmentDependencyEntity::getArtifactType,
                         EnvironmentDependencyEntity::getEnabled)
@@ -111,6 +123,167 @@ public class EnvironmentDependencyService {
             items.add(toListView(entity, fileMap.get(entity.getId())));
         }
         return PageView.of(safePageNo, safePageSize, entityPage.getTotal(), items);
+    }
+
+    public List<EnvironmentDependencyListView> pythonPackageVersions(String packageName) {
+        String normalized = normalizePythonPackageName(packageName);
+        List<EnvironmentDependencyEntity> entities = pythonPackageEntities(normalized, null);
+        List<EnvironmentDependencyListView> result = new ArrayList<EnvironmentDependencyListView>();
+        if (!entities.isEmpty()) {
+            Map<Long, List<EnvironmentDependencyFileListView>> fileMap = loadVisibleFileSummaries(entities);
+            for (EnvironmentDependencyEntity entity : entities) {
+                result.add(toListView(entity, fileMap.get(entity.getId())));
+            }
+        }
+        return result;
+    }
+
+    public PageView<PythonPackageSummaryView> queryPythonPackages(Integer pageNum, Integer pageSize, String keyword, Boolean enabled) {
+        int safePageNo = normalizePageNo(pageNum);
+        int safePageSize = normalizePageSize(pageSize);
+        String normalizedKeyword = normalizeNullableText(keyword);
+        List<EnvironmentDependencyEntity> entities = pythonPackageEntities(normalizedKeyword, enabled);
+        Map<String, List<EnvironmentDependencyEntity>> grouped = new LinkedHashMap<String, List<EnvironmentDependencyEntity>>();
+        for (EnvironmentDependencyEntity entity : entities) {
+            String key = normalizePythonPackageName(entity.getName());
+            if (key == null) {
+                continue;
+            }
+            List<EnvironmentDependencyEntity> bucket = grouped.get(key);
+            if (bucket == null) {
+                bucket = new ArrayList<EnvironmentDependencyEntity>();
+                grouped.put(key, bucket);
+            }
+            bucket.add(entity);
+        }
+        List<EnvironmentDependencyEntity> latestEntities = new ArrayList<EnvironmentDependencyEntity>();
+        for (List<EnvironmentDependencyEntity> bucket : grouped.values()) {
+            latestEntities.add(bucket.get(0));
+        }
+        Map<Long, List<EnvironmentDependencyFileListView>> fileMap = loadVisibleFileSummaries(latestEntities);
+        List<PythonPackageSummaryView> summaries = new ArrayList<PythonPackageSummaryView>();
+        for (List<EnvironmentDependencyEntity> bucket : grouped.values()) {
+            summaries.add(toPythonPackageSummary(bucket, fileMap.get(bucket.get(0).getId())));
+        }
+        int total = summaries.size();
+        int from = Math.min((safePageNo - 1) * safePageSize, total);
+        int to = Math.min(from + safePageSize, total);
+        return PageView.of(safePageNo, safePageSize, total, summaries.subList(from, to));
+    }
+
+    public String exportPythonRequirements(String keyword, Boolean enabled) {
+        String normalizedKeyword = normalizeNullableText(keyword);
+        List<EnvironmentDependencyEntity> entities = pythonPackageEntities(normalizedKeyword, enabled);
+        Map<String, EnvironmentDependencyEntity> latestByNormalizedName = new LinkedHashMap<String, EnvironmentDependencyEntity>();
+        for (EnvironmentDependencyEntity entity : entities) {
+            String name = entity.getName();
+            if (!hasText(name) || !hasText(entity.getVersion())) {
+                continue;
+            }
+            String key = normalizePythonPackageName(name);
+            if (key == null || latestByNormalizedName.containsKey(key)) {
+                continue;
+            }
+            latestByNormalizedName.put(key, entity);
+        }
+        List<Map.Entry<String, EnvironmentDependencyEntity>> entries =
+                new ArrayList<Map.Entry<String, EnvironmentDependencyEntity>>(latestByNormalizedName.entrySet());
+        Collections.sort(entries, new Comparator<Map.Entry<String, EnvironmentDependencyEntity>>() {
+            @Override
+            public int compare(Map.Entry<String, EnvironmentDependencyEntity> left,
+                               Map.Entry<String, EnvironmentDependencyEntity> right) {
+                return left.getKey().compareTo(right.getKey());
+            }
+        });
+        StringBuilder requirements = new StringBuilder()
+                .append("# Generated by Data Aggregation Studio").append('\n')
+                .append("# Exact Python package versions from the current package filter").append('\n');
+        for (Map.Entry<String, EnvironmentDependencyEntity> entry : entries) {
+            requirements.append(entry.getValue().getName()).append("==").append(entry.getValue().getVersion())
+                    .append('\n');
+        }
+        return requirements.toString();
+    }
+
+    @Transactional
+    public void batchDelete(EnvironmentDependencyBatchDeleteRequest request) {
+        requireManager();
+        if (request == null || request.getIds() == null || request.getIds().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Batch delete ids are required");
+        }
+        LinkedHashSet<Long> uniqueIds = new LinkedHashSet<Long>();
+        for (Long id : request.getIds()) {
+            if (id != null) {
+                uniqueIds.add(id);
+            }
+        }
+        if (uniqueIds.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Batch delete ids are required");
+        }
+        if (uniqueIds.size() > 200) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Batch delete supports at most 200 dependency versions");
+        }
+        List<EnvironmentDependencyEntity> entities = new ArrayList<EnvironmentDependencyEntity>();
+        for (Long id : uniqueIds) {
+            entities.add(requireEntity(id));
+        }
+        for (EnvironmentDependencyEntity entity : entities) {
+            try {
+                artifactRepositoryPublisher.validateArtifactVersionDeletion(entity.getArtifactStoreId(), ScriptType.PYTHON.name());
+            } catch (RuntimeException ex) {
+                log.warn("Artifact repository cannot delete {}, proceeding with local unbind: {}",
+                        entity.getName(), ex.getMessage());
+            }
+        }
+        for (EnvironmentDependencyEntity entity : entities) {
+            delete(entity.getId());
+        }
+    }
+
+    private List<EnvironmentDependencyEntity> pythonPackageEntities(String keyword, Boolean enabled) {
+        return dependencyMapper.selectList(new LambdaQueryWrapper<EnvironmentDependencyEntity>()
+                .eq(EnvironmentDependencyEntity::getTenantId, securityService.currentTenantId())
+                .eq(EnvironmentDependencyEntity::getScriptType, ScriptType.PYTHON.name())
+                .eq(Boolean.TRUE.equals(enabled), EnvironmentDependencyEntity::getEnabled, Integer.valueOf(1))
+                .like(hasText(keyword), EnvironmentDependencyEntity::getName, keyword)
+                .orderByDesc(EnvironmentDependencyEntity::getUpdatedAt)
+                .orderByDesc(EnvironmentDependencyEntity::getId));
+    }
+
+    private PythonPackageSummaryView toPythonPackageSummary(List<EnvironmentDependencyEntity> bucket, List<EnvironmentDependencyFileListView> files) {
+        EnvironmentDependencyEntity latest = bucket.get(0);
+        PythonPackageSummaryView view = new PythonPackageSummaryView();
+        view.setId(latest.getId());
+        view.setTenantId(latest.getTenantId());
+        view.setDeleted(latest.getDeleted() != null && latest.getDeleted().intValue() == 1);
+        view.setCreatedAt(latest.getCreatedAt());
+        view.setUpdatedAt(latest.getUpdatedAt());
+        view.setName(latest.getName());
+        view.setNormalizedName(normalizePythonPackageName(latest.getName()));
+        view.setLatestVersion(latest.getVersion());
+        view.setArtifactType(latest.getArtifactType());
+        view.setVersionCount(Integer.valueOf(bucket.size()));
+        view.setLatestSizeBytes(latestSizeBytes(files));
+        view.setArtifactStoreId(latest.getArtifactStoreId());
+        view.setEnabled(latest.getEnabled() != null && latest.getEnabled().intValue() == 1);
+        view.setLatestUploadedAt(latest.getUpdatedAt());
+        return view;
+    }
+
+    private Long latestSizeBytes(List<EnvironmentDependencyFileListView> files) {
+        long max = 0L;
+        if (files != null) {
+            for (EnvironmentDependencyFileListView file : files) {
+                if (file.getSizeBytes() != null && file.getSizeBytes().longValue() > max) {
+                    max = file.getSizeBytes().longValue();
+                }
+            }
+        }
+        return max == 0L ? null : Long.valueOf(max);
+    }
+
+    private String normalizePythonPackageName(String name) {
+        return name == null ? null : name.toLowerCase(Locale.ROOT).replaceAll("[-_.]+", "-");
     }
 
     public List<EnvironmentDependencyOptionView> options(Boolean enabledOnly) {
@@ -190,6 +363,18 @@ public class EnvironmentDependencyService {
                                                        Boolean enabled,
                                                        String description,
                                                        List<MultipartFile> files) {
+        return saveOrUpdateCheck(id, name, version, scriptType, enabled, description, files, null);
+    }
+
+    @Transactional
+    public EnvironmentDependencyView saveOrUpdateCheck(Long id,
+                                                       String name,
+                                                       String version,
+                                                       String scriptType,
+                                                       Boolean enabled,
+                                                       String description,
+                                                       List<MultipartFile> files,
+                                                       Long artifactStoreId) {
         requireManager();
         if (!hasText(name)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency name is required");
@@ -206,6 +391,7 @@ public class EnvironmentDependencyService {
         entity.setName(normalizeText(name));
         entity.setVersion(normalizeNullableText(version));
         entity.setScriptType(normalizedScriptType);
+        entity.setArtifactStoreId(artifactStoreId);
         entity.setEnabled(Boolean.FALSE.equals(enabled) ? Integer.valueOf(0) : Integer.valueOf(1));
         entity.setDescription(normalizeNullableText(description));
         if (entity.getId() == null) {
@@ -239,6 +425,25 @@ public class EnvironmentDependencyService {
     public void delete(Long id) {
         requireManager();
         EnvironmentDependencyEntity entity = requireEntity(id);
+        if (entity.getArtifactStoreId() != null) {
+            try {
+                List<String> fileNames = new ArrayList<String>();
+                for (EnvironmentDependencyFileEntity file : listAllFiles(entity.getId())) {
+                    if (hasText(file.getOriginalFileName())) {
+                        fileNames.add(file.getOriginalFileName());
+                    }
+                }
+                artifactRepositoryPublisher.deleteArtifactVersion(
+                        entity.getArtifactStoreId(),
+                        entity.getScriptType() == null ? DEFAULT_SCRIPT_TYPE : entity.getScriptType(),
+                        entity.getName(),
+                        entity.getVersion(),
+                        fileNames);
+            } catch (RuntimeException ex) {
+                log.warn("Artifact repository cannot delete {}, proceeding with local unbind: {}",
+                        entity.getName(), ex.getMessage());
+            }
+        }
         for (EnvironmentDependencyFileEntity file : listAllFiles(entity.getId())) {
             deleteObjectQuietly(file);
         }
@@ -253,13 +458,49 @@ public class EnvironmentDependencyService {
     public DependencyFileDownload downloadFile(Long dependencyId, Long fileId) {
         EnvironmentDependencyEntity dependency = requireEntity(dependencyId);
         EnvironmentDependencyFileEntity file = requireVisibleFile(dependency.getId(), fileId);
+        DependencyFileDownload download;
+        if (dependency.getArtifactStoreId() != null) {
+            try {
+                byte[] bytes = artifactRepositoryPublisher.downloadPackageFile(
+                        dependency.getArtifactStoreId(),
+                        ScriptType.PYTHON.name(),
+                        dependency.getName(),
+                        dependency.getVersion(),
+                        file.getOriginalFileName());
+                download = new DependencyFileDownload(file.getOriginalFileName(), contentType(file.getArtifactType()), bytes);
+            } catch (RuntimeException ex) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Failed to download dependency file: " + rootMessage(ex), ex);
+            }
+        } else {
+            OssArtifact artifact = resolveFileArtifact(file);
+            if (artifact == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency file object is missing");
+            }
+            try {
+                byte[] bytes = cloudObjectStorageService.get(artifact.bucket, artifact.objectKey);
+                download = new DependencyFileDownload(file.getOriginalFileName(), contentType(file.getArtifactType()), bytes);
+            } catch (RuntimeException ex) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST, "Failed to download dependency file: " + rootMessage(ex), ex);
+            }
+        }
+        pythonPackageDownloadCountService.incrementToday();
+        return download;
+    }
+
+    byte[] downloadRuntimeFile(EnvironmentDependencyEntity dependency, EnvironmentDependencyFileEntity file) {
+        if (dependency == null || file == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency and file are required");
+        }
+        if (!securityService.currentTenantId().equals(file.getTenantId())
+                || !dependency.getId().equals(file.getDependencyId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Environment dependency file not found: " + file.getId());
+        }
         OssArtifact artifact = resolveFileArtifact(file);
         if (artifact == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency file object is missing");
         }
         try {
-            byte[] bytes = cloudObjectStorageService.get(artifact.bucket, artifact.objectKey);
-            return new DependencyFileDownload(file.getOriginalFileName(), contentType(file.getArtifactType()), bytes);
+            return cloudObjectStorageService.get(artifact.bucket, artifact.objectKey);
         } catch (RuntimeException ex) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Failed to download dependency file: " + rootMessage(ex), ex);
         }
@@ -310,6 +551,7 @@ public class EnvironmentDependencyService {
         view.setName(entity.getName());
         view.setVersion(entity.getVersion());
         view.setScriptType(hasText(entity.getScriptType()) ? entity.getScriptType() : DEFAULT_SCRIPT_TYPE);
+        view.setArtifactStoreId(entity.getArtifactStoreId());
         view.setArtifactUrl(entity.getArtifactUrl());
         view.setArtifactType(entity.getArtifactType());
         view.setChecksum(entity.getChecksum());
@@ -348,6 +590,7 @@ public class EnvironmentDependencyService {
         view.setName(entity.getName());
         view.setVersion(entity.getVersion());
         view.setScriptType(hasText(entity.getScriptType()) ? entity.getScriptType() : DEFAULT_SCRIPT_TYPE);
+        view.setArtifactStoreId(entity.getArtifactStoreId());
         view.setEnabled(entity.getEnabled() != null && entity.getEnabled().intValue() == 1);
         List<EnvironmentDependencyFileListView> visibleFiles = files == null
                 ? new ArrayList<EnvironmentDependencyFileListView>()
@@ -528,6 +771,21 @@ public class EnvironmentDependencyService {
     }
 
     private void persistPreparedUpload(EnvironmentDependencyEntity dependency, PreparedUpload upload) {
+        if ("WHEEL".equals(upload.artifactType) || "TAR_GZ".equals(upload.artifactType)) {
+            if (dependency.getArtifactStoreId() == null) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Python dependency requires a bound artifact repository");
+            }
+            artifactRepositoryPublisher.publish(
+                    dependency.getArtifactStoreId(),
+                    ScriptType.PYTHON.name(),
+                    dependency.getName(),
+                    dependency.getVersion(),
+                    upload.originalFileName,
+                    upload.bytes);
+            upsertVisibleFile(dependency, upload, null, null);
+            return;
+        }
         String bucket = cloudObjectStorageService.resolveBucket();
         String originalObjectKey = buildUploadedObjectKey(dependency.getScriptType(), dependency.getId(), upload.originalFileName);
         cloudObjectStorageService.put(bucket, originalObjectKey, upload.bytes, contentType(upload.artifactType));
@@ -560,7 +818,7 @@ public class EnvironmentDependencyService {
         }
         file.setArtifactType(upload.artifactType);
         file.setObjectKey(objectKey);
-        file.setObjectUrl(OSS_PREFIX + bucket + "/" + objectKey);
+        file.setObjectUrl(hasText(objectKey) && hasText(bucket) ? OSS_PREFIX + bucket + "/" + objectKey : null);
         file.setChecksum(upload.checksum);
         file.setSizeBytes(Long.valueOf(upload.bytes.length));
         file.setVisible(Integer.valueOf(1));
@@ -720,13 +978,17 @@ public class EnvironmentDependencyService {
     }
 
     private void ensureUniqueNameVersion(String name, String version, Long selfId) {
-        EnvironmentDependencyEntity duplicate = dependencyMapper.selectOne(new LambdaQueryWrapper<EnvironmentDependencyEntity>()
-                .eq(EnvironmentDependencyEntity::getTenantId, securityService.currentTenantId())
-                .eq(EnvironmentDependencyEntity::getName, name)
-                .eq(version != null, EnvironmentDependencyEntity::getVersion, version)
-                .isNull(version == null, EnvironmentDependencyEntity::getVersion)
-                .last("limit 1"));
+        EnvironmentDependencyEntity duplicate = dependencyMapper.selectByNameVersionIncludingDeleted(
+                securityService.currentTenantId(), name, version);
         if (duplicate == null || (selfId != null && selfId.equals(duplicate.getId()))) {
+            return;
+        }
+        if (duplicate.getDeleted() != null && duplicate.getDeleted().intValue() == 1) {
+            // The unique key uk_so_pf_env_dep_name_ver is still occupied by a logically deleted
+            // row; physically clear it so a fresh insert for the same name/version can succeed.
+            log.warn("Physically removing logically-deleted dependency {} {} id={} before re-upload",
+                    duplicate.getName(), duplicate.getVersion(), duplicate.getId());
+            dependencyMapper.physicallyDeleteById(duplicate.getId());
             return;
         }
         throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency name and version already exist");
@@ -766,7 +1028,13 @@ public class EnvironmentDependencyService {
         if (lowerName.endsWith(".zip")) {
             return "ZIP";
         }
-        throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency file must be a JAR or ZIP");
+        if (lowerName.endsWith(".whl")) {
+            return "WHEEL";
+        }
+        if (lowerName.endsWith(".tar.gz")) {
+            return "TAR_GZ";
+        }
+        throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency file must be a JAR, ZIP, WHEEL or TAR.GZ");
     }
 
     private List<MultipartFile> normalizeUploadFiles(List<MultipartFile> files) {
@@ -1050,7 +1318,16 @@ public class EnvironmentDependencyService {
     }
 
     private String contentType(String artifactType) {
-        return "ZIP".equalsIgnoreCase(artifactType) ? "application/zip" : "application/java-archive";
+        if ("ZIP".equalsIgnoreCase(artifactType)) {
+            return "application/zip";
+        }
+        if ("WHEEL".equalsIgnoreCase(artifactType)) {
+            return "application/x-wheel+zip";
+        }
+        if ("TAR_GZ".equalsIgnoreCase(artifactType)) {
+            return "application/gzip";
+        }
+        return "application/java-archive";
     }
 
     private void deleteObjectQuietly(EnvironmentDependencyFileEntity file) {

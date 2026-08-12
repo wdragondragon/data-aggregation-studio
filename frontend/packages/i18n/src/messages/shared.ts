@@ -204,6 +204,16 @@ export const sharedMessages = {
           subtitle: "Manage Java script environments, dependency packages and class loader policies.",
           menuCaption: "Java environment and dependencies",
         },
+        artifactStores: {
+          title: "Artifact Repositories",
+          subtitle: "Maintain OSS, GitLab, pypiserver, Nexus and standard PyPI repositories with encrypted credentials.",
+          menuCaption: "Artifact repositories and credentials",
+        },
+        pythonPackages: {
+          title: "Python Packages",
+          subtitle: "Manage tenant Python package versions, upload wheels and export exact requirements.",
+          menuCaption: "Python package versions",
+        },
         runtimeClusters: {
           title: "Runtime Clusters",
           subtitle: "Manage executable cluster identities, internal endpoints and project authorization.",
@@ -587,6 +597,16 @@ export const sharedMessages = {
           title: "运行环境管理",
           subtitle: "管理 Java 脚本运行环境、依赖包和类加载策略。",
           menuCaption: "Java 运行环境与依赖",
+        },
+        artifactStores: {
+          title: "制品仓库",
+          subtitle: "统一维护 OSS、GitLab、pypiserver、Nexus 和标准 PyPI 仓库，凭据加密保存。",
+          menuCaption: "制品仓库与凭据",
+        },
+        pythonPackages: {
+          title: "Python 包",
+          subtitle: "管理租户内 Python 包版本，上传安装包并导出精确依赖清单。",
+          menuCaption: "Python 包版本",
         },
         runtimeClusters: {
           title: "运行集群管理",

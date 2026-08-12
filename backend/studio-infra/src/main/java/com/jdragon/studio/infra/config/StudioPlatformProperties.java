@@ -80,6 +80,7 @@ public class StudioPlatformProperties {
         private Integer maxArtifactBytes = 64 * 1024 * 1024;
         private boolean allowLocalFiles = false;
         private List<String> allowedLocalRoots = new ArrayList<String>();
+        private String pythonCacheDir;
     }
 
     @Data

@@ -66,6 +66,31 @@ class StudioCookieCsrfFilterTest {
         assertEquals(200, response.getStatus());
     }
 
+    @Test
+    void legacyAuthorizationHeaderMustNotUseCookieCsrfPolicy() throws Exception {
+        MockHttpServletRequest request = cookieRequest("POST");
+        request.addHeader("Authorization", "Bearer legacy-jwt");
+        request.addHeader("Sec-Fetch-Site", "cross-site");
+        request.addHeader("Origin", "https://evil.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    void emptyAuthorizationHeaderMustNotBypassCookieCsrfPolicy() throws Exception {
+        MockHttpServletRequest request = cookieRequest("POST");
+        request.addHeader("Sec-Fetch-Site", "cross-site");
+        request.addHeader("Origin", "https://evil.example");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(403, response.getStatus());
+    }
+
     private MockHttpServletRequest cookieRequest(String method) {
         MockHttpServletRequest request = new MockHttpServletRequest(method, "/api/v1/dashboard/overview");
         request.setCookies(new Cookie(StudioConstants.STUDIO_TOKEN_COOKIE, "cookie-token"));

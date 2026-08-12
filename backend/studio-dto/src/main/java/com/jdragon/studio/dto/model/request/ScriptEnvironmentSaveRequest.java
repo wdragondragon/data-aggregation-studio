@@ -20,6 +20,8 @@ public class ScriptEnvironmentSaveRequest {
 
     private Boolean enabled;
     private Boolean useApplicationParent;
+    private String pythonInstallMode;
+    private Long pythonRepositoryId;
     private String description;
     private List<Long> dependencyIds = new ArrayList<Long>();
 }

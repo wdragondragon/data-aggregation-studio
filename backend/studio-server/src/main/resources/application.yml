@@ -1,5 +1,7 @@
 server:
   port: 18080
+  tomcat:
+    max-http-form-post-size: ${STUDIO_TOMCAT_MAX_FORM_POST_SIZE:73400320}
 
 spring:
   application:
@@ -26,6 +28,12 @@ spring:
         enabled: false
     async:
       request-timeout: ${STUDIO_MVC_ASYNC_REQUEST_TIMEOUT:300000}
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: ${STUDIO_MULTIPART_MAX_FILE_SIZE:64MB}
+      max-request-size: ${STUDIO_MULTIPART_MAX_REQUEST_SIZE:70MB}
+      file-size-threshold: 0
   data:
     redis:
       host: ${REDIS_HOST:172.16.20.19}

@@ -101,6 +101,8 @@ export const studioMenuDescriptors: StudioMenuGroupDescriptor[] = [
     items: [
       { path: "/system", labelKey: "routes.web.system.title", captionKey: "routes.web.system.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN"] },
       { path: "/runtime-clusters", labelKey: "routes.web.runtimeClusters.title", captionKey: "routes.web.runtimeClusters.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"] },
+      { path: "/artifact-stores", labelKey: "routes.web.artifactStores.title", captionKey: "routes.web.artifactStores.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"] },
+      { path: "/python-packages", labelKey: "routes.web.pythonPackages.title", captionKey: "routes.web.pythonPackages.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"] },
       { path: "/script-environments", labelKey: "routes.web.scriptEnvironments.title", captionKey: "routes.web.scriptEnvironments.menuCaption", requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN", "PROJECT_ADMIN", "ADMIN"] },
     ],
   },
@@ -316,6 +318,26 @@ const routes: RouteRecordRaw[] = [
         meta: {
           titleKey: "routes.web.scriptEnvironments.title",
           subtitleKey: "routes.web.scriptEnvironments.subtitle",
+        },
+      },
+      {
+        path: "/artifact-stores",
+        name: "artifact-stores",
+        component: () => import("@/views/ArtifactStoresView.vue"),
+        meta: {
+          titleKey: "routes.web.artifactStores.title",
+          subtitleKey: "routes.web.artifactStores.subtitle",
+          requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"],
+        },
+      },
+      {
+        path: "/python-packages",
+        name: "python-packages",
+        component: () => import("@/views/PythonPackagesView.vue"),
+        meta: {
+          titleKey: "routes.web.pythonPackages.title",
+          subtitleKey: "routes.web.pythonPackages.subtitle",
+          requiredRoleCodes: ["SUPER_ADMIN", "TENANT_ADMIN"],
         },
       },
       {
