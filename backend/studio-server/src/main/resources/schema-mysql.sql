@@ -1464,6 +1464,32 @@ create table if not exists data_dev_script (
     key idx_data_dev_script_environment (environment_id)
 );
 
+create table if not exists so_pf_artifact_store (
+    id bigint primary key,
+    tenant_id varchar(64) default 'default',
+    deleted int default 0,
+    created_at datetime default current_timestamp,
+    updated_at datetime default current_timestamp,
+    store_name varchar(255) not null,
+    store_code varchar(64) not null,
+    provider varchar(32) not null,
+    scope_type varchar(32) default 'TENANT',
+    config_version bigint default 1,
+    endpoint varchar(1000) not null,
+    upload_url varchar(1000),
+    simple_index_url varchar(1000),
+    bucket varchar(255),
+    region varchar(128),
+    root_prefix varchar(512),
+    username_ciphertext text,
+    secret_ciphertext text,
+    verify_ssl int default 1,
+    enabled int default 1,
+    description text,
+    unique key uk_so_pf_artifact_store_code (tenant_id, store_code),
+    key idx_so_pf_artifact_store_provider (tenant_id, scope_type, provider, enabled)
+);
+
 create table if not exists so_pf_env_dep (
     id bigint primary key,
     tenant_id varchar(64) default 'default',
@@ -1473,6 +1499,7 @@ create table if not exists so_pf_env_dep (
     name varchar(255) not null,
     version varchar(128),
     script_type varchar(32) default 'JAVA',
+    artifact_store_id bigint,
     artifact_url text,
     artifact_type varchar(32),
     checksum varchar(128),
@@ -1514,6 +1541,8 @@ create table if not exists so_pf_script_env (
     enabled int default 1,
     use_application_parent int default 1,
     environment_version bigint default 1,
+    python_install_mode varchar(32) default 'LOCAL_ARTIFACT',
+    python_repository_id bigint,
     description text,
     unique key uk_so_pf_script_env_code (tenant_id, environment_code),
     key idx_so_pf_script_env_enabled (tenant_id, enabled)
