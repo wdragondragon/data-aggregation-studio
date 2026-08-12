@@ -1939,6 +1939,7 @@ export interface FileTransferFileEntryView {
 
 export interface FileTransferBrowserPageView {
   path: string;
+  initialPath?: string;
   nextCursor?: string;
   pageSize?: number;
   hasMore?: boolean;

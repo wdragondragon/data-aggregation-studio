@@ -45,6 +45,7 @@
           :has-more="hasMore"
           :page-number="cursorHistory.length"
           :selected-count="selectedEntries.length"
+          @update:datasource-id="selectSource"
           @browse="browse"
           @parent="browse(parentTransferPath(path))"
           @refresh="loadBrowser"
@@ -122,6 +123,9 @@ const nextCursor = ref<string>();
 const hasMore = ref(false);
 const loading = reactive({ sources: false, browser: false, acl: false });
 const permissions = ref<UnstructuredPermissionView>({ effectivePermissions: [] });
+let browserRequestSequence = 0;
+let permissionRequestSequence = 0;
+let initialPathPending = false;
 const aclDialogVisible = ref(false);
 const users = ref<StudioUserOption[]>([]);
 const sourceAclDraft = ref<UnstructuredAclEntryRequest[]>([]);
@@ -155,26 +159,42 @@ async function loadSources() {
   finally { loading.sources = false; }
 }
 
-async function selectSource(id: EntityId) {
-  datasourceId.value = id; resetBrowser();
-  await Promise.all([loadBrowser(), loadPermissions()]);
+async function selectSource(id?: EntityId) {
+  datasourceId.value = id ?? ""; resetBrowser();
+  if (!id) return;
+  initialPathPending = true;
+  await loadBrowser();
+  await loadPermissions();
 }
 
-function resetBrowser() { path.value = "/"; entries.value = []; selectedEntries.value = []; cursorHistory.value = [undefined]; nextCursor.value = undefined; hasMore.value = false; permissions.value = { effectivePermissions: [] }; }
+function resetBrowser() { browserRequestSequence += 1; permissionRequestSequence += 1; initialPathPending = false; loading.browser = false; path.value = "/"; entries.value = []; selectedEntries.value = []; cursorHistory.value = [undefined]; nextCursor.value = undefined; hasMore.value = false; permissions.value = { effectivePermissions: [] }; }
 
 async function browse(nextPath: string) { path.value = normalizeTransferPath(nextPath); cursorHistory.value = [undefined]; await loadBrowser(); await loadPermissions(); }
 async function loadBrowser() {
   if (!runtimeClusterId.value || !datasourceId.value) return;
+  const requestSequence = ++browserRequestSequence;
+  const requestedClusterId = runtimeClusterId.value;
+  const requestedDatasourceId = datasourceId.value;
+  const requestedPath = path.value;
   loading.browser = true;
   try {
-    const page = await studioApi.unstructuredManagement.browser.list({ runtimeClusterId: runtimeClusterId.value, datasourceId: datasourceId.value, path: path.value, cursor: cursorHistory.value[cursorHistory.value.length - 1], pageSize: 200 }, { studioSkipGlobalLoading: true });
+    const page = await studioApi.unstructuredManagement.browser.list({ runtimeClusterId: requestedClusterId, datasourceId: requestedDatasourceId, path: requestedPath, cursor: cursorHistory.value[cursorHistory.value.length - 1], pageSize: 200 }, { studioSkipGlobalLoading: true });
+    if (requestSequence !== browserRequestSequence || requestedClusterId !== runtimeClusterId.value || requestedDatasourceId !== datasourceId.value) return;
+    if (initialPathPending && requestedPath === "/" && page.initialPath && normalizeTransferPath(page.initialPath) !== "/") {
+      initialPathPending = false;
+      path.value = normalizeTransferPath(page.initialPath);
+      cursorHistory.value = [undefined];
+      await loadBrowser();
+      return;
+    }
+    initialPathPending = false;
     path.value = normalizeTransferPath(page.path || path.value); entries.value = page.entries ?? []; nextCursor.value = page.nextCursor || undefined; hasMore.value = Boolean(page.hasMore && page.nextCursor); selectedEntries.value = [];
-  } catch (error) { entries.value = []; showError(error, "浏览目录失败"); }
-  finally { loading.browser = false; }
+  } catch (error) { if (requestSequence === browserRequestSequence) { entries.value = []; showError(error, "浏览目录失败"); } }
+  finally { if (requestSequence === browserRequestSequence) loading.browser = false; }
 }
 async function nextPage() { if (!nextCursor.value) return; cursorHistory.value.push(nextCursor.value); await loadBrowser(); }
 async function previousPage() { if (cursorHistory.value.length <= 1) return; cursorHistory.value.pop(); await loadBrowser(); }
-async function loadPermissions() { if (!datasourceId.value) return; permissions.value = await studioApi.unstructuredManagement.permissions(datasourceId.value, path.value); }
+async function loadPermissions() { if (!datasourceId.value) return; const requestSequence = ++permissionRequestSequence; const requestedDatasourceId = datasourceId.value; const value = await studioApi.unstructuredManagement.permissions(requestedDatasourceId, path.value); if (requestSequence === permissionRequestSequence && requestedDatasourceId === datasourceId.value) permissions.value = value; }
 
 async function createDirectory() {
   try { const { value } = await ElMessageBox.prompt("目录名称", "新建文件夹", { inputPattern: /^(?!\.\.?$)[^\\/]+$/, inputErrorMessage: "请输入有效目录名称" }); await submitOperation("CREATE_DIRECTORY", `${path.value.replace(/\/$/, "")}/${value}`); } catch { /* cancelled */ }

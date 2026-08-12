@@ -321,6 +321,11 @@ import {
   transferProgress,
 } from "@/utils/fileTransfer";
 import { subscribeFileTransferEvents } from "@/utils/fileTransferEvents";
+import {
+  loadBoundedManualRuns,
+  mapWithConcurrency,
+  selectQueueRuns,
+} from "@/utils/fileTransferQueue";
 
 interface BrowserState {
   runtimeClusterId: EntityId | "";
@@ -333,6 +338,7 @@ interface BrowserState {
   cursorHistory: Array<string | undefined>;
   nextCursor?: string;
   hasMore: boolean;
+  initialPathPending: boolean;
 }
 
 interface QueueRow extends FileTransferRunItemView {
@@ -373,7 +379,8 @@ const policyForm = reactive({
 const recentRuns = ref<FileTransferRunView[]>([]);
 const queueRows = ref<QueueRow[]>([]);
 const queueTab = ref<QueueTab>("active");
-let queueInitialized = false;
+let queueReloadRequested = false;
+let initialQueueLoadPending = true;
 let unsubscribeEvents: (() => void) | undefined;
 
 const activeRunCount = computed(() => recentRuns.value.filter((run) => !isTerminal(run.status)).length);
@@ -396,6 +403,7 @@ function createBrowserState(): BrowserState {
     cursorHistory: [undefined],
     nextCursor: undefined,
     hasMore: false,
+    initialPathPending: false,
   };
 }
 
@@ -422,7 +430,7 @@ async function loadDatasources(side: BrowserState) {
     && item.executable !== false
     && isFileTransferDatasourceType(item.typeCode));
   if (!side.datasources.some((item) => String(item.id) === String(side.datasourceId))) {
-    side.datasourceId = side.datasources[0]?.id ?? "";
+    side.datasourceId = "";
   }
 }
 
@@ -447,10 +455,14 @@ async function handleSharedClusterChange(value?: EntityId) {
 async function handleDatasourceChange(side: BrowserState, value?: EntityId) {
   side.datasourceId = value ?? "";
   resetBrowser(side);
-  if (side.datasourceId !== "") await loadBrowser(side);
+  if (side.datasourceId !== "") {
+    side.initialPathPending = true;
+    await loadBrowser(side);
+  }
 }
 
 function resetBrowser(side: BrowserState, path = "/") {
+  side.initialPathPending = false;
   side.path = normalizeTransferPath(path);
   side.entries = [];
   side.selected = [];
@@ -471,6 +483,7 @@ async function loadBrowser(side: BrowserState) {
     return;
   }
   side.loading = true;
+  const requestedPath = side.path;
   try {
     const page = await studioApi.fileTransfer.browser.list({
       runtimeClusterId: side.runtimeClusterId,
@@ -479,6 +492,13 @@ async function loadBrowser(side: BrowserState) {
       cursor: side.cursorHistory[side.cursorHistory.length - 1],
       pageSize: 200,
     }, { studioSkipGlobalLoading: true });
+    if (side.initialPathPending && requestedPath === "/" && page.initialPath && normalizeTransferPath(page.initialPath) !== "/") {
+      side.initialPathPending = false;
+      resetBrowser(side, page.initialPath);
+      await loadBrowser(side);
+      return;
+    }
+    side.initialPathPending = false;
     side.path = normalizeTransferPath(page.path || side.path);
     side.entries = page.entries ?? [];
     side.selected = [];
@@ -573,26 +593,21 @@ async function submitTransfer() {
 }
 
 async function loadQueue() {
-  if (queueLoading.value) return;
+  if (queueLoading.value) {
+    queueReloadRequested = true;
+    return;
+  }
   queueLoading.value = true;
   try {
-    const page = await studioApi.fileTransfer.runs.list(
-      { pageNo: 1, pageSize: 20 },
+    const runs = await loadBoundedManualRuns((params) => studioApi.fileTransfer.runs.list(
+      params,
       { studioSkipGlobalLoading: true },
-    );
-    const runs = page.items
-      .filter((run) => String(run.triggerType ?? "").toUpperCase() === "MANUAL")
-      .slice(0, 10);
+    ));
     recentRuns.value = runs;
-    const itemPages = await Promise.all(runs.map(async (run) => {
+    const itemPages = await mapWithConcurrency(runs, 4, async (run) => {
       if (!run.id) return { run, items: [] as FileTransferRunItemView[] };
-      const items = await studioApi.fileTransfer.runs.items(
-        run.id,
-        { pageNo: 1, pageSize: 500 },
-        { studioSkipGlobalLoading: true },
-      );
-      return { run, items: items.items };
-    }));
+      return { run, items: await loadAllRunItems(run.id) };
+    });
     queueRows.value = itemPages.flatMap(({ run, items }) => {
       if (items.length) return items.map((item) => toQueueRow(run, item));
       return manualSnapshotRows(run);
@@ -601,8 +616,27 @@ async function loadQueue() {
     showError(error, "加载传输队列失败");
   } finally {
     queueLoading.value = false;
-    queueInitialized = true;
+    if (queueReloadRequested) {
+      queueReloadRequested = false;
+      void loadQueue();
+    }
   }
+}
+
+async function loadAllRunItems(runId: EntityId) {
+  const items: FileTransferRunItemView[] = [];
+  let pageNo = 1;
+  while (true) {
+    const page = await studioApi.fileTransfer.runs.items(
+      runId,
+      { pageNo, pageSize: 1000 },
+      { studioSkipGlobalLoading: true },
+    );
+    items.push(...page.items);
+    if (!page.items.length || items.length >= page.total) break;
+    pageNo += 1;
+  }
+  return items;
 }
 
 function toQueueRow(run: FileTransferRunView, item: FileTransferRunItemView): QueueRow {
@@ -780,9 +814,11 @@ async function clearCompleted() {
 function applyFileTransferEvent(event: FileTransferQueueEventView) {
   const type = String(event.type ?? "").toUpperCase();
   if (type === "SNAPSHOT_REQUIRED") {
-    if (!queueInitialized && !queueLoading.value) void loadQueue();
+    if (initialQueueLoadPending) return;
+    void loadQueue();
     return;
   }
+  if (queueLoading.value) queueReloadRequested = true;
   if (type === "RUN_REMOVED" && event.runId != null) {
     removeRunLocally(event.runId);
     return;
@@ -798,8 +834,7 @@ function applyRunChanged(run: FileTransferRunView, changedItems: FileTransferRun
   const runId = String(run.id);
   const nextRuns = recentRuns.value.filter((item) => String(item.id) !== runId);
   nextRuns.unshift(run);
-  nextRuns.sort((leftRun, rightRun) => String(rightRun.createdAt ?? "").localeCompare(String(leftRun.createdAt ?? "")));
-  recentRuns.value = nextRuns.slice(0, 10);
+  recentRuns.value = selectQueueRuns(nextRuns);
   const visibleRunIds = new Set(recentRuns.value.map((item) => String(item.id)));
   let rows = queueRows.value.filter((row) => visibleRunIds.has(String(row.runId)));
   const existingRunRows = rows.filter((row) => String(row.runId) === runId);
@@ -837,6 +872,8 @@ onMounted(async () => {
     await Promise.all([loadRuntimeOptions(), loadQueue()]);
   } catch (error) {
     showError(error, "加载文件传输中心失败");
+  } finally {
+    initialQueueLoadPending = false;
   }
 });
 

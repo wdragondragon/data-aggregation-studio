@@ -246,7 +246,7 @@ const activeRun = ref<FileTransferRunView>();
 const runItems = ref<FileTransferRunItemView[]>([]);
 const logVisible = ref(false);
 const activeRunRecordId = ref<EntityId>();
-let runsInitialized = false;
+let runsReloadRequested = false;
 let unsubscribeEvents: (() => void) | undefined;
 
 const runStatuses = ["QUEUED", "RUNNING", "PAUSED", "SUCCESS", "PARTIAL_SUCCESS", "FAILED", "CANCELED"];
@@ -257,6 +257,10 @@ async function loadOptions() {
 }
 
 async function loadRuns() {
+  if (loading.value) {
+    runsReloadRequested = true;
+    return;
+  }
   loading.value = true;
   try {
     const page = await studioApi.fileTransfer.runs.list({
@@ -271,7 +275,10 @@ async function loadRuns() {
     showError(error, "加载文件传输运行失败");
   } finally {
     loading.value = false;
-    runsInitialized = true;
+    if (runsReloadRequested) {
+      runsReloadRequested = false;
+      void loadRuns();
+    }
   }
 }
 
@@ -374,9 +381,10 @@ async function runAction(action: () => Promise<unknown>, message: string) {
 function applyFileTransferEvent(event: FileTransferQueueEventView) {
   const type = String(event.type ?? "").toUpperCase();
   if (type === "SNAPSHOT_REQUIRED") {
-    if (!runsInitialized && !loading.value) void loadRuns();
+    void loadRuns();
     return;
   }
+  if (loading.value) runsReloadRequested = true;
   if (type === "RUN_REMOVED" && event.runId != null) {
     const existed = runs.value.some((run) => String(run.id) === String(event.runId));
     runs.value = runs.value.filter((run) => String(run.id) !== String(event.runId));

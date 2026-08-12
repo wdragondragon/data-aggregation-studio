@@ -25,6 +25,7 @@
         :model-value="datasourceId"
         placeholder="文件数据源"
         filterable
+        clearable
         :disabled="runtimeClusterId == null || runtimeClusterId === ''"
         @update:model-value="emit('update:datasourceId', $event)"
       >

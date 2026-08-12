@@ -1528,7 +1528,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         addItems(runId: EntityId, payload: FileTransferManualItemRequest[]) {
           return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/items`, method: "POST", data: payload });
         },
-        list(params?: { pageNo?: number; pageSize?: number; taskId?: EntityId; status?: string }, config?: StudioRequestConfig) {
+        list(params?: { pageNo?: number; pageSize?: number; taskId?: EntityId; status?: string; triggerType?: string; statusGroup?: "ACTIVE" | "TERMINAL" }, config?: StudioRequestConfig) {
           return requestPage<FileTransferRunView>({
             ...config,
             url: "/file-transfer/runs",

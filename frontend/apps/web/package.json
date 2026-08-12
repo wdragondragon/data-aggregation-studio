@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "test:auth-handoff": "node ./scripts/auth-handoff.test.mjs",
     "test:runtime-cluster-selection": "node ./scripts/runtime-cluster-selection.test.mjs",
+    "test:file-transfer-queue": "node ./scripts/file-transfer-queue.test.mjs",
     "mock:assistant-ui": "node ./scripts/assistant-ui-mock-server.mjs",
     "test:assistant-coverage": "node ./scripts/assistant-coverage-audit.mjs",
     "test:assistant-ui": "node ./scripts/assistant-coverage-audit.mjs && node ./scripts/assistant-ui-smoke.mjs",
