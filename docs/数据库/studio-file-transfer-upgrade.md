@@ -16,6 +16,8 @@ MySQL 增量脚本，按日期和下列顺序执行：
 
 `backend/studio-server/src/main/resources/update/20260809/20260809-unstructured-management.sql`
 
+`backend/studio-server/src/main/resources/update/20260811/20260811-unstructured-op-audit-message.sql`
+
 SQLite 全量结构：
 
 `backend/studio-desktop-runtime/src/main/resources/schema-sqlite.sql`
@@ -23,6 +25,7 @@ SQLite 全量结构：
 启动时结构升级：
 
 `StudioSchemaUpgradeService` 对 MySQL 和 SQLite 按表、列和索引进行存在性检查，负责旧环境的幂等补齐。
+对于历史 MySQL 库，启动升级还会把 `unstructured_op_audit.message` 从旧的 `VARCHAR` 定义升级为 `TEXT`，避免远端文件操作异常消息写审计时触发截断。
 
 ## 2. 结构变化
 
@@ -98,9 +101,10 @@ show tables like 'unstructured_%';
 backend/studio-server/src/main/resources/update/20260807/20260807-file-transfer.sql
 backend/studio-server/src/main/resources/update/20260809/20260809-single-cluster-file-transfer-fields.sql
 backend/studio-server/src/main/resources/update/20260809/20260809-unstructured-management.sql
+backend/studio-server/src/main/resources/update/20260811/20260811-unstructured-op-audit-message.sql
 ```
 
-`20260807-file-transfer.sql` 是一次性交付脚本；两个 `20260809` 脚本通过 `information_schema` 和 `create table if not exists` 保护新增列、表和索引，并只为可证明同集群的历史数据回填规范字段。若环境已经由启动升级服务部分创建 20260807 结构，DBA 必须先按实际结构裁剪旧脚本，不能直接整文件重放。
+`20260807-file-transfer.sql` 是一次性交付脚本；两个 `20260809` 脚本及 `20260811` 审计字段脚本通过 `information_schema` 和 `create table if not exists` 保护新增列、表和索引，并只为可证明同集群的历史数据回填规范字段。若环境已经由启动升级服务部分创建 20260807 结构，DBA 必须先按实际结构裁剪旧脚本，不能直接整文件重放。
 
 执行完成后可收回应用账号 DDL 权限，启动升级服务只应做存在性核验。
 
@@ -129,6 +133,7 @@ select count(*) from unstructured_op_audit;
 - 七张新表的租户、项目、状态、路径和时间索引均已创建。
 - `datasource_definition.created_by` 以及任务、运行、文件项的 `runtime_cluster_id` 均存在。
 - `unstructured_path_acl.directory` 存在；旧路径规则的空值按递归目录规则兼容。
+- `unstructured_op_audit.message` 的 MySQL 数据类型为 `text`；应用仍将单条审计错误消息限制为 1,800 个字符，以保留错误摘要且避免异常内容无限增长。
 - Server 能启动且不加载文件数据源插件。
 - 创建一个草稿任务后，任务表产生记录；触发后运行、运行项和 `run_record` 关联一致。
 

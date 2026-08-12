@@ -99,6 +99,8 @@ Server 会校验数据源可执行状态、项目可用运行集群和数据源�
 
 操作枚举为 `CREATE_DIRECTORY`、`RENAME`、`MOVE`、`DELETE`。服务端统一规范化路径并拒绝 `..`、NUL 和越界路径；重命名必须保持同一父目录，移动只允许同一数据源，目标存在时拒绝覆盖；根目录不可删除，非空目录删除必须显式传递递归确认。Worker 执行真实文件操作，Server 只负责鉴权和流式转发。成功和失败变更操作都会写入 `unstructured_op_audit`；Worker 返回业务错误时保留原始错误消息，失败审计不随该运行时异常回滚。
 
+OSS 目录判空会忽略仅用于表示当前目录的 marker，并在 marker 占满当前截断页时继续读取下一页。只有当前页没有文件、子目录或公共前缀且 `truncated=false` 时，目录才被证明为空；若返回截断但没有可见条目，则按“无法证明为空”失败关闭，未确认递归删除必须拒绝。
+
 ACL 接口：
 
 ```text
@@ -111,6 +113,8 @@ GET    /api/v1/unstructured-management/users/options
 ```
 
 ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终绕过 ACL；普通成员默认允许 `BROWSE`、`DOWNLOAD`，`EDIT`、`DELETE` 默认关闭。路径权限按最具体路径计算，目录规则递归作用于后代。
+
+即时入队、预设任务校验与执行、定时触发、工作流定时触发和工作流下游续跑使用同一 ACL 边界：源路径要求 `DOWNLOAD`，目标路径要求 `EDIT`。后台执行不会使用空白线程上下文或隐式管理员权限，而是按任务/工作流创建人或原始触发用户重新加载当前租户、项目和有效角色；账户被禁用、用户被移出项目或权限被撤销后，后续触发会被拒绝。
 
 ## 3. 即时传输与运行
 
@@ -154,6 +158,7 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
 - 目录执行时展开为叶子文件项；当前文件传输不复制空目录本身。手工选择的路径没有发现任何可传输文件时，运行进入 `FAILED` 并返回 `FILE_TRANSFER_NO_FILES_DISCOVERED`，不得报告零文件成功。
 - 一个运行的 `runtimeClusterId` 固定，源和目标数据源必须适用于同一个集群。跨集群请求统一返回 `FILE_TRANSFER_CROSS_CLUSTER_DISABLED`，历史跨集群记录仅可查询。
 - 即时运行不绑定预设任务，因此返回的 `taskId` 可以为空；Worker 执行时以 `fileTransferRunId` 作为必需身份，预设任务和工作流运行仍会携带 `taskId`。
+- FTP/SFTP 数据源的登录目录在传输接口中映射为逻辑根 `/`，浏览返回和递归发现始终使用逻辑路径，不能把物理登录目录再次拼接到自身。目标路径冲突按目标文件系统能力判断大小写：Local 跟随 Worker 操作系统，SFTP/MinIO/OSS 默认大小写敏感；FTP 默认大小写不敏感，可在数据源连接配置中使用 `pathCaseSensitive=true` 覆盖。
 
 ### 3.2 运行接口
 
@@ -161,7 +166,7 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
 |---|---|---|
 | `POST` | `/api/v1/file-transfer/runs/manual` | 创建即时运行，可自动开始 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/items` | 在仍为 `QUEUED` 的即时运行中增加文件项 |
-| `GET` | `/api/v1/file-transfer/runs` | 分页查询运行，支持 `pageNo/pageSize/taskId/status` |
+| `GET` | `/api/v1/file-transfer/runs` | 分页查询运行，支持 `pageNo/pageSize/taskId/status/triggerType/statusGroup` |
 | `GET` | `/api/v1/file-transfer/runs/{runId}` | 查询运行详情 |
 | `GET` | `/api/v1/file-transfer/runs/{runId}/items` | 分页查询文件项 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/pause` | 请求暂停 |
@@ -183,6 +188,8 @@ Studio 页面不得使用集群 ID 或数据源 ID 作为正常展示。传输�
 
 运行列表的展示名称使用触发时间片段和简短触发类型，例如 `08-09 01:03 · 即时`、`08-09 02:15 · 定时`；完整运行 ID 仍保留在接口和日志定位能力中。
 
+`triggerType` 为可选的精确过滤参数，服务端按大写枚举值匹配。`statusGroup` 只接受 `ACTIVE` 或 `TERMINAL`：`ACTIVE` 对应 `QUEUED/RUNNING/PAUSED`，`TERMINAL` 对应 `SUCCESS/PARTIAL_SUCCESS/FAILED/CANCELED`，其他值返回 `BAD_REQUEST`。传输中心使用 `triggerType=MANUAL` 分页读取全部活动运行，并单独读取最近 10 个终态运行；两个查询期间发生状态迁移时按运行 ID 合并，以较新的终态快照覆盖活动快照。不得扫描全部历史记录，也不得先截取混合触发类型的首屏数据再在前端过滤。
+
 ### 3.3 队列删除与 SSE 长连接
 
 传输中心首次进入时可以读取一次当前队列，之后通过 `GET /api/v1/file-transfer/runs/events` 接收服务端事件；前端不得使用定时器持续轮询运行详情或文件项。事件使用 `text/event-stream`，主要事件如下：
@@ -195,7 +202,7 @@ Studio 页面不得使用集群 ID 或数据源 ID 作为正常展示。传输�
 | `run-removed` | `RUN_REMOVED` | 运行已从队列逻辑移除 |
 | `heartbeat` | 无业务数据 | 保活事件，客户端不应触发列表查询 |
 
-SSE 由租户和项目隔离。Worker 直接更新共享运行库后，Studio Server 会检测变化并通过该长连接推送；服务端动作（创建、暂停、恢复、取消、重试、删除）会立即发出对应事件。断线时客户端持续进行封顶退避重连，不得退化为 `setInterval` 轮询。客户端离开页面或网络断开后，Server 将已提交/event-stream 的 I/O 异常视为正常断连，不再尝试把 JSON `Result` 写入 `text/event-stream`；普通非流式 I/O 异常仍返回统一 500 响应。
+SSE 由租户和项目隔离。Worker 直接更新共享运行库后，Studio Server 会检测变化并通过该长连接推送；服务端动作（创建、暂停、恢复、取消、重试、删除）会立即发出对应事件。每次连接或重连收到 `SNAPSHOT_REQUIRED` 时，客户端都必须重新同步快照；如果快照到达时列表仍在加载，则在当前加载结束后再执行一次同步。断线时客户端持续进行封顶退避重连，不得退化为 `setInterval` 轮询。客户端离开页面、网络断开或 event-stream 异步请求超时后，Server 将已提交/event-stream 的 I/O 和 `AsyncRequestTimeoutException` 视为正常断连，不再尝试把 JSON `Result` 写入 `text/event-stream`；普通非流式 I/O 异常仍返回统一 500，普通非流式异步超时返回 `SERVICE_UNAVAILABLE`。
 
 删除语义：
 
@@ -288,7 +295,7 @@ SSE 由租户和项目隔离。Worker 直接更新共享运行库后，Studio Se
 
 为兼容已有调用端，后端也接受 ISO 本地时间分隔符 `T`，例如 `2026-07-11T02:08:57`；响应仍统一序列化为空格分隔格式。来源和目标数据源 TopN 的 `name/label` 返回数据源名称，不使用数据源 ID 作为展示文本；`count` 表示成功文件数，并包含因摘要一致而跳过的文件，不表示传输字节数。
 
-返回内容包括运行数、文件结果、字节结果、当前/平均/峰值速度、预计剩余时间、活动文件、重试、续传、后处理失败、趋势点和来源/目标数据源 TopN。
+返回内容包括运行数、文件结果、字节结果、当前/平均/峰值速度、预计剩余时间、活动文件、重试、续传、后处理失败、趋势点和来源/目标数据源 TopN。运行或文件项进入终态后，其 `currentBytesPerSecond` 固定归零；终态保存只更新终态汇总字段，不使用执行开始时的旧实体覆盖监听器已经持久化的 `peakBytesPerSecond`。最后一个指标采样点仍保留完成前实际计算出的吞吐速度，用于趋势和峰值统计。
 
 ### 6.2 通用运行指标
 

@@ -43,6 +43,8 @@ Worker 必须配置：
 
 数据源凭据仅存储在 Studio 数据源定义中并由 Worker 读取。凭据不能进入日志、异常消息、SSE 事件、任务快照或测试文档。
 
+SFTP 数据源默认只协商现代 SSH 算法。旧服务器出现 `Algorithm negotiation fail` 时，可在该数据源中开启“允许旧 SSH 算法（兼容旧服务器，降低安全性）”，对应连接参数 `allowLegacyAlgorithms=true`。该开关只影响该数据源的 Worker 连接，追加 SHA-1 KEX、`ssh-rsa`/`ssh-dss`、CBC 和 HMAC-MD5；不得作为全局默认配置，服务端完成算法升级后应关闭并重新测试。
+
 ## 3. 网络边界
 
 必须允许：
@@ -52,6 +54,9 @@ Worker 必须配置：
 - Worker 到其所绑定的 Local 路径、FTP/SFTP 服务、MinIO 或 OSS 服务。
 
 不要求不同运行集群之间互通，也不允许客户端提交 Worker URL、数据源连接串或代理地址。
+
+Server 转发到 Worker 的内部请求必须使用受管 endpoint 地址和内部 Token，并固定携带
+`X-Studio-Target-Cluster-Id`。该请求头由 Server 根据 endpoint 绑定的运行集群写入，不能由数据源或 endpoint 自定义配置覆盖；Worker 会同时校验内部 Token 和目标集群身份。
 
 反向代理需要对 SSE 和下载流保持长连接和流式响应：
 
@@ -66,15 +71,16 @@ Worker 必须配置：
 - `backend/studio-server/src/main/resources/schema-mysql.sql`
 - `backend/studio-desktop-runtime/src/main/resources/schema-sqlite.sql`
 - `backend/studio-server/src/main/resources/update/20260809/20260809-unstructured-management.sql`
+- `backend/studio-server/src/main/resources/update/20260811/20260811-unstructured-op-audit-message.sql`
 
-升级内容包括 `runtime_cluster_id` 规范字段、`datasource_definition.created_by`、`unstructured_source_acl`、`unstructured_path_acl` 和 `unstructured_op_audit`。脚本必须幂等；不删除旧的 source/target 集群字段和历史运行记录。
+升级内容包括 `runtime_cluster_id` 规范字段、`datasource_definition.created_by`、`unstructured_source_acl`、`unstructured_path_acl` 和 `unstructured_op_audit`。其中 `20260811` 脚本将历史 MySQL 的 `unstructured_op_audit.message` 升级为 `TEXT`，防止远端操作异常消息被较短的旧字段截断。脚本必须幂等；不删除旧的 source/target 集群字段和历史运行记录。
 
 ## 5. 发布顺序
 
 1. 备份数据库并执行 MySQL/SQLite/在线升级脚本。
 2. 发布 Studio Server，确认文件插件未进入 Server 类路径，启用非结构化管理 API 和 SSE。
 3. 发布 Studio Worker，确认运行集群身份、内部认证和 Local/FTP/SFTP/MinIO/OSS 插件版本一致。
-4. 检查项目对运行集群的授权，以及 FTP/OSS 数据源的适用集群绑定。
+4. 检查项目对运行集群的授权，以及 FTP/OSS/SFTP 数据源的适用集群绑定；旧 SFTP 服务器使用兼容算法时，确认仅目标数据源开启 `allowLegacyAlgorithms`。
 5. 发布 Web 静态资源，确认数据资产菜单显示“非结构化管理”。
 6. 先执行同集群 OSS 和 FTP 浏览/文件操作，再执行同集群 OSS↔FTP 文件传输和工作流触发。
 
