@@ -3,6 +3,7 @@ package com.jdragon.studio.worker.filetransfer;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
@@ -41,6 +42,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -151,6 +153,27 @@ class FileTransferNodeExecutorRetryTest {
     }
 
     @Test
+    void finishKeepsPeakThroughputPersistedByProgressListener() {
+        FileTransferRunEntity dispatchSnapshot = run();
+        dispatchSnapshot.setStatus("RUNNING");
+        dispatchSnapshot.setPeakBytesPerSecond(0L);
+
+        FileTransferRunEntity persisted = run();
+        persisted.setStatus("RUNNING");
+        persisted.setPeakBytesPerSecond(8_192L);
+        when(runMapper.selectById(901L)).thenReturn(persisted);
+        when(itemMapper.selectList(any())).thenReturn(List.of(completedItem("item-1", 10L)));
+
+        Map<String, Object> summary = executor.finish(dispatchSnapshot, List.of());
+
+        assertThat(persisted.getStatus()).isEqualTo("SUCCESS");
+        assertThat(persisted.getPeakBytesPerSecond()).isEqualTo(8_192L);
+        assertThat(persisted.getCurrentBytesPerSecond()).isEqualTo(0L);
+        assertThat(summary).containsEntry("fileTransferStatus", "SUCCESS");
+        verify(runMapper).updateById(persisted);
+    }
+
+    @Test
     void manualFileSelectionUsesExactTargetPathWhileDirectoryKeepsRelativeChildren() {
         DataSourceDefinition datasource = new DataSourceDefinition();
         datasource.setId(10L);
@@ -221,6 +244,8 @@ class FileTransferNodeExecutorRetryTest {
         TransferSpec spec = new com.jdragon.aggregation.transfer.plugin.TransferConfigurationMapper()
                 .map(com.jdragon.aggregation.commons.util.Configuration.from(rawSpec));
         TransferFileSystem source = mock(TransferFileSystem.class);
+        when(source.capabilities()).thenReturn(new StorageCapabilities(
+                true, true, true, false, false, false, Set.of("SHA-256"), true));
         when(source.stat("/source/directory")).thenReturn(directory("/source/directory"));
         when(source.listPage("/source/directory", null, 1_000)).thenReturn(new TransferFilePage(List.of(
                 file("/source/directory/root.txt", 4L),

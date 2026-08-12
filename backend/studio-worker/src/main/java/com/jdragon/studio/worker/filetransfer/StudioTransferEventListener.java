@@ -103,7 +103,7 @@ final class StudioTransferEventListener implements TransferEventListener {
         ProgressMark previous = progressMarks.put(event.itemId(),
                 new ProgressMark(event.transferredBytes(), now));
         long speed = 0L;
-        if (previous != null && now > previous.atMillis) {
+        if (!terminal(event.itemStatus()) && previous != null && now > previous.atMillis) {
             speed = Math.max(0L, (event.transferredBytes() - previous.bytes) * 1000L
                     / (now - previous.atMillis));
         }
@@ -146,9 +146,10 @@ final class StudioTransferEventListener implements TransferEventListener {
             return;
         }
         long peak = Math.max(latest.getPeakBytesPerSecond() == null ? 0L : latest.getPeakBytesPerSecond(), speed);
+        long currentSpeed = terminalRun(latest.getStatus()) ? 0L : speed;
         runMapper.update(null, new LambdaUpdateWrapper<FileTransferRunEntity>()
                 .set(FileTransferRunEntity::getTransferredBytes, transferred)
-                .set(FileTransferRunEntity::getCurrentBytesPerSecond, speed)
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, currentSpeed)
                 .set(FileTransferRunEntity::getPeakBytesPerSecond, peak)
                 .set(FileTransferRunEntity::getRetryCount, retryCount)
                 .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
@@ -193,6 +194,13 @@ final class StudioTransferEventListener implements TransferEventListener {
         return status == TransferItemStatus.SUCCESS || status == TransferItemStatus.SKIPPED
                 || status == TransferItemStatus.CONFLICT || status == TransferItemStatus.POST_ACTION_FAILED
                 || status == TransferItemStatus.FAILED || status == TransferItemStatus.CANCELED;
+    }
+
+    private boolean terminalRun(String status) {
+        return status != null && ("SUCCESS".equalsIgnoreCase(status)
+                || "PARTIAL_SUCCESS".equalsIgnoreCase(status)
+                || "FAILED".equalsIgnoreCase(status)
+                || "CANCELED".equalsIgnoreCase(status));
     }
 
     private LocalDateTime local(TransferEvent event) {

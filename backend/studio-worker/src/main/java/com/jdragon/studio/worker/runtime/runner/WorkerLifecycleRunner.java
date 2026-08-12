@@ -57,6 +57,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @ConditionalOnProperty(name = "studio.worker.lifecycle.enabled", havingValue = "true", matchIfMissing = true)
@@ -94,6 +99,8 @@ public class WorkerLifecycleRunner {
     private DispatchProtectedPayloadService dispatchProtectedPayloadService;
     private ObjectStoragePluginRuntimeResolver pluginRuntimeResolver;
     private volatile boolean acceptingTasks = false;
+    private final ExecutorService fileTransferExecutor;
+    private final Semaphore fileTransferSlots;
 
     public WorkerLifecycleRunner(DispatchTaskMapper dispatchTaskMapper,
                                  WorkerLeaseMapper workerLeaseMapper,
@@ -121,6 +128,18 @@ public class WorkerLifecycleRunner {
         this.workerAuthorizationService = workerAuthorizationService;
         this.clusterInstanceIdentity = clusterInstanceIdentity;
         this.workflowDispatchNodeResolver = workflowDispatchNodeResolver;
+        int fileTransferPoolSize = properties.getDispatch().getWorkerSchedulerPoolSize() == null
+                || properties.getDispatch().getWorkerSchedulerPoolSize() < 1
+                ? 4 : properties.getDispatch().getWorkerSchedulerPoolSize();
+        this.fileTransferSlots = new Semaphore(fileTransferPoolSize);
+        AtomicInteger threadNumber = new AtomicInteger();
+        ThreadFactory threadFactory = runnable -> {
+            Thread thread = new Thread(runnable,
+                    "studio-worker-file-transfer-" + threadNumber.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+        this.fileTransferExecutor = Executors.newFixedThreadPool(fileTransferPoolSize, threadFactory);
     }
 
     @Autowired(required = false)
@@ -389,22 +408,50 @@ public class WorkerLifecycleRunner {
                 }
                 continue;
             }
-            if (!claimTask(task)) {
+            boolean fileTransfer = isFileTransferTask(task);
+            if (fileTransfer && !fileTransferSlots.tryAcquire()) {
                 continue;
             }
+            if (!claimTask(task)) {
+                if (fileTransfer) {
+                    fileTransferSlots.release();
+                }
+                continue;
+            }
+            if (fileTransfer) {
+                DispatchTaskEntity claimedTask = task;
+                fileTransferExecutor.execute(() -> {
+                    try {
+                        executeClaimedTask(claimedTask);
+                    } finally {
+                        fileTransferSlots.release();
+                    }
+                });
+                continue;
+            }
+            executeClaimedTask(task);
+        }
+    }
+
+    private boolean isFileTransferTask(DispatchTaskEntity task) {
+        return task != null && DispatchExecutionType.FILE_TRANSFER.name().equalsIgnoreCase(task.getExecutionType());
+    }
+
+    private void executeClaimedTask(DispatchTaskEntity claimedTask) {
+            DispatchTaskEntity task = claimedTask;
             LocalDateTime startedAt = LocalDateTime.now();
             RunRecordEntity runRecord = null;
             RunLogFileService.PreparedRunLog preparedRunLog = null;
             RunLogFileService.RunLogScope runLogScope = null;
             Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
             try {
-                DispatchTaskEntity claimedTask = dispatchTaskMapper.selectById(task.getId());
-                if (claimedTask != null) {
-                    task = claimedTask;
+                DispatchTaskEntity reloadedTask = dispatchTaskMapper.selectById(task.getId());
+                if (reloadedTask != null) {
+                    task = reloadedTask;
                 }
                 if (!isAuthorized(task)) {
                     failClaimedUnauthorizedTask(task);
-                    continue;
+                    return;
                 }
                 runRecord = createRunRecord(task, startedAt);
                 preparedRunLog = runLogFileService.prepare(runRecord.getId());
@@ -418,7 +465,7 @@ public class WorkerLifecycleRunner {
                 if (!updateOwnedRunningTask(task)) {
                     log.warn("Dispatch task {} lost its claim before execution started", task.getId());
                     failUnlinkedRunRecord(runRecord, "Dispatch claim was lost before the run record was linked");
-                    continue;
+                    return;
                 }
                 runLogScope = runLogFileService.openScope(preparedRunLog);
                 log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
@@ -453,7 +500,7 @@ public class WorkerLifecycleRunner {
                     task.setPayloadJson(result);
                     if (!updateOwnedRunningTask(task)) {
                         log.warn("Dispatch task {} lost its claim before FAILED completion was committed", task.getId());
-                        continue;
+                        return;
                     }
                     RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                     publishEvent("FAILED", task, runRecord, startedAt, endedAt,
@@ -463,7 +510,7 @@ public class WorkerLifecycleRunner {
                     task.setPayloadJson(result);
                     if (!updateOwnedRunningTask(task)) {
                         log.warn("Dispatch task {} lost its claim before SUCCESS completion was committed", task.getId());
-                        continue;
+                        return;
                     }
                     RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                     publishEvent("SUCCESS", task, runRecord, startedAt, endedAt,
@@ -497,7 +544,6 @@ public class WorkerLifecycleRunner {
             } finally {
                 closeRunLogScope(runLogScope);
             }
-        }
     }
 
     @Scheduled(initialDelay = 10000L, fixedDelay = 10000L)
@@ -519,6 +565,7 @@ public class WorkerLifecycleRunner {
     @PreDestroy
     public void shutdown() {
         acceptingTasks = false;
+        fileTransferExecutor.shutdownNow();
         WorkerLeaseEntity update = new WorkerLeaseEntity();
         update.setStatus("OFFLINE");
         update.setLeaseExpiresAt(LocalDateTime.now());

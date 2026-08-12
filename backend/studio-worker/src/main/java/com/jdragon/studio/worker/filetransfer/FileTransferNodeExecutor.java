@@ -112,72 +112,76 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         StudioTransferEventListener listener = new StudioTransferEventListener(
                 run, runMapper, itemMapper, metricMapper);
         List<TransferResult> results = new ArrayList<TransferResult>();
-        try (PluginRuntimeSession pluginSession = PluginRuntimeSession.open()) {
-            TransferEngine engine = new TransferEngine(pluginSession::bind);
-            TransferPlanner planner = new TransferPlanner();
-            List<PreparedExecution> preparedExecutions = new ArrayList<PreparedExecution>();
-            long totalFiles = 0L;
-            long totalBytes = 0L;
-            int index = 0;
-            boolean retryItemMatched = retryCoreItemId == null;
-            for (TransferExecution execution : executions) {
-                String coreRunId = run.getId() + "-" + (++index);
-                TransferSpec spec = configurationMapper.map(Configuration.from(execution.spec));
-                PreparedTransfer prepared;
-                if (postActionOnly) {
-                    Optional<PreparedTransfer> retryPrepared = preparePostActionRetry(
-                            run, execution, spec, coreRunId, retryCoreItemId, runSnapshot);
-                    if (retryPrepared.isEmpty()) {
-                        continue;
+        try {
+            try (PluginRuntimeSession pluginSession = PluginRuntimeSession.open()) {
+                TransferEngine engine = new TransferEngine(pluginSession::bind);
+                TransferPlanner planner = new TransferPlanner();
+                List<PreparedExecution> preparedExecutions = new ArrayList<PreparedExecution>();
+                long totalFiles = 0L;
+                long totalBytes = 0L;
+                int index = 0;
+                boolean retryItemMatched = retryCoreItemId == null;
+                for (TransferExecution execution : executions) {
+                    String coreRunId = run.getId() + "-" + (++index);
+                    TransferSpec spec = configurationMapper.map(Configuration.from(execution.spec));
+                    PreparedTransfer prepared;
+                    if (postActionOnly) {
+                        Optional<PreparedTransfer> retryPrepared = preparePostActionRetry(
+                                run, execution, spec, coreRunId, retryCoreItemId, runSnapshot);
+                        if (retryPrepared.isEmpty()) {
+                            continue;
+                        }
+                        prepared = retryPrepared.get();
+                    } else {
+                        try (TransferFileSystem source = execution.sourceFactory.open();
+                             TransferFileSystem target = execution.targetFactory.open()) {
+                            prepared = planner.prepare(spec, source, target, coreRunId,
+                                    plannedAt(runSnapshot), listener);
+                        }
+                        if (!Boolean.TRUE.equals(runSnapshot.get("dynamicResolved"))
+                                && maps(runSnapshot.get("manualItems")).isEmpty()) {
+                            persistResolvedTaskSpec(run, prepared);
+                            runSnapshot = copy(run.getResolvedSpecJson());
+                        }
+                        prepared = selectRetryItem(prepared, retryCoreItemId);
+                        if (prepared.plan().items().isEmpty()) {
+                            continue;
+                        }
                     }
-                    prepared = retryPrepared.get();
-                } else {
-                    try (TransferFileSystem source = execution.sourceFactory.open()) {
-                        prepared = planner.prepare(spec, source, coreRunId,
-                                plannedAt(runSnapshot), listener);
-                    }
-                    if (!Boolean.TRUE.equals(runSnapshot.get("dynamicResolved"))
-                            && maps(runSnapshot.get("manualItems")).isEmpty()) {
-                        persistResolvedTaskSpec(run, prepared);
-                        runSnapshot = copy(run.getResolvedSpecJson());
-                    }
-                    prepared = selectRetryItem(prepared, retryCoreItemId);
-                    if (prepared.plan().items().isEmpty()) {
-                        continue;
-                    }
+                    retryItemMatched = true;
+                    persistPlan(run, execution, prepared);
+                    preparedExecutions.add(new PreparedExecution(execution, prepared));
+                    totalFiles += prepared.plan().items().size();
+                    totalBytes += prepared.plan().items().stream()
+                            .mapToLong(item -> item.sourceSnapshot().size()).sum();
                 }
-                retryItemMatched = true;
-                persistPlan(run, execution, prepared);
-                preparedExecutions.add(new PreparedExecution(execution, prepared));
-                totalFiles += prepared.plan().items().size();
-                totalBytes += prepared.plan().items().stream()
-                        .mapToLong(item -> item.sourceSnapshot().size()).sum();
-            }
-            if (!retryItemMatched) {
-                throw new IllegalStateException("Retry file transfer item is not part of the current run plan");
-            }
-            requireManualTransferFiles(runSnapshot, retryCoreItemId, totalFiles);
-            if (retryCoreItemId == null) {
-                updatePlanTotals(run, totalFiles, totalBytes);
-            }
-            for (PreparedExecution preparedExecution : preparedExecutions) {
-                if (isCanceled(run.getId())) {
-                    break;
+                if (!retryItemMatched) {
+                    throw new IllegalStateException("Retry file transfer item is not part of the current run plan");
                 }
-                TransferResult result = postActionOnly
-                        ? retryPostAction(run, preparedExecution.prepared,
-                                preparedExecution.execution.sourceFactory,
-                                preparedExecution.execution.targetFactory)
-                        : engine.execute(preparedExecution.prepared,
-                                preparedExecution.execution.sourceFactory,
-                                preparedExecution.execution.targetFactory,
-                                new StudioTransferCheckpointStore(run.getId(), itemMapper, objectMapper),
-                                listener,
-                                new DatabaseTransferControl(run.getId(), runMapper));
-                results.add(result);
-                persistResults(run, preparedExecution.prepared, result);
+                requireManualTransferFiles(runSnapshot, retryCoreItemId, totalFiles);
+                if (retryCoreItemId == null) {
+                    updatePlanTotals(run, totalFiles, totalBytes);
+                }
+                for (PreparedExecution preparedExecution : preparedExecutions) {
+                    if (isCanceled(run.getId())) {
+                        break;
+                    }
+                    TransferResult result = postActionOnly
+                            ? retryPostAction(run, preparedExecution.prepared,
+                                    preparedExecution.execution.sourceFactory,
+                                    preparedExecution.execution.targetFactory)
+                            : engine.execute(preparedExecution.prepared,
+                                    preparedExecution.execution.sourceFactory,
+                                    preparedExecution.execution.targetFactory,
+                                    new StudioTransferCheckpointStore(run.getId(), itemMapper, objectMapper),
+                                    listener,
+                                    new DatabaseTransferControl(run.getId(), runMapper));
+                    results.add(result);
+                    persistResults(run, preparedExecution.prepared, result);
+                }
+                runtimeContext.put("pluginRevisions", pluginSession.revisions());
             }
-            runtimeContext.put("pluginRevisions", pluginSession.revisions());
+            return finish(run, results);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             markFailed(run, "File transfer was interrupted");
@@ -191,7 +195,6 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         } finally {
             listener.flushSample();
         }
-        return finish(run, results);
     }
 
     private List<TransferExecution> buildExecutions(FileTransferRunEntity run,
@@ -589,6 +592,14 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     }
 
     Map<String, Object> finish(FileTransferRunEntity run, List<TransferResult> results) {
+        // Progress samples are persisted through field-level updates while the
+        // executor still holds the run entity from dispatch time. Reload it
+        // before the terminal write so peak throughput and other live fields
+        // cannot be overwritten by stale zero values.
+        FileTransferRunEntity latest = runMapper.selectById(run.getId());
+        if (latest != null) {
+            run = latest;
+        }
         List<FileTransferRunItemEntity> items = itemMapper.selectList(
                 new LambdaQueryWrapper<FileTransferRunItemEntity>()
                         .eq(FileTransferRunItemEntity::getRunId, run.getId()));
