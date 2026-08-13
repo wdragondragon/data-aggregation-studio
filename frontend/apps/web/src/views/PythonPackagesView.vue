@@ -97,7 +97,7 @@
 
     <el-dialog v-model="uploadVisible" title="上传 Python 安装包" width="720px">
       <el-alert
-        title="包名和版本会与文件名交叉校验；同一仓库中请使用新版本号发布，避免覆盖已有制品。"
+        title="同一包版本可分次上传不同 Python/平台的 wheel；完整文件名相同的制品会被替换。"
         type="info"
         :closable="false"
         show-icon
@@ -131,7 +131,7 @@
               :on-remove="handleFileChange"
             >
               <el-button>选择 WHL/TAR.GZ</el-button>
-              <template #tip><div class="upload-tip">可同时上传同一版本的 wheel 和源码包。</div></template>
+              <template #tip><div class="upload-tip">可上传同版本的多个 wheel（如 cp311、cp313）和源码包。</div></template>
             </el-upload>
           </el-form-item>
           <el-form-item label="启用"><el-switch v-model="uploadForm.enabled" /></el-form-item>
@@ -153,9 +153,18 @@
           <el-table-column label="文件" min-width="260">
             <template #default="{ row }">
               <div v-if="visibleFiles(row).length" class="version-files">
-                <el-tag v-for="file in visibleFiles(row)" :key="file.id" size="small" effect="plain">
+                <el-button
+                  v-for="file in visibleFiles(row)"
+                  :key="file.id"
+                  class="version-file-download"
+                  link
+                  type="primary"
+                  :disabled="!row.id || !file.id"
+                  :title="`下载 ${file.originalFileName}`"
+                  @click="downloadFile(row, file)"
+                >
                   {{ file.originalFileName }} · {{ formatFileSize(file.sizeBytes) }}
-                </el-tag>
+                </el-button>
               </div>
               <span v-else class="muted-text">无文件</span>
             </template>
@@ -169,9 +178,8 @@
               <StatusPill :label="row.enabled ? '成功' : '停用'" :tone="row.enabled ? 'success' : 'neutral'" />
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="185" fixed="right" align="center">
+          <el-table-column label="操作" width="145" fixed="right" align="center">
             <template #default="{ row }">
-              <el-button link type="primary" :disabled="!firstFile(row)" @click="downloadVersion(row)">下载</el-button>
               <el-button link @click="toggleVersion(row)">{{ row.enabled ? "停用" : "启用" }}</el-button>
               <el-button link type="danger" @click="deleteVersion(row)">删除</el-button>
             </template>
@@ -465,9 +473,11 @@ async function exportRequirements() {
   }
 }
 
-async function downloadVersion(row: EnvironmentDependencyListView) {
-  const file = firstFile(row);
-  if (!row.id || !file?.id) return;
+async function downloadFile(
+  row: EnvironmentDependencyListView,
+  file: EnvironmentDependencyFileListView,
+) {
+  if (!row.id || !file.id) return;
   try {
     const blob = await studioApi.environmentDependencies.downloadFile(row.id, file.id);
     const url = URL.createObjectURL(blob);
@@ -510,9 +520,6 @@ async function copyInstallCommand(pkg: PythonPackageSummary) {
 
 function visibleFiles(row: EnvironmentDependencyListView) {
   return (row.files ?? []).filter((item) => item.visible !== false);
-}
-function firstFile(row: EnvironmentDependencyListView): EnvironmentDependencyFileListView | undefined {
-  return visibleFiles(row)[0];
 }
 function storeLabel(id?: EntityId) {
   if (id == null) return "未绑定实际仓库";
@@ -582,6 +589,15 @@ onMounted(async () => {
 .span-2 { grid-column: span 2; }
 .dialog-alert { margin-bottom: 18px; }
 .version-files { display: flex; flex-wrap: wrap; gap: 6px; }
+.version-file-download {
+  height: auto;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: var(--el-border-radius-small);
+  white-space: normal;
+  text-align: left;
+}
 .muted-text { color: var(--el-text-color-secondary); }
 .table-pagination { display: flex; justify-content: flex-end; margin-top: 16px; }
 @media (max-width: 760px) {

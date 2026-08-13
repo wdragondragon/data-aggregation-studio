@@ -379,19 +379,35 @@ public class EnvironmentDependencyService {
         if (!hasText(name)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency name is required");
         }
-        EnvironmentDependencyEntity entity = id == null ? new EnvironmentDependencyEntity() : requireEntity(id);
-        ensureUniqueNameVersion(normalizeText(name), normalizeNullableText(version), entity.getId());
+        String normalizedName = normalizeText(name);
+        String normalizedVersion = normalizeNullableText(version);
+        String normalizedScriptType = normalizeScriptType(scriptType);
+        EnvironmentDependencyEntity entity = id == null ? null : requireEntity(id);
+        if (entity == null && ScriptType.PYTHON.name().equals(normalizedScriptType)) {
+            EnvironmentDependencyEntity sameVersion = dependencyMapper.selectByNameVersionIncludingDeleted(
+                    securityService.currentTenantId(), normalizedName, normalizedVersion);
+            if (sameVersion != null
+                    && (sameVersion.getDeleted() == null || sameVersion.getDeleted().intValue() == 0)) {
+                validateSamePythonArtifactStore(sameVersion, artifactStoreId);
+                entity = sameVersion;
+            }
+        }
+        if (entity == null) {
+            entity = new EnvironmentDependencyEntity();
+        }
+        ensureUniqueNameVersion(normalizedName, normalizedVersion, entity.getId());
         List<MultipartFile> uploadFiles = normalizeUploadFiles(files);
         if (entity.getId() == null && uploadFiles.isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency file is required");
         }
 
-        String normalizedScriptType = normalizeScriptType(scriptType);
         entity.setTenantId(securityService.currentTenantId());
-        entity.setName(normalizeText(name));
-        entity.setVersion(normalizeNullableText(version));
+        entity.setName(normalizedName);
+        entity.setVersion(normalizedVersion);
         entity.setScriptType(normalizedScriptType);
-        entity.setArtifactStoreId(artifactStoreId);
+        if (artifactStoreId != null || entity.getArtifactStoreId() == null) {
+            entity.setArtifactStoreId(artifactStoreId);
+        }
         entity.setEnabled(Boolean.FALSE.equals(enabled) ? Integer.valueOf(0) : Integer.valueOf(1));
         entity.setDescription(normalizeNullableText(description));
         if (entity.getId() == null) {
@@ -409,6 +425,15 @@ public class EnvironmentDependencyService {
         }
         invalidateReferencingEnvironments(entity.getId());
         return get(entity.getId());
+    }
+
+    private void validateSamePythonArtifactStore(EnvironmentDependencyEntity dependency, Long artifactStoreId) {
+        if (dependency.getArtifactStoreId() != null
+                && artifactStoreId != null
+                && !dependency.getArtifactStoreId().equals(artifactStoreId)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "The same Python package version must use the same artifact repository");
+        }
     }
 
     @Transactional
@@ -751,6 +776,7 @@ public class EnvironmentDependencyService {
         try {
             String originalName = normalizeOriginalFilename(file.getOriginalFilename());
             String artifactType = inferArtifactType(originalName);
+            validatePythonArtifactFilename(dependency, originalName, artifactType);
             byte[] bytes;
             try (InputStream inputStream = file.getInputStream()) {
                 bytes = StreamUtils.copyToByteArray(inputStream);
@@ -1035,6 +1061,30 @@ public class EnvironmentDependencyService {
             return "TAR_GZ";
         }
         throw new StudioException(StudioErrorCode.BAD_REQUEST, "Dependency file must be a JAR, ZIP, WHEEL or TAR.GZ");
+    }
+
+    private void validatePythonArtifactFilename(EnvironmentDependencyEntity dependency,
+                                                String fileName,
+                                                String artifactType) {
+        if (!ScriptType.PYTHON.name().equals(dependency.getScriptType()) || !"WHEEL".equals(artifactType)) {
+            return;
+        }
+        String stem = fileName.substring(0, fileName.length() - 4);
+        String[] parts = stem.split("-");
+        if (parts.length < 5) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Invalid wheel filename: " + fileName);
+        }
+        String wheelName = normalizePythonPackageName(parts[0]);
+        String expectedName = normalizePythonPackageName(dependency.getName());
+        if (!expectedName.equals(wheelName)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Wheel package name " + parts[0] + " does not match dependency name " + dependency.getName());
+        }
+        if (hasText(dependency.getVersion()) && !dependency.getVersion().equals(parts[1])) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Wheel version " + parts[1] + " does not match dependency version " + dependency.getVersion());
+        }
     }
 
     private List<MultipartFile> normalizeUploadFiles(List<MultipartFile> files) {
