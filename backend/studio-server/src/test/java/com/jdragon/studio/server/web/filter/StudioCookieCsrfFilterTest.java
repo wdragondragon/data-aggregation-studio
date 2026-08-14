@@ -74,7 +74,7 @@ class StudioCookieCsrfFilterTest {
         request.addHeader("Origin", "https://evil.example");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(request, response, new MockFilterChain());
+        filter(true).doFilter(request, response, new MockFilterChain());
 
         assertEquals(200, response.getStatus());
     }
@@ -86,7 +86,7 @@ class StudioCookieCsrfFilterTest {
         request.addHeader("Origin", "https://evil.example");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(request, response, new MockFilterChain());
+        filter(true).doFilter(request, response, new MockFilterChain());
 
         assertEquals(403, response.getStatus());
     }

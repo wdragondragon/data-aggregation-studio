@@ -1,5 +1,6 @@
 package com.jdragon.studio.worker;
 
+import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -27,6 +29,8 @@ class FileTransferPreviewExecutorTest {
         datasource.setId(101L);
         datasource.setTypeCode("local");
         when(provider.openTransferFileSystem(datasource)).thenReturn(fileSystem);
+        when(fileSystem.capabilities()).thenReturn(new StorageCapabilities(
+                true, true, true, false, false, false, Set.of("SHA-256"), true));
         when(fileSystem.stat("/in/20260807")).thenReturn(
                 new TransferFileEntry("/in/20260807", "20260807", true, 0L, 1L, null));
         when(fileSystem.listPage("/in/20260807", null, 1000)).thenReturn(new TransferFilePage(List.of(

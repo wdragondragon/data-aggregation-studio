@@ -11,8 +11,11 @@ import com.jdragon.studio.infra.mapper.EnvironmentDependencyFileMapper;
 import com.jdragon.studio.infra.mapper.EnvironmentDependencyMapper;
 import com.jdragon.studio.infra.mapper.ScriptEnvironmentDependencyRelMapper;
 import com.jdragon.studio.infra.mapper.ScriptEnvironmentMapper;
+import com.jdragon.studio.infra.service.ArtifactRepositoryPublisher;
+import com.jdragon.studio.infra.service.ArtifactStoreService;
 import com.jdragon.studio.infra.service.CloudObjectStorageService;
 import com.jdragon.studio.infra.service.EnvironmentDependencyService;
+import com.jdragon.studio.infra.service.PythonPackageDownloadCountService;
 import com.jdragon.studio.infra.service.ScriptEnvironmentRuntimeService;
 import com.jdragon.studio.infra.service.ScriptEnvironmentService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
@@ -55,6 +58,7 @@ class ScriptEnvironmentOptionsSourceSlimmingRegressionTest {
                 mock(ScriptEnvironmentDependencyRelMapper.class),
                 mock(EnvironmentDependencyMapper.class),
                 mock(EnvironmentDependencyService.class),
+                mock(ArtifactStoreService.class),
                 securityService,
                 mock(ObjectProvider.class));
         when(securityService.currentTenantId()).thenReturn("default");
@@ -85,7 +89,9 @@ class ScriptEnvironmentOptionsSourceSlimmingRegressionTest {
                 mock(ScriptEnvironmentMapper.class),
                 securityService,
                 mock(ObjectProvider.class),
-                mock(CloudObjectStorageService.class));
+                mock(CloudObjectStorageService.class),
+                mock(ArtifactRepositoryPublisher.class),
+                mock(PythonPackageDownloadCountService.class));
         when(securityService.currentTenantId()).thenReturn("default");
         when(dependencyMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.singletonList(dependency()));
 
@@ -111,6 +117,7 @@ class ScriptEnvironmentOptionsSourceSlimmingRegressionTest {
                 mock(ScriptEnvironmentDependencyRelMapper.class),
                 mock(EnvironmentDependencyMapper.class),
                 mock(EnvironmentDependencyService.class),
+                mock(ArtifactStoreService.class),
                 securityService,
                 mock(ObjectProvider.class));
         when(securityService.currentTenantId()).thenReturn("default");
