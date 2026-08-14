@@ -1,10 +1,10 @@
 # Studio 单集群文件传输与非结构化管理改造变更跟踪
 
-> 状态：实施已完成，4 GiB SFTP 扩展验收进行中
+> 状态：单集群功能与 MySQL Outbox 高可用实现已完成；4 GiB SFTP 扩展业务矩阵仍待完成
 > 目标线程 ID：`019fdb69-25b0-7bd3-a544-39738bf0e618`
 > 基线设计文档：[`studio-unstructured-file-transfer-plan-20260807.md`](./studio-unstructured-file-transfer-plan-20260807.md)
 > 需求确认日期：2026-08-09
-> 当前阶段：W6 长时间环境验收进行中
+> 当前阶段：W6 长时间环境验收收尾（Outbox W7 已完成）
 
 ## 1. 目的与使用规则
 
@@ -30,7 +30,7 @@
 - 首期支持 Local、FTP、SFTP、MinIO、OSS、Aliyun OSS；跨数据源文件移动仍通过传输中心完成。
 - 传输支持多文件并行，入队默认自动开始；摘要一致时统一跳过；源端默认保留。
 - 首期接入工作流，工作流文件传输节点必须遵循同集群校验。
-- 数据资产菜单增加“非结构化管理”，提供单源浏览、直接下载、新建目录、移动、重命名和递归删除。
+- 数据资产菜单增加“非结构化管理”，提供单源浏览、单文件上传、浏览器原生下载、目录/多选 ZIP 下载、新建目录、移动、重命名和递归删除。
 - Server 只负责鉴权、编排和流式转发，不加载文件插件、不落盘；Worker 执行真实文件操作并写入审计记录。
 - 数据源创建者和管理员维护 ACL；授权对象限定为当前项目成员。权限为 BROWSE、DOWNLOAD、EDIT、DELETE，支持源级公开、用户级授权、路径级 ALLOW/DENY/INHERIT。
 
@@ -57,7 +57,7 @@
 ### 4.2 非变更范围
 
 - 不删除历史数据库字段和历史运行记录。
-- 不实现跨集群传输、Server Relay、Worker-to-Worker 直连、文件上传、在线编辑或内容预览。
+- 不实现跨集群传输、Server Relay、Worker-to-Worker 直连、在线编辑或内容预览。
 - 不改变现有结构化采集、融合、质量和非文件数据源的业务语义。
 - 不将文件插件加载到 Server；不以 Server 本地文件系统作为回退路径。
 
@@ -71,7 +71,7 @@
 | W3 | Worker 文件管理接口和 Server 鉴权/流式转发 | 已完成 | 2026-08-09 | Local/FTP/SFTP/MinIO/OSS；Worker 执行真实文件操作 |
 | W4 | 数据源创建者、源级/路径级 ACL、操作审计 | 已完成 | 2026-08-09 | 项目成员边界、ALLOW/DENY/INHERIT、管理员/创建者绕过 |
 | W5 | 非结构化管理菜单、浏览器、ACL 页面和权限状态 | 已完成 | 2026-08-09 | `/dfs/data-aggregation-studio/unstructured-management` |
-| W6 | 后端、前端、真实 OSS/FTP/SFTP、重启和健康检查验收 | 进行中 | - | 原 OSS/FTP 小样本验收已通过；新增 4 GiB SFTP 四方向和三源文件管理矩阵仍在执行 |
+| W6 | 后端、前端、真实 OSS/FTP/SFTP、重启和健康检查验收 | 进行中 | - | OSS/FTP 小样本和 SFTP 连接、浏览、目录操作、出方向暂停/恢复已通过；4 GiB 四方向终态和三源文件管理矩阵仍在执行 |
 
 ## 6. 公共接口变更清单
 
@@ -224,7 +224,42 @@ GET    /api/v1/unstructured-management/users/options
 - 2026-08-12 00:19 页面快照：SFTP→OSS 为 10% / 106 KiB/s，SFTP→FTP 为 8% / 115 KiB/s，FTP→OSS 为 2% / 114 KiB/s；三条均显示“传输中”和 `transfer resumed`。当前环境总吞吐在并发任务间分配，完整终态需要跨小时运行。
 - 4 GiB 扩展验收未完成项：等待 SFTP→OSS、SFTP→FTP 完整提交并校验 SHA-256；随后通过页面执行 FTP→OSS、OSS→SFTP 及各自一次断点恢复；最后对三个数据源上的完整 4 GiB 文件执行下载、重命名或同源移动、删除，并复核精确文件 ACL、重复传输 `SKIPPED`、冲突 `CONFLICT`、SSE、队列 Tab、终态峰值和 TopN 文件数。以上项目完成前，W6 保持“进行中”。
 
+### W7：MySQL Outbox 高可用事件分发（已完成）
+
+- 开始时间：2026-08-12；完成时间：2026-08-13；当前状态：已完成。代码、迁移、自动化测试、真实 MySQL、统一 8000 入口、SSE 重连和双 Server 独立游标均已取得证据。
+- 修改模块：`studio-dto`、`studio-infra`、`studio-server`、`studio-worker`、Web SSE 客户端、MySQL/SQLite schema、启动升级、初始化清理和本节列出的文档。
+- 数据模型：新增不可变 `file_transfer_event_outbox` 和按 `instance_id/tenant_id/project_id` 唯一的 `file_transfer_event_consumer_cursor`；新增四个 Outbox 查询索引和三个游标索引，不增加外键、不删除历史字段。
+- 事件边界：新增 `FileTransferStateMutationService`，Server/Worker 的运行、文件项、检查点、指标、删除和异常终态通过字段级 `LambdaUpdateWrapper` 与事件同一短事务提交；整个文件传输过程不持有数据库长事务。事件类型固定为 `RUN_CREATED`、`RUN_CHANGED`、`ITEM_CHANGED`、`RUN_REMOVED`、`ITEM_REMOVED`。
+- 进度控制：运行或文件项的非终态进度默认最多每秒追加一条 Outbox，状态表更新仍正常提交；强制/终态事件立即写入并清除内存限频键。4 GiB 文件不会按 8 MiB 块逐块写事件。
+- HA/SSE：Server 默认 250 ms、500 行批次按本实例独立游标消费；同一运行批量加载最新视图，单个事件最多 200 个文件项。SSE 使用 Outbox ID 作为 `id:` 和 `data.eventId`，支持 `Last-Event-ID` 补发、5,000 条上限、过期快照和 15 秒 heartbeat；前端按十进制字符串比较雪花 ID，不增加列表轮询。
+- 清理/监控：事件默认保留 7 天；只清理终态或已删除运行的旧事件，活跃 Server 游标落后时不清理，48 小时失联游标不再阻塞。游标等于事件 ID 表示已经扫描，可以清理；`cursor-lag` 使用真实未扫描事件行数，不用雪花 ID 相减。清理复用 `studio_cluster_lock`。
+- 数据库交付：新增 `20260812-file-transfer-event-outbox.sql`；MySQL/SQLite 全量结构和在线升级同步。增量 SQL 与在线升级仅对无数据、只包含主键的半成品表执行重建；非空残缺表缺少事件、运行或游标身份列时 fail-closed，要求备份后人工回填或确认重建，绝不猜测历史事件归属。`RESET_TABLES` 先清理 Outbox，再清理运行数据。
+- 自动化证据：`FileTransferEventServiceOutboxTest` 覆盖双 Server 独立游标、补发、过期快照、发送失败重连、删除事件、201 文件项拆分、禁用旧扫描和雪花 ID 积压计数；`FileTransferStateMutationTransactionTest` 使用 SQLite trigger 验证 Outbox 失败回滚业务状态；Schema 测试验证 SQLite 新库和半成品旧库重复升级；Outbox/清理/Writer/Worker 定向测试均通过。
+- 构建兼容：修复 `StudioCookieCsrfFilterTest` 两处既有测试装配错误，以及 `ScriptEnvironmentOptionsSourceSlimmingRegressionTest` 对新增构造器依赖的 mock，未改变对应生产逻辑。
+- 接口变化：公共路径不变；`GET /api/v1/file-transfer/runs/events` 新增可选 `Last-Event-ID` 请求头语义，`FileTransferQueueEventView` 新增可选 `eventId`。不引入 Redis/Kafka/RabbitMQ，不恢复跨集群 Relay。
+- 发布影响：需要执行真实 MySQL 迁移，并按 Worker → Server → Frontend 顺序重启/发布。多 Server 必须配置唯一 `STUDIO_INSTANCE_ID`；混合版本期间 Server 保持 `LEGACY_SCAN`，所有 Worker 升级完成后才能统一切到 `OUTBOX`。
+- 回滚：停止新增传输，将所有 Server 改为 `LEGACY_SCAN` 并重启；保留 Outbox 和游标表，不允许扫描与 Outbox 双推，也不自动删除事件数据。
+- 2026-08-12 迁移安全补强：`StudioSchemaUpgradeService` 和 `20260812-file-transfer-event-outbox.sql` 对空的残缺 Outbox/消费者游标表先删除再完整重建；非空表一旦缺少 `tenant_id`、`project_id`、`run_id`、`event_type`、`occurred_at` 或 `instance_id`、`last_event_id`、`last_seen_at` 等关键身份列，明确拒绝自动升级并保留原表，避免错误归属或丢失历史事件。`FileTransferSchemaIntegrationTest` 新增两个 SQLite 反例，迁移测试共 5 项通过；部署文档与数据库升级指南已同步。无业务接口、表字段或重启要求变更，真实 MySQL 已完成启动升级、表/索引健康核验和重复迁移检查。
+- 2026-08-13 W7 真实环境验收：当前 Server `18080` 和 Worker `18081` 均为 `UP`，统一 Web 入口 `http://127.0.0.1:8000/dfs/data-aggregation-studio/` 返回 `200`，未使用 `5173`。Server HA 健康详情确认 `fileTransferEventMode=OUTBOX`、Outbox 可用、七个索引完整、`fileTransferOutboxCursorLag=0`，并记录本实例最大事件 ID、游标、最近消费和清理时间。MySQL 中两张 Outbox/消费者游标表可读，启动升级已完成。
+- 2026-08-13 统一入口 SSE 重连验收：首次连接收到 `SNAPSHOT_REQUIRED` 和事件 ID `2087614951562043394`；携带 `Last-Event-ID=2087614951562043393` 重连后真实补发事件 ID `2087614951562043394`，未退化为快照。新增 `FileTransferPublicRouteContractTest` 的 HTTP Header 透传断言，Java 17 下 4 项全部通过。
+- 2026-08-13 双 Server HA 验收：临时 Server B 使用独立 `instanceId=studio-server-ha-b` 与 Server A 共享 MySQL；两实例从同一 `Last-Event-ID` 补发同一 `RUN_CHANGED` 事件 `2087612919757312002`，各自消费者游标独立推进。Server B 已停止，未改变 Server A 运行。
+- 2026-08-13 事件量验收：真实 4 GiB FTP→OSS Run 的 Outbox 统计为 `ITEM_CHANGED=18`、`RUN_CHANGED=40`、合计 58 条，没有按 8 MiB 传输块产生数十万条事件。
+- 2026-08-13 Outbox 延迟与热路径收口：直连 Server 和统一 `8000` 入口的初始总耗时都约 2 秒，排除 Nginx 为主因。线程转储确认默认唯一调度线程阻塞在每 250 ms 执行的游标查询、空轮询游标更新和全范围 `count(*)` 滞后统计。现为 Outbox 消费/心跳/清理配置两个专用调度线程，按作用域缓存本实例游标；空轮询只执行一次 `(tenant_id, project_id, id)` 索引读取，不更新游标、不查询最大 ID、不执行滞后计数；游标保活和精确积压统计移至 15 秒心跳，批次满载时仍立即计算真实积压。
+- 2026-08-13 统一入口 P95 证据：12 个创建/删除隔离样本全部清理。创建事务自身 P95 为 `2080.2 ms`；从创建响应返回到 SSE 到达的 P95 为 `440 ms`；按 Outbox `occurredAt` 到统一入口 SSE 到达计算的端到端 P95 为 `949 ms`，满足不超过 1 秒的 W7 目标。Controller 同时设置 `Cache-Control: no-cache`、`X-Accel-Buffering: no` 和 `Connection: keep-alive`，路由契约测试覆盖响应头和 `Last-Event-ID` 透传。
+- 2026-08-13 最终 HA/重放复验：临时 Server B 使用独立 `instanceId=studio-server-ha-2` 与主 Server 同时收到同一 `run-created` 事件且 SSE ID 完全一致；断开连接后创建事件，再携带旧 `Last-Event-ID` 重连，真实补发更新事件且 ID 单调递增。临时运行均已删除，临时 Server 已关闭。最终主 Server/Worker 为 `UP`，HA 为 `UP`，Outbox 可用、七个索引完整、游标滞后为 `0`，专用调度线程已运行。
+- 2026-08-13 最终自动化证据：Outbox、事务、Schema、单集群、Worker 恢复、健康、SSE 路由和调度器共 14 个定向测试类、92 项测试全部通过；`FileTransferEventServiceOutboxTest` 13 项包含空轮询不写游标、不查询最大 ID或滞后计数的回归。前端队列回归、`vue-tsc --noEmit` 和 4331 模块生产构建通过，`git diff --check` 通过。
+- 2026-08-13 完成审计补充：按验收文档的宽范围命令重新执行文件传输、非结构化管理、公共异常、Worker 资源版本和事件回归，共生成 31 个测试报告、164 项测试，结果为 0 失败、0 错误、0 跳过。首次执行发现 `FileTransferPreviewExecutorTest` 的 Mockito 文件系统未声明 SPI 必备的 `StorageCapabilities`，导致测试桩返回 `null`；已仅为测试桩补充大小写敏感和 SHA-256 能力声明，生产代码、接口和数据库均未改变，定向测试及宽范围套件重跑通过。前端队列回归、`vue-tsc --noEmit` 和 4331 模块生产构建再次通过，无需重启 Server、Worker 或 Frontend。
+- 2026-08-12 Worker 重启断点恢复：明确“旧 Dispatch 执行所有权失效”不等于“文件传输 Run 或断点失效”。Worker 启动或执行线程被中断时，先以 CAS 关闭旧 Dispatch 和旧运行记录，再在同一短事务中将非暂停、非取消、非完成的 Run 置回 `QUEUED`、追加 `RUN_CHANGED` Outbox，并创建新的 `FILE_TRANSFER` Dispatch；checkpoint、目标 `.part`、源快照和文件项保持不变。新 Worker 只有在运行/文件项/源目标身份、源快照、临时路径、确认偏移和 `.part` 长度全部匹配后才从 `confirmedOffset` 继续。`PAUSED` 保持暂停，`CANCELED` 和已完成运行不恢复，校验失败明确失败而不盲目覆盖。
+- 2026-08-12 真实重启证据：同一 4 GiB FTP→OSS 运行连续经历两次 Worker 重启，两次都关闭旧 Dispatch、创建新 Dispatch 并自动启动；第二次恢复仍保留 `3,472,883,712 / 4,294,967,296` 字节，Run 和文件项立即显示 `resumedBytes=3,472,883,712`、`resumedFiles=1`，两个用户主动暂停的 SFTP 文件项没有被自动拉起。当前 SHA-256 完整性实现不会重复写入目标端已确认字节，但源端不能恢复摘要内部状态时，会重新读取断点前缀以重建整文件摘要；恢复准备阶段消息明确为“断点已恢复，正在重建校验摘要”，实时传输速度不把历史断点字节计入。核心续传测试 11 项、Worker/事务/重启恢复测试 23 项均为 0 失败；无接口、数据库或 SQL 变化，需要重启 Worker。
+
 ## 11. 测试与验收记录
+
+- 2026-08-14 非结构化上传与 ZIP 下载：公共端新增上传前 `stat`、原始 `application/octet-stream` 单文件上传和归档下载接口；上传要求固定 `Content-Length`，缺失返回 411，冲突返回 409 并由页面确认覆盖。单个普通文件继续走既有原文件下载，单选目录或多选文件/目录由 Worker 递归流式生成 ZIP，保留空目录、分页目录和共同祖先相对路径，父目录选中时去除重复后代。Server 仅执行 ACL/项目/集群/数据源校验和流转发，文件内容仍由 Worker 通过 `TransferFileSystem` 访问；未新增表、字段或 Liquibase，上传与归档复用 `unstructured_op_audit` 的 `UPLOAD`、`DOWNLOAD_ARCHIVE` 操作类型。
+- 2026-08-14 自动化验证：Java 17 下 `RuntimeDatasourceProbeExecutorFileOperationTest`、`RuntimeEndpointHttpClientTest`、`UnstructuredManagementOperationAuditTest`、`UnstructuredManagementControllerContractTest`、`InternalDatasourceProbeControllerTest` 覆盖上传临时提交/覆盖/abort、固定长度流式转发、ZIP 递归分页/空目录/去重、公共 411/归档响应和 Worker 内部身份协议。Web SDK 和非结构化页面增加上传进度、覆盖确认、下载分流与重复提交保护，并通过 `npm run build:web` 验证。完整命令和最终数量以同日验收记录为准。
+- 2026-08-14 原生下载优化：新增认证控制接口 `POST /api/v1/unstructured-management/download-tickets` 和唯一匿名数据接口 `GET /api/v1/unstructured-management/download/native`。Server 在签发与消费时分别执行路径、文件状态和 `DOWNLOAD` ACL 校验；票据由 32 字节安全随机值生成，Redis 只保存 SHA-256 摘要，120 秒有效并通过原子 `GETDEL` 只能消费一次。Redis 不可用时返回 `503`，不使用进程内存降级。消费时以票据中的用户、租户和项目重建执行上下文，签发后的权限撤销、文件删除或类型变化会被二次校验发现。
+- 2026-08-14 原生下载链路：非结构化页面只等待票据创建，随后用临时 `<a>` 发起普通浏览器 GET，删除页面内 Blob、Object URL 和文件大小相关内存占用；旧 `/download`、`/download/archive` 及 SDK Blob 方法继续兼容，旧单文件 SDK timeout 调整为 `0`。单文件保留准确 `Content-Length` 和浏览器百分比，实时 ZIP 不预生成、不落盘且无总长度；当前不支持 Range、断点续传或票据重用。
+- 2026-08-14 下载超时与代理：Server/Worker 只对下载路径关闭 Servlet 异步总超时，其他接口保留全局 5 分钟；Server 到 Worker 使用 30 分钟响应字节读取空闲超时。WSL `nginx-local` 增加精确原生下载 location，保持 `proxy_pass http://host.docker.internal:18080`，关闭缓冲/缓存并配置 30 分钟读写空闲超时；专用日志不记录查询串。`nginx -t`、reload 和 `nginx -T` 均已确认生效。
+- 2026-08-14 原生下载自动化：Java 17 下票据、运行时 HTTP 流、非结构化文件操作与审计、Controller 契约、精确匿名安全边界和 Worker 内部接口定向套件共 57 项通过，0 失败、0 错误（Infra 33、Server 16、Worker 8）；Web 静态回归、`vue-tsc --noEmit` 和 Vite 生产构建通过（4331 个模块）。覆盖票据长度、哈希存储、过期/重放、Redis 故障、消费时上下文重建与二次校验、公共接口响应头、成功体直接流转、读取空闲超时、错误体上限、仅原生 GET 匿名放行，以及页面不再使用 Blob。未新增数据库表、字段、索引、SQL 或 Liquibase。
 
 完整命令、测试类、真实运行证据、页面交互和残余风险记录在 [`studio-file-transfer-acceptance-record-20260807.md`](../测试/文件传输/studio-file-transfer-acceptance-record-20260807.md)。原 OSS/FTP 小样本聚焦验收已通过；新增 4 GiB SFTP 扩展矩阵仍在执行。本次没有把正在运行或尚未执行的项目表述为绿色，也没有把未执行的 Studio 全仓非文件传输测试表述为绿色。
 
@@ -236,11 +271,13 @@ GET    /api/v1/unstructured-management/users/options
 | 插件能力差异 | FTP/SFTP/OSS 对移动、删除和目录语义不同 | FTP/OSS 真实通过；SFTP/MinIO 保留部署环境矩阵 | 部分环境待验收 |
 | ACL 兼容 | 历史数据源没有创建者 | 空值仅管理员可维护；真实路径作用域和在线字段通过 | 已验证 |
 | 实时列表 | SSE 断线、重连和事件顺序 | 事件/快照恢复，无轮询；正常断连不写错误响应 | 已验证 |
+| Outbox HA | 多 Server 独立游标、断线补发、事务回滚、事件清理和 P95 | 自动化、真实 MySQL 健康、统一入口 P95/重连、双 Server 同事件投递和 4 GiB 事件量均已取得证据 | 已完成；生产负载和滚动发布仍属部署扩展验收 |
 | 数据库升级 | MySQL/SQLite/在线脚本不一致 | 三套结构和 20260807/20260809 增量脚本做 schema 测试 | 已验证 |
 | 生产规模 | 10 GiB、10 万小文件和反向代理参数依赖部署环境 | 作为发布环境扩展验收，不扩大当前功能边界 | 待环境验收 |
 | 日志依赖提示 | 启动时 `spring-jcl` 提示类路径仍存在 `commons-logging.jar` | 不影响本次传输结果；后续按依赖树单独治理，避免与功能修复混改 | 待依赖治理 |
 | SFTP 旧服务端算法 | 个别服务端可能只提供 SHA-1、ssh-rsa、CBC 或 HMAC-MD5 | 默认保持现代算法；仅对确认无法升级的单个数据源显式开启 `allowLegacyAlgorithms`，并在服务端升级后关闭 | 已提供兼容开关，待矩阵验收 |
 | 4 GiB SFTP 吞吐 | 当前真实环境单条 SFTP 传输约为数百 KiB/s，完整四方向矩阵耗时较长 | 保持任务运行并以接口字节计数和 UI 进度交叉核对；完成前不判定成功 | 进行中 |
+| 重启恢复摘要重建 | checkpoint 保存了目标确认偏移，但标准 JCA SHA-256 摘要内部状态未持久化；恢复时可能重新读取源端断点前缀 | 不重复写目标；页面显示已恢复字节和恢复校验消息。后续如需缩短超大文件恢复准备时间，应单独评审可版本化、可校验的摘要状态持久化 | 功能已验证，性能待扩展优化 |
 
 回滚原则：先停止新入口和调度，再回滚应用代码；保留新增字段、表和审计记录，禁止删除历史传输记录。必要时隐藏前端菜单并保留只读查询。
 
@@ -253,7 +290,35 @@ GET    /api/v1/unstructured-management/users/options
 | 2026-08-09 | 增加非结构化管理和 ACL | 已确认 | 用户需求 |
 | 2026-08-09 | SSE 长连接、队列手动删除、无默认数据源 | 已确认 | 用户需求 |
 | 2026-08-09 | FTP 测试数据源纳入真实操作验收 | 已确认 | 用户补充 |
+| 2026-08-12 | 不引入新中间件，使用 MySQL Outbox 实现多 Server SSE HA | 已确认 | 用户实施计划 |
+| 2026-08-12 | Worker 意外退出或重启后应自动复用有效断点继续传输；旧 Dispatch 关闭仅用于隔离执行所有权 | 已确认并实现 | 用户确认 |
 
 ## 14. 最终完成标准
 
-单集群模型、历史兼容、非结构化管理、ACL、前端交互、数据库三套结构、原 OSS/FTP 小样本、接口/部署/测试文档以及既有健康检查已经完成。当前新增完成标准还包括 4 GiB 文件的 SFTP→OSS、SFTP→FTP、FTP→OSS、OSS→SFTP 四方向终态成功和 SHA-256 一致、每个方向一次断点恢复、三个数据源上的 4 GiB 下载/修改/删除、精确文件 ACL、队列与指标复核；这些项目完成并通过最终构建、健康检查和 `git diff --check` 后，W6 才能重新标记为“已完成”。
+单集群模型、历史兼容、非结构化管理、ACL、前端交互、原 OSS/FTP 小样本和 W7 MySQL Outbox 高可用实现/本地环境验收已经完成。W6 仍需完成 4 GiB 四方向终态、SHA-256、断点恢复、三源下载/修改/删除、精确文件 ACL、队列与指标复核；这些是独立的大文件业务矩阵，不能用 Outbox 验收替代。完成 W6 残余项目并通过最终构建和 `git diff --check` 后，整体文件传输验收目标才能标记完成。
+
+## 15. W8：低速实时进度与 Worker 失活接管
+
+- 实施时间：2026-08-13；状态：代码与自动化已完成，真实 4 GiB 环境复验中。
+- 低速进度：`TransferEngine` 在一个 8 MiB 块内部按 `checkpointIntervalMillis`（默认 1 秒）发出实时观测事件。`observedBytes` 表示当前进程已经从源流读取并交给目标写入调用的字节，只用于当前页面进度和速度观测；`transferredBytes` 与 checkpoint 继续只表示目标端完成整块写入后的确认偏移。
+- 指标语义：文件项速度按相邻实时观测样本计算；运行级 `currentBytesPerSecond` 和 `peakBytesPerSecond` 可以使用实时观测增量，运行累计 `transferredBytes` 仍使用确认字节。首个实时样本可为 `0 B/s`，第二个及后续样本开始形成有效速度；终态当前速度仍归零。
+- SSE/前端：Outbox 的 `ITEM_CHANGED` payload 只携带 `live`、`confirmedBytes`、`observedBytes` 和 `liveBytesPerSecond`。Server 只对仍为 `TRANSFERRING` 且确认偏移未超过事件基线的文件项叠加实时值，防止迟到事件覆盖终态；队列和运行详情使用实时字节显示，不增加轮询。
+- Worker 重启恢复：孤立运行不再把任意 `QUEUED/RUNNING` Dispatch 都视为有效所有者。当前实例旧 `bootId` 可立即接管；其他实例只有在对应 `worker_lease` 不在线或心跳/租约失效后才可接管；无实例身份的历史 Dispatch 仍以其 Dispatch 租约为保守边界。
+- 围栏与幂等：失活 `RUNNING` Dispatch 使用 `id + status + claimToken + workerBootId + workerGroupCode + leaseOwner + workerInstanceId + leaseExpiresAt` 快照进行 CAS 围栏。只有 CAS 成功后才把 Run 置回 `QUEUED` 并创建新 Dispatch；并发恢复或旧 Worker 状态变化会使 CAS 失败并等待下一轮，不产生第二个执行所有者。
+- 断点安全：恢复不修改 `checkpointJson`、确认偏移、源快照或目标临时文件。新执行仍由传输核心校验 checkpoint 与临时目标长度后从 `confirmedOffset` 继续；块内 `observedBytes` 不会被持久化为断点。
+- 自动化结果：Java 17 下核心 `TransferEngineLocalIntegrationTest` 12 项通过；Worker 恢复和实时指标 29 项通过；Outbox/SSE/状态门面 22 项通过；Web 队列回归、`vue-tsc --noEmit` 和生产构建通过；`git diff --check` 通过。
+- 数据库/接口影响：无新增表、字段、索引或 SQL；无公共接口路径变化。文件项视图新增可选 `observedBytes`、`live`，旧前端可忽略。需要重启 Worker、Server 并重新发布 Web 才能启用完整链路。
+- 残余验收：需在统一 `8000` 入口以真实低速 4 GiB 传输观察至少两个实时样本，并在活动传输中重启 Worker，确认旧 Dispatch 被围栏、新 Dispatch 自动认领、确认偏移继续增长且最终摘要一致。
+- 2026-08-13 低速与恢复边界补强：新增 `activityBytes` 作为速度和活动状态的累计口径。它包含断点校验阶段重新读取源文件前缀和恢复后当前块的读取活动，但不推进 `transferredBytes`、不写入 checkpoint，也不改变页面可恢复基线；断点恢复后的块完成事件继续携带累计活动值，避免速度基线回退到确认偏移。
+- 2026-08-13 取消语义补强：断点校验回调因 `InputStream` 接口限制包装为 `IOException` 时，传输核心沿 cause 链识别 `TransferCanceledException`，最终文件项和运行结果保持 `CANCELED`，不进入普通失败重试；取消仍按既有策略清理临时目标和 checkpoint。
+- 2026-08-13 定向验证：Java 17 下 `TransferEngineLocalIntegrationTest` 最终 15 项、Worker `FileTransferNodeExecutorRetryTest` 9 项、`StudioTransferEventListenerTest` 8 项和 `WorkerLifecycleRunnerClusterTest` 23 项全部通过；前端队列回归、`vue-tsc --noEmit` 和 4331 模块生产构建通过；`git diff --check` 通过。没有新增数据库表、字段、索引、SQL、公共接口路径或响应结构，不改变结构化采集任务；发布需要重启 Worker、Server 并重新发布 Web。
+- 2026-08-13 暂停任务重启一致性：暂停命令现在在同一短事务中将 Run 和活动文件项统一置为 `PAUSED`，并把 Run/文件项当前速度归零；Worker 收到暂停后的迟到 `TRANSFERRING` 事件不能覆盖暂停状态。为兼容修复发布前留下的历史状态，Worker 启动和定时所有权协调遇到 `PAUSED` Run 时，会把残留的 `QUEUED/DISCOVERING/TRANSFERRING/VERIFYING/COMMITTING/POST_ACTION` 文件项归一为 `PAUSED` 并追加 Outbox 事件，但不会创建恢复 Dispatch。归一化不修改 `checkpointJson`、`transferredBytes`、源快照或目标临时文件，用户后续点击恢复仍从确认断点继续。
+- 2026-08-13 真实页面复验：Server `18080`、Worker `18081` 均为 `UP`，统一 `8000` 入口返回 `200`，`5173` 未监听。Run `2087201024718897154` 重启前历史文件项错误显示 `3.23 GiB / 4 GiB`、`348 KiB/s`、`传输中`；加载修复并经过一个协调周期后，页面显示相同确认进度、`0 B/s`、`已暂停`，恢复按钮保持可用。未点击恢复、取消或删除，未创建新 Dispatch，checkpoint 和 `.part` 临时目标均保留。归一化先以 `status=PAUSED` 条件更新锁定 Run；并发恢复先赢时安全退出，归一化先赢时恢复等待事务提交后继续。`FileTransferRunRemovalTest` 12 项与上述 Worker 40 项合计 52 项通过，0 失败、0 错误；本次无数据库更新。
+- 2026-08-13 schema v2 快速恢复：文件传输核心保存可恢复 SHA-256 状态及头部/边界轻量指纹，默认 FAST 恢复不再完整重读大文件前缀。旧断点或不可信断点自动清理后从零传输，STRICT 仅作为显式兼容模式；最终摘要失败时清理后只进行一次从零重传。Studio SSE/DTO/页面区分恢复校验进度和校验速度，监听器在 `RESTARTED_FROM_ZERO` 时清零旧进度统计。无数据库结构变化，不影响结构化采集任务；需重启 Worker、Server 并发布 Web 后生效。
+- 2026-08-13 schema v2 最终自动化复验：Java 17 下 `TransferEngineLocalIntegrationTest` 18 项和 `FileTransferCliTest` 3 项通过；Studio 的 `FileTransferEventServiceOutboxTest`、`FileTransferStateMutationTransactionTest`、`FileTransferNodeExecutorRetryTest`、`StudioTransferEventListenerTest`、`WorkerLifecycleRunnerClusterTest` 合计 61 项通过，均为 0 失败、0 错误。Web 文件传输队列回归、`vue-tsc --noEmit` 和生产构建通过，`git diff --check` 通过。最终版 `file-transfer-core`、`file-transfer-plugin`、`file-transfer-cli` 已安装到本地 Maven 仓库。本轮没有重启 Server、Worker 或 Web，没有暂停、恢复、取消、删除或清理 Run `2087201024718897154`，也没有修改其 checkpoint 或 `.part`；该历史任务仍是 schema v1，必须在新版本发布后用新产生的 schema v2 checkpoint 单独执行真实 4 GiB 快速恢复复验。
+- 2026-08-13 schema v2 第一次真实接管：新 4 GiB SFTP 到 FTP 运行在 Worker 重启后由新 Dispatch 实际领取，但恢复消息为 `temporary target offset did not match checkpoint; transfer restarted`，确认进度发生回退。新 Worker 随后产生包含 `confirmedOffset`、`checksumStateOffset`、`BC-SHA256-ENCODED-V1`、头部指纹和边界指纹的完整 schema v2 checkpoint。
+- 2026-08-13 schema v2 第二次真实接管：重启前 checkpoint 的确认偏移为 `620,756,992` Byte，重启后仍因临时目标长度大于确认偏移而从零开始。根因是异常退出时目标 `.part` 可能已经多写入一个尚未确认的块内尾部，旧实现却要求物理长度严格等于 durable checkpoint；这会错误丢弃有效 v2 checkpoint。
+- 2026-08-13 未确认尾部对齐修复：文件传输专用 `TransferFileSystem` 增加 `recoverWriteSession(...)` 能力，不修改结构化采集继续使用的 `FileHelper` 接口及语义。Local 和 SFTP 将 `.part` 截断到确认偏移；FTP 使用 REST 从确认偏移覆盖未确认尾部；临时目标短于 checkpoint、长于源文件或适配器无法安全对齐时继续从零重传；OSS/MinIO 未声明该能力，保持安全回退。
+- 2026-08-13 自动化回归：新增 `fastResumeDiscardsOnlyTheUnconfirmedTemporaryTail`，验证物理临时目标长于 checkpoint 时只丢弃未确认尾部、从确认偏移续传并得到正确最终内容。Java 17 下 `TransferEngineLocalIntegrationTest` 共 19 项通过，FTP/SFTP 适配器及依赖模块打包成功；运行时 Local、FTP、SFTP 插件包已同步。无数据库表、字段、索引或 SQL 变化。
+- 2026-08-13 修复后真实快速恢复：重启前 schema v2 checkpoint 确认偏移为 `889,192,448` Byte；新 Worker 接管后消息为 `checkpoint restored; transfer resumes from confirmed offset`，恢复字节为 `905,969,664`，确认进度继续增长到至少 `1,015,021,568` Byte，未回零且未进入 `RESTARTED_FROM_ZERO`。统一 `8000` 页面随后连续取样从约 `1.20 GiB / 30%` 增长到 `1.23 GiB / 31%`，速度从瞬时 `41.9 KiB/s` 回升到 `312 KiB/s`，状态保持“传输中”，证明 Worker 正在执行且 SSE 持续更新。
+- 2026-08-13 环境结论：schema v2 快速恢复关键路径已通过真实 4 GiB Worker 重启复验；Server、Worker 均为 `UP`，本地集群在线 Worker 数为 `1`，Web 仅使用统一 `8000` 入口。该 4 GiB 运行尚未到终态，最终 SHA-256、checkpoint 清理、临时 `.part` 提交、终态速度归零、峰值保留和队列 Tab 自动迁移仍待运行完成后复核；四方向大文件矩阵仍保持“进行中”。

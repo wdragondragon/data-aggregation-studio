@@ -305,6 +305,10 @@ POST /api/v1/file-transfer-tasks/{id}/trigger
    - 保存文件级规范运行集群、源/目标路径、源快照、临时写会话、状态、字节进度、摘要、重试、错误、时间和后处理结果；历史方向和通道字段不参与新运行决策。
 4. `file_transfer_metric_sample`
    - 保存运行中的时间序列字节、文件计数、瞬时速度、并发和重试采样。
+5. `file_transfer_event_outbox`
+   - 追加式保存文件传输运行和文件项的状态变化事件；只保存租户、项目、运行、文件项引用和少量脱敏补充信息，不保存文件内容、数据源凭据、Token、Worker 地址或完整运行快照。
+6. `file_transfer_event_consumer_cursor`
+   - 保存每个 Studio Server 实例在每个租户/项目作用域上的 Outbox 扫描位置；它不是浏览器确认位点，也不在多个 Server 间竞争消费。
 
 实施时沿用 Studio 现有实体、Mapper、SQL 迁移、租户/项目隔离、逻辑删除和时间字段规范。任务定义中的复杂规则和运行快照使用 JSON 类型处理器，文件级高频聚合字段使用独立数值列，避免指标页面扫描 JSON。
 
@@ -366,6 +370,28 @@ CANCELED
 - 开始、结束、耗时、冲突处理和源端后处理结果。
 
 活跃进度每秒更新，指标快照每 `5` 秒持久化。`/run-metrics` 接入 `FILE_TRANSFER` 的运行摘要、趋势和 TopN，同时新增 `/file-transfer-metrics` 专属页面展示文件传输的字节、速度和文件明细。日志继续复用 Studio 现有 Worker 日志文件和共享对象存储归档机制。
+
+### 6.8 MySQL Outbox 与多 Server SSE
+
+文件传输事件的可靠存储为 MySQL `file_transfer_event_outbox`，不引入 Redis、Kafka、RabbitMQ 或其他事件中间件。Outbox 使用 MyBatis-Plus `ASSIGN_ID` 生成单调的雪花 ID，事件类型固定为：
+
+```text
+RUN_CREATED
+RUN_CHANGED
+ITEM_CHANGED
+RUN_REMOVED
+ITEM_REMOVED
+```
+
+运行、文件项、检查点和指标状态的每次持久化都由 `FileTransferStateMutationService` 在同一短事务内完成“业务表字段级更新 + Outbox 追加”。整个文件传输过程不能包在数据库事务中。进度更新仍正常写业务表，但同一运行或文件项默认每 `1` 秒至多追加一条进度事件；创建、删除、暂停、恢复、失败和所有终态事件强制立即追加。终态保存必须重新读取数据库最新状态，只更新终态汇总字段，保留已写入的峰值速度，并将当前速度和活动文件数归零。
+
+每个 Server 使用唯一的 `studio.instance-id`，并在 `file_transfer_event_consumer_cursor` 中维护独立的 Server 级游标。因此同一已提交 Outbox 事件可由所有 Server 读取并投递给各自本机的 SSE 连接。浏览器连接另有内存游标 `lastSentEventId`，二者职责严格分离：Server 游标只证明该实例已扫描，浏览器游标才用于断线重放。
+
+默认模式 `OUTBOX` 下，Server 每 `250 ms` 按租户/项目和本实例游标读取最多 `500` 条 Outbox，按运行合并、重新加载最新安全视图后发送给本机连接。一个 SSE 最多包含 `200` 个文件项，超过时按事件 ID 拆分。正常模式不得再通过扫描 `file_transfer_run` 和 `file_transfer_run_item` 生成实时事件；旧扫描逻辑仅保留为显式 `LEGACY_SCAN` 回滚模式，两个模式不得同时启用。
+
+SSE 的 `id:` 和 `FileTransferQueueEventView.eventId` 均为 Outbox 雪花 ID。首次连接没有 `Last-Event-ID` 时，Server 返回 `SNAPSHOT_REQUIRED` 和当前最大 ID；浏览器在完成一次快照加载后保存该 ID。重连携带 `Last-Event-ID` 后，Server 从该 ID 后补发。请求 ID 早于保留窗口、晚于当前最大 ID，或补发超过默认 `5000` 条时，Server 改发快照事件。浏览器按十进制字符串比较 ID，忽略重复或倒序事件；心跳约每 `15` 秒发送一次，不推进业务游标。
+
+Outbox 默认保留 `7` 天。由全局 `ClusterLockService` 锁定的清理任务每小时按批删除最多 `1000` 条：仅删除对应运行已经终态或已逻辑删除、早于保留期、且已被所有活跃 Server 游标扫描的事件。超过 `48` 小时未更新的实例游标不阻塞清理，其浏览器连接以后通过快照恢复。健康检查和 Micrometer 指标必须关注事件写入、合并抑制、轮询、发布、补发、发送失败、清理数量与真实未扫描行数；不得把雪花 ID 的数值差误当作积压数量。
 
 ## 7. 阶段三：前端交互
 
@@ -492,6 +518,8 @@ CANCELED
 - Worker 定时清理过期临时文件、multipart 会话和检查点。暂停与可重试失败默认保留 `24` 小时，取消默认清理。
 - 增加 Worker 并发、吞吐、失败、活动临时文件、检查点积压、SSE 连接和清理失败等运维指标。
 - 部署前评估 Worker 到各文件源的网络带宽、连接数和超时，以及 Server 的 SSE、下载流反向代理和负载均衡空闲超时。
+- 文件传输事件部署顺序固定为：备份 MySQL 并执行 Outbox 增量 SQL，先升级所有 Worker 使状态写入同时追加 Outbox，再升级所有 Server 并切换 `event-mode=OUTBOX`，最后部署 Web 和第二个 Server 验证独立游标。切换到 `OUTBOX` 前不得保留旧 Worker 直接写传输状态，否则新 Server 会遗漏事件。
+- 回滚时先停止新增文件传输任务，将所有 Server 统一切换为 `event-mode=LEGACY_SCAN` 并重启；保留 Outbox 与游标表、历史运行、文件项、指标和审计记录，禁止在回滚时删除结构。修复后按“Worker 先、Server 后”重新切回 `OUTBOX`。
 
 ## 10. 默认假设与范围边界
 
@@ -533,6 +561,8 @@ CANCELED
 2026-08-09 展示与接口补充：运行视图和文件项视图增加源/目标运行集群名称及数据源名称字段；队列、运行列表和运行明细不再展示方向列，统一使用“从 / 到”端点表达。指标时间请求以 `yyyy-MM-dd HH:mm:ss` 为标准，同时兼容 ISO `T` 分隔符；指标 TopN 使用数据源名称。该调整不改变底层双向入队、运行归属、通道计算、表结构或安全边界。
 
 2026-08-09 目录零文件回归补充：目录选择递归展开为叶子文件项并保留相对路径，空目录本身不作为文件项传输。手工选择的路径未发现任何叶子文件时必须以 `FILE_TRANSFER_NO_FILES_DISCOVERED` 失败，禁止将零文件运行标记为成功；预设任务按筛选规则没有匹配文件时仍允许作为正常空运行结束。
+
+2026-08-12 高可用事件基线补充：文件传输状态变化改为使用 MySQL Outbox 原子追加，`file_transfer_event_outbox` 与 `file_transfer_event_consumer_cursor` 是文件传输域的既有表名例外。多 Server 独立扫描相同 Outbox，浏览器以 `Last-Event-ID` 补发；Outbox 是唯一可靠事件存储，不新增 Redis、Kafka、RabbitMQ 等中间件。默认 `OUTBOX` 模式不扫描运行/文件项状态表生成正常 SSE，`LEGACY_SCAN` 仅用于发布切换和回滚。该调整不改变单集群、单 Worker 的文件数据路径和 Worker-only 数据源访问边界。
 
 文件传输相关自动化测试、Web 构建、桌面与 `390x844` 响应式验收、单集群校验、ACL、非结构化管理，以及真实 OSS/FTP 双向传输和文件操作已经完成。当前真实验收覆盖 18,362,156 Byte 文件、SHA-256 一致性、源端保留、递归删除、队列清理、指标和 SSE 断连；至少 10 GiB 的资源压测及 SFTP/MinIO 真实兼容矩阵仍作为发布环境扩展验收，不改变本设计基线的功能完成状态。
 
