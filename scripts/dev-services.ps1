@@ -14,7 +14,7 @@ $script:StudioRoot = Split-Path -Parent $PSScriptRoot
 $script:RuntimeRoot = Join-Path $StudioRoot "runtime\dev-services"
 $script:ResolvedStudioJavaRuntime = $null
 $script:IdeaWorkspacePath = Join-Path `
-    (Split-Path -Parent (Split-Path -Parent $StudioRoot)) ".idea\workspace.xml"
+    (Split-Path -Parent $StudioRoot) ".idea\workspace.xml"
 
 function Ensure-Directory {
     param([string]$Path)
@@ -113,12 +113,26 @@ function Start-ProcessWithEnvironment {
 
     $savedEnvironment = @{}
     try {
+        # Codex/Windows shells can inherit both `Path` and `PATH` in the native
+        # environment block. Start-Process rejects that block as a duplicate-key
+        # dictionary, so canonicalize it before spawning a managed service.
+        $originalPath = [Environment]::GetEnvironmentVariable(
+            "PATH", [EnvironmentVariableTarget]::Process)
+        [Environment]::SetEnvironmentVariable(
+            "PATH", $null, [EnvironmentVariableTarget]::Process)
         foreach ($entry in $Environment.GetEnumerator()) {
             $name = [string]$entry.Key
             $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable(
                 $name, [EnvironmentVariableTarget]::Process)
             [Environment]::SetEnvironmentVariable(
                 $name, $entry.Value, [EnvironmentVariableTarget]::Process)
+        }
+        # Callers that did not supply an explicit path entry (e.g. the npm
+        # frontend) still need the original PATH restored so their executables
+        # resolve. Java services define their own Path below.
+        if (-not $Environment.ContainsKey("PATH") -and -not $Environment.ContainsKey("Path")) {
+            [Environment]::SetEnvironmentVariable(
+                "PATH", $originalPath, [EnvironmentVariableTarget]::Process)
         }
         $startedProcess = Start-Process `
             -FilePath "powershell.exe" `
@@ -361,7 +375,7 @@ $serviceDefinitions = @{
     backend = New-ServiceDefinition `
         -Name "backend" `
         -Workdir $backendWorkdir `
-        -Command "Set-Location -LiteralPath $backendWorkdirLiteral; powershell -ExecutionPolicy Bypass -File $backendUpgradeScriptPathLiteral; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-server -am -DskipTests install; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-server spring-boot:run" `
+        -Command "Set-Location -LiteralPath $backendWorkdirLiteral; powershell -ExecutionPolicy Bypass -File $backendUpgradeScriptPathLiteral; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-server -am '-Dmaven.test.skip=true' install; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-server spring-boot:run" `
         -Port 18080 `
         -PrimaryUrl "http://127.0.0.1:18080" `
         -AlternateUrls @("http://localhost:18080") `
@@ -371,7 +385,7 @@ $serviceDefinitions = @{
     worker = New-ServiceDefinition `
         -Name "worker" `
         -Workdir $backendWorkdir `
-        -Command "Set-Location -LiteralPath $backendWorkdirLiteral; mvn -o -pl studio-worker -am -DskipTests install; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-worker spring-boot:run" `
+        -Command "Set-Location -LiteralPath $backendWorkdirLiteral; mvn -o -pl studio-worker -am '-Dmaven.test.skip=true' install; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; mvn -o -pl studio-worker spring-boot:run" `
         -Port 18081 `
         -PrimaryUrl "http://127.0.0.1:18081" `
         -AlternateUrls @("http://localhost:18081") `
@@ -538,7 +552,10 @@ function Start-ManagedService {
             Resolve-StudioJavaRuntime
         }
         $processEnvironment["JAVA_HOME"] = $javaRuntime.Home
-        $processEnvironment["PATH"] = (Join-Path $javaRuntime.Home "bin") + ";" + $env:PATH
+        # Windows treats environment names case-insensitively, while Start-Process can see
+        # both inherited "Path" and an added "PATH" as duplicate dictionary keys.
+        $processEnvironment.Remove("PATH")
+        $processEnvironment["Path"] = (Join-Path $javaRuntime.Home "bin") + ";" + $env:PATH
         Write-Host "[$($Service.Name)] using Java $($javaRuntime.Version) from $($javaRuntime.Source): $($javaRuntime.Home)"
     }
 
