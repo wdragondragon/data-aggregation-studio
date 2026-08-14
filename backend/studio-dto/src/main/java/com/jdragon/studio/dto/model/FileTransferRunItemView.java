@@ -31,6 +31,9 @@ public class FileTransferRunItemView {
     private String resumePhase;
     private Long resumeCheckedBytes;
     private Long resumeTotalBytes;
+    private String verificationPhase;
+    private Long verificationBytes;
+    private Long verificationTotalBytes;
     private Long resumedBytes;
     private Long currentBytesPerSecond;
     private String sourceChecksum;

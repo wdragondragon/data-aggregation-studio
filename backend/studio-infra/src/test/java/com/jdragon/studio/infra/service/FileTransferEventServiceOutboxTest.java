@@ -293,6 +293,35 @@ class FileTransferEventServiceOutboxTest {
     }
 
     @Test
+    void targetChecksumPayloadOverlaysOnlyTheVerificationProgress() {
+        Fixture fixture = new Fixture();
+        fixture.runs.add(run(10L, 100L));
+        FileTransferRunItemEntity item = item(10L, 100L, 501L);
+        item.setStatus("VERIFYING");
+        item.setFileSize(8_192L);
+        item.setTransferredBytes(8_192L);
+        fixture.items.add(item);
+        FileTransferEventOutboxEntity event = event(100L, 10L, 100L, 501L,
+                FileTransferOutboxEventType.ITEM_CHANGED);
+        event.setPayloadJson(Map.of("live", true, "confirmedBytes", 8_192L,
+                "observedBytes", 8_192L, "activityBytes", 12_288L,
+                "liveBytesPerSecond", 512L, "verificationPhase", "TARGET_CHECKSUM",
+                "verificationBytes", 4_096L, "verificationTotalBytes", 8_192L));
+        fixture.events.add(event);
+        CapturingEmitter emitter = new CapturingEmitter();
+
+        fixture.service("server-a", emitter).connect("99");
+
+        FileTransferRunItemView view = emitter.businessEvents().get(0).view().getItems().get(0);
+        assertThat(view.getTransferredBytes()).isEqualTo(8_192L);
+        assertThat(view.getVerificationPhase()).isEqualTo("TARGET_CHECKSUM");
+        assertThat(view.getVerificationBytes()).isEqualTo(4_096L);
+        assertThat(view.getVerificationTotalBytes()).isEqualTo(8_192L);
+        assertThat(view.getCurrentBytesPerSecond()).isEqualTo(512L);
+        assertThat(view.getLive()).isTrue();
+    }
+
+    @Test
     void staleLivePayloadDoesNotOverlayATerminalItem() {
         Fixture fixture = new Fixture();
         fixture.runs.add(run(10L, 100L));

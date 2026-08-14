@@ -329,7 +329,7 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
 - 目录执行时展开为叶子文件项；当前文件传输不复制空目录本身。手工选择的路径没有发现任何可传输文件时，运行进入 `FAILED` 并返回 `FILE_TRANSFER_NO_FILES_DISCOVERED`，不得报告零文件成功。
 - 一个运行的 `runtimeClusterId` 固定，源和目标数据源必须适用于同一个集群。跨集群请求统一返回 `FILE_TRANSFER_CROSS_CLUSTER_DISABLED`，历史跨集群记录仅可查询。
 - 即时运行不绑定预设任务，因此返回的 `taskId` 可以为空；Worker 执行时以 `fileTransferRunId` 作为必需身份，预设任务和工作流运行仍会携带 `taskId`。
-- FTP/SFTP 数据源的登录目录在传输接口中映射为逻辑根 `/`，浏览返回和递归发现始终使用逻辑路径，不能把物理登录目录再次拼接到自身。目标路径冲突按目标文件系统能力判断大小写：Local 跟随 Worker 操作系统，SFTP/MinIO/OSS 默认大小写敏感；FTP 默认大小写不敏感，可在数据源连接配置中使用 `pathCaseSensitive=true` 覆盖。
+- FTP/SFTP 数据源的登录目录在传输接口中映射为逻辑根 `/`，浏览返回和递归发现始终使用逻辑路径，不能把物理登录目录再次拼接到自身。根目录下的文件统一表示为 `/file.txt`，路径拼接必须消除重复分隔符，不能生成 `//file.txt`。目标路径冲突按目标文件系统能力判断大小写：Local 跟随 Worker 操作系统，SFTP/MinIO/OSS 默认大小写敏感；FTP 默认大小写不敏感，可在数据源连接配置中使用 `pathCaseSensitive=true` 覆盖。
 
 ### 3.2 运行接口
 
@@ -502,7 +502,10 @@ SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_
   "transferredBytes": 8388608,
   "observedBytes": 8650752,
   "live": true,
-  "currentBytesPerSecond": 131072
+  "currentBytesPerSecond": 131072,
+  "verificationPhase": "TARGET_CHECKSUM",
+  "verificationBytes": 4194304,
+  "verificationTotalBytes": 8388608
 }
 ```
 
@@ -511,6 +514,8 @@ SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_
 - `currentBytesPerSecond`：文件项按相邻实时样本计算；运行级当前速度和峰值也可使用实时观测增量。首个样本可能为 `0 B/s`，后续样本形成有效速度。
 - `activityBytes`：后端事件中的可选活动累计值，用于计算当前/峰值速度。严格模式兼容旧 checkpoint 时，它可以包含重新读取源端断点前缀的校验活动；它不推进确认进度、不写入 checkpoint。
 - `resumePhase/resumeCheckedBytes/resumeTotalBytes`：严格恢复校验时分别表示阶段、已校验字节和待校验前缀总量；页面把速度标为“校验速度”，确认传输进度保持不变。新版 FAST checkpoint 正常恢复时使用 `RESUMING_TRANSFER`，无需展示长时间校验。
+- `verificationPhase/verificationBytes/verificationTotalBytes`：文件写入完成后，Worker 在 `VERIFYING` 阶段从目标临时文件回读并计算 SHA-256；`TARGET_CHECKSUM` 表示目标校验阶段，页面应显示独立的“目标校验”进度和校验速度。该回读活动不增加 `transferredBytes`，也不推进 checkpoint。
+- FTP 等不能直接返回远程 SHA-256 的数据源需要完整回读目标文件，因此大文件的 `VERIFYING` 会持续一段时间；进度默认约每秒经 Outbox/SSE 更新。校验完成后才进入 `COMMITTING`，摘要不一致则终止提交并按既有重试策略处理。
 - 前端应优先显示 `live=true` 时的 `observedBytes`，否则显示 `transferredBytes`。终态和迟到事件不得继续显示实时字节。
 - SSE 默认约每秒产生一次非终态进度事件，Server 约每 250 ms 检查 Outbox；页面不应增加轮询。实际显示延迟还包括数据库提交、SSE 推送和浏览器渲染时间。
 

@@ -2200,6 +2200,9 @@ export interface FileTransferRunItemView {
   resumePhase?: "REBUILDING_CHECKSUM" | "RESUMING_TRANSFER" | "RESTARTED_FROM_ZERO" | string;
   resumeCheckedBytes?: number | string | null;
   resumeTotalBytes?: number | string | null;
+  verificationPhase?: "TARGET_CHECKSUM" | string;
+  verificationBytes?: number | string | null;
+  verificationTotalBytes?: number | string | null;
   resumedBytes?: number | string | null;
   currentBytesPerSecond?: number | string | null;
   sourceChecksum?: string;

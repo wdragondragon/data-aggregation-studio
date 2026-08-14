@@ -158,11 +158,14 @@
             <template #default="{ row }">
               <div class="queue-progress-cell">
                 <el-progress
-                  :percentage="transferProgress(displayTransferredBytes(row), row.fileSize)"
+                  :percentage="transferProgress(displayProgressBytes(row), displayProgressTotalBytes(row))"
                   :status="row.status === 'FAILED' || row.status === 'CONFLICT' ? 'exception' : row.status === 'SUCCESS' || row.status === 'SKIPPED' ? 'success' : undefined"
                   :stroke-width="8"
                 />
-                <span>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
+                <span v-if="isTargetChecksumVerifying(row)">
+                  目标校验 {{ formatBytes(row.verificationBytes) }} / {{ formatBytes(row.verificationTotalBytes ?? row.fileSize) }}
+                </span>
+                <span v-else>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
                 <span v-if="isChecksumRebuilding(row)">
                   恢复校验 {{ formatBytes(row.resumeCheckedBytes) }} / {{ formatBytes(row.resumeTotalBytes) }}
                 </span>
@@ -173,7 +176,7 @@
             <template #default="{ row }">
               <div class="queue-speed-cell">
                 <span>{{ formatTransferSpeed(row.currentBytesPerSecond) }}</span>
-                <small v-if="isChecksumRebuilding(row)">校验速度</small>
+                <small v-if="isValidationProgress(row)">校验速度</small>
               </div>
             </template>
           </el-table-column>
@@ -672,8 +675,24 @@ function displayTransferredBytes(item: FileTransferRunItemView) {
   return item.live ? item.observedBytes ?? item.transferredBytes : item.transferredBytes;
 }
 
+function displayProgressBytes(item: FileTransferRunItemView) {
+  return isTargetChecksumVerifying(item) ? item.verificationBytes ?? 0 : displayTransferredBytes(item);
+}
+
+function displayProgressTotalBytes(item: FileTransferRunItemView) {
+  return isTargetChecksumVerifying(item) ? item.verificationTotalBytes ?? item.fileSize : item.fileSize;
+}
+
 function isChecksumRebuilding(item: FileTransferRunItemView) {
   return String(item.resumePhase ?? "").toUpperCase() === "REBUILDING_CHECKSUM";
+}
+
+function isTargetChecksumVerifying(item: FileTransferRunItemView) {
+  return String(item.status ?? "").toUpperCase() === "VERIFYING";
+}
+
+function isValidationProgress(item: FileTransferRunItemView) {
+  return isChecksumRebuilding(item) || isTargetChecksumVerifying(item);
 }
 
 function manualSnapshotRows(run: FileTransferRunView): QueueRow[] {

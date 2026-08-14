@@ -104,7 +104,8 @@ final class StudioTransferEventListener implements TransferEventListener {
         if (event.type() == TransferEventType.ITEM_STATUS_CHANGED) {
             persistStatus(event, now);
         } else if (event.type() == TransferEventType.ITEM_PROGRESS
-                && due(lastItemUpdateAt.get(event.itemId()), now, ITEM_UPDATE_INTERVAL_MILLIS)) {
+                && (due(lastItemUpdateAt.get(event.itemId()), now, ITEM_UPDATE_INTERVAL_MILLIS)
+                || Boolean.TRUE.equals(event.details().get("verificationComplete")))) {
             if (live(event)) {
                 persistLiveProgress(event, now);
             } else {
@@ -208,7 +209,18 @@ final class StudioTransferEventListener implements TransferEventListener {
         if (resumePhase != null) {
             payload.put("resumePhase", resumePhase);
         }
+        copyDetail(event, payload, "verificationPhase");
+        copyDetail(event, payload, "verificationBytes");
+        copyDetail(event, payload, "verificationTotalBytes");
+        copyDetail(event, payload, "verificationComplete");
         mutationService().updateItemAndEvent(run.getId(), event.itemId(), update, payload, true, false);
+    }
+
+    private void copyDetail(TransferEvent event, Map<String, Object> payload, String key) {
+        Object value = event.details().get(key);
+        if (value != null) {
+            payload.put(key, value);
+        }
     }
 
     private boolean restartedFromZero(TransferEvent event) {

@@ -291,6 +291,57 @@ class StudioTransferEventListenerTest {
     }
 
     @Test
+    void targetVerificationProgressUpdatesSpeedWithoutAdvancingConfirmedBytes() throws Exception {
+        FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
+        FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
+        FileTransferMetricSampleMapper metricMapper = mock(FileTransferMetricSampleMapper.class);
+        FileTransferOutboxWriter outboxWriter = mock(FileTransferOutboxWriter.class);
+        FileTransferRunEntity run = run(910L, 8_192L);
+        FileTransferRunItemEntity item = item("item-1", 8_192L);
+        item.setId(1_003L);
+        item.setRunId(910L);
+        when(runMapper.selectById(910L)).thenReturn(run);
+        when(itemMapper.selectList(any())).thenReturn(List.of(item));
+        when(itemMapper.selectOne(any())).thenReturn(item);
+        when(itemMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        StudioTransferEventListener listener = new StudioTransferEventListener(
+                run, runMapper, itemMapper, metricMapper,
+                new FileTransferStateMutationService(runMapper, itemMapper, metricMapper, outboxWriter));
+
+        listener.onEvent(new TransferEvent(TransferEventType.ITEM_STATUS_CHANGED, Instant.now(),
+                "run-1", "item-1", TransferItemStatus.VERIFYING, 8_192L, 8_192L, 1,
+                "verifying source snapshot and target checksum", null,
+                Map.of("activityBytes", 8_192L, "verificationBytes", 0L,
+                        "verificationTotalBytes", 8_192L, "verificationPhase", "TARGET_CHECKSUM")));
+        Thread.sleep(5L);
+        listener.onEvent(new TransferEvent(TransferEventType.ITEM_PROGRESS, Instant.now(),
+                "run-1", "item-1", TransferItemStatus.VERIFYING, 8_192L, 8_192L, 1,
+                "target checksum verification in progress", null,
+                Map.of("live", true, "confirmedBytes", 8_192L, "observedBytes", 8_192L,
+                        "activityBytes", 12_288L, "verificationBytes", 4_096L,
+                        "verificationTotalBytes", 8_192L, "verificationPhase", "TARGET_CHECKSUM")));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunItemEntity>> updates =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(itemMapper, times(3)).update(isNull(), updates.capture());
+        LambdaUpdateWrapper<FileTransferRunItemEntity> verificationUpdate =
+                updates.getAllValues().get(updates.getAllValues().size() - 1);
+        assertThat(updateValue(verificationUpdate, "transferred_bytes")).isNull();
+        assertThat((Long) updateValue(verificationUpdate, "current_bytes_per_second")).isPositive();
+
+        ArgumentCaptor<com.jdragon.studio.infra.model.FileTransferEventIntent> intents =
+                ArgumentCaptor.forClass(com.jdragon.studio.infra.model.FileTransferEventIntent.class);
+        verify(outboxWriter, atLeastOnce()).appendProgress(intents.capture(), any(), anyBoolean());
+        assertThat(intents.getAllValues()).anySatisfy(intent -> {
+            assertThat(intent.getPayload()).containsEntry("verificationPhase", "TARGET_CHECKSUM");
+            assertThat(intent.getPayload()).containsEntry("verificationBytes", 4_096L);
+            assertThat(intent.getPayload()).containsEntry("verificationTotalBytes", 8_192L);
+            assertThat((Long) intent.getPayload().get("liveBytesPerSecond")).isPositive();
+        });
+    }
+
+    @Test
     void staleTransferringEventCannotResumeAnAlreadyPausedRun() {
         FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
         FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);

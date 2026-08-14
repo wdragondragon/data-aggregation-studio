@@ -385,7 +385,10 @@ public class FileTransferEventService {
         }
         long confirmedBytes = number(payload.get("confirmedBytes"), value(item.getTransferredBytes()));
         long observedBytes = number(payload.get("observedBytes"), confirmedBytes);
-        if (!"TRANSFERRING".equalsIgnoreCase(item.getStatus())
+        boolean transferring = "TRANSFERRING".equalsIgnoreCase(item.getStatus());
+        boolean verifying = "VERIFYING".equalsIgnoreCase(item.getStatus())
+                && "TARGET_CHECKSUM".equalsIgnoreCase(String.valueOf(payload.get("verificationPhase")));
+        if ((!transferring && !verifying)
                 || value(item.getTransferredBytes()) > confirmedBytes
                 || observedBytes < value(item.getTransferredBytes())) {
             return;
@@ -402,6 +405,13 @@ public class FileTransferEventService {
             long activityBytes = number(payload.get("activityBytes"), confirmedBytes);
             item.setResumeCheckedBytes(Math.max(0L, activityBytes - confirmedBytes));
             item.setResumeTotalBytes(confirmedBytes);
+        }
+        if (verifying) {
+            long totalBytes = number(payload.get("verificationTotalBytes"), value(item.getFileSize()));
+            long verifiedBytes = number(payload.get("verificationBytes"), 0L);
+            item.setVerificationPhase("TARGET_CHECKSUM");
+            item.setVerificationBytes(Math.min(verifiedBytes, totalBytes));
+            item.setVerificationTotalBytes(totalBytes);
         }
     }
 

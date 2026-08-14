@@ -161,8 +161,11 @@
             <el-table-column label="进度" width="180">
               <template #default="{ row }">
                 <div class="stack-cell run-progress-cell">
-                  <el-progress :percentage="transferProgress(displayTransferredBytes(row), row.fileSize)" :stroke-width="8" />
-                  <span>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
+                  <el-progress :percentage="transferProgress(displayProgressBytes(row), displayProgressTotalBytes(row))" :stroke-width="8" />
+                  <span v-if="isTargetChecksumVerifying(row)">
+                    目标校验 {{ formatBytes(row.verificationBytes) }} / {{ formatBytes(row.verificationTotalBytes ?? row.fileSize) }}
+                  </span>
+                  <span v-else>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
                   <span v-if="isChecksumRebuilding(row)">
                     恢复校验 {{ formatBytes(row.resumeCheckedBytes) }} / {{ formatBytes(row.resumeTotalBytes) }}
                   </span>
@@ -176,7 +179,7 @@
               <template #default="{ row }">
                 <div class="stack-cell">
                   <span>{{ formatTransferSpeed(row.currentBytesPerSecond) }}</span>
-                  <span v-if="isChecksumRebuilding(row)">校验速度</span>
+                  <span v-if="isValidationProgress(row)">校验速度</span>
                   <span v-else>续传 {{ formatBytes(row.resumedBytes) }}</span>
                 </div>
               </template>
@@ -340,8 +343,24 @@ function displayTransferredBytes(item: FileTransferRunItemView) {
   return item.live ? item.observedBytes ?? item.transferredBytes : item.transferredBytes;
 }
 
+function displayProgressBytes(item: FileTransferRunItemView) {
+  return isTargetChecksumVerifying(item) ? item.verificationBytes ?? 0 : displayTransferredBytes(item);
+}
+
+function displayProgressTotalBytes(item: FileTransferRunItemView) {
+  return isTargetChecksumVerifying(item) ? item.verificationTotalBytes ?? item.fileSize : item.fileSize;
+}
+
 function isChecksumRebuilding(item: FileTransferRunItemView) {
   return String(item.resumePhase ?? "").toUpperCase() === "REBUILDING_CHECKSUM";
+}
+
+function isTargetChecksumVerifying(item: FileTransferRunItemView) {
+  return String(item.status ?? "").toUpperCase() === "VERIFYING";
+}
+
+function isValidationProgress(item: FileTransferRunItemView) {
+  return isChecksumRebuilding(item) || isTargetChecksumVerifying(item);
 }
 
 function canResume(status?: string) {

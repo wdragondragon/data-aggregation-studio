@@ -66,6 +66,12 @@ assert.match(center + runs, /REBUILDING_CHECKSUM/,
   "queue and run detail views must distinguish checksum reconstruction from target transfer");
 assert.match(center + runs, /resumeCheckedBytes/,
   "checksum reconstruction must expose its own validation progress");
+assert.match(center + runs, /verificationBytes/,
+  "target checksum verification must expose its own validation progress");
+assert.match(center + runs, /isTargetChecksumVerifying/,
+  "queue and run detail progress bars must switch to target verification progress");
+assert.match(center + runs, /目标校验/,
+  "target checksum progress must be labeled independently from transferred bytes");
 assert.match(center + runs, /校验速度/,
   "checksum reconstruction speed must not be labeled as transfer speed");
 assert.match(center + runs, /if \(isChecksumRebuilding\(item\)\) return item\.transferredBytes/,
